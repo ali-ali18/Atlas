@@ -2,6 +2,7 @@
 // cartões do run. Porta enxuta de `applyLiveEvent` e dos handlers de `use-atlas-chat.ts` (web). Pura: sem React.
 import type { ComputerUseEvent } from "@workspace/shared";
 import type { ChatItem, ChatPhase } from "./chat-types";
+import { pageRef } from "./chat-thread";
 
 export type LiveState = {
 	items: ChatItem[];
@@ -120,7 +121,7 @@ export function applyRunEvent(state: LiveState, event: ComputerUseEvent): LiveSt
 		case "chart":
 			return withWebCard(state, `chart-${event.chartId}`, "chart", "Gráfico", `chart:${event.chartId}`);
 		case "page":
-			return withWebCard(state, `page-live-${event.pageId}`, "page", event.title, `page:${event.pageId}`);
+			return withWebCard(state, `page-live-${event.pageId}`, "page", event.title, `page:${event.pageId}`, pageRef(event.pageId, event.revision, event.sourceCount));
 		case "file":
 			return withWebCard(state, `file-${event.artifactId}`, "file", event.filename, `file:${event.artifactId}`);
 		case "routine":
@@ -147,9 +148,14 @@ export function applyRunEvent(state: LiveState, event: ComputerUseEvent): LiveSt
 	}
 }
 
-function withWebCard(state: LiveState, id: string, card: Extract<ChatItem, { kind: "web-card" }>["card"], title: string, key: string): LiveState {
-	if (state.items.some((item) => item.kind === "web-card" && item.key === key)) return state;
-	return { ...state, items: upsert(state.items, { id, kind: "web-card", card, title, key }) };
+function withWebCard(state: LiveState, id: string, card: Extract<ChatItem, { kind: "web-card" }>["card"], title: string, key: string, extra: { pageId?: string; revision?: number; sourceCount?: number } = {}): LiveState {
+	const existing = state.items.find((item): item is Extract<ChatItem, { kind: "web-card" }> => item.kind === "web-card" && item.key === key);
+	if (existing) {
+		// Painel atualizado (mesmo pageId, revisão maior): troca título, revisão e fontes no lugar, sem cartão novo.
+		if (card === "page" && (extra.revision ?? 0) > (existing.revision ?? 0)) return { ...state, items: state.items.map((item) => (item === existing ? { id: existing.id, kind: "web-card", card, title, key, ...extra } : item)) };
+		return state;
+	}
+	return { ...state, items: upsert(state.items, { id, kind: "web-card", card, title, key, ...extra }) };
 }
 
 /** Eventos que encerram a conexão (o run acabou ou parou esperando a pessoa). */

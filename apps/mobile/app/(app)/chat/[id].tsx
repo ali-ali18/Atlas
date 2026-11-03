@@ -23,6 +23,7 @@ import { useAtlasSession } from "@/lib/atlas-session";
 import { botColors } from "@/lib/bot-color";
 import { themeColor } from "@/lib/theme";
 import { useAppColorScheme } from "@/lib/use-theme";
+import { pageRouteFor } from "@/lib/web-card";
 import { webChatUrl } from "@/lib/chat-links";
 import type { ChatItem, ReplyQuote } from "@/lib/chat-types";
 import { containsTable } from "@/lib/markdown";
@@ -80,6 +81,14 @@ export default function ChatScreen() {
 		},
 		[serverUrl, id],
 	);
+	const openPage = React.useCallback(
+		(item: Extract<ChatItem, { kind: "web-card" }>) => {
+			const route = pageRouteFor(item);
+			if (route) router.push(route as never);
+			else openWeb(item);
+		},
+		[router, openWeb],
+	);
 	// "Responder": a mensagem citada fica no chip do composer até enviar ou cancelar.
 	const [replyTo, setReplyTo] = React.useState<ReplyQuote | null>(null);
 	const startReply = React.useCallback((item: ChatItem) => setReplyTo(replyQuoteFor(item)), []);
@@ -96,6 +105,7 @@ export default function ChatScreen() {
 			onDecide: chat.decide,
 			onAnswer: chat.answer,
 			onOpenWeb: openWeb,
+			onOpenPage: openPage,
 			onOpenMenu: messageMenu.open,
 			activeRunId: chat.runTasks?.runId ?? null,
 			running: chat.running,

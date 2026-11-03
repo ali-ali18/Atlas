@@ -145,6 +145,36 @@ describe("reconcile (gravado × ao vivo)", () => {
 	});
 });
 
+describe("painel com revisões no fio", () => {
+	const page = (id: string, revision: number, title = `Painel r${revision}`): ChatItem => ({ id, kind: "web-card", card: "page", title, key: "page:p1", pageId: "p1", revision, sourceCount: revision });
+	it("gravado antigo + ao vivo mais novo: fica o novo, na posição do gravado", () => {
+		const out = reconcile([user("u", "oi"), page("db-1", 1), bot("b", "pronto")], [page("page-live-p1", 2)]);
+		expect(out.map((item) => item.id)).toEqual(["u", "db-1", "b"]);
+		expect(out[1]).toMatchObject({ title: "Painel r2", revision: 2, sourceCount: 2 });
+	});
+	it("gravado mais novo que o ao vivo: vale o gravado", () => {
+		const out = reconcile([page("db-1", 3)], [page("page-live-p1", 2)]);
+		expect(out).toHaveLength(1);
+		expect(out[0]).toMatchObject({ revision: 3 });
+	});
+	it("dois gravados do mesmo painel: fica a maior revisão, na posição do primeiro", () => {
+		const out = dedupeKeys([page("db-1", 1), user("u", "x"), page("db-2", 4), page("db-3", 2)]);
+		expect(out.map((item) => item.id)).toEqual(["db-1", "u"]);
+		expect(out[0]).toMatchObject({ revision: 4, title: "Painel r4" });
+	});
+});
+
+describe("cartão de painel gravado", () => {
+	const pageRow = (extra: Record<string, unknown> = {}) => row("m1", "page", JSON.stringify({ v: 1, kind: "page", pageId: "p1", revision: 3, title: "Vendas", action: "created", sourceCount: 2, ...extra }));
+	it("guarda pageId, revisão e fontes (sem o spec) para abrir a tela nativa", () => {
+		expect(sessionMessageToItem(pageRow())).toEqual({ id: "m1", kind: "web-card", card: "page", title: "Vendas", key: "page:p1", pageId: "p1", revision: 3, sourceCount: 2, createdAt: "2026-11-01T10:00:00.000Z" });
+	});
+	it("mensagem de painel sem identidade válida é descartada, não vira cartão quebrado", () => {
+		expect(sessionMessageToItem(pageRow({ pageId: "" }))).toBeNull();
+		expect(sessionMessageToItem(pageRow({ revision: 0 }))).toBeNull();
+	});
+});
+
 describe("lista de tarefas", () => {
 	it("progresso, linha da doca e rótulo do fio", () => {
 		const items = tasks("r", "completed", "in_progress", "pending", "pending", "pending");

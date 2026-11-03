@@ -15,6 +15,11 @@ export function isCardProtocolText(text: string): boolean {
 	return isCardConfirmToken(text) || /^cancela isso$/i.test(text.trim());
 }
 
+/** Identidade do painel no cartão (abre a tela nativa): só o que cabe no fio, sem o spec (a tela busca no servidor). */
+export function pageRef(pageId: string, revision: number, sourceCount: number): { pageId: string; revision: number; sourceCount: number } {
+	return { pageId, revision, sourceCount };
+}
+
 export function cardToItem(id: string, card: PersistedConversationCard, createdAt?: string): ChatItem | null {
 	const base = { id, ...(createdAt ? { createdAt } : {}) };
 	switch (card.kind) {
@@ -51,7 +56,7 @@ export function cardToItem(id: string, card: PersistedConversationCard, createdA
 		case "chart":
 			return { ...base, kind: "web-card", card: "chart", title: "Gráfico", key: `chart:${card.chartId}` };
 		case "page":
-			return { ...base, kind: "web-card", card: "page", title: card.title, key: `page:${card.pageId}` };
+			return { ...base, kind: "web-card", card: "page", title: card.title, key: `page:${card.pageId}`, ...pageRef(card.pageId, card.revision, card.sourceCount) };
 		case "file":
 			return { ...base, kind: "web-card", card: "file", title: card.filename, key: `file:${card.artifactId}` };
 		case "routine":
@@ -275,7 +280,12 @@ export function reconcile(persisted: readonly ChatItem[], live: readonly ChatIte
 			if (normalize(item.text).length >= MIN_COVERED_LENGTH && persistedAssistantCovers(persisted, item.text)) continue;
 		} else {
 			const key = cardKey(item);
-			if (key && persistedKeys.has(key)) continue;
+			const at = key ? persistedKeys.get(key) : undefined;
+			if (at !== undefined) {
+				// Painel atualizado ao vivo (revisão maior) antes de o servidor gravar a nova: vale a revisão mais nova, na posição do gravado.
+				result[at] = mergePageCard(result[at]!, item);
+				continue;
+			}
 		}
 		result.push(item);
 	}
@@ -289,18 +299,32 @@ function isOlderThan(row: ChatItem, optimistic: ChatItem): boolean {
 	return Number.isFinite(sent) && Number.isFinite(at) && at < sent - 60_000;
 }
 
-/** Cartões iguais (mesma identidade) aparecem uma vez, o primeiro; ids repetidos também. */
+type WebCardItem = Extract<ChatItem, { kind: "web-card" }>;
+
+/** Painel com revisão: o cartão de revisão mais nova segura o conteúdo (título, revisão, fontes), na posição e com o id do outro. */
+export function mergePageCard(keeper: ChatItem, other: ChatItem): ChatItem {
+	if (keeper.kind !== "web-card" || other.kind !== "web-card" || keeper.card !== "page" || other.card !== "page") return keeper;
+	if ((other.revision ?? 0) <= (keeper.revision ?? 0)) return keeper;
+	const merged: WebCardItem = { ...other, id: keeper.id, ...(keeper.createdAt ? { createdAt: keeper.createdAt } : {}) };
+	return merged;
+}
+
+/** Cartões iguais (mesma identidade) aparecem uma vez, o primeiro (painel: na posição do primeiro, com a revisão mais nova); ids repetidos também. */
 export function dedupeKeys(items: readonly ChatItem[]): ChatItem[] {
 	const ids = new Set<string>();
-	const keys = new Set<string>();
+	const keys = new Map<string, number>();
 	const out: ChatItem[] = [];
 	for (const item of items) {
 		if (ids.has(item.id)) continue;
 		ids.add(item.id);
 		const key = cardKey(item);
 		if (key) {
-			if (keys.has(key)) continue;
-			keys.add(key);
+			const at = keys.get(key);
+			if (at !== undefined) {
+				out[at] = mergePageCard(out[at]!, item);
+				continue;
+			}
+			keys.set(key, out.length);
 		}
 		out.push(item);
 	}

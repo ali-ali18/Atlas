@@ -71,7 +71,17 @@ export function pickItem(value: unknown): ChatItem | null {
 			return { ...base, kind: "questionnaire", questionnaireId: value.questionnaireId, title: value.title.slice(0, 300), items: [], status: value.status as QuestionnaireStatus };
 		case "web-card":
 			if (!isString(value.title) || !isString(value.key) || !WEB_CARDS.includes(value.card as (typeof WEB_CARDS)[number])) return null;
-			return { ...base, kind: "web-card", card: value.card as (typeof WEB_CARDS)[number], title: value.title.slice(0, 200), key: value.key };
+			// `pageId` só vale em painel e só se for texto curto: cache antigo (sem ele) cai no "Abrir no navegador".
+			return {
+				...base,
+				kind: "web-card",
+				card: value.card as (typeof WEB_CARDS)[number],
+				title: value.title.slice(0, 200),
+				key: value.key,
+				...(value.card === "page" && isString(value.pageId) && value.pageId.length > 0 && value.pageId.length <= 160 ? { pageId: value.pageId } : {}),
+				...(value.card === "page" && typeof value.revision === "number" && Number.isFinite(value.revision) ? { revision: value.revision } : {}),
+				...(value.card === "page" && typeof value.sourceCount === "number" && Number.isFinite(value.sourceCount) ? { sourceCount: value.sourceCount } : {}),
+			};
 		default:
 			return null;
 	}

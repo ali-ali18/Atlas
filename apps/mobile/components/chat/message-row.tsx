@@ -23,6 +23,8 @@ export type RowActions = {
 	/** Há um run em andamento (o cartão só é "ativo" durante um run). */
 	running: boolean;
 	onOpenWeb: (item: Extract<ChatItem, { kind: "web-card" }>) => void;
+	/** Painel com id: abre a tela nativa do painel. */
+	onOpenPage: (item: Extract<ChatItem, { kind: "web-card" }>) => void;
 	/** Toque longo no balão: abre o menu da mensagem (só abre para fala já gravada; ver `messageMenuFor`). */
 	onOpenMenu: (item: ChatItem) => void;
 	/** Cor do bot para o balão do usuário (fundo e texto por cima dele). Sem ela, o balão usa o cinza neutro. */
@@ -143,7 +145,7 @@ function RowContent({ item, actions, position }: { item: ChatItem; actions: RowA
 		case "questionnaire":
 			return <QuestionnaireCard item={item} onAnswer={actions.onAnswer} />;
 		case "web-card":
-			return <WebCardRow item={item} onOpen={actions.onOpenWeb} />;
+			return <WebCardRow item={item} onOpen={actions.onOpenWeb} onOpenPage={actions.onOpenPage} />;
 		case "marker":
 			return <MarkerRow text={item.text} />;
 	}
