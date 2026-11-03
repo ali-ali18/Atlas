@@ -42,6 +42,7 @@ import {
 	SUBAGENT_ORIGIN,
 	TRANSCRIPT_SLOT,
 	createNotebook,
+	isShortContinuation,
 	type NotebookWriter,
 	type RunUsage,
 } from "@workspace/shared";
@@ -357,7 +358,11 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 	/** Última lista que o modelo enviou (a do tracker some quando tudo conclui; o portão e os descartados precisam dela). */
 	let lastTaskItems: TaskListItem[] | undefined = taskTracker.taskList();
 	/** Maior lista que o MODELO montou neste run (só `update_task_list` chega aqui; lista herdada não conta): 3+ promove o chat. */
-	let modelPlannedSteps = 0;
+	// "continua" digitado depois de um trabalho com itens abertos: a lista herdada vale como plano para promover o chat
+	// (sem isso "continua" cairia no chat curto e recomeçaria do zero). Outra mensagem com lista herdada nunca promove.
+	const continuation = !helperRole && origin === "chat" && humanTurn && isShortContinuation(lastUserMessage);
+	const inheritedOpenPlan = continuation ? (taskTracker.taskList() ?? []) : [];
+	let modelPlannedSteps = inheritedOpenPlan.some((item) => item.status !== "completed") ? inheritedOpenPlan.length : 0;
 	const emitTaskListEvent = async (items: Array<{ content: string; status: "pending" | "in_progress" | "completed" }>) => {
 		// Lista que o modelo já manda toda concluída (fechando o trabalho, logo antes de responder) não é plano: não promove.
 		if (items.some((item) => item.status !== "completed")) modelPlannedSteps = Math.max(modelPlannedSteps, items.length);
@@ -375,7 +380,7 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 	// --- caderno da tarefa (trabalho longo): só o coordenador o tem; o ajudante escreve no do pai ---
 	let longWorkCoordinator = options.profile === "long_work" && !helperRole;
 	// Chat promovível já tem o caderno (vazio, sem custo de contexto); as tools dele só entram com a promoção.
-	const notebook = (longWorkCoordinator && hasToolInRun("notebook_write")) || catalog.promotionTools.includes("notebook_write") ? createNotebook(parsed?.notebook) : null;
+	const notebook = (longWorkCoordinator && hasToolInRun("notebook_write")) || catalog.promotionTools.includes("notebook_write") ? createNotebook(parsed?.notebook ?? (continuation ? params.priorNotebook : undefined)) : null;
 	const notebookTools: NotebookToolContext | undefined = notebook
 		? { writer: notebook.writer("coordinator"), reader: notebook }
 		: helperRole
@@ -1289,7 +1294,8 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 		for (;;) {
 			await ensureContinue();
 			await ensureNotPaused();
-			if (abortStop) return await deliver(abortStop, helperRole ? HELPER_DELIVERY_INSTRUCTION : deliveryInstruction("loop_repeat"));
+			// Laço encerrado com itens abertos: o detalhe diz isso, e o worker agenda a continuação automática (sem pedir "continua").
+			if (abortStop) return await deliver(helperRole || openItems(currentTaskItems()).length === 0 ? abortStop : { ...abortStop, detail: `${abortStop.detail ?? "after_note"}:items_open` }, helperRole ? HELPER_DELIVERY_INSTRUCTION : deliveryInstruction("loop_repeat"));
 			// Mensagens do usuário durante o run: viram nota; "cancelar" para o run.
 			if (params.consumeSteerInputs) {
 				for (const input of await params.consumeSteerInputs()) {

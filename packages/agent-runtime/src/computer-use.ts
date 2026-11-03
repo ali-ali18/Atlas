@@ -1889,6 +1889,8 @@ async function runComputerUseCore(params: {
 	priorTaskLedger?: unknown;
 	/** Lista de passos (`update_task_list`) de um run anterior da conversa. */
 	priorTaskList?: unknown;
+	/** Caderno do trabalho longo anterior da conversa (já escopado por dono): semeia uma continuação curta ("continua"). */
+	priorNotebook?: unknown;
 	/** Pedidos deste bot a outros bots ainda sem resposta (`send_to_bot`), já escopados por dono. */
 	openBotRequests?: OpenBotRequest[];
 	/** Subagente: notas do filho ficam num armazém do delegate_task, que as anexa ao relatório. */

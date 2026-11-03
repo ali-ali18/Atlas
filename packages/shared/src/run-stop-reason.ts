@@ -74,6 +74,15 @@ export function stopReasonOfBudget(kind: BudgetKindLike | undefined): RunStopRea
 	}
 }
 
+/**
+ * O run terminou com trabalho por fazer (laço, teto de passos, falhas seguidas, lista de tarefas aberta) e não com a resposta
+ * completa? Uma mensagem curta de continuação do usuário herda o perfil e o caderno só depois disso.
+ */
+export function stoppedWithOpenWork(stop: { reason?: string | null; detail?: string | null }): boolean {
+	if (stop.detail === "tasklist_open" || stop.detail?.includes("items_open")) return true;
+	return ["loop_repeat", "budget_steps", "budget_stalled", "budget_wall", "budget_cost", "tool_failures", "no_progress", "truncated"].includes(stop.reason ?? "");
+}
+
 /** Qual trava de loop do runtime abortou o run (`AgentRunLoopDetectedError.kind`). */
 export type LoopStopKind = "repeat" | "stall_guard" | "tool_failures" | "truncated" | "no_progress";
 

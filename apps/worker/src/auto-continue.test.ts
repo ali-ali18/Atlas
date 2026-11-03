@@ -183,3 +183,22 @@ test("a retomada não saiu do papel: o fechamento de falha de sempre ainda é li
 	assert.equal(calls.appended.length, 1);
 	assert.notEqual(calls.appended[0], AUTO_CONTINUE_STATUS_TEXT);
 });
+
+test("laço do motor novo com itens abertos num chat digitado agenda a continuação; fora disso não", async () => {
+	const { autoContinueCauseOfLoopStop } = await import("./auto-continue.js");
+	const typed = { engine: "v2", origin: "chat", humanTurn: true };
+	const stop = { reason: "loop_repeat", detail: "after_note:items_open" };
+	assert.equal(autoContinueCauseOfLoopStop(stop, typed), "loop");
+	// Sem itens abertos, motor anterior, rotina ou turno sem humano: nada de continuação automática.
+	assert.equal(autoContinueCauseOfLoopStop({ reason: "loop_repeat", detail: "after_note" }, typed), null);
+	assert.equal(autoContinueCauseOfLoopStop(stop, { ...typed, engine: "v1" }), null);
+	assert.equal(autoContinueCauseOfLoopStop(stop, { ...typed, origin: "routine" }), null);
+	assert.equal(autoContinueCauseOfLoopStop(stop, { ...typed, humanTurn: false }), null);
+	assert.equal(autoContinueCauseOfLoopStop({ reason: "answered" }, typed), null);
+	assert.equal(autoContinueCauseOfLoopStop(undefined, typed), null);
+	// Mesmo limite e espera dos demais motivos recuperáveis.
+	const io = { hasPendingInput: async () => false, countProgress: async () => 3 };
+	const run = (attempt: number) => ({ id: "r1", origin: "chat", cancelRequested: false, budgetJson: attempt ? { autoContinue: { attempt } } : {} }) as never;
+	assert.deepEqual(await planAutoContinue(run(0), { cause: "loop", progress: 1 }, io), { schedule: true, cause: "loop", attempt: 1, delayMs: 2_000 });
+	assert.deepEqual(await planAutoContinue(run(AUTO_CONTINUE_MAX), { cause: "loop", progress: 1 }, io), { schedule: false, reason: "exhausted" });
+});

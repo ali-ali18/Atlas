@@ -676,3 +676,33 @@ describe("anunciar sem fazer (v2)", () => {
 		expect(ANNOUNCED_ACTION_NOTE).toMatch(/call the tool in this step/);
 	});
 });
+
+describe("\"continua\" depois de um trabalho com itens abertos (v2)", () => {
+	const OPEN_LIST = [{ content: "Abrir o painel", status: "completed" }, { content: "Pedir o resumo ao Gemini", status: "in_progress" }, { content: "Montar o relatório", status: "pending" }] as never;
+	const NOTEBOOK = [{ id: "n1", title: "Painel", excerpt: "Entrei no painel com o login da loja", kind: "finding", author: "coordinator", step: 1 }] as never;
+
+	it("mensagem curta de continuação promove o chat pela lista herdada e semeia o caderno; o caderno anterior volta ao modelo", async () => {
+		const run = await runChat({
+			stepMs: 5_000,
+			messages: [{ role: "user", content: "continua" }],
+			extra: { priorTaskList: OPEN_LIST, priorNotebook: NOTEBOOK },
+			script: [
+				turn([call("notebook_read", {})], 0.1),
+				(seen) => {
+					expect(seen.transcript).toContain("Entrei no painel");
+					return say("Feito.", 0.1);
+				},
+				say("Feito.", 0.1),
+				say("Feito.", 0.1),
+			],
+		});
+		expect(run.onPromoted).toHaveBeenCalledTimes(1);
+	});
+
+	it("a mesma lista herdada com outra mensagem (ou sem humano) não promove nem usa o caderno antigo", async () => {
+		const other = await runChat({ stepMs: 5_000, messages: [{ role: "user", content: "Bom dia" }], extra: { priorTaskList: OPEN_LIST, priorNotebook: NOTEBOOK }, script: [say("Bom dia!")] });
+		expect(other.onPromoted).not.toHaveBeenCalled();
+		const bot = await runChat({ stepMs: 5_000, messages: [{ role: "user", content: "continua" }], extra: { humanTurn: false, origin: "bot", priorTaskList: OPEN_LIST }, options: { promotable: false, onPromoted: undefined }, script: [say("Ok.")] });
+		expect(bot.onPromoted).not.toHaveBeenCalled();
+	});
+});

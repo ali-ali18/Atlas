@@ -7,6 +7,7 @@ import {
 	resolveBotEngineRouting,
 	type EngineDefault,
 	looksLikeLongTask,
+	isShortContinuation,
 	readEnginePolicy,
 	readRunEngine,
 	readRunProfile,
@@ -321,5 +322,15 @@ describe("perfil do run", () => {
 		expect(resolveRunProfile({ policy: readEnginePolicy({}), text, origin: "webhook" })).toBe("chat");
 		expect(resolveRunProfile({ policy: readEnginePolicy({ workProfile: "long_work" }), text: "oi", origin: "webhook" })).toBe("long_work");
 		expect(resolveRunProfile({ policy: readEnginePolicy({ workProfile: "long_work" }), text: "oi", origin: "email" })).toBe("long_work");
+	});
+});
+
+describe("isShortContinuation", () => {
+	it("mensagem curta que só manda seguir", () => {
+		for (const text of ["continua", "Continue", "pode seguir", "segue", "segue em frente", "ok, continua", "vai em frente!", "continua de onde parou", "go on", "keep going", "pode continuar por favor"]) expect(isShortContinuation(text), text).toBe(true);
+	});
+
+	it("pedido novo, pergunta ou texto longo não é continuação", () => {
+		for (const text of ["", "oi", "continua a pesquisa sobre o preço do lítio em várias lojas e monte um relatório", "o que você acha de continuar?", "seguro de carro", "Bom dia"]) expect(isShortContinuation(text), text).toBe(false);
 	});
 });

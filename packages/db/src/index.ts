@@ -173,6 +173,8 @@ export {
 	getConversationTaskContext,
 	getConversationTaskLedger,
 	getConversationTaskList,
+	getConversationNotebook,
+	getContinuationInheritance,
 	getConversationTranscript,
 	getRunTranscript,
 	type RunTranscript,

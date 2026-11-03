@@ -19,7 +19,7 @@ import type {
 	RunInputStatus,
 	RunUsage,
 } from "@workspace/shared";
-import { sanitizeStopDetail, readRunEngine, readRunProfile, withRunEngine, withRunPromotion, type RunEngine, type RunProfile } from "@workspace/shared";
+import { stoppedWithOpenWork, sanitizeStopDetail, readRunEngine, readRunProfile, withRunEngine, withRunPromotion, type RunEngine, type RunProfile } from "@workspace/shared";
 import type { RunStop } from "@workspace/shared";
 import { parseReasoningEffort, withReplyContext, type ReasoningEffort, type ReplyQuote } from "@workspace/shared";
 import { AGENT_RUNTIME_CHECKPOINT_VERSION, RUN_MAX_RECOVERIES, RUN_RECOVERY_LIMIT_MESSAGE, nextRunRecoveryState, buildMessageSource, LIVE_RUN_INPUT_MODES, isCardConfirmToken, isPersistedMessageOrigin, isTaskListDone, parseTaskList, normalizeRunInputMode, openItems, parseTaskLedger, parseToolCacheState, parseToolResultStatus, redactSecrets, splitReplySegments } from "@workspace/shared";
@@ -388,6 +388,39 @@ export async function getConversationInheritance(userId: string, conversationId:
 	return readRunInheritance(last);
 }
 
+/**
+ * Herança para uma mensagem digitada curta de continuação ("continua"): só se o último run de chat da conversa parou com
+ * trabalho aberto (ver `stoppedWithOpenWork`); senão nada, e o run decide o perfil pelo texto como sempre.
+ */
+export async function getContinuationInheritance(userId: string, conversationId: string | undefined | null): Promise<RunInheritance> {
+	if (!conversationId || !userId.trim() || userId === "default") return { humanTurn: false };
+	const last = await prisma.agentRun.findFirst({
+		where: { userId, conversationId, origin: "chat" },
+		orderBy: { createdAt: "desc" },
+		select: { budgetJson: true, stopReason: true, stopDetail: true },
+	});
+	if (!last || !stoppedWithOpenWork({ reason: last.stopReason, detail: last.stopDetail })) return { humanTurn: false };
+	return readRunInheritance(last);
+}
+
+/** Caderno do último run da conversa que tinha um (semeia a continuação). Mesmo escopo de dono; sem caderno = null. */
+export async function getConversationNotebook(userId: string, conversationId: string, options?: { excludeRunId?: string }): Promise<unknown[] | null> {
+	if (!userId || !conversationId) return null;
+	const rows = await prisma.agentRun.findMany({
+		where: { conversationId, userId: { in: ownerIds(userId) }, origin: "chat", ...(options?.excludeRunId ? { id: { not: options.excludeRunId } } : {}) },
+		select: { checkpointJson: true },
+		orderBy: { createdAt: "desc" },
+		take: 3,
+	});
+	for (const row of rows) {
+		const raw = row.checkpointJson;
+		if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
+		const notebook = (raw as { notebook?: unknown }).notebook;
+		if (Array.isArray(notebook) && notebook.length > 0) return notebook;
+	}
+	return null;
+}
+
 export async function createAgentRun(input: {
 	request: CreateAgentRunRequest;
 	model: string;
@@ -405,6 +438,8 @@ export async function createAgentRun(input: {
 	onMergedIntoActiveRun?: (runId: string) => void | Promise<void>;
 	/** Resposta de questionário/cartão dentro de um trabalho do dono: herda turno humano, motor e perfil do último run de chat da conversa. */
 	inheritFromConversation?: boolean;
+	/** Mensagem digitada curta de continuação ("continua"): herda perfil e motor do último run só se ele parou com trabalho aberto. */
+	inheritWhenContinuation?: boolean;
 }): Promise<AgentRun> {
 	const { request, model } = input;
 	const userId = input.userId?.trim();
@@ -439,7 +474,11 @@ export async function createAgentRun(input: {
 				request: withReplyContextOnRequest(fileCards.length ? { ...request, attachments: await imageAttachmentsOf(request.attachments ?? [], userId) } : request, replyTo),
 				model, userId, conversationId, contextLength: input.contextLength, modelAuto: input.modelAuto, humanTurn: input.humanTurn,
 				fileArtifactIds: fileCards.map((card) => card.artifactId),
-				...(input.inheritFromConversation ? { inherited: await getConversationInheritance(userId, conversationId) } : {}),
+				...(input.inheritFromConversation
+					? { inherited: await getConversationInheritance(userId, conversationId) }
+					: input.inheritWhenContinuation
+						? { inherited: await getContinuationInheritance(userId, conversationId) }
+						: {}),
 			}),
 		});
 		if (conversationId && origin !== "routine" && request.silent !== true) {

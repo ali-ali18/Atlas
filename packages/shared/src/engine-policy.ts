@@ -270,6 +270,16 @@ function distinctActionVerbs(plain: string): number {
 }
 
 /**
+ * Mensagem digitada curta que só manda o bot seguir ("continua", "pode seguir", "segue", "go on"). Depois de um run que
+ * parou com itens abertos ela herda o perfil e o caderno do trabalho anterior em vez de recomeçar do zero.
+ */
+export function isShortContinuation(text: string): boolean {
+	const plain = (text ?? "").normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().trim();
+	if (plain.length === 0 || plain.length > 40) return false;
+	return /^(?:(?:ok|certo|entao|pode|por favor|pfv|vai),?\s+)*(?:continu\w*|segu\w+|prossig\w+|prosseg\w+|retom\w+|em frente|vai em frente|go on|keep going|carry on|proceed)(?:\s+(?:ai|ae|em frente|de onde parou|onde parou|com isso|por favor|pfv|please))*[\s.!]*$/.test(plain);
+}
+
+/**
  * Perfil do run: forçado pela política do bot ou decidido pelo pedido (só importa no v2). E-mail recebido e webhook
  * nunca escolhem o perfil caro pelo texto: quem escreveu o e-mail/payload é de fora e o texto é dado não confiável; só o dono libera
  * `long_work` (pela política do bot).

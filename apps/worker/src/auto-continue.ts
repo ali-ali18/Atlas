@@ -6,7 +6,8 @@ import { chainFollowUp, followUpRequest, type FollowUpOutcome } from "./follow-u
  * Retomada automática: em vez de pedir "responda continuar", o worker agenda um run de continuação da
  * mesma conversa (parte da transcrição do run parado). Vale só para causas recuperáveis e com limite:
  *  - `steps`: teto de passos atingido com progresso real;
- *  - `transient`: falha do provedor/rede/timeout que esgotou as tentativas da fila.
+ *  - `transient`: falha do provedor/rede/timeout que esgotou as tentativas da fila;
+ *  - `loop`: run do motor novo, digitado pelo dono, que o laço (repetição depois da nota) encerrou com itens abertos.
  * Nunca para decisão do usuário, recusa de permissão, limites de custo/tokens/relógio/contexto, run sem
  * progresso ou quando o limite de retomadas do turno acabou.
  */
@@ -20,7 +21,7 @@ export const AUTO_CONTINUE_DELAY_MS = { steps: 2_000, transient: [20_000, 60_000
 /** Origens com alguém acompanhando a conversa; rotinas, webhooks e proativos não se estendem sozinhos. */
 const AUTO_CONTINUE_ORIGINS: ReadonlySet<string> = new Set(["chat"]);
 
-export type AutoContinueCause = "steps" | "transient";
+export type AutoContinueCause = "steps" | "transient" | "loop";
 export type AutoContinueSkip = "not_recoverable" | "exhausted" | "no_progress" | "origin" | "pending_input" | "cost_cap" | "cancelled";
 export type AutoContinueDecision =
 	| { schedule: true; cause: AutoContinueCause; attempt: number; delayMs: number; maxCostUsd?: number }
@@ -35,6 +36,15 @@ export function readAutoContinueAttempt(budgetJson: unknown): number {
 /** Parada por orçamento: só o teto de passos é recuperável (relógio, custo, tokens e contexto são limites). */
 export function autoContinueCauseOfBudgetStop(error: Pick<BudgetExhaustedError, "kind">): AutoContinueCause | null {
 	return error.kind === "steps" ? "steps" : null;
+}
+
+/**
+ * O run do motor novo terminou em laço (`loop_repeat`) com itens da lista abertos, num chat digitado pelo dono? Então o worker
+ * agenda a continuação sozinho (mesmo limite `AUTO_CONTINUE_MAX`), em vez de deixar o dono mandar "continua" e recomeçar do zero.
+ */
+export function autoContinueCauseOfLoopStop(stop: { reason?: string; detail?: string } | undefined, run: { engine: string; origin: string; humanTurn: boolean }): AutoContinueCause | null {
+	if (run.engine !== "v2" || run.origin !== "chat" || !run.humanTurn) return null;
+	return stop?.reason === "loop_repeat" && stop.detail?.includes("items_open") ? "loop" : null;
 }
 
 /** Falha do run que a fila já tentou de novo: só a transitória (5xx/429/rede/timeout) merece retomada. */
@@ -68,7 +78,7 @@ export function decideAutoContinue(input: {
 		if (!(left > 0)) return { schedule: false, reason: "cost_cap" };
 		maxCostUsd = left;
 	}
-	const delayMs = input.cause === "steps" ? AUTO_CONTINUE_DELAY_MS.steps : AUTO_CONTINUE_DELAY_MS.transient[Math.min(input.attempt, AUTO_CONTINUE_DELAY_MS.transient.length - 1)]!;
+	const delayMs = input.cause === "steps" || input.cause === "loop" ? AUTO_CONTINUE_DELAY_MS.steps : AUTO_CONTINUE_DELAY_MS.transient[Math.min(input.attempt, AUTO_CONTINUE_DELAY_MS.transient.length - 1)]!;
 	return { schedule: true, cause: input.cause, attempt: input.attempt + 1, delayMs, ...(maxCostUsd !== undefined ? { maxCostUsd } : {}) };
 }
 
