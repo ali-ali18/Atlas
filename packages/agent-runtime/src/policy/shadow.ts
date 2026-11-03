@@ -1,6 +1,6 @@
 import { autonomyExceptionMode, type EffectiveAutonomy } from "@workspace/shared";
 import type { McpToolEntry } from "../mcp/registry.js";
-import { explainDecision, humanPresentFor, type PolicyContext, type PolicyDecision, type PolicyTool } from "./decide.js";
+import { explainDecision, humanPresentFor, unknownToolResult, type PolicyContext, type PolicyDecision, type PolicyTool } from "./decide.js";
 import { mcpPolicyTool, nativePolicyTool } from "./tool.js";
 
 /**
@@ -63,11 +63,12 @@ function levelOf(autonomy: EffectiveAutonomy): PolicyContext["autonomy"] {
 	return autonomy.level;
 }
 
-function baseContext(input: { origin: string; parentOrigin?: string; autonomy: EffectiveAutonomy; planPending?: boolean }): PolicyContext {
+function baseContext(input: { origin: string; parentOrigin?: string; humanTurn: boolean; autonomy: EffectiveAutonomy; planPending?: boolean }): PolicyContext {
 	return {
 		origin: input.origin,
 		...(input.parentOrigin ? { parentOrigin: input.parentOrigin } : {}),
 		humanPresent: humanPresentFor(input.origin, input.parentOrigin),
+		humanTurn: input.humanTurn,
 		autonomy: levelOf(input.autonomy),
 		planPending: input.planPending === true,
 	};
@@ -81,6 +82,8 @@ function baseContext(input: { origin: string; parentOrigin?: string; autonomy: E
 export function shadowCatalog(input: {
 	origin: string;
 	parentOrigin?: string;
+	/** `humanTurn` real do run (do pai, em subagente). */
+	humanTurn: boolean;
 	autonomy: EffectiveAutonomy;
 	nativeExposed: readonly string[];
 	mcp: ReadonlyArray<{ name: string; entry: McpToolEntry; visible: boolean }>;
@@ -106,6 +109,8 @@ export function shadowCatalog(input: {
 		for (const name of input.nativeExposed) {
 			const tool = nativePolicyTool(name);
 			if (tool) compare(tool, true);
+			else
+				report({ event: "policy_shadow_divergence", stage: "catalog", tool: name, origin: input.origin, current: "visible", next: "hidden", reason: unknownToolResult("catalog").reason });
 		}
 		for (const item of input.mcp) {
 			const mode = autonomyExceptionMode(input.autonomy, item.entry.autonomyMeta);
@@ -123,6 +128,7 @@ export function shadowExecute(input: {
 	entry?: McpToolEntry;
 	origin: string;
 	parentOrigin?: string;
+	humanTurn: boolean;
 	autonomy: EffectiveAutonomy;
 	planPending?: boolean;
 	forceConfirm?: boolean;
@@ -132,7 +138,11 @@ export function shadowExecute(input: {
 	if (!policyShadowEnabled()) return;
 	try {
 		const tool = input.entry ? mcpPolicyTool(input.name, input.entry) : nativePolicyTool(input.name, input.args);
-		if (!tool) return;
+		if (!tool) {
+			const unknown = unknownToolResult("execute");
+			if (input.current !== unknown.decision) report({ event: "policy_shadow_divergence", stage: "execute", tool: input.name, origin: input.origin, current: input.current, next: unknown.decision, reason: unknown.reason });
+			return;
+		}
 		const mode = input.entry ? autonomyExceptionMode(input.autonomy, input.entry.autonomyMeta) : undefined;
 		const userRules = { ...(mode ? { mode } : {}), ...(input.forceConfirm ? { confirmAlways: true } : {}) };
 		const verdict = explainDecision(tool, { ...baseContext(input), userRules, stage: "execute" });

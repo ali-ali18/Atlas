@@ -38,6 +38,12 @@ export type PolicyContext = {
 	parentOrigin?: string;
 	/** Há uma pessoa na conversa para aprovar. Só vale com origem `chat` (ou subagente de um chat). */
 	humanPresent: boolean;
+	/**
+	 * O turno atual veio de uma pessoa (o mesmo `humanTurn` do motor v2: falso em run sintético de chat, como
+	 * retomada, worker de grupo, evento de config do bot ou questionário respondido). Sem ele a origem `chat` não conta como humano.
+	 * Em subagente, é o do pai.
+	 */
+	humanTurn: boolean;
 	autonomy: AutonomyLevel;
 	/** O conector é só-leitura (config do dono). Padrão: nenhum é. */
 	connectorReadOnly?: (connectorId: string) => boolean;
@@ -63,6 +69,11 @@ const EXTERNAL_EFFECTS: ReadonlySet<ToolEffect> = new Set(["write_external", "se
 const ALWAYS_ASK_EFFECTS: ReadonlySet<ToolEffect> = new Set(["send", "money", "public_link", "credential"]);
 /** Tools de e-mail que respondem a alguém: a única exceção de `send` é a caixa com resposta automática. */
 const EMAIL_SEND_TOOLS: ReadonlySet<string> = new Set(["email_send", "email_reply"]);
+
+/** Tool nativa sem metadado de efeito: nunca `allow`. Some do catálogo e, se chamada mesmo assim, é negada. */
+export function unknownToolResult(stage: PolicyContext["stage"]): PolicyResult {
+	return { decision: stage === "execute" ? "deny" : "hide", reason: "unknown tool: no effect metadata" };
+}
 
 export function resolvePolicyOrigin(ctx: Pick<PolicyContext, "origin" | "parentOrigin">): string {
 	return ctx.origin === "subagent" ? (ctx.parentOrigin ?? "subagent") : ctx.origin;
@@ -102,7 +113,7 @@ function explainStatic(tool: PolicyTool, ctx: PolicyContext): PolicyResult {
 
 	// O filho herda a origem do pai (humano ou não); mas ele mesmo nunca mostra cartão, então `ask` vira `deny`.
 	const resolved = resolvePolicyOrigin(ctx);
-	const human = ctx.humanPresent && originHasHuman(resolved);
+	const human = ctx.humanPresent && ctx.humanTurn && originHasHuman(resolved);
 	const canAsk = human && ctx.origin !== "subagent";
 
 	if (tool.needsHuman && !human) return result("hide", "needs a human in the conversation");
@@ -115,12 +126,12 @@ function explainStatic(tool: PolicyTool, ctx: PolicyContext): PolicyResult {
 
 	if (rules?.confirmAlways) return asks("user rule: always confirm");
 	if (ctx.planPending) return asks("plan awaiting approval");
-	if (tool.effect === "public_link" || tool.effect === "credential") return asks(`${tool.effect} always asks`);
-	if (rules?.mode === "always_ask") return asks("autonomy exception: always ask");
+	if (rules?.mode === "always_ask" && !ALWAYS_ASK_EFFECTS.has(tool.effect)) return asks("autonomy exception: always ask");
+	// Link público, segredo, envio e dinheiro pedem cartão com humano em qualquer autonomia, inclusive com `never_ask`.
+	// Única exceção: e-mail numa caixa com resposta automática ligada.
+	if (tool.effect === "send" && EMAIL_SEND_TOOLS.has(tool.name) && ctx.emailAutoReply) return result("allow", "mailbox auto-reply is on");
+	if (ALWAYS_ASK_EFFECTS.has(tool.effect)) return asks(tool.effect === "send" && EMAIL_SEND_TOOLS.has(tool.name) ? "email send needs approval" : `${tool.effect} always asks`);
 	if (rules?.mode === "never_ask") return result("allow", "autonomy exception: never ask");
-
-	if (tool.effect === "send" && EMAIL_SEND_TOOLS.has(tool.name)) return ctx.emailAutoReply ? result("allow", "mailbox auto-reply is on") : asks("email send needs approval");
-	if (ALWAYS_ASK_EFFECTS.has(tool.effect)) return asks(`${tool.effect} needs approval`);
 
 	if (tool.effect === "write_external") {
 		if (ctx.confirmWrites) return asks("connector confirms writes");

@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { AutonomyLevel } from "@workspace/shared";
-import { decide, explainDecision, humanPresentFor, PREPARE_FOR_OWNER_TOOL, type PolicyContext, type PolicyDecision, type PolicyTool } from "./decide.js";
+import { decide, explainDecision, humanPresentFor, unknownToolResult, PREPARE_FOR_OWNER_TOOL, type PolicyContext, type PolicyDecision, type PolicyTool } from "./decide.js";
 import { mcpPolicyTool, nativePolicyTool } from "./tool.js";
 
 const ctxFor = (origin: string, autonomy: AutonomyLevel, extra: Partial<PolicyContext> = {}): PolicyContext => ({
 	origin,
 	humanPresent: humanPresentFor(origin, extra.parentOrigin),
+	humanTurn: true,
 	autonomy,
 	...extra,
 });
@@ -108,6 +109,23 @@ describe("casos obrigatorios", () => {
 		expect(decide(setAutonomy, ctxFor("chat", "autonomous"))).toBe("allow");
 	});
 
+	it("chat sem turno humano (retomada, grupo, evento de config, questionario respondido) nao conta como humano", () => {
+		const synthetic = ctxFor("chat", "autonomous", { humanTurn: false });
+		for (const effect of ["write_external", "send", "money", "public_link", "credential"] as const) expect(decide(tool(effect), synthetic), effect).toBe("hide");
+		expect(decide(nativePolicyTool("set_autonomy")!, synthetic)).toBe("hide");
+		expect(decide(tool("write_internal"), synthetic)).toBe("allow");
+		expect(decide(tool("read"), synthetic)).toBe("allow");
+		// subagente: vale o humanTurn do pai
+		expect(decide(tool("write_external"), ctxFor("subagent", "autonomous", { parentOrigin: "chat", humanTurn: false }))).toBe("hide");
+	});
+
+	it("humanPresent forjado como true com origem routine continua sem humano", () => {
+		const forged: PolicyContext = { origin: "routine", humanPresent: true, humanTurn: true, autonomy: "autonomous" };
+		expect(decide(tool("write_external"), forged)).toBe("hide");
+		expect(decide(tool("send"), forged)).toBe("hide");
+		expect(decide(tool("credential"), forged)).toBe("hide");
+	});
+
 	it("api_call: aparece no catalogo da rotina; GET roda, POST e negado com motivo na execucao", () => {
 		const routine = ctxFor("routine", "balanced");
 		// catalogo (sem args): efeito mais permissivo, a tool aparece
@@ -185,7 +203,11 @@ describe("regras com humano", () => {
 		expect(decide(write, ctxFor("chat", "autonomous", { userRules: { mode: "always_ask" } }))).toBe("ask");
 		expect(decide(write, ctxFor("chat", "always_ask", { userRules: { mode: "never_ask" } }))).toBe("allow");
 		expect(decide(write, ctxFor("chat", "autonomous", { userRules: { mode: "blocked" } }))).toBe("hide");
-		// never_ask nao libera link publico nem segredo
+		// never_ask nao libera envio, dinheiro, link publico nem segredo
+		expect(decide(tool("send"), ctxFor("chat", "autonomous", { userRules: { mode: "never_ask" } }))).toBe("ask");
+		expect(decide(tool("money"), ctxFor("chat", "autonomous", { userRules: { mode: "never_ask" } }))).toBe("ask");
+		expect(decide(tool("send", "email_send"), ctxFor("chat", "autonomous", { userRules: { mode: "never_ask" } }))).toBe("ask");
+		expect(decide(tool("send", "email_send"), ctxFor("chat", "autonomous", { userRules: { mode: "never_ask" }, emailAutoReply: true }))).toBe("allow");
 		expect(decide(tool("public_link"), ctxFor("chat", "autonomous", { userRules: { mode: "never_ask" } }))).toBe("ask");
 		expect(decide(tool("credential"), ctxFor("chat", "autonomous", { userRules: { mode: "never_ask" } }))).toBe("ask");
 	});
@@ -203,6 +225,11 @@ describe("regras com humano", () => {
 });
 
 describe("efeito vem do metadado do registro", () => {
+	it("tool sem metadado nunca e allow: hide no catalogo, deny na execucao", () => {
+		expect(unknownToolResult("catalog").decision).toBe("hide");
+		expect(unknownToolResult(undefined).decision).toBe("hide");
+		expect(unknownToolResult("execute").decision).toBe("deny");
+	});
 	it("tools sem metadado (desconhecidas) nao viram PolicyTool", () => {
 		expect(nativePolicyTool("ferramenta_que_nao_existe")).toBeUndefined();
 	});

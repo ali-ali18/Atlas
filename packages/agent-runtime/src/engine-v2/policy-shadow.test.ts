@@ -5,7 +5,7 @@ import type { ComputerUseEvent, EffectiveAutonomy } from "@workspace/shared";
 import { buildMcpToolset } from "../mcp/registry.js";
 import type { McpRuntime } from "../mcp/runtime.js";
 import { buildEngineV2Catalog } from "./catalog.js";
-import { setPolicyShadowSink, type PolicyDivergence } from "../policy/shadow.js";
+import { setPolicyShadowSink, shadowCatalog, shadowExecute, type PolicyDivergence } from "../policy/shadow.js";
 import type { BotMailboxRecord } from "@workspace/db";
 import type { EmailRunContext } from "../email/tools.js";
 import { runEngineV2, type EngineV2Options } from "./run.js";
@@ -143,7 +143,7 @@ describe("política v3 em sombra no v2", () => {
 	});
 
 	it("chat equilibrado: escrita pede cartão nos dois; sem divergência e o cartão continua sendo emitido", async () => {
-		const { call, events } = await runOrigin({ origin: "chat", script: [toolCall("w1", WRITE, { cliente: "Acme" })] });
+		const { call, events } = await runOrigin({ origin: "chat", extra: { humanTurn: true }, script: [toolCall("w1", WRITE, { cliente: "Acme" })] });
 		expect(call).not.toHaveBeenCalled();
 		expect(events.some((e) => e.type === "confirm")).toBe(true);
 		expect(divergences.filter((d) => d.tool === WRITE)).toEqual([]);
@@ -188,5 +188,21 @@ describe("política v3 em sombra no v2", () => {
 		} finally {
 			delete process.env.ATLAS_POLICY_SHADOW;
 		}
+	});
+
+	it("tool nativa sem metadado: a sombra registra a divergência (catálogo e execução) em vez de ignorar", () => {
+		shadowCatalog({ origin: "chat", humanTurn: true, autonomy: autonomous, nativeExposed: ["ferramenta_sem_metadado"], mcp: [] });
+		shadowExecute({ name: "ferramenta_sem_metadado", args: {}, origin: "chat", humanTurn: true, autonomy: autonomous, current: "allow" });
+		expect(divergences).toMatchObject([
+			{ stage: "catalog", tool: "ferramenta_sem_metadado", current: "visible", next: "hidden" },
+			{ stage: "execute", tool: "ferramenta_sem_metadado", current: "allow", next: "deny" },
+		]);
+	});
+
+	it("chat sem humanTurn: a sombra enxerga o turno sintético (escrita de conector some)", () => {
+		const mcp = buildMcpToolset([erp], { autonomy: autonomous });
+		const entry = mcp.entries.get(WRITE)!;
+		shadowCatalog({ origin: "chat", humanTurn: false, autonomy: autonomous, nativeExposed: [], mcp: [{ name: WRITE, entry, visible: true }] });
+		expect(divergences).toMatchObject([{ tool: WRITE, current: "visible", next: "hidden" }]);
 	});
 });

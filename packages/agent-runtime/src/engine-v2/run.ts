@@ -298,6 +298,8 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 		!isBotConfigEventObjective(params.objective ?? "") &&
 		!isBotConfigEventObjective(lastUserMessage) &&
 		!parseQuestionnaireAnsweredContent(lastUserMessage);
+	// Para a política em sombra: subagente herda o `humanTurn` do pai.
+	const policyHumanTurn = origin === "subagent" ? params.parentHumanTurn === true : humanTurn;
 	const botProfile = botId && !helperRole ? await (params.loadBotProfile ?? getBotProfile)(botId, params.userId).catch(() => null) : null;
 	// Perfil do bot só muda no chat (onboarding ou pedido explícito): rotina e bot→bot nunca expõem a tool.
 	const allowProfileUpdate =
@@ -336,6 +338,7 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 	const catalog = buildEngineV2Catalog({
 		origin,
 		...(params.parentOrigin ? { policyParentOrigin: params.parentOrigin } : {}),
+		policyHumanTurn: policyHumanTurn,
 		userId,
 		sandboxEnabled,
 		autonomy: autonomyPolicy,
@@ -803,6 +806,7 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 				runId: child.runId,
 				origin: SUBAGENT_ORIGIN,
 				parentOrigin: origin,
+				parentHumanTurn: humanTurn,
 				objective: child.objective,
 				mcp,
 				jev: params.jev,
@@ -1058,6 +1062,7 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 				...(entry ? { entry } : {}),
 				origin,
 				...(params.parentOrigin ? { parentOrigin: params.parentOrigin } : {}),
+				humanTurn: policyHumanTurn,
 				autonomy: autonomyPolicy,
 				planPending: preTools.planState.pending,
 				forceConfirm: preTool.forceConfirm,

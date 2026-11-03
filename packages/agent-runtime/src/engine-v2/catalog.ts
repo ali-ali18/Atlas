@@ -120,6 +120,8 @@ export function buildEngineV2Catalog(input: {
 	alertRun?: boolean;
 	/** Origem do pai quando este run é um subagente (só a política em sombra lê). */
 	policyParentOrigin?: string;
+	/** `humanTurn` real do run (do pai, em subagente); só a política em sombra lê. Padrão: false. */
+	policyHumanTurn?: boolean;
 	/** Conversa entre bots (chat do dono e bot→bot): quantos bots o dono tem e se "decidir pelos outros bots" está ligado. */
 	botMessaging?: { botCount: number; decideForOtherBots: boolean };
 }): EngineV2Catalog {
@@ -240,6 +242,7 @@ export function buildEngineV2Catalog(input: {
 	shadowCatalog({
 		origin: input.origin,
 		...(input.policyParentOrigin ? { parentOrigin: input.policyParentOrigin } : {}),
+		humanTurn: input.policyHumanTurn === true,
 		autonomy: input.autonomy,
 		nativeExposed: native.map((tool) => tool.function.name),
 		mcp: shadowMcp,
