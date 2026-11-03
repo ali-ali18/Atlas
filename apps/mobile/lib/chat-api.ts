@@ -1,5 +1,6 @@
 // Chamadas do chat ao servidor: os mesmos endpoints do web (`apps/web/lib/atlas-api.ts`), sempre por `apiFetch`
 // (a sessão sai só para a origem do servidor salvo).
+import type { CompactConversationResponse } from "@workspace/shared";
 import { StreamHttpError } from "./chat-stream";
 import { messagesPath, PAGE_SIZE, parsePage, type MessagePage, type PageCursor } from "./chat-thread";
 import type { ApiFetch } from "./home-sync";
@@ -9,6 +10,8 @@ export class ChatApiError extends Error {
 	constructor(
 		message: string,
 		readonly status: number,
+		/** A mensagem veio do corpo da resposta do servidor (e não do texto do status HTTP). */
+		readonly fromServer = false,
 	) {
 		super(message);
 	}
@@ -41,13 +44,17 @@ export const isNetworkError = (error: unknown): boolean => !(error instanceof Ch
 
 async function failure(response: Response): Promise<never> {
 	let message = response.statusText || `HTTP ${response.status}`;
+	let fromServer = false;
 	try {
 		const body = (await response.json()) as { error?: unknown };
-		if (typeof body.error === "string" && body.error.trim()) message = body.error;
+		if (typeof body.error === "string" && body.error.trim()) {
+			message = body.error;
+			fromServer = true;
+		}
 	} catch {
 		// corpo sem JSON: fica o texto do status
 	}
-	throw new ChatApiError(message, response.status);
+	throw new ChatApiError(message, response.status, fromServer);
 }
 
 async function json<T>(apiFetch: ApiFetch, path: string, init: RequestInit = {}): Promise<T> {
@@ -136,6 +143,26 @@ export async function clearReaction(apiFetch: ApiFetch, messageId: string): Prom
 /** `POST /v1/conversations/:id/unread`: marca a conversa inteira como não lida (vale em todos os aparelhos). */
 export async function markConversationUnread(apiFetch: ApiFetch, conversationId: string): Promise<void> {
 	await json(apiFetch, `/v1/conversations/${encodeURIComponent(conversationId)}/unread`, { method: "POST" });
+}
+
+/**
+ * `/compact`: resume a conversa levada (`POST /v1/conversations/:id/compact`, o mesmo do web). A resposta traz o cartão
+ * (conversa compactada) ou o aviso de que nada foi feito (conversa curta); execução em andamento ou aprovação pendente
+ * voltam como 409 com a mensagem.
+ */
+export async function compactConversation(apiFetch: ApiFetch, conversationId: string, focus?: string): Promise<CompactConversationResponse> {
+	return json<CompactConversationResponse>(apiFetch, `/v1/conversations/${encodeURIComponent(conversationId)}/compact`, { method: "POST", body: JSON.stringify(focus ? { focus } : {}) });
+}
+
+export const COMPACT_FAILED_TEXT = "Não consegui compactar a conversa agora. Tente de novo em instantes.";
+
+/** Aviso do `/compact` que falhou: a mensagem que a API mandou (bloqueio, falha do resumo) ou, sem ela (proxy, rede), o aviso amigável. */
+export function compactErrorText(error: unknown): string {
+	if (error instanceof ChatApiError) {
+		if (error.status === 401) return "Sua sessão expirou. Entre de novo.";
+		if (error.fromServer && error.message.trim()) return error.message.trim();
+	}
+	return COMPACT_FAILED_TEXT;
 }
 
 /** Aviso amigável para um erro ao enviar (sem expor o texto técnico). */

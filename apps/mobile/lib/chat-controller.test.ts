@@ -36,6 +36,7 @@ function setup(overrides: { api?: Partial<ChatApi>; follow?: Script; conversatio
 		setReaction: async (messageId, emoji) => void calls.reaction.push(`PUT ${messageId} ${emoji}`),
 		clearReaction: async (messageId) => void calls.reaction.push(`DELETE ${messageId}`),
 		markConversationUnread: async (conversationId) => void calls.unread.push(conversationId),
+		compactConversation: async () => ({ status: "noop", reason: "too_small", message: "Conversa curta." }),
 		...overrides.api,
 	};
 	let seq = 0;
@@ -697,5 +698,57 @@ describe("responder (replyTo)", () => {
 		await flush();
 		await flush();
 		expect(bubbles(controller)).toEqual([]);
+	});
+});
+
+describe("/compact", () => {
+	const compacted = { status: "compacted" as const, before: 48_200, after: 6_100, percent: 87, messageId: "cmp-1", card: { v: 1 as const, kind: "compaction" as const, before: 48_200, after: 6_100, summary: "resumo" } };
+	it("compacta a conversa atual e põe o marcador no fim do fio (uma vez, mesmo com toque duplo)", async () => {
+		const asked: Array<[string, string | undefined]> = [];
+		const { controller } = setup({ api: { compactConversation: async (id, focus) => (asked.push([id, focus]), compacted) } });
+		await controller.open();
+		const [first, second] = await Promise.all([controller.compact("foco"), controller.compact("foco")]);
+		expect([first, second]).toEqual([true, false]);
+		expect(asked).toEqual([["c1", "foco"]]);
+		const items = controller.getSnapshot().persisted;
+		expect(items[items.length - 1]).toMatchObject({ id: "cmp-1", kind: "marker", text: "Conversa compactada · 48,2 mil → 6,1 mil" });
+		await controller.compact();
+		expect(controller.getSnapshot().persisted.filter((item) => item.id === "cmp-1")).toHaveLength(1);
+	});
+	it("enquanto o servidor compacta, o estado diz `compacting` (a tela mostra \"Compactando a conversa…\"); ao terminar, volta", async () => {
+		let finish: (value: typeof compacted) => void = () => undefined;
+		const { controller } = setup({ api: { compactConversation: () => new Promise((resolve) => (finish = resolve)) } });
+		await controller.open();
+		expect(controller.getSnapshot().compacting).toBe(false);
+		const running = controller.compact();
+		expect(controller.getSnapshot().compacting).toBe(true);
+		finish(compacted);
+		await running;
+		expect(controller.getSnapshot().compacting).toBe(false);
+	});
+	it("conversa curta: aviso do servidor, sem marcador", async () => {
+		const { controller } = setup();
+		await controller.open();
+		expect(await controller.compact()).toBe(false);
+		expect(controller.getSnapshot().error).toBe("Conversa curta.");
+		expect(controller.getSnapshot().persisted.some((item) => item.kind === "marker")).toBe(false);
+	});
+	it("recusa do servidor: mensagem dele; proxy ou rede: aviso amigável", async () => {
+		const busy = setup({ api: { compactConversation: async () => Promise.reject(new ChatApiError("Há uma execução em andamento.", 409, true)) } });
+		await busy.controller.open();
+		await busy.controller.compact();
+		expect(busy.controller.getSnapshot().error).toBe("Há uma execução em andamento.");
+		const proxy = setup({ api: { compactConversation: async () => Promise.reject(new ChatApiError("Bad Gateway", 502)) } });
+		await proxy.controller.open();
+		await proxy.controller.compact();
+		expect(proxy.controller.getSnapshot().error).toBe("Não consegui compactar a conversa agora. Tente de novo em instantes.");
+	});
+	it("sem conversa ainda: aviso, sem chamar o servidor", async () => {
+		let called = 0;
+		const { controller } = setup({ conversationId: null, api: { compactConversation: async () => (called++, compacted) } });
+		await controller.open();
+		expect(await controller.compact()).toBe(false);
+		expect(called).toBe(0);
+		expect(controller.getSnapshot().error).toBe("Ainda não há o que compactar nesta conversa.");
 	});
 });

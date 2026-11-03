@@ -17,7 +17,7 @@ import { MessageRow, type RowActions } from "@/components/chat/message-row";
 import { useMessageMenu } from "@/components/chat/use-message-menu";
 import { grokBubbleColors } from "@/lib/bubble-tone";
 import { createNewItemTracker } from "@/lib/chat-appear";
-import { groupPositionAt, type GroupPosition } from "@workspace/shared";
+import { groupPositionAt, parseSlashSkills, type GroupPosition } from "@workspace/shared";
 import { SyncLine, ThinkingLine } from "@/components/chat/sync-line";
 import { Spinner } from "@/components/ui/spinner";
 import { Text } from "@/components/ui/text";
@@ -30,6 +30,8 @@ import type { ChatItem, ReplyQuote } from "@/lib/chat-types";
 import { containsTable } from "@/lib/markdown";
 import { replyQuoteFor } from "@/lib/reply-quote";
 import { useChat } from "@/lib/use-chat";
+import { mentionableBots } from "@/lib/mention-input";
+import { useComposerSkills } from "@/lib/use-composer-skills";
 import { useHomeData } from "@/lib/home-data";
 
 /** Rolou para cima além disto (px do fim): aparece o botão de voltar ao fim. */
@@ -67,6 +69,18 @@ export default function ChatScreen() {
 	const { serverUrl } = useAtlasSession();
 	const bot = snapshot?.bots.find((item) => item.id === id);
 	const chat = useChat(bot);
+	// `@` oferece os outros bots (no grupo, os membros) e `/` as habilidades (só no 1:1, como no web).
+	const mentionBots = React.useMemo(() => mentionableBots(snapshot?.bots ?? [], bot), [snapshot?.bots, bot]);
+	const composerSkills = useComposerSkills();
+	// Avatares das menções e do marcador "Enviou mensagem para X": todos os bots do usuário. Habilidades: as já lidas.
+	const rowBots = React.useMemo(() => (snapshot?.bots ?? []).map((item) => ({ id: item.id, name: item.name, color: item.color, shape: item.shape })), [snapshot?.bots]);
+	// Há `/habilidade` numa fala do usuário: lê a lista (uma vez) para desenhar o marcador, sem esperar o `/` do composer.
+	const hasSlashText = React.useMemo(() => chat.items.some((item) => item.kind === "user" && parseSlashSkills(item.text).length > 0), [chat.items]);
+	const loadSkills = composerSkills.load;
+	React.useEffect(() => {
+		if (hasSlashText && bot && bot.memberIds.length === 0) loadSkills();
+	}, [hasSlashText, bot, loadSkills]);
+	const skillSet = React.useMemo(() => new Set(composerSkills.skills.map((skill) => skill.name)), [composerSkills.skills]);
 	const listRef = React.useRef<FlatList<ChatItem>>(null);
 	const [farFromEnd, setFarFromEnd] = React.useState(false);
 	const [menu, setMenu] = React.useState(false);
@@ -104,8 +118,10 @@ export default function ChatScreen() {
 			activeRunId: chat.runTasks?.runId ?? null,
 			running: chat.running,
 			userBubble: userBubble,
+			bots: rowBots,
+			skills: skillSet,
 		}),
-		[chat.decide, chat.answer, openWeb, messageMenu.open, chat.running, chat.runTasks?.runId, userBubble],
+		[chat.decide, chat.answer, openWeb, messageMenu.open, chat.running, chat.runTasks?.runId, userBubble, rowBots, skillSet],
 	);
 
 	// A lista é invertida (o fim da conversa fica embaixo e o teclado não a desloca): mais novo primeiro.
@@ -157,6 +173,7 @@ export default function ChatScreen() {
 					ListHeaderComponent={
 						<View>
 							{showThinking ? <ThinkingLine bot={bot} avatar={chat.avatar} /> : null}
+							{chat.compacting && !showThinking ? <ThinkingLine bot={bot} avatar={{ state: "working", label: "Compactando a conversa…" }} /> : null}
 							{chat.line ? <SyncLine line={chat.line} color={color} /> : null}
 							{chat.notice ? (
 								<Text variant="muted" className="px-1 py-2 text-control">
@@ -195,7 +212,7 @@ export default function ChatScreen() {
 							<ChevronDownIcon size={22} tone="foreground" />
 						</Pressable>
 					) : null}
-					<Composer initialText={typeof draft === "string" ? draft : undefined} botName={bot.name} color={color} foreground={foreground} running={chat.running} onSend={(text) => {
+					<Composer onCompact={bot.memberIds.length > 0 ? undefined : (focus) => void chat.compact(focus)} mentionBots={mentionBots} skills={bot.memberIds.length > 0 ? null : composerSkills.skills} skillsLoading={composerSkills.loading} skillsFailed={composerSkills.failed} onSlash={composerSkills.load} initialText={typeof draft === "string" ? draft : undefined} botName={bot.name} color={color} foreground={foreground} running={chat.running} onSend={(text) => {
 							chat.send(text, replyTo ?? undefined);
 							setReplyTo(null);
 						}} onStop={chat.stop} onSoon={(what) => setSoon(what)} onModel={() => setModelOpen(true)} modelPill={modelPill} holdWriting={modelOpen} onWriting={chat.modelSelector.loadCatalog} replyTo={replyTo} onCancelReply={() => setReplyTo(null)} />
