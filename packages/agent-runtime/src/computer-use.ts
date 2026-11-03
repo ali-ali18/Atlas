@@ -287,6 +287,7 @@ import {
 } from "./tools/sandbox-shell.js";
 import { createBrowserWatch, SCREEN_CLAIM_NOTE } from "./tools/browser-claims.js";
 import { SANDBOX_RELEASE_TOOL, SANDBOX_RELEASE_TOOL_NAME } from "./tools/sandbox-release.js";
+import { VIDEO_TRANSCRIPT_TOOL, VIDEO_TRANSCRIPT_TOOL_NAME, videoTranscriptBlocked } from "./tools/video-transcript.js";
 import {
 	createDevSessionRuntime,
 	DEV_SESSION_READONLY_TOOL_NAMES,
@@ -735,7 +736,7 @@ export const COMPUTER_USE_TOOLS: ChatTool[] = [
 		function: {
 			name: "screenshot",
 			description:
-				"Capture the screen as an image. USE for visual checks only: canvas, charts, layout, or an app outside the browser. Do NOT use it to read text or find elements (browser_read, browser_find). `region` zooms into a rectangle of the last image; `marks` draws each element's ref number on it (12 = e12).",
+				"Capture the screen as an image. USE for visual checks (canvas, charts, layout, other apps) and for what a read missed (side panel, chat answer, overlay). Do NOT use it for ordinary page text (browser_read). `region` zooms into the last image; `marks` draws each element's ref number (12 = e12) to click by ref.",
 			parameters: {
 				type: "object",
 				properties: {
@@ -760,7 +761,7 @@ export const COMPUTER_USE_TOOLS: ChatTool[] = [
 		function: {
 			name: "navigate",
 			description:
-				"Open a URL in the VM browser; returns the final URL and title (warns if the page is still rendering). USE to load a page you know. Do NOT use it to read the page or follow its links (browser_read, browser_act).",
+				"Open a URL in the VM browser; returns the final URL and title. USE to load a page you know. Do NOT use it to read the page or follow its links (browser_read, browser_act).",
 			parameters: {
 				type: "object",
 				properties: {
@@ -830,6 +831,7 @@ export const COMPUTER_USE_TOOLS: ChatTool[] = [
 	COMPUTER_TABS_TOOL,
 	...SANDBOX_SHELL_TOOLS,
 	SANDBOX_RELEASE_TOOL,
+	VIDEO_TRANSCRIPT_TOOL,
 	{
 		type: "function",
 		function: {
@@ -2378,6 +2380,7 @@ async function runComputerUseCore(params: {
 			if (!(SANDBOX_SHELL_TOOL_NAMES as readonly string[]).includes(shellTool)) return true;
 			return sandboxShellAllowedForOrigin(shellTool, params.origin) && !sandboxShellBlocked(autonomyPolicy, shellTool);
 		})
+		.filter((tool) => tool.function.name !== VIDEO_TRANSCRIPT_TOOL_NAME || !videoTranscriptBlocked(autonomyPolicy))
 		.filter((tool) => (tool.function.name !== "propose_connector" && tool.function.name !== "propose_custom_mcp") || params.origin === "chat")
 		// Sem humano para aprovar (rotina, webhook, subagente): skill só se lê.
 		.filter((tool) => !isUnattendedOrigin(params.origin) || !SKILL_WRITE_TOOL_NAMES.has(tool.function.name))
@@ -3352,6 +3355,8 @@ async function runComputerUseCore(params: {
 	const triagedInputs = [...(parsedCheckpoint?.triagedInputs ?? [])];
 	let replyCount = 0;
 	const canSeeImages = params.canSeeUserImages !== false;
+	// Último passo que já gastou o screenshot automático da leitura (no máximo um por passo).
+	let visionFallbackStep = -1;
 	const capabilitySnapshot = () => createCapabilitySnapshot({
 		tools: tools.map((tool) => tool.function.name),
 		vision: canSeeImages,
@@ -4746,6 +4751,11 @@ async function runComputerUseCore(params: {
 						await onEvent(event);
 					},
 					canSeeImages: canSeeImages,
+					claimVisionFallback: () => {
+						if (visionFallbackStep === decisionIndex) return false;
+						visionFallbackStep = decisionIndex;
+						return true;
+					},
 					currentStep: () => decisionIndex,
 					listScreenshotArtifacts: () => {
 						const ids: string[] = [];

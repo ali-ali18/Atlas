@@ -60,6 +60,7 @@ export function formatActionOutcome(effect: ActionOutcome, opts: { quiet?: boole
 		const hidden = total > elements.length ? `, ${total - elements.length} more: browser_snapshot` : "";
 		data.push(`New elements (${total}${hidden}):`, ...elements);
 	}
+	if (changes?.tree?.length) data.push("Page tree changes (+ added, - removed, ~ changed; refs usable now):", ...changes.tree);
 	if (effect.errors?.length) data.push(`Validation errors (${effect.errors.length}):`, ...effect.errors);
 	if (data.length > 0) lines.push(UNTRUSTED_PAGE_NOTE, ...data.map((line) => redactSecrets(line)));
 

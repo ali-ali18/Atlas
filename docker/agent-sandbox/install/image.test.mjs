@@ -75,3 +75,46 @@ test("os arquivos do instalador existem (o wrapper é executável)", () => {
 	}
 	assert.ok((statSync(new URL("../install/atlas-install", import.meta.url)).mode & 0o111) !== 0);
 });
+
+// A tela do Xvfb, a janela do Chrome e a escala da screenshot do modelo precisam concordar: o modelo clica em
+// coordenadas da imagem reduzida, e `modelPointToScreen` volta à tela real com o fator medido nos bytes devolvidos.
+test("tela: Xvfb e janela do Chrome usam as mesmas variáveis e o mesmo padrão (1280x720)", () => {
+	const chrome = read("bin/atlas-chrome");
+	const xvfbW = /XVFB_W="\$\{XVFB_WIDTH:-(\d+)\}"/.exec(entrypoint)?.[1];
+	const xvfbH = /XVFB_H="\$\{XVFB_HEIGHT:-(\d+)\}"/.exec(entrypoint)?.[1];
+	const win = /--window-size="\$\{XVFB_WIDTH:-(\d+)\},\$\{XVFB_HEIGHT:-(\d+)\}"/.exec(chrome);
+	assert.ok(xvfbW && xvfbH && win, "padrões não encontrados no entrypoint/atlas-chrome");
+	// Valores reais, não só o texto: Xvfb e Chrome têm que ser iguais entre si.
+	assert.equal(win[1], xvfbW, "largura da janela do Chrome diverge da tela do Xvfb");
+	assert.equal(win[2], xvfbH, "altura da janela do Chrome diverge da tela do Xvfb");
+	assert.deepEqual([xvfbW, xvfbH], ["1280", "720"]);
+	assert.match(entrypoint, /-screen 0 "\$\{XVFB_W\}x\$\{XVFB_H\}x24"/);
+	for (const m of dockerfile.matchAll(/XVFB_(WIDTH|HEIGHT)\s*=\s*(\d+)/g)) {
+		assert.equal(m[2], m[1] === "WIDTH" ? xvfbW : xvfbH, "ENV do Dockerfile divergente do padrão do entrypoint");
+	}
+});
+
+test("tela: o fator de escala da screenshot do modelo bate com a largura da tela", () => {
+	const shared = readFileSync(new URL("../../../packages/shared/src/screenshot-scale.ts", import.meta.url), "utf8");
+	const maxWidth = Number(/SCREENSHOT_MODEL_MAX_WIDTH\s*=\s*(\d+)/.exec(shared)?.[1]);
+	const width = Number(/XVFB_W="\$\{XVFB_WIDTH:-(\d+)\}"/.exec(entrypoint)?.[1]);
+	assert.ok(maxWidth > 0 && width > 0);
+	const percent = width <= maxWidth ? 100 : Math.floor((maxWidth / width) * 100);
+	// 1280 -> 1024 px de largura = 80%; a imagem devolvida tem width*percent/100 e o inverso volta à tela real.
+	assert.equal(percent, 80);
+	assert.equal((width * percent) / 100, maxWidth);
+});
+
+test("Dockerfile: yt-dlp (video_transcript) em tag fixa, com checksum, de root em /usr/local/bin", () => {
+	const version = dockerfile.match(/^ARG YT_DLP_VERSION=(\d{4}\.\d{2}\.\d{2})$/m);
+	assert.ok(version, "tag fixa AAAA.MM.DD em ARG YT_DLP_VERSION");
+	assert.doesNotMatch(dockerfile, /yt-dlp\/releases\/latest/);
+	assert.match(dockerfile, /releases\/download\/\$\{YT_DLP_VERSION\}\/yt-dlp"/);
+	assert.match(dockerfile, /^ARG YT_DLP_SHA256=[0-9a-f]{64}$/m, "hash SHA-256 do binário fixado");
+	assert.match(dockerfile, /echo "\$\{YT_DLP_SHA256\}  yt-dlp" \| sha256sum -c -/);
+	assert.match(dockerfile, /install -m 0755 -o root -g root yt-dlp \/usr\/local\/bin\/yt-dlp/);
+	assert.match(dockerfile, /\/usr\/local\/bin\/yt-dlp --version/);
+	assert.doesNotMatch(dockerfile, /chown[^\n]*atlas[^\n]*yt-dlp/);
+	// a conferência vem antes de instalar o binário
+	assert.ok(dockerfile.indexOf("sha256sum --ignore-missing") < dockerfile.indexOf("install -m 0755 -o root"));
+});

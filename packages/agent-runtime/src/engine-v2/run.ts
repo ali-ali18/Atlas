@@ -95,6 +95,7 @@ import {
 	trimHistory,
 } from "../hygiene.js";
 import { compactWithSummary, createStreamSummarizer } from "../context/summary-compaction.js";
+import { buildRunStateBlock, type RunStateLastTool } from "./run-state.js";
 import { CONTEXT_WARN_RATIO, CONTEXT_SOFT_RATIO, CONTEXT_HARD_RATIO, CONTEXT_WINDOW_NOTE, contextKeepEnabled } from "./context-keep.js";
 import { toolsJsonCharsOf } from "../tools-json-size.js";
 import { modelStepTelemetry } from "../telemetry/step-telemetry.js";
@@ -650,6 +651,8 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 		if (!modelMaxOutput) return configuredOutputTokens ?? docOutputTokens;
 		return Math.min(modelMaxOutput, Math.max(configuredOutputTokens ?? 0, docOutputTokens));
 	};
+	/** Última tool executada neste run (só em memória): alimenta o bloco "Run state" da cópia enviada ao modelo. */
+	let lastToolOutcome: RunStateLastTool | undefined;
 	const hygieneLastGroupChars = Math.max(STUB_LAST_GROUP_MAX_CHARS, (params.toolResultMaxChars ?? 0) + 4_000);
 	const modelStep = async (
 		history: LlmMessage[],
@@ -706,8 +709,11 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 		// então vai como contexto automático de usuário e não como instrução de sistema.
 		const notebookIndex = notebook?.index();
 		const notebookLayer: LlmMessage[] = notebookIndex ? [{ role: "user", content: `${AUTO_CONTEXT} ${notebookIndex}` }] : [];
+		// Estado do run (passo 2 em diante, só depois de uma tool): mesma regra do caderno, contexto automático de usuário e fora do histórico.
+		const runState = closing || helperRole ? null : buildRunStateBlock({ goal: params.objective?.trim() || (typeof lastUserMessage === "string" ? lastUserMessage : ""), lastTool: lastToolOutcome, taskItems: currentTaskItems(), step, maxSteps: effectiveMaxSteps });
+		const runStateLayer: LlmMessage[] = runState ? [{ role: "user", content: `${AUTO_CONTEXT} ${runState}` }] : [];
 		const withLayers: LlmMessage[] =
-			layers.length || notebookLayer.length ? [...sentHistory, ...layers.map((content) => ({ role: "system" as const, content })), ...notebookLayer] : sentHistory;
+			layers.length || notebookLayer.length || runStateLayer.length ? [...sentHistory, ...layers.map((content) => ({ role: "system" as const, content })), ...notebookLayer, ...runStateLayer] : sentHistory;
 		const transport = await resolveLlmMessagesForModel(withLayers, params.loadScreenshot, {
 			canSeeUserImages: params.canSeeUserImages,
 			canSeeScreenshots: canSeeImages,
@@ -738,7 +744,7 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 				reasoningMaxTokens: params.reasoningMaxTokens,
 				...(reasoningFor ? { reasoningEffort: reasoningFor } : {}),
 				sessionId: !conversationId ? params.runId : `c${createHash("sha256").update(`${botId ?? ""}:${conversationId}`).digest("hex").slice(0, 31)}`,
-				...(layers.length > 0 || notebookLayer.length > 0 ? { cacheStableIndex: sentHistory.length - 1 } : {}),
+				...(layers.length > 0 || notebookLayer.length > 0 || runStateLayer.length > 0 ? { cacheStableIndex: sentHistory.length - 1 } : {}),
 			},
 			{
 				onDelta: (delta) => {
@@ -867,6 +873,8 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 				}
 			: undefined;
 
+	// Último passo que já gastou o screenshot automático da leitura (no máximo um por passo).
+	let visionFallbackStep = -1;
 	const buildContext = (call: LlmToolCall, signal: AbortSignal | undefined, forceConfirm = false): ToolContext => ({
 		loginAsked,
 		secrets: secretSession,
@@ -967,6 +975,11 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 			await onEvent(event);
 		},
 		canSeeImages,
+		claimVisionFallback: () => {
+			if (visionFallbackStep === step) return false;
+			visionFallbackStep = step;
+			return true;
+		},
 		currentStep: () => step,
 		listScreenshotArtifacts: () => {
 			const ids: string[] = [];
@@ -1177,6 +1190,8 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 			pendingMedia.delete(outcome.call.id);
 			if (media && media.length > 0) conversation.push({ role: "user", content: [{ type: "text", text: "Screenshot atual da tela:" }, ...media] });
 		}
+		const lastRan = [...outcomes].reverse().find((outcome) => !outcome.skipped);
+		if (lastRan) lastToolOutcome = { name: lastRan.name, ok: lastRan.ok, summary: lastRan.summary };
 		for (const outcome of outcomes) {
 			if (outcome.blocked || outcome.skipped) continue;
 			const verdict = supervisor.recordTool({

@@ -2,6 +2,7 @@ import type { ToolContext, ToolResult } from "../types.js";
 
 import { executeSandboxShellTool } from "../../sandbox-shell.js";
 import { SANDBOX_RELEASE_TOOL_NAME, executeSandboxRelease } from "../../sandbox-release.js";
+import { VIDEO_TRANSCRIPT_TOOL_NAME, executeVideoTranscript } from "../../video-transcript.js";
 
 import type { ToolFamily } from "../registry.js";
 
@@ -13,6 +14,10 @@ async function handleSandboxRelease(args: Record<string, unknown>, ctx: ToolCont
 	return executeSandboxRelease({ manager: ctx.manager, conversationId: ctx.conversationId });
 }
 
+async function handleVideoTranscript(args: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult> {
+	return executeVideoTranscript(args, { manager: ctx.manager, getSessionId: ctx.getSessionId });
+}
+
 /** Família `sandbox`. */
 export const SANDBOX_TOOLS: ToolFamily = {
 	"sandbox_shell": { group: "sandbox", handler: (args, ctx) => handleSandboxShellGroup("sandbox_shell", args, ctx) },
@@ -21,4 +26,5 @@ export const SANDBOX_TOOLS: ToolFamily = {
 	"sandbox_list": { group: "sandbox", handler: (args, ctx) => handleSandboxShellGroup("sandbox_list", args, ctx) },
 	"sandbox_download": { group: "sandbox", handler: (args, ctx) => handleSandboxShellGroup("sandbox_download", args, ctx) },
 	[SANDBOX_RELEASE_TOOL_NAME]: { group: "sandbox", handler: handleSandboxRelease },
+	[VIDEO_TRANSCRIPT_TOOL_NAME]: { group: "sandbox", handler: handleVideoTranscript },
 };

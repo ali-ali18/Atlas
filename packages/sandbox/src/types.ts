@@ -48,6 +48,8 @@ export type ControlPageChanges = {
 	states?: string[];
 	dialogsOpened?: string[];
 	dialogsClosed?: string[];
+	/** Motor v2: diff da árvore de acessibilidade por ref (`+ button "X" [e5]`, `- ...`, `~ ...`), no máximo 25 linhas. */
+	tree?: string[];
 };
 
 /** Efeito observado depois de uma ação (servidor novo; ausente em imagens antigas). */
@@ -65,6 +67,8 @@ export type ControlActionEffect = {
 	changes?: ControlPageChanges;
 	/** Erros de validação NOVOS (campo inválido ou alerta dentro de form/diálogo). */
 	errors?: string[];
+	/** Motor v2: a ref tinha vencido e a ação foi no único elemento com o mesmo papel e nome. */
+	note?: string;
 	/** Elementos novos ou que reapareceram, uma linha com ref cada. */
 	newElements?: string[];
 	newTotal?: number;
@@ -141,9 +145,15 @@ export type ControlBrowserClickResult = ControlActionEffect & {
 
 export type ControlSnapshotOptions = {
 	scope?: string;
+	/** Lista de elementos: índice do primeiro. Árvore: deslocamento em caracteres. */
 	offset?: number;
+	/** Lista: até 80 elementos. Árvore: caracteres por página (padrão 6000, máx. 20000). */
 	limit?: number;
 	area?: "viewport" | "page";
+	/** "dom" força a lista de elementos (v1); sem valor, o servidor usa a árvore de acessibilidade quando a flag está ligada. */
+	engine?: "ax" | "dom";
+	/** Árvore: mostra o nó e os filhos completos (sem "+N similares" no primeiro nível). */
+	ref?: string;
 };
 
 export type ControlSnapshotResult = {
@@ -156,8 +166,23 @@ export type ControlSnapshotResult = {
 	scrollY?: number;
 	scrollHeight?: number;
 	viewportHeight?: number;
-	/** Uma linha compacta por elemento, já com o ref: `[e3] textbox "Cliente" ...`. */
+	/** Uma linha compacta por elemento, já com o ref: `[e3] textbox "Cliente" ...`. Na árvore, os elementos acionáveis do chunk (o muro de login lê daqui). */
 	lines: string[];
+	/** Motor que respondeu; ausente em imagens antigas (= "dom"). */
+	engine?: "ax" | "dom";
+	/** Motor v2: a árvore de acessibilidade podada, indentada, com refs (`button "Enviar" [e13]`). */
+	tree?: string;
+	/** Motor v2: tamanho total da árvore renderizada, em caracteres (offset/limit/nextOffset são em caracteres). */
+	treeLength?: number;
+	area?: "viewport" | "page" | "ref";
+	/** Motor v2: blocos que ficaram fora da janela. */
+	omitted?: number;
+	/** Motor v2: nós ocultos pela sonda de recorte (acordeão fechado, fora da tela). */
+	hidden?: number;
+	/** Páginas seguintes servidas do cache do chunk anterior. */
+	cached?: boolean;
+	/** Por que caiu no snapshot v1 (ex.: árvore passou de 4 s). */
+	note?: string;
 };
 
 export type ControlReadOptions = {
@@ -251,8 +276,12 @@ export type ControlActResult = ControlActionEffect & {
 };
 
 export type ControlWaitParams = {
-	for: "text" | "ref" | "url" | "network" | "stable";
+	for: "text" | "ref" | "url" | "network" | "stable" | "text_stable";
 	value?: string;
+	/** text_stable: ref do alvo (senão `scope`; sem nenhum, o bloco que mais mudou). */
+	ref?: string;
+	/** text_stable: seletor CSS do alvo. */
+	scope?: string;
 	timeoutMs?: number;
 	gone?: boolean;
 };
@@ -265,6 +294,10 @@ export type ControlWaitResult = {
 	url: string;
 	title: string;
 	reason?: string;
+	/** text_stable: o texto chegou a mudar durante a espera. */
+	changed?: boolean;
+	/** text_stable: tamanho do texto do alvo. */
+	textLength?: number;
 };
 
 // --- Shell / arquivos dentro da sandbox (docker exec no container do bot) ---
