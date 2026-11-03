@@ -16,15 +16,35 @@ describe("detectLoginWall: só campo de senha visível ou URL de login conhecida
 		expect(detectLoginWall({ url: "https://erp.test/home", lines: ['[e2] textbox "Senha" (campo de senha: nunca preencha)'] })?.reason).toBe("password-field");
 	});
 
-	it("URL de login conhecida pausa: provedor de identidade e segmento /login, /signin, /entrar", () => {
+	it("host de provedor de identidade pausa sozinho; segmento de login exige também um formulário com campo", () => {
 		expect(detectLoginWall({ url: "https://accounts.google.com/v3/signin/identifier?hl=pt" })).toEqual({
 			site: "accounts.google.com",
 			key: "https://accounts.google.com/v3/signin/identifier",
 			reason: "login-page",
 		});
-		for (const url of ["https://x.com/entrar", "https://app.test/login", "https://app.test/users/sign-in", "https://app.test/login.php", "https://app.test/#/login", "https://login.microsoftonline.com/common/oauth2"]) {
-			expect(detectLoginWall({ url })?.reason, url).toBe("login-page");
+		const form = ['[e1] textbox "Usuário"', '[e2] button "Entrar"'];
+		for (const url of ["https://x.com/entrar", "https://app.test/login", "https://app.test/users/sign-in", "https://app.test/login.php", "https://app.test/#/login", "https://x.com/acesso", "https://app.test/sso/start", "https://app.test/oauth2/authorize", "https://app.test/session/new"]) {
+			expect(detectLoginWall({ url, lines: form })?.reason, url).toBe("login-page");
+			// Só o segmento, sem formulário nem senha: não pausa (`/docs/login` é documentação).
+			expect(detectLoginWall({ url, lines: ['[e1] link "Docs"'] }), url).toBeNull();
 		}
+		expect(detectLoginWall({ url: "https://app.test/docs/login" })).toBeNull();
+	});
+
+	it("campo de código de uso único pausa como muro de verificação (MFA), em qualquer URL", () => {
+		const otp = ['[e1] textbox "Código" (campo de código de uso único: nunca preencha)'];
+		expect(detectLoginWall({ url: "https://id.test/u/mfa-otp-challenge", lines: otp })?.reason).toBe("verification-code");
+		expect(detectLoginWall({ url: "https://id.test/home", lines: otp })?.reason).toBe("verification-code");
+		expect(detectLoginWall({ url: "https://id.test/u/mfa-otp-challenge", fields: { oneTimeCode: true } })?.reason).toBe("verification-code");
+		// Caminhos de MFA como segmento: com formulário pausa; sem formulário, não.
+		expect(detectLoginWall({ url: "https://id.test/u/mfa-otp-challenge", lines: ['[e1] textbox "Code"'] })?.reason).toBe("login-page");
+		expect(detectLoginWall({ url: "https://id.test/u/mfa-otp-challenge", lines: [] })).toBeNull();
+	});
+
+	it("campos informados pela leitura (sem linhas) valem: /acesso com senha pausa", () => {
+		expect(detectLoginWall({ url: "https://erp.test/acesso", text: "Entre", fields: { password: true } })?.reason).toBe("password-field");
+		expect(detectLoginWall({ url: "https://erp.test/acesso", text: "Entre", fields: { input: true } })?.reason).toBe("login-page");
+		expect(detectLoginWall({ url: "https://erp.test/acesso", text: "Entre", fields: {} })).toBeNull();
 	});
 
 	it("sem senha e sem URL de login, nada pausa: sessão expirada, 'please sign in', Linear e 'Continue with Google' viram só dica", () => {
@@ -78,6 +98,9 @@ describe("detectLoginHint: sinal fraco, só vira nota", () => {
 	it("botão Google isolado e texto de blog não dão nem dica; título de login com credenciais dá", () => {
 		expect(detectLoginHint({ url: "https://gemini.google.com/app", lines: ['[e1] button "Continue with Google"', '[e2] textbox "Prompt"'] })).toBeNull();
 		expect(detectLoginHint({ url: "https://blog.test/article", title: "Google", text: "Continue with Google. Enter your email and continue." })).toBeNull();
+		// Segmento de login sem formulário: só dica.
+		expect(detectLoginHint({ url: "https://app.test/docs/login", text: "Como configurar o login" })?.reason).toBe("login-url");
+		expect(detectLoginHint({ url: "https://app.test/relogin-tips" })).toBeNull();
 		expect(detectLoginHint({ url: "https://x.com/acesso", title: "Entrar", text: "Usuário e senha" })?.reason).toBe("login-title");
 	});
 
@@ -85,6 +108,9 @@ describe("detectLoginHint: sinal fraco, só vira nota", () => {
 		const note = loginHintNote({ site: "gemini.google.com", reason: "sign-in-entries" });
 		expect(note).toContain("may need a login");
 		expect(note).toContain("tell the user what you need");
+		// Mesma proibição do núcleo do prompt e a oferta do cofre.
+		expect(note).toContain("Never type passwords, one-time codes or other credentials the user did not give you for this");
+		expect(note).toContain("use the vault (login_fill) if available");
 		expect(note).not.toMatch(/MUST|CRITICAL|LOGIN REQUIRED/);
 	});
 });
@@ -92,7 +118,11 @@ describe("detectLoginHint: sinal fraco, só vira nota", () => {
 describe("helpers", () => {
 	it("isKnownLoginUrl compara segmento inteiro", () => {
 		expect(isKnownLoginUrl("https://a.com/login")).toBe(true);
-		expect(isKnownLoginUrl("https://a.com/login-tips")).toBe(false);
+		expect(isKnownLoginUrl("https://a.com/login-tips")).toBe(true);
+		expect(isKnownLoginUrl("https://a.com/u/mfa-otp-challenge")).toBe(true);
+		expect(isKnownLoginUrl("https://a.com/oauth2/x")).toBe(true);
+		expect(isKnownLoginUrl("https://a.com/authors")).toBe(false);
+		expect(isKnownLoginUrl("https://a.com/relogin")).toBe(false);
 		expect(isKnownLoginUrl("https://a.com/blog/signing")).toBe(false);
 		expect(isKnownLoginUrl("não é url")).toBe(false);
 	});
