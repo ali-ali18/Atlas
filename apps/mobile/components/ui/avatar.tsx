@@ -18,6 +18,7 @@ import Svg, { G, Path } from "react-native-svg";
 import { PUSH_AVATAR_BACKGROUND } from "@workspace/shared";
 import type { MobileAvatarState } from "@/lib/avatar-activity";
 import { poseFrame, type Pose } from "@/lib/avatar-pose";
+import { SPIN_PERIOD_S, spinPoseAtStep, spinStep } from "@/lib/avatar-spin";
 import { cn } from "@/lib/cn";
 import { themeColor } from "@/lib/theme";
 import { useAppColorScheme } from "@/lib/use-theme";
@@ -62,7 +63,19 @@ export type AvatarProps = {
 	 * a respiração e a piscada do app não combinam com o corpo girado.
 	 */
 	pose?: Pose;
+	/**
+	 * Giro contínuo no próprio eixo vertical (yaw de 360°, o `spin` do motor do web em laço), para a tela "Conectando".
+	 * Usa o motor de verdade: a cada passo de 7,5° pega o quadro do motor naquele yaw (`poseFrame` + `projectFrame`, em cache)
+	 * e redesenha; o centro fica fixo. O corpo vem inclinado (`SPIN_BASE_POSE`: de lado, olhando para cima) e o giro é o yaw em torno
+	 * desse eixo. Só gira com `animated` (e sem "reduzir movimento"); senão fica parado nessa pose inclinada.
+	 */
+	spin?: boolean;
+	/** Segundos por volta do `spin`. */
+	spinPeriodS?: number;
 };
+
+/** Quadros projetados já calculados (forma, expressão e pose): o giro repete os mesmos 48 yaws a cada volta. */
+const projectedCache = new Map<string, { body: string; eyes: string }>();
 
 // Tempos do motor do web (BEHAVIOR_TUNING e CHARACTER_TUNING em packages/shared/src/avatar/model):
 // piscada de 0,12 s que fecha até 10% (blinkMin 0,1) e reabre; intervalo de 2 a 6 s; 18% das vezes uma
@@ -146,25 +159,53 @@ function playTrack(target: SharedValue<number>, keys: readonly Key[], scale = 1)
  * fora o olhar que segue o toque, o cérebro (indicadores, morphs, anel) e os clipes 3D de repouso (Idle_A/B/D),
  * que dependem do loop de quadros do motor.
  */
-export function Avatar({ ariaLabel, className, color, shape = "blob", size = 120, animated = true, mood = "neutral", state, eyeColor: eyeColorProp, breathe = false, look = true, pose }: AvatarProps) {
+export function Avatar({ ariaLabel, className, color, shape = "blob", size = 120, animated = true, mood = "neutral", state, eyeColor: eyeColorProp, breathe = false, look = true, pose: poseProp, spin = false, spinPeriodS = SPIN_PERIOD_S }: AvatarProps) {
 	const scheme = useAppColorScheme();
 	const reducedMotion = useReducedMotion();
 	const live = animated && !reducedMotion;
+
+	// Giro: um laço de quadros troca o passo de yaw (no máximo 48 por volta); só redesenha quando o passo muda.
+	const spinning = spin && live;
+	// Com `spin` o corpo vem inclinado (de lado, olhando para cima); sem movimento fica parado nessa pose (passo 0).
+	const [step, setStep] = React.useState(0);
+	React.useEffect(() => {
+		if (!spinning) {
+			setStep(0);
+			return;
+		}
+		const startedAt = Date.now();
+		let frameId = 0;
+		const tick = () => {
+			setStep(spinStep((Date.now() - startedAt) / 1000, spinPeriodS));
+			frameId = requestAnimationFrame(tick);
+		};
+		frameId = requestAnimationFrame(tick);
+		return () => cancelAnimationFrame(frameId);
+	}, [spinning, spinPeriodS]);
+	const pose = spin ? spinPoseAtStep(spinning ? step : 0) : poseProp;
+	const poseYaw = pose?.yaw;
+	const posePitch = pose?.pitch;
+	const poseRoll = pose?.roll;
 
 	const bodyColor = color ?? (scheme === "dark" ? "#ffffff" : PUSH_AVATAR_BACKGROUND);
 	const current: MobileAvatarState = state ?? (mood === "happy" ? "happy" : "idle");
 	const eyeColor = eyeColorProp ?? themeColor(scheme, "background");
 	const { transform, body, eyes, eyeCy } = React.useMemo(() => {
 		const expression = STATE_EXPRESSION[current];
-		const frame = pose ? poseFrame(shape, expression, pose) : stillFrame(shape, expression);
-		const projected = projectFrame(frame);
+		const frame = poseYaw !== undefined ? poseFrame(shape, expression, { yaw: poseYaw, pitch: posePitch ?? 0, roll: poseRoll ?? 0 }) : stillFrame(shape, expression);
+		const key = `${shape}|${expression}|${poseYaw}|${posePitch}|${poseRoll}`;
+		let projected = projectedCache.get(key);
+		if (!projected) {
+			projected = projectFrame(frame);
+			projectedCache.set(key, projected);
+		}
 		return {
 			transform: groupTransform(frame),
 			body: projected.body,
 			eyes: projected.eyes,
 			eyeCy: (frame.eyes[0].cy + frame.eyes[1].cy) / 2,
 		};
-	}, [shape, current, pose]);
+	}, [shape, current, poseYaw, posePitch, poseRoll]);
 
 	// Respiração: um ciclo de 3,6 s (vai e volta), fase única para escala, flutuação e balanço.
 	const breath = useSharedValue(0);
