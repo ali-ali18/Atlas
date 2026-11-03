@@ -40,6 +40,7 @@ export type {
 export { runSandboxOperation, assertSandboxExecution, SandboxExecutionAbortedError, SandboxOperationTimeoutError, type SandboxExecutionContext } from "./execution-context.js";
 
 export { workVolumeName, homeVolumeName, sandboxBinds } from "./docker-manager.js";
+export { CLAUDE_LOGIN_MOUNT, claudeLoginBind, claudeLoginVolumeName } from "./claude-login-volume.js";
 export {
 	runShell,
 	waitShell,
