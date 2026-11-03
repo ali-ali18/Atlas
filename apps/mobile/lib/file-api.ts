@@ -12,7 +12,14 @@ import {
 	MAX_VIEW_BYTES,
 } from "./document-view";
 import type { ApiFetch } from "./home-sync";
-import { TimeoutError, withTimeout } from "./with-timeout";
+import { withTimeout } from "./with-timeout";
+
+/** O download passou do tempo combinado (a rede é abortada antes de rejeitar). */
+export class TimeoutError extends Error {
+	constructor(readonly ms: number) {
+		super("Tempo esgotado");
+	}
+}
 
 /** Teto de tempo de um download (conexão + corpo); passou disso, a rede é abortada e quem chamou mostra "demorou demais". */
 export const DOWNLOAD_TIMEOUT_MS = 30_000;
@@ -75,7 +82,10 @@ async function readCapped(response: Response, limit: number): Promise<Uint8Array
  */
 export function downloadFile(apiFetch: ApiFetch, id: string, limit: number, timeoutMs = DOWNLOAD_TIMEOUT_MS): Promise<{ bytes: Uint8Array; mime: string }> {
 	const controller = new AbortController();
-	return withTimeout(downloadWithSignal(apiFetch, id, limit, controller.signal), timeoutMs, () => controller.abort());
+	return withTimeout(downloadWithSignal(apiFetch, id, limit, controller.signal), timeoutMs, () => {
+		controller.abort();
+		return new TimeoutError(timeoutMs);
+	});
 }
 
 async function downloadWithSignal(apiFetch: ApiFetch, id: string, limit: number, signal: AbortSignal): Promise<{ bytes: Uint8Array; mime: string }> {

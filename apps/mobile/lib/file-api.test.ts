@@ -1,8 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { ChatApiError } from "./chat-api";
 import { MAX_IMAGE_BYTES, MAX_VIEW_BYTES } from "./document-view";
-import { downloadFile, downloadForShare, fetchDocument, fileErrorRetryable, fileErrorText, FileTooLargeError } from "./file-api";
-import { TimeoutError } from "./with-timeout";
+import { downloadFile, downloadForShare, fetchDocument, fileErrorRetryable, fileErrorText, FileTooLargeError, TimeoutError } from "./file-api";
 
 const reply = (body: BodyInit, headers: Record<string, string> = {}, status = 200) => new Response(body, { status, headers });
 

@@ -1,8 +1,7 @@
 // Frases do visualizador de imagens para o resultado de Encaminhar, Compartilhar e Salvar (pt-BR simples, sem texto
 // técnico). Puro: a parte nativa (compartilhar, galeria) está em `share-file.ts` e `save-image.ts`.
 import { ChatApiError } from "./chat-api";
-import { FileTooLargeError } from "./file-api";
-import { TimeoutError } from "./with-timeout";
+import { FileTooLargeError, TimeoutError } from "./file-api";
 
 export type SaveOutcome = "saved" | "denied" | "unavailable";
 

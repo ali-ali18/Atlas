@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ChatApiError } from "./chat-api";
-import { FileTooLargeError } from "./file-api";
-import { TimeoutError } from "./with-timeout";
+import { FileTooLargeError, TimeoutError } from "./file-api";
 import { IMAGE_NOTICE, imageDownloadErrorText, saveOutcomeText } from "./image-actions";
 
 describe("imageDownloadErrorText", () => {
