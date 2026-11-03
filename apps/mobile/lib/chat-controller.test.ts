@@ -21,7 +21,7 @@ const delta = (text: string): ComputerUseEvent => ({ type: "assistant_delta", id
 
 type Script = (options: FollowOptions, runId: string) => Promise<FollowResult>;
 
-function setup(overrides: { api?: Partial<ChatApi>; follow?: Script; conversationId?: string | null; cache?: ChatDeps["cacheFor"] } = {}) {
+function setup(overrides: { api?: Partial<ChatApi>; follow?: Script; conversationId?: string | null; cache?: ChatDeps["cacheFor"]; deps?: Partial<ChatDeps> } = {}) {
 	let runCount = 0;
 	const calls = { createRun: [] as unknown[], createRunInput: [] as Array<[string, string]>, cancelRun: [] as string[], submit: [] as unknown[], reaction: [] as string[], unread: [] as string[], inputReplies: [] as Array<string | undefined>, fetchPage: [] as string[], createConversation: 0, unauthorized: 0 };
 	const api: ChatApi = {
@@ -48,6 +48,7 @@ function setup(overrides: { api?: Partial<ChatApi>; follow?: Script; conversatio
 		sleep: async () => undefined,
 		clientKey: () => `k${++seq}`,
 		throttleMs: 0,
+		...overrides.deps,
 	};
 	const controller = new ChatController(deps, { id: "bot1", conversationId: overrides.conversationId === undefined ? "c1" : overrides.conversationId });
 	return { controller, calls };
@@ -88,6 +89,63 @@ describe("abertura e conversa", () => {
 		controller.update({ id: "bot1", conversationId: "c-outra" });
 		await flush();
 		expect(calls.fetchPage.includes("c-outra")).toBe(false);
+	});
+});
+
+describe("modelo do run (seletor do composer)", () => {
+	it("o envio leva os campos de modelo da escolha de agora; sem escolha o run não diz nada de modelo", async () => {
+		let fields: Record<string, unknown> = {};
+		const { controller, calls } = setup({ deps: { modelFields: () => fields } });
+		await controller.open();
+		controller.send("sem escolha");
+		await flush();
+		expect(calls.createRun[0]).toMatchObject({ model: {} });
+		fields = { model: "x/y", reasoningEffort: "high" };
+		controller.send("com escolha");
+		await flush();
+		expect(calls.createRun[1]).toMatchObject({ model: { model: "x/y", reasoningEffort: "high" } });
+	});
+	it("chat novo: a conversa criada pelo envio é avisada (a escolha feita antes passa a ser salva nela)", async () => {
+		const created: string[] = [];
+		const { controller, calls } = setup({ conversationId: null, deps: { modelFields: () => ({ modelAuto: true }), onConversationCreated: (id) => void created.push(id) } });
+		await controller.open();
+		controller.send("primeira");
+		await flush();
+		expect(created).toEqual(["c-new"]);
+		expect(calls.createRun[0]).toMatchObject({ conversationId: "c-new", model: { modelAuto: true } });
+	});
+	it("modelo recusado pelo servidor: apaga a escolha, avisa e NÃO reenvia com outro modelo", async () => {
+		let rejected = 0;
+		let attempts = 0;
+		const { controller } = setup({
+			api: { createRun: async () => (attempts++, Promise.reject(new ChatApiError("Modelo ChatGPT indisponível nesta conta", 400))) },
+			deps: { modelFields: () => ({ model: "chatgpt/luna" }), onModelRejected: () => void rejected++ },
+		});
+		await controller.open();
+		controller.send("oi");
+		await flush();
+		expect(rejected).toBe(1);
+		expect(attempts).toBe(1);
+		expect(controller.getSnapshot().error).toContain("voltei ao modelo do bot");
+	});
+	it("recusa sem modelo enviado não mexe na escolha", async () => {
+		let rejected = 0;
+		const { controller } = setup({
+			api: { createRun: async () => Promise.reject(new ChatApiError("Modelo inválido", 400)) },
+			deps: { modelFields: () => ({}), onModelRejected: () => void rejected++ },
+		});
+		await controller.open();
+		controller.send("oi");
+		await flush();
+		expect(rejected).toBe(0);
+	});
+	it("conversa que já existe não dispara o aviso", async () => {
+		const created: string[] = [];
+		const { controller } = setup({ deps: { onConversationCreated: (id) => void created.push(id) } });
+		await controller.open();
+		controller.send("oi");
+		await flush();
+		expect(created).toEqual([]);
 	});
 });
 
