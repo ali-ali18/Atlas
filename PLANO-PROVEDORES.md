@@ -37,7 +37,7 @@ Objetivo: o dono escolhe, por bot, entre modelos do OpenRouter e modelos do Chat
 - Cache: `prompt_cache_retention: "24h"`, mas o `prompt_cache_key` voltou aleatório por request. Se podemos enviar uma chave estável nossa é **(hipótese)**.
 
 ### Fora de escopo (explícito)
-- **Assinatura da Anthropic (Claude Pro/Max): uso PROIBIDO pelos termos deles. Não implementar, não pesquisar contorno, não deixar gancho "para depois".**
+- **Assinatura da Anthropic (Claude Pro/Max): só pelo caso do ADR 0006** (decisão do dono, 03/11/2026): o Claude Code **oficial, sem modificação**, logado pelo **próprio dono** pelo fluxo da Anthropic, com o login em volume dedicado que o Atlas nunca lê. Continua PROIBIDO: coletar, guardar, ler ou repassar token da assinatura, usar o token fora do binário oficial (SDK, proxy, outro cliente), modificar o binário, usar a assinatura de um usuário para outro, revender. Não implementar contorno fora do ADR.
 - Reaproveitar tokens, client id ou `auth.json` do Codex CLI. Só o fluxo oficial SIWC com client dinâmico.
 - Multiusuário ou hospedagem remota com a assinatura (exige waitlist).
 - Troca do Jev, resumo, revisão de memória e reconciliação de custo para o ChatGPT (ficam no OpenRouter).
