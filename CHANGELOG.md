@@ -5,6 +5,7 @@ Todas as mudanças relevantes do Atlas. Formato [Keep a Changelog](https://keepa
 ## [Não lançado]
 
 ### Corrigido
+- **agent:** o bot não repete mais a resposta que já entregou: com itens abertos na lista, o lembrete e o resultado de fechar a lista faziam o modelo reescrever o resumo numa segunda bolha; agora dizem que a fala anterior já foi mostrada, e resposta vazia depois do lembrete encerra com o texto entregue. Some também o rodapé automático "Não deu para confirmar: …" (o modelo diz o que ficou de fora na própria resposta; o apêndice dos documentos continua). Cartão de agente ou habilidade pendente deixa de ser lembrado a cada mensagem.
 - **agent:** quem tem muitos conectores voltou a conseguir criar bot pelo chat: a busca de ferramentas achava algo parecido num conector (ex.: Figma, GitHub) e devolvia só isso, escondendo `propose_bot`. Grupo nativo pequeno (até 2 tools) que casa por palavra distintiva agora carrega junto. O índice e o resultado da carga lembram o modelo de não citar nome de ferramenta ao usuário.
 
 ### Alterado
