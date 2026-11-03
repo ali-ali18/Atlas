@@ -31,7 +31,6 @@ import {
 	Mic as LucideMic,
 	Monitor as LucideMonitor,
 	MousePointer2 as LucideMousePointer2,
-	Check as LucideCheck,
 	CircleAlert as LucideCircleAlert,
 	CirclePause as LucideCirclePause,
 	CircleStop as LucideCircleStop,
@@ -141,10 +140,6 @@ export function CursorIcon({ size = 22, color = "#a1a1aa" }: IconProps & { color
 	return <LucideMousePointer2 size={size} color={color} strokeWidth={2} />;
 }
 
-/** Lucide `Check`. Cor fixa, como `CursorIcon`. */
-export function CheckIcon({ size = 20, color = "#ffffff" }: IconProps & { color?: string }) {
-	return <LucideCheck size={size} color={color} strokeWidth={2} />;
-}
 
 /** Lucide `Mic`. */
 export function MicIcon({ size = 20, tone = "muted-foreground" }: LineIconProps) {
