@@ -1,4 +1,4 @@
-import { DashPathEffect, Group, LinearGradient, Line as SkLine, Rect, rect, vec } from "@shopify/react-native-skia";
+import { Circle, DashPathEffect, Group, LinearGradient, Line as SkLine, Rect, rect, vec } from "@shopify/react-native-skia";
 import * as React from "react";
 import { View } from "react-native";
 import { useDerivedValue } from "react-native-reanimated";
@@ -108,6 +108,13 @@ export function CartesianPlot({ spec, theme, width }: ChartPlotProps) {
 								if (layer === "bar") return <Bar key={key} points={points[key]} chartBounds={chartBounds} color={color} innerPadding={0.35} roundedCorners={{ topLeft: 3, topRight: 3 }} />;
 								return <Line key={key} points={points[key]} color={color} strokeWidth={2} curveType="monotoneX" />;
 							})}
+							{model.actual === 1
+								? spec.series.map((item, index) => {
+										// Uma linha só: a linha não desenha nada entre dois pontos, então a série vira um ponto.
+										const point = points[SERIES_KEYS[index]!][0];
+										return kindOf(spec.type, item.kind, index) !== "bar" && point && typeof point.y === "number" ? <Circle key={`dot-${item.key}`} cx={point.x} cy={point.y} r={4} color={seriesColor(theme.colors, index)} /> : null;
+									})
+								: null}
 							{spec.forecast ? <Line points={points.f} color={seriesColor(theme.colors, 0)} strokeWidth={2} curveType="linear">{dash}</Line> : null}
 							<Group opacity={indicatorOpacity}>
 								<Indicator state={state} chartBounds={chartBounds} theme={theme} />
