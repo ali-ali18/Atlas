@@ -34,6 +34,13 @@
         }
       ],
       "expo-secure-store",
+      [
+        "expo-media-library",
+        {
+          "savePhotosPermission": "O Atlas salva na sua galeria as imagens que você escolher guardar.",
+          "isAccessMediaLocationEnabled": false
+        }
+      ],
       "expo-web-browser"
     ],
     "experiments": {
