@@ -1,6 +1,6 @@
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
-import { ADDED_MAX_CHARS, diffPageDigest, summarizeChanges } from "./page-digest.mjs";
+import { ADDED_MAX_CHARS, diffPageDigest, summarizeChanges, readDigestInPage } from "./page-digest.mjs";
 import { createBrowserActions } from "./browser-actions.mjs";
 import { createRefActions } from "./browser-refs.mjs";
 import { launchFixtureBrowser } from "./test-browser.mjs";
@@ -110,7 +110,13 @@ const feedPanel = `<body style="margin:0"><button id="ask" onclick="document.get
 <aside id="panel" hidden style="position:fixed;right:0;top:0;width:260px;background:#eee"><p>RESPOSTA DO PAINEL: resumo pronto.</p></aside>
 <script>document.getElementById('comments').innerHTML = Array.from({ length: 15000 }, (_, i) => '<p>Comment '+i+' about nothing</p>').join('');</script></body>`;
 
+// 80 mil linhas separadas por quebra de linha (160 mil nós de texto, acima do teto de 150 mil visitas contadas em dobro). O botão acrescenta uma linha
+// abaixo da dobra (depois da linha 500, dentro do que o digest cobre).
+const giant = `<body style="margin:0"><button id="add" onclick="const r=document.getElementById('r');const d=document.createElement('div');d.textContent='NOVO LA EMBAIXO';r.insertBefore(d,r.children[500])">Add below</button><div id="r"></div>
+<script>document.getElementById('r').innerHTML=Array.from({length:80000},(_, i)=>'<div>Line '+i+' of text</div>').join("\\n")</script></body>`;
+
 const fixtures = await launchFixtureBrowser({
+	"/giant": giant,
 	"/feedpanel": feedPanel,
 	"/accordion": accordion,
 	"/modal": modal,
@@ -233,4 +239,43 @@ test("real: clique que abre o painel lateral, atrás de 15 mil comentários, tra
 	const { refs, refOf } = await open("/feedpanel");
 	const res = await refs.browserAct({ ref: refOf("Ask"), action: "click" });
 	assert.ok(res.changes?.added?.includes("RESPOSTA DO PAINEL"), JSON.stringify(res.changes));
+});
+
+test("real: página de 80 mil linhas: o digest traz o que está abaixo da dobra, não só a tela", { skip }, async () => {
+	const { page } = await open("/giant");
+	const d = await page.evaluate(readDigestInPage);
+	// Antes: a passada da tela e a do resto contavam o mesmo nó e o teto de nós parava no 39º bloco.
+	assert.ok(d.blocks.length > 1000, `só ${d.blocks.length} blocos`);
+	assert.ok(d.blocks.includes("Line 500 of text"), "linha abaixo da dobra");
+});
+
+test("real: página de 80 mil linhas: clique que acrescenta texto lá embaixo aparece como novo", { skip }, async () => {
+	const { refs, refOf } = await open("/giant");
+	const res = await refs.browserAct({ ref: refOf("Add below"), action: "click" });
+	assert.ok(res.changes?.added?.includes("NOVO LA EMBAIXO"), JSON.stringify(res.changes));
+});
+
+test("real: página de 80 mil linhas: o digest custa o mesmo de uma caminhada honesta pelo texto (teto de tempo)", { skip }, async () => {
+	const { page } = await open("/giant");
+	// Referência no mesmo navegador/máquina: percorrer todos os nós de texto pedindo a geometria do pai.
+	const baseline = () =>
+		page.evaluate(() => {
+			const t = performance.now();
+			const w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+			for (let n = w.nextNode(); n; n = w.nextNode()) if (/\S/.test(n.nodeValue)) n.parentElement.getBoundingClientRect();
+			return performance.now() - t;
+		});
+	const timed = async (fn) => {
+		const times = [];
+		for (let i = 0; i < 3; i += 1) {
+			const t = Date.now();
+			await fn();
+			times.push(Date.now() - t);
+		}
+		return Math.min(...times);
+	};
+	const base = await timed(baseline);
+	const digestMs = await timed(() => page.evaluate(readDigestInPage));
+	assert.ok(digestMs < 3 * base + 150, `digest ${digestMs} ms contra ${base} ms da caminhada de referência`);
+	assert.ok(digestMs < 2000, `digest ${digestMs} ms`);
 });

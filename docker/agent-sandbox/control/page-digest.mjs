@@ -84,27 +84,30 @@ export function readDigestInPage() {
 	// teto preserva), o resto segue em ordem de documento. Critério estrutural.
 	const vw = window.innerWidth || document.documentElement.clientWidth || 0;
 	const vh = window.innerHeight || document.documentElement.clientHeight || 0;
+	const rectInView = (r) => r.width > 0 && r.height > 0 && r.bottom > 0 && r.right > 0 && r.top < vh && r.left < vw;
 	const inViewCache = new Map();
 	const inView = (el) => {
 		let v = inViewCache.get(el);
 		if (v === undefined) {
-			const r = el.getBoundingClientRect();
-			v = r.width > 0 && r.height > 0 && r.bottom > 0 && r.right > 0 && r.top < vh && r.left < vw;
+			v = rectInView(el.getBoundingClientRect());
 			inViewCache.set(el, v);
 		}
 		return v;
 	};
 
-	// Texto por bloco (ancestral não-inline mais próximo). Passadas: A = dialog/aside/
-	// complementary visíveis na tela; B = blocos que intersectam a viewport; C = o resto.
-	const blocks = [];
+	// UMA caminhada em ordem de documento classifica cada bloco em "tela" (dialog/aside
+	// visíveis + o que intersecta a viewport) ou "resto". Cada nó é contado UMA vez em
+	// `visited`: o teto de tempo (MAX_VISITED) vale para a página, não por passada.
+	const front = [];
+	const rest = [];
 	const byBlock = new Map();
 	const blockOfCache = new Map();
 	const skip = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "TEMPLATE", "TEXTAREA", "OPTION"]);
-	const seenText = new WeakSet();
-	let useful = 0;
+	const seenText = new WeakSet(); // só os nós lidos pela passada de painéis (A)
+	let usefulFront = 0;
+	let usefulRest = 0;
 	let visited = 0;
-	let full = false;
+	let restFull = false; // o balde "resto" não aceita mais nada: só a tela ainda interessa
 	const blockOf = (parent) => {
 		let block = blockOfCache.get(parent);
 		if (block) return block;
@@ -118,63 +121,64 @@ export function readDigestInPage() {
 		blockOfCache.set(parent, block);
 		return block;
 	};
-	const scan = (textRoot, onlyInView) => {
+	const scan = (textRoot, forceFront) => {
 		const walker = document.createTreeWalker(textRoot, NodeFilter.SHOW_TEXT);
-		for (let node = walker.nextNode(); node && !full; node = walker.nextNode()) {
-			if (seenText.has(node)) continue;
+		for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+			if (!forceFront && seenText.has(node)) continue;
 			visited += 1;
-			if (visited > MAX_VISITED) {
-				full = true;
-				break;
-			}
+			if (visited > MAX_VISITED) return;
+			if (forceFront) seenText.add(node);
 			const raw = node.nodeValue;
-			if (!raw || !/\S/.test(raw)) {
-				seenText.add(node);
-				continue;
-			}
+			if (!raw || !/\S/.test(raw)) continue;
 			const parent = node.parentElement;
-			if (!parent || skip.has(parent.tagName)) {
-				seenText.add(node);
-				continue;
+			if (!parent || skip.has(parent.tagName)) continue;
+			// Balde "resto" cheio: só o que está na tela ainda pode entrar. Rejeita barato
+			// (uma geometria) o pai fora da tela; caixa sem tamanho segue o caminho completo.
+			if (restFull && !forceFront) {
+				const pr = parent.getBoundingClientRect();
+				if (pr.width > 0 && pr.height > 0 && !rectInView(pr)) continue;
 			}
 			const block = blockOf(parent);
-			if (onlyInView && !inView(block)) continue;
 			let entry = byBlock.get(block);
 			if (entry === undefined) {
 				if (!rendered(block)) {
 					byBlock.set(block, null);
-					seenText.add(node);
 					continue;
 				}
-				if (blocks.length >= MAX_BLOCKS) {
-					full = true;
-					break;
+				const onScreen = forceFront || inView(block);
+				const bucket = onScreen ? front : rest;
+				if (bucket.length >= MAX_BLOCKS) {
+					byBlock.set(block, null);
+					if (!onScreen) restFull = true;
+					continue;
 				}
-				entry = { text: "" };
+				entry = { text: "", onScreen };
 				byBlock.set(block, entry);
-				blocks.push(entry);
+				bucket.push(entry);
+				if (!onScreen && rest.length >= MAX_BLOCKS) restFull = true;
 			}
-			if (!entry) {
-				seenText.add(node);
-				continue;
-			}
-			seenText.add(node);
-			useful += 1;
-			if (useful > MAX_TEXT_NODES) {
-				full = true;
-				break;
+			if (!entry) continue;
+			if (entry.onScreen) {
+				if (usefulFront >= MAX_TEXT_NODES) continue;
+				usefulFront += 1;
+			} else {
+				if (usefulRest >= MAX_TEXT_NODES) {
+					restFull = true;
+					continue;
+				}
+				usefulRest += 1;
 			}
 			entry.text += ` ${raw}`;
 		}
 	};
 	const textRoots = [document.body || document.documentElement, ...roots.slice(1)];
-	// Passada A: painéis e diálogos visíveis na tela.
+	// Painéis e diálogos visíveis na tela entram primeiro.
 	const priority = deepAll('dialog[open],aside,[role="complementary"],[role="dialog"],[role="alertdialog"],[aria-modal="true"]').filter(
 		(el) => rendered(el) && inView(el),
 	);
-	for (const el of priority) if (!full) scan(el, false);
-	for (const textRoot of textRoots) if (!full) scan(textRoot, true);
-	for (const textRoot of textRoots) if (!full) scan(textRoot, false);
+	for (const el of priority) scan(el, true);
+	for (const textRoot of textRoots) scan(textRoot, false);
+	const blocks = [...front, ...rest.slice(0, Math.max(0, MAX_BLOCKS - front.length))];
 
 	const states = [];
 	const stateAttrs = ["aria-expanded", "aria-checked", "aria-selected", "aria-pressed"];
