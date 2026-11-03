@@ -27,10 +27,10 @@ async function render(locale: UiLocale): Promise<string> {
 	);
 }
 
-test("a descrição diz que o gasto é opcional (vazio = sem limite) e o tempo vai de 1 a 180 min, nas 3 línguas", async () => {
-	assert.match(await render("pt-BR"), /vazio = sem limite\) e tempo máximo \(de 1 a 180 minutos, padrão 60\)/);
-	assert.match(await render("en-US"), /empty = no limit\) and maximum time \(1 to 180 minutes, default 60\)/);
-	assert.match(await render("es-ES"), /vacío = sin límite\) y tiempo máximo \(de 1 a 180 minutos, 60 por defecto\)/);
+test("a descrição diz que o gasto é opcional (vazio = sem limite) e o tempo é opcional (1 a 180 min), nas 3 línguas", async () => {
+	assert.match(await render("pt-BR"), /vazio = sem limite\) e tempo máximo \(opcional, de 1 a 180 minutos, vazio = sem limite\)/);
+	assert.match(await render("en-US"), /empty = no limit\) and maximum time \(optional, 1 to 180 minutes, empty = no limit\)/);
+	assert.match(await render("es-ES"), /vacío = sin límite\) y tiempo máximo \(opcional, de 1 a 180 minutos, vacío = sin límite\)/);
 });
 
 test("mensagens de valor recusado existem nas 3 línguas", async () => {

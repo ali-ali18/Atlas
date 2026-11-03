@@ -24,7 +24,7 @@ export type AgentBudget = {
 	softMaxSteps: number;
 	/** Teto de decisões do modelo. */
 	hardMaxSteps: number;
-	/** Teto de relógio por run. 0 = sem limite. */
+	/** Teto de relógio por run. 0 = sem limite (o padrão). */
 	maxWallMs: number;
 	/** Teto de tokens (prompt+completion). undefined = só registra. */
 	maxTokens?: number;
@@ -37,8 +37,8 @@ export type AgentBudget = {
 };
 
 export const BUDGET_HARD_CAP = 300;
+/** Soft do motor anterior em run SEM humano (rotina, brief, check, subagente): avaliação de progresso aos 24 passos. */
 export const BUDGET_SOFT_DEFAULT = 24;
-export const BUDGET_WALL_DEFAULT_MS = 30 * 60 * 1000;
 export const BUDGET_EXTENSION_DEFAULT = 24;
 /**
  * F4 — travas por tool, nunca globais. 3 falhas seguidas da mesma tool a
@@ -117,6 +117,8 @@ export function resolveBudget(input: {
 	/** maxSteps do request (legado = teto duro). */
 	maxSteps?: number;
 	policy?: AgentBudgetPolicy | null;
+	/** Turno digitado pelo dono (chat com humano): sem soft por padrão (decisão do dono, 02/11). Sem humano, o soft de 24 passos continua. */
+	humanTurn?: boolean;
 }): AgentBudget {
 	const policy = input.policy ?? {};
 	const hard = Math.max(
@@ -128,9 +130,12 @@ export function resolveBudget(input: {
 				BUDGET_HARD_CAP,
 		),
 	);
-	const softRaw = positiveInt(policy.softMaxSteps) ?? BUDGET_SOFT_DEFAULT;
+	// Chat com humano: sem soft por padrão (o teto de passos é o de segurança, `hard`). Sem humano (rotina, brief, check,
+	// subagente) o soft de 24 passos e o `softEvaluate` continuam. Soft configurado pelo dono vale sempre.
+	const softRaw = positiveInt(policy.softMaxSteps) ?? (input.humanTurn === true ? hard : BUDGET_SOFT_DEFAULT);
 	const softMaxSteps = Math.max(1, Math.min(softRaw, hard));
-	const wall = positiveMs(policy.maxWallMs) ?? BUDGET_WALL_DEFAULT_MS;
+	// Sem teto de relógio por padrão (0 = sem limite): só o `maxWallMs` que o dono configurou (conta, bot ou pedido) vale.
+	const wall = positiveMs(policy.maxWallMs) ?? 0;
 	return {
 		softMaxSteps,
 		hardMaxSteps: hard,
@@ -169,7 +174,7 @@ export function wallClockAnchors(input: {
 		baseMs,
 		executionStartMs,
 		deadlineAtMs:
-			input.maxWallMs > 0
+			Number.isFinite(input.maxWallMs) && input.maxWallMs > 0
 				? executionStartMs + Math.max(0, input.maxWallMs - baseMs)
 				: undefined,
 	};

@@ -7,6 +7,7 @@ import {
 	resolveBotEngineRouting,
 	type EngineDefault,
 	looksLikeLongTask,
+	isShortContinuation,
 	readEnginePolicy,
 	readRunEngine,
 	readRunProfile,
@@ -18,7 +19,7 @@ import {
 } from "./engine-policy.js";
 
 describe("readEnginePolicy", () => {
-	it("bot sem política usa o motor novo (padrão) em todas as origens, perfil automático, sem limite de gasto e 60 min de tempo máximo", () => {
+	it("bot sem política usa o motor novo (padrão) em todas as origens, perfil automático, sem limite de gasto e sem tempo máximo explícito (longWorkMinutes só vale se o dono preencheu)", () => {
 		expect(ENGINE_DEFAULT_SCOPE).toBe("all");
 		for (const raw of [null, undefined, {}, [], "x", 3]) {
 			expect(readEnginePolicy(raw)).toEqual({
@@ -252,6 +253,34 @@ describe("perfil do run", () => {
 		expect(looksLikeLongTask("Research the market for specialty coffee and prepare a report with sources")).toBe(true);
 	});
 
+	it("pedido de ação em site ou app (2+ verbos de ação, ou 1 verbo com URL) é trabalho longo", () => {
+		for (const text of [
+			"abra o Gemini e peça um resumo desse vídeo",
+			"entra no gemini e pede pra resumir https://youtu.be/abc123",
+			"vai lá no site da loja, loga e me diz o status do pedido 1234",
+			"acesse o painel do bling, exporte as vendas de outubro",
+			"baixe a nota fiscal em https://example.com/nf/123 para mim agora",
+			"go to the dashboard, click export and send me the file",
+		]) expect(looksLikeLongTask(text), text).toBe(true);
+	});
+
+	it("raízes soltas e pedidos sem alvo digital não viram trabalho longo", () => {
+		for (const text of [
+			"pode me enviar o acesso do wifi do escritório?",
+			"qual o link para acessar o painel? vou abrir agora",
+			"o que significa open source? e como baixar?",
+			"vai na padaria e pede um pão",
+			"me ajuda a baixar o preço e enviar pro cliente",
+			"como faço para exportar o relatorio e enviar ao financeiro?",
+		]) expect(looksLikeLongTask(text), text).toBe(false);
+	});
+
+	it("conversa curta ou pergunta com um verbo solto continua chat", () => {
+		for (const text of ["oi", "bom dia", "obrigado", "vai chover amanhã em São Paulo?", "me envie um resumo do que combinamos ontem", "o preço ficou entre 10 e 20 reais, certo?"]) {
+			expect(looksLikeLongTask(text), text).toBe(false);
+		}
+	});
+
 	it("pedido de várias etapas encadeadas é trabalho longo (caso real do Cookie)", () => {
 		const cookie = "Abra o vídeo https://youtu.be/abc123, faça perguntas ao Gemini sobre ele, compare com Hermes, Dots e Grok Bot e monte um relatório";
 		expect(looksLikeLongTask(cookie)).toBe(true);
@@ -304,5 +333,15 @@ describe("perfil do run", () => {
 		expect(resolveRunProfile({ policy: readEnginePolicy({}), text, origin: "webhook" })).toBe("chat");
 		expect(resolveRunProfile({ policy: readEnginePolicy({ workProfile: "long_work" }), text: "oi", origin: "webhook" })).toBe("long_work");
 		expect(resolveRunProfile({ policy: readEnginePolicy({ workProfile: "long_work" }), text: "oi", origin: "email" })).toBe("long_work");
+	});
+});
+
+describe("isShortContinuation", () => {
+	it("mensagem curta que só manda seguir", () => {
+		for (const text of ["continua", "Continue", "pode seguir", "segue", "segue em frente", "ok, continua", "vai em frente!", "continua de onde parou", "go on", "keep going", "pode continuar por favor", "segue", "seguir", "manda ver", "prossiga"]) expect(isShortContinuation(text), text).toBe(true);
+	});
+
+	it("pedido novo, pergunta ou texto longo não é continuação", () => {
+		for (const text of ["", "oi", "continua a pesquisa sobre o preço do lítio em várias lojas e monte um relatório", "o que você acha de continuar?", "seguro de carro", "Bom dia", "segundo", "segura", "segurança"]) expect(isShortContinuation(text), text).toBe(false);
 	});
 });

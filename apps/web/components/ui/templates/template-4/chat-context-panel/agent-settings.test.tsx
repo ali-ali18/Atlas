@@ -189,9 +189,11 @@ test("'Novo (padrão)' mostra o texto do orçamento, os campos (US$ e minutos) e
 	assert.doesNotMatch(visibleText, /\bv2\b|policyJson|helperModel|longWork/i, "nada de internals na tela");
 });
 
-test("'Novo (padrão)' sem gasto máximo: o campo de gasto vem vazio com 'sem limite' e o tempo é 60 min", () => {
+test("'Novo (padrão)' sem gasto máximo: os campos de gasto e de tempo vêm vazios com 'sem limite'", () => {
 	const html = render(bot({ policyJson: { engine: "v2" } }));
 	assert.match(html, /placeholder="sem limite"/);
 	assert.match(html, /aria-label="Gasto máximo por tarefa longa"[^>]*value=""|value=""[^>]*aria-label="Gasto máximo por tarefa longa"/);
-	assert.match(html, /aria-label="Tempo em minutos"[^>]*value="60"|value="60"[^>]*aria-label="Tempo em minutos"/);
+	assert.match(html, /aria-label="Tempo em minutos"[^>]*value=""|value=""[^>]*aria-label="Tempo em minutos"/);
+	// Com tempo configurado pelo dono o campo mostra o valor.
+	assert.match(render(bot({ policyJson: { engine: "v2", longWorkMinutes: 45 } })), /aria-label="Tempo em minutos"[^>]*value="45"|value="45"[^>]*aria-label="Tempo em minutos"/);
 });

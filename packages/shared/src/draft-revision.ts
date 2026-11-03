@@ -26,6 +26,8 @@ export const DRAFT_REVISION_REASONS = [
 	"unverified_work",
 	/** Pergunta no meio do trabalho que a pesquisa ou um padrão sensato resolvia: o run seguiu sozinho. */
 	"unneeded_question",
+	/** O rascunho só prometia uma ação ("vou pedir...") sem chamar a tool: o run voltou a executar. */
+	"announced_action",
 ] as const;
 
 export type DraftRevisionReason = (typeof DRAFT_REVISION_REASONS)[number];
@@ -41,6 +43,7 @@ const LABELS: Record<DraftRevisionReason, string> = {
 	unverified_screen: "eu ainda não tinha conferido a tela",
 	unverified_work: "eu ainda não tinha rodado os testes das mudanças",
 	unneeded_question: "eu ia perguntar algo que dava para resolver sozinho",
+	announced_action: "eu só tinha dito o que ia fazer, sem fazer",
 };
 
 /** Motivo curto (pt-BR) mostrado no rascunho recolhido. Motivo desconhecido (evento antigo) → genérico. */

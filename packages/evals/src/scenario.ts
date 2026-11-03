@@ -126,9 +126,11 @@ export const scenarioSchema = z
 				origin: z.string().default("chat"),
 				/** Run do brief "Seu dia": aplica o mesmo filtro só de leitura do worker (nativa da lista do brief + conector somente leitura). */
 				briefReadOnly: z.boolean().default(false),
+				/** Motor do cenário: `v2` roda o motor novo (perfil chat) quando o runner não pede um motor próprio. Omitido = motor atual (v1). */
+				engine: z.enum(["v1", "v2"]).default("v1"),
 			})
 			.strict()
-			.default({ maxSteps: 8, origin: "chat", briefReadOnly: false }),
+			.default({ maxSteps: 8, origin: "chat", briefReadOnly: false, engine: "v1" }),
 		expect: z.array(expectation).min(1),
 		/** Roteiro do modelo falso (modo mock/CI): valida o harness, não o modelo. */
 		mock: z.object({ turns: z.array(mockTurn).min(1), cheapAnswer: z.string().optional() }).strict().optional(),

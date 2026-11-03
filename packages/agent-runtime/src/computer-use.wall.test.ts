@@ -63,7 +63,7 @@ describe("teto de relógio conta só tempo ativo", () => {
 		const error = await runComputerUse(
 			base(
 				{ version: 1, messages: [], nextStepIndex: 0, activeElapsedMs: 31 * MIN },
-				{ runStartedAt: Date.now() - 4 * HOUR, streamChat },
+				{ runStartedAt: Date.now() - 4 * HOUR, streamChat, budget: { maxWallMs: 30 * MIN } },
 			),
 		).catch((e: unknown) => e);
 		expect(error).toMatchObject({ name: "BudgetExhaustedError" });

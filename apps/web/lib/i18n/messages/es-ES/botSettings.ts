@@ -35,7 +35,7 @@ export const botSettings: NamespaceMessages<typeof ptBR> = {
 	"botSettings.engineNew": "Nuevo (predeterminado)",
 	"botSettings.engineNewHelp": "El motor nuevo trabaja hasta terminar en vez de parar a la mitad para preguntar: decide que ya investigó lo suficiente por el progreso de la tarea, no por el precio. Vale desde el próximo mensaje.",
 	"botSettings.engineBudget": "Límites de la tarea larga",
-	"botSettings.engineBudgetDesc": "Gasto máximo (opcional, vacío = sin límite) y tiempo máximo (de 1 a 180 minutos, 60 por defecto). Si completas el gasto, pasa a ser un tope duro y el bot aún reserva el final para escribir.",
+	"botSettings.engineBudgetDesc": "Gasto máximo (opcional, vacío = sin límite) y tiempo máximo (opcional, de 1 a 180 minutos, vacío = sin límite). Si completas el gasto, pasa a ser un tope duro y el bot aún reserva el final para escribir.",
 	"botSettings.engineBudgetUsdInvalid": "Usa un valor entre US$ 0,05 y 20, o déjalo vacío para no limitar.",
 	"botSettings.engineBudgetMinutesInvalid": "Usa un valor entre 1 y 180 minutos.",
 	"botSettings.engineBudgetUsd": "Gasto máximo por tarea larga",

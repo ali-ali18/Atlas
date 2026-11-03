@@ -46,7 +46,7 @@ import {
 	resolveUserImagesCard,
 } from "@workspace/db";
 import { noteBrowserLanguage } from "@workspace/db";
-import { pickLanguageFromAcceptLanguage } from "@workspace/shared";
+import { isShortContinuation, pickLanguageFromAcceptLanguage } from "@workspace/shared";
 import { parseReasoningEffort, parseReplyToMessageId } from "@workspace/shared";
 import { demoteSteerInputToQueue, getOwnedConversation, markPendingLoginCode, markPendingLoginUseVault, promoteQueuedInputToSteer } from "@workspace/db";
 import { scopeFor, type AuthEnv } from "../middleware/auth.js";
@@ -460,6 +460,8 @@ export function createRunRoutes(
 				humanTurn: isHumanTypedTurn(request, followUpFromConfirm),
 				// Clique de cartão: é resposta humana dentro do trabalho do dono (herda turno humano, motor e perfil do último run).
 				inheritFromConversation: request.origin === "chat" && !isHumanTypedTurn(request, followUpFromConfirm),
+				// "continua" digitado depois de um run que parou com trabalho aberto: herda o perfil em vez de recomeçar do zero.
+				inheritWhenContinuation: isHumanTypedTurn(request, followUpFromConfirm) && isShortContinuation([...request.messages].reverse().find((message) => message.role === "user")?.content ?? ""),
 				contextLength: peekModelContextLength(model),
 				onMergedIntoActiveRun: (runId) => notifyRunSignal(publish, runId, "input"),
 			});

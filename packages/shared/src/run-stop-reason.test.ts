@@ -110,3 +110,11 @@ describe("run-stop-reason em tempo linear (CodeQL)", () => {
 		expect(inferStopReasonFromLegacy({ status: "failed", error: "falhou 6 ferramentas seguidas" })).toBe("tool_failures");
 	});
 });
+
+describe("stoppedWithOpenWork", () => {
+	it("laço, teto de passos, falhas e lista aberta deixam trabalho por fazer; resposta normal não", async () => {
+		const { stoppedWithOpenWork } = await import("./run-stop-reason.js");
+		for (const stop of [{ reason: "loop_repeat" }, { reason: "budget_steps" }, { reason: "tool_failures" }, { reason: "answered", detail: "tasklist_open" }, { reason: "loop_repeat", detail: "after_note:items_open" }]) expect(stoppedWithOpenWork(stop), JSON.stringify(stop)).toBe(true);
+		for (const stop of [{ reason: "answered" }, { reason: "cancelled" }, { reason: null }, {}]) expect(stoppedWithOpenWork(stop), JSON.stringify(stop)).toBe(false);
+	});
+});

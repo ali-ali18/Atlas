@@ -35,7 +35,7 @@ export const botSettings: NamespaceMessages<typeof ptBR> = {
 	"botSettings.engineNew": "New (default)",
 	"botSettings.engineNewHelp": "The new engine works until it finishes instead of stopping halfway to ask: it decides it has researched enough by the progress of the task, not by price. Applies from the next message.",
 	"botSettings.engineBudget": "Long task limits",
-	"botSettings.engineBudgetDesc": "Maximum spending (optional, empty = no limit) and maximum time (1 to 180 minutes, default 60). If you fill in the spending it becomes a hard cap and the bot still keeps the end for writing.",
+	"botSettings.engineBudgetDesc": "Maximum spending (optional, empty = no limit) and maximum time (optional, 1 to 180 minutes, empty = no limit). If you fill in the spending it becomes a hard cap and the bot still keeps the end for writing.",
 	"botSettings.engineBudgetUsdInvalid": "Enter a value between US$ 0.05 and 20, or leave it empty for no limit.",
 	"botSettings.engineBudgetMinutesInvalid": "Enter a value between 1 and 180 minutes.",
 	"botSettings.engineBudgetUsd": "Maximum spending per long task",
