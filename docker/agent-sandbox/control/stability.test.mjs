@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import net from "node:net";
+import http from "node:http";
 import { after } from "node:test";
 import { launchFixtureBrowser } from "./test-browser.mjs";
 import { installProbeInPage, readProbeInPage, waitForNetworkQuiet, stabilizePage, waitUntilContentReady, waitUntilQuiet, waitUntilSettled } from "./stability.mjs";
@@ -194,5 +195,25 @@ test("real: rede com requisição em voo recente NÃO é quieta e cai no teto co
 		await page.close();
 		for (const socket of sockets) socket.destroy();
 		await new Promise((resolve) => hang.close(resolve));
+	}
+});
+
+test("real: wait de rede não diz quieto com requisição lenta (4 s) ainda pendente", { skip: probeFixtures ? false : "Chromium indisponível" }, async () => {
+	const slow = http.createServer((req, res) => {
+		setTimeout(() => { res.setHeader("access-control-allow-origin", "*"); res.end("ok"); }, 4000);
+	});
+	await new Promise((resolve) => slow.listen(0, "127.0.0.1", resolve));
+	const page = await probeFixtures.newPage();
+	try {
+		await page.goto(`${probeFixtures.base}/`);
+		await page.evaluate(installProbeInPage);
+		await page.evaluate((url) => { fetch(url).catch(() => {}); }, `http://127.0.0.1:${slow.address().port}/slow`);
+		const res = await waitForNetworkQuiet(page, { timeoutMs: 9000 });
+		assert.equal(res.quiet, true);
+		assert.ok(res.waitedMs >= 3800, `disse quieto cedo demais: ${res.waitedMs} ms`);
+	} finally {
+		await page.close();
+		slow.closeAllConnections?.();
+		await new Promise((resolve) => slow.close(resolve));
 	}
 });

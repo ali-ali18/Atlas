@@ -246,7 +246,10 @@ export function installProbeInPage() {
  * Roda NA página: estado de estabilidade. `mark` zera a janela de silêncio
  * (a ação acabou de acontecer). `fresh:true` = documento novo, sem sonda.
  */
-export function readProbeInPage(mark) {
+export function readProbeInPage(arg) {
+	// `arg`: boolean (mark) ou { mark, all }. `all` conta toda requisição pendente, sem o corte de 2,5 s.
+	const mark = arg === true || arg?.mark === true;
+	const all = arg?.all === true;
 	const probe = window.__atlasProbe;
 	if (!probe) {
 		return { fresh: true };
@@ -261,9 +264,10 @@ export function readProbeInPage(mark) {
 			break;
 		}
 	}
-	// Só conta o que começou há menos de 2,5 s: long-poll/stream de minutos não trava toda ação por 3 s.
+	// No settle pós-ação só conta o que começou há menos de 2,5 s: long-poll/stream de minutos não trava toda ação.
+	// O wait explícito de rede (`all`) conta tudo até o teto dele.
 	let inflight = 0;
-	for (const startedAt of probe.pending?.values?.() ?? []) if (now - startedAt < 2500) inflight += 1;
+	for (const startedAt of probe.pending?.values?.() ?? []) if (all || now - startedAt < 2500) inflight += 1;
 	return {
 		idle: now - Math.max(probe.last, probe.mark),
 		netIdle: now - (probe.lastNet ?? 0),
@@ -379,7 +383,7 @@ export async function waitForNetworkQuiet(page, { timeoutMs, quietMs = NET_QUIET
 	for (;;) {
 		let sample = null;
 		try {
-			sample = await page.evaluate(readProbeInPage, false);
+			sample = await page.evaluate(readProbeInPage, { mark: false, all: true });
 		} catch {
 			// navegando: tenta de novo
 		}
