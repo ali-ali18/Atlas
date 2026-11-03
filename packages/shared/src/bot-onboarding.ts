@@ -1,3 +1,5 @@
+import { languageInstruction, type BotLanguage } from "./bot-language.js";
+
 /**
  * Onboarding de um bot recém-criado: o SERVIDOR dispara o run (um ponto só, ver
  * docs/adr/ onboarding-no-servidor). Aqui ficam as peças puras: marcador do objetivo,
@@ -16,7 +18,7 @@ export function botCreatedClientKey(botId: string): string {
 
 /** `true` para o objetivo de um run de onboarding (servidor ou web antigo). */
 export function isBotCreatedObjective(objective: string | null | undefined): boolean {
-	return typeof objective === "string" && objective.startsWith(BOT_CREATED_OBJECTIVE_MARKER);
+	return typeof objective === "string" && objective.trimStart().toLowerCase().startsWith(BOT_CREATED_OBJECTIVE_MARKER);
 }
 
 export function buildBotCreatedObjective(botName: string): string {
@@ -24,8 +26,17 @@ export function buildBotCreatedObjective(botName: string): string {
 }
 
 /** System prompt do run de onboarding. The reply language comes from the bot language setting. */
-export function buildBotCreatedSystem(botName: string): string {
+export function buildBotCreatedSystem(botName: string, language?: BotLanguage): string {
 	const name = botName.trim().slice(0, BOT_NAME_MAX_CHARS) || "bot";
+	const languageSection = language
+		? [
+				"",
+				"## Language",
+				// O único "texto do usuário" do run é o JSON do evento (chaves em inglês): sem isso o modo auto escolheria inglês.
+				"- The user message below is a machine event, not something the user wrote. Do not take its language as the user's language.",
+				`- ${languageInstruction(language)}`,
+			]
+		: [];
 	return [
 		`You are the assistant of the newly created bot "${name}". Be friendly and direct.`,
 		"",
@@ -43,6 +54,7 @@ export function buildBotCreatedSystem(botName: string): string {
 		"## Finish",
 		"- When onboarding is done (enough answers or the user is satisfied), consolidate the briefing/snippet and call `propose_profile_update`. Never edit the profile directly.",
 		"- Do not use canned static text.",
+		...languageSection,
 	].join("\n");
 }
 
@@ -50,9 +62,11 @@ export function buildBotCreatedSystem(botName: string): string {
 export function buildBotCreatedMessages(input: {
 	name: string;
 	description?: string | null;
+	/** Idioma resolvido do bot (fixo, ou o da conta/navegador no modo auto); sem ele o prompt não fixa idioma. */
+	language?: BotLanguage;
 }): Array<{ role: "system" | "user"; content: string }> {
 	return [
-		{ role: "system", content: buildBotCreatedSystem(input.name) },
+		{ role: "system", content: buildBotCreatedSystem(input.name, input.language) },
 		{
 			role: "user",
 			content: JSON.stringify({

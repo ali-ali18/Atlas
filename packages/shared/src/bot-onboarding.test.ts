@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { languageInstruction } from "./bot-language.js";
 import {
 	BOT_CREATED_OBJECTIVE_MARKER,
 	botCreatedClientKey,
@@ -56,5 +57,21 @@ describe("onboarding de bot novo", () => {
 		expect(system?.role).toBe("system");
 		expect(user?.role).toBe("user");
 		expect(JSON.parse(user!.content)).toEqual({ event: "bot-created", name: "Lia", description: "vendas" });
+	});
+});
+
+describe("idioma do onboarding", () => {
+	it("sem idioma o prompt não fixa nenhum; com idioma põe a instrução e avisa que o evento não é fala do usuário", () => {
+		expect(buildBotCreatedSystem("Lia")).not.toContain("## Language");
+		const system = buildBotCreatedSystem("Lia", "en-US");
+		expect(system).toContain("## Language");
+		expect(system).toContain("machine event");
+		expect(system).toContain(languageInstruction("en-US"));
+		expect(buildBotCreatedMessages({ name: "Lia", language: "pt-BR" })[0]!.content).toContain(languageInstruction("pt-BR"));
+	});
+
+	it("o marcador do objetivo ignora maiúsculas", () => {
+		expect(isBotCreatedObjective("[Bot-Created] x")).toBe(true);
+		expect(isBotCreatedObjective("pedido [bot-created]")).toBe(false);
 	});
 });
