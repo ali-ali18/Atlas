@@ -32,6 +32,8 @@ export const LONG_WORK_BUDGET: SupervisorBudget = { maxCostUsd: Number.POSITIVE_
 
 /** A partir daqui o modelo é avisado (uma vez) para fechar e entregar; vale só para um teto que o DONO configurou (US$ ou tempo). */
 export const WRAP_UP_RATIO = 0.8;
+/** Aviso de passos (uma vez): vale para o teto efetivo de passos, seja o de segurança ou o do dono. */
+export const STEPS_NOTICE_RATIO = 0.75;
 /** Chat promovível: a lista de tarefas que o modelo monta com este número de passos (ou mais) mostra que o pedido é trabalho longo (único gatilho: tempo não promove mais). */
 export const PROMOTE_PLAN_STEPS = 3;
 /**
@@ -102,6 +104,11 @@ export type ToolVerdict = { notes: string[]; abort?: RunStop };
 /** Aviso a ~80% de um teto que o dono configurou. Só dispara com teto finito, então a palavra "cap" é sempre verdadeira. */
 export const WRAP_UP_NOTE =
 	"Cap notice: most of the cap the owner configured for this run is used. Stop opening new lines of research. Finish what is in progress and deliver the final answer now, with sources, assumptions and anything you could not confirm.";
+
+/** Aviso de passos: devolve a decisão ao modelo sem tirar tool nem mudar fase. Não fala de tempo nem de custo, para não contradizer `WRAP_UP_NOTE`. */
+export function stepsNoticeNote(left: number): string {
+	return `Step notice: about ${left} steps left in this run. Prioritize finishing the task and delivering; save partial results to the notebook if the work is long.`;
+}
 
 /** Estagnação: só uma nota. Nada de fase nova nem tool removida; o run segue. */
 export const STAGNATION_ACTION_NOTE =
@@ -190,7 +197,7 @@ export type SupervisorGateContext = {
 };
 
 /** O que o supervisor guarda no checkpoint para a retomada não reenviar a nota nem perder a renovação do tempo. */
-export type SupervisorState = { wrapUpSent?: boolean; timeBaseMs?: number };
+export type SupervisorState = { wrapUpSent?: boolean; timeBaseMs?: number; stepsNoticeSent?: boolean };
 
 export function createSupervisor(config: {
 	profile: SupervisorProfile;
@@ -209,6 +216,8 @@ export function createSupervisor(config: {
 	let promoted = false;
 	const maxSteps = config.maxSteps ?? MAX_STEPS_SAFETY;
 	let wrapUpSent = false;
+	/** O aviso de passos vale para o run todo (a mensagem nova do usuário não o libera: o teto de passos é cumulativo). */
+	let stepsNoticeSent = false;
 	/** Base do tempo: a fração de tempo conta a partir daqui (mensagem nova do usuário a reinicia; o gasto em US$ não). */
 	let timeBaseMs = 0;
 	let lastNotebook: number | undefined;
@@ -255,13 +264,14 @@ export function createSupervisor(config: {
 		},
 		/** Estado que a retomada precisa (vai no checkpoint). */
 		state(): SupervisorState {
-			return { ...(wrapUpSent ? { wrapUpSent: true } : {}), ...(timeBaseMs > 0 ? { timeBaseMs } : {}) };
+			return { ...(wrapUpSent ? { wrapUpSent: true } : {}), ...(timeBaseMs > 0 ? { timeBaseMs } : {}), ...(stepsNoticeSent ? { stepsNoticeSent: true } : {}) };
 		},
 		/** Reaplica o estado do checkpoint (depois de `promote`, que zera o aviso). */
 		restore(saved: SupervisorState | undefined): void {
 			if (!saved) return;
 			if (typeof saved.timeBaseMs === "number" && Number.isFinite(saved.timeBaseMs) && saved.timeBaseMs >= 0) timeBaseMs = saved.timeBaseMs;
 			if (saved.wrapUpSent === true) wrapUpSent = true;
+			if (saved.stepsNoticeSent === true) stepsNoticeSent = true;
 		},
 		/**
 		 * Promoção automática chat -> trabalho longo, no mesmo run: troca o teto pelo do trabalho longo (o que o dono configurou
@@ -317,6 +327,11 @@ export function createSupervisor(config: {
 			if (!wrapUpSent && used >= WRAP_UP_RATIO - 1e-9) {
 				wrapUpSent = true;
 				return { action: "call", note: WRAP_UP_NOTE };
+			}
+			// Passos: ao chegar a 75% do teto efetivo, uma nota. Se o aviso de fechamento saiu neste mesmo passo, este espera o próximo.
+			if (!stepsNoticeSent && Number.isFinite(maxSteps) && usage.step >= Math.ceil(maxSteps * STEPS_NOTICE_RATIO)) {
+				stepsNoticeSent = true;
+				return { action: "call", note: stepsNoticeNote(maxSteps - usage.step) };
 			}
 			// Estagnação: só uma nota e a contagem recomeça (nenhuma tool sai do catálogo, nenhuma fase muda).
 			if (stagnantSteps >= STAGNATION_STEPS) {

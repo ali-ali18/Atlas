@@ -10,6 +10,7 @@ import {
 	GLOBAL_FAILURE_NOTE_AT,
 	deliveryInstruction,
 	WRAP_UP_NOTE,
+	stepsNoticeNote,
 	PROMOTE_PLAN_STEPS,
 	budgetForProfile,
 	capSourcesFor,
@@ -528,5 +529,58 @@ describe("instruções de entrega honestas por motivo", () => {
 		expect(capSourcesFor({ ...base, paramsCostCapUsd: 0.25 }).cost).toBe("account");
 		expect(capSourcesFor({ ...base, paramsCostCapUsd: 1, longWorkBudgetUsd: 0.25, declared: { cost: "server" } }).cost).toBe("bot");
 		expect(capSourcesFor({ budget: CHAT_BUDGET })).toEqual({});
+	});
+});
+
+describe("aviso de passos (75% do teto efetivo)", () => {
+	const make = (over: Partial<Parameters<typeof createSupervisor>[0]> = {}) => createSupervisor({ profile: "long_work", budget: LONG_WORK_BUDGET, ...over });
+	const notesOver = (supervisor: ReturnType<typeof make>, total: number, from = 0) => {
+		const at: number[] = [];
+		for (let step = from; step < total; step += 1) {
+			const gate = supervisor.gate(usage(0, 1000, step), { notebookCount: step });
+			if (gate.action === "call" && gate.note?.startsWith("Step notice")) at.push(step);
+		}
+		return at;
+	};
+
+	it("run de 200 passos: o aviso aparece uma vez, no passo 150, com 50 restantes", () => {
+		const supervisor = make();
+		expect(notesOver(supervisor, 200)).toEqual([150]);
+		expect(make().gate(usage(0, 1000, 150), { notebookCount: 1 })).toEqual({ action: "call", note: stepsNoticeNote(50) });
+		expect(stepsNoticeNote(50)).toBe("Step notice: about 50 steps left in this run. Prioritize finishing the task and delivering; save partial results to the notebook if the work is long.");
+	});
+
+	it("teto do dono de 40 passos: o aviso aparece no 30", () => {
+		expect(notesOver(make({ maxSteps: 40, stepsSource: "account" }), 40)).toEqual([30]);
+	});
+
+	it("retomada a partir do checkpoint não repete o aviso", () => {
+		const first = make();
+		expect(notesOver(first, 160)).toEqual([150]);
+		const saved = JSON.parse(JSON.stringify(first.state()));
+		expect(saved.stepsNoticeSent).toBe(true);
+		const resumed = make();
+		resumed.restore(saved);
+		expect(notesOver(resumed, 200, 160)).toEqual([]);
+	});
+
+	it("a mensagem nova do usuário não libera o aviso de passos (o teto é cumulativo)", () => {
+		const supervisor = make();
+		notesOver(supervisor, 160);
+		supervisor.onUserInput(usage(0, 1000, 160));
+		expect(notesOver(supervisor, 200, 160)).toEqual([]);
+	});
+
+	it("convive com o aviso de 80% de um teto do dono sem se contradizer: cada um sai uma vez, no seu passo", () => {
+		const supervisor = make({ budget: { maxCostUsd: 1, maxActiveMs: Number.POSITIVE_INFINITY }, maxSteps: 40 });
+		const first = supervisor.gate(usage(0.85, 1000, 10));
+		expect(first).toEqual({ action: "call", note: WRAP_UP_NOTE });
+		expect(supervisor.gate(usage(0.85, 1000, 30))).toEqual({ action: "call", note: stepsNoticeNote(10) });
+		expect(supervisor.gate(usage(0.85, 1000, 31))).toEqual({ action: "call" });
+	});
+
+	it("o aviso de passos não fala de tempo nem de custo, e a última chamada (budget_steps) também não", () => {
+		expect(stepsNoticeNote(10)).not.toMatch(/\b(time|cost|spend|budget|limit)/i);
+		expect(deliveryInstruction("budget_steps", { steps: 200 })).not.toMatch(/\btime\b/i);
 	});
 });

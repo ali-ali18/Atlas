@@ -17,7 +17,7 @@ const PACKAGE_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 export type CliArgs = { command: string; positional: string[]; flags: Record<string, string | true> };
 
-const BOOLEAN_FLAGS = new Set(["mock", "help", "live"]);
+const BOOLEAN_FLAGS = new Set(["mock", "help", "live", "reference"]);
 
 export function parseCliArgs(argv: string[]): CliArgs {
 	const args = argv[0] === "--" ? argv.slice(1) : argv;
@@ -79,6 +79,7 @@ list                    lista os cenários
 
 motor-v1-vs-v2          compara o motor atual (v1) e o novo (v2) em 11 tarefas de pesquisa/análise
   (padrão)              modelo roteirizado: sem rede, sem chave, números determinísticos
+  --reference           (motor-v1-vs-v2) só as 2 tarefas de referência do v2: conclusão, passos e tokens de entrada por passo; --repeat N repete
   --live                modelo de verdade via OpenRouter (GASTA tokens; exige OPENROUTER_API_KEY e --model)
   --model ID            modelo que coordena (só --live)
   --helper-model ID     modelo dos ajudantes do v2 (só --live; sem banco o eval não delega, então só vale em produção)
@@ -177,8 +178,20 @@ async function commandEngineCompare(args: CliArgs): Promise<number> {
 	if (live && (!model || !apiKey)) {
 		throw new Error("--live gasta tokens de verdade: informe --model e exporte OPENROUTER_API_KEY (ou --env-file <.env>). Nada foi executado.");
 	}
-	const { runEngineComparison, formatComparisonReport, DEFAULT_PRICES } = await import("./engine-compare/index.js");
+	const { runEngineComparison, formatComparisonReport, DEFAULT_PRICES, runReferenceScenarios, formatReferenceReport } = await import("./engine-compare/index.js");
 	const { streamChatWithTools } = await import("@workspace/llm");
+	// --reference: só as duas tarefas de referência do v2 (conclusão, passos e tokens de entrada por passo), em vez do comparativo.
+	if (args.flags.reference === true) {
+		const referenceReport = formatReferenceReport(
+			await runReferenceScenarios({
+				only: list(flag(args, "only")),
+				...(flag(args, "repeat") !== undefined ? { repeat: number(flag(args, "repeat"), 1) } : {}),
+				...(live ? { live: { model: model!, apiKey, streamChat: (params, handlers) => streamChatWithTools(params, handlers ?? {}) }, timeoutMs: number(flag(args, "timeout"), 300) * 1000 } : {}),
+			}),
+		);
+		console.log(referenceReport);
+		return 0;
+	}
 	const result = await runEngineComparison({
 		prices: { promptUsdPerMTok: number(flag(args, "price-in"), DEFAULT_PRICES.promptUsdPerMTok), completionUsdPerMTok: number(flag(args, "price-out"), DEFAULT_PRICES.completionUsdPerMTok) },
 		...(flag(args, "budget-usd") !== undefined ? { longWorkBudgetUsd: strictNumber("--budget-usd", flag(args, "budget-usd")) } : {}),

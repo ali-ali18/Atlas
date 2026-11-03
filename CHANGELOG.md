@@ -10,6 +10,11 @@ Todas as mudanças relevantes do Atlas. Formato [Keep a Changelog](https://keepa
 - **worker, agent:** rotina e run de bot sem humano voltam a poder virar trabalho longo no meio do run (`canPromote`), pelos mesmos sinais estruturais: lista com 3+ itens (bot) ou 1ª tool de navegador (rotina, que não tem lista). Antes `longWorkOwnerLimits` só liberava a promoção para chat com humano. Verificação curta (alerta, brief, check, proativo) e e-mail/webhook (texto de fora é dado, não ordem) continuam sem promover. O teto de tempo de run sem humano (`unattendedWallMs`, no máximo 30 min) segue valendo, já desde o começo do run.
 - **agent:** pedido de ação em site ou app ("abra o Gemini e peça um resumo", "vai no site, loga e me diz o status", "acesse o painel e exporte as vendas") vira trabalho longo desde o começo, e a 1ª tool de navegador ou VM num chat promove no passo seguinte.
 
+### Adicionado
+- **agent:** aviso de passos ao modelo, uma vez, ao chegar a 75% do teto efetivo de passos (150 de 200; 30 se o dono configurou 40): "Step notice: about N steps left in this run...". Não fala de tempo nem de custo, convive com o aviso de 80% de US$/tempo do dono, e o checkpoint guarda `stepsNoticeSent`, então a retomada não repete. A decisão de fechar continua sendo do modelo.
+- **evals:** cenários de referência do motor v2 (YouTube -> Gemini e pesquisa com 3 fontes), com taxa de conclusão, motivo de término, passos e tokens de entrada por passo: `eval -- motor-v1-vs-v2 --reference`. O comparativo de 11 tarefas não mudou.
+- **infra:** `scripts/run-metrics.sql`, consulta só de leitura sobre `agent_runs` (por origem e perfil: % respondeu, motivos de parada, passos e custo médios e p95, % por contexto e por repetição). Como rodar no Dokploy em `docs/features/motor-v2.md`, seção "Como medir".
+
 ### Quebra de compatibilidade
 - **api:** `POST /v1/runs` (e demais entradas que aceitam `maxSteps`) agora REJEITA `maxSteps` acima de 200 com erro de validação (400); antes o valor era aceito e cortado em silêncio em 300 no motor anterior. Quem integra pela API pública deve enviar no máximo 200 (ou omitir: o padrão gravado é 200). `BREAKING CHANGE:` o limite de passos de uma execução é 200 (`RUN_MAX_STEPS`), igual ao limite de segurança do motor v2.
 

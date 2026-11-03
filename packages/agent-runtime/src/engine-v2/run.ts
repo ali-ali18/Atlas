@@ -560,7 +560,7 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 			contextWarned,
 			...(() => {
 				const state = supervisor.state();
-				return { wrapUpSent: state.wrapUpSent, budgetBaseMs: state.timeBaseMs };
+				return { wrapUpSent: state.wrapUpSent, stepsNoticeSent: state.stepsNoticeSent, budgetBaseMs: state.timeBaseMs };
 			})(),
 			loadedTools: [...catalog.activeMcpTools(), ...tools.map((tool) => tool.function.name).filter((name) => !isMcpToolName(name))],
 			transcriptWatermark: parsed?.transcriptWatermark ?? params.transcriptWatermark,
@@ -1330,7 +1330,7 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 	};
 	if (parsed?.promoted === true) await promoteRun(true);
 	// Depois da promoção (que zera o aviso): a retomada não reenvia a nota de fechamento nem perde a renovação do tempo.
-	supervisor.restore({ wrapUpSent: parsed?.wrapUpSent, timeBaseMs: parsed?.budgetBaseMs });
+	supervisor.restore({ wrapUpSent: parsed?.wrapUpSent, stepsNoticeSent: parsed?.stepsNoticeSent, timeBaseMs: parsed?.budgetBaseMs });
 
 	// Retomada no meio de um lote: as tool calls sem resultado rodam primeiro.
 	const lastAssistant = [...conversation].reverse().find((message) => message.role === "assistant");

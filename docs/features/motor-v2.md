@@ -207,8 +207,35 @@ O núcleo do prompt v2 manda continuar até resolver e só parar por decisão, l
 ## Custo
 Sem custo de infra novo. Tokens: o prompt do v2 é menor que o do v1 no "Bom dia" (testado). Os números de custo real por tarefa vêm do piloto (F4).
 
+## Como medir
+Duas réguas: os cenários de referência (antes de subir uma mudança do motor) e a consulta nos runs reais (depois do deploy).
+
+### Cenários de referência (sem rede)
+`pnpm --filter @workspace/evals run eval -- motor-v1-vs-v2 --reference` roda só no v2 as duas tarefas que motivaram o plano: YouTube -> Gemini (`referencia-youtube-gemini`) e pesquisa com 3 fontes (`referencia-pesquisa-3-fontes`). Os roteiros são os de `engine-v2/contexto.integration.test.ts`. Cada tarefa relata taxa de conclusão (`answered`, sem erro e com texto), motivo de término, passos (chamadas ao modelo) e tokens de entrada por passo. No modo roteiro os tokens são estimados (caracteres / 4) sobre o que o motor de fato enviou: servem para comparar duas versões do motor (se o contexto por passo cresceu), não para prever custo. Com `--live --model <id>` (gasta tokens) e `--repeat N` a taxa de conclusão passa a ser uma fração real. O comparativo `motor-v1-vs-v2` sem `--reference` continua igual (11 tarefas).
+
+### Runs reais (Dokploy)
+`scripts/run-metrics.sql` é uma consulta só de leitura sobre `agent_runs`. No Dokploy, abra o terminal do serviço do Postgres (ou rode de qualquer máquina com acesso ao banco):
+
+```bash
+psql "$DATABASE_URL" -v days=7 -f scripts/run-metrics.sql
+```
+
+`days` é a janela em dias (compare 7 e 30). Só entram runs raiz já terminados (ajudantes ficam fora). Uma linha por origem e perfil (`budgetJson.engineProfile`; run do motor anterior sai como "(sem perfil)") e uma linha TOTAL. Colunas:
+
+| Coluna | O que significa |
+|---|---|
+| `runs` | total de runs do grupo na janela |
+| `pct_respondeu` | % com `stopReason` "answered" **e** resposta não vazia. É o número principal: quanto o bot entrega de fato |
+| `n_answered`, `n_context`, `n_loop_repeat`, `n_budget`, `n_tool_failures`, `n_sem_motivo`, `n_outros` | contagem por motivo de parada (`n_budget` junta os `budget_*`; `n_outros` é o resto) |
+| `passos_media`, `passos_p95` | chamadas ao modelo por run (média e percentil 95). P95 perto de 150 significa runs batendo no aviso de passos |
+| `custo_media_usd`, `custo_p95_usd` | `usageJson.costUsd` por run. É parcial quando o provedor não informou o custo de alguma chamada; run sem custo fica fora da conta |
+| `pct_context` | % que parou por janela do modelo (`budget_context`). Alto = o contexto está estourando |
+| `pct_loop_repeat` | % que parou por repetir a mesma ação. Alto = o bot está preso em laço |
+
+Como ler: depois de uma mudança do motor, `pct_respondeu` não deve cair, e `pct_context` e `pct_loop_repeat` devem ficar perto de zero. Compare a mesma janela antes e depois do deploy e o mesmo perfil (chat com chat). Poucos runs num grupo (menos de ~30) dão número instável.
+
 ## Como testar
 - `pnpm --filter @workspace/shared test` (`engine-policy.test.ts`, `notebook.test.ts`, `engine-helpers.test.ts`).
-- `pnpm --filter @workspace/agent-runtime test` (`engine-v2/supervisor.test.ts`, `task-list.test.ts`, `run.test.ts`: replay de pesquisa com 30 leituras sem corte, "Bom dia" barato, aviso a 80% e entrega sem tools, repetição, falhas, lista de tarefas, retomada); `engine-v2/long-work.test.ts` (caderno: índice compacto, limites, checkpoint e retomada; ajudantes: paralelo, orçamento repartido, falha que não mata o pai, só leitura, escopo, hooks; replay "pesquisa de mercado com 5 fornecedores" com documento), `delivery.test.ts`, `notebook.test.ts`.
+- `pnpm --filter @workspace/agent-runtime test` (`engine-v2/supervisor.test.ts`, `task-list.test.ts`, `run.test.ts`: replay de pesquisa com 30 leituras sem corte, "Bom dia" barato, aviso a 80% e entrega sem tools, aviso de passos a 75% do teto uma vez (150 de 200, 30 de 40; o checkpoint guarda `stepsNoticeSent`), repetição, falhas, lista de tarefas, retomada); `engine-v2/long-work.test.ts` (caderno: índice compacto, limites, checkpoint e retomada; ajudantes: paralelo, orçamento repartido, falha que não mata o pai, só leitura, escopo, hooks; replay "pesquisa de mercado com 5 fornecedores" com documento), `delivery.test.ts`, `notebook.test.ts`.
 - Worker: `cd apps/worker && NODE_ENV=test ATLAS_HOOK_PEPPER=test-pepper pnpm exec tsx --test src/engine-choice.test.ts` (bot sem policy → v2 (padrão); engine v1 explícito → v1; `off` → v1 para todos; policy v2 → v2; retomada respeita o gravado; proativo no escopo `all`; `shortRun` fixa o perfil `chat`).
 - Paridade do proativo/alerta/brief: `engine-v2/proativo.test.ts` (agent-runtime) e `ATLAS_TEST_DB_URL=... pnpm --filter worker test:integration` (`proativo.integration.ts`).
