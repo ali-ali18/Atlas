@@ -381,6 +381,8 @@ export type AgentRunCheckpoint = {
 	deliverable?: "document" | "answer";
 	/** Motor v2: o aviso de fechamento (80% do orçamento) já foi enviado; a retomada não o reenvia. */
 	wrapUpSent?: boolean;
+	/** Motor v2: o aviso de passos (75% do teto efetivo) já foi enviado; a retomada não o repete. */
+	stepsNoticeSent?: boolean;
 	/** Motor v2: o aviso de janela de contexto (75%) já foi enviado; a retomada não o repete. */
 	contextWarned?: boolean;
 	/** Motor v2: tempo ativo (ms) em que a fração de tempo do orçamento recomeçou (mensagem nova do usuário no run). */
