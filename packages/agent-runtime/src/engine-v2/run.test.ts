@@ -421,6 +421,7 @@ describe("motor v2: lista de tarefas em trabalho longo", () => {
 				say("Entrego sem conferir."),
 				say("Entrego mesmo assim."),
 				say("Entrega final."),
+				say("Não conferi os preços: o site não abriu."),
 			],
 			options: { profile: "long_work" },
 		});
@@ -433,11 +434,48 @@ describe("motor v2: lista de tarefas em trabalho longo", () => {
 		// 3 lembretes gastos (sem lista + 2 com itens abertos): a próxima tentativa de entrega passa, marcada com os itens abertos.
 		expect(result.stop).toEqual({ reason: "answered", detail: "tasklist_open" });
 		expect(result.text).toContain("Entrega final.");
-		expect(result.text).toContain("Não deu para confirmar: Pesquisar concorrentes");
-		expect(result.text).toContain("Não deu para confirmar: Conferir preços");
+		// Sem rodapé automático: uma última chamada sem tools faz o modelo avisar o que ficou de fora.
+		expect(result.text).toBe("Entrega final.\n\nNão conferi os preços: o site não abriu.");
+		const closing = requests.at(-1)!;
+		expect(closing.params.toolChoice).toBe("none");
+		expect(closing.params.messages.some((m) => m.role === "user" && String(m.content).includes("Some steps are still open"))).toBe(true);
 	});
 
-	it("itens descartados com motivo liberam a entrega e aparecem como 'não deu para confirmar'", async () => {
+	it("liberação com itens abertos e aviso vazio do modelo: uma linha honesta gerada no código, sem nomes internos", async () => {
+		const { result } = await runV2({
+			messages: [{ role: "user", content: "Faça uma pesquisa de mercado completa e monte um relatório" }],
+			script: [
+				say("Rascunho sem lista."),
+				turn([taskList("k1", [["Conferir preços", "pending"]])]),
+				say("Entrego sem conferir."),
+				say("Entrego mesmo assim."),
+				say("Entrega final."),
+				say(""),
+			],
+			options: { profile: "long_work" },
+		});
+		expect(result.text).toBe("Entrega final.\n\nNão consegui concluir: Conferir preços.");
+		expect(result.text).not.toMatch(/update_task_list|tasklist/);
+	});
+
+	it("chat: resposta vazia logo depois do lembrete com itens abertos encerra com o aviso honesto", async () => {
+		const { result } = await runV2({
+			messages: [{ role: "user", content: "oi" }],
+			script: [turn([taskList("c1", [["Conferir preços", "in_progress"]])]), say("Parcial entregue."), say(""), say("Falta conferir os preços.")],
+		});
+		expect(result.text).toBe("Parcial entregue.\n\nFalta conferir os preços.");
+	});
+
+	it("chat: vazio depois de tools NÃO reaproveita a fala antiga do lembrete", async () => {
+		const { result } = await runV2({
+			messages: [{ role: "user", content: "oi" }],
+			script: [turn([taskList("c1", [["Pesquisar X", "in_progress"]])]), say("Vou pesquisar X."), turn([call("t1", "current_time", {})]), say(""), say("")],
+		});
+		expect(result.text).not.toContain("Vou pesquisar X.");
+		expect(result.stop).toEqual({ reason: "answered", detail: "empty_reply:items_open" });
+	});
+
+	it("itens descartados com motivo liberam a entrega, sem rodapé automático", async () => {
 		const { result, events } = await runV2({
 			messages: [
 				{
@@ -457,13 +495,13 @@ describe("motor v2: lista de tarefas em trabalho longo", () => {
 			options: { profile: "long_work" },
 		});
 		expect(result.stop).toEqual({ reason: "answered" });
-		expect(result.text).toBe("Aqui está o relatório.\n\n- Não deu para confirmar: o site exige login");
-		// O balão ao vivo recebe o mesmo acréscimo.
+		// Nada é anexado à resposta (nem no texto gravado, nem no balão ao vivo).
+		expect(result.text).toBe("Aqui está o relatório.");
 		const deltas = events
 			.filter((event): event is Extract<ComputerUseEvent, { type: "assistant_delta" }> => event.type === "assistant_delta")
 			.map((event) => event.delta)
 			.join("");
-		expect(deltas).toContain("Não deu para confirmar: o site exige login");
+		expect(deltas).not.toContain("Não deu para confirmar");
 	});
 
 	it("no perfil chat a lista não é exigida", async () => {

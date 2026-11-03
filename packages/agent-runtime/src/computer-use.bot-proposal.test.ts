@@ -101,6 +101,14 @@ describe("propose_bot", () => {
 		expect(bots.rows).toHaveLength(1);
 	});
 
+	it("o resultado fica no histórico dos turnos seguintes: não manda lembrar do card pendente a cada mensagem", async () => {
+		const { results } = await run({ script: [turn(call("c1", "propose_bot", proposal)), done] });
+		const summary = results[0]!.summary;
+		expect(summary).toContain("already sees the card");
+		expect(summary).toContain("unless they ask");
+		expect(summary).not.toMatch(/tell the user/i);
+	});
+
 	it("carrega só no chat com o usuário: some em rotina, webhook e conversa entre bots", async () => {
 		const chat = await run({ script: [done] });
 		expect(chat.requests[0]!.messages[0]!.content).toContain("propose_bot");

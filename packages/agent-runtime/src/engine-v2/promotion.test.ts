@@ -683,9 +683,10 @@ describe("anunciar sem fazer (v2): sinal estrutural, sem regex e sem apagar text
 			expect(discards(run), text).toEqual([]);
 		}
 		// No máximo 3 lembretes por run: a 4a resposta sem tool passa.
-		const many = await runChat({ stepMs: 1_000, options: { promotable: false }, messages: [{ role: "user", content: "faça" }], script: [research(0.01), OPEN_LIST(), say("um"), say("dois"), say("três"), say("quatro")] });
-		expect(many.result.text).toBe("quatro");
-		expect(many.seen).toHaveLength(6);
+		const many = await runChat({ stepMs: 1_000, options: { promotable: false }, messages: [{ role: "user", content: "faça" }], script: [research(0.01), OPEN_LIST(), say("um"), say("dois"), say("três"), say("quatro"), say("Faltou pedir o resumo.")] });
+		// Liberada com item aberto: o modelo avisa o que ficou de fora numa última chamada sem tools.
+		expect(many.result.text).toBe("quatro\n\nFaltou pedir o resumo.");
+		expect(many.seen).toHaveLength(7);
 		// Sem lista no run: promessa solta passa direto (vale só a regra do prompt).
 		const noList = await runChat({ stepMs: 1_000, options: { promotable: false }, messages: [{ role: "user", content: "faça" }], script: [research(0.01), say("Vou abrir a página agora.")] });
 		expect(noList.result.text).toBe("Vou abrir a página agora.");
@@ -695,6 +696,30 @@ describe("anunciar sem fazer (v2): sinal estrutural, sem regex e sem apagar text
 		// Sem trabalho iniciado, nem com lista herdada: nada.
 		const early = await runChat({ stepMs: 1_000, options: { promotable: false }, messages: [{ role: "user", content: "oi" }], script: [say("Vou te ajudar com isso.")] });
 		expect(early.result.text).toBe("Vou te ajudar com isso.");
+	});
+
+	it("replay (Cookie, 03/11): resposta completa + lembrete de itens abertos + modelo fecha a lista SEM texto novo = uma bolha só, sem resumo repetido", async () => {
+		const run = await runChat({
+			stepMs: 1_000,
+			options: { promotable: false },
+			messages: [{ role: "user", content: "abra o Gemini e peça um resumo desse vídeo" }],
+			script: [
+				research(0.01),
+				OPEN_LIST(),
+				say("Resposta completa do Gemini, com fontes e lacunas."),
+				(seen) => {
+					expect(seen.lastUser).toContain("already shown to the user");
+					expect(seen.lastUser).toContain("never repeat or summarize");
+					return turn([taskList([["Abrir o Gemini", "completed"], ["Pedir o resumo ao Gemini", "completed"]])], 0.01);
+				},
+				say(""),
+			],
+		});
+		expect(run.result.text).toBe("Resposta completa do Gemini, com fontes e lacunas.");
+		expect(discards(run)).toEqual([]);
+		// Nenhum texto de fallback ("não consegui gerar resposta") e nenhuma segunda bolha.
+		const texts = run.events.filter((event) => event.type === "assistant_delta").map((event) => (event as { delta: string }).delta);
+		expect(texts).toEqual(["Resposta completa do Gemini, com fontes e lacunas."]);
 	});
 
 	it("o prompt manda chamar a tool no mesmo passo e não passar a execução ao usuário", () => {
