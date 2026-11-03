@@ -115,6 +115,8 @@ export type ToolContext = {
 	loadedMcpToolNames?: () => string[];
 	/** Tools nativas adiadas (economia de contexto): busca e carga sob demanda. */
 	nativeDeferral?: NativeDeferral;
+	/** Motor v3: busca lexical no catálogo do run (`tool_search`); devolve o texto com as assinaturas. */
+	toolSearch?: (query: string, limit?: number) => string;
 	abortSignal?: AbortSignal;
 	getSessionId: (context?: { signal?: AbortSignal; deadlineAtMs?: number }) => Promise<string>;
 	/** Sessão da VM que o run já tem, sem criar nada (null = nenhuma). Usada só para ler o aviso de aba. */

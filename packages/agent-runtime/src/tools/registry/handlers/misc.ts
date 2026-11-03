@@ -1,6 +1,7 @@
 import { appInfoTool } from "../../app-info.js";
 import { currentTimeTool } from "../../current-time.js";
 import { definedFamily } from "../../define-tool.js";
+import { toolCallTool, toolSearchTool } from "../../tool-bridge.js";
 import type { ToolContext, ToolResult } from "../types.js";
 import { executePreviewSetup } from "../../preview-setup/tool.js";
 export { executeDevSessionTool } from "../../registry/handlers/dev.js";
@@ -15,6 +16,6 @@ async function handlePreviewSetup(args: Record<string, unknown>, ctx: ToolContex
 
 /** Família `misc`. */
 export const MISC_TOOLS: ToolFamily = {
-	...definedFamily([appInfoTool, currentTimeTool]),
+	...definedFamily([appInfoTool, currentTimeTool, toolSearchTool, toolCallTool]),
 	"preview_setup": { group: "misc", handler: handlePreviewSetup },
 };
