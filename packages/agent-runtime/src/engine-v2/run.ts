@@ -534,6 +534,8 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 
 	// --- checkpoint ---
 	let checkpointTail: Promise<void> = Promise.resolve();
+	/** O aviso de janela (75%) já foi enviado; vai no checkpoint para a retomada não avisar de novo. */
+	let contextWarned = parsed?.contextWarned === true;
 	const snapshotCheckpoint = (stepIndex: number) =>
 		buildRuntimeCheckpoint({
 			messages: params.messages,
@@ -555,6 +557,7 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 			activeElapsedMs: activeElapsedMs(),
 			promoted: supervisor.promoted,
 			deliverable: declaredDeliverable,
+			contextWarned,
 			...(() => {
 				const state = supervisor.state();
 				return { wrapUpSent: state.wrapUpSent, budgetBaseMs: state.timeBaseMs };
@@ -594,20 +597,22 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 	const contextKeep = contextKeepEnabled();
 	const summarizeContext = createStreamSummarizer({ streamChat, model: () => params.messageTriageModel?.trim() || model, apiKey, signal: params.abortSignal });
 	let summaryRetryAtStep = 0;
-	let contextWarned = false;
 	/**
 	 * Acima do teto do orçamento de contexto, a parte antiga do histórico CANÔNICO vira um resumo do modelo de manutenção (como no v1).
 	 * Falhou ou não encolheu: a higiene da cópia enviada cobre, e só se ainda não couber é que o erro fiel da janela sobe.
 	 */
 	const summarizeIfNeeded = async (budget: ReturnType<typeof contextBudgetFor>, toolsChars: number) => {
-		if (!budget.summarize || helperRole || step < summaryRetryAtStep) return;
-		const estimate = (list: readonly LlmMessage[]) => estimateMessagesTokens(list, toolsChars);
-		// Capturas antigas nunca vão ao modelo (só as 2 últimas): contá-las inflaria o histórico e resumiria à toa.
-		const forEstimate = omitOldScreenshots(conversation, KEEP_RECENT_SCREENSHOTS);
-		if (estimate(forEstimate) <= budget.ceilingTokens) return;
+		if (helperRole || step < summaryRetryAtStep) return;
+		// Capturas antigas nunca vão ao modelo (só as 2 últimas): a estimativa as ignora, mas o histórico CANÔNICO que o resumo
+		// recebe e devolve é o `conversation` inteiro (nunca a cópia com as capturas trocadas por texto).
+		const estimate = (list: readonly LlmMessage[]) => estimateMessagesTokens(omitOldScreenshots(list, KEEP_RECENT_SCREENSHOTS), toolsChars);
+		if (estimate(conversation) <= budget.ceilingTokens) return;
+		// Econômico (sem `summarize` no orçamento) usa a mesma estratégia do Padrão: sem isso o histórico canônico crescia sem teto
+		// (a higiene só encolhe a cópia enviada). Escolha mais simples que um corte próprio: uma só rotina, o mesmo resumo do modelo
+		// de manutenção, e o corte da cópia continua como plano B.
 		const result = await compactWithSummary({
-			messages: forEstimate,
-			budget,
+			messages: conversation,
+			budget: budget.summarize ? budget : { ...budget, summarize: true },
 			estimate,
 			trim: trimHistory,
 			summarize: summarizeContext,
