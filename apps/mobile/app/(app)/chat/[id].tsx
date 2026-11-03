@@ -12,6 +12,7 @@ import { Fade } from "@/components/chat/fade";
 import { ChatTopBar, TOP_BAR_HEIGHT } from "@/components/chat/chat-top-bar";
 import { Composer } from "@/components/chat/composer";
 import { ModelSheet } from "@/components/chat/model-sheet";
+import { modelPill as buildModelPill } from "@/lib/model-pill";
 import { MessageRow, type RowActions } from "@/components/chat/message-row";
 import { useMessageMenu } from "@/components/chat/use-message-menu";
 import { grokBubbleColors } from "@/lib/bubble-tone";
@@ -73,6 +74,7 @@ export default function ChatScreen() {
 	const [composerHeight, setComposerHeight] = React.useState(64);
 	const [soon, setSoon] = React.useState<Soon>(null);
 	const [modelOpen, setModelOpen] = React.useState(false);
+	const modelPill = React.useMemo(() => buildModelPill(chat.modelSelector.choice, chat.modelSelector.catalog.catalog), [chat.modelSelector.choice, chat.modelSelector.catalog.catalog]);
 	const goBack = React.useCallback(() => (router.canGoBack() ? router.back() : router.replace("/")), [router]);
 	const openProfile = React.useCallback(() => router.push(`/profile/${encodeURIComponent(id)}` as never), [router, id]);
 	const openWeb = React.useCallback(
@@ -196,7 +198,7 @@ export default function ChatScreen() {
 					<Composer initialText={typeof draft === "string" ? draft : undefined} botName={bot.name} color={color} foreground={foreground} running={chat.running} onSend={(text) => {
 							chat.send(text, replyTo ?? undefined);
 							setReplyTo(null);
-						}} onStop={chat.stop} onSoon={(what) => setSoon(what)} onModel={() => setModelOpen(true)} replyTo={replyTo} onCancelReply={() => setReplyTo(null)} />
+						}} onStop={chat.stop} onSoon={(what) => setSoon(what)} onModel={() => setModelOpen(true)} modelPill={modelPill} holdWriting={modelOpen} onWriting={chat.modelSelector.loadCatalog} replyTo={replyTo} onCancelReply={() => setReplyTo(null)} />
 				</View>
 			</KeyboardAvoidingView>
 			<ChatMenu open={menu} onClose={() => setMenu(false)} onPick={onMenuPick} />
