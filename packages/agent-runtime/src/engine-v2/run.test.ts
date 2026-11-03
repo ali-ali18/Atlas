@@ -421,6 +421,7 @@ describe("motor v2: lista de tarefas em trabalho longo", () => {
 				say("Entrego sem conferir."),
 				say("Entrego mesmo assim."),
 				say("Entrega final."),
+				say("Não conferi os preços: o site não abriu."),
 			],
 			options: { profile: "long_work" },
 		});
@@ -433,8 +434,45 @@ describe("motor v2: lista de tarefas em trabalho longo", () => {
 		// 3 lembretes gastos (sem lista + 2 com itens abertos): a próxima tentativa de entrega passa, marcada com os itens abertos.
 		expect(result.stop).toEqual({ reason: "answered", detail: "tasklist_open" });
 		expect(result.text).toContain("Entrega final.");
-		// Sem rodapé automático: a lista é interna e o modelo diz o que ficou de fora na própria resposta.
-		expect(result.text).toBe("Entrega final.");
+		// Sem rodapé automático: uma última chamada sem tools faz o modelo avisar o que ficou de fora.
+		expect(result.text).toBe("Entrega final.\n\nNão conferi os preços: o site não abriu.");
+		const closing = requests.at(-1)!;
+		expect(closing.params.toolChoice).toBe("none");
+		expect(closing.params.messages.some((m) => m.role === "user" && String(m.content).includes("Some steps are still open"))).toBe(true);
+	});
+
+	it("liberação com itens abertos e aviso vazio do modelo: uma linha honesta gerada no código, sem nomes internos", async () => {
+		const { result } = await runV2({
+			messages: [{ role: "user", content: "Faça uma pesquisa de mercado completa e monte um relatório" }],
+			script: [
+				say("Rascunho sem lista."),
+				turn([taskList("k1", [["Conferir preços", "pending"]])]),
+				say("Entrego sem conferir."),
+				say("Entrego mesmo assim."),
+				say("Entrega final."),
+				say(""),
+			],
+			options: { profile: "long_work" },
+		});
+		expect(result.text).toBe("Entrega final.\n\nNão consegui concluir: Conferir preços.");
+		expect(result.text).not.toMatch(/update_task_list|tasklist/);
+	});
+
+	it("chat: resposta vazia logo depois do lembrete com itens abertos encerra com o aviso honesto", async () => {
+		const { result } = await runV2({
+			messages: [{ role: "user", content: "oi" }],
+			script: [turn([taskList("c1", [["Conferir preços", "in_progress"]])]), say("Parcial entregue."), say(""), say("Falta conferir os preços.")],
+		});
+		expect(result.text).toBe("Parcial entregue.\n\nFalta conferir os preços.");
+	});
+
+	it("chat: vazio depois de tools NÃO reaproveita a fala antiga do lembrete", async () => {
+		const { result } = await runV2({
+			messages: [{ role: "user", content: "oi" }],
+			script: [turn([taskList("c1", [["Pesquisar X", "in_progress"]])]), say("Vou pesquisar X."), turn([call("t1", "current_time", {})]), say(""), say("")],
+		});
+		expect(result.text).not.toContain("Vou pesquisar X.");
+		expect(result.stop).toEqual({ reason: "answered", detail: "empty_reply:items_open" });
 	});
 
 	it("itens descartados com motivo liberam a entrega, sem rodapé automático", async () => {

@@ -683,9 +683,10 @@ describe("anunciar sem fazer (v2): sinal estrutural, sem regex e sem apagar text
 			expect(discards(run), text).toEqual([]);
 		}
 		// No máximo 3 lembretes por run: a 4a resposta sem tool passa.
-		const many = await runChat({ stepMs: 1_000, options: { promotable: false }, messages: [{ role: "user", content: "faça" }], script: [research(0.01), OPEN_LIST(), say("um"), say("dois"), say("três"), say("quatro")] });
-		expect(many.result.text).toBe("quatro");
-		expect(many.seen).toHaveLength(6);
+		const many = await runChat({ stepMs: 1_000, options: { promotable: false }, messages: [{ role: "user", content: "faça" }], script: [research(0.01), OPEN_LIST(), say("um"), say("dois"), say("três"), say("quatro"), say("Faltou pedir o resumo.")] });
+		// Liberada com item aberto: o modelo avisa o que ficou de fora numa última chamada sem tools.
+		expect(many.result.text).toBe("quatro\n\nFaltou pedir o resumo.");
+		expect(many.seen).toHaveLength(7);
 		// Sem lista no run: promessa solta passa direto (vale só a regra do prompt).
 		const noList = await runChat({ stepMs: 1_000, options: { promotable: false }, messages: [{ role: "user", content: "faça" }], script: [research(0.01), say("Vou abrir a página agora.")] });
 		expect(noList.result.text).toBe("Vou abrir a página agora.");

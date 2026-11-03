@@ -112,7 +112,7 @@ describe("v2 em rotina: sem humano, sem escrita que precisa de confirmação", (
 		const names = routine.requests[0]!.toolNames;
 		expect(names).toContain(READ);
 		expect(names).not.toContain(WRITE);
-		for (const gone of ["list_routines", "propose_routine", "routine_group", "web_search", "web_extract", "memory", "secret_request", "update_task_list", "generate_image", "page_create", "propose_api_connection", "propose_profile_update", "set_engine", "delegate"]) {
+		for (const gone of ["list_routines", "propose_routine", "routine_group", "web_search", "web_extract", "memory", "secret_request", "update_task_list", "generate_image", "page_create", "propose_api_connection", "propose_profile_update", "propose_bot", "propose_skill", "set_engine", "delegate"]) {
 			expect(names, gone).not.toContain(gone);
 		}
 		const chat = await runOrigin({ origin: "chat", script: [say("ok")] });
@@ -279,7 +279,7 @@ describe("v2 em bot→bot e grupo", () => {
 	it("bot→bot: sem tools sensíveis; sem roster (nenhum outro bot) também não há envio entre bots", async () => {
 		const { requests } = await runOrigin({ origin: "bot", script: [say("ok")] });
 		const names = requests[0]!.toolNames;
-		for (const gone of ["send_to_bot", "decide_bot_pending", "set_primary_bot", "propose_bot", "set_engine", "propose_profile_update", "delegate", "generate_image", "page_create"]) {
+		for (const gone of ["send_to_bot", "decide_bot_pending", "set_primary_bot", "propose_bot", "propose_skill", "set_engine", "propose_profile_update", "delegate", "generate_image", "page_create"]) {
 			expect(names, gone).not.toContain(gone);
 		}
 		expect(names).toContain("update_task_list");
@@ -304,7 +304,7 @@ describe("v2 em bot→bot e grupo", () => {
 const autonomous: EffectiveAutonomy = { level: "autonomous", exceptions: [] };
 
 describe("v2 em webhook: sem humano, mesmas regras do v1", () => {
-	const GONE = ["list_routines", "propose_routine", "update_task_list", "generate_image", "page_create", "propose_api_connection", "propose_profile_update", "propose_connector", "propose_skill", "delete_skill", "set_engine", "delegate", "sandbox_release"];
+	const GONE = ["list_routines", "propose_routine", "update_task_list", "generate_image", "page_create", "propose_api_connection", "propose_profile_update", "propose_connector", "propose_skill", "delete_skill", "propose_bot", "set_engine", "delegate", "sandbox_release"];
 
 	it("sem escrita que precisa de confirmação, sem tools só do chat; no 1º passo (grupo adiado) some a gestão de rotinas; a pesquisa web e a memória seguem (só a rotina as perde)", async () => {
 		const { requests } = await runOrigin({ origin: "webhook", script: [say("ok")] });
@@ -405,7 +405,7 @@ describe("v2 em e-mail recebido", () => {
 	it("não é run sem humano (igual ao v1): sem o aviso de unattended; sem tools só do chat nem tools sensíveis", async () => {
 		const { requests } = await runOrigin({ origin: "email", script: [say("ok")], text: framed, extra: { email: emailCtx(balanced) } });
 		expect(requests[0]!.system).not.toMatch(/Unattended run/);
-		for (const gone of ["update_task_list", "generate_image", "page_create", "propose_api_connection", "propose_profile_update", "propose_connector", "propose_skill", "set_engine", "delegate", "send_to_bot"]) {
+		for (const gone of ["update_task_list", "generate_image", "page_create", "propose_api_connection", "propose_profile_update", "propose_connector", "propose_skill", "propose_bot", "set_engine", "delegate", "send_to_bot"]) {
 			expect(requests[0]!.toolNames, gone).not.toContain(gone);
 		}
 	});

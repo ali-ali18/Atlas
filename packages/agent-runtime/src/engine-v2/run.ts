@@ -130,7 +130,7 @@ import { shouldExposeSetEngine } from "../tools/set-engine.js";
 import { buildEngineV2SystemPrompt } from "./prompt.js";
 import { originSystemNotes } from "./origin-notes.js";
 import { MAX_STEPS_SAFETY, type CapSource, type StepsSource, type SupervisorProfile, budgetForProfile, capSourcesFor, createSupervisor, deliveryInstruction } from "./supervisor.js";
-import { continuedWorkNote, ENGINE_V2_PROMOTED_NOTE, openItemsNote } from "./prompt.js";
+import { continuedWorkNote, ENGINE_V2_PROMOTED_NOTE, openItemsClosingNote, openItemsFallbackText, openItemsNote } from "./prompt.js";
 import { callCostUsd, estimateCostUsd, fallbackPricesFromEnv } from "./cost.js";
 import { dedupeLoginAsk, unattendedLoginOutcome } from "./login.js";
 import { createPreToolRunner } from "../hooks/pre-tool-runner.js";
@@ -1250,6 +1250,31 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 		return { text, model: lastModel, hitWall: false, usage: usageTotals, stop };
 	};
 
+	/**
+	 * Entrega liberada com itens ainda abertos (portão esgotado ou resposta vazia depois do lembrete): o rodapé automático não existe,
+	 * então UMA última chamada sem tools faz o modelo dizer o que ficou de fora. Vazio: uma linha honesta gerada aqui, sem nomes internos.
+	 */
+	const finishWithOpenItems = async (text: string, stop: RunStop, stepId: string): Promise<RunComputerUseResult> => {
+		const open = helperRole ? [] : openItems(currentTaskItems()).map((item) => item.content);
+		if (open.length === 0) return await finishOk(text, stop, stepId);
+		const noteId = `${stepId}-open`;
+		conversation.push({ role: "assistant", content: text });
+		conversation.push({ role: "user", content: `${AUTO_CONTEXT} ${openItemsClosingNote(open)}` });
+		let notice = "";
+		try {
+			const final = await modelStep(conversation, "none", noteId, true);
+			notice = sanitizeAssistantText(final.content);
+		} catch (error) {
+			if (params.abortSignal?.aborted) throw errorFromAbortSignal(params.abortSignal);
+			if (isControlFlowError(error)) throw error;
+		}
+		if (!notice) {
+			notice = openItemsFallbackText(open);
+			await onEvent({ type: "assistant_delta", id: noteId, delta: notice });
+		}
+		return await finishOk(`${text}\n\n${notice}`, stop, noteId);
+	};
+
 	/** Última chamada SEM tools: entrega o que há, nunca aborta sem resposta. */
 	const deliver = async (stop: RunStop, instruction: string): Promise<RunComputerUseResult> => {
 		const messageId = `${turnId}-final`;
@@ -1467,7 +1492,8 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 					step += 1;
 					continue;
 				}
-				if (text.length === 0 && deliveredBeforeNote) return await finishOk(deliveredBeforeNote.text, { reason: "answered" }, deliveredBeforeNote.id);
+				// Só vale se o passo imediatamente anterior foi o lembrete (qualquer rodada de tool zera `deliveredBeforeNote`).
+				if (text.length === 0 && deliveredBeforeNote) return await finishWithOpenItems(deliveredBeforeNote.text, { reason: "answered" }, deliveredBeforeNote.id);
 				if (text.length === 0) {
 					if (emptyRetries < 1) {
 						emptyRetries += 1;
@@ -1501,10 +1527,13 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 					continue;
 				}
 				const stop: RunStop = verdict.kind === "release" ? { reason: "answered", detail: "tasklist_open" } : { reason: "answered" };
+				if (verdict.kind === "release" || openItemsReturns >= MAX_OPEN_ITEMS_RETURNS) return await finishWithOpenItems(text, stop, stepId);
 				return await finishOk(text, stop, stepId);
 			}
 
 			finishRetries = 0;
+			// Trabalho de verdade depois do lembrete: a fala antiga deixa de ser "a resposta". Só atualizar a lista não conta.
+			if (toolCalls.some((toolCall) => toolCall.function.name !== "update_task_list")) deliveredBeforeNote = undefined;
 			conversation.push({ role: "assistant", content: text.length > 0 ? text : null, tool_calls: toolCalls, ...(providerItems ? { providerItems } : {}) });
 			const outcomes = await runBatch(toolCalls);
 			lastStepHadTools = true;

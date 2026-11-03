@@ -74,6 +74,18 @@ export function openItemsNote(openItems: readonly string[]): string {
 	return `Your last reply was already shown to the user: never repeat or summarize it.\nYou still have open items on your task list:\n${list}\nContinue or finalize: do the next one now by calling the tool in this step, or explain why it is blocked. If the work is really finished, update the list (mark the items completed) and end; add text only if it is new.`;
 }
 
+/** Última chamada (sem tools) quando a entrega sai com itens abertos: o usuário precisa saber o que ficou de fora. */
+export function openItemsClosingNote(openItems: readonly string[]): string {
+	const list = openItems.slice(0, 5).map((item) => item.slice(0, 120)).join("; ");
+	return `Some steps are still open: ${list}. In one or two sentences, tell the user what was not done and why, without repeating your previous answer. Plain words: no tool, field or internal names.`;
+}
+
+/** Linha honesta (pt-BR simples) quando o modelo não escreve o aviso. */
+export function openItemsFallbackText(openItems: readonly string[]): string {
+	const list = openItems.slice(0, 3).map((item) => item.replace(/[.\s]+$/, "").slice(0, 80)).join("; ");
+	return `Não consegui concluir: ${list}.`;
+}
+
 /** Trabalho longo sem a lista de tarefas (rotina): só caderno e entrega. */
 function longWorkLines(taskList: boolean): string[] {
 	if (taskList) return ENGINE_V2_LONG_WORK;
