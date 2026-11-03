@@ -8,8 +8,10 @@ describe("stripVttTags", () => {
 	it("não decodifica duas vezes", () => {
 		expect(stripVttTags("&amp;lt;")).toBe("&lt;");
 	});
-	it("tag sem fechar descarta o resto da linha, sem travar", () => {
-		expect(stripVttTags("texto <c sem fim")).toBe("texto");
+	it("`<` sem `>` correspondente é texto: mantém o resto da linha", () => {
+		expect(stripVttTags("texto <c sem fim")).toBe("texto <c sem fim");
+		expect(stripVttTags("se a < b então c")).toBe("se a < b então c");
+		expect(stripVttTags("a < b <i>itálico</i>")).toBe("a < b itálico");
 	});
 });
 

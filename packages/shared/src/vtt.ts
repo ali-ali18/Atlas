@@ -17,11 +17,20 @@ const ENTITIES: ReadonlyArray<readonly [string, string]> = [
 /** Tira marcas inline (`<c>`, `<00:00:01.000>`, `<i>`) e decodifica as entidades comuns. */
 export function stripVttTags(line: string): string {
 	let out = "";
-	let inTag = false;
-	for (const ch of line) {
-		if (ch === "<") inTag = true;
-		else if (ch === ">" && inTag) inTag = false;
-		else if (!inTag) out += ch;
+	const chars = [...line];
+	for (let i = 0; i < chars.length; i++) {
+		const ch = chars[i] as string;
+		if (ch === "<") {
+			// `<` sem `>` depois é texto ("a < b"), não marca: só pula quando a marca fecha.
+			const close = chars.indexOf(">", i + 1);
+			// Outro `<` antes do `>`: este é texto solto e o `>` é da marca seguinte ("a < b <i>").
+			const nextOpen = chars.indexOf("<", i + 1);
+			if (close >= 0 && (nextOpen < 0 || nextOpen > close)) {
+				i = close;
+				continue;
+			}
+		}
+		out += ch;
 	}
 	for (const [entity, value] of ENTITIES) out = out.split(entity).join(value);
 	return out.split(/\s+/).filter(Boolean).join(" ");
