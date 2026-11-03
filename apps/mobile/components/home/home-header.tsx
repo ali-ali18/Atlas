@@ -56,7 +56,7 @@ export function HomeHeader({ user, onNew, onSignOut, onChangeServer }: { user: U
 			<Pressable role="button" accessibilityLabel="Conta" accessibilityState={{ expanded: menu }} onPress={() => setMenu(true)} className="active:opacity-70">
 				<UserAvatar {...user} />
 			</Pressable>
-			<Button size="icon" variant="secondary" accessibilityLabel="Novo chat" className="border-border" onPress={onNew}>
+			<Button size="icon" variant="secondary" accessibilityLabel="Novo bot" className="border-border" onPress={onNew}>
 				<PlusIcon />
 			</Button>
 			<UserMenu

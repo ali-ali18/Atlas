@@ -36,6 +36,8 @@ import {
 	Square as LucideSquare,
 	Star as LucideStar,
 	TextCursorInput as LucideTextCursorInput,
+	UserRoundCog as LucideUserRoundCog,
+	UserRoundPlus as LucideUserRoundPlus,
 	X as LucideX,
 } from "lucide-react-native";
 import Svg, { Path, Rect } from "react-native-svg";
@@ -272,4 +274,14 @@ export function FolderInputIcon({ size = 20, tone = "foreground" }: LineIconProp
 /** Lucide `FolderOutput` (menu da conversa: Tirar da seção). */
 export function FolderOutputIcon({ size = 20, tone = "foreground" }: LineIconProps) {
 	return <LucideFolderOutput size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `UserRoundPlus` (o cartão "Criar agente"). */
+export function UserPlusIcon({ size = 16, tone = "muted-foreground" }: LineIconProps) {
+	return <LucideUserRoundPlus size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `UserRoundCog` (o cartão de perfil do bot). */
+export function UserCogIcon({ size = 16, tone = "muted-foreground" }: LineIconProps) {
+	return <LucideUserRoundCog size={size} color={useStroke(tone)} strokeWidth={2} />;
 }

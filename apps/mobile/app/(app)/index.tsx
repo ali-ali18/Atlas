@@ -21,7 +21,7 @@ import { useAppColorScheme } from "@/lib/use-theme";
 const NO_BOTS: readonly HomeBot[] = [];
 const NO_SECTIONS: readonly SectionRef[] = [];
 
-type Soon = "novo" | "apps" | null;
+type Soon = "apps" | null;
 
 /**
  * Home: fixados em grade, seções recolhíveis com as conversas, busca local no rodapé. Mesmo dado do web
@@ -103,7 +103,7 @@ export default function HomeScreen() {
 	return (
 		<SafeAreaView className="flex-1 bg-background">
 			<KeyboardAvoidingView behavior="padding" className="flex-1">
-				<HomeHeader user={{ name, email, image }} onNew={() => setSoon("novo")} onSignOut={() => void signOut()} onChangeServer={() => void changeServer()} />
+				<HomeHeader user={{ name, email, image }} onNew={() => router.push("/new-bot" as never)} onSignOut={() => void signOut()} onChangeServer={() => void changeServer()} />
 				<ScrollView
 					className="flex-1"
 					contentContainerStyle={{ paddingBottom: 16 }}
@@ -116,7 +116,7 @@ export default function HomeScreen() {
 				<SearchFooter query={query} onChange={setQuery} onGrid={() => setSoon("apps")} />
 			</KeyboardAvoidingView>
 			<HomeBotMenu bot={menuBot} onClose={() => setMenuBot(null)} />
-			<SoonSheet open={soon !== null} title={soon === "apps" ? "Apps" : "Novo chat"} onClose={() => setSoon(null)} />
+			<SoonSheet open={soon !== null} title="Apps" onClose={() => setSoon(null)} />
 		</SafeAreaView>
 	);
 }

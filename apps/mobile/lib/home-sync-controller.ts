@@ -32,8 +32,9 @@ export class HomeSyncController {
 	}
 
 	/** Atualiza a home de `key`. Chamadas iguais enquanto uma está em voo dividem o mesmo resultado; outra conta aborta a antiga. */
-	run(key: string): Promise<SyncOutcome> {
-		if (this.inflight?.key === key) return this.inflight.promise;
+	run(key: string, fresh = false): Promise<SyncOutcome> {
+		// `fresh`: o que está em voo começou antes de uma mudança que o servidor já tem; descarta e busca de novo.
+		if (!fresh && this.inflight?.key === key) return this.inflight.promise;
 		this.invalidate();
 		const generation = this.generation;
 		const controller = new AbortController();
