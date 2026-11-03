@@ -84,6 +84,7 @@ export function useChat(bot: HomeBot | undefined): ChatHook {
 			onUnauthorized: () => void latest.current.signOut(),
 			modelFields: () => selectorRef.current.fields(),
 			onConversationCreated: (id) => selectorRef.current.onConversationCreated(id),
+			onModelRejected: () => selectorRef.current.onModelRejected(),
 		};
 		return new ChatController(deps, { id: bot?.id ?? null, conversationId: bot?.conversationId ?? null });
 		// biome-ignore lint/correctness/useExhaustiveDependencies: um controlador por tela; o bot entra por `update`

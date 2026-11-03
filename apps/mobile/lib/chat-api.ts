@@ -14,6 +14,25 @@ export class ChatApiError extends Error {
 	}
 }
 
+/** O modelo escolhido no seletor foi recusado pelo servidor (sumiu do catálogo, provedor desconectado). */
+export const MODEL_UNAVAILABLE_TEXT = "O modelo escolhido não está mais disponível; voltei ao modelo do bot. Envie de novo.";
+export class ModelUnavailableError extends ChatApiError {
+	constructor(status: number) {
+		super(MODEL_UNAVAILABLE_TEXT, status);
+	}
+}
+
+/**
+ * A recusa do `POST /v1/runs` é por causa do modelo enviado? Só 400/404/409 com mensagem de modelo ou de provedor
+ * (`validateRunModel`, `validateProviderModel`); conversa ocupada e catálogo momentaneamente fora do ar não contam
+ * (passam por nova tentativa, e a escolha continua valendo).
+ */
+export function isModelRejection(reason: unknown): boolean {
+	if (!(reason instanceof ChatApiError) || ![400, 404, 409].includes(reason.status)) return false;
+	if (reason.message.startsWith("A conversa já tem uma tarefa") || reason.message.startsWith("Catálogo")) return false;
+	return /model|conecte|ative o plano/i.test(reason.message);
+}
+
 /** O servidor recusou a sessão: quem chamou encerra a sessão como na home. */
 export const isUnauthorized = (error: unknown): boolean => (error instanceof ChatApiError || error instanceof StreamHttpError) && error.status === 401;
 
@@ -121,6 +140,7 @@ export async function markConversationUnread(apiFetch: ApiFetch, conversationId:
 
 /** Aviso amigável para um erro ao enviar (sem expor o texto técnico). */
 export function sendErrorText(error: unknown): string {
+	if (error instanceof ModelUnavailableError) return error.message;
 	if (error instanceof ChatApiError) {
 		if (error.status === 401) return "Sua sessão expirou. Entre de novo.";
 		if (error.status === 409) return error.message;

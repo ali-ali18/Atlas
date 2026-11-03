@@ -8,7 +8,11 @@ import {
 	formatContextTokens,
 	getModelCapabilities,
 	modelDisplayName,
+	API_KEY_PROVIDER_LABEL,
+	hasModelTiers,
 	normalizeModelTiers,
+	parseModelRef,
+	readBotModelTiers,
 	RECOMMENDED_MODELS,
 	registeredTierModels,
 	type ModelCatalogInfo,
@@ -26,12 +30,24 @@ export type ModelOption = {
 	info: ModelCatalogInfo;
 };
 
+/** O que se sabe do bot: `known: false` = não consegui ler (diferente de "o bot não fixa modelo"). */
+export type BotModelInfo = { known: boolean; model: string | null; /** O bot tem níveis próprios: sem escolha a API roda no Automático. */ tiers: boolean };
+
 export type ModelCatalog = {
-	/** Modelo fixo do bot (`null` = o bot não fixa; vale o Automático). */
-	botModel: string | null;
+	bot: BotModelInfo;
 	featured: ModelOption[];
 	others: ModelOption[];
+	/** Todas as fontes responderam: só então um modelo salvo que não aparece pode ser tratado como indisponível. */
+	complete: boolean;
 };
+
+/** "Outros modelos" mostra só os primeiros até a pessoa pedir "Ver tudo (n)" (a lista pode ter centenas). */
+export const OTHERS_PREVIEW = 50;
+
+export function visibleOthers(others: readonly ModelOption[], showAll: boolean, limit = OTHERS_PREVIEW): { shown: ModelOption[]; hidden: number } {
+	if (showAll || others.length <= limit) return { shown: [...others], hidden: 0 };
+	return { shown: others.slice(0, limit), hidden: others.length - limit };
+}
 
 export type RawModel = { id: string; name: string; info: ModelCatalogInfo };
 
@@ -69,19 +85,32 @@ export function parseTierModelIds(body: unknown): string[] {
 	return registeredTierModels(normalizeModelTiers(body.effective.models.tiers.value));
 }
 
-/** Modelo fixo do bot, lido da lista de bots do dono (`GET /v1/bots`). Sem bot ou sem modelo = `null`. */
-export function parseBotModel(body: unknown, botId: string): string | null {
-	if (!isRecord(body) || !Array.isArray(body.bots)) return null;
+/** Modelo fixo e níveis próprios do bot, lidos da lista de bots do dono (`GET /v1/bots`). Resposta ausente, torta ou sem o bot = não sei. */
+export function parseBotInfo(body: unknown, botId: string): BotModelInfo {
+	if (!isRecord(body) || !Array.isArray(body.bots)) return { known: false, model: null, tiers: false };
 	const bot = body.bots.find((entry) => isRecord(entry) && entry.id === botId);
-	const model = isRecord(bot) && typeof bot.openRouterModel === "string" ? bot.openRouterModel.trim() : "";
-	return model || null;
+	if (!isRecord(bot)) return { known: false, model: null, tiers: false };
+	const model = typeof bot.openRouterModel === "string" ? bot.openRouterModel.trim() : "";
+	return { known: true, model: model || null, tiers: hasModelTiers(readBotModelTiers(bot.policyJson)) };
+}
+
+/** De onde vem o modelo quando não é o catálogo geral (plano ChatGPT, chave própria); vazio nos demais. */
+function sourceLabel(id: string): string | null {
+	try {
+		const ref = parseModelRef(id);
+		if (ref.provider === "chatgpt") return "Plano ChatGPT";
+		if (ref.provider === "anthropic" || ref.provider === "opencode-go") return `via ${API_KEY_PROVIDER_LABEL[ref.provider]}`;
+	} catch {
+		// id fora do formato: sem rótulo
+	}
+	return null;
 }
 
 /** "Lê imagens · Raciocínio · 200k de contexto": só o que o catálogo confirma. */
 export function describeModel(id: string, info: ModelCatalogInfo): string {
 	const caps = getModelCapabilities(id, info);
 	const context = formatContextTokens(caps.contextTokens);
-	return [caps.vision ? "Lê imagens" : null, caps.reasoning ? "Raciocínio" : null, context ? `${context} de contexto` : null].filter((part): part is string => part !== null).join(" · ");
+	return [sourceLabel(id), caps.vision ? "Lê imagens" : null, caps.reasoning ? "Raciocínio" : null, context ? `${context} de contexto` : null].filter((part): part is string => part !== null).join(" · ");
 }
 
 export function toOption(model: RawModel): ModelOption {
@@ -97,22 +126,23 @@ export function unlistedOption(id: string): ModelOption {
  * Principais = o fixo do bot + os dos níveis da conta (sem níveis cadastrados, os recomendados do `shared` que o catálogo
  * tem). Outros = o resto do catálogo por nome. Nível cadastrado que sumiu do catálogo não aparece (como no web).
  */
-export function buildCatalog(input: { models: RawModel[]; tierIds: readonly string[]; botModel: string | null }): ModelCatalog {
+export function buildCatalog(input: { models: RawModel[]; tierIds: readonly string[]; bot: BotModelInfo; complete?: boolean }): ModelCatalog {
+	const botModel = input.bot.model;
 	const byId = new Map(input.models.map((model) => [model.id, model]));
 	const wanted = input.tierIds.length > 0 ? [...input.tierIds] : RECOMMENDED_MODELS.map((entry) => entry.id);
-	const featuredIds = [...new Set([...(input.botModel ? [input.botModel] : []), ...wanted])];
+	const featuredIds = [...new Set([...(botModel ? [botModel] : []), ...wanted])];
 	const featured: ModelOption[] = [];
 	for (const id of featuredIds) {
 		const model = byId.get(id);
 		if (model) featured.push(toOption(model));
-		else if (id === input.botModel) featured.push(unlistedOption(id));
+		else if (id === botModel) featured.push(unlistedOption(id));
 	}
 	const taken = new Set(featured.map((option) => option.id));
 	const others = input.models
 		.filter((model) => !taken.has(model.id))
 		.map(toOption)
 		.sort((a, b) => a.name.localeCompare(b.name, "pt-BR", { sensitivity: "base" }));
-	return { botModel: input.botModel, featured, others };
+	return { bot: input.bot, featured, others, complete: input.complete ?? true };
 }
 
 /** Procura o modelo nos dois grupos (o escolhido pode estar em "Outros"). */

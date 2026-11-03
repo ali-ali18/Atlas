@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { buildCatalog, describeModel, findOption, parseBotModel, parseModels, parseTierModelIds } from "./model-catalog";
+import { buildCatalog, describeModel, findOption, parseBotInfo, parseModels, parseTierModelIds, visibleOthers, type BotModelInfo } from "./model-catalog";
+
+const bot = (model: string | null, tiers = false): BotModelInfo => ({ known: true, model, tiers });
 
 const body = {
 	models: [
@@ -29,45 +31,50 @@ describe("níveis da conta e modelo do bot", () => {
 	it("resposta ausente ou torta = sem níveis", () => {
 		for (const raw of [null, {}, { effective: {} }, { effective: { models: { tiers: { value: "x" } } } }]) expect(parseTierModelIds(raw)).toEqual([]);
 	});
-	it("modelo do bot vem da lista de bots; outro bot, sem modelo ou resposta torta = null", () => {
-		const bots = { bots: [{ id: "b1", openRouterModel: "x/y" }, { id: "b2", openRouterModel: null }, { id: "b3" }] };
-		expect(parseBotModel(bots, "b1")).toBe("x/y");
-		for (const id of ["b2", "b3", "b9"]) expect(parseBotModel(bots, id)).toBeNull();
-		expect(parseBotModel(null, "b1")).toBeNull();
-		expect(parseBotModel({ bots: "x" }, "b1")).toBeNull();
+	it("modelo e níveis do bot vêm da lista de bots", () => {
+		const bots = { bots: [{ id: "b1", openRouterModel: "x/y" }, { id: "b2", openRouterModel: null }, { id: "b3", openRouterModel: "m/n", policyJson: { modelTiers: { hard: ["h/m"] } } }] };
+		expect(parseBotInfo(bots, "b1")).toEqual({ known: true, model: "x/y", tiers: false });
+		expect(parseBotInfo(bots, "b2")).toEqual({ known: true, model: null, tiers: false });
+		expect(parseBotInfo(bots, "b3")).toEqual({ known: true, model: "m/n", tiers: true });
+	});
+	it("bot que não deu para ler (resposta ausente, torta ou sem o bot) é 'não sei', não 'sem modelo'", () => {
+		const unknown = { known: false, model: null, tiers: false };
+		expect(parseBotInfo({ bots: [{ id: "b1" }] }, "b9")).toEqual(unknown);
+		expect(parseBotInfo(null, "b1")).toEqual(unknown);
+		expect(parseBotInfo({ bots: "x" }, "b1")).toEqual(unknown);
 	});
 });
 
 describe("buildCatalog: principais x outros", () => {
 	const models = parseModels(body)!;
 	it("principais são os dos níveis da conta; o resto vai para 'Outros' em ordem de nome", () => {
-		const catalog = buildCatalog({ models, tierIds: ["deepseek/deepseek-v4.1-flash", "anthropic/claude-sonnet-5.5"], botModel: null });
+		const catalog = buildCatalog({ models, tierIds: ["deepseek/deepseek-v4.1-flash", "anthropic/claude-sonnet-5.5"], bot: bot(null) });
 		expect(catalog.featured.map((option) => option.id)).toEqual(["deepseek/deepseek-v4.1-flash", "anthropic/claude-sonnet-5.5"]);
 		expect(catalog.others.map((option) => option.name)).toEqual(["Alfa", "GPT-4o mini", "Zeta"]);
 	});
 	it("o modelo fixo do bot abre os principais, sem repetir se também é de um nível", () => {
-		const catalog = buildCatalog({ models, tierIds: ["deepseek/deepseek-v4.1-flash", "openai/gpt-4o-mini"], botModel: "openai/gpt-4o-mini" });
+		const catalog = buildCatalog({ models, tierIds: ["deepseek/deepseek-v4.1-flash", "openai/gpt-4o-mini"], bot: bot("openai/gpt-4o-mini") });
 		expect(catalog.featured.map((option) => option.id)).toEqual(["openai/gpt-4o-mini", "deepseek/deepseek-v4.1-flash"]);
-		expect(catalog.botModel).toBe("openai/gpt-4o-mini");
+		expect(catalog.bot.model).toBe("openai/gpt-4o-mini");
 	});
 	it("sem níveis cadastrados usa os recomendados que o catálogo tem (o fallback do web)", () => {
-		const catalog = buildCatalog({ models, tierIds: [], botModel: null });
+		const catalog = buildCatalog({ models, tierIds: [], bot: bot(null) });
 		expect(catalog.featured.map((option) => option.id)).toEqual(["deepseek/deepseek-v4.1-flash", "openai/gpt-4o-mini"]);
 	});
 	it("nível que sumiu do catálogo não aparece; modelo do bot fora do catálogo aparece pelo nome", () => {
-		const catalog = buildCatalog({ models, tierIds: ["sumiu/modelo"], botModel: "chatgpt/luna" });
+		const catalog = buildCatalog({ models, tierIds: ["sumiu/modelo"], bot: bot("chatgpt/luna") });
 		expect(catalog.featured.map((option) => option.id)).toEqual(["chatgpt/luna"]);
 		expect(catalog.featured[0]!.name).toBe("luna");
 	});
 	it("nomes de exibição sem o fornecedor e sem id interno", () => {
-		const catalog = buildCatalog({ models, tierIds: ["anthropic/claude-sonnet-5.5"], botModel: null });
+		const catalog = buildCatalog({ models, tierIds: ["anthropic/claude-sonnet-5.5"], bot: bot(null) });
 		expect(catalog.featured[0]!.name).toBe("Claude Sonnet 5.5");
 		expect(findOption(catalog, "vendor/alfa")?.name).toBe("Alfa");
 		expect(findOption(catalog, "nao/existe")).toBeNull();
 		expect(findOption(null, "vendor/alfa")).toBeNull();
 	});
 	it("só modelos com raciocínio ajustável oferecem níveis de esforço", () => {
-		const catalog = buildCatalog({ models, tierIds: ["anthropic/claude-sonnet-5.5", "deepseek/deepseek-v4.1-flash"], botModel: null });
+		const catalog = buildCatalog({ models, tierIds: ["anthropic/claude-sonnet-5.5", "deepseek/deepseek-v4.1-flash"], bot: bot(null) });
 		const [sonnet, flash] = catalog.featured;
 		expect(sonnet!.efforts).toEqual(["off", "low", "medium", "high"]);
 		expect(flash!.efforts).toEqual([]);
@@ -80,5 +87,27 @@ describe("descrição de uma linha", () => {
 		expect(describeModel(sonnet!.id, sonnet!.info)).toBe("Lê imagens · Raciocínio · 200k de contexto");
 		expect(describeModel(flash!.id, flash!.info)).toBe("128k de contexto");
 		expect(describeModel(zeta!.id, zeta!.info)).toBe("");
+	});
+});
+
+describe("descrição de modelos de outros provedores", () => {
+	it("plano ChatGPT e chave própria dizem de onde vêm", () => {
+		expect(describeModel("chatgpt/luna", { contextLength: 128_000 })).toMatch(/^Plano ChatGPT · .*128k de contexto$/);
+		expect(describeModel("anthropic-direct/claude-sonnet-5.5", {})).toContain("via Anthropic");
+	});
+});
+
+describe("visibleOthers: só os primeiros até 'Ver tudo (n)'", () => {
+	const many = Array.from({ length: 120 }, (_, i) => ({ id: `v/m${i}`, name: `M${i}`, description: "", efforts: [], info: {} }));
+	it("corta em 50 e diz quantos ficaram de fora", () => {
+		const { shown, hidden } = visibleOthers(many, false);
+		expect(shown).toHaveLength(50);
+		expect(hidden).toBe(70);
+		expect(shown[0]!.id).toBe("v/m0");
+	});
+	it("Ver tudo mostra todos; lista curta não corta", () => {
+		expect(visibleOthers(many, true)).toEqual({ shown: many, hidden: 0 });
+		expect(visibleOthers(many.slice(0, 50), false)).toEqual({ shown: many.slice(0, 50), hidden: 0 });
+		expect(visibleOthers([], false)).toEqual({ shown: [], hidden: 0 });
 	});
 });

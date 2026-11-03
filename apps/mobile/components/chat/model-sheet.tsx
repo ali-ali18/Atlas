@@ -7,18 +7,18 @@ import { Button } from "@/components/ui/button";
 import { DraggableSheet } from "@/components/ui/draggable-sheet";
 import { Spinner } from "@/components/ui/spinner";
 import { Text } from "@/components/ui/text";
-import { findOption, unlistedOption, type ModelOption } from "@/lib/model-catalog";
+import { findOption, unlistedOption, visibleOthers, type ModelOption } from "@/lib/model-catalog";
 import { currentSelection, RECOMMENDED_EFFORT, type ModelChoice } from "@/lib/model-choice";
 import type { ModelSelector } from "@/lib/use-model-selector";
 
 const RECOMMENDED = "Recomendado";
 
 /** Linha de uma lista em cartão: título, apoio opcional e o ✓ do selecionado. Divisor fino entre as linhas, como no `ActionSheet`. */
-function Row({ title, hint, selected, onPress, first, trailing }: { title: string; hint?: string; selected?: boolean; onPress: () => void; first: boolean; trailing?: React.ReactNode }) {
+function Row({ title, hint, label, selected, onPress, first, trailing }: { title: string; hint?: string; /** Rótulo para leitor de tela (título, descrição, valor e selos); padrão: título e descrição. */ label?: string; selected?: boolean; onPress: () => void; first: boolean; trailing?: React.ReactNode }) {
 	return (
 		<>
 			{first ? null : <View className="h-px bg-border" />}
-			<Pressable role="button" accessibilityLabel={title} accessibilityState={{ selected: selected ?? false }} onPress={onPress} className="min-h-16 flex-row items-center gap-3 px-5 py-3 active:bg-foreground/10">
+			<Pressable role="button" accessibilityLabel={label ?? (hint ? `${title}. ${hint}` : title)} accessibilityState={{ selected: selected ?? false }} onPress={onPress} className="min-h-16 flex-row items-center gap-3 px-5 py-3 active:bg-foreground/10">
 				<View className="min-w-0 flex-1">
 					<Text numberOfLines={1} className="text-control">
 						{title}
@@ -52,7 +52,8 @@ const effortLabel = (effort: ReasoningEffort | undefined) => (effort ? REASONING
 export function ModelSheet({ visible, onClose, selector }: { visible: boolean; onClose: () => void; selector: ModelSelector }) {
 	const [page, setPage] = React.useState<"main" | "effort">("main");
 	const [othersOpen, setOthersOpen] = React.useState(false);
-	const { catalog, choice, setChoice, loadCatalog } = selector;
+	const [showAllOthers, setShowAllOthers] = React.useState(false);
+	const { catalog, choice, setChoice, loadCatalog, notice } = selector;
 	const data = catalog.catalog;
 
 	React.useEffect(() => {
@@ -60,10 +61,12 @@ export function ModelSheet({ visible, onClose, selector }: { visible: boolean; o
 		else {
 			setPage("main");
 			setOthersOpen(false);
+			setShowAllOthers(false);
 		}
 	}, [visible, loadCatalog]);
 
-	const selection = currentSelection(choice, data?.botModel ?? null);
+	const selection = currentSelection(choice, data?.bot ?? null);
+	const unknownBot = selection.mode === "unknown" && data !== null;
 	const option = selection.mode === "model" ? (findOption(data, selection.model) ?? unlistedOption(selection.model)) : null;
 	const efforts = option?.efforts ?? [];
 	const effort = selection.mode === "model" && option ? shownEffort(selection, option) : undefined;
@@ -76,12 +79,16 @@ export function ModelSheet({ visible, onClose, selector }: { visible: boolean; o
 	};
 	const pickEffort = (next: ReasoningEffort | undefined) => {
 		if (!option) return;
-		setChoice({ mode: "model", model: option.id, ...(next ? { effort: next } : {}) });
+		// Salva já normalizado para o modelo ("Desligado" vira "Baixo" onde ele não desliga), como o web mostra e o servidor usa.
+		const saved = effortForModel(next, option.id, option.info);
+		setChoice({ mode: "model", model: option.id, ...(saved ? { effort: saved } : {}) });
 		setPage("main");
 	};
 
 	const modelRows = (options: ModelOption[]) =>
 		options.map((item, index) => <Row key={item.id} first={index === 0} title={item.name} hint={item.description} selected={selection.mode === "model" && selection.model === item.id} onPress={() => pickModel(item)} />);
+
+	const others = data ? visibleOthers(data.others, showAllOthers) : { shown: [], hidden: 0 };
 
 	if (page === "effort" && option) {
 		return (
@@ -102,6 +109,7 @@ export function ModelSheet({ visible, onClose, selector }: { visible: boolean; o
 							key={level ?? "default"}
 							first={index === 0}
 							title={effortLabel(level)}
+							label={`${effortLabel(level)}${level === RECOMMENDED_EFFORT ? `, ${RECOMMENDED}` : ""}`}
 							selected={effort === level}
 							onPress={() => pickEffort(level)}
 							trailing={level === RECOMMENDED_EFFORT ? <Badge variant="info">{RECOMMENDED}</Badge> : undefined}
@@ -131,12 +139,23 @@ export function ModelSheet({ visible, onClose, selector }: { visible: boolean; o
 					</Button>
 				</View>
 			) : null}
+			{notice ? (
+				<Text variant="caption" role="status" className="px-1 text-body">
+					{notice}
+				</Text>
+			) : null}
+			{unknownBot ? (
+				<Text variant="caption" role="status" className="px-1 text-body">
+					Não consegui ler o modelo atual.
+				</Text>
+			) : null}
 			{data && data.featured.length > 0 ? <Card>{modelRows(data.featured)}</Card> : null}
 			{option && efforts.length > 0 && selection.mode === "model" ? (
 				<Card>
 					<Row
 						first
 						title="Esforço"
+						label={`Esforço, ${effortLabel(effort)}${effort === RECOMMENDED_EFFORT ? `, ${RECOMMENDED}` : ""}`}
 						onPress={() => setPage("effort")}
 						trailing={
 							<View className="flex-row items-center gap-2">
@@ -160,13 +179,21 @@ export function ModelSheet({ visible, onClose, selector }: { visible: boolean; o
 					{othersOpen ? (
 						<>
 							<View className="h-px bg-border" />
-							{modelRows(data.others)}
+							{modelRows(others.shown)}
+							{others.hidden > 0 ? (
+								<>
+									<View className="h-px bg-border" />
+									<Pressable role="button" accessibilityLabel={`Ver tudo (${data.others.length})`} onPress={() => setShowAllOthers(true)} className="min-h-14 flex-row items-center px-5 active:bg-foreground/10">
+										<Text className="text-control">Ver tudo ({data.others.length})</Text>
+									</Pressable>
+								</>
+							) : null}
 						</>
 					) : null}
 				</Card>
 			) : null}
 			<Card>
-				<Row first title="Automático" hint="O Atlas escolhe o modelo pela dificuldade do pedido." selected={selection.mode === "auto"} onPress={() => (setChoice({ mode: "auto" }), onClose())} />
+				<Row first title="Automático" hint="O Atlas escolhe o modelo pela dificuldade do pedido." label="Automático. O Atlas escolhe o modelo pela dificuldade do pedido." selected={selection.mode === "auto"} onPress={() => (setChoice({ mode: "auto" }), onClose())} />
 			</Card>
 		</DraggableSheet>
 	);

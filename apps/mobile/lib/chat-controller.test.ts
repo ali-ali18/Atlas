@@ -114,6 +114,31 @@ describe("modelo do run (seletor do composer)", () => {
 		expect(created).toEqual(["c-new"]);
 		expect(calls.createRun[0]).toMatchObject({ conversationId: "c-new", model: { modelAuto: true } });
 	});
+	it("modelo recusado pelo servidor: apaga a escolha, avisa e NÃO reenvia com outro modelo", async () => {
+		let rejected = 0;
+		let attempts = 0;
+		const { controller } = setup({
+			api: { createRun: async () => (attempts++, Promise.reject(new ChatApiError("Modelo ChatGPT indisponível nesta conta", 400))) },
+			deps: { modelFields: () => ({ model: "chatgpt/luna" }), onModelRejected: () => void rejected++ },
+		});
+		await controller.open();
+		controller.send("oi");
+		await flush();
+		expect(rejected).toBe(1);
+		expect(attempts).toBe(1);
+		expect(controller.getSnapshot().error).toContain("voltei ao modelo do bot");
+	});
+	it("recusa sem modelo enviado não mexe na escolha", async () => {
+		let rejected = 0;
+		const { controller } = setup({
+			api: { createRun: async () => Promise.reject(new ChatApiError("Modelo inválido", 400)) },
+			deps: { modelFields: () => ({}), onModelRejected: () => void rejected++ },
+		});
+		await controller.open();
+		controller.send("oi");
+		await flush();
+		expect(rejected).toBe(0);
+	});
 	it("conversa que já existe não dispara o aviso", async () => {
 		const created: string[] = [];
 		const { controller } = setup({ deps: { onConversationCreated: (id) => void created.push(id) } });

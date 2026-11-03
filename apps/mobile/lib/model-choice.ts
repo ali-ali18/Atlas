@@ -2,8 +2,9 @@
 // `POST /v1/runs`. O formato do corpo é o do web (`createAgentRun` em `apps/web/lib/atlas-api.ts`, montado em
 // `use-atlas-chat.ts`): `model` (+ `reasoningEffort` só com modelo escolhido) ou `modelAuto: true`; a API valida em
 // `apps/api/src/routes/runs.ts` e decide em `apps/api/src/chat/effective-model.ts`.
-import { effortForModel, parseReasoningEffort, type ModelCatalogInfo, type ReasoningEffort } from "@workspace/shared";
+import { effortForModel, parseModelRef, parseReasoningEffort, type ModelCatalogInfo, type ReasoningEffort } from "@workspace/shared";
 import type { CacheStorage } from "./home-cache";
+import { findOption, type BotModelInfo, type ModelCatalog } from "./model-catalog";
 
 export type ModelChoice = { mode: "auto" } | { mode: "model"; model: string; effort?: ReasoningEffort };
 
@@ -27,14 +28,44 @@ export function runModelFields(choice: ModelChoice | null, infoOf?: (modelId: st
 	if (!choice) return {};
 	if (choice.mode === "auto") return { modelAuto: true };
 	const info = infoOf?.(choice.model);
-	const effort = choice.effort ? (info ? effortForModel(choice.effort, choice.model, info) : choice.effort) : undefined;
+	// Sem o catálogo (app recém-aberto, folha ainda não abriu) não se sabe se o modelo desliga o raciocínio: "off" não vai.
+	const effort = choice.effort ? (info ? effortForModel(choice.effort, choice.model, info) : choice.effort === "off" ? undefined : choice.effort) : undefined;
 	return { model: choice.model, ...(effort ? { reasoningEffort: effort } : {}) };
 }
 
-/** O que o seletor marca: a escolha salva ou, sem ela, o modelo fixo do bot (sem modelo fixo, o Automático). */
-export function currentSelection(choice: ModelChoice | null, botModel: string | null): ModelChoice {
+/**
+ * O que o seletor marca: a escolha salva ou, sem ela, o que a API vai fazer: bot com níveis próprios roda no Automático,
+ * bot com modelo fixo usa o modelo, bot sem nenhum dos dois roda no Automático. Sem ler o bot, `unknown`: não marca nada.
+ */
+export function currentSelection(choice: ModelChoice | null, bot: BotModelInfo | null): ModelChoice | { mode: "unknown" } {
 	if (choice) return choice;
-	return botModel ? { mode: "model", model: botModel } : { mode: "auto" };
+	if (!bot?.known) return { mode: "unknown" };
+	if (bot.tiers || !bot.model) return { mode: "auto" };
+	return { mode: "model", model: bot.model };
+}
+
+/** Escolha cujo modelo sumiu do catálogo (e não é o do bot) deixa de valer. Só descarta o que dá para afirmar que sumiu. */
+export function reconcileWithCatalog(choice: ModelChoice | null, catalog: ModelCatalog): ModelChoice | null {
+	if (!choice || choice.mode !== "model") return choice;
+	if (findOption(catalog, choice.model) || choice.model === catalog.bot.model) return choice;
+	// Modelo de plano ChatGPT ou de chave própria só se descarta com todas as fontes lidas; os do catálogo geral, sempre.
+	let own = false;
+	try {
+		own = parseModelRef(choice.model).provider !== "openrouter";
+	} catch {
+		own = false;
+	}
+	return own && !catalog.complete ? choice : null;
+}
+
+/**
+ * Abriu a conversa e leu a escolha salva: qual vale agora. Chat novo que acabou de criar a conversa (`previousConversationId`
+ * nulo) mantém a escolha que já estava na tela, e uma escolha feita enquanto lia nunca é pisada pelo valor lido.
+ */
+export function reconcileLoaded(input: { saved: ModelChoice | null; current: ModelChoice | null; previousConversationId: string | null; changedDuringLoad: boolean }): ModelChoice | null {
+	if (input.changedDuringLoad) return input.current;
+	if (input.previousConversationId === null) return input.current ?? input.saved;
+	return input.saved;
 }
 
 // ---- persistência por conversa -----------------------------------------------------------------------------------
