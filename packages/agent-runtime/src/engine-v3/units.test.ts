@@ -13,6 +13,10 @@ describe("motor v3: limites", () => {
 		expect(stepLimitFor({ humanPresent: true, ownerSteps: 10 })).toEqual({ maxSteps: 10, kind: "steps_owner" });
 		// Acima do limite de segurança vale o de segurança (e nunca o 40 sem humano).
 		expect(stepLimitFor({ humanPresent: true, ownerSteps: 500 }).maxSteps).toBe(MAX_STEPS_SAFETY);
+		// Teto do dono vale também sem humano, limitado aos 200 (nunca cai nos 40).
+		expect(stepLimitFor({ humanPresent: false, ownerSteps: 100 })).toEqual({ maxSteps: 100, kind: "steps_owner" });
+		expect(stepLimitFor({ humanPresent: false, ownerSteps: 300 })).toEqual({ maxSteps: MAX_STEPS_SAFETY, kind: "steps_safety" });
+		expect(stepLimitFor({ humanPresent: true, ownerSteps: 300 })).toEqual({ maxSteps: MAX_STEPS_SAFETY, kind: "steps_safety" });
 		expect(stepLimitFor({ humanPresent: false, ownerSteps: 0 }).maxSteps).toBe(UNATTENDED_MAX_STEPS);
 	});
 

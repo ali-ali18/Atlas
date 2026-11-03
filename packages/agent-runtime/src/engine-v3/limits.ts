@@ -17,7 +17,8 @@ export type StepLimit = { maxSteps: number; kind: Extract<CapKind, "steps_unatte
 
 export function stepLimitFor(input: { humanPresent: boolean; ownerSteps?: number }): StepLimit {
 	const owner = input.ownerSteps !== undefined && Number.isFinite(input.ownerSteps) && input.ownerSteps >= 1 ? Math.floor(input.ownerSteps) : undefined;
-	if (owner !== undefined && owner < MAX_STEPS_SAFETY) return { maxSteps: owner, kind: "steps_owner" };
+	// Teto do dono vale com ou sem humano, limitado aos 200 de segurança (dono com 300 não cai nos 40 sem humano).
+	if (owner !== undefined) return owner < MAX_STEPS_SAFETY ? { maxSteps: owner, kind: "steps_owner" } : { maxSteps: MAX_STEPS_SAFETY, kind: "steps_safety" };
 	if (!input.humanPresent) return { maxSteps: UNATTENDED_MAX_STEPS, kind: "steps_unattended" };
 	return { maxSteps: MAX_STEPS_SAFETY, kind: "steps_safety" };
 }
