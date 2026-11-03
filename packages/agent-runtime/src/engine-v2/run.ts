@@ -407,7 +407,7 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 		: helperRole
 			? { writer: helperRole.writer }
 			: undefined;
-	/** Passo em que o portão do documento já agiu (no máximo uma vez por run) e se algum arquivo já saiu. */
+	/** Se algum arquivo já saiu neste run (o fechamento por documento só roda enquanto nenhum saiu). */
 	let fileDelivered = (parsed?.toolCallCounts?.create_file ?? 0) > 0;
 	/** Passos de escrita do documento no estouro: o teto de saída do documento vale também aqui. */
 	let documentFallbackActive = false;

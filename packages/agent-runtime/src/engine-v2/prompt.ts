@@ -64,7 +64,7 @@ export function continuedWorkNote(openItems: readonly string[]): string {
 
 /**
  * Resposta sem tool call com itens ABERTOS na lista do run e trabalho já iniciado: o texto fica na conversa (o usuário já o
- * viu) e esta nota volta ao modelo uma vez por run. Sinal estrutural (lista e tools), nunca regex sobre o texto
+ * viu) e esta nota volta ao modelo até 3 vezes por run (`MAX_OPEN_ITEMS_RETURNS`). Sinal estrutural (lista e tools), nunca regex sobre o texto
  * (decisão do dono, 03/11).
  */
 export function openItemsNote(openItems: readonly string[]): string {
