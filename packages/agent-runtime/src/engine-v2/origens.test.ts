@@ -342,6 +342,19 @@ describe("v2 em e-mail recebido", () => {
 		expect(result.stop).toEqual({ reason: "awaiting_confirmation", detail: "confirm" });
 	});
 
+	it("chat no Autônomo sem a liberação do dono: email_reply abre o cartão e não envia (v2)", async () => {
+		const delivered: unknown[] = [];
+		const { events, result } = await runOrigin({
+			origin: "chat",
+			text: "responde o e-mail da Ana por e-mail: pode ser",
+			extra: { email: emailCtx(autonomous, delivered), conversationId: "conv-o" },
+			script: [toolCall("e1", "email_reply", { thread_id: "thr_1", body: "Recebi." }), say("Deixei para aprovar.")],
+		});
+		expect(delivered).toHaveLength(0);
+		expect(events.some((event) => event.type === "confirm")).toBe(true);
+		expect(result.stop).toEqual({ reason: "awaiting_confirmation", detail: "confirm" });
+	});
+
 	it("responder pelo e-mail: com a liberação do dono, email_reply entrega (política do dono permite) e o run termina", async () => {
 		const delivered: unknown[] = [];
 		const { results, result } = await runOrigin({

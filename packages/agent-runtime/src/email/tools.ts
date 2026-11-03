@@ -149,7 +149,7 @@ const READ_THREAD_CHARS = 14_000;
 const READ_MESSAGE_CHARS = 5_000;
 
 /**
- * `ownerApprovalRequired`: resposta a e-mail recebido sem a liberação do dono ("responder e-mails sozinho"):
+ * `ownerApprovalRequired`: `email_reply` sem a liberação do dono, de qualquer origem ("responder e-mails sozinho"):
  * nunca entrega direto, vira cartão de aprovação mesmo no Autônomo.
  */
 export function decideEmailSend(
@@ -317,8 +317,9 @@ export async function executeEmailTool(
 		if ((await email.service.remainingToday(mailbox)) <= 0) {
 			throw new Error(`Limite diário de ${mailbox.dailySendLimit} e-mails atingido. O dono pode ajustar na aba E-mail do bot. Não tente enviar de outro jeito.`);
 		}
-		// Resposta a e-mail recebido: por padrão o dono aprova (cartão na conversa do bot, vale 24h); a config da caixa libera.
-		const ownerApprovalRequired = name === "email_reply" && ctx.origin === "email" && !mailbox.autoReply;
+		// Resposta por e-mail: por padrão o dono aprova (cartão na conversa do bot, vale 24h); só a config da caixa libera.
+		// Vale em qualquer origem: um e-mail que entra num run já ativo (join) mantém a origem "chat", e subagente herda a do pai.
+		const ownerApprovalRequired = name === "email_reply" && !mailbox.autoReply;
 		const decision = decideEmailSend(email.sendPolicy() ?? { level: DEFAULT_AUTONOMY_LEVEL, exceptions: [] }, name, prepared, { ownerApprovalRequired });
 		if (decision === "block") throw new Error("Envio de e-mail bloqueado pela autonomia do usuário.");
 		if (decision === "allow") {

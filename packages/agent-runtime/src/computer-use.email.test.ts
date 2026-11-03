@@ -121,8 +121,17 @@ describe("tools de e-mail no run", () => {
 		expect(result.events.some((event) => event.type === "confirm")).toBe(false);
 	});
 
-	it("Autônomo (política de envio do dono) envia para quem está na lista sem cartão", async () => {
+	it("chat no Autônomo sem a liberação do dono: email_reply abre o cartão e não envia (v1)", async () => {
+		saved.cards.length = 0;
 		const email = emailContext("autonomous");
+		const result = await run({ text: "responde o e-mail da Ana: pode ser", origin: "chat", steps: [call("email_reply", { thread_id: "thr_1", body: "pode ser" }), done("Aguardando")], email, autonomy: "autonomous" });
+		expect(email.delivered).toHaveLength(0);
+		expect(result.events.some((event) => event.type === "confirm")).toBe(true);
+		expect(saved.cards).toHaveLength(1);
+	});
+
+	it("Autônomo com a liberação do dono envia para quem está na lista sem cartão", async () => {
+		const email = { ...emailContext("autonomous"), mailbox: { ...mailbox, autoReply: true } } as EmailRunContext & { delivered: unknown[] };
 		const result = await run({ text: "responde o e-mail da Ana: pode ser", origin: "chat", steps: [call("email_reply", { thread_id: "thr_1", body: "pode ser" }), done("Enviei")], email, autonomy: "autonomous" });
 		expect(email.delivered).toHaveLength(1);
 		expect(result.events.some((event) => event.type === "confirm")).toBe(false);

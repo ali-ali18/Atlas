@@ -119,10 +119,29 @@ describe("envio e autonomia", () => {
 		expect(balanced.service.deliver).not.toHaveBeenCalled();
 	});
 
-	it("chat com humano não muda: email_reply no Autônomo envia mesmo sem a liberação", async () => {
-		const { ctx, deps, service } = setup(AUTONOMOUS);
+	it("chat no Autônomo sem a liberação: email_reply abre o cartão e não envia (e-mail que entrou num run de chat ativo)", async () => {
+		const { ctx, deps, service, cards, intents } = setup(AUTONOMOUS);
+		const out = await executeEmailTool("email_reply", { thread_id: "thr_1", body: "ok" }, { ...ctx, origin: "chat" }, deps);
+		expect(service.deliver).not.toHaveBeenCalled();
+		expect(out.confirmEvent).toMatchObject({ type: "confirm", title: "Enviar este e-mail?" });
+		expect(cards).toHaveLength(1);
+		expect(intents).toHaveLength(1);
+	});
+
+	it("chat no Autônomo com a liberação: email_reply envia direto", async () => {
+		const { ctx, deps, service, cards } = setup(AUTONOMOUS, { box: mailbox({ autoReply: true }) });
 		await executeEmailTool("email_reply", { thread_id: "thr_1", body: "ok" }, { ...ctx, origin: "chat" }, deps);
 		expect(service.deliver).toHaveBeenCalledTimes(1);
+		expect(cards).toHaveLength(0);
+	});
+
+	it("subagente sem a liberação: email_reply não envia nem no Autônomo", async () => {
+		const { ctx, deps, service } = setup(AUTONOMOUS);
+		await expect(executeEmailTool("email_reply", { thread_id: "thr_1", body: "ok" }, { ...ctx, origin: "subagent" }, deps)).rejects.toThrow("precisa de confirmação");
+		expect(service.deliver).not.toHaveBeenCalled();
+		const free = setup(AUTONOMOUS, { box: mailbox({ autoReply: true }) });
+		await executeEmailTool("email_reply", { thread_id: "thr_1", body: "ok" }, { ...free.ctx, origin: "subagent" }, free.deps);
+		expect(free.service.deliver).toHaveBeenCalledTimes(1);
 	});
 
 	it("decideEmailSend: aprovação do dono exigida vira 'ask' mas não desfaz bloqueio", () => {
@@ -149,8 +168,10 @@ describe("envio e autonomia", () => {
 		const { ctx, deps, cards } = setup(BALANCED);
 		await expect(executeEmailTool("email_reply", { thread_id: "thr_1", body: "b" }, { ...ctx, origin: "routine" }, deps)).rejects.toThrow("precisa de confirmação");
 		expect(cards).toHaveLength(0);
-		// Autônomo na rotina: a resposta na conversa de e-mail para quem está na lista envia (política existente)
-		const auto = setup(AUTONOMOUS);
+		// Autônomo na rotina: sem a liberação não há cartão possível (falha honesta); com ela, envia
+		const sem = setup(AUTONOMOUS);
+		await expect(executeEmailTool("email_reply", { thread_id: "thr_1", body: "b" }, { ...sem.ctx, origin: "routine" }, sem.deps)).rejects.toThrow("precisa de confirmação");
+		const auto = setup(AUTONOMOUS, { box: mailbox({ autoReply: true }) });
 		await executeEmailTool("email_reply", { thread_id: "thr_1", body: "b" }, { ...auto.ctx, origin: "routine" }, auto.deps);
 		expect(auto.service.deliver).toHaveBeenCalled();
 	});
