@@ -270,3 +270,7 @@ Perfil do bot → **Rotinas** abre a lista nativa (`routines/[id]`): rotinas sol
 - **Criar e editar é conversando:** "Pedir uma rotina ao bot" e "Editar rotina" abrem o chat com o campo já preenchido ("Quero mudar a rotina …: "). O app não edita gatilho (cron, webhook, GitHub, e-mail) nem mostra segredo.
 - **Fora por enquanto:** "Próxima execução" (o servidor não calcula), Testar (executar agora), excluir e ações de grupo.
 - **Visual:** cores medidas no app do Grok (`routineSurface`: tela `#1e1e1e`, cartão `#2c2c2e`, contorno `#373739`); interruptor próprio (`components/ui/toggle-switch.tsx`, trilho 56x34 na cor do bot).
+
+## Conectar conector OAuth pelo navegador do celular
+
+A sessão do app fica dentro dele; o callback do OAuth exige cookie do dono. Por isso os POSTs de conexão (`/v1/mcp/connections`, `/v1/mcp/connections/:id/reauth`, `/v1/composio/connect`) aceitam `client: "mobile"` e devolvem `handoffUrl`. O app abre essa URL no navegador do sistema: o servidor consome o código (uso único, 60 s, só o hash no banco), cria uma sessão curta (10 min) do mesmo dono, grava o cookie e vai (302) para a URL de autorização que ele mesmo gerou. A sessão curta é revogada ao fim do callback. Código ruim mostra "Link expirado. Volte ao app e tente de novo." O app detecta a conclusão por polling. Código em `apps/api/src/mobile-oauth-handoff.ts`.
