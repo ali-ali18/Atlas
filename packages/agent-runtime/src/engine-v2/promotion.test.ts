@@ -690,6 +690,9 @@ describe("anunciar sem fazer (v2)", () => {
 	it("o prompt manda chamar a tool no mesmo passo e não passar a execução ao usuário", () => {
 		const core = ENGINE_V2_CORE.join("\n");
 		expect(core).toMatch(/reply without a tool call ends your turn/i);
+		// Sem teto padrão de tempo ou dinheiro: o prompt não promete um "orçamento de tempo" que não existe.
+		expect(core).toMatch(/no default time or money limit/);
+		expect(core).not.toMatch(/Time is the budget/);
 		expect(core).toMatch(/Never announce an action/);
 		expect(core).toMatch(/never hand the execution to the user/);
 		expect(ANNOUNCED_ACTION_NOTE).toMatch(/call the tool in this step/);

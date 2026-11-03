@@ -139,7 +139,7 @@ import {
 	resolveBudget,
 	wallClockAnchors,
 } from "@workspace/agent-runtime";
-import { engineDefaultFromEnv, pickRunEngine, resolveRunLimits, runSelectedEngine } from "../engine-choice.js";
+import { earlyWallMs, engineDefaultFromEnv, pickRunEngine, resolveRunLimits, runSelectedEngine } from "../engine-choice.js";
 import { briefToolFilter, budgetStopFallbackText, isBotConfigEventObjective, createReviewerClient, resolveMaintenanceCandidates } from "@workspace/agent-runtime";
 import { briefDeliveryDeps, deliverBriefFailure, deliverDailyBrief, findRoutineRunIdWithRetry, isDetachedBriefRun } from "../daily-brief.js";
 import { appendConversationMessage, getLanguageContext, listRecentLoginAsks } from "@workspace/db";
@@ -1030,7 +1030,8 @@ async function executeLeasedRun(ctx: {
 	let sessionProbe: Promise<void> = Promise.resolve();
 	if (cachedSessionId) {
 		// Mesmo prazo do runtime: só tempo ativo (pausa e fila não contam).
-		const { deadlineAtMs } = wallClockAnchors({ maxWallMs: budget.maxWallMs, now: Date.now(), runStartedAt, restored: checkpoint });
+		// Ainda sem o motor escolhido: run sem humano usa o teto padrão dele (o mesmo que `resolveRunLimits` aplica depois).
+		const { deadlineAtMs } = wallClockAnchors({ maxWallMs: earlyWallMs(budget.maxWallMs, !(run.origin === "chat" && readRunHumanTurn(run))), now: Date.now(), runStartedAt, restored: checkpoint });
 		const initialContext = { signal: aborter.signal, deadlineAtMs };
 		const inherited = cachedSessionId;
 		// `getRunningSession` nunca rejeita (falha = sessão não está rodando).

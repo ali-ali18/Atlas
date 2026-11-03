@@ -4,7 +4,7 @@
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { engineDefaultFromEnv, longWorkOwnerLimits, pickRunEngine, resolveRunLimits } from "./engine-choice.js";
+import { earlyWallMs, engineDefaultFromEnv, longWorkOwnerLimits, pickRunEngine, resolveRunLimits } from "./engine-choice.js";
 import type { EngineDefault } from "@workspace/shared";
 import { effectiveCostCapUsd } from "./run-config.js";
 
@@ -332,7 +332,15 @@ test("sem teto em US$ nem de tempo por padrão no chat do dono; o tempo do bot s
 	// ...mas o tempo da rotina de trabalho longo mantém o teto efetivo de antes (30 min; os minutos do bot, se houver) e o v1 também.
 	assert.equal(limits(routineLong, { origin: "routine", humanTurn: false }).wallMs, 30 * 60_000);
 	const routineTimed = await setup({ policyJson: { engine: "v2", workProfile: "long_work", engineScope: "all", longWorkMinutes: 45 } }).choose();
-	assert.equal(limits(routineTimed, { origin: "routine", humanTurn: false }).wallMs, 45 * 60_000);
+	// Run sem humano nunca passa de 30 min pelos minutos do bot (pensados para o chat do dono); abaixo de 30 vale o do bot.
+	assert.equal(limits(routineTimed, { origin: "routine", humanTurn: false }).wallMs, 30 * 60_000);
+	const routineShort = await setup({ policyJson: { engine: "v2", workProfile: "long_work", engineScope: "all", longWorkMinutes: 10 } }).choose();
+	assert.equal(limits(routineShort, { origin: "routine", humanTurn: false }).wallMs, 10 * 60_000);
+	// Tempo fixado na conta ou no pedido passa dos 30 (o worker nem aplica o teto padrão).
+	assert.equal(limits(routineTimed, { origin: "routine", humanTurn: false, wallFixed: true }).wallMs, undefined);
+	assert.equal(earlyWallMs(0, true), 30 * 60_000);
+	assert.equal(earlyWallMs(0, false), 0);
+	assert.equal(earlyWallMs(5 * 60_000, true), 5 * 60_000);
 	assert.equal(limits({ engine: "v1", profile: "chat" }, { origin: "routine", humanTurn: false }).wallMs, 30 * 60_000);
 	assert.equal(limits({ engine: "v1", profile: "chat" }).wallMs, undefined, "chat humano no v1 também não tem teto de tempo");
 	// Brief e lembrete `check` sem humano: o piso de 30 min.

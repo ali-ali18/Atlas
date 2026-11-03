@@ -63,10 +63,14 @@ export const UNATTENDED_CHAT_WALL_MINUTES = 8;
 export const UNATTENDED_LONG_WORK_WALL_MINUTES = 30;
 export const UNATTENDED_V1_WALL_MINUTES = 30;
 
-/** Teto de tempo (ms) de um run SEM humano no chat (rotina, alerta, proativo, bot→bot). Puro. */
+/**
+ * Teto de tempo (ms) de um run SEM humano no chat (rotina, alerta, proativo, bot→bot). Puro.
+ * Trabalho longo sem humano usa min(minutos do bot, 30): o tempo do bot pensado para o chat do dono (até 180 min) não
+ * estende uma rotina. Só um tempo fixado na conta ou no pedido passa de 30 (nesse caso `resolveRunLimits` nem chama esta função).
+ */
 export function unattendedWallMs(choice: Pick<EngineChoice, "engine" | "profile" | "longWorkMinutes" | "budgetFloor">): number {
 	if (choice.engine !== "v2") return UNATTENDED_V1_WALL_MINUTES * 60_000;
-	if (choice.profile === "long_work") return Math.round((choice.longWorkMinutes ?? UNATTENDED_LONG_WORK_WALL_MINUTES) * 60_000);
+	if (choice.profile === "long_work") return Math.round(Math.min(choice.longWorkMinutes ?? UNATTENDED_LONG_WORK_WALL_MINUTES, UNATTENDED_LONG_WORK_WALL_MINUTES) * 60_000);
 	return Math.round((choice.budgetFloor?.minutes ?? UNATTENDED_CHAT_WALL_MINUTES) * 60_000);
 }
 
@@ -146,6 +150,15 @@ export function longWorkOwnerLimits(
 		canPromote,
 		...((owner || canPromote) && choice.longWorkMinutes !== undefined ? { wallMs: Math.round(choice.longWorkMinutes * 60_000) } : {}),
 	};
+}
+
+/**
+ * Prazo provisório para o que roda ANTES da escolha do motor (conferir a sessão da VM herdada): o tempo do run se já houver,
+ * senão o teto de run sem humano. Chat com humano sem teto não tem prazo.
+ */
+export function earlyWallMs(budgetWallMs: number, unattended: boolean): number {
+	if (budgetWallMs > 0) return budgetWallMs;
+	return unattended ? UNATTENDED_V1_WALL_MINUTES * 60_000 : 0;
 }
 
 /** Roda o motor escolhido: mesma entrada e mesma saída nos dois. */

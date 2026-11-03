@@ -354,7 +354,7 @@ describe("motor v2: Supervisor no laço", () => {
 		expect(outcome.result.stop).toEqual({ reason: "loop_repeat", detail: "after_note:items_open" });
 	});
 
-	it("mesma tool + mesmos args + mesmo resultado 3x vira nota; só a reincidência encerra (com entrega)", async () => {
+	it("mesma tool + mesmos args + mesmo resultado 3x vira nota, a 4ª uma 2ª nota com alternativa, e só a 5ª encerra (com entrega)", async () => {
 		// Relógio fixo: o resultado de current_time traz os segundos e precisa ser igual nas 4 chamadas.
 		vi.useFakeTimers({ toFake: ["Date"] });
 		vi.setSystemTime(new Date("2026-11-01T12:00:00Z"));
