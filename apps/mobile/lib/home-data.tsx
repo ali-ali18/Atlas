@@ -22,6 +22,11 @@ export type HomeData = {
 	refresh: () => Promise<void>;
 	/** Aplica na lista (e no cache do aparelho) o que acabou de ser salvo no servidor, sem esperar a próxima atualização. */
 	applyBotUpdate: (botId: string, patch: Partial<Pick<HomeBot, "name" | "color" | "shape" | "language" | "pinned" | "pinOrder" | "sectionId">>) => void;
+	/**
+	 * Insere no topo da lista (e no cache do aparelho) um bot que acabou de ser criado no servidor. Uma atualização que já
+	 * estava em voo não o conhece e não o apaga (ver `PendingBotPatches.addBot`).
+	 */
+	addBot: (bot: HomeBot) => void;
 };
 
 const Context = React.createContext<HomeData | null>(null);
@@ -135,6 +140,17 @@ export function HomeDataProvider({ children }: { children: React.ReactNode }) {
 		if (cacheKeyNow) void saveHomeCache(homeStorage, cacheKeyNow, next, Date.now());
 	}, []);
 
-	const value = React.useMemo<HomeData>(() => ({ snapshot, refreshing, error, prepare, refresh, applyBotUpdate }), [snapshot, refreshing, error, prepare, refresh, applyBotUpdate]);
+	const addBot = React.useCallback<HomeData["addBot"]>((created) => {
+		pendingPatches.current.addBot(created);
+		const current = snapshotRef.current;
+		if (!current) return;
+		const next = { ...current, bots: [created, ...current.bots.filter((bot) => bot.id !== created.id)] };
+		snapshotRef.current = next;
+		setSnapshot(next);
+		const cacheKeyNow = keyRef.current;
+		if (cacheKeyNow) void saveHomeCache(homeStorage, cacheKeyNow, next, Date.now());
+	}, []);
+
+	const value = React.useMemo<HomeData>(() => ({ snapshot, refreshing, error, prepare, refresh, applyBotUpdate, addBot }), [snapshot, refreshing, error, prepare, refresh, applyBotUpdate, addBot]);
 	return <Context.Provider value={value}>{children}</Context.Provider>;
 }
