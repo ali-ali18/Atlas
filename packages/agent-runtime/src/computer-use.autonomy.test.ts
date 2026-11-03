@@ -695,26 +695,29 @@ describe("autonomia: conectores (F10)", () => {
 		expect(toolResults[0]).toMatchObject({ ok: false });
 	});
 
-	it("rotina no nível Autônomo recebe create_spreadsheet; em Equilibrado, não", async () => {
-		const autonomous = await run({
-			autonomy: lvl("autonomous"),
+	it("rotina nunca recebe escrita de conector, nem no nível Autônomo (D1); chat com humano no Autônomo continua escrevendo", async () => {
+		for (const level of ["autonomous", "balanced"] as const) {
+			for (const origin of ["routine", "webhook", "proactive"] as const) {
+				const { seenTools } = await run({ autonomy: lvl(level), origin, unattended: true, text: "roda a rotina", calls: [assistantDone()] });
+				expect(seenTools[0], `${level}/${origin}`).toContain("mcp__google_calendar__list_events");
+				for (const write of ["create_spreadsheet", "create_event", "delete_event"]) {
+					expect(seenTools[0], `${level}/${origin}/${write}`).not.toContain(`mcp__google_calendar__${write}`);
+				}
+			}
+		}
+		// Exceção marcada como "allow" pelo dono também não abre escrita em rotina.
+		const excepted = await run({
+			autonomy: lvl("autonomous", [{ tool: "mcp__google_calendar__create_event", mode: "never_ask" }]),
 			origin: "routine",
 			unattended: true,
 			text: "roda a rotina",
 			calls: [assistantDone()],
 		});
-		expect(autonomous.seenTools[0]).toContain("mcp__google_calendar__create_spreadsheet");
-		expect(autonomous.seenTools[0]).toContain("mcp__google_calendar__create_event");
-		expect(autonomous.seenTools[0]).not.toContain("mcp__google_calendar__delete_event");
-		const balanced = await run({
-			autonomy: lvl("balanced"),
-			origin: "routine",
-			unattended: true,
-			text: "roda a rotina",
-			calls: [assistantDone()],
-		});
-		expect(balanced.seenTools[0]).not.toContain("mcp__google_calendar__create_spreadsheet");
-		expect(balanced.seenTools[0]).toContain("mcp__google_calendar__list_events");
+		expect(excepted.seenTools[0]).not.toContain("mcp__google_calendar__create_event");
+		// Chat com humano no Autônomo: a escrita reversível continua disponível.
+		const chat = await run({ autonomy: lvl("autonomous"), text: "cria um evento", calls: [assistantDone()] });
+		expect(chat.seenTools[0]).toContain("mcp__google_calendar__create_event");
+		expect(chat.seenTools[0]).toContain("mcp__google_calendar__create_spreadsheet");
 	});
 
 	it("rotina com toolset completo ainda é filtrada pela política do run", async () => {

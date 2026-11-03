@@ -59,7 +59,7 @@ export type McpRuntimeOptions = {
 	userId?: string;
 	/** Política de autonomia efetiva do run (padrão: Equilibrado). */
 	autonomy?: EffectiveAutonomy;
-	/** Rotina/webhook: só tools cuja decisão é `allow` (não há humano para confirmar). */
+	/** Rotina, webhook e follow-up proativo: só tools de leitura com decisão `allow`, em qualquer nível (ver `buildMcpToolset`). */
 	unattended?: boolean;
 	pool?: McpClientPool;
 	authProviderFactory?: McpAuthProviderFactory;

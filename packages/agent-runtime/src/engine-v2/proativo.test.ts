@@ -482,6 +482,46 @@ describe.each(["v1", "v2"] as const)("evento de configuração do bot [%s]", (en
 	});
 });
 
+describe.each(["v1", "v2"] as const)("rotina comum no Autônomo não escreve em conector (D1) [%s]", (engine) => {
+	const autonomy = { level: "autonomous" as const, exceptions: [] };
+	const connection = {
+		id: "conn-mail", slug: "gmail", name: "Gmail", disabledTools: [],
+		tools: [
+			{ name: "search_messages", inputSchema: { type: "object", properties: { query: { type: "string" } } }, annotations: { readOnlyHint: true } },
+			{ name: "send_message", inputSchema: { type: "object", properties: { to: { type: "string" } } }, annotations: { readOnlyHint: false, destructiveHint: false } },
+			{ name: "create_draft", inputSchema: { type: "object", properties: {} }, annotations: { readOnlyHint: false, destructiveHint: false } },
+		],
+	};
+
+	async function runWith(origin: "routine" | "chat", calls: CompleteChatWithToolsResult[] = []) {
+		// O worker monta o toolset com `unattended` para rotina, webhook e follow-up proativo.
+		const toolset = buildMcpToolset([connection], { autonomy, unattended: origin !== "chat" });
+		const connector = vi.fn(async () => ({ ok: true, text: "ok", truncated: false }));
+		const out = await run(engine, {
+			origin,
+			proactive: false,
+			message: origin === "routine" ? "[EXECUÇÃO DE ROTINA] responda os e-mails" : "manda um e-mail para x@y.com",
+			calls: [...calls, done],
+			extra: { autonomy, mcp: { toolset, call: connector } },
+		});
+		return { ...out, connector };
+	}
+
+	it("rotina: só a leitura do conector aparece; pedir a escrita é recusado sem chamar o conector", async () => {
+		const { seenTools, connector, results } = await runWith("routine", [toolCall("mcp__gmail__send_message", { to: "x@y.com" })]);
+		expect(seenTools[0]).toContain("mcp__gmail__search_messages");
+		expect(seenTools[0]).not.toContain("mcp__gmail__send_message");
+		expect(seenTools[0]).not.toContain("mcp__gmail__create_draft");
+		expect(connector).not.toHaveBeenCalled();
+		expect(results[0]).toMatchObject({ ok: false });
+	});
+
+	it("chat com humano no Autônomo continua vendo a escrita", async () => {
+		const { seenTools } = await runWith("chat");
+		expect(seenTools[0]).toContain("mcp__gmail__send_message");
+	});
+});
+
 describe.each(["v1", "v2"] as const)("brief 'Seu dia' [%s]", (engine) => {
 	const autonomy = { level: "autonomous" as const, exceptions: [] };
 	const connection = {
