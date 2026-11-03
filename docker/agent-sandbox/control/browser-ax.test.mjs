@@ -30,7 +30,7 @@ async function open(path, options = {}) {
 const refIn = (tree, pattern) => {
 	const line = tree.split("\n").find((l) => pattern.test(l));
 	assert.ok(line, `${pattern} não está em:\n${tree}`);
-	return /\[((?:f\d+)?e\d+)\]/.exec(line)[1];
+	return /\[((?:f\d+)?a\d+)\]/.exec(line)[1];
 };
 
 test("fixture A: o chunk 1 traz aside e OOPIF em menos de 2.000 caracteres, sem ocultos e sem senha", { skip }, async () => {
@@ -42,14 +42,14 @@ test("fixture A: o chunk 1 traz aside e OOPIF em menos de 2.000 caracteres, sem 
 	assert.equal(snap.engine, "ax");
 	assert.ok(snap.tree.length < 2000, `${snap.tree.length} chars:\n${snap.tree}`);
 	assert.match(snap.tree, /complementary "Chat"/);
-	assert.match(snap.tree, /button "Enviar" \[e\d+\]/);
-	assert.match(snap.tree, /button "Pagar no iframe" \[f\d+e\d+\]/, "o iframe de outro site entra com a ref do frame");
+	assert.match(snap.tree, /button "Enviar" \[a\d+\]/);
+	assert.match(snap.tree, /button "Pagar no iframe" \[f\d+a\d+\]/, "o iframe de outro site entra com a ref do frame");
 	assert.match(snap.tree, /button "Dentro do shadow"/);
-	assert.match(snap.tree, /button \[e\d+\] \[aria-hidden\]\n\s+Decorativo/);
+	assert.match(snap.tree, /button \[a\d+\] \[aria-hidden\]\n\s+Decorativo/);
 	assert.doesNotMatch(snap.tree, /Interno do acordeão|texto escondido|link fora da tela/, "acordeão fechado e fora da tela não aparecem");
 	assert.ok(snap.hidden >= 2);
-	assert.match(snap.tree, /textbox "Nome" \[e\d+\]: "ana"/);
-	assert.match(snap.tree, /textbox "Senha" \[e\d+\] \(campo de senha: nunca preencha\)/);
+	assert.match(snap.tree, /textbox "Nome" \[a\d+\]: "ana"/);
+	assert.match(snap.tree, /textbox "Senha" \[a\d+\] \(campo de senha: nunca preencha\)/);
 	assert.ok(snap.lines.some((l) => l.includes("(campo de senha")), "lines[] segue alimentando o muro de login");
 	assert.equal(JSON.stringify(snap).includes("s3gredo-zzz"), false, "o valor da senha nunca aparece");
 	assert.match(snap.tree, /fora da janela/);
@@ -106,18 +106,55 @@ test("fixture A: abrir o acordeão faz o conteúdo aparecer no snapshot seguinte
 test("fixture A: area=page pagina por caracteres; ref= abre os filhos do bloco colapsado", { skip }, async () => {
 	const { page, refs } = await open("/a");
 	const full = await refs.browserSnapshot({ area: "page", limit: 3000 });
-	assert.match(full.tree, /similares \(e\d+\.\.e\d+\) — browser_snapshot ref=e\d+/);
+	assert.match(full.tree, /similares \(a\d+\.\.a\d+\) — browser_snapshot ref=a\d+/);
 	assert.ok(full.treeLength > 0);
 	if (full.nextOffset !== null) {
 		const next = await refs.browserSnapshot({ area: "page", offset: full.nextOffset, limit: 3000 });
 		assert.equal(next.cached, true);
 		assert.notEqual(next.tree, full.tree);
 	}
-	const container = /similares \([^)]*\) — browser_snapshot ref=(e\d+)/.exec(full.tree)[1];
+	const container = /similares \([^)]*\) — browser_snapshot ref=(a\d+)/.exec(full.tree)[1];
 	const opened = await refs.browserSnapshot({ ref: container, limit: 4000 });
 	assert.equal(opened.area, "ref");
 	assert.ok((opened.tree.match(/^ *article/gm) ?? []).length >= 3, opened.tree.slice(0, 300));
 	assert.doesNotMatch(opened.tree.split("\n").slice(0, 12).join("\n"), /similares/, "o primeiro nível vem inteiro");
+	await page.close();
+});
+
+test("ref da árvore (aN) resolve pela árvore mesmo depois que a aba virou DOM (marcas de screenshot, read)", { skip }, async () => {
+	const { page, refs } = await open("/a");
+	const snap = await refs.browserSnapshot({});
+	const treeRef = refIn(snap.tree, /button "Enviar"/);
+	await refs.browserSnapshot({ engine: "dom" });
+	assert.equal(refs.axStore.engineOf(page), "dom");
+	const result = await refs.browserAct({ ref: treeRef, action: "click" });
+	assert.equal(result.ok, true);
+	assert.equal(await page.locator("#log p").count(), 1);
+	await page.close();
+});
+
+test("ref do DOM (eN) resolve pelo DOM mesmo com a aba na árvore (newElements do clique por texto)", { skip }, async () => {
+	const { page, refs } = await open("/a");
+	await refs.browserSnapshot({});
+	assert.equal(refs.axStore.engineOf(page), "ax");
+	await refs.collect(page, { mode: "full", area: "viewport" });
+	const domRef = await page.locator("#send").getAttribute("data-atlas-ref");
+	assert.match(domRef, /^e\d+$/);
+	const result = await refs.browserAct({ ref: domRef, action: "click" });
+	assert.equal(result.ok, true);
+	assert.equal(await page.locator("#log p").count(), 1);
+	await page.close();
+});
+
+test("paginação em cache não sobrevive a uma ação que muda o texto sem mudar a URL", { skip }, async () => {
+	const { page, refs } = await open("/a");
+	const first = await refs.browserSnapshot({ area: "page", limit: 600 });
+	assert.notEqual(first.nextOffset, null);
+	const enviar = refIn((await refs.browserSnapshot({})).tree, /button "Enviar"/);
+	await refs.browserSnapshot({ area: "page", limit: 600 });
+	await refs.browserAct({ ref: enviar, action: "click" });
+	const next = await refs.browserSnapshot({ area: "page", offset: first.nextOffset, limit: 600 });
+	assert.notEqual(next.cached, true, "a ação invalida o texto em cache");
 	await page.close();
 });
 

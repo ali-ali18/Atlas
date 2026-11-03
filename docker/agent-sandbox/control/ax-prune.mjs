@@ -5,6 +5,8 @@
 // cruza a janela) -> collapseRuns (irmãos repetidos) -> renderAx (linhas).
 // Valores de campo (textbox etc.) só saem se a ref estiver em `okValues`:
 // o chamador decide depois da sonda (senha, código de uso único). Padrão = nunca.
+import { toTreeRef } from "./ax-ref-names.mjs";
+
 
 export const NAME_MAX = 200;
 export const TEXT_MAX = 300;
@@ -72,7 +74,7 @@ function parseLine(content) {
 	const attrPattern = /^\s*\[([^\]=]+)(?:=([^\]]*))?\]/;
 	for (let m = attrPattern.exec(rest); m; m = attrPattern.exec(rest)) {
 		const [, key, val] = m;
-		if (key === "ref") node.ref = val ?? "";
+		if (key === "ref") node.ref = toTreeRef(val ?? "");
 		else if (key === "box") {
 			const nums = String(val).split(",").map(Number);
 			if (nums.length === 4 && nums.every(Number.isFinite)) node.box = nums;
@@ -116,7 +118,7 @@ export function parseAxYaml(yaml) {
 		const origin = parent.role === "iframe" && parent.abs ? parent.abs : parent.origin ?? [0, 0];
 		node.origin = origin;
 		if (node.box) node.abs = [node.box[0] + origin[0], node.box[1] + origin[1], node.box[2], node.box[3]];
-		node.frame = /^(f\d+)e/.exec(node.ref)?.[1] ?? parent.frame ?? "";
+		node.frame = /^(f\d+)a/.exec(node.ref)?.[1] ?? parent.frame ?? "";
 		parent.children.push(node);
 		stack.push(node);
 		count += 1;

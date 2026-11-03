@@ -16,22 +16,45 @@ const YAML = `- main [ref=e1]:
 test("tabela: papel, nome, ordinal entre iguais, total e âncora; generic sem nome fica de fora", () => {
 	const table = buildRefTable(parseAxYaml(YAML).byRef);
 	assert.deepEqual(
-		[table.get("e3").nth, table.get("e3").of, table.get("e4").nth, table.get("e3").anchor],
+		[table.get("a3").nth, table.get("a3").of, table.get("a4").nth, table.get("a3").anchor],
 		[0, 2, 1, 'complementary "Chat"'],
 	);
-	assert.equal(table.get("f1e2").frame, "f1");
-	assert.equal(table.has("e6"), false);
-	assert.equal(table.has("e1"), false);
+	assert.equal(table.get("f1a2").frame, "f1");
+	assert.equal(table.has("a6"), false);
+	assert.equal(table.has("a1"), false);
 });
 
 test("store: snapshot do dom troca o motor; novo ax mescla a tabela antiga", () => {
 	const store = createAxStore();
 	const page = {};
-	store.setAx(page, { table: new Map([["e1", { role: "button" }]]), flat: new Map() });
-	store.setAx(page, { table: new Map([["e2", { role: "link" }]]), flat: new Map() });
-	assert.deepEqual([...store.get(page).table.keys()], ["e1", "e2"]);
+	store.setAx(page, { table: new Map([["a1", { role: "button" }]]), flat: new Map() });
+	store.setAx(page, { table: new Map([["a2", { role: "link" }]]), flat: new Map() });
+	assert.deepEqual([...store.get(page).table.keys()], ["a1", "a2"]);
 	store.setDom(page);
 	assert.equal(store.engineOf(page), "dom");
+});
+
+test("store: navegar zera a tabela (ref velha não casa por papel+nome na página nova); DOM guarda a tabela só na mesma URL", () => {
+	const store = createAxStore();
+	let href = "http://x/a";
+	const page = { url: () => href };
+	store.setAx(page, { table: new Map([["a1", { role: "button" }]]), flat: new Map(), url: href });
+	href = "http://x/b";
+	store.setAx(page, { table: new Map([["a2", { role: "link" }]]), flat: new Map(), url: href });
+	assert.deepEqual([...store.get(page).table.keys()], ["a2"]);
+	store.setDom(page);
+	assert.deepEqual([...store.tableFor(page).keys()], ["a2"]);
+	href = "http://x/c";
+	assert.equal(store.tableFor(page), undefined);
+});
+
+test("store: clearRendered descarta o texto em cache da paginação", () => {
+	const store = createAxStore();
+	const page = { url: () => "u" };
+	store.setAx(page, { table: new Map(), flat: new Map(), url: "u" });
+	store.setRendered(page, { key: "k", url: "u", lines: [], meta: {} });
+	store.clearRendered(page);
+	assert.equal(store.get(page).rendered, null);
 });
 
 const fixture = await launchFixtureBrowser({
@@ -94,6 +117,6 @@ test("Chromium real: ref vencida cujo elemento sumiu pede novo snapshot", { skip
 	const ref = refOf(table, "button", "Curtir");
 	await page.evaluate(() => document.getElementById("box").remove());
 	await assert.rejects(resolveAxRef(page, table, ref), /não está mais na página/);
-	await assert.rejects(resolveAxRef(page, table, "e999"), /venceu/);
+	await assert.rejects(resolveAxRef(page, table, "a999"), /venceu/);
 	await page.close();
 });

@@ -12,7 +12,7 @@ const BEFORE = `- main [ref=e1]:
   - paragraph [ref=e5]: Olá`;
 
 test("sem mudança relevante: nada (foco muda e não conta)", () => {
-	const after = BEFORE.replace('"Curtir" [active]', '"Curtir"').replace('"Menu" [ref=e2]', '"Menu" [ref=e2]');
+	const after = BEFORE.replace('"Curtir" [active]', '"Curtir"');
 	assert.deepEqual(diffAxTrees(flat(BEFORE), flat(after)), []);
 });
 
@@ -27,7 +27,7 @@ test("novo item, item que sumiu e mudança de estado, por ref", () => {
 	assert.deepEqual(lines, [
 		'+ dialog "Entrar"',
 		'- paragraph: "Olá"',
-		'~ button "Menu" [e2] [expanded] estado: — → expanded',
+		'~ button "Menu" [a2] [expanded] estado: — → expanded',
 	]);
 });
 
