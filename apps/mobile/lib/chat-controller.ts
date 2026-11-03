@@ -3,12 +3,15 @@
 // defasada de render), e as dependências (API, stream, cache, relógio) entram por injeção para testar as corridas
 // (envio durante o fim do run, parar antes do `runId`, toque duplo em aprovação…). O hook só assina e desenha.
 import type { AgentActivity, ComputerUseEvent } from "@workspace/shared";
+import { proposalErrorText, type BotProfileResult, type BotProposalResult, type ResolveDecision } from "./card-api";
 import { ChatApiError, isNetworkError, isUnauthorized, sendErrorText, type CreateRunInput, type CreateRunResult } from "./chat-api";
+import { homeBotFromProposal, withProposalResolution, type CardResolution } from "./bot-cards";
 import { applyRunEvent, createLiveState, startLiveRun, type LiveState } from "./chat-live";
 import { followRun, type FollowOptions, type OpenStream } from "./chat-stream";
 import { initialSync, syncLine, syncReducer, type SyncAction, type SyncState } from "./chat-sync";
 import { dockedTaskList, mergeTail, oldestCursor, PAGE_SIZE, prependOlder, reconcile, sessionMessageToItem, withSourceMarkers, type MessagePage, type PageCursor } from "./chat-thread";
 import type { ChatItem, Reaction, ReplyQuote } from "./chat-types";
+import type { HomeBot } from "./home-types";
 import { myReaction, sameReactions, toggleUserReaction } from "./message-actions";
 
 export type ChatApi = {
@@ -23,6 +26,8 @@ export type ChatApi = {
 	setReaction: (messageId: string, emoji: string) => Promise<void>;
 	clearReaction: (messageId: string) => Promise<void>;
 	markConversationUnread: (conversationId: string) => Promise<void>;
+	resolveBotProposal: (input: { conversationId: string; proposalId: string; decision: ResolveDecision }) => Promise<BotProposalResult>;
+	resolveBotProfile: (input: { conversationId: string; proposalId: string; decision: ResolveDecision }) => Promise<BotProfileResult>;
 };
 
 export type ChatCache = { load: () => Promise<ChatItem[] | null>; save: (items: readonly ChatItem[]) => Promise<void> };
@@ -34,6 +39,10 @@ export type ChatDeps = {
 	/** Cache da conversa (chave por servidor + conta + conversa); `null` sem conta ou sem conversa. */
 	cacheFor: (conversationId: string) => ChatCache | null;
 	onUnauthorized: () => void;
+	/** Um agente foi criado pelo cartão do chat: a home o recebe já (e atualiza em segundo plano). */
+	onBotCreated?: (bot: HomeBot) => void;
+	/** Um perfil proposto foi aplicado: a home mostra o que mudou (hoje, só o nome). */
+	onProfileApplied?: (botId: string, patch: { name?: string }) => void;
 	/** Troca o laço do stream (testes). */
 	follow?: typeof followRun;
 	sleep?: (ms: number) => Promise<void>;
@@ -58,6 +67,8 @@ export type ChatSnapshot = {
 	error: string | null;
 	decisions: Record<string, "approved" | "rejected">;
 	answered: Record<string, true>;
+	/** Cartões de proposta (chave `kind|proposalId`): a chamada em voo, a falha ou o resultado, antes do gravado chegar. */
+	cards: Record<string, CardResolution>;
 };
 
 const ACTIVE_CONFLICT = "A conversa já tem uma tarefa em andamento";
@@ -66,7 +77,7 @@ const DEFAULT_RETRY = [400, 1_000, 2_000] as const;
 type Queued = { text: string; optimisticId: string; replyToMessageId?: string };
 
 function initial(): ChatSnapshot {
-	return { persisted: [], live: createLiveState(), hasMore: false, loadingOlder: false, following: false, creating: false, ready: false, sync: initialSync, error: null, decisions: {}, answered: {} };
+	return { persisted: [], live: createLiveState(), hasMore: false, loadingOlder: false, following: false, creating: false, ready: false, sync: initialSync, error: null, decisions: {}, answered: {}, cards: {} };
 }
 
 export class ChatController {
@@ -158,7 +169,7 @@ export class ChatController {
 		this.disposed = false; // (o React em desenvolvimento monta, desmonta e monta de novo)
 		const generation = ++this.generation;
 		this.stopFollowing();
-		this.state = { ...initial(), decisions: this.state.decisions, answered: this.state.answered };
+		this.state = { ...initial(), decisions: this.state.decisions, answered: this.state.answered, cards: this.state.cards };
 		this.publish();
 		const convId = this.conversationId;
 		const cache = convId ? this.deps.cacheFor(convId) : null;
@@ -516,6 +527,39 @@ export class ChatController {
 		})();
 	}
 
+	/**
+	 * "Criar agente" / "Atualizar perfil" e "Agora não" dos cartões de proposta. O toque trava o cartão na hora (um
+	 * segundo toque não chama de novo); o resultado vale na tela antes de o servidor gravar, e a home recebe o bot novo.
+	 */
+	resolveProposal(item: Extract<ChatItem, { kind: "bot-proposal" | "bot-profile" }>, decision: ResolveDecision): void {
+		const key = `${item.kind}|${item.proposalId}`;
+		const convId = this.conversationId;
+		if (item.status !== "pending" || this.state.cards[key]?.phase === "applying" || this.state.cards[key]?.phase === "done") return;
+		const action = item.kind === "bot-proposal" ? "bot" : "profile";
+		if (!convId) {
+			this.set({ cards: { ...this.state.cards, [key]: { phase: "error", text: proposalErrorText(new ChatApiError("", 404), decision, action) } } });
+			return;
+		}
+		this.set({ cards: { ...this.state.cards, [key]: { phase: "applying" } } });
+		void (async () => {
+			try {
+				if (item.kind === "bot-proposal") {
+					const result = await this.deps.api.resolveBotProposal({ conversationId: convId, proposalId: item.proposalId, decision });
+					this.set({ cards: { ...this.state.cards, [key]: { phase: "done", status: result.status, ...(result.botId ? { botId: result.botId } : {}), name: result.name } } });
+					if (result.status === "approved" && result.botId && !result.unchanged) this.deps.onBotCreated?.(homeBotFromProposal(item, { botId: result.botId, name: result.name }));
+				} else {
+					const result = await this.deps.api.resolveBotProfile({ conversationId: convId, proposalId: item.proposalId, decision });
+					this.set({ cards: { ...this.state.cards, [key]: { phase: "done", status: result.status } } });
+					if (result.status === "approved" && item.fields.includes("name") && item.after.name) this.deps.onProfileApplied?.(item.botId, { name: item.after.name });
+				}
+			} catch (reason) {
+				this.fail(reason);
+				if (this.disposed) return;
+				this.set({ cards: { ...this.state.cards, [key]: { phase: "error", text: proposalErrorText(reason, decision, action) } } });
+			}
+		})();
+	}
+
 	// ---- menu da mensagem ---------------------------------------------------------------------------------
 
 	/** Põe (ou tira) as reações de uma fala gravada, na tela e no cache. `false` = a fala não está na lista. */
@@ -626,7 +670,7 @@ export function liveActivity(live: LiveState, running: boolean): AgentActivity {
 function withLocalDecisions(item: ChatItem, snapshot: ChatSnapshot): ChatItem {
 	if (item.kind === "confirm" && item.status === "pending" && snapshot.decisions[item.confirmId]) return { ...item, status: snapshot.decisions[item.confirmId]! };
 	if (item.kind === "questionnaire" && item.status === "pending" && snapshot.answered[item.questionnaireId]) return { ...item, status: "submitted" };
-	return item;
+	return withProposalResolution(item, snapshot.cards);
 }
 
 export function deriveView(snapshot: ChatSnapshot): ChatView {

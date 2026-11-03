@@ -106,3 +106,22 @@ describe("escritor do cache (época)", () => {
 		expect(CHAT_CACHE_MAX_TEXT).toBe(4_000);
 	});
 });
+
+describe("cartões de proposta no cache", () => {
+	const proposal: ChatItem = { id: "m1", kind: "bot-proposal", proposalId: "p1", status: "approved", name: "Estoquinho", description: "Cuida do estoque", color: "#1084FE", shape: "hex", model: "a/b", skills: ["x-y"], firstTask: "Tarefa", botId: "bot-9" };
+	const profile: ChatItem = { id: "m2", kind: "bot-profile", proposalId: "pf1", botId: "bot1", status: "rejected", fields: ["name", "description"], before: { name: "A", snippet: "", description: null, openRouterModel: null }, after: { name: "B", description: "Nova" } };
+	it("o decidido vai e volta do disco; o pendente fica de fora (o estado de verdade vem do servidor)", () => {
+		const pending = { ...proposal, id: "m3", proposalId: "p2", status: "pending" } as ChatItem;
+		const loaded = parseChat(serializeChat([proposal, profile, pending], 1_000), 1_000)!;
+		expect(loaded.items).toEqual([proposal, profile]);
+	});
+	it("não guarda os campos do aparelho (applying, error) nem chave extra", () => {
+		const raw = serializeChat([{ ...proposal, applying: true, error: "x" } as ChatItem], 1_000);
+		expect(raw).not.toContain("applying");
+		expect(raw).not.toContain("\"error\"");
+	});
+	it("item torto no disco é descartado", () => {
+		const raw = JSON.stringify({ v: 1, savedAt: 1_000, items: [{ id: "x", kind: "bot-proposal", proposalId: "p" }, { id: "y", kind: "bot-profile", proposalId: "p", botId: "b", status: "pending", fields: ["zzz"], before: {}, after: {} }] });
+		expect(parseChat(raw, 1_000)!.items).toEqual([]);
+	});
+});

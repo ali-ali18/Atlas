@@ -1,6 +1,7 @@
 // Eventos ao vivo de um run (SSE) aplicados ao que só existe no aparelho: a fala chegando, a lista de tarefas e os
 // cartões do run. Porta enxuta de `applyLiveEvent` e dos handlers de `use-atlas-chat.ts` (web). Pura: sem React.
 import type { ComputerUseEvent } from "@workspace/shared";
+import { botProfileToItem, botProposalFromEvent, proposalKey } from "./bot-cards";
 import type { ChatItem, ChatPhase } from "./chat-types";
 
 export type LiveState = {
@@ -128,6 +129,12 @@ export function applyRunEvent(state: LiveState, event: ComputerUseEvent): LiveSt
 			return withWebCard(state, `routine-${state.runId ?? "local"}-${event.routineId ?? event.title}`, "routine", event.title, `routine:${event.routineId ?? event.title}`);
 		case "login":
 			return withWebCard(state, `login-${event.loginId}`, "login", `Entrar em ${event.site}`, `login:${event.loginId}`);
+		case "bot-proposal": {
+			const item = botProposalFromEvent(event);
+			return item ? withProposal(state, item) : state;
+		}
+		case "bot-profile":
+			return withProposal(state, botProfileToItem(`bot-profile-${event.proposalId}`, { v: 1, kind: "bot-profile", proposalId: event.proposalId, botId: event.botId, before: event.before, after: event.after, fields: event.fields, status: event.status ?? "pending" }));
 		case "paused":
 			return { ...state, paused: true, phase: "idle", tool: null };
 		case "cancelled":
@@ -145,6 +152,14 @@ export function applyRunEvent(state: LiveState, event: ComputerUseEvent): LiveSt
 		default:
 			return state;
 	}
+}
+
+/** Proposta ao vivo: uma por proposta; o evento repetido (pendente) não desfaz uma já decidida. */
+function withProposal(state: LiveState, item: Extract<ChatItem, { kind: "bot-proposal" | "bot-profile" }>): LiveState {
+	const key = proposalKey(item);
+	const known = state.items.find((candidate) => (candidate.kind === "bot-proposal" || candidate.kind === "bot-profile") && proposalKey(candidate) === key);
+	if (known && item.status === "pending") return state;
+	return { ...state, items: known ? state.items.map((candidate) => (candidate === known ? { ...item, id: known.id } : candidate)) : [...state.items, item] };
 }
 
 function withWebCard(state: LiveState, id: string, card: Extract<ChatItem, { kind: "web-card" }>["card"], title: string, key: string): LiveState {

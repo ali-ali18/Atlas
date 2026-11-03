@@ -7,6 +7,7 @@ import { Text } from "@/components/ui/text";
 import { taskCardActive } from "@/lib/chat-thread";
 import type { ChatItem, Reaction, ReplyQuote } from "@/lib/chat-types";
 import type { AnswerMap } from "@/lib/questionnaire";
+import { BotProfileCard, BotProposalCard } from "./bot-cards";
 import { ConfirmCard, MarkerRow, QuestionnaireCard, WebCardRow } from "./cards";
 import { MarkdownBlocks, TableCard } from "./markdown-text";
 import { useAppColorScheme } from "@/lib/use-theme";
@@ -22,6 +23,10 @@ export type RowActions = {
 	activeRunId: string | null;
 	/** Há um run em andamento (o cartão só é "ativo" durante um run). */
 	running: boolean;
+	/** "Criar agente" / "Aplicar" e "Agora não" dos cartões de proposta. */
+	onResolveProposal: (item: Extract<ChatItem, { kind: "bot-proposal" | "bot-profile" }>, decision: "approved" | "rejected") => void;
+	/** "Abrir conversa" do agente criado pelo cartão. */
+	onOpenBot: (botId: string) => void;
 	onOpenWeb: (item: Extract<ChatItem, { kind: "web-card" }>) => void;
 	/** Toque longo no balão: abre o menu da mensagem (só abre para fala já gravada; ver `messageMenuFor`). */
 	onOpenMenu: (item: ChatItem) => void;
@@ -142,6 +147,10 @@ function RowContent({ item, actions, position }: { item: ChatItem; actions: RowA
 			return <ConfirmCard item={item} onDecide={actions.onDecide} />;
 		case "questionnaire":
 			return <QuestionnaireCard item={item} onAnswer={actions.onAnswer} />;
+		case "bot-proposal":
+			return <BotProposalCard item={item} onDecide={actions.onResolveProposal} onOpenBot={actions.onOpenBot} />;
+		case "bot-profile":
+			return <BotProfileCard item={item} onDecide={actions.onResolveProposal} />;
 		case "web-card":
 			return <WebCardRow item={item} onOpen={actions.onOpenWeb} />;
 		case "marker":

@@ -73,6 +73,7 @@ export default function ChatScreen() {
 	const [soon, setSoon] = React.useState<Soon>(null);
 	const goBack = React.useCallback(() => (router.canGoBack() ? router.back() : router.replace("/")), [router]);
 	const openProfile = React.useCallback(() => router.push(`/profile/${encodeURIComponent(id)}` as never), [router, id]);
+	const openBot = React.useCallback((botId: string) => router.push(`/chat/${encodeURIComponent(botId)}` as never), [router]);
 	const openWeb = React.useCallback(
 		(_item: Extract<ChatItem, { kind: "web-card" }>) => {
 			const url = webChatUrl(serverUrl, id);
@@ -95,13 +96,15 @@ export default function ChatScreen() {
 		() => ({
 			onDecide: chat.decide,
 			onAnswer: chat.answer,
+			onResolveProposal: chat.resolveProposal,
+			onOpenBot: openBot,
 			onOpenWeb: openWeb,
 			onOpenMenu: messageMenu.open,
 			activeRunId: chat.runTasks?.runId ?? null,
 			running: chat.running,
 			userBubble: userBubble,
 		}),
-		[chat.decide, chat.answer, openWeb, messageMenu.open, chat.running, chat.runTasks?.runId, userBubble],
+		[chat.decide, chat.answer, chat.resolveProposal, openBot, openWeb, messageMenu.open, chat.running, chat.runTasks?.runId, userBubble],
 	);
 
 	// A lista é invertida (o fim da conversa fica embaixo e o teclado não a desloca): mais novo primeiro.
