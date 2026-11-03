@@ -208,6 +208,14 @@ O núcleo do prompt v2 manda continuar até resolver e só parar por decisão, l
 
 **Como testar.** `node --test` em `docker/agent-sandbox/control` (`ax-*.test.mjs` e `browser-ax.test.mjs`, com Chromium real e dois servidores locais para o iframe de outro site; pulam sem Chromium), `pnpm --filter @workspace/agent-runtime test` (`computer-refs.tree.test.ts`, replay em `engine-v2/contexto.integration.test.ts`, `computer-use.economy-replay.test.ts`).
 
+## Estado por passo ("Run state")
+
+Inspirado na avaliação/memória/próximo objetivo do browser-use, mas sem pedir texto extra ao modelo. Do passo 2 em diante, depois de uma tool, `buildRunStateBlock` (`engine-v2/run-state.ts`, pura) monta um bloco de no máximo 400 caracteres: `Goal` (primeiros 120 do pedido), `Last step` (tool, ok ou FAILED com o erro em uma linha, sem segredo), `Tasks` (abertas de N e a atual) e `Steps` (usados/limite, só entre 50% e o aviso de 75% do supervisor, para não duplicá-lo). Vai como mensagem de usuário `[auto-context]` no fim da cópia enviada, igual ao índice do caderno: não é instrução de sistema (pedido e erro vêm de fora) e nunca entra no histórico nem no checkpoint. Não aparece no passo 1, em chat sem tools, no fechamento da entrega nem em ajudantes. Custo: ~100 a 150 tokens por passo, depois do prefixo em cache.
+
+## Transcrição de vídeo (`video_transcript`)
+
+O texto falado de um vídeo não está na página, então ler o navegador não resume nada. A tool (`tools/video-transcript.ts`) roda na VM: `yt-dlp --skip-download --write-subs --write-auto-subs` e, se falhar no YouTube, lê `captionTracks` do `ytInitialPlayerResponse`. O VTT passa por `parseVtt` (shared), o texto é paginado por caracteres (`offset`/`limit`) e guardado 10 min em memória para as páginas seguintes. Sem legenda a tool falha (`ok:false`) com dica. Fica no grupo lazy `video` (fora do índice do prompt), companheiro do `browser`: carrega quando a tarefa pede navegador (link no pedido) ou por `mcp_tool_search`. Risco: o YouTube pode exigir token e bloquear o download; aí o resultado é o erro honesto. A imagem da VM instala o `yt-dlp` (`latest`, de root).
+
 ## Limites desta fase (o que o v2 ainda não faz)
 - **Origens:** por padrão todas as suportadas (chat, rotina com alerta, brief e "só importante", grupo, bot→bot, proativo, webhook e e-mail recebido), a não ser com `engineScope: "chat"` explícito, `engine: "v1"` ou `ATLAS_ENGINE_V2_DEFAULT=off`/`chat`, ver acima. O subagente herda o motor do pai.
 - **Padrão do deploy e a UI (01/11):** `describeEngineSettings`, a engrenagem e `set_engine` leem só o `policyJson` e a constante `ENGINE_DEFAULT_SCOPE`; bot sem escolha aparece como "Novo (padrão)" e roda no v2. Só o `ATLAS_ENGINE_V2_DEFAULT=off` de emergência é invisível para a UI. Bot que voltou ao v1 antes da 0.3.5 (chave removida, sem `engine: "v1"`) agora roda no v2: regrave "Anterior" na engrenagem se quiser mantê-lo no motor anterior.
