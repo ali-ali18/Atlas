@@ -21,6 +21,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Text } from "@/components/ui/text";
 import { useAtlasSession } from "@/lib/atlas-session";
 import { botColors } from "@/lib/bot-color";
+import { exchangePeerId } from "@/lib/bot-thread";
 import { themeColor } from "@/lib/theme";
 import { useAppColorScheme } from "@/lib/use-theme";
 import { webChatUrl } from "@/lib/chat-links";
@@ -91,17 +92,31 @@ export default function ChatScreen() {
 	);
 	// Balão do usuário na cor do bot, como no web (`grokBubbleColors`: o tom do Grok; texto branco, ou escuro em cor clara); sem cor válida, cinza.
 	const userBubble = React.useMemo(() => grokBubbleColors(bot?.color) ?? undefined, [bot?.color]);
+	// Conversa entre bots: a linha "N mensagens com X" abre a tela somente leitura (o servidor só entrega se os dois são do dono).
+	const bots = snapshot?.bots;
+	const botFor = React.useCallback((botId: string) => bots?.find((item) => item.id === botId), [bots]);
+	const openExchange = React.useCallback(
+		(item: Extract<ChatItem, { kind: "bot-exchange" }>) => {
+			const peer = exchangePeerId(item);
+			if (!peer) return;
+			const focus = item.focus ? `&focus=${encodeURIComponent(item.focus)}` : "";
+			router.push(`/bot-thread/${encodeURIComponent(id)}?peer=${encodeURIComponent(peer)}${focus}` as never);
+		},
+		[router, id],
+	);
 	const actions = React.useMemo<RowActions>(
 		() => ({
 			onDecide: chat.decide,
 			onAnswer: chat.answer,
+			botFor,
+			onOpenExchange: openExchange,
 			onOpenWeb: openWeb,
 			onOpenMenu: messageMenu.open,
 			activeRunId: chat.runTasks?.runId ?? null,
 			running: chat.running,
 			userBubble: userBubble,
 		}),
-		[chat.decide, chat.answer, openWeb, messageMenu.open, chat.running, chat.runTasks?.runId, userBubble],
+		[chat.decide, chat.answer, botFor, openExchange, openWeb, messageMenu.open, chat.running, chat.runTasks?.runId, userBubble],
 	);
 
 	// A lista é invertida (o fim da conversa fica embaixo e o teclado não a desloca): mais novo primeiro.
