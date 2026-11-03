@@ -3,6 +3,7 @@
 import { StreamHttpError } from "./chat-stream";
 import { messagesPath, PAGE_SIZE, parsePage, type MessagePage, type PageCursor } from "./chat-thread";
 import type { ApiFetch } from "./home-sync";
+import type { RunModelFields } from "./model-choice";
 
 export class ChatApiError extends Error {
 	constructor(
@@ -49,16 +50,21 @@ export async function createConversation(apiFetch: ApiFetch): Promise<string> {
 	return body.id;
 }
 
-export type CreateRunInput = { content: string; conversationId: string; botId: string; decisionConfirmId?: string; clientKey?: string; replyToMessageId?: string };
+export type CreateRunInput = { content: string; conversationId: string; botId: string; decisionConfirmId?: string; clientKey?: string; replyToMessageId?: string; model?: RunModelFields };
 export type CreateRunResult = { runId: string | null; status: string };
 
-/** `POST /v1/runs`, igual ao do web (`createAgentRun`): o servidor escolhe o modelo (`modelAuto`). */
+/**
+ * `POST /v1/runs`, igual ao do web (`createAgentRun`). O modelo vem da escolha do usuário (`input.model`, ver `runModelFields`):
+ * `modelAuto: true` só quando ele escolheu "Automático". Sem escolha o corpo não diz nada e o servidor respeita o modelo do bot.
+ */
 export async function createRun(apiFetch: ApiFetch, input: CreateRunInput): Promise<CreateRunResult> {
 	const body = {
 		messages: [{ role: "user", content: input.content }],
 		conversationId: input.conversationId,
 		botId: input.botId,
-		modelAuto: true,
+		...(input.model?.model ? { model: input.model.model } : {}),
+		...(input.model?.modelAuto ? { modelAuto: true } : {}),
+		...(input.model?.model && input.model.reasoningEffort ? { reasoningEffort: input.model.reasoningEffort } : {}),
 		...(input.decisionConfirmId ? { decisionConfirmId: input.decisionConfirmId } : {}),
 		...(input.clientKey ? { clientKey: input.clientKey } : {}),
 		...(input.replyToMessageId ? { replyToMessageId: input.replyToMessageId } : {}),
