@@ -668,6 +668,18 @@ describe("anunciar sem fazer (v2)", () => {
 		for (const text of ["", "Quer que eu monitore?", "Vou pedir o resumo ao Gemini?", "Resumo pronto.", "Vou te avisar quando mudar.", `${words(60)} vou pedir`]) expect(announcesAction(text), text).toBe(false);
 	});
 
+	it("announcesAction: respostas finais que parecem promessa mas não são NÃO são barradas; anúncios reais, sim (inclusive com apóstrofo curvo)", () => {
+		for (const text of [
+			"Pronto, o resumo está acima. Let me know if you want changes.",
+			"Não vou conseguir abrir o site, ele bloqueou o acesso.",
+			"Feito! Criei a rotina. Vou rodar toda segunda às 9h.",
+			"Pronto, enviei o e-mail. Vou aguardar a resposta dele.",
+			"I'll need your password to continue.",
+			"Não consegui acessar. Vou precisar que você faça o login.",
+		]) expect(announcesAction(text), text).toBe(false);
+		for (const text of ["I\u2019ll ask Gemini now.", "Vou pedir o resumo ao Gemini.", "Agora vou abrir o painel."]) expect(announcesAction(text), text).toBe(true);
+	});
+
 	it("o prompt manda chamar a tool no mesmo passo e não passar a execução ao usuário", () => {
 		const core = ENGINE_V2_CORE.join("\n");
 		expect(core).toMatch(/reply without a tool call ends your turn/i);

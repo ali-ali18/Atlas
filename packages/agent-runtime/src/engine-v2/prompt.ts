@@ -59,22 +59,28 @@ export const UNASKED_MIDWORK_NOTE =
 export const ANNOUNCED_ACTION_NOTE =
 	"Your reply announced an action but called no tool, so the turn would end with nothing done. Do it now: call the tool in this step. If the work is really finished, reply with the result instead of a promise.";
 
-/** Promessa em 1ª pessoa no futuro, pt-BR/en/es ("vou pedir", "agora vou", "I'll", "let me", "voy a"). */
-const FUTURE_PROMISE = /\b(?:vou|irei|ja vou|agora vou|deixa eu|deixe-me|deixe me|i'?ll|i will|i am going to|i'?m going to|let me|voy a|ahora voy)\s+\w+/;
-/** Promessa de avisar/lembrar depois é entrega legítima de rotina, não ação pendente. */
-const NOTIFY_PROMISE = /\b(?:vou|irei|i'?ll|i will|voy a)\s+(?:te\s+|lhe\s+|you\s+)?(?:avisar|lembrar|notificar|informar|let you know|remind|notify|avisar)/;
+/** Verbos de ação (lista fechada): só promessa de AGIR com tool conta; "vou precisar", "vou aguardar" ou "let me know" não. */
+const ANNOUNCE_VERBS =
+	"abrir|pedir|clicar|acessar|entrar|digitar|enviar|buscar|pesquisar|baixar|ler|rodar|executar|criar|preencher|conferir|verificar|tentar|fazer|gerar|mandar|perguntar|navegar|" +
+	"open|ask|click|access|enter|type|send|search|download|read|run|execute|create|fill|check|verify|try|do|make|generate|navigate|look|log|submit|visit|go|" +
+	"abrir|pedir|clicar|acceder|entrar|escribir|enviar|buscar|descargar|leer|ejecutar|crear|rellenar|verificar|intentar|hacer|preguntar";
+/** Promessa em 1ª pessoa no futuro + verbo de ação ("vou pedir", "agora vou abrir", "I'll ask", "let me open", "voy a abrir"), sem negação. */
+const FUTURE_PROMISE = new RegExp(`(?<!\\b(?:nao|nunca|not|no)\\s)\\b(?:vou|irei|ja vou|agora vou|deixa eu|deixe-me|deixe me|i'?ll|i will|i am going to|i'?m going to|let me|voy a|ahora voy a)\\s+(?:${ANNOUNCE_VERBS})\\b`);
+/** Agendamento ("Criei a rotina. Vou rodar toda segunda") e promessa de avisar/lembrar depois são entrega legítima, não ação pendente. */
+const SCHEDULE_OR_NOTIFY = /\b(?:vou|irei|i'?ll|i will|voy a)\s+(?:rodar|executar|run|check)\s+(?:toda|todo|todas|todos|every|each)\b|\blet me know\b|\b(?:vou|irei|i'?ll|i will|voy a)\s+(?:te\s+|lhe\s+|you\s+)?(?:avisar|lembrar|notificar|informar|remind|notify)\b/;
 const ANNOUNCE_MAX_WORDS = 50;
 
 /**
  * A resposta final é só um anúncio de ação ("Vou pedir o resumo ao Gemini."): curta, sem pergunta, com promessa no futuro
- * em 1ª pessoa. Puro; o laço ainda exige trabalho já iniciado e dispara no máximo uma vez por run.
+ * em 1ª pessoa seguida de verbo de ação de uma lista fechada. Puro; o laço ainda exige trabalho já iniciado e dispara
+ * no máximo uma vez por run.
  */
 export function announcesAction(text: string): boolean {
 	const plain = text.trim();
 	if (!plain || plain.includes("?")) return false;
 	if ((plain.match(/\S+/g) ?? []).length > ANNOUNCE_MAX_WORDS) return false;
-	const normalized = plain.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
-	return FUTURE_PROMISE.test(normalized) && !NOTIFY_PROMISE.test(normalized);
+	const normalized = plain.replace(/[\u2019\u2018]/g, "'").normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
+	return FUTURE_PROMISE.test(normalized) && !SCHEDULE_OR_NOTIFY.test(normalized);
 }
 
 /** Termos de risco que mantêm a pergunta (irreversível, saída externa, dinheiro, dado sensível). */
