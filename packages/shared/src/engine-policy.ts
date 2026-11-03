@@ -5,6 +5,11 @@
  */
 
 export type RunEngine = "v1" | "v2";
+/**
+ * Motor que o bot pede (`policyJson.engine`). `v3` (harness v3) só é ENTENDIDO pelo leitor: ninguém o grava ainda
+ * (set_engine e a rota recusam) e, enquanto o v3 não existe, o worker roda o v2. `RunEngine` segue sendo o motor de fato usado.
+ */
+export type RequestedEngine = RunEngine | "v3";
 export type RunProfile = "chat" | "long_work";
 /** `auto` decide pelo pedido; os outros dois forçam o perfil. */
 export type WorkProfileSetting = "auto" | RunProfile;
@@ -38,6 +43,8 @@ export type EnginePolicy = {
 	engine: RunEngine;
 	/** Escolha explícita do bot (`policyJson.engine`): `v1` explícito nunca vai para o v2, nem pelo padrão global. */
 	explicit?: RunEngine;
+	/** O bot pediu o v3 (`policyJson.engine = "v3"`). Para o resto do código ele vale como v2 (`explicit`); só `resolveEngine` decide se o v3 vale. */
+	requestedV3: boolean;
 	/**
 	 * Escopo como o dono vê (UI e descrição): o do bot (`engineScope`); bot sem escolha explícita mostra o do padrão
 	 * (`ENGINE_DEFAULT_SCOPE`). O worker decide por `resolveBotEngineRouting`, que também considera o env de emergência.
@@ -74,11 +81,13 @@ function clampedNumber(value: unknown, fallback: number, min: number, max: numbe
 export function readEnginePolicy(policyJson: unknown): EnginePolicy {
 	const policy = asRecord(policyJson);
 	const workProfile: WorkProfileSetting = policy.workProfile === "chat" || policy.workProfile === "long_work" ? policy.workProfile : "auto";
-	const explicit: RunEngine | undefined = policy.engine === "v1" || policy.engine === "v2" ? policy.engine : undefined;
+	// `v3` pedido vale como v2 aqui: sem o v3 (ou fora da allowlist) o bot roda no motor novo de hoje.
+	const explicit: RunEngine | undefined = policy.engine === "v1" ? "v1" : policy.engine === "v2" || policy.engine === "v3" ? "v2" : undefined;
 	const scopeRaw: EngineScope | undefined = policy.engineScope === "all" || policy.engineScope === "chat" ? policy.engineScope : undefined;
 	return {
 		engine: explicit ?? "v2",
 		explicit,
+		requestedV3: policy.engine === "v3",
 		// Quem escolheu o motor novo sem `engineScope` vale como `all` (decisão do dono, 01/11); só `engineScope: "chat"` limita.
 		scope: explicit === "v1" ? "chat" : (scopeRaw ?? ENGINE_DEFAULT_SCOPE),
 		scopeRaw,
@@ -121,10 +130,28 @@ export function resolveBotEngineRouting(policy: EnginePolicy, globalDefault: Eng
 	return { engine: "v2", scope: policy.scopeRaw ?? globalDefault };
 }
 
-/** Motor gravado no `budgetJson` do run (`undefined` = o run ainda não escolheu). */
+/**
+ * Resolve o motor pedido contra a flag do deploy. Pura: o worker lê o env na borda e passa aqui.
+ * `v3` só vale com `ATLAS_ENGINE_V3` diferente de `off` (botão de emergência) E a conta em `ATLAS_ENGINE_V3_ACCOUNTS`
+ * (lista separada por vírgula; vazia ou ausente = ninguém); senão cai no v2. `v1` e `v2` passam como vieram.
+ */
+export function resolveEngine(input: { requested: RequestedEngine; accountId?: string | null; env?: Record<string, string | undefined> }): RequestedEngine {
+	if (input.requested !== "v3") return input.requested;
+	const env = input.env ?? {};
+	if ((env.ATLAS_ENGINE_V3 ?? "").trim().toLowerCase() === "off") return "v2";
+	const account = input.accountId?.trim();
+	if (!account) return "v2";
+	const allowed = (env.ATLAS_ENGINE_V3_ACCOUNTS ?? "").split(",").map((id) => id.trim()).filter(Boolean);
+	return allowed.includes(account) ? "v3" : "v2";
+}
+
+/**
+ * Motor gravado no `budgetJson` do run (`undefined` = o run ainda não escolheu). Um `v3` gravado (rollback do deploy
+ * ou worker sem o v3) retoma no v2: o v3 nunca quebra um run que um worker mais velho precise continuar.
+ */
 export function readRunEngine(budgetJson: unknown): RunEngine | undefined {
 	const engine = asRecord(budgetJson).engine;
-	return engine === "v1" || engine === "v2" ? engine : undefined;
+	return engine === "v1" ? "v1" : engine === "v2" || engine === "v3" ? "v2" : undefined;
 }
 
 /** Perfil gravado no `budgetJson` do run (retomada mantém o perfil do começo). */

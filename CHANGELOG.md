@@ -4,6 +4,9 @@ Todas as mudanças relevantes do Atlas. Formato [Keep a Changelog](https://keepa
 
 ## [Não lançado]
 
+### Adicionado
+- **worker:** o worker entende o motor `v3` (harness v3) antes de o v3 existir: bot com `engine: "v3"` roda no v2, com uma linha de log, e o run grava o motor de fato usado; run gravado como `v3` retoma no v2. O v3 só vale com `ATLAS_ENGINE_V3` diferente de `off` e a conta em `ATLAS_ENGINE_V3_ACCOUNTS` (e, por ora, mesmo assim cai no v2). `set_engine` e a rota do bot ainda recusam gravar `v3`, com mensagem clara. Variáveis documentadas no `.env.example` do worker.
+
 ### Corrigido
 - **agent:** quem tem muitos conectores voltou a conseguir criar bot pelo chat: a busca de ferramentas achava algo parecido num conector (ex.: Figma, GitHub) e devolvia só isso, escondendo `propose_bot`. Grupo nativo pequeno (até 2 tools) que casa por palavra distintiva agora carrega junto. O índice e o resultado da carga lembram o modelo de não citar nome de ferramenta ao usuário.
 

@@ -131,3 +131,13 @@ describe("0 remove o teto de gasto (igual a vazio e null)", () => {
 		expect(readEnginePolicy({ engine: "v2", longWorkBudgetUsd: 0.05 }).longWorkBudgetUsd).toBe(0.05);
 	});
 });
+
+describe("motor v3 ainda não é gravável", () => {
+	it("set_engine recusa v3 com mensagem honesta e a validação da política também", () => {
+		const parsed = parseSetEngineArgs({ engine: "v3" });
+		expect(parsed.ok).toBe(false);
+		if (!parsed.ok) expect(parsed.error).toMatch(/"v3" engine cannot be set yet.*Nothing was changed/);
+		expect(engineSettingsError({ engine: "v3" })).toMatch(/"v3" cannot be saved yet/);
+		expect(engineSettingsError({ engine: "v2" })).toBeNull();
+	});
+});
