@@ -25,6 +25,8 @@ export type ModelOption = {
 	name: string;
 	/** Uma linha: o que o modelo faz ("Lê imagens · Raciocínio · 200k de contexto"). Vazia quando o catálogo não diz nada. */
 	description: string;
+	/** Origem quando não é o catálogo geral ("ChatGPT", "Anthropic", "OpenCode Go"): vira um selo na linha, para modelos de mesmo nome não se confundirem. */
+	source: string | null;
 	/** Níveis de esforço (raciocínio) que o modelo aceita; vazio = sem a linha "Esforço". */
 	efforts: ReasoningEffort[];
 	info: ModelCatalogInfo;
@@ -95,11 +97,11 @@ export function parseBotInfo(body: unknown, botId: string): BotModelInfo {
 }
 
 /** De onde vem o modelo quando não é o catálogo geral (plano ChatGPT, chave própria); vazio nos demais. */
-function sourceLabel(id: string): string | null {
+export function sourceLabel(id: string): string | null {
 	try {
 		const ref = parseModelRef(id);
-		if (ref.provider === "chatgpt") return "Plano ChatGPT";
-		if (ref.provider === "anthropic" || ref.provider === "opencode-go") return `via ${API_KEY_PROVIDER_LABEL[ref.provider]}`;
+		if (ref.provider === "chatgpt") return "ChatGPT";
+		if (ref.provider === "anthropic" || ref.provider === "opencode-go") return API_KEY_PROVIDER_LABEL[ref.provider];
 	} catch {
 		// id fora do formato: sem rótulo
 	}
@@ -110,11 +112,11 @@ function sourceLabel(id: string): string | null {
 export function describeModel(id: string, info: ModelCatalogInfo): string {
 	const caps = getModelCapabilities(id, info);
 	const context = formatContextTokens(caps.contextTokens);
-	return [sourceLabel(id), caps.vision ? "Lê imagens" : null, caps.reasoning ? "Raciocínio" : null, context ? `${context} de contexto` : null].filter((part): part is string => part !== null).join(" · ");
+	return [caps.vision ? "Lê imagens" : null, caps.reasoning ? "Raciocínio" : null, context ? `${context} de contexto` : null].filter((part): part is string => part !== null).join(" · ");
 }
 
 export function toOption(model: RawModel): ModelOption {
-	return { id: model.id, name: modelDisplayName(model.name, model.id), description: describeModel(model.id, model.info), efforts: availableReasoningEfforts(model.id, model.info), info: model.info };
+	return { id: model.id, name: modelDisplayName(model.name, model.id), description: describeModel(model.id, model.info), source: sourceLabel(model.id), efforts: availableReasoningEfforts(model.id, model.info), info: model.info };
 }
 
 /** Modelo que o catálogo não lista (ex.: o fixo do bot vindo de outro provedor): aparece pelo nome, nunca pelo id cru com prefixo. */

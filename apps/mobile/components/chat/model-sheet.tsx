@@ -24,7 +24,7 @@ function Row({ title, hint, label, selected, onPress, first, trailing }: { title
 						{title}
 					</Text>
 					{hint ? (
-						<Text variant="caption" numberOfLines={1} className="text-body">
+						<Text variant="caption" numberOfLines={2} className="text-body">
 							{hint}
 						</Text>
 					) : null}
@@ -86,7 +86,18 @@ export function ModelSheet({ visible, onClose, selector }: { visible: boolean; o
 	};
 
 	const modelRows = (options: ModelOption[]) =>
-		options.map((item, index) => <Row key={item.id} first={index === 0} title={item.name} hint={item.description} selected={selection.mode === "model" && selection.model === item.id} onPress={() => pickModel(item)} />);
+		options.map((item, index) => (
+			<Row
+				key={item.id}
+				first={index === 0}
+				title={item.name}
+				hint={item.description}
+				label={[item.name, item.source, item.description].filter(Boolean).join(". ")}
+				selected={selection.mode === "model" && selection.model === item.id}
+				onPress={() => pickModel(item)}
+				trailing={item.source ? <Badge variant="outline">{item.source}</Badge> : undefined}
+			/>
+		));
 
 	const others = data ? visibleOthers(data.others, showAllOthers) : { shown: [], hidden: 0 };
 
