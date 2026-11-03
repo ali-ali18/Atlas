@@ -33,6 +33,7 @@ describe("parseReadToolArgs", () => {
 		expect(parseReadToolArgs({ expandAll: true, view: "text", limit: 999_999 })).toMatchObject({ expand: "all", view: "text", limit: 20_000 });
 		expect(parseReadToolArgs({ expandRefs: ["e1", "f2e3"] }).expand).toEqual(["e1", "f2e3"]);
 		expect(() => parseReadToolArgs({ expandRefs: ["div"] })).toThrow(/ref inválido/);
+		expect(() => parseReadToolArgs({ expandRefs: ["a12"] })).toThrow(/refs de árvore.*expandAll/);
 		expect(() => parseReadToolArgs({ expandRefs: "e1" })).toThrow(/lista de refs/);
 		expect(() => parseReadToolArgs({ view: "html" })).toThrow(/view inválida/);
 		expect(() => parseReadToolArgs({ offset: -1 })).toThrow(/offset inválido/);

@@ -76,6 +76,10 @@ export function parseReadToolArgs(args: Record<string, unknown>): ReadArgs {
 	else if (args.expandRefs !== undefined) {
 		if (!Array.isArray(args.expandRefs)) throw new Error("expandRefs inválido: use uma lista de refs (ex.: [\"e12\"])");
 		const refs = args.expandRefs.map((ref) => String(ref).trim());
+		const tree = refs.find((ref) => /^(?:f\d{1,3})?a\d{1,5}$/.test(ref));
+		if (tree !== undefined) {
+			throw new Error(`expandRefs não aceita refs de árvore como "${tree}" (a12): use refs de browser_read/browser_find (e12 ou f1e12), ou expandAll=true para abrir todas as seções recolhidas.`);
+		}
 		const bad = refs.find((ref) => !REF_PATTERN.test(ref));
 		if (bad !== undefined) throw new Error(`ref inválido em expandRefs: "${bad}" (use e12 ou f1e12)`);
 		if (refs.length > 0) out.expand = refs.slice(0, READ_EXPAND_REFS_MAX);
