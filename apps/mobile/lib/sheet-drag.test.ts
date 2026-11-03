@@ -67,3 +67,19 @@ describe("onde a gaveta assenta ao soltar", () => {
 		expect(settleSheet("collapsed", -400, 0, { collapsed: 200, expanded: 760 })).toEqual({ next: "expanded", height: 760 });
 	});
 });
+
+describe("folha de conteúdo (altura inicial = altura máxima)", () => {
+	const full = { collapsed: 760, expanded: 760 };
+	it("parada ou puxada para cima fica aberta", () => {
+		expect(settleSheet("collapsed", 0, 0, full)).toEqual({ next: "collapsed", height: 760 });
+		expect(settleSheet("collapsed", -80, 0, full).height).toBe(760);
+		expect(settleSheet("collapsed", -10, -FLING_VELOCITY, full)).toEqual({ next: "expanded", height: 760 });
+	});
+	it("arrastar para baixo além da metade ou arremessar fecha direto", () => {
+		expect(settleSheet("collapsed", 400, 0, full)).toEqual({ next: "closed", height: 0 });
+		expect(settleSheet("collapsed", 20, FLING_VELOCITY, full)).toEqual({ next: "closed", height: 0 });
+	});
+	it("arrasto curto para baixo volta para aberta", () => {
+		expect(settleSheet("collapsed", 120, 0, full)).toEqual({ next: "collapsed", height: 760 });
+	});
+});
