@@ -15,7 +15,7 @@ import {
 	isExpandable,
 	renderEntries,
 } from "./outline.mjs";
-import { readPageInPage } from "./read-page.mjs";
+import { readPageInPage, READ_MAX_NODES, READ_MAX_ITEMS } from "./read-page.mjs";
 import { describeElement } from "./snapshot.mjs";
 
 export const EXPAND_MAX_SECTIONS = 30;
@@ -74,17 +74,28 @@ export function createPageReader({ withPageRetry, registry, collect, locateRef, 
 		const raws = await collect(page, { mode: "all", area: "page", maxScan: READ_MAX_REFS });
 		const rawByRef = new Map(raws.map((raw) => [raw.ref, raw]));
 		const frames = [];
+		// Teto GLOBAL entre frames: o que um frame gasta sai do orçamento dos seguintes
+		// (senão N iframes gigantes leem N vezes o teto, e o tempo cresce com N).
+		let nodesLeft = READ_MAX_NODES;
+		let itemsLeft = READ_MAX_ITEMS;
+		let budgetSpent = false;
 		for (const entry of list) {
+			if (nodesLeft <= 0 || itemsLeft <= 0) {
+				budgetSpent = true;
+				break;
+			}
 			let out;
 			try {
-				out = await entry.frame.evaluate(readPageInPage, {});
+				out = await entry.frame.evaluate(readPageInPage, { maxNodes: nodesLeft, maxItems: itemsLeft });
 			} catch {
 				continue; // frame navegando/inacessível
 			}
+			nodesLeft -= out.nodes ?? 0;
+			itemsLeft -= out.items.length;
 			frames.push({ prefix: entry.prefix, label: entry.label, crossOrigin: entry.crossOrigin, main: entry.main, items: out.items, truncated: out.truncated });
 		}
 		const entries = flattenFrames(frames, rawByRef);
-		return { entries, raws, rawByRef, frames: frames.length, nodeCapped: frames.some((frame) => frame.truncated) };
+		return { entries, raws, rawByRef, frames: frames.length, nodeCapped: budgetSpent || frames.some((frame) => frame.truncated) };
 	}
 
 	/** Conteúdo de uma seção recém-aberta: o painel controlado pelo botão; sem painel, o texto novo do diff. */
