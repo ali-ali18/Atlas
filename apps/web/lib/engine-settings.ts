@@ -12,9 +12,9 @@ export function parseEngineNumber(text: string, min: number, max: number, { inte
 	return integer ? Math.round(value) : Math.round(value * 100) / 100;
 }
 
-/** Campo de gasto vazio ou "0" (também "0,00", "US$ 0") = sem limite: remove o teto. */
+/** Campo de gasto ou de tempo vazio ou "0" (também "0,00", "US$ 0", "0 min") = sem limite: remove o teto. */
 export function isNoBudgetText(text: string): boolean {
-	const cleaned = text.replace(/US\$|\s/gi, "").replace(",", ".");
+	const cleaned = text.replace(/US\$|min|\s/gi, "").replace(",", ".");
 	return cleaned === "" || /^0+(\.0*)?$/.test(cleaned);
 }
 

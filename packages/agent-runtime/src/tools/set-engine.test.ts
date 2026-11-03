@@ -72,7 +72,7 @@ describe("set_engine: execução", () => {
 		const { deps, policies } = fakeStore();
 		const on = await executeSetEngine({ engine: "new", scope: "all" }, ctx, deps);
 		expect(policies["bot-a"]).toEqual({ planMode: true, engine: "v2", engineScope: "all" });
-		expect(on.card.description).toBe("Motor novo · também em rotinas e grupos · sem limite de gasto, até 60 min por tarefa longa");
+		expect(on.card.description).toBe("Motor novo · também em rotinas e grupos · sem limite de gasto, sem limite de tempo");
 		expect(on.summary).not.toMatch(/only takes effect/);
 		await expect(executeSetEngine({ scope: "tudo" }, ctx, deps)).rejects.toThrow(/Invalid scope.*Accepted fields.*scope/);
 		expect(policies["bot-a"]).toEqual({ planMode: true, engine: "v2", engineScope: "all" });
@@ -98,7 +98,7 @@ describe("set_engine: execução", () => {
 		const { deps, policies } = fakeStore();
 		const out = await executeSetEngine({ engine: "new" }, ctx, deps);
 		expect(policies["bot-a"]).toEqual({ planMode: true, engine: "v2" });
-		expect(out.card.description).toBe("Motor novo · também em rotinas e grupos · sem limite de gasto, até 60 min por tarefa longa");
+		expect(out.card.description).toBe("Motor novo · também em rotinas e grupos · sem limite de gasto, sem limite de tempo");
 	});
 
 	it("desliga na hora: volta ao motor anterior (explícito, o padrão não o religa)", async () => {
@@ -113,7 +113,7 @@ describe("set_engine: execução", () => {
 		const { deps, policies } = fakeStore();
 		const out = await executeSetEngine({ scope: "chat" }, ctx, deps);
 		expect(policies["bot-a"]).toEqual({ planMode: true, engine: "v2", engineScope: "chat" });
-		expect(out.card.description).toBe("Motor novo · sem limite de gasto, até 60 min por tarefa longa");
+		expect(out.card.description).toBe("Motor novo · sem limite de gasto, sem limite de tempo");
 	});
 
 	it("valor inválido e campo desconhecido falham com a lista do aceito, sem gravar", async () => {

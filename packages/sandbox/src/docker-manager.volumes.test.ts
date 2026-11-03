@@ -82,7 +82,7 @@ vi.mock("node:net", () => ({
 	},
 }));
 
-import { createSandboxManager, profileContainerName, profileVolumeName, SANDBOX_STOP_TIMEOUT_S, sandboxBinds, workVolumeName } from "./docker-manager.js";
+import { createSandboxManager, homeVolumeName, profileContainerName, profileVolumeName, SANDBOX_STOP_TIMEOUT_S, sandboxBinds, workVolumeName } from "./docker-manager.js";
 import { loadSandboxConfig } from "./config.js";
 import { deleteSession, listAllSessionsForCleanup } from "./session-store.js";
 
@@ -108,10 +108,25 @@ describe("sandbox volumes e shell via manager", () => {
 		expect(profileVolumeName("c", "u")).toMatch(/^atlas-profile-[a-f0-9]{64}$/);
 		expect(workVolumeName("c", "u")).toMatch(/^atlas-work-[a-f0-9]{64}$/);
 		expect(workVolumeName("c", "u")).not.toBe(workVolumeName("c", "v"));
+		expect(homeVolumeName("c", "u")).toMatch(/^atlas-home-[a-f0-9]{64}$/);
+		expect(homeVolumeName("c", "u")).toBe(homeVolumeName("c", "u"));
+		expect(homeVolumeName("c", "u")).not.toBe(homeVolumeName("c", "v"));
+		expect(homeVolumeName("c", "u")).not.toBe(homeVolumeName("d", "u"));
 		expect(sandboxBinds("c", "u")).toEqual([
 			`${profileVolumeName("c", "u")}:/tmp/chrome-data`,
+			`${homeVolumeName("c", "u")}:/home/atlas`,
 			`${workVolumeName("c", "u")}:/home/atlas/work`,
 		]);
+	});
+
+	it("o home é montado como volume nomeado SEM nocopy (o Docker copia a imagem na 1ª montagem) e o work fica por cima", () => {
+		const binds = sandboxBinds("c", "u");
+		const home = binds.find((b) => b.endsWith(":/home/atlas"))!;
+		// `nome:destino` sem terceiro campo = cópia da imagem ligada; `:nocopy` ou `:ro` quebrariam isso.
+		expect(home.split(":")).toHaveLength(2);
+		for (const bind of binds) expect(bind.startsWith("/")).toBe(false);
+		// O destino do work está dentro do home: precisa vir depois para ficar por cima.
+		expect(binds.indexOf(home)).toBeLessThan(binds.findIndex((b) => b.endsWith(":/home/atlas/work")));
 	});
 
 	it("createSession monta perfil e work; sem conversa ou com volumes desligados não monta", async () => {
@@ -193,6 +208,8 @@ describe("sandbox volumes e shell via manager", () => {
 		expect(volumeCalls).toHaveLength(1);
 		expect(volumeCalls[0]).toContain(profileVolumeName("conv-x", "u1"));
 		expect(volumeCalls[0]).not.toContain("atlas-work");
+		// "Limpar sessão do navegador" não pode levar junto os programas instalados nem os arquivos do bot.
+		expect(volumeCalls[0]).not.toContain("atlas-home");
 		expect(state.calls.findIndex((c) => c.startsWith("remove:"))).toBeLessThan(state.calls.findIndex((c) => c.startsWith("volume-remove")));
 	});
 

@@ -42,6 +42,7 @@ import {
 	SUBAGENT_ORIGIN,
 	TRANSCRIPT_SLOT,
 	createNotebook,
+	isShortContinuation,
 	type NotebookWriter,
 	type RunUsage,
 } from "@workspace/shared";
@@ -113,7 +114,7 @@ import { shouldExposeSetEngine } from "../tools/set-engine.js";
 import { buildEngineV2SystemPrompt } from "./prompt.js";
 import { originSystemNotes } from "./origin-notes.js";
 import { MAX_STEPS_SAFETY, type SupervisorProfile, budgetForProfile, createSupervisor, deliveryInstruction } from "./supervisor.js";
-import { ENGINE_V2_PROMOTED_NOTE, UNASKED_MIDWORK_NOTE, midWorkQuestion } from "./prompt.js";
+import { ANNOUNCED_ACTION_NOTE, ENGINE_V2_PROMOTED_NOTE, UNASKED_MIDWORK_NOTE, announcesAction, midWorkQuestion } from "./prompt.js";
 import { callCostUsd, estimateCostUsd, fallbackPricesFromEnv } from "./cost.js";
 import { dedupeLoginAsk, unattendedLoginOutcome } from "./login.js";
 import { createPreToolRunner } from "../hooks/pre-tool-runner.js";
@@ -143,11 +144,11 @@ export type EngineV2Options = {
 	/** Ajuste do bot para o trabalho longo (`policyJson.longWorkBudgetUsd` / `longWorkMinutes`). */
 	longWorkBudgetUsd?: number;
 	longWorkMinutes?: number;
-	/** Piso de TEMPO (minutos) sem ligar o trabalho longo: brief "Seu dia" e lembrete `check`, que no v1 rodam até 30 min. Não há piso em US$. */
+	/** Piso de TEMPO (minutos) sem ligar o trabalho longo: brief "Seu dia" e lembrete `check`. Só tem efeito junto de um teto de tempo (o worker aplica 30 min nesses runs sem humano; chat humano não tem teto). Não há piso em US$. */
 	budgetFloor?: { minutes: number };
 	/**
-	 * Chat de humano (origem chat, turno digitado) no perfil `chat`: ao chegar a 80% do tempo do perfil com o trabalho em
-	 * andamento, o run vira `long_work` no mesmo run, sem parar nem perguntar. Sem humano, o limite do perfil fica.
+	 * Chat de humano (origem chat, turno digitado) no perfil `chat`: quando o modelo monta uma lista de 3+ passos, o run vira
+	 * `long_work` no mesmo run, sem parar nem perguntar (a promoção por tempo saiu com o orçamento de tempo). Sem humano, nunca promove.
 	 */
 	promotable?: boolean;
 	/** Avisa o worker da promoção (grava `engineProfile: "long_work"` + `promotedFrom: "chat"` no budgetJson do run). */
@@ -189,6 +190,17 @@ type CallOutcome = {
 	skipped?: boolean;
 };
 
+/** Alvo de uma ação (ref, URL, seletor...): chave extra das falhas seguidas, para refs diferentes não se somarem. */
+function toolTargetOf(args: unknown): string | undefined {
+	if (!args || typeof args !== "object") return undefined;
+	const record = args as Record<string, unknown>;
+	for (const key of ["ref", "url", "selector", "target", "id", "index"]) {
+		const value = record[key];
+		if (typeof value === "string" || typeof value === "number") return String(value).slice(0, 200);
+	}
+	return undefined;
+}
+
 export async function runEngineV2(params: ComputerUseParams, options: EngineV2Options): Promise<RunComputerUseResult> {
 	const onEvent = params.onEvent;
 	const runId = params.runId ?? "local";
@@ -228,6 +240,8 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 		budget,
 		promotable,
 		...(helperRole ? {} : { hardActiveMs: runLimits.maxWallMs }),
+		// Pedido que não é de documento: a fase de escrita mantém browser e sandbox (ex.: "abra o Gemini e peça um resumo").
+		keepActionTools: !asksForDocument([...params.messages].reverse().find((message) => message.role === "user")?.content ?? ""),
 		maxSteps: Math.min(MAX_STEPS_SAFETY, runLimits.hardMaxSteps, helperRole?.budget.maxSteps ?? MAX_STEPS_SAFETY),
 	});
 	const wall = wallClockAnchors({ maxWallMs: budget.maxActiveMs, now: Date.now(), runStartedAt: params.runStartedAt, restored: parsed });
@@ -236,7 +250,8 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 	// A renovação por mensagem do usuário estica o tempo do orçamento até o teto duro da conta (`runLimits.maxWallMs`), então
 	// o prazo das operações também considera esse teto; sem isso, num chat que não promove, a operação falharia no prazo antigo.
 	const deadlineBudgetMs = Math.max(budget.maxActiveMs, promotedBudget?.maxActiveMs ?? 0, helperRole ? 0 : runLimits.maxWallMs);
-	const deadlineAtMs = wall.executionStartMs + Math.round(Math.max(0, deadlineBudgetMs - wall.baseMs) * 1.25);
+	// Sem teto de tempo (o padrão) não há prazo: `undefined`, nunca `Infinity` (um timer com Infinity dispara na hora).
+	const deadlineAtMs = Number.isFinite(deadlineBudgetMs) ? wall.executionStartMs + Math.round(Math.max(0, deadlineBudgetMs - wall.baseMs) * 1.25) : undefined;
 	const executionContext = { signal: params.abortSignal, deadlineAtMs, ...(params.browserTabId ? { tabId: params.browserTabId } : {}) };
 	const manager = withAgentPointer(params.manager.withExecutionContext?.(executionContext) ?? params.manager, (event) => onEvent(event));
 	const getSessionId = (context: SandboxExecutionContext = executionContext) =>
@@ -343,7 +358,11 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 	/** Última lista que o modelo enviou (a do tracker some quando tudo conclui; o portão e os descartados precisam dela). */
 	let lastTaskItems: TaskListItem[] | undefined = taskTracker.taskList();
 	/** Maior lista que o MODELO montou neste run (só `update_task_list` chega aqui; lista herdada não conta): 3+ promove o chat. */
-	let modelPlannedSteps = 0;
+	// "continua" digitado depois de um trabalho com itens abertos: a lista herdada vale como plano para promover o chat
+	// (sem isso "continua" cairia no chat curto e recomeçaria do zero). Outra mensagem com lista herdada nunca promove.
+	const continuation = !helperRole && origin === "chat" && (params.autoContinued === true || (humanTurn && isShortContinuation(lastUserMessage)));
+	const inheritedOpenPlan = continuation ? (taskTracker.taskList() ?? []) : [];
+	let modelPlannedSteps = inheritedOpenPlan.some((item) => item.status !== "completed") ? inheritedOpenPlan.length : 0;
 	const emitTaskListEvent = async (items: Array<{ content: string; status: "pending" | "in_progress" | "completed" }>) => {
 		// Lista que o modelo já manda toda concluída (fechando o trabalho, logo antes de responder) não é plano: não promove.
 		if (items.some((item) => item.status !== "completed")) modelPlannedSteps = Math.max(modelPlannedSteps, items.length);
@@ -361,7 +380,7 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 	// --- caderno da tarefa (trabalho longo): só o coordenador o tem; o ajudante escreve no do pai ---
 	let longWorkCoordinator = options.profile === "long_work" && !helperRole;
 	// Chat promovível já tem o caderno (vazio, sem custo de contexto); as tools dele só entram com a promoção.
-	const notebook = (longWorkCoordinator && hasToolInRun("notebook_write")) || catalog.promotionTools.includes("notebook_write") ? createNotebook(parsed?.notebook) : null;
+	const notebook = (longWorkCoordinator && hasToolInRun("notebook_write")) || catalog.promotionTools.includes("notebook_write") ? createNotebook(parsed?.notebook ?? (continuation ? params.priorNotebook : undefined)) : null;
 	const notebookTools: NotebookToolContext | undefined = notebook
 		? { writer: notebook.writer("coordinator"), reader: notebook }
 		: helperRole
@@ -583,7 +602,7 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 	): Promise<{ content: string; toolCalls: LlmToolCall[]; providerItems?: LlmMessage["providerItems"]; usage: TokenUsage; result: CompleteChatWithToolsResult; telemetry: ReturnType<typeof modelStepTelemetry> }> => {
 		// Reserva da entrega: depois dos 75% as tools mudam de verdade (pesquisa e ajudantes saem), não é só aviso.
 		const allowedNow = toolsOverride ? undefined : supervisor.allowedTools();
-		const callTools = toolsOverride ?? (allowedNow ? tools.filter((tool) => allowedNow.has(tool.function.name)) : tools);
+		const callTools = toolsOverride ?? (allowedNow ? tools.filter((tool) => supervisor.phaseAllows(tool.function.name)) : tools);
 		if (callTools.length === 0) toolChoice = "none";
 		await ensureContinue(closing ? params.abortSignal : undefined);
 		await ensureNotPaused();
@@ -1087,6 +1106,7 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 				resultKey: toolResultKey(outcome.summary, outcome.ok),
 				ok: outcome.ok,
 				message: outcome.ok ? undefined : outcome.summary,
+				target: toolTargetOf(outcome.args),
 			});
 			for (const note of verdict.notes) appendToLatestToolResult(conversation, note);
 			abort ??= verdict.abort;
@@ -1263,6 +1283,9 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 	let emptyRetries = 0;
 	// Promoção chat -> trabalho longo: o último passo teve tool (trabalho em andamento) e a pergunta solta volta no máximo uma vez.
 	let midWorkQuestionGated = false;
+	let announcedActionGated = false;
+	/** O run já usou navegador ou VM: num chat promovível isso vira trabalho longo no gate seguinte. */
+	let actionToolUsed = false;
 	// Rodadas de tool deste run (mesmo as recusadas contam: o trabalho começou) mais as de execuções anteriores.
 	let toolRounds = 0;
 	const workStarted = () => toolRounds > 0 || [...toolCallCounts.values()].some((count) => count > 0);
@@ -1271,7 +1294,8 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 		for (;;) {
 			await ensureContinue();
 			await ensureNotPaused();
-			if (abortStop) return await deliver(abortStop, helperRole ? HELPER_DELIVERY_INSTRUCTION : deliveryInstruction("loop_repeat"));
+			// Laço encerrado com itens abertos: o detalhe diz isso, e o worker agenda a continuação automática (sem pedir "continua").
+			if (abortStop) return await deliver(helperRole || openItems(currentTaskItems()).length === 0 ? abortStop : { ...abortStop, detail: `${abortStop.detail ?? "after_note"}:items_open` }, helperRole ? HELPER_DELIVERY_INSTRUCTION : deliveryInstruction(abortStop.reason === "tool_failures" ? "tool_failures" : "loop_repeat"));
 			// Mensagens do usuário durante o run: viram nota; "cancelar" para o run.
 			if (params.consumeSteerInputs) {
 				for (const input of await params.consumeSteerInputs()) {
@@ -1297,6 +1321,7 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 						completedCount: taskItems ? taskItems.filter((item) => item.status === "completed").length : 0,
 						lastStepHadTools,
 						plannedSteps: modelPlannedSteps,
+						actionToolUsed,
 					},
 				);
 			};
@@ -1385,6 +1410,16 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 					step += 1;
 					continue;
 				}
+				// Texto que só promete uma ação ("Vou pedir o resumo ao Gemini.") sem chamar a tool encerraria o turno com nada feito:
+				// volta ao modelo uma vez por run, com o trabalho já iniciado. Pergunta e resposta final real não são barradas.
+				if (!announcedActionGated && !helperRole && workStarted() && announcesAction(text)) {
+					announcedActionGated = true;
+					await onEvent({ type: "assistant_discard", id: stepId, reason: "announced_action" });
+					conversation.push({ role: "assistant", content: text });
+					conversation.push({ role: "user", content: `${AUTO_CONTEXT} ${ANNOUNCED_ACTION_NOTE}` });
+					step += 1;
+					continue;
+				}
 				const stop: RunStop = verdict.kind === "release" ? { reason: "answered", detail: "tasklist_open" } : { reason: "answered" };
 				return await finishOk(text, stop, stepId);
 			}
@@ -1393,6 +1428,8 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 			conversation.push({ role: "assistant", content: text.length > 0 ? text : null, tool_calls: toolCalls, ...(providerItems ? { providerItems } : {}) });
 			const outcomes = await runBatch(toolCalls);
 			lastStepHadTools = true;
+			// Só navegador e desktop promovem; uma conta no shell da VM (sandbox_*) é trabalho curto e não promove.
+			if (toolCalls.some((toolCall) => /^(browser_|navigate$|screenshot$|computer|desktop)/.test(toolCall.function.name))) actionToolUsed = true;
 			lastBatchFailed = outcomes.some((outcome) => !outcome.ok && !outcome.skipped);
 			toolRounds += 1;
 			abortStop = settleBatch(outcomes);

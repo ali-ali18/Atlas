@@ -85,7 +85,6 @@ export {
 	BUDGET_EXTENSION_DEFAULT,
 	BUDGET_HARD_CAP,
 	BUDGET_SOFT_DEFAULT,
-	BUDGET_WALL_DEFAULT_MS,
 	addUsage,
 	emptyUsage,
 	parseBudgetPolicy,

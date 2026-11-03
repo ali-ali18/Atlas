@@ -1,10 +1,15 @@
 /**
  * Motor v2: o Supervisor é o ÚNICO árbitro do run (ADR 0002). Puro e sem I/O.
  *
- * Unidade: dinheiro (US$) e tempo ativo. Não há teto "soft" de passos, estagnação nem tool removida no meio do
- * trabalho. O que ele decide, em ordem:
- *  1. `gate`: antes de cada chamada ao modelo, deixa seguir, avisa UMA vez a ~80% do orçamento ("entregue") ou
- *     manda fazer a última chamada SEM tools quando o orçamento acaba. Nunca aborta sem resposta.
+ * Unidade: dinheiro (US$) e tempo ativo, mas SÓ quando o dono configurou um teto (decisão do dono, 02/11: "remover esse
+ * orçamento"). Por padrão nenhum perfil tem tempo nem US$ máximo (`Infinity`): o run termina quando o modelo responde
+ * sem tool ou quando o usuário para. As redes de segurança contra laço continuam: `MAX_STEPS_SAFETY`, nota e aborto
+ * por repetição, bloqueio por falhas seguidas e, no trabalho longo, a estagnação (8 passos sem resultado novo, caderno
+ * novo nem item concluído manda escrever; resultado novo de tool, exceto captura de tela, é progresso). Não há teto "soft"
+ * de passos nem tool removida no meio do trabalho, salvo a fase de escrita do trabalho longo (que mantém browser e sandbox
+ * quando o pedido não é um documento). O que ele decide, em ordem:
+ *  1. `gate`: antes de cada chamada ao modelo, deixa seguir, avisa UMA vez a ~80% de um teto do dono ("entregue") ou
+ *     manda fazer a última chamada SEM tools quando o teto acaba (ou os passos de segurança). Nunca aborta sem resposta.
  *  2. `recordTool`: depois de cada tool, vigia travamento real (mesma tool + mesmos args + mesmo resultado)
  *     e falhas seguidas da mesma tool. Primeiro vem uma nota ao modelo; só a reincidência encerra o laço.
  *  3. `toolBlocked`: a tool que falhou N vezes seguidas fica bloqueada por alguns passos (o run segue).
@@ -19,36 +24,49 @@ export type SupervisorBudget = {
 };
 
 /**
- * Conversa: curta no TEMPO (8 min). Sem teto em US$ (decisão do dono, 01/11): dinheiro só limita se o dono configurou
- * (teto da conta ou gasto máximo do bot). Quem estoura o tempo com trabalho em andamento é promovido a `long_work`.
+ * Conversa: sem teto de TEMPO nem de US$ por padrão (decisão do dono, 02/11; antes 8 min). Só vale o que o dono
+ * configurou: teto da conta (US$ ou tempo) e, no trabalho longo, o gasto/tempo máximo do bot.
  */
-export const CHAT_BUDGET: SupervisorBudget = { maxCostUsd: Number.POSITIVE_INFINITY, maxActiveMs: 8 * 60_000 };
+export const CHAT_BUDGET: SupervisorBudget = { maxCostUsd: Number.POSITIVE_INFINITY, maxActiveMs: Number.POSITIVE_INFINITY };
 /**
- * Trabalho longo: o árbitro é PROGRESSO e TEMPO, não dinheiro (o preço varia demais entre modelos). Sem teto em US$ por
- * padrão (`Infinity`) e 60 min de tempo máximo, ajustável por bot (até 180). O gasto máximo em US$ é opcional.
+ * Trabalho longo: o árbitro é PROGRESSO (lista concluída, estagnação, passos), não relógio nem dinheiro. Sem teto de
+ * tempo nem de US$ por padrão (antes 60 min); `longWorkMinutes` / `longWorkBudgetUsd` do bot, se o dono preencheu, valem.
  */
-export const LONG_WORK_BUDGET: SupervisorBudget = { maxCostUsd: Number.POSITIVE_INFINITY, maxActiveMs: 60 * 60_000 };
+export const LONG_WORK_BUDGET: SupervisorBudget = { maxCostUsd: Number.POSITIVE_INFINITY, maxActiveMs: Number.POSITIVE_INFINITY };
 
 /** A partir daqui o modelo é avisado (uma vez) para fechar e entregar; os 20% restantes são a reserva da entrega. */
 export const WRAP_UP_RATIO = 0.8;
-/** Chat promovível: a lista de tarefas que o modelo monta com este número de passos (ou mais) mostra que o pedido é trabalho longo. */
+/** Chat promovível: a lista de tarefas que o modelo monta com este número de passos (ou mais) mostra que o pedido é trabalho longo (único gatilho: tempo não promove mais). */
 export const PROMOTE_PLAN_STEPS = 3;
-/** Trabalho longo: a pesquisa para ao usar esta fração do tempo máximo (o resto é da escrita) ou do teto de passos. */
+/** Trabalho longo: a pesquisa para ao usar esta fração do tempo máximo DO DONO (se houver; o resto é da escrita) ou do teto de passos. */
 export const RESEARCH_TIME_RATIO = 0.7;
 export const RESEARCH_STEPS_RATIO = 0.7;
 /** Com gasto máximo preenchido: ao chegar a esta fração do teto em US$ vai para a escrita (o resto é da escrita). */
 export const RESEARCH_COST_RATIO = 0.75;
-/** Passos seguidos sem progresso (caderno sem entrada nova e lista sem item novo concluído) que encerram a pesquisa. */
-export const STAGNATION_STEPS = 4;
+/**
+ * Passos seguidos sem progresso que encerram a pesquisa. Progresso = entrada nova no caderno, item concluído OU tool
+ * bem-sucedida com resultado ainda não visto (navegar, clicar e ler páginas diferentes é trabalho). Estagnação é repetição,
+ * falha ou leitura que não achou nada de novo; por isso o número é alto (8): ação de navegador legítima precisa de fôlego.
+ */
+export const STAGNATION_STEPS = 8;
 /** A rodada de lacunas dura no máximo este número de passos, ou até a fração abaixo do tempo/passos/gasto. */
 export const GAP_ROUND_STEPS = 4;
 export const GAP_END_RATIO = 0.85;
-/** Só segurança: o orçamento em US$ e minutos é quem encerra o trabalho. */
+/** Rede de segurança contra laço (não é orçamento): sem teto de tempo, é ela que garante que o run acaba. */
 export const MAX_STEPS_SAFETY = 200;
 /** Mesma tool + mesmos args + mesmo resultado, esta vez seguidas, vira nota ao modelo. */
 export const REPEAT_NOTE_AT = 3;
+/** Esperar não é repetir: tools de espera idênticas seguidas não contam para o laço até este limite (aí contam como qualquer outra). */
+export const WAIT_REPEAT_LIMIT = 30;
+const WAIT_TOOLS = /^(sandbox_shell_wait|browser_wait|shell_output|wait_for\w*|sandbox_wait\w*)$/;
 /** Falhas seguidas da MESMA tool que a bloqueiam por um tempo. */
 export const FAILURE_BLOCK_AFTER = 3;
+/**
+ * Rede global: falhas seguidas de QUALQUER tool (alvos diferentes inclusive) viram nota nesta contagem e, se continuarem
+ * por mais `GLOBAL_FAILURE_ABORT_EXTRA`, a entrega honesta. A trava por tool+alvo não pega "tudo falha, cada vez em um lugar".
+ */
+export const GLOBAL_FAILURE_NOTE_AT = 8;
+export const GLOBAL_FAILURE_ABORT_EXTRA = 3;
 /** Quantos passos a tool bloqueada fica indisponível. */
 export const BLOCK_STEPS = 3;
 
@@ -87,6 +105,8 @@ export type ToolRecord = {
 	ok: boolean;
 	/** Mensagem de erro (só em falha), citada na nota de bloqueio. */
 	message?: string;
+	/** Alvo da ação (ref, URL, seletor): 3 falhas em alvos diferentes não bloqueiam a tool, só no mesmo alvo. */
+	target?: string;
 };
 
 export type ToolVerdict = { notes: string[]; abort?: RunStop };
@@ -102,13 +122,19 @@ export const RESERVE_WRITE_NOTE =
 export const RESERVE_GAPS_NOTE =
 	"Research is almost over. Before writing, make one quick pass over the notebook items marked unconfirmed: for each, try another source, another search, or read the file or repository directly (raw URL, read long pages in parts). When you close one, update its notebook entry with replaces. Do not start new lines of research and do not delegate. Then write the deliverable; only what is still unconfirmed goes in one short closing note at the end, not item by item in the body.";
 
-export function deliveryInstruction(reason: "budget_cost" | "budget_wall" | "budget_steps" | "loop_repeat"): string {
+export function globalFailureNote(count: number): string {
+	return `Tool notice: the last ${count} tool calls in a row all failed. Stop and rethink: use a different route to the goal, a different tool, or tell the user what is blocking you and deliver what you have.`;
+}
+
+export function deliveryInstruction(reason: "budget_cost" | "budget_wall" | "budget_steps" | "loop_repeat" | "tool_failures"): string {
 	const why =
 		reason === "budget_cost" || reason === "budget_wall"
 			? "The limit for this task was reached."
 			: reason === "budget_steps"
 				? "The safety limit of steps for this task was reached."
-				: "You are repeating the same action without progress.";
+				: reason === "tool_failures"
+					? "Your tools keep failing."
+					: "You are repeating the same action without progress.";
 	return (
 		`${why} Do not call any tools. Write the final answer for the user now with what you have: the result so far, ` +
 		"the sources you used and the assumptions you made. Put what you could not confirm or finish, and why, in one short note at the end, not item by item through the text. " +
@@ -118,6 +144,10 @@ export function deliveryInstruction(reason: "budget_cost" | "budget_wall" | "bud
 
 export function repeatNote(name: string): string {
 	return `Loop notice: you called ${name} with the same arguments and got the same result ${REPEAT_NOTE_AT} times in a row. Change the approach: different arguments, another tool, or deliver what you already have.`;
+}
+
+export function repeatAlternativeNote(name: string): string {
+	return `Loop notice: ${name} is still returning the same result. This is the last warning before the run stops. Take a different path now: read the page or the output in another way, use a different tool, change the target, or deliver what you already have and say what is missing.`;
 }
 
 export function failureNote(name: string, message: string): string {
@@ -137,6 +167,10 @@ export function blockedToolMessage(name: string, stepsLeft: number): string {
 export type SupervisorPhase = "research" | "gaps" | "write";
 const WRITE_TOOLS = ["create_file", "notebook_write", "notebook_read", "update_task_list"] as const;
 const GAP_READ_TOOLS = ["web_search", "web_extract"] as const;
+/** Tools de ação (navegador e VM): ficam na fase de escrita quando o pedido não é um documento. */
+const ACTION_TOOL_PREFIX = /^(browser|sandbox)_/;
+/** Capturas visuais: bytes quase iguais a cada passo não são "resultado novo"; só texto, URL ou título novos contam (browser_read, browser_snapshot). */
+const VISUAL_CAPTURE_TOOLS = /^(screenshot|computer\w*|browser_screenshot|show_image|generate_image)$/;
 /** Passos seguidos em que o modelo só insiste em tool que a fase não libera: depois disso o supervisor entrega. */
 export const PHASE_STRIKES_TO_DELIVER = 2;
 
@@ -148,10 +182,12 @@ export type SupervisorGateContext = {
 	/** Entradas do caderno e itens concluídos da lista: crescimento = progresso (gatilho b). */
 	notebookCount?: number;
 	completedCount?: number;
-	/** O último passo do modelo chamou tools (o trabalho está em andamento): condição para promover chat -> trabalho longo. */
+	/** O último passo do modelo chamou tools. Sem uso na decisão hoje (a promoção por tempo saiu); mantido por compatibilidade do contexto. */
 	lastStepHadTools?: boolean;
 	/** Passos da lista de tarefas que o MODELO montou neste run (lista herdada de run anterior não conta): 3+ promove o chat. */
 	plannedSteps?: number;
+	/** O run já chamou uma tool de navegador ou desktop (agir em site/app não é conversa curta; shell da VM não conta): promove o chat. */
+	actionToolUsed?: boolean;
 };
 
 /** O que o supervisor guarda no checkpoint para a retomada não reenviar a nota nem perder a renovação do tempo. */
@@ -164,6 +200,8 @@ export function createSupervisor(config: {
 	promotable?: boolean;
 	/** Teto absoluto de tempo ativo do run (conta/bot). A renovação por mensagem do usuário nunca o ultrapassa. 0/ausente = sem teto. */
 	hardActiveMs?: number;
+	/** Pedido que NÃO é de documento: a fase de escrita mantém browser e sandbox (o bot ainda precisa agir para cumprir o pedido). */
+	keepActionTools?: boolean;
 }) {
 	let budget = config.budget;
 	let profile = config.profile;
@@ -180,19 +218,27 @@ export function createSupervisor(config: {
 	let lastCompleted = 0;
 	let seenProgress = false;
 	let stagnantSteps = 0;
+	/** Resultados de tool bem-sucedidos já vistos: resultado novo = progresso (ver `STAGNATION_STEPS`). */
+	const seenResultKeys = new Set<string>();
+	let novelResults = 0;
+	let lastNovelResults: number | undefined;
 	let gapSteps = 0;
 	let longWork = profile === "long_work";
 	const wrapAt = WRAP_UP_RATIO;
 	let lastKey: string | undefined;
 	let streak = 0;
 	let notedKey: string | undefined;
-	const failureStreak = new Map<string, number>();
+	const failureStreak = new Map<string, { count: number; target: string }>();
+	let consecutiveFailures = 0;
+	let waitStreak = 0;
+	let waitKey: string | undefined;
 	const blockedUntil = new Map<string, number>();
 
 	const elapsedMs = (usage: SupervisorUsage) => Math.max(0, usage.activeMs - timeBaseMs);
+	// Teto infinito (o padrão) = fração 0: nunca avisa nem entrega por isso, e nunca vira NaN (Infinity / Infinity).
 	const fractions = (usage: SupervisorUsage) => ({
-		cost: budget.maxCostUsd > 0 ? usage.costUsd / budget.maxCostUsd : 0,
-		time: budget.maxActiveMs > 0 ? elapsedMs(usage) / budget.maxActiveMs : 0,
+		cost: Number.isFinite(budget.maxCostUsd) && budget.maxCostUsd > 0 ? usage.costUsd / budget.maxCostUsd : 0,
+		time: Number.isFinite(budget.maxActiveMs) && budget.maxActiveMs > 0 ? elapsedMs(usage) / budget.maxActiveMs : 0,
 	});
 
 	return {
@@ -251,10 +297,15 @@ export function createSupervisor(config: {
 			if (phase === "gaps") return new Set<string>([...WRITE_TOOLS, ...GAP_READ_TOOLS]);
 			return undefined;
 		},
+		/** A tool está liberada na fase atual? Na escrita, pedido sem documento mantém browser e sandbox (`keepActionTools`). */
+		phaseAllows(name: string): boolean {
+			const allowed = this.allowedTools();
+			if (!allowed || allowed.has(name)) return true;
+			return config.keepActionTools === true && ACTION_TOOL_PREFIX.test(name);
+		},
 		/** A tool não está liberada na fase atual? Devolve o erro (inglês) para o modelo; a tool não roda. */
 		phaseBlocked(name: string): string | undefined {
-			const allowed = this.allowedTools();
-			if (!allowed || allowed.has(name)) return undefined;
+			if (this.phaseAllows(name)) return undefined;
 			return phase === "write"
 				? `${name} is not available now: research is over and only the delivery is left. Write the deliverable with what is in the notebook (create_file).`
 				: `${name} is not available now: only closing the unconfirmed gaps (web_search, web_extract, notebook) and writing are left.`;
@@ -273,7 +324,7 @@ export function createSupervisor(config: {
 			if (phase !== "research") return { costUsd: 0, activeMs: 0 };
 			return {
 				costUsd: Number.isFinite(budget.maxCostUsd) ? Math.max(0, budget.maxCostUsd * RESEARCH_COST_RATIO - usage.costUsd) : Number.POSITIVE_INFINITY,
-				activeMs: Math.max(0, budget.maxActiveMs * RESEARCH_TIME_RATIO - elapsedMs(usage)),
+				activeMs: Number.isFinite(budget.maxActiveMs) ? Math.max(0, budget.maxActiveMs * RESEARCH_TIME_RATIO - elapsedMs(usage)) : Number.POSITIVE_INFINITY,
 			};
 		},
 		gate(usage: SupervisorUsage, context: SupervisorGateContext = {}): SupervisorGate {
@@ -281,13 +332,10 @@ export function createSupervisor(config: {
 				return { action: "deliver", stop: { reason: "budget_steps", detail: "delivered" }, instruction: deliveryInstruction("budget_steps") };
 			}
 			const { cost, time } = fractions(usage);
-			// Chat promovível vira trabalho longo (uma vez, sem parar nem perguntar) por duas vias:
-			// (1) o modelo montou uma lista com 3+ passos: decisão dele, não de regex nem de tempo;
-			// (2) chegou a 80% do tempo com trabalho em andamento.
-			if (config.promotable === true && !promoted && profile === "chat") {
-				const planned = (context.plannedSteps ?? 0) >= PROMOTE_PLAN_STEPS;
-				if (planned || (context.lastStepHadTools === true && time >= WRAP_UP_RATIO - 1e-9)) return { action: "promote" };
-			}
+			// Chat promovível vira trabalho longo (uma vez, sem parar nem perguntar) quando o modelo monta uma lista com
+			// 3+ passos (decisão dele, não de regex nem de tempo) ou na 1ª tool de navegador/VM: agir em site é trabalho longo.
+			// A promoção por 80% do tempo saiu junto com o orçamento de tempo.
+			if (config.promotable === true && !promoted && profile === "chat" && ((context.plannedSteps ?? 0) >= PROMOTE_PLAN_STEPS || context.actionToolUsed === true)) return { action: "promote" };
 			// Teto duro do dono: a renovação por mensagem nova não o estica (tempo total ativo do run).
 			if (config.hardActiveMs && config.hardActiveMs > 0 && usage.activeMs >= config.hardActiveMs) {
 				return { action: "deliver", stop: { reason: "budget_wall", detail: "delivered" }, instruction: deliveryInstruction("budget_wall") };
@@ -306,12 +354,13 @@ export function createSupervisor(config: {
 				// Progresso: o caderno ganhou entrada ou a lista concluiu um item. Só conta estagnação depois do primeiro progresso.
 				const notebookCount = context.notebookCount ?? 0;
 				const completedCount = context.completedCount ?? 0;
-				const progressed = lastNotebook !== undefined && (notebookCount > lastNotebook || completedCount > lastCompleted);
+				const progressed = lastNotebook !== undefined && (notebookCount > lastNotebook || completedCount > lastCompleted || novelResults > (lastNovelResults ?? 0));
 				if (progressed) {
 					seenProgress = true;
 					stagnantSteps = 0;
 				} else if (lastNotebook !== undefined && seenProgress) stagnantSteps += 1;
-				if (lastNotebook === undefined && (notebookCount > 0 || completedCount > 0)) seenProgress = true;
+				if (lastNotebook === undefined && (notebookCount > 0 || completedCount > 0 || novelResults > 0)) seenProgress = true;
+				lastNovelResults = novelResults;
 				lastNotebook = notebookCount;
 				lastCompleted = completedCount;
 				const enterWrite = () => {
@@ -363,11 +412,23 @@ export function createSupervisor(config: {
 		},
 		recordTool(record: ToolRecord): ToolVerdict {
 			const notes: string[] = [];
+			// Resultado novo de uma tool que deu certo = progresso (alimenta a estagnação).
+			if (record.ok && !VISUAL_CAPTURE_TOOLS.test(record.name) && !seenResultKeys.has(`${record.name}|${record.resultKey}`)) {
+				seenResultKeys.add(`${record.name}|${record.resultKey}`);
+				novelResults += 1;
+			}
+			// Falhas seguidas de qualquer tool: nota e, se não mudar, entrega honesta (ver `GLOBAL_FAILURE_NOTE_AT`).
+			consecutiveFailures = record.ok ? 0 : consecutiveFailures + 1;
+			if (consecutiveFailures === GLOBAL_FAILURE_NOTE_AT) notes.push(globalFailureNote(consecutiveFailures));
+			if (consecutiveFailures >= GLOBAL_FAILURE_NOTE_AT + GLOBAL_FAILURE_ABORT_EXTRA) return { notes, abort: { reason: "tool_failures", detail: "consecutive" } };
 			// Falhas seguidas da MESMA tool.
 			if (record.ok) failureStreak.delete(record.name);
 			else {
-				const count = (failureStreak.get(record.name) ?? 0) + 1;
-				failureStreak.set(record.name, count);
+				// Falhas em alvos diferentes (refs, URLs) não somam: a contagem recomeça no alvo novo.
+				const previous = failureStreak.get(record.name);
+				const target = record.target ?? "";
+				const count = previous && previous.target === target ? previous.count + 1 : 1;
+				failureStreak.set(record.name, { count, target });
 				if (count >= FAILURE_BLOCK_AFTER && !blockedUntil.has(record.name)) {
 					blockedUntil.set(record.name, record.step + 1 + BLOCK_STEPS);
 					notes.push(failureNote(record.name, record.message ?? "error"));
@@ -375,6 +436,15 @@ export function createSupervisor(config: {
 			}
 			// Travamento real: mesma tool, mesmos args, mesmo resultado, seguidas.
 			const key = `${record.name}|${record.argsKey}|${record.resultKey}`;
+			// Espera idêntica seguida (sandbox_shell_wait, browser_wait...) é o esperado de um processo lento, não laço.
+			if (WAIT_TOOLS.test(record.name) && record.ok) {
+				waitStreak = key === waitKey ? waitStreak + 1 : 1;
+				waitKey = key;
+				if (waitStreak <= WAIT_REPEAT_LIMIT) return { notes };
+			} else {
+				waitStreak = 0;
+				waitKey = undefined;
+			}
 			if (key === lastKey) streak += 1;
 			else {
 				lastKey = key;
@@ -383,8 +453,11 @@ export function createSupervisor(config: {
 			if (streak === REPEAT_NOTE_AT && notedKey !== key) {
 				notedKey = key;
 				notes.push(repeatNote(record.name));
-			} else if (notedKey === key && streak > REPEAT_NOTE_AT) {
-				// Reincidência depois da nota: aqui o laço encerra (com a entrega final, nunca em silêncio).
+			} else if (notedKey === key && streak === REPEAT_NOTE_AT + 1) {
+				// 1ª reincidência depois da nota: uma 2ª nota, com alternativa concreta, antes de encerrar.
+				notes.push(repeatAlternativeNote(record.name));
+			} else if (notedKey === key && streak > REPEAT_NOTE_AT + 1) {
+				// Reincidência depois das duas notas: aqui o laço encerra (com a entrega final, nunca em silêncio).
 				return { notes, abort: { reason: "loop_repeat", detail: "after_note" } };
 			}
 			return { notes };

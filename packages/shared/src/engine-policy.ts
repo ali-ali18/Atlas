@@ -203,13 +203,39 @@ export function looksLikeLongTask(text: string): boolean {
 	if (plain.length < 25) return false;
 	const verb = /\b(pesquis\w+|levant\w+|analis\w+|compar\w+|mapea\w+|investig\w+|monta|monte|montar|elabor\w+|prepar\w+|gere|gerar|crie|criar|escrev\w+|faca|fazer|assista|assistir|abra|abrir|pergunt\w+|resum\w+|researc\w+|analy[sz]e|compare|build|prepare|draft|write|create|generate|benchmark\w*|watch|summari[sz]e|open|ask)\b/;
 	const deliverable = /\b(relatorio|estudo|pesquisa de mercado|panorama|benchmark|dossie|planilha|apresentacao|painel|dashboard|analise|comparativo|levantamento|report|study|market research|spreadsheet|presentation|deep dive|overview)\b/;
-	if (verb.test(plain) && deliverable.test(plain)) return true;
+	// Pergunta de informação ("qual o link para acessar o painel?") não é pedido: sai antes de procurar verbo + entregável.
+	const asked = plain.split(/(?<=[.!?])\s+/).filter((sentence) => !/^(?:qual|quais|como|o que|onde|quando|por que|porque|quem|what|how|where|when|why|which|who)\b.*\?$/.test(sentence)).join(" ");
+	if (verb.test(asked) && deliverable.test(asked)) return true;
 	if (RESEARCH_MANY_SOURCES.test(plain)) return true;
 	// Pedido de várias etapas encadeadas ("abra..., faça perguntas..., compare... e monte"): 3+ verbos de ação diferentes,
 	// em pedido de tamanho razoável e com conectores de sequência (vírgulas, "e", "depois"). Pedido casual curto fica em chat.
 	if (plain.length >= CHAINED_MIN_CHARS && distinctActionVerbs(plain) >= 3 && sequenceConnectors(plain) >= 2) return true;
+	// Pedido de ação em site ou app ("abra o Gemini e peça um resumo", "vai no site da loja, loga e me diz o status"):
+	// verbo de ação no começo de oração COM alvo digital explícito. Várias etapas no navegador não cabem no modo chat curto.
+	if (distinctBrowserActionVerbs(plain) >= 1) return true;
 	// Pedido longo com verbo de trabalho (várias linhas de instrução) também é tarefa.
 	return plain.length >= 200 && verb.test(plain);
+}
+
+/** Verbos de agir em site/app (pt e en), no imperativo ou infinitivo de pedido. */
+const BROWSER_ACTION_VERBS =
+	"acesse|acessar|access|entra|entre|entrar|enter|vai|va|ir|go|exporte|exportar|export|baixe|baixar|download|peca|pede|pedir|ask|envie|enviar|send|preencha|preenche|preencher|fill|clique|clica|clicar|click|loga|logue|logar|login|log|abra|abre|abrir|open|navegue|navegar|navigate|digite|digitar|type";
+/** Verbo no COMEÇO de oração (início, depois de "e", vírgula, ponto ou ";") ou depois de "pode/quero que você": "o link para acessar" não conta. */
+const CLAUSE_START_ACTION = new RegExp(
+	`(?:^|[,;.!]\\s*|\\b(?:e|and|then|depois)\\s+)(?:(?:por favor|please|pode|consegue|poderia|quero que voce|queria que voce|can you|could you)\\s+)*(?:me\\s+)?(?:${BROWSER_ACTION_VERBS})\\b`,
+	"g",
+);
+/** Alvo digital explícito: URL, site/app/painel/conta/página/portal/sistema ou serviço conhecido. Sem alvo ("vai na padaria e pede um pão") é conversa. */
+const DIGITAL_TARGET =
+	/\bhttps?:\/\/\S+|\bwww\.\S+|\b(?:site|sites|app|aplicativo|painel|dashboard|conta|pagina|portal|sistema|plataforma|webmail|website|account|page|gemini|chatgpt|claude|bling|google|youtube|notion|slack|whatsapp|gmail|drive|linkedin|instagram|github|jira|trello|shopify|mercado livre)\b/;
+
+/**
+ * Pedido de agir em site ou app: verbo de ação no começo de oração (ou depois de "pode/quero que você") COM alvo digital
+ * explícito. 2+ verbos encadeados sozinhos não bastam ("vai na padaria e pede um pão" é conversa).
+ */
+function distinctBrowserActionVerbs(plain: string): number {
+	if (!DIGITAL_TARGET.test(plain)) return 0;
+	return (plain.match(CLAUSE_START_ACTION) ?? []).length;
 }
 
 /** Verbo de procurar/pesquisar/levantar (pt e en), sem exigir substantivo de entregável. */
@@ -251,6 +277,18 @@ function sequenceConnectors(plain: string): number {
 
 function distinctActionVerbs(plain: string): number {
 	return ACTION_VERB_STEMS.reduce((count, stem) => count + (stem.test(plain) ? 1 : 0), 0);
+}
+
+/**
+ * Mensagem digitada curta que só manda o bot seguir ("continua", "pode seguir", "segue", "go on"). Depois de um run que
+ * parou com itens abertos ela herda o perfil e o caderno do trabalho anterior em vez de recomeçar do zero.
+ */
+export function isShortContinuation(text: string): boolean {
+	const plain = (text ?? "").normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().trim();
+	if (plain.length === 0 || plain.length > 40) return false;
+	// Só formas de continuar: "segue", "seguir", "pode seguir", "continua", "continue", "vai em frente", "manda ver", "prossiga".
+	// Não casa "segundo", "segura", "segurança" (a raiz "segu" sozinha pegava tudo isso).
+	return /^(?:(?:ok|certo|entao|pode|por favor|pfv|vai),?\s+)*(?:continu(?:a|e|ar|em)|segue|seguir|prossiga|prosseguir|retome|retomar|em frente|manda ver|go on|keep going|carry on|proceed)(?:\s+(?:ai|ae|em frente|de onde parou|onde parou|com isso|por favor|pfv|please))*[\s.!]*$/.test(plain);
 }
 
 /**

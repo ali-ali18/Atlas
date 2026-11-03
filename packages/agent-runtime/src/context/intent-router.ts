@@ -115,9 +115,11 @@ const PATTERNS: Array<[ContextGroup, RegExp]> = [
 	],
 	// Abas do navegador: a tool só entra quando o pedido fala de aba (ou o navegador avisa de aba nova).
 	["tabs", /\b(abas?|aba nova|nova aba|outra aba|nova guia|browser tabs?|new tab|other tab|another tab)\b/],
+	// Instalar programa: "instala/instale/instalar + algo" carrega o grupo (ex.: "instala o VLC"), salvo se a frase fala de celular/tablet.
+	// Falso positivo aceito ("instala o app do Atlas no computador"): carregar a mais custa pouco; o bot sem saber instalar custa o pedido.
 	[
 		"shell",
-		/\b(scripts?|shell|bash|terminal|python|playwright|curl|em lote|bulk|baix(a|ar|e) (todos|todas|os|as)|download (de )?(todos|todas)|todos os (pdfs?|arquivos|cursos|materiais)|todas as (disciplinas|materias|aulas|semanas|paginas)|scrap\w*|extrair (tudo|todos|todas)|ava|moodle|lms|classroom)\b/,
+		/\b(scripts?|shell|bash|terminal|python|playwright|curl|em lote|bulk|baix(a|ar|e) (todos|todas|os|as)|download (de )?(todos|todas)|todos os (pdfs?|arquivos|cursos|materiais)|todas as (disciplinas|materias|aulas|semanas|paginas)|scrap\w*|extrair (tudo|todos|todas)|ava|moodle|lms|classroom|appimage|apt-get|dpkg|nvm|executaveis?|(instal\w+|install\w*) [^!?\n]{0,40}\b(programas?|softwares?|pacotes?|packages?|deb|appimage|wine|apt|exe)|(deb|appimage|exe) [^!?\n]{0,40}\binstal\w+|(?:instala|instale|instalar|instalo|install) (?![^.!?\n]*\b(?:celular|telefone|iphone|android|ios|mobile|phone|smartphone|tablet)\b)[a-z0-9]+)\b/,
 	],
 	["dev", DEV_PATTERN],
 	// Prévia completa (admin): o pedido de configurar o domínio/links, não o de ver um projeto (isso é `dev`).
