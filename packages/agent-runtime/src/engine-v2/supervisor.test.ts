@@ -8,6 +8,7 @@ import {
 	RESERVE_GAPS_NOTE,
 	RESERVE_WRITE_NOTE,
 	STAGNATION_STEPS,
+	WAIT_REPEAT_LIMIT,
 	WRAP_UP_NOTE,
 	PROMOTE_PLAN_STEPS,
 	budgetForProfile,
@@ -246,8 +247,32 @@ describe("repetição real", () => {
 		expect(third.abort).toBeUndefined();
 		expect(third.notes).toHaveLength(1);
 		expect(third.notes[0]).toMatch(/same arguments and got the same result/);
+		// 1ª reincidência: 2ª nota, com alternativa, ainda sem abortar.
 		const fourth = supervisor.recordTool(record({ step: 4 }));
-		expect(fourth.abort).toEqual({ reason: "loop_repeat", detail: "after_note" });
+		expect(fourth.abort).toBeUndefined();
+		expect(fourth.notes[0]).toMatch(/last warning before the run stops/);
+		const fifth = supervisor.recordTool(record({ step: 5 }));
+		expect(fifth.abort).toEqual({ reason: "loop_repeat", detail: "after_note" });
+	});
+
+	it("6 esperas idênticas (sandbox_shell_wait, browser_wait) não viram laço; passando do limite elas contam como qualquer repetição", () => {
+		const supervisor = createSupervisor({ profile: "long_work", budget });
+		for (const name of ["sandbox_shell_wait", "browser_wait"]) {
+			for (let step = 1; step <= 6; step++) expect(supervisor.recordTool(record({ step, name, argsKey: "job=1", resultKey: "still running" })), name).toEqual({ notes: [] });
+		}
+		let aborted = false;
+		for (let step = 1; step <= WAIT_REPEAT_LIMIT + 6; step++) {
+			if (supervisor.recordTool(record({ step, name: "sandbox_shell_wait", argsKey: "job=2", resultKey: "still running" })).abort) aborted = true;
+		}
+		expect(aborted).toBe(true);
+	});
+
+	it("3 falhas de browser_act em refs diferentes não bloqueiam; 3 no mesmo ref bloqueiam", () => {
+		const supervisor = createSupervisor({ profile: "long_work", budget });
+		for (let step = 1; step <= 4; step++) supervisor.recordTool(record({ step, name: "browser_act", ok: false, argsKey: `ref=${step}`, resultKey: `e${step}`, target: `e${step}`, message: "not found" }));
+		expect(supervisor.toolBlocked("browser_act", 5)).toBeUndefined();
+		for (let step = 6; step <= 8; step++) supervisor.recordTool(record({ step, name: "browser_act", ok: false, argsKey: `try=${step}`, resultKey: `x${step}`, target: "e9", message: "not found" }));
+		expect(supervisor.toolBlocked("browser_act", 9)).toMatch(/temporarily unavailable/);
 	});
 
 	it("uma chamada diferente no meio zera a sequência", () => {
@@ -491,7 +516,8 @@ describe("sem orçamento de tempo (decisão do dono, 02/11)", () => {
 		supervisor.recordTool(record({ step: 1 }));
 		supervisor.recordTool(record({ step: 2 }));
 		expect(supervisor.recordTool(record({ step: 3 })).notes).toHaveLength(1);
-		expect(supervisor.recordTool(record({ step: 4 }))).toMatchObject({ abort: { reason: "loop_repeat" } });
+		expect(supervisor.recordTool(record({ step: 4 })).notes).toHaveLength(1);
+		expect(supervisor.recordTool(record({ step: 5 }))).toMatchObject({ abort: { reason: "loop_repeat" } });
 	});
 
 	it("falhas seguidas continuam bloqueando a tool sem tempo", () => {

@@ -350,6 +350,7 @@ describe("motor v2: Supervisor no laço", () => {
 				same("l2"),
 				same("l3"),
 				same("l4"),
+				same("l5"),
 				say("Parei de repetir; resultado parcial."),
 			],
 		});
@@ -360,7 +361,7 @@ describe("motor v2: Supervisor no laço", () => {
 		expect(result.stop).toEqual({ reason: "loop_repeat", detail: "after_note" });
 		expect(requests.at(-1)!.params.toolChoice).toBe("none");
 		expect(result.text).toBe("Parei de repetir; resultado parcial.");
-		expect(toolResults.filter((r) => r.name === "current_time")).toHaveLength(4);
+		expect(toolResults.filter((r) => r.name === "current_time")).toHaveLength(5);
 	});
 
 	it("falhas seguidas da mesma tool: nota e bloqueio temporário, sem matar o run", async () => {

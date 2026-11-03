@@ -189,6 +189,17 @@ type CallOutcome = {
 	skipped?: boolean;
 };
 
+/** Alvo de uma ação (ref, URL, seletor...): chave extra das falhas seguidas, para refs diferentes não se somarem. */
+function toolTargetOf(args: unknown): string | undefined {
+	if (!args || typeof args !== "object") return undefined;
+	const record = args as Record<string, unknown>;
+	for (const key of ["ref", "url", "selector", "target", "id", "index"]) {
+		const value = record[key];
+		if (typeof value === "string" || typeof value === "number") return String(value).slice(0, 200);
+	}
+	return undefined;
+}
+
 export async function runEngineV2(params: ComputerUseParams, options: EngineV2Options): Promise<RunComputerUseResult> {
 	const onEvent = params.onEvent;
 	const runId = params.runId ?? "local";
@@ -1090,6 +1101,7 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 				resultKey: toolResultKey(outcome.summary, outcome.ok),
 				ok: outcome.ok,
 				message: outcome.ok ? undefined : outcome.summary,
+				target: toolTargetOf(outcome.args),
 			});
 			for (const note of verdict.notes) appendToLatestToolResult(conversation, note);
 			abort ??= verdict.abort;

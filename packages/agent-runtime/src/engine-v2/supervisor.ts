@@ -56,6 +56,9 @@ export const GAP_END_RATIO = 0.85;
 export const MAX_STEPS_SAFETY = 200;
 /** Mesma tool + mesmos args + mesmo resultado, esta vez seguidas, vira nota ao modelo. */
 export const REPEAT_NOTE_AT = 3;
+/** Esperar não é repetir: tools de espera idênticas seguidas não contam para o laço até este limite (aí contam como qualquer outra). */
+export const WAIT_REPEAT_LIMIT = 30;
+const WAIT_TOOLS = /^(sandbox_shell_wait|browser_wait|shell_output|wait_for\w*|sandbox_wait\w*)$/;
 /** Falhas seguidas da MESMA tool que a bloqueiam por um tempo. */
 export const FAILURE_BLOCK_AFTER = 3;
 /** Quantos passos a tool bloqueada fica indisponível. */
@@ -96,6 +99,8 @@ export type ToolRecord = {
 	ok: boolean;
 	/** Mensagem de erro (só em falha), citada na nota de bloqueio. */
 	message?: string;
+	/** Alvo da ação (ref, URL, seletor): 3 falhas em alvos diferentes não bloqueiam a tool, só no mesmo alvo. */
+	target?: string;
 };
 
 export type ToolVerdict = { notes: string[]; abort?: RunStop };
@@ -127,6 +132,10 @@ export function deliveryInstruction(reason: "budget_cost" | "budget_wall" | "bud
 
 export function repeatNote(name: string): string {
 	return `Loop notice: you called ${name} with the same arguments and got the same result ${REPEAT_NOTE_AT} times in a row. Change the approach: different arguments, another tool, or deliver what you already have.`;
+}
+
+export function repeatAlternativeNote(name: string): string {
+	return `Loop notice: ${name} is still returning the same result. This is the last warning before the run stops. Take a different path now: read the page or the output in another way, use a different tool, change the target, or deliver what you already have and say what is missing.`;
 }
 
 export function failureNote(name: string, message: string): string {
@@ -207,7 +216,9 @@ export function createSupervisor(config: {
 	let lastKey: string | undefined;
 	let streak = 0;
 	let notedKey: string | undefined;
-	const failureStreak = new Map<string, number>();
+	const failureStreak = new Map<string, { count: number; target: string }>();
+	let waitStreak = 0;
+	let waitKey: string | undefined;
 	const blockedUntil = new Map<string, number>();
 
 	const elapsedMs = (usage: SupervisorUsage) => Math.max(0, usage.activeMs - timeBaseMs);
@@ -396,8 +407,11 @@ export function createSupervisor(config: {
 			// Falhas seguidas da MESMA tool.
 			if (record.ok) failureStreak.delete(record.name);
 			else {
-				const count = (failureStreak.get(record.name) ?? 0) + 1;
-				failureStreak.set(record.name, count);
+				// Falhas em alvos diferentes (refs, URLs) não somam: a contagem recomeça no alvo novo.
+				const previous = failureStreak.get(record.name);
+				const target = record.target ?? "";
+				const count = previous && previous.target === target ? previous.count + 1 : 1;
+				failureStreak.set(record.name, { count, target });
 				if (count >= FAILURE_BLOCK_AFTER && !blockedUntil.has(record.name)) {
 					blockedUntil.set(record.name, record.step + 1 + BLOCK_STEPS);
 					notes.push(failureNote(record.name, record.message ?? "error"));
@@ -405,6 +419,15 @@ export function createSupervisor(config: {
 			}
 			// Travamento real: mesma tool, mesmos args, mesmo resultado, seguidas.
 			const key = `${record.name}|${record.argsKey}|${record.resultKey}`;
+			// Espera idêntica seguida (sandbox_shell_wait, browser_wait...) é o esperado de um processo lento, não laço.
+			if (WAIT_TOOLS.test(record.name) && record.ok) {
+				waitStreak = key === waitKey ? waitStreak + 1 : 1;
+				waitKey = key;
+				if (waitStreak <= WAIT_REPEAT_LIMIT) return { notes };
+			} else {
+				waitStreak = 0;
+				waitKey = undefined;
+			}
 			if (key === lastKey) streak += 1;
 			else {
 				lastKey = key;
@@ -413,8 +436,11 @@ export function createSupervisor(config: {
 			if (streak === REPEAT_NOTE_AT && notedKey !== key) {
 				notedKey = key;
 				notes.push(repeatNote(record.name));
-			} else if (notedKey === key && streak > REPEAT_NOTE_AT) {
-				// Reincidência depois da nota: aqui o laço encerra (com a entrega final, nunca em silêncio).
+			} else if (notedKey === key && streak === REPEAT_NOTE_AT + 1) {
+				// 1ª reincidência depois da nota: uma 2ª nota, com alternativa concreta, antes de encerrar.
+				notes.push(repeatAlternativeNote(record.name));
+			} else if (notedKey === key && streak > REPEAT_NOTE_AT + 1) {
+				// Reincidência depois das duas notas: aqui o laço encerra (com a entrega final, nunca em silêncio).
 				return { notes, abort: { reason: "loop_repeat", detail: "after_note" } };
 			}
 			return { notes };
