@@ -117,6 +117,7 @@ import { modelUsage } from "../telemetry/model-usage.js";
 import { createSecretSession, type SecretSession } from "../secrets/session.js";
 import { createProviderHealth } from "../tools/provider-health.js";
 import { claimVision, createVisionClaimState } from "../tools/vision-fallback.js";
+import { BATCH_SKIPPED_MESSAGE, createBatchFailureGate } from "../tools/batch-failure.js";
 import { withAgentPointer } from "../tools/agent-pointer.js";
 import { executeTool } from "../tools/registry/execute.js";
 import { getToolRegistration } from "../tools/registry/index.js";
@@ -1171,12 +1172,22 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 			}
 			return outcomes;
 		}
+		// Depois da 1ª ação de página que falhou neste passo, as seguintes foram planejadas sobre um estado que
+		// não existe mais: não rodam e o modelo é informado (não aborta o run; ele decide no próximo passo).
+		const batchGate = createBatchFailureGate();
 		for (const [index, call] of calls.entries()) {
 			if (awaiting.kind || loginToAsk) {
 				outcomes.push({ call, name: call.function.name, ok: false, summary: "Not executed: waiting for the user.", args: {}, skipped: true });
 				continue;
 			}
-			outcomes.push(await processCall(call, index));
+			if (batchGate.shouldSkip(call.function.name)) {
+				await onEvent({ type: "tool_result", id: call.id, name: call.function.name, ok: false, summary: BATCH_SKIPPED_MESSAGE });
+				outcomes.push({ call, name: call.function.name, ok: false, summary: BATCH_SKIPPED_MESSAGE, args: {}, skipped: true });
+				continue;
+			}
+			const outcome = await processCall(call, index);
+			batchGate.recordResult(outcome.name, outcome.ok);
+			outcomes.push(outcome);
 		}
 		return outcomes;
 	};
