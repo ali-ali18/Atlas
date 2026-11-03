@@ -32,6 +32,8 @@ export type V3Run = {
 	model: string;
 	lastModel: string;
 	turnId: string;
+	/** Run cujo cartão este run continua (semente `transcriptSeed.fromRunId`): só aqui vale a decisão do dono sobre aquele cartão. */
+	continuesRunId?: string;
 	catalog: EngineV2Catalog;
 	tools: ChatTool[];
 	entryOf: (name: string) => McpToolEntry | undefined;

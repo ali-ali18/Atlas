@@ -10,6 +10,7 @@ export const UNKNOWN_STATUS_NOTE =
 	"status unknown: the run was interrupted after this call was sent and its result was never recorded. Verify the current state before repeating any effect.";
 export const SKIPPED_FOR_USER_MESSAGE = "Not executed: the user sent a new message. Read it and decide what to do next.";
 export const SKIPPED_FOR_PARK = "Not executed: waiting for the user.";
+export const SKIPPED_FOR_APPROVAL = "Not executed: waiting for the owner's answer on the previous action. Call it again after they answer.";
 
 /** Mensagem real da falha, sem segredo e com tamanho limitado (o modelo e o inspetor recebem isto). */
 export function honestError(error: unknown): string {

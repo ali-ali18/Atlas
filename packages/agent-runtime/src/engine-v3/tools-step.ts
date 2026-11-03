@@ -15,7 +15,7 @@ import { executeTool } from "../tools/registry/execute.js";
 import { getToolMeta } from "../tools/registry/tool-meta.js";
 import { isSandboxTool } from "../tools/registry/sandbox-tools.js";
 import { dedupeLoginAsk, unattendedLoginOutcome } from "../engine-v2/login.js";
-import { SKIPPED_FOR_PARK, SKIPPED_FOR_USER_MESSAGE, closestToolNames, honestError, invalidArgsMessage, missingRequiredArgs, normalizeToolName, toolSignature, unknownToolMessage } from "./failures.js";
+import { SKIPPED_FOR_APPROVAL, SKIPPED_FOR_PARK, SKIPPED_FOR_USER_MESSAGE, closestToolNames, honestError, invalidArgsMessage, missingRequiredArgs, normalizeToolName, toolSignature, unknownToolMessage } from "./failures.js";
 import { decideCall, deniedMessage, spanPolicyDecision } from "./policy.js";
 import { BLOCKED_REPEATED } from "./repetition.js";
 import { pollSteer } from "./steering.js";
@@ -81,7 +81,8 @@ export function createToolsStep(run: V3Run, contextFor: ToolContextFactory) {
 		return { call, name, ok: false, summary: text };
 	};
 
-	const processCall = async (call: LlmToolCall, sub: number): Promise<CallOutcome> => {
+	/** `batch.parked`: um cartão de aprovação já saiu neste lote; as outras aprovações esperam a resposta do dono. */
+	const processCall = async (call: LlmToolCall, sub: number, batch: { parked: boolean }): Promise<CallOutcome> => {
 		// --- nome: exato, normalizado, adiado (carrega o grupo) ou desconhecido (até 3 próximos) ---
 		let name = call.function.name;
 		if (!toolOf(name) && toolOf(normalizeToolName(name))) name = normalizeToolName(name);
@@ -127,7 +128,14 @@ export function createToolsStep(run: V3Run, contextFor: ToolContextFactory) {
 		// --- `ask` em tool nativa: cartão genérico e o run estaciona (conector e tool com cartão próprio usam o deles) ---
 		const nativeAsk = verdict.decision === "ask" && !entry && !hasOwnApprovalCard(name);
 		if (nativeAsk) {
+			// Lote paralelo: a checagem e a marca acontecem antes de qualquer await, então só um cartão sai por lote.
+			if (batch.parked) {
+				await run.emit({ type: "tool_result", id: call.id, name, ok: false, summary: SKIPPED_FOR_APPROVAL });
+				return { call, name, ok: false, summary: SKIPPED_FOR_APPROVAL, skipped: true };
+			}
+			batch.parked = true;
 			const gate = await nativeApprovalGate(run, name, args);
+			if (gate.kind !== "parked") batch.parked = false;
 			if (gate.kind === "refuse") return await refuse(call, sub, name, gate.summary, { argsKey });
 			if (gate.kind === "parked") {
 				await run.emit({ type: "tool_call", id: call.id, name, args: call.function.arguments, step: run.step });
@@ -241,14 +249,16 @@ export function createToolsStep(run: V3Run, contextFor: ToolContextFactory) {
 	return async (calls: LlmToolCall[]): Promise<BatchResult> => {
 		if (calls.some((call) => isJournaledWrite(call.function.name, run.entryOf(call.function.name)))) await run.persistCheckpoint();
 		type Full = CallOutcome & { awaiting?: AwaitingKind; login?: LoginEvent; final?: boolean; endsTurn?: boolean };
+		const batchState = { parked: false };
 		const outcomes: Full[] = [];
 		if (calls.length > 1 && calls.every(parallelSafe)) {
-			for (let at = 0; at < calls.length; at += MAX_PARALLEL_READS) outcomes.push(...(await Promise.all(calls.slice(at, at + MAX_PARALLEL_READS).map((call, index) => processCall(call, at + index)))));
+			for (let at = 0; at < calls.length; at += MAX_PARALLEL_READS) outcomes.push(...(await Promise.all(calls.slice(at, at + MAX_PARALLEL_READS).map((call, index) => processCall(call, at + index, batchState)))));
 		} else {
 			const gate = createBatchFailureGate();
 			for (const [index, call] of calls.entries()) {
 				const skip = (summary: string) => ({ call, name: call.function.name, ok: false, summary, skipped: true });
-				if (outcomes.some((outcome) => outcome.awaiting || outcome.login)) { outcomes.push(skip(SKIPPED_FOR_PARK)); continue; }
+				if (outcomes.some((outcome) => outcome.awaiting)) { outcomes.push(skip(SKIPPED_FOR_APPROVAL)); continue; }
+				if (outcomes.some((outcome) => outcome.login)) { outcomes.push(skip(SKIPPED_FOR_PARK)); continue; }
 				// Steering: a mensagem nova do usuário vale mais que o resto do lote planejado antes dela.
 				if (index > 0 && (await pollSteer(run))) {
 					await run.emit({ type: "tool_result", id: call.id, name: call.function.name, ok: false, summary: SKIPPED_FOR_USER_MESSAGE });
@@ -260,7 +270,7 @@ export function createToolsStep(run: V3Run, contextFor: ToolContextFactory) {
 					outcomes.push(skip(BATCH_SKIPPED_MESSAGE));
 					continue;
 				}
-				const outcome = await processCall(call, index);
+				const outcome = await processCall(call, index, batchState);
 				gate.recordResult(outcome.name, outcome.ok);
 				outcomes.push(outcome);
 			}
