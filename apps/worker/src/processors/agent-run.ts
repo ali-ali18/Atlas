@@ -958,9 +958,9 @@ async function executeLeasedRun(ctx: {
 			await appendRunEvent(runId, "task_list", { type: "task_list", items: seededTaskList, runId }).catch(() => undefined);
 		}
 
-		return { planPending, messages, inputMessages, transcriptOutcome, priorTranscript: transcript?.priorTranscript, transcriptWatermark, carriedNotes, priorLoadedTools: transcript?.loadedTools, priorToolCache: transcript?.toolCache, priorCompaction: transcript?.compaction, historyImages, skillIndex, forcedConnectors, priorResearchNotes, priorTaskLedger, priorTaskList, openBotRequests, attachments: attachmentsForRun?.runtime };
+		return { planPending, messages, inputMessages, transcriptOutcome, priorTranscript: transcript?.priorTranscript, transcriptWatermark, carriedNotes, priorLoadedTools: transcript?.loadedTools, priorToolUsage: transcript?.toolUsage, priorToolCache: transcript?.toolCache, priorCompaction: transcript?.compaction, historyImages, skillIndex, forcedConnectors, priorResearchNotes, priorTaskLedger, priorTaskList, openBotRequests, attachments: attachmentsForRun?.runtime };
 	};
-	const [{ configSnapshot, runtimeConfig, providers, canSeeUserImages, imageVision }, { planPending, messages, inputMessages, transcriptOutcome, priorTranscript, transcriptWatermark, carriedNotes, priorLoadedTools, priorToolCache, priorCompaction, historyImages, skillIndex, forcedConnectors, priorResearchNotes, priorTaskLedger, priorTaskList, openBotRequests, attachments }] =
+	const [{ configSnapshot, runtimeConfig, providers, canSeeUserImages, imageVision }, { planPending, messages, inputMessages, transcriptOutcome, priorTranscript, transcriptWatermark, carriedNotes, priorLoadedTools, priorToolUsage, priorToolCache, priorCompaction, historyImages, skillIndex, forcedConnectors, priorResearchNotes, priorTaskLedger, priorTaskList, openBotRequests, attachments }] =
 		await Promise.all([configStage(), messagesStage()]);
 	// Inspetor: como o histórico deste turno foi montado (só metadados; nunca o texto).
 	if (transcriptOutcome) {
@@ -1360,6 +1360,7 @@ async function executeLeasedRun(ctx: {
 			transcriptWatermark,
 			carriedNotes,
 			priorLoadedTools,
+			...(priorToolUsage ? { priorToolUsage } : {}),
 			priorToolCache,
 			priorCompaction,
 			priorResearchNotes,

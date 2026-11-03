@@ -46,3 +46,25 @@ test("sem dono real ou sem bot: vazio (legado default não vê nada)", async () 
 	assert.deepEqual(await listBotToolUsage({ userId: "default", botId: "bot-a", now: NOW }), {});
 	assert.deepEqual(await listBotToolUsage({ userId: "user-a", botId: " ", now: NOW }), {});
 });
+
+test("transcript da conversa devolve o uso congelado do motor v3 (só contagens válidas)", async () => {
+	const { getConversationTranscript } = await import("./runs.js");
+	installed.restore();
+	installed = installFakes({
+		agentRun: new FakeTable([
+			{
+				id: "run-v3",
+				userId: "user-a",
+				conversationId: "conv-a",
+				origin: "chat",
+				parentRunId: null,
+				createdAt: daysAgo(1),
+				finishedAt: null,
+				checkpointJson: { llmMessages: [{ role: "user", content: "oi" }], loadedTools: ["web_search"], engineV3: { toolUsage: { create_file: 4, bad: -1, worse: "x" } } },
+			},
+		]),
+	});
+	const transcript = await getConversationTranscript("user-a", "conv-a");
+	assert.deepEqual(transcript?.toolUsage, { create_file: 4 });
+	assert.equal(await getConversationTranscript("user-b", "conv-a"), null);
+});

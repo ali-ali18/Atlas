@@ -272,6 +272,8 @@ export type ComputerUseParams = {
 	priorLoadedTools?: string[];
 	/** Grupos e ordem de tools congelados na conversa pelo turno anterior (cache de prompt; ver `context/sticky-groups.ts`). */
 	priorToolCache?: ToolCacheState;
+	/** Motor v3: uso das tools congelado com `priorLoadedTools` pelo turno anterior (manifesto e busca iguais). */
+	priorToolUsage?: Record<string, number>;
 	/** `/compact` aplicado à conversa antes deste turno: vira a ação "Conversa compactada" no inspetor do 1º passo. */
 	priorCompaction?: { before: number; after: number };
 	/** Marca d'água da conversa (última mensagem vista ao montar o histórico); vai em todo checkpoint do run. */
