@@ -31,6 +31,7 @@ import {
 	type Notify,
 	prisma,
 	appendAgentStep,
+	recordSpan,
 	appendConversationCard,
 	listOpenBotRequests,
 	appendRunAssistantSegment,
@@ -164,6 +165,7 @@ import { createAutoContinueIo } from "../auto-continue-io.js";
 import { resolveTranscriptHistory, type TranscriptHistory } from "./transcript-history.js";
 import {
 	createRunTelemetryTracker,
+	spanFromStep,
 	stepTelemetryFields,
 	withRunTelemetry,
 } from "../run-telemetry.js";
@@ -1425,6 +1427,11 @@ async function executeLeasedRun(ctx: {
 					});
 				} catch (error) {
 					asLeaseError(error);
+				}
+				// Tracing do motor v2: o span vai na linha que acabou de ser gravada. `recordSpan` nunca lança.
+				if (v2) {
+					const span = spanFromStep(step);
+					if (span) await recordSpan({ ...span, userId: runUserId, runId });
 				}
 			},
 			onCheckpoint: persistCheckpoint,

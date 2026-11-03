@@ -57,6 +57,8 @@ export type InspectStepView = {
 	requestedModel?: string;
 	provider?: string;
 	durationMs?: number;
+	/** Tempo até o primeiro chunk do stream (ms). */
+	ttftMs?: number;
 	finishReason?: string;
 	promptTokens?: number;
 	completionTokens?: number;
@@ -86,6 +88,8 @@ export type InspectToolCall = {
 	durationMs?: number;
 	decisionIndex: number;
 	summary?: string;
+	/** Decisão da política antes de executar; só aparece quando não foi o caminho normal (`allow`). */
+	policyDecision?: "confirm" | "blocked";
 };
 
 export type InspectApproval = {
@@ -135,7 +139,7 @@ export type RunInspection = {
 	toolCalls: InspectToolCall[];
 	approvals: InspectApproval[];
 	errors: Array<{ message: string; at?: string }>;
-	totals: { steps: number; toolCalls: number; failedToolCalls: number; promptTokens: number; completionTokens: number; costUsd?: number };
+	totals: { steps: number; toolCalls: number; failedToolCalls: number; promptTokens: number; completionTokens: number; cacheReadTokens?: number; costUsd?: number };
 };
 
 export type InspectRawStep = {
@@ -150,6 +154,15 @@ export type InspectRawStep = {
 	costUsd?: number | null;
 	durationMs?: number | null;
 	idempotencyKey?: string | null;
+	/** Colunas de span (PR3c); nulas em passo antigo, que cai na telemetria do `outputJson`. */
+	kind?: string | null;
+	provider?: string | null;
+	model?: string | null;
+	cachedTokens?: number | null;
+	outputTokens?: number | null;
+	ttftMs?: number | null;
+	finishReason?: string | null;
+	policyDecision?: string | null;
 };
 
 export type InspectRawEvent = { seq: number; type: string; payload: unknown; createdAt?: string };
@@ -276,6 +289,7 @@ export function buildRunInspection(input: {
 	const used: InspectLessons["used"] = [];
 	let prompt = 0;
 	let completion = 0;
+	let cacheRead: number | undefined;
 	let cost: number | undefined;
 
 	for (const step of ordered) {
@@ -290,23 +304,31 @@ export function buildRunInspection(input: {
 					if (inspect.tools.added?.length) currentTools = [...currentTools, ...inspect.tools.added.filter((name) => !currentTools.includes(name))];
 				}
 			}
+			// Colunas do span primeiro; passo anterior ao PR3c só tem a telemetria no `outputJson`.
 			const promptTokens = num(telemetry?.promptTokens);
-			const completionTokens = num(telemetry?.completionTokens);
+			const completionTokens = num(step.outputTokens) ?? num(telemetry?.completionTokens);
+			const cacheReadTokens = num(step.cachedTokens) ?? num(telemetry?.cachedTokens);
+			const ttftMs = num(step.ttftMs) ?? num(telemetry?.ttftMs);
+			const finishReason = str(step.finishReason) ?? str(output?.finishReason);
+			const spanProvider = str(step.provider) ?? str(telemetry?.provider);
+			const spanModel = str(step.model) ?? str(telemetry?.servedModel);
 			prompt += promptTokens ?? 0;
 			completion += completionTokens ?? 0;
+			if (cacheReadTokens !== undefined) cacheRead = (cacheRead ?? 0) + cacheReadTokens;
 			const stepCost = num(step.costUsd) ?? num(telemetry?.costUsd);
 			if (stepCost !== undefined) cost = (cost ?? 0) + stepCost;
 			const attempts = num(telemetry?.llmAttempts);
 			steps.push({
 				decisionIndex: step.decisionIndex,
-				...(str(telemetry?.servedModel) ? { model: str(telemetry?.servedModel) } : {}),
+				...(spanModel ? { model: spanModel } : {}),
 				...(str(telemetry?.requestedModel) ? { requestedModel: str(telemetry?.requestedModel) } : {}),
-				...(str(telemetry?.provider) ? { provider: str(telemetry?.provider) } : {}),
+				...(spanProvider ? { provider: spanProvider } : {}),
 				...(num(step.durationMs) !== undefined ? { durationMs: num(step.durationMs) } : {}),
-				...(str(output?.finishReason) ? { finishReason: str(output?.finishReason) } : {}),
+				...(ttftMs !== undefined ? { ttftMs } : {}),
+				...(finishReason ? { finishReason } : {}),
 				...(promptTokens !== undefined ? { promptTokens } : {}),
 				...(completionTokens !== undefined ? { completionTokens } : {}),
-				...(num(telemetry?.cachedTokens) !== undefined ? { cacheReadTokens: num(telemetry?.cachedTokens) } : {}),
+				...(cacheReadTokens !== undefined ? { cacheReadTokens } : {}),
 				...(num(telemetry?.cacheWriteTokens) !== undefined ? { cacheWriteTokens: num(telemetry?.cacheWriteTokens) } : {}),
 				...(stepCost !== undefined ? { costUsd: stepCost } : {}),
 				...(inspect ? { tokens: inspect.tokens, estimatedTotal: inspect.total, messages: inspect.messages, toolCount: inspect.tools.count, toolNames: [...currentTools] } : {}),
@@ -335,6 +357,7 @@ export function buildRunInspection(input: {
 			const status = record(output?.status);
 			const uncertain = status?.uncertain === true;
 			const failed = step.status === "failed" || output?.ok === false;
+			const policy = str(step.policyDecision) ?? str(telemetry?.policyDecision);
 			if (name === "lesson_feedback" && step.type === "tool_result" && !failed) {
 				let rawArgs: unknown = inputJson?.args;
 				if (typeof rawArgs === "string") {
@@ -353,6 +376,7 @@ export function buildRunInspection(input: {
 				status: step.type === "tool" ? "running" : uncertain ? "uncertain" : failed ? "failed" : "ok",
 				...(num(step.durationMs) !== undefined ? { durationMs: num(step.durationMs) } : {}),
 				decisionIndex: step.decisionIndex,
+				...(policy === "confirm" || policy === "blocked" ? { policyDecision: policy } : {}),
 				...(str(output?.summary) ? { summary: clip(scrub(str(output?.summary)!), INSPECT_SUMMARY_MAX) } : {}),
 			});
 		}
@@ -454,6 +478,7 @@ export function buildRunInspection(input: {
 			failedToolCalls: toolCalls.filter((call) => call.status === "failed").length,
 			promptTokens: prompt,
 			completionTokens: completion,
+			...(cacheRead !== undefined ? { cacheReadTokens: cacheRead } : {}),
 			...(cost !== undefined ? { costUsd: cost } : {}),
 		},
 	};

@@ -133,3 +133,29 @@ describe("buildRunInspection: motivo da parada", () => {
 		expect(build({}).stop).toBeUndefined();
 	});
 });
+
+describe("buildRunInspection: colunas de span (PR3c)", () => {
+	const run = { id: "r1", status: "completed", model: "a/b", origin: "chat" };
+	it("prefere as colunas do span e cai na telemetria em passo antigo; soma cache e política da tool", () => {
+		const view = buildRunInspection({
+			run,
+			events: [],
+			approvals: [],
+			steps: [
+				{ index: 0, decisionIndex: 0, subIndex: 0, type: "model", status: "completed", inputJson: null, outputJson: { finishReason: "tool_calls", telemetry: { v: 1, provider: "openrouter", servedModel: "velho", promptTokens: 100, completionTokens: 1, cachedTokens: 1 } },
+					kind: "model", provider: "anthropic", model: "novo", cachedTokens: 80, outputTokens: 10, ttftMs: 300, finishReason: "stop", durationMs: 900 },
+				{ index: 1, decisionIndex: 0, subIndex: 1, type: "tool_result", status: "completed", inputJson: { name: "read", args: {} }, outputJson: { ok: true, summary: "ok" }, kind: "tool", policyDecision: "confirm", durationMs: 5 },
+				{ index: 100, decisionIndex: 1, subIndex: 0, type: "model", status: "completed", inputJson: null, outputJson: { finishReason: "stop", telemetry: { v: 1, provider: "openrouter", servedModel: "legado", promptTokens: 50, completionTokens: 4, cachedTokens: 20 } } },
+			],
+		});
+		expect([view.steps[0]!.provider, view.steps[0]!.model, view.steps[0]!.cacheReadTokens, view.steps[0]!.completionTokens, view.steps[0]!.ttftMs, view.steps[0]!.finishReason]).toEqual(["anthropic", "novo", 80, 10, 300, "stop"]);
+		expect([view.steps[1]!.provider, view.steps[1]!.model, view.steps[1]!.cacheReadTokens]).toEqual(["openrouter", "legado", 20]);
+		expect(view.toolCalls[0]!.policyDecision).toBe("confirm");
+		expect(view.totals.cacheReadTokens).toBe(100);
+		expect(view.totals.completionTokens).toBe(14);
+	});
+	it("tool com política normal (allow) não mostra decisão", () => {
+		const view = buildRunInspection({ run, events: [], approvals: [], steps: [{ index: 1, decisionIndex: 0, subIndex: 1, type: "tool_result", status: "completed", inputJson: { name: "read" }, outputJson: { ok: true }, policyDecision: "allow" }] });
+		expect(view.toolCalls[0]!.policyDecision).toBeUndefined();
+	});
+});
