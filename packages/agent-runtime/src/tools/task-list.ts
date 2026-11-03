@@ -109,6 +109,10 @@ export function executeUpdateTaskList(args: Record<string, unknown>, ctx: { task
 	if (!store) throw new Error("update_task_list is not available in this run.");
 	const items = normalizeTaskListInput(args.items);
 	const deliverable = parseDeliverable(args.deliverable);
+	// Tool honesta: valor inválido FALHA com a lista do que é aceito; nunca vira "sem declaração" em silêncio (nem muda a lista antes).
+	if (args.deliverable !== undefined && args.deliverable !== null && !deliverable) {
+		throw new Error(`Invalid deliverable ${JSON.stringify(args.deliverable).slice(0, 40)}. Accepted values: "document" (the user wants a file or a long report) or "answer" (a chat reply is enough). Call update_task_list again with one of them, or leave the field out. The list was not changed.`);
+	}
 	const declared = deliverable ? { deliverable } : {};
 	if (items.length === 0) {
 		store.set(undefined);
