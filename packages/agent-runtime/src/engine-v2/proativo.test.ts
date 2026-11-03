@@ -493,7 +493,7 @@ describe.each(["v1", "v2"] as const)("rotina comum no Autônomo não escreve em 
 		],
 	};
 
-	async function runWith(origin: "routine" | "chat", calls: CompleteChatWithToolsResult[] = []) {
+	async function runWith(origin: "routine" | "email" | "bot" | "chat", calls: CompleteChatWithToolsResult[] = []) {
 		// O worker monta o toolset com `unattended` para rotina, webhook e follow-up proativo.
 		const toolset = buildMcpToolset([connection], { autonomy, unattended: origin !== "chat" });
 		const connector = vi.fn(async () => ({ ok: true, text: "ok", truncated: false }));
@@ -514,6 +514,21 @@ describe.each(["v1", "v2"] as const)("rotina comum no Autônomo não escreve em 
 		expect(seenTools[0]).not.toContain("mcp__gmail__create_draft");
 		expect(connector).not.toHaveBeenCalled();
 		expect(results[0]).toMatchObject({ ok: false });
+	});
+
+	it.each(["email", "bot"] as const)("origem %s (sem humano para aprovar) também só vê a leitura", async (origin) => {
+		const { seenTools } = await runWith(origin);
+		expect(seenTools[0]).toContain("mcp__gmail__search_messages");
+		expect(seenTools[0]).not.toContain("mcp__gmail__send_message");
+		expect(seenTools[0]).not.toContain("mcp__gmail__create_draft");
+	});
+
+	it.each(["email", "bot"] as const)("origem %s com toolset completo ainda é cortada pelo motor", async (origin) => {
+		// Defesa em profundidade: mesmo que o caller monte o toolset sem `unattended`, o motor filtra a escrita.
+		const toolset = buildMcpToolset([connection], { autonomy });
+		const out = await run(engine, { origin, proactive: false, message: "responda", calls: [done], extra: { autonomy, mcp: { toolset, call: vi.fn() } } });
+		expect(out.seenTools[0]).toContain("mcp__gmail__search_messages");
+		expect(out.seenTools[0]).not.toContain("mcp__gmail__send_message");
 	});
 
 	it("chat com humano no Autônomo continua vendo a escrita", async () => {

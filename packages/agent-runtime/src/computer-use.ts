@@ -179,7 +179,7 @@ import { markGithubConnectionAuthFailed } from "./mcp/github-token.js";
 import { formatCompareForModel } from "./github/app/compare.js";
 import { ensureGithubRepoHook } from "./github/hook-sync.js";
 import type { McpRuntime } from "./mcp/runtime.js";
-import { isUnattendedOrigin } from "./autonomy-gate.js";
+import { isReadOnlyConnectorOrigin, isUnattendedOrigin } from "./autonomy-gate.js";
 import { type JevMcpAudit, type JevMcpEvaluator, type JevMcpMode, type JevReviewReason } from "./mcp/jev-gate.js";
 import { detectJevIntents, NO_INTENTS, type JevIntents } from "./jev/intent.js";
 import { observeOnly, type JevRuntime } from "./jev/decide.js";
@@ -2737,6 +2737,8 @@ async function runComputerUseCore(params: {
 		if (params.toolFilter && !params.toolFilter(tool.function.name)) return false;
 		const decision = decideAction(autonomyPolicy, entry.autonomyMeta);
 		if (decision === "block") return false;
+		// Sem humano para aprovar (rotina, webhook, e-mail, bot): conector só leitura, em qualquer autonomia.
+		if (isReadOnlyConnectorOrigin(params.origin) && !entry.readOnly) return false;
 		return !isUnattendedOrigin(params.origin) || decision === "allow";
 	});
 	const canResolveCachedResults = Boolean(mcp) && (params.toolFilter?.(READ_CACHED_RESULT_TOOL.function.name) ?? true);

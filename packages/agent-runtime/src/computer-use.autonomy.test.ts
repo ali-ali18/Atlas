@@ -520,7 +520,7 @@ describe("aprovação por tarefa em run de outro bot (caso Radar de Mercado pedi
 	});
 
 	it("o cartão de aprovação do conector não marca a conversa nem as concessões como conteúdo de fora (nada foi lido ainda)", async () => {
-		const first = await run({ connector: erp, origin: "bot", autonomy: lvl("balanced"), text: "diagnóstico do Cookie", jevMcpMode: "gate", evaluateMcpWithJev: clean, calls: [toolCall("c1", avisos, {})] });
+		const first = await run({ connector: erp, origin: "chat", autonomy: lvl("balanced"), text: "diagnóstico do Cookie", jevMcpMode: "gate", evaluateMcpWithJev: clean, calls: [toolCall("c1", avisos, {})] });
 		expect(first.confirms).toHaveLength(1);
 		expect(markConversationUntrusted).not.toHaveBeenCalled();
 		expect(markMcpTaskGrantsUntrusted).not.toHaveBeenCalled();
@@ -530,7 +530,7 @@ describe("aprovação por tarefa em run de outro bot (caso Radar de Mercado pedi
 		let uses = 1;
 		vi.mocked(consumeMcpTaskGrant).mockImplementation(async (key) => (key.connectionId === "conn-erp" && key.exposedName === pedidos ? { uses: (uses += 1), maxUses: 30, confirmId: "confirm-x", untrustedAt: null } : null));
 		const evaluator = vi.fn(clean);
-		const result = await run({ connector: erp, origin: "bot", autonomy: lvl("balanced"), text: "diagnóstico do Cookie", jevMcpMode: "gate", evaluateMcpWithJev: evaluator, maxSteps: 8, calls: [toolCall("p2", pedidos, { pagina: 2 }), toolCall("p3", pedidos, { pagina: 3 }), assistantDone()] });
+		const result = await run({ connector: erp, origin: "chat", autonomy: lvl("balanced"), text: "diagnóstico do Cookie", jevMcpMode: "gate", evaluateMcpWithJev: evaluator, maxSteps: 8, calls: [toolCall("p2", pedidos, { pagina: 2 }), toolCall("p3", pedidos, { pagina: 3 }), assistantDone()] });
 		expect(result.call).toHaveBeenCalledTimes(2);
 		expect(result.confirms).toHaveLength(0);
 		// 1º uso: nada lido antes, sem Jev; 2º: o resultado do conector já conta como conteúdo de fora.
@@ -540,14 +540,14 @@ describe("aprovação por tarefa em run de outro bot (caso Radar de Mercado pedi
 
 	it("run de bot sem Jev em modo gate: depois de ler conteúdo de fora a concessão não vale e volta o cartão (devolvendo o uso)", async () => {
 		vi.mocked(consumeMcpTaskGrant).mockResolvedValue({ uses: 2, maxUses: 30, confirmId: "x", untrustedAt: null });
-		const result = await run({ connector: erp, origin: "bot", autonomy: lvl("balanced"), text: "diagnóstico", jevMcpMode: "shadow", maxSteps: 8, calls: [toolCall("p2", pedidos, { pagina: 2 }), toolCall("p3", pedidos, { pagina: 3 })] });
+		const result = await run({ connector: erp, origin: "chat", autonomy: lvl("balanced"), text: "diagnóstico", jevMcpMode: "shadow", maxSteps: 8, calls: [toolCall("p2", pedidos, { pagina: 2 }), toolCall("p3", pedidos, { pagina: 3 })] });
 		expect(result.call).toHaveBeenCalledTimes(1);
 		expect(result.confirms).toHaveLength(1);
 		expect(releaseMcpTaskGrant).toHaveBeenCalledTimes(1);
 	});
 
 	it("escrita no mesmo conector, outra conversa ou outro dono (sem concessão) continuam pedindo; irreversível nem consulta a concessão", async () => {
-		const write = await run({ connector: erp, origin: "bot", autonomy: lvl("balanced"), text: "diagnóstico", jevMcpMode: "gate", evaluateMcpWithJev: clean, calls: [toolCall("w1", criar, { cliente: "A" })] });
+		const write = await run({ connector: erp, origin: "chat", autonomy: lvl("balanced"), text: "diagnóstico", jevMcpMode: "gate", evaluateMcpWithJev: clean, calls: [toolCall("w1", criar, { cliente: "A" })] });
 		expect(write.confirms).toHaveLength(1);
 		expect(write.call).not.toHaveBeenCalled();
 	});
@@ -572,17 +572,17 @@ describe("aprovação por tarefa em run de outro bot (caso Radar de Mercado pedi
 
 	it("sem a confirmação do dono (tool não marcada) e escrita marcada continuam pedindo cartão", async () => {
 		const partial = { ...erp, toolMarks: { listar_pedidos: "read", criar_pedido: "write" } as const };
-		const result = await run({ connector: partial, origin: "bot", autonomy: lvl("balanced"), text: "diagnóstico", maxSteps: 8, calls: [toolCall("p2", pedidos, { pagina: 2 }), toolCall("q1", "mcp__agroervas__listar_propostas", { pagina: 1 })] });
+		const result = await run({ connector: partial, origin: "chat", autonomy: lvl("balanced"), text: "diagnóstico", maxSteps: 8, calls: [toolCall("p2", pedidos, { pagina: 2 }), toolCall("q1", "mcp__agroervas__listar_propostas", { pagina: 1 })] });
 		expect(result.call).toHaveBeenCalledTimes(1);
 		expect(result.confirms).toHaveLength(1);
-		const write = await run({ connector: erpMarked, origin: "bot", autonomy: lvl("balanced"), text: "diagnóstico", calls: [toolCall("w1", criar, { cliente: "A" })] });
+		const write = await run({ connector: erpMarked, origin: "chat", autonomy: lvl("balanced"), text: "diagnóstico", calls: [toolCall("w1", criar, { cliente: "A" })] });
 		expect(write.call).not.toHaveBeenCalled();
 		expect(write.confirms).toHaveLength(1);
 	});
 
 	it("a anotação do servidor vence a marcação: tool com readOnlyHint false segue pedindo mesmo marcada como leitura", async () => {
 		const annotated = { ...erp, tools: erp.tools.map((tool) => (tool.name === "listar_pedidos" ? { ...tool, annotations: { readOnlyHint: false } } : tool)), toolMarks: { listar_pedidos: "read" } as const };
-		const result = await run({ connector: annotated as never, origin: "bot", autonomy: lvl("balanced"), text: "diagnóstico", calls: [toolCall("p2", pedidos, { pagina: 2 })] });
+		const result = await run({ connector: annotated as never, origin: "chat", autonomy: lvl("balanced"), text: "diagnóstico", calls: [toolCall("p2", pedidos, { pagina: 2 })] });
 		expect(result.call).not.toHaveBeenCalled();
 		expect(result.confirms).toHaveLength(1);
 	});
@@ -596,15 +596,22 @@ describe("aprovação por tarefa em run de outro bot (caso Radar de Mercado pedi
 	it("a concessão de escrita é do solicitante: a chave leva o bot que pediu; sem saber quem pediu, pergunta", async () => {
 		vi.mocked(getConversationRequesterBotId).mockResolvedValue("bot-cookie");
 		vi.mocked(consumeMcpTaskGrant).mockResolvedValue(null);
-		const asked = await run({ connector: erp, origin: "bot", autonomy: lvl("balanced"), text: "diagnóstico", calls: [toolCall("p2", pedidos, { pagina: 2 })] });
+		const asked = await run({ connector: erp, origin: "chat", autonomy: lvl("balanced"), text: "diagnóstico", calls: [toolCall("p2", pedidos, { pagina: 2 })] });
 		expect(asked.confirms).toHaveLength(1);
 		expect(consumeMcpTaskGrant).toHaveBeenCalledWith({ userId: "user-1", conversationId: "conv-aut", connectionId: "conn-erp", exposedName: `${pedidos}#from:bot-cookie` });
 		vi.mocked(consumeMcpTaskGrant).mockClear();
 		vi.mocked(getConversationRequesterBotId).mockRejectedValue(new Error("db fora"));
-		const unknown = await run({ connector: erp, origin: "bot", autonomy: lvl("balanced"), text: "diagnóstico", calls: [toolCall("p2", pedidos, { pagina: 2 })] });
+		const unknown = await run({ connector: erp, origin: "chat", autonomy: lvl("balanced"), text: "diagnóstico", calls: [toolCall("p2", pedidos, { pagina: 2 })] });
 		expect(unknown.confirms).toHaveLength(1);
 		expect(consumeMcpTaskGrant).not.toHaveBeenCalled();
 		vi.mocked(getConversationRequesterBotId).mockResolvedValue(null);
+	});
+
+	it("run de outro bot (origem bot) não recebe a consulta sem marca de leitura nem a escrita: some do toolset, sem cartão", async () => {
+		const result = await run({ connector: erp, origin: "bot", autonomy: lvl("balanced"), text: "diagnóstico", calls: [assistantDone()] });
+		expect(result.seenTools[0]).not.toContain(pedidos);
+		expect(result.seenTools[0]).not.toContain(criar);
+		expect(result.confirms).toHaveLength(0);
 	});
 
 	it("rotina e webhook continuam sem concessão (ninguém para responder)", async () => {
@@ -697,13 +704,19 @@ describe("autonomia: conectores (F10)", () => {
 
 	it("rotina nunca recebe escrita de conector, nem no nível Autônomo (D1); chat com humano no Autônomo continua escrevendo", async () => {
 		for (const level of ["autonomous", "balanced"] as const) {
-			for (const origin of ["routine", "webhook", "proactive"] as const) {
+			for (const origin of ["routine", "webhook", "proactive", "email", "bot"] as const) {
 				const { seenTools } = await run({ autonomy: lvl(level), origin, unattended: true, text: "roda a rotina", calls: [assistantDone()] });
 				expect(seenTools[0], `${level}/${origin}`).toContain("mcp__google_calendar__list_events");
 				for (const write of ["create_spreadsheet", "create_event", "delete_event"]) {
 					expect(seenTools[0], `${level}/${origin}/${write}`).not.toContain(`mcp__google_calendar__${write}`);
 				}
 			}
+		}
+		// E-mail e bot→bot: mesmo com o toolset montado sem `unattended`, o motor corta a escrita.
+		for (const origin of ["email", "bot"] as const) {
+			const { seenTools } = await run({ autonomy: lvl("autonomous"), origin, text: "responde", calls: [assistantDone()] });
+			expect(seenTools[0], origin).toContain("mcp__google_calendar__list_events");
+			expect(seenTools[0], `${origin}/create_event`).not.toContain("mcp__google_calendar__create_event");
 		}
 		// Exceção marcada como "allow" pelo dono também não abre escrita em rotina.
 		const excepted = await run({

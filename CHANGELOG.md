@@ -29,7 +29,7 @@ Todas as mudanças relevantes do Atlas. Formato [Keep a Changelog](https://keepa
 ### Corrigido (modo proativo e rotinas que só leem)
 - **agent:** com o modo proativo e o push ligados no mesmo chat (bot principal), "me avisa quando…" voltou a funcionar: só `notify_user` vira push; `schedule_followup`, `list/cancel/reschedule_followup` e `suggest_routine` gravam de verdade (antes falhavam pedindo "message" ou mandavam um push indevido).
 - **agent:** o schema de `propose_routine` aceita `template=daily_brief`; antes o enum só listava a revisão de segurança e o modelo criava uma rotina comum no lugar do "Seu dia".
-- **agent:** rotina, webhook e follow-up proativo nunca recebem tool de escrita de conector, em nenhum nível de autonomia (inclusive Autônomo e exceção "liberar"), decisão D1 do dono. É o mesmo corte de leitura do "Seu dia". Chat com o dono não muda.
+- **agent:** MUDANÇA DE COMPORTAMENTO: rotina, webhook, follow-up proativo, **e-mail recebido na caixa do bot e pedido vindo de outro bot** nunca recebem tool de escrita de conector, em nenhum nível de autonomia (inclusive Autônomo e exceção "liberar"), decisão D1 do dono (03/11). É o mesmo corte de leitura do "Seu dia", nos dois motores (v1 e v2). Rotinas existentes que escreviam em conector passam a só ler; o bot avisa o que precisa ser feito. Em run de outro bot, consulta de conector sem marca de leitura também some (marque como leitura em Conectores para voltar). Subagente e chat com o dono não mudam.
 - **worker:** o follow-up de conferência (`check`) só lê em código (leitura nativa, conector declarado de leitura e rever/rearmar as próprias conferências); antes o "só leitura" estava só no prompt.
 
 ### Corrigido (árvore de acessibilidade)

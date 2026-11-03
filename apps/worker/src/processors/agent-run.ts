@@ -141,7 +141,7 @@ import {
 	wallClockAnchors,
 } from "@workspace/agent-runtime";
 import { earlyWallMs, engineDefaultFromEnv, pickRunEngine, resolveRunLimits, runSelectedEngine } from "../engine-choice.js";
-import { budgetStopFallbackText, isBotConfigEventObjective, createReviewerClient, resolveMaintenanceCandidates } from "@workspace/agent-runtime";
+import { isReadOnlyConnectorOrigin, budgetStopFallbackText, isBotConfigEventObjective, createReviewerClient, resolveMaintenanceCandidates } from "@workspace/agent-runtime";
 import { runToolFilter } from "../run-tool-filter.js";
 import { briefDeliveryDeps, deliverBriefFailure, deliverDailyBrief, findRoutineRunIdWithRetry, isDetachedBriefRun } from "../daily-brief.js";
 import { appendConversationMessage, getLanguageContext, listRecentLoginAsks } from "@workspace/db";
@@ -572,7 +572,8 @@ async function executeLeasedRun(ctx: {
 	const jevTelemetry = createJevTelemetryCollector();
 
 	const manager = createSandboxManager(loadSandboxConfig(), runUserId);
-	const unattended = run.origin === "routine" || run.origin === "webhook" || run.origin === "proactive";
+	// Toolset de conector só leitura: sem humano (rotina, webhook, proativo) e também e-mail e bot→bot.
+	const unattended = isReadOnlyConnectorOrigin(run.origin);
 	// Grupo de bots: o run é de um membro na conversa do grupo (histórico com autores, VM e memória do membro).
 	// Sai junto das leituras de base abaixo (nenhuma delas depende do grupo).
 	const groupRunPromise = run.origin === "chat"
