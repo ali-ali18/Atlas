@@ -127,7 +127,7 @@ describe("F12/B - snapshot e ação por ref (replay do caso Bling)", () => {
 		expect(refTools).toHaveLength(3);
 		for (const tool of refTools) expect(tool.function.description).toMatch(/USE/);
 		for (const tool of refTools) expect(tool.function.description).toMatch(/Do NOT|do NOT/);
-		expect(SYSTEM_PROMPT).toContain("Act with `browser_act` by `ref` (or visible `text` for a click); `browser_snapshot` before forms.");
+		expect(SYSTEM_PROMPT).toContain("Prefer `browser_snapshot` (accessibility tree with refs) to see and act; `browser_read` for long text");
 		expect(SYSTEM_PROMPT).toContain("Never guess selectors or coordinates.");
 	});
 

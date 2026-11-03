@@ -23,7 +23,7 @@ export function isSilentClick(effect: Pick<ControlActionEffect, "navigated" | "c
 	const changes = effect.changes;
 	if (!changes) return true;
 	if (changes.reloaded || changes.added) return false;
-	if (changes.states?.length || changes.dialogsOpened?.length) return false;
+	if (changes.states?.length || changes.dialogsOpened?.length || changes.tree?.length) return false;
 	return true;
 }
 

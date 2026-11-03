@@ -41,21 +41,16 @@ export const COMPUTER_REF_TOOLS: ChatTool[] = [
 		function: {
 			name: "browser_snapshot",
 			description:
-				"List the page's interactive elements (links, buttons, fields, selects) with a ref (e12), role, name, value and state. USE before filling forms or app screens, after a navigation, or when a ref went stale. Do NOT use it to read content (browser_read), to find one item (browser_find) or after every action (browser_act already reports what changed). Paginated: offset=nextOffset. If the page needs a sign-in, the runtime shows a login card and pauses; never ask for credentials in text.",
+				"See the page as an accessibility tree: roles, names, states and a ref (e12) per actionable element. USE it to see and act, after a navigation or when a ref went stale. Do NOT use it for long text (browser_read). Window first; area=page for all; ref=eN expands a '+N similares' block; offset=nextOffset pages on; view=list for the flat list. A sign-in page pauses the run with a login card; never ask for credentials.",
 			parameters: {
 				type: "object",
 				properties: {
-					area: {
-						type: "string",
-						enum: ["viewport", "page"],
-						description: "viewport (default) or the whole page",
-					},
-					scope: {
-						type: "string",
-						description: "CSS selector of a container to list only its elements",
-					},
-					offset: { type: "number", description: "nextOffset of the previous snapshot" },
-					limit: { type: "number", description: "Default and max 80" },
+					area: { type: "string", enum: ["viewport", "page"], description: "viewport (default) or page" },
+					view: { type: "string", enum: ["tree", "list"] },
+					ref: { type: "string" },
+					scope: { type: "string", description: "CSS container (list view)" },
+					offset: { type: "number", description: "nextOffset" },
+					limit: { type: "number", description: "Tree: chars (default 6000). List: max 80" },
 				},
 			},
 		},
@@ -188,7 +183,7 @@ export async function readLoginFields(
 ): Promise<LoginWallInput["fields"] | undefined> {
 	if (!isLoginPathUrl(page.url) && !detectLoginHint(page)) return undefined;
 	try {
-		const snapshot = await manager.execBrowserSnapshot(sessionId, { area: "viewport" });
+		const snapshot = await manager.execBrowserSnapshot(sessionId, { area: "viewport", engine: "dom" });
 		return { password: hasPasswordField(snapshot.lines), oneTimeCode: hasOneTimeCodeField(snapshot.lines), input: hasFormInput(snapshot.lines) };
 	} catch {
 		return undefined;
@@ -231,7 +226,22 @@ export function checkCaptchaWall(
 	};
 }
 
+/** Árvore de acessibilidade (motor v2): o chunk já vem podado e indentado do sandbox. */
+function formatTree(snapshot: ControlSnapshotResult & { tree: string }): string {
+	const pos = typeof snapshot.scrollY === "number" ? `; scrollY=${snapshot.scrollY}/${snapshot.scrollHeight ?? "?"}` : "";
+	const range = `${snapshot.offset}-${snapshot.offset + snapshot.tree.length} of ${snapshot.treeLength ?? "?"} chars`;
+	const more = snapshot.nextOffset !== null ? `\n[more: browser_snapshot offset=${snapshot.nextOffset}]` : "";
+	const hidden = snapshot.hidden ? `\n[${snapshot.hidden} hidden or clipped nodes left out]` : "";
+	return `${snapshot.title} (${snapshot.url})\n${UNTRUSTED_PAGE_NOTE}\n[tree ${snapshot.area ?? "viewport"} ${range}${pos}]\n${snapshot.tree}${hidden}${more}`;
+}
+
 export function formatSnapshot(snapshot: ControlSnapshotResult): string {
+	if (snapshot.engine === "ax" && typeof snapshot.tree === "string") return formatTree({ ...snapshot, tree: snapshot.tree });
+	const note = snapshot.note ? `${snapshot.note}\n` : "";
+	return `${note}${formatList(snapshot)}`;
+}
+
+function formatList(snapshot: ControlSnapshotResult): string {
 	const pos =
 		typeof snapshot.scrollY === "number"
 			? `; scrollY=${snapshot.scrollY}/${snapshot.scrollHeight ?? "?"}`
@@ -264,6 +274,7 @@ const ACT_VERBS: Record<ControlActAction, string> = {
 export function formatAct(result: ControlActResult, requested?: string): string {
 	const waited = result.waitMs !== undefined ? ` [${result.waitMs} ms]` : "";
 	const lines = [`${ACT_VERBS[result.action] ?? result.action} ${result.ref}${formatClickNote(result)}${waited}`];
+	if (result.note) lines.push(result.note);
 	lines.push(...formatActionOutcome(result, { quiet: true }));
 	const warning = verifyActEffect(result, requested);
 	if (warning) lines.push(warning);
@@ -303,9 +314,18 @@ export async function executeComputerRefTool(
 				typeof args.scope === "string" && args.scope.trim()
 					? args.scope.trim().slice(0, 200)
 					: undefined;
+			const view = args.view === undefined ? undefined : String(args.view);
+			if (view !== undefined && view !== "tree" && view !== "list") throw new Error('view inválida: use "tree" ou "list"');
+			const ref = typeof args.ref === "string" && args.ref.trim() ? args.ref.trim() : undefined;
+			if (ref !== undefined && !/^(?:f\d{1,3})?e\d{1,5}$/.test(ref)) {
+				throw new Error("ref inválido: use um ref do browser_snapshot (ex.: e12 ou f1e12)");
+			}
+			// scope (seletor CSS) e view=list são do snapshot em lista; sem eles o servidor usa a árvore.
 			const snapshot = await ctx.manager.execBrowserSnapshot(await ctx.getSessionId(), {
 				area,
 				scope,
+				...(view === "list" || scope ? { engine: "dom" as const } : {}),
+				...(ref ? { ref } : {}),
 				offset: optionalNumber(args.offset, "offset"),
 				limit: optionalNumber(args.limit, "limit"),
 			});
@@ -400,7 +420,7 @@ export async function executeComputerRefTool(
 /** Seção do prompt (inglês, curta): preferir snapshot+ref a coordenadas. */
 export const COMPUTER_PROMPT_LINES: string[] = [
 	"Browser (web pages in the VM browser):",
-	"- Read with `browser_read` (all frames); collapsed sections need `expandAll`. Locate one item with `browser_find`. Act with `browser_act` by `ref` (or visible `text` for a click); `browser_snapshot` before forms. Never guess selectors or coordinates.",
+	"- Prefer `browser_snapshot` (accessibility tree with refs) to see and act; `browser_read` for long text (collapsed sections need `expandAll`); `browser_find` for one item. Act with `browser_act` by `ref` (or visible `text` for a click). Never guess selectors or coordinates.",
 	"- The action result lists what changed (URL, field, states, dialogs, new text and refs): act on it, do not re-read or re-snapshot after each action. `browser_wait` only for slow loads.",
 	"- If a read does not contain what you just triggered or expect on screen (a side panel, chat answer, overlay), take a screenshot and read it before asking the user. After asking a chat or AI panel, wait for text_stable before reading.",
 	"- Login wall: never type or ask for passwords; a card lets the user log in via the viewer. After the run resumes or they say they logged in, `navigate` again to the exact target URL and `browser_read` before claiming anything (still a login page: say so). Ask once per page.",
