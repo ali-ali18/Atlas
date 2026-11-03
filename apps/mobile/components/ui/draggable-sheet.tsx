@@ -1,9 +1,9 @@
 import * as React from "react";
-import { type AccessibilityActionEvent, Modal, PanResponder, Pressable, ScrollView, useWindowDimensions, View } from "react-native";
+import { type AccessibilityActionEvent, Modal, PanResponder, Pressable, type RefreshControlProps, ScrollView, useWindowDimensions, View } from "react-native";
 import Animated, { Easing, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ThemedModalRoot } from "@/components/home/themed-modal";
-import { dragHeight, restHeight, settleSheet, type SheetRest } from "@/lib/sheet-drag";
+import { dragHeight, normalizeRest, restHeight, settleSheet, type SheetRest, tapRest } from "@/lib/sheet-drag";
 
 /** Folga entre o topo da gaveta expandida e a barra de status. */
 const TOP_GAP = 16;
@@ -29,6 +29,8 @@ type Props = {
 	backgroundColor?: string;
 	/** Margem lateral do corpo (padrão 16). */
 	bodyPadding?: number;
+	/** Puxar para atualizar no corpo (a folha de conteúdo usa; o menu não). */
+	refreshControl?: React.ReactElement<RefreshControlProps>;
 	children: React.ReactNode;
 };
 
@@ -38,7 +40,7 @@ type Props = {
  * inicial (distância ou arremesso) fecha. Toque no fundo escuro fecha. O corpo é um `ScrollView`.
  * O gesto é do `PanResponder` do RN só na alça e no cabeçalho; a decisão (onde assenta) é pura, em `lib/sheet-drag.ts`.
  */
-export function DraggableSheet({ visible, onClose, onRequestClose, header, fullHeight = false, backgroundColor, bodyPadding = 16, children }: Props) {
+export function DraggableSheet({ visible, onClose, onRequestClose, header, fullHeight = false, backgroundColor, bodyPadding = 16, refreshControl, children }: Props) {
 	const insets = useSafeAreaInsets();
 	const { height: screenHeight } = useWindowDimensions();
 	const reducedMotion = useReducedMotion();
@@ -111,7 +113,8 @@ export function DraggableSheet({ visible, onClose, onRequestClose, header, fullH
 				live.current.onClose();
 				return;
 			}
-			setRest(next);
+			// Altura única (folha de conteúdo): o repouso é sempre "collapsed", para o arremesso seguinte fechar.
+			setRest(normalizeRest(next, { collapsed: live.current.collapsed, expanded: live.current.expanded }));
 			animateTo(target);
 		},
 		[animateTo],
@@ -132,7 +135,7 @@ export function DraggableSheet({ visible, onClose, onRequestClose, header, fullH
 			onPanResponderRelease: (_event, g) => {
 				if (Math.abs(g.dy) < TAP_SLOP && Math.abs(g.dx) < TAP_SLOP) {
 					// Toque na alça alterna entre as duas alturas.
-					const next: SheetRest = from === "collapsed" ? "expanded" : "collapsed";
+					const next = tapRest(from, heights());
 					settle(next, restHeight(next, heights()));
 					return;
 				}
@@ -150,7 +153,11 @@ export function DraggableSheet({ visible, onClose, onRequestClose, header, fullH
 	const onAccessibilityAction = (event: AccessibilityActionEvent) => {
 		const heights = { collapsed: collapsedHeight, expanded: expandedHeight };
 		if (event.nativeEvent.actionName === "expand") settle("expanded", restHeight("expanded", heights));
-		else if (event.nativeEvent.actionName === "collapse") settle("collapsed", restHeight("collapsed", heights));
+		// Folha de altura cheia não tem "recolher": a ação equivalente é fechar.
+		else if (event.nativeEvent.actionName === "collapse") {
+			if (fullHeight) settle("closed", 0);
+			else settle("collapsed", restHeight("collapsed", heights));
+		}
 		else if (event.nativeEvent.actionName === "dismiss") settle("closed", 0);
 	};
 
@@ -183,7 +190,8 @@ export function DraggableSheet({ visible, onClose, onRequestClose, header, fullH
 								{header ? <View className="pb-2" style={{ paddingHorizontal: bodyPadding }}>{header}</View> : null}
 							</View>
 							<ScrollView
-								scrollEnabled={scrolls}
+								refreshControl={refreshControl}
+								scrollEnabled={scrolls || refreshControl !== undefined}
 								showsVerticalScrollIndicator={scrolls}
 								onContentSizeChange={(_w, h) => setContentHeight(h)}
 								contentContainerStyle={{ paddingHorizontal: bodyPadding, paddingBottom: insets.bottom + 16, gap: 16 }}

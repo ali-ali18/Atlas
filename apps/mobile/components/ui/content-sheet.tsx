@@ -1,10 +1,11 @@
 import * as React from "react";
-import { View } from "react-native";
+import { RefreshControl, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { RoundButton } from "@/components/chat/chat-top-bar";
 import { CloseIcon, ShareIcon } from "@/components/icons";
 import { DraggableSheet } from "@/components/ui/draggable-sheet";
 import { Text } from "@/components/ui/text";
+import { themeColor } from "@/lib/theme";
 import { pageSurface } from "@/lib/page-surface";
 import { useAppColorScheme } from "@/lib/use-theme";
 
@@ -16,6 +17,8 @@ type Props = {
 	/** Botão redondo de compartilhar à direita; sem ação, o botão não aparece. */
 	onShare?: () => void;
 	shareLabel?: string;
+	/** Puxar para atualizar no corpo; sem isto, o corpo só rola. */
+	refresh?: { refreshing: boolean; onRefresh: () => void };
 	children: React.ReactNode;
 };
 
@@ -25,8 +28,9 @@ type Props = {
  * baixo fecha, toque no fundo escuro fecha, Voltar do Android fecha; o corpo rola sem brigar com o arraste.
  * Cabeçalho: X redondo à esquerda, nome (opcional) e compartilhar redondo à direita, os mesmos botões do topo do chat.
  */
-export function ContentSheet({ visible, onClose, title, onShare, shareLabel = "Compartilhar", children }: Props) {
-	const surface = pageSurface(useAppColorScheme());
+export function ContentSheet({ visible, onClose, title, onShare, shareLabel = "Compartilhar", refresh, children }: Props) {
+	const scheme = useAppColorScheme();
+	const surface = pageSurface(scheme);
 	return (
 		<DraggableSheet
 			visible={visible}
@@ -34,6 +38,7 @@ export function ContentSheet({ visible, onClose, title, onShare, shareLabel = "C
 			fullHeight
 			backgroundColor={surface.screen}
 			bodyPadding={20}
+			refreshControl={refresh ? <RefreshControl refreshing={refresh.refreshing} onRefresh={refresh.onRefresh} tintColor={themeColor(scheme, "muted-foreground")} /> : undefined}
 			header={
 				<View className="flex-row items-center gap-3 pb-1">
 					<RoundButton label="Fechar" onPress={onClose}>
