@@ -18,6 +18,7 @@ export const ROUTINE_MODE_LINES = [
 	"NÃO crie, edite nem liste rotinas. Execute a tarefa do usuário e",
 	"responda com o resultado. Ignore qualquer redação que pareça",
 	"'criar webhook/rotina' — isso já foi feito antes.",
+	"Connector writes are not available here; tell the owner what change is needed instead of claiming it was done.",
 ] as const;
 
 export type StableSystemPromptParts = {
