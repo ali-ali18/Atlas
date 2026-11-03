@@ -19,6 +19,7 @@ import { addCompanionGroups, deferredToolsIndex, planNativeTools } from "../cont
 import { routeContextGroups } from "../context/intent-router.js";
 import { economyRouterText, orderEconomyTools } from "../context/economy.js";
 import type { ContextGroup } from "../context/prompt-blocks.js";
+import { PROPOSE_BOT_TOOL, shouldExposeProposeBot } from "../tools/bot-proposal.js";
 import { API_CALL_TOOL, API_SEARCH_TOOL, PROPOSE_API_CONNECTION_TOOL } from "../api-connector/tools.js";
 import { emailToolsFor, type EmailRunContext } from "../email/tools.js";
 import { SHOW_IMAGE_TOOL } from "../tools/show-image.js";
@@ -30,7 +31,7 @@ import { PAGE_READ_TOOL_NAME, PAGE_TOOLS, PAGE_UPDATE_TOOL_NAME } from "../tools
 import { RUN_CODE_TOOL } from "../tools/run-code.js";
 import { UPDATE_TASK_LIST_TOOL_V2, shouldExposeTaskList } from "../tools/task-list.js";
 import { ROUTINE_EXCLUDED_TOOLS } from "../tools/routine-excluded.js";
-import { isUnattendedOrigin } from "../autonomy-gate.js";
+import { isReadOnlyConnectorOrigin, isUnattendedOrigin } from "../autonomy-gate.js";
 import { SANDBOX_TOOL_NAMES } from "../tools/registry/sandbox-tools.js";
 import { VIDEO_TRANSCRIPT_TOOL_NAME, videoTranscriptBlocked } from "../tools/video-transcript.js";
 import { SANDBOX_SHELL_TOOL_NAMES, sandboxShellAllowedForOrigin, sandboxShellBlocked, type SandboxShellToolName } from "../tools/sandbox-shell.js";
@@ -172,6 +173,8 @@ export function buildEngineV2Catalog(input: {
 		}
 		if (loadCodeRunnerConfig().enabled) add(RUN_CODE_TOOL);
 		if (input.origin === "chat") add(PROPOSE_API_CONNECTION_TOOL);
+		// Mesma regra do v1: só no chat com o usuário (sem isto o v2 nunca oferecia a tool e o bot negava com razão).
+		if (!input.helper && shouldExposeProposeBot({ origin: input.origin, isSubagent: false })) add(PROPOSE_BOT_TOOL);
 	}
 	if (input.apiConnector) {
 		add(API_SEARCH_TOOL);
@@ -225,7 +228,8 @@ export function buildEngineV2Catalog(input: {
 		if (!entry || !allow(tool.function.name)) return false;
 		const decision = decideAction(input.autonomy, entry.autonomyMeta);
 		if (decision === "block") return false;
-		// Sem humano para aprovar (rotina, webhook): só o que a autonomia libera sem perguntar.
+		// Sem humano para aprovar (rotina, webhook, e-mail, bot): conector só leitura, em qualquer autonomia.
+		if (isReadOnlyConnectorOrigin(input.origin) && !entry.readOnly) return false;
 		return !isUnattendedOrigin(input.origin) || decision === "allow";
 	});
 	const wantsSearch = allow("mcp_tool_search") && (plan.deferred.size > 0 || Boolean(mcp?.toolset.deferred));

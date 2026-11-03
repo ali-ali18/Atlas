@@ -548,8 +548,8 @@ describe("fallback de visão da leitura", () => {
 		expect(res.persisted).toHaveLength(0);
 	});
 
-	it("leitura cortada paginada: só a 1ª página anexa a imagem", async () => {
-		const res = await run({ execBrowserRead: vi.fn(async (_s: string, input: { offset?: number }) => readResult({ capped: true, offset: input.offset ?? 0 })) }, [
+	it("leitura cortada paginada: lê em texto primeiro; a imagem só vem na última página", async () => {
+		const res = await run({ execBrowserRead: vi.fn(async (_s: string, input: { offset?: number }) => readResult({ capped: true, offset: input.offset ?? 0, ...(input.offset ? {} : { truncated: true, nextOffset: 8000 }) })) }, [
 			step([{ id: "1", name: "browser_read", args: {} }]),
 			step([{ id: "2", name: "browser_read", args: { offset: 8000 } }]),
 			text("ok"),

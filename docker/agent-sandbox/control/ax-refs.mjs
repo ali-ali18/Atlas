@@ -102,7 +102,13 @@ export function createAxStore() {
 	};
 }
 
-export class StaleRefError extends Error {}
+export class StaleRefError extends Error {
+	/** "missing" = o elemento (papel+nome) não está mais na página; "unknown"/"ambiguous" = não dá para afirmar nada. */
+	constructor(message, kind = "unknown") {
+		super(message);
+		this.kind = kind;
+	}
+}
 
 function describe(entry) {
 	return `${entry.role}${entry.name ? ` "${entry.name.slice(0, 60)}"` : ""}`;
@@ -154,11 +160,12 @@ export async function resolveAxRef(page, table, ref) {
 		return { locator: matches[0], resolved: `A ref ${ref} tinha vencido; agi no único ${describe(entry)} da página. Use refs do próximo browser_snapshot.` };
 	}
 	if (matches.length === 0) {
-		throw new StaleRefError(`Ref ${ref} venceu e ${describe(entry)} não está mais na página. Tire um novo browser_snapshot.`);
+		throw new StaleRefError(`Ref ${ref} venceu e ${describe(entry)} não está mais na página. Tire um novo browser_snapshot.`, "missing");
 	}
 	const notes = await candidateNotes(matches);
 	throw new StaleRefError(
 		`Ref ${ref} venceu e há ${matches.length} ${describe(entry)} na página (era a ${entry.nth + 1}ª de ${entry.of}${entry.anchor ? `, em ${entry.anchor}` : ""}). ` +
 			`Candidatas: ${notes.join("; ")}. Tire um novo browser_snapshot e use a ref certa.`,
+		"ambiguous",
 	);
 }

@@ -25,11 +25,11 @@ export type ComputerStateInput = {
 };
 
 /**
- * Mesmo estado = mesma chave. O ref (`[e3]`, `[a3]`, `[f1e3]`) é ignorado (renumera a cada
+ * Mesmo estado = mesma chave. O ref (`[e3]`, `[a3]`, `[f1e3]`, no começo ou no meio da linha: `button "Salvar" [a12]`) é ignorado (renumera a cada
  * snapshot) e o scroll entra em faixas de 50 px.
  */
 export function computerStateKey(input: ComputerStateInput): string {
-	const lines = (input.lines ?? []).map((line) => line.replace(/^\[(?:f\d+)?[ea]\d+\]\s*/, "").trim());
+	const lines = (input.lines ?? []).map((line) => line.replace(/\[(?:f\d+)?[ea]\d+\]\s*/g, "").replace(/\s+/g, " ").trim());
 	const scroll = typeof input.scrollY === "number" ? Math.floor(input.scrollY / 50) : "";
 	return hashString(
 		[(input.url ?? "").trim(), String(scroll), lines.join("\n"), input.extra ?? ""].join("\u0001"),

@@ -92,7 +92,8 @@ async function runChild(input: {
 	const mcp: McpRuntime = {
 		toolset: buildMcpToolset([github, slack], {
 			autonomy: { level: "autonomous", exceptions: [] },
-			unattended: true,
+			// Como o worker: só rotina, webhook e proativo montam o toolset sem humano (só leitura).
+			unattended: ["routine", "webhook", "proactive"].includes(input.origin ?? "subagent"),
 			maxTools: input.maxTools,
 		}),
 		call,

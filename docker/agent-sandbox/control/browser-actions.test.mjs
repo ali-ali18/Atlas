@@ -1,6 +1,6 @@
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
-import { createBrowserActions, loginFieldMissingMessage, loginFieldVerdict } from "./browser-actions.mjs";
+import { assertNavigableUrl, createBrowserActions, loginFieldMissingMessage, loginFieldVerdict } from "./browser-actions.mjs";
 import { launchFixtureBrowser } from "./test-browser.mjs";
 
 function fakePage({ candidates = [], log = [], fillError, url = "https://erp.test/home" } = {}) {
@@ -302,4 +302,16 @@ test("código de verificação (B3): só em campo de código visível de formul�
 		await assert.rejects(actions.browserType({ selector: PASSWORD_SELECTOR, text: "482913", guard: guard("code") }), /Recusado: o código só pode|Não achei/);
 		assert.equal(await valueOf(p, "#p"), "");
 	});
+});
+
+test("navigate: http(s), about:blank e file:// da pasta de trabalho; o resto é recusado", () => {
+	for (const ok of ["https://a.test/x", "http://a.test", "about:blank", "example.com", "file:///home/atlas/work/x.html", "file:///home/atlas/work/sub/a%20b.pdf", "file://localhost/home/atlas/work/img.png"]) {
+		assert.doesNotThrow(() => assertNavigableUrl(ok), ok);
+	}
+	const bad = [
+		"file:///tmp/chrome-data/Default/Cookies", "file:///etc/passwd", "file:///proc/self/environ", "file:///home/atlas/.ssh/id_rsa",
+		"file:///home/atlas/work/../.ssh/id_rsa", "file:///home/atlas/work/%2e%2e/%2e%2e/etc/passwd", "file:///home/atlas/workshop/x", "file://evil.test/home/atlas/work/x",
+		"javascript:alert(1)", "data:text/html,<b>x", "chrome://settings",
+	];
+	for (const url of bad) assert.throws(() => assertNavigableUrl(url), /URL não permitida/, url);
 });

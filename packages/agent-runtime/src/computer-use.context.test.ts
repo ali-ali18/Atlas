@@ -294,6 +294,73 @@ describe("L5: tool nativa adiada é achada e carregada", () => {
 		expect(names(requests[2]!).slice(0, names(requests[1]!).length)).toEqual(names(requests[1]!));
 	});
 
+	it("com 50 tools de conector, a busca em português por 'criar bot' ainda carrega propose_bot (e não cita nome de tool ao usuário)", async () => {
+		const toolset = buildMcpToolset(
+			[
+				{
+					id: "c1",
+					slug: "ops",
+					name: "Ops",
+					disabledTools: [],
+					tools: Array.from({ length: 50 }, (_, i) => ({
+						name: i < 6 ? `bot_status_${i}` : `tool_${i}`,
+						description: "Consulta o bot do servidor",
+						inputSchema: { type: "object", properties: {} },
+						annotations: { readOnlyHint: true },
+					})),
+				},
+			],
+			{ maxTools: 5 },
+		);
+		expect(toolset.deferred).toBe(true);
+		const mcp = { toolset, call: async () => ({ ok: true, text: "x", truncated: false }) };
+		const { requests, results } = await run({
+			message: "Cria o Bobinho Apoio",
+			economy: true,
+			mcp,
+			script: [turn(call("s1", "mcp_tool_search", { query: "criar bot" })), done],
+		});
+		expect(results[0]!.summary).toContain("Loaded built-in tools");
+		expect(results[0]!.summary).toContain("Never name tools to the user");
+		expect(names(requests[1]!)).toContain("propose_bot");
+	});
+
+	it("com conector casando, 'profile do cliente no CRM' e 'slides do Google' não carregam tools nativas de perfil/apresentação", async () => {
+		const toolset = buildMcpToolset(
+			[
+				{
+					id: "c1",
+					slug: "crm",
+					name: "CRM",
+					disabledTools: [],
+					tools: Array.from({ length: 50 }, (_, i) => ({
+						name: i < 3 ? `get_profile_${i}` : i < 6 ? `get_slides_${i}` : `tool_${i}`,
+						description: "Busca o profile do cliente e slides do Google",
+						inputSchema: { type: "object", properties: {} },
+						annotations: { readOnlyHint: true },
+					})),
+				},
+			],
+			{ maxTools: 5 },
+		);
+		expect(toolset.deferred).toBe(true);
+		const mcp = { toolset, call: async () => ({ ok: true, text: "x", truncated: false }) };
+		const { requests, results } = await run({
+			message: "Busca no CRM",
+			economy: true,
+			mcp,
+			script: [
+				turn(call("s1", "mcp_tool_search", { query: "profile do cliente no CRM" })),
+				turn(call("s2", "mcp_tool_search", { query: "slides do Google" })),
+				done,
+			],
+		});
+		expect(results[0]!.summary).not.toContain("Loaded built-in tools");
+		expect(results[1]!.summary).not.toContain("Loaded built-in tools");
+		expect(names(requests[2]!)).not.toContain("propose_profile_update");
+		expect(names(requests[2]!)).not.toContain("inspect_presentation");
+	});
+
 	it("retomada: tool nativa carregada antes da pausa volta ao conjunto", async () => {
 		let stored: AgentRunCheckpoint | undefined;
 		await run({

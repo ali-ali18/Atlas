@@ -27,7 +27,7 @@ Start at the top of the table and only move down when the simpler tool cannot do
 1. `navigate` to a URL you already have (login card, history, memory), exactly as seen: never shorten or guess a hostname. If you have none, start from the logged-in page you are on and use its menu or search; do not ask the user for the link.
 2. `browser_read` to understand the page. Use `expandAll` when content is collapsed (accordions, "show more").
 3. `browser_find` to locate the one element you need; it returns a `ref`.
-4. `browser_act` with that `ref`: `click`, `type`, `select`, `check`, `uncheck`, `press`, `clear`, `hover`, `scroll`.
+4. `browser_act` with that `ref`: `click`, `type`, `select`, `check`, `uncheck`, `press`, `clear`, `hover`. To scroll the page use `browser_act` with no `ref` (action `scroll`), not with a ref.
 5. Read the action result. It already tells you what changed (new URL, field value, dialog, new text, new refs). Decide the next step from it — do not re-read the whole page after every action.
 
 Never guess selectors, refs or coordinates. If you do not have a `ref` for it, find it first.
@@ -57,7 +57,7 @@ Never guess selectors, refs or coordinates. If you do not have a `ref` for it, f
 
 - **Cookie banners and pop-ups:** close them with the button that rejects or closes (prefer "Rejeitar"/"Apenas necessários"); then continue.
 - **New tab opened:** the action result reports it; continue in the new tab, and go back when done.
-- **Element not found:** it may be inside a frame (refs like `f1e12`), below the fold (`scroll`), collapsed (`expandAll`), or the page changed (snapshot again).
+- **Element not found:** it may be inside a frame (refs like `f1a12`), below the fold (`browser_act` `scroll`, no ref), collapsed (`expandAll`), or the page changed (snapshot again).
 - **Click did nothing:** check the result for a validation message or a dialog. Do not click the same thing more than twice (same step: three different approaches, then stop; a failed VM action is repeated once); change approach (find by visible `text`, open the link URL directly, or use the keyboard with `press`).
 - **Infinite scroll or long lists:** prefer the site's search, filters or a direct URL over scrolling forever.
 - **The page shows an error or "access denied":** read the message, report it, and try an alternative source instead of retrying the same URL.

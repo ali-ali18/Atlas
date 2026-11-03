@@ -1,4 +1,5 @@
 export { COMPUTER_USE_TOOLS, MCP_TOOL_CALLS_DEFAULT, runComputerUse } from "./computer-use.js";
+export { isReadOnlyConnectorOrigin } from "./autonomy-gate.js";
 export {
 	MCP_READ_TOOL_CALLS_DEFAULT,
 	MCP_READ_TOOL_CALLS_HARD_CAP,

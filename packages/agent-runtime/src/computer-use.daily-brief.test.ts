@@ -94,7 +94,7 @@ async function run(userText: string, calls: CompleteChatWithToolsResult[], pages
 			return next;
 		},
 	});
-	return { toolResults, routines, first: requested[0]!.map((tool) => tool.function.name), system: systems[0]! };
+	return { toolResults, routines, first: requested[0]!.map((tool) => tool.function.name), tools: requested[0]!, system: systems[0]! };
 }
 
 beforeEach(() => {
@@ -138,6 +138,13 @@ describe("pedido por chat: 'me prepara o dia às 7h30'", () => {
 		const { toolResults } = await run("quero um resumo do meu dia toda manhã", [toolCall("c1", "propose_routine", { action: "create", template: "daily_brief", trigger_type: "cron" })], pagesStore().store);
 		expect(createRoutine).toHaveBeenCalledWith("user-1", expect.objectContaining({ schedule: "30 7 * * 1-5", timezone: "America/Manaus", prompt: DAILY_BRIEF_DEFAULT_FOCUS }));
 		expect(toolResults[0]!.summary).toContain("Seu dia · seg–sex às 07:30");
+	});
+
+	it("o schema de propose_routine aceita template=daily_brief (o enum não pode esconder o brief do modelo)", async () => {
+		const { tools } = await run("me prepara o dia às 7h30", [], pagesStore().store);
+		const propose = tools.find((tool) => tool.function.name === "propose_routine");
+		const props = (propose?.function.parameters as { properties: Record<string, { enum?: string[] }> }).properties;
+		expect(props.template?.enum).toEqual(expect.arrayContaining(["github_security_review", "daily_brief"]));
 	});
 
 	it("'quero um resumo do meu dia toda manhã' também carrega o grupo de rotinas no passo 1", async () => {

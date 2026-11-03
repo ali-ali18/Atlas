@@ -362,12 +362,9 @@ describe("buildMcpToolset", () => {
 			expect(byConnector.tools).toEqual([]);
 		});
 
-		it("rotina (unattended) recebe só o que é allow: leitura sempre, escrita só no Autônomo", () => {
+		it("rotina (unattended) recebe só leitura em qualquer nível, inclusive Autônomo e exceção liberada (D1)", () => {
 			expect(names(buildMcpToolset([connection()], { unattended: true }))).toEqual(["mcp__notion__search"]);
-			expect(names(buildMcpToolset([connection()], { unattended: true, autonomy: level("autonomous") }))).toEqual([
-				"mcp__notion__search",
-				"mcp__notion__create-page",
-			]);
+			expect(names(buildMcpToolset([connection()], { unattended: true, autonomy: level("autonomous") }))).toEqual(["mcp__notion__search"]);
 			expect(
 				names(
 					buildMcpToolset([connection()], {
@@ -375,7 +372,12 @@ describe("buildMcpToolset", () => {
 						autonomy: level("balanced", [{ tool: "mcp__notion__create-page", mode: "never_ask" }]),
 					}),
 				),
-			).toEqual(["mcp__notion__search", "mcp__notion__create-page"]);
+			).toEqual(["mcp__notion__search"]);
+			// Escrita também some do índice (mcp_tool_search não a reativa).
+			const set = buildMcpToolset([connection()], { unattended: true, autonomy: level("autonomous") });
+			expect(set.index.flatMap((c) => c.tools.map((t) => t.name))).toEqual(["mcp__notion__search"]);
+			// Com humano (sem unattended), o Autônomo continua expondo a escrita reversível.
+			expect(names(buildMcpToolset([connection()], { autonomy: level("autonomous") }))).toEqual(["mcp__notion__search", "mcp__notion__create-page"]);
 		});
 
 		it("apagar/enviar pergunta em qualquer nível e nunca entra em rotina Autônoma", () => {

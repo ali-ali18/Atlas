@@ -1,3 +1,5 @@
+import { realpathSync } from "node:fs";
+import { posix } from "node:path";
 import { isChromeDeadError, shouldRetryPlaywrightError } from "./browser-session.mjs";
 import { settleAfterAction, waitForPageReady } from "./stability.mjs";
 import { INTERACTIVE_SELECTOR, createClickLadder } from "./click-ladder.mjs";
@@ -6,6 +8,7 @@ import {
 	explainFillError,
 	compactPlaywrightError,
 	planClick,
+	planNameClick,
 	planClickTarget,
 	planTypeTarget,
 } from "./target.mjs";
@@ -121,6 +124,50 @@ function loginRefusalMessage(kind, verdict) {
 	return "Recusado: o usuário só pode ser digitado em um campo de texto visível do mesmo formulário da senha (ou, antes de existir o campo de senha, em um campo de usuário ou e-mail). Nada foi digitado.";
 }
 
+const NOT_FOUND_HINT =
+	"Use browser_snapshot para ver os elementos da página. Se o controle só tem ícone (janela estreita, menu \"…\"), tire um browser_screenshot com marks e procure o ícone.";
+
+/** Pasta de trabalho do usuário na VM (volume por conversa; ver Dockerfile). `file://` só vale aqui dentro. */
+export const WORKSPACE_DIR = "/home/atlas/work";
+
+function isInsideWorkspace(path) {
+	return path === WORKSPACE_DIR || path.startsWith(`${WORKSPACE_DIR}/`);
+}
+
+/** `file://` só para arquivo da pasta de trabalho: nunca o perfil do Chrome (/tmp/chrome-data), /proc, /etc ou chaves. */
+function assertWorkspaceFileUrl(parsed) {
+	const refuse = () => new Error(`URL não permitida (file:): só arquivos dentro de ${WORKSPACE_DIR} podem ser abertos.`);
+	if (parsed.hostname !== "" && parsed.hostname !== "localhost") throw refuse();
+	let decoded;
+	try {
+		decoded = decodeURIComponent(parsed.pathname);
+	} catch {
+		throw refuse();
+	}
+	if (decoded.includes("\0") || decoded.includes("\\")) throw refuse();
+	const path = posix.normalize(decoded);
+	if (!isInsideWorkspace(path)) throw refuse();
+	// Link simbólico dentro da pasta apontando para fora (ex.: -> /etc/passwd) também é recusado.
+	try {
+		if (!isInsideWorkspace(realpathSync(path))) throw refuse();
+	} catch (error) {
+		if (error?.code !== "ENOENT" && error?.code !== "ENOTDIR") throw refuse();
+	}
+}
+
+/** Só http(s), about:blank e file:// da pasta de trabalho; `javascript:`/`data:` e o resto ficam de fora. */
+export function assertNavigableUrl(raw) {
+	let parsed;
+	try {
+		parsed = new URL(String(raw));
+	} catch {
+		return; // sem esquema válido: o goto do Playwright dá o erro claro
+	}
+	if (parsed.protocol === "file:") return assertWorkspaceFileUrl(parsed);
+	const ok = parsed.protocol === "http:" || parsed.protocol === "https:" || String(raw).trim() === "about:blank";
+	if (!ok) throw new Error(`URL não permitida (${parsed.protocol}): navegue só para http(s), about:blank ou arquivos da pasta de trabalho (file://).`);
+}
+
 export function createBrowserActions({
 	getPage,
 	restart,
@@ -194,6 +241,59 @@ export function createBrowserActions({
 		throw lastError;
 	}
 
+	// Nome acessível (aria-label, aria-labelledby, title, alt de img, <title> de svg, value) dos controles clicáveis.
+	// Correspondência EXATA e só de controles utilizáveis; ícone herdado só do PRÓPRIO controle (nunca de um botão de dentro).
+	async function clickableByName(page, plan) {
+		const base = plan.scope ? page.locator(plan.scope) : page;
+		const locator = base.locator(INTERACTIVE_SELECTOR);
+		const candidates = await locator.evaluateAll((els) => {
+			const clean = (v) => String(v ?? "").replace(/\s+/g, " ").trim();
+			const CONTROL = 'button, a, input, select, textarea, summary, [role="button"], [role="link"], [role="menuitem"], [role="tab"], [role="checkbox"], [role="switch"]';
+			const names = (el) => {
+				const out = [el.getAttribute("aria-label")];
+				const ids = (el.getAttribute("aria-labelledby") || "").split(/\s+/);
+				out.push(ids.map((id) => (id ? document.getElementById(id)?.textContent || "" : "")).join(" "));
+				out.push(el.getAttribute("title"));
+				for (const node of el.querySelectorAll("img[alt], svg title, [aria-label]")) {
+					const inner = node.closest(CONTROL);
+					if (inner && inner !== el && el.contains(inner)) continue;
+					out.push(node.tagName.toLowerCase() === "title" ? node.textContent : node.getAttribute(node.hasAttribute("alt") ? "alt" : "aria-label"));
+				}
+				if (el.tagName === "INPUT") out.push(el.value);
+				return out.map(clean).filter(Boolean);
+			};
+			const sx = window.scrollX;
+			const sy = window.scrollY;
+			const pageWidth = document.documentElement.scrollWidth;
+			return els.slice(0, 400).map((el) => {
+				const rect = el.getBoundingClientRect();
+				const style = getComputedStyle(el);
+				const usable =
+					rect.width > 0 && rect.height > 0 && style.visibility !== "hidden" && style.display !== "none" &&
+					!el.disabled && el.getAttribute("aria-disabled") !== "true" &&
+					!el.closest('[aria-hidden="true"], [inert]') &&
+					rect.right + sx > 0 && rect.bottom + sy > 0 && rect.left + sx < pageWidth;
+				const host = el.parentElement;
+				return { names: usable ? names(el) : [], context: clean(host?.innerText || host?.textContent || "").slice(0, 60) };
+			});
+		});
+		const flat = candidates.flatMap((c, index) => c.names.map((name) => ({ name, context: c.context, index })));
+		const verdict = planNameClick(flat, plan.text);
+		if (verdict.ambiguous) {
+			const list = verdict.ambiguous.map((item) => `"${item.name}"${item.context ? ` (perto de "${item.context}")` : ""}`).join("; ");
+			throw new Error(
+				`Mais de um controle se chama "${plan.text}": ${list}. Use browser_snapshot e browser_act com o ref do certo, ou passe um selector que o restrinja.`,
+			);
+		}
+		if (verdict.similar) {
+			throw new Error(
+				`Nenhum controle se chama exatamente "${plan.text}". Nomes parecidos: ${verdict.similar.map((n) => `"${n}"`).join(", ")}. Clique de novo com o nome exato do que quer.`,
+			);
+		}
+		if (verdict.index === undefined) return null;
+		return { pick: { index: verdict.index, exact: true, interactive: true, ambiguous: false, matches: 1 }, locator };
+	}
+
 	async function clickByText(page, plan) {
 		const locator = plan.scope
 			? page.locator(plan.scope).filter({ hasText: plan.text })
@@ -215,13 +315,19 @@ export function createBrowserActions({
 				};
 			});
 		}, INTERACTIVE_SELECTOR);
-		const pick = planClick(candidates, plan.text);
+		let pick = planClick(candidates, plan.text);
+		let target = locator;
+		if (!pick) {
+			// Botão só-ícone (janela estreita): o texto visível não existe, mas o nome acessível sim.
+			const named = await clickableByName(page, plan);
+			if (named) ({ pick, locator: target } = named);
+		}
 		if (!pick) {
 			throw new Error(
-				`Nenhum elemento visível com o texto "${plan.text}"${plan.scope ? ` dentro de "${plan.scope}"` : ""}. Use browser_snapshot para ver os elementos da página.`,
+				`Nenhum elemento visível com o texto "${plan.text}"${plan.scope ? ` dentro de "${plan.scope}"` : ""}. ${NOT_FOUND_HINT}`,
 			);
 		}
-		const click = await clickElement(page, locator.nth(pick.index), { label: plan.text });
+		const click = await clickElement(page, target.nth(pick.index), { label: plan.text });
 		return { ...click, target: plan.text, matches: pick.matches, ambiguous: pick.ambiguous };
 	}
 
@@ -347,6 +453,7 @@ export function createBrowserActions({
 	const isAbortedNavigation = (message) => /ERR_ABORTED|frame was detached/i.test(message);
 
 	async function navigate(url) {
+		assertNavigableUrl(url);
 		return withPageRetry(async (page) => {
 			const t0 = now();
 			await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60_000 });

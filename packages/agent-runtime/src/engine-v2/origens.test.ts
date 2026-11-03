@@ -193,6 +193,88 @@ describe("v2 em rotina: login sem humano", () => {
 	});
 });
 
+describe("v2: recusa anterior não vale para um pedido novo", () => {
+	it("pedido de outro bot sem a tool; depois o dono pede e o modelo procura, carrega o grupo bots e vê propose_bot", async () => {
+		// 1º turno: origem "bot" nunca tem propose_bot, então a recusa é correta.
+		const other = await runOrigin({ origin: "bot", text: "Cria o bobinho apoio pfv", script: [say("Não tenho ferramenta para criar bots.")] });
+		expect(other.requests[0]!.toolNames).not.toContain("propose_bot");
+
+		// 2º turno: o dono pede no chat. As palavras-chave não casam ("bobinho"): a tool nasce adiada e o índice manda procurar.
+		const refusal = "Não tenho ferramenta para criar bots.";
+		const user = await runOrigin({
+			origin: "chat",
+			script: [toolCall("s1", "mcp_tool_search", { query: "create a new bot" }), say("Proposta enviada.")],
+			extra: {
+				humanTurn: true,
+				messages: [
+					{ role: "user", content: "Cria o bobinho apoio pfv" },
+					{ role: "assistant", content: refusal },
+					{ role: "user", content: "Cria o bobinho apoio pfv, vc tem a ferramenta" },
+				],
+			},
+		});
+		const [first, second] = user.requests;
+		expect(first!.toolNames).not.toContain("propose_bot");
+		expect(first!.toolNames).toContain("mcp_tool_search");
+		expect(first!.system).toMatch(/Before saying you lack a tool or capability, search for it/);
+		expect(first!.system).toMatch(/bots: propose_bot/);
+		expect(second!.toolNames).toContain("propose_bot");
+	});
+	it("dono com muitos conectores: busca em português 'criar bot' casa conector e ainda carrega propose_bot", async () => {
+		const many = {
+			id: "conn-ops",
+			slug: "ops",
+			name: "Ops",
+			disabledTools: [],
+			tools: Array.from({ length: 50 }, (_, i) => ({
+				name: i < 6 ? `bot_status_${i}` : `tool_${i}`,
+				description: "Consulta o bot do servidor",
+				inputSchema: { type: "object", properties: {} },
+				annotations: { readOnlyHint: true },
+			})),
+		};
+		const toolset = buildMcpToolset([erp, many], { autonomy: balanced as EffectiveAutonomy, maxTools: 5 });
+		expect(toolset.deferred).toBe(true);
+		const user = await runOrigin({
+			origin: "chat",
+			text: "Cria o Bobinho Apoio",
+			script: [toolCall("s1", "mcp_tool_search", { query: "criar bot" }), say("Proposta enviada.")],
+			extra: { humanTurn: true, mcp: { toolset, call: async () => ({ ok: true, text: "x", truncated: false }) } },
+		});
+		expect(user.requests[0]!.toolNames).not.toContain("propose_bot");
+		expect(user.results[0]!.summary).toContain("Loaded built-in tools");
+		expect(user.requests[1]!.toolNames).toContain("propose_bot");
+	});
+	it("duas propostas de bot no mesmo passo: sai um cartão só (o card é bot-${runId})", async () => {
+		const args = { name: "Bobinho Apoio", purpose: "Atender clientes do suporte", description: "Responde dúvidas de suporte" };
+		const out = await runOrigin({
+			origin: "chat",
+			text: "crie um bot de apoio ao suporte",
+			script: [
+				{
+					model: "m",
+					finishReason: "tool_calls",
+					message: {
+						role: "assistant",
+						content: null,
+						tool_calls: [
+							{ id: "p1", type: "function", function: { name: "propose_bot", arguments: JSON.stringify(args) } },
+							{ id: "p2", type: "function", function: { name: "propose_bot", arguments: JSON.stringify({ ...args, name: "Outro" }) } },
+						],
+					},
+				} as CompleteChatWithToolsResult,
+				say("ok"),
+			],
+			extra: { humanTurn: true },
+		});
+		// O cartão de proposta pede decisão e encerra o run: a 2ª chamada do mesmo passo nem roda.
+		expect(out.events.filter((e) => e.type === "bot-proposal")).toHaveLength(1);
+		const proposals = out.results.filter((r) => r.name === "propose_bot");
+		expect(proposals).toHaveLength(1);
+		expect(proposals[0]!.ok).toBe(true);
+	});
+});
+
 describe("v2 em bot→bot e grupo", () => {
 	it("bot→bot: sem tools sensíveis; sem roster (nenhum outro bot) também não há envio entre bots", async () => {
 		const { requests } = await runOrigin({ origin: "bot", script: [say("ok")] });
@@ -201,7 +283,9 @@ describe("v2 em bot→bot e grupo", () => {
 			expect(names, gone).not.toContain(gone);
 		}
 		expect(names).toContain("update_task_list");
-		expect(names).toContain(WRITE);
+		// Pedido de outro bot não tem humano para aprovar: conector só leitura (decisão do dono, 03/11).
+		expect(names).toContain(READ);
+		expect(names).not.toContain(WRITE);
 	});
 
 	it("grupo (run de membro, origin chat): set_engine e perfil só com o dono digitando; sem turno humano nada disso aparece", async () => {
@@ -261,11 +345,11 @@ describe("v2 em webhook: sem humano, mesmas regras do v1", () => {
 		expect(result.stop).toEqual({ reason: "answered" });
 	});
 
-	it("autonomia total do dono libera a escrita do conector, igual ao v1", async () => {
-		const { call, result, requests } = await runOrigin({ origin: "webhook", autonomy: autonomous, script: [toolCall("w1", WRITE, { cliente: "Acme" }), say("Proposta criada.")] });
-		expect(requests[0]!.toolNames).toContain(WRITE);
-		expect(call).toHaveBeenCalledTimes(1);
-		expect(result.stop).toEqual({ reason: "answered" });
+	it("autonomia total do dono não libera a escrita do conector sem humano (D1), igual ao v1", async () => {
+		const { call, requests } = await runOrigin({ origin: "webhook", autonomy: autonomous, script: [toolCall("w1", WRITE, { cliente: "Acme" }), say("Não consegui criar.")] });
+		expect(requests[0]!.toolNames).toContain(READ);
+		expect(requests[0]!.toolNames).not.toContain(WRITE);
+		expect(call).not.toHaveBeenCalled();
 	});
 
 	it("o conteúdo do evento é dado: o prompt manda tratar resultado de tool, página e e-mail como não confiável", async () => {
@@ -340,16 +424,34 @@ describe("v2 em e-mail recebido", () => {
 		expect(result.stop).toEqual({ reason: "answered" });
 	});
 
-	it("envio que precisa de aprovação (remetente novo, Equilibrado): cartão para o dono, nada enviado, o run espera", async () => {
+	it("email_send novo (remetente novo) em run de e-mail: não envia nem abre cartão, falha dizendo que precisa do dono (D1)", async () => {
 		const delivered: unknown[] = [];
-		const { events, result } = await runOrigin({
+		const { events, result, results } = await runOrigin({
 			origin: "email",
 			text: framed,
 			extra: { email: emailCtx(balanced, delivered), conversationId: "conv-o" },
-			script: [toolCall("e1", "email_send", { to: "estranho@fora.com", subject: "Dados", body: "segue" })],
+			script: [toolCall("e1", "email_send", { to: "estranho@fora.com", subject: "Dados", body: "segue" }), say("Avisei o dono.")],
 		});
 		expect(delivered).toHaveLength(0);
-		expect(events.some((event) => event.type === "confirm")).toBe(true);
-		expect(result.stop?.reason).toBe("awaiting_confirmation");
+		expect(events.some((event) => event.type === "confirm")).toBe(false);
+		expect(results[0]).toMatchObject({ ok: false });
+		expect(result.stop?.reason).toBe("answered");
+	});
+});
+
+const autonomy = autonomous;
+
+describe("v2: e-mail e bot→bot no Autônomo não escrevem em conector; chat continua", () => {
+	for (const origin of ["email", "bot"] as const) {
+		it(`origem ${origin}: só a leitura do conector, mesmo no nível Autônomo`, async () => {
+			const out = await runOrigin({ origin, script: [say("ok")], autonomy });
+			expect(out.requests[0]!.toolNames).toContain(READ);
+			expect(out.requests[0]!.toolNames).not.toContain(WRITE);
+		});
+	}
+
+	it("chat com humano no Autônomo continua vendo a escrita", async () => {
+		const chat = await runOrigin({ origin: "chat", script: [say("ok")], autonomy });
+		expect(chat.requests[0]!.toolNames).toContain(WRITE);
 	});
 });

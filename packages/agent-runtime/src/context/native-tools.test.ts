@@ -53,6 +53,13 @@ describe("catálogo das tools nativas raras", () => {
 		expect(deferredToolsIndex(eligible)).toContain("routines: list_routines, propose_routine");
 	});
 
+	it("o índice manda procurar antes de dizer que falta uma ferramenta e lista o grupo de bots", () => {
+		const index = deferredToolsIndex(all);
+		expect(index).toMatch(/Before saying you lack a tool or capability, search for it/);
+		expect(index).toMatch(/earlier refusal does not cover a new request/);
+		expect(index).toMatch(/bots: propose_bot\. create a new bot \(agent\)/);
+	});
+
 	it("a ordem final põe o condicional por último e ordena o conector por nome", () => {
 		const plan = planNativeTools(all, new Set<ContextGroup>(["files"]));
 		const ordered = orderEconomyTools({
@@ -198,10 +205,21 @@ describe("carregamento sob demanda", () => {
 
 	it("nome exato carrega só a tool; palavra distintiva carrega o grupo; palavra genérica não casa", () => {
 		const { deferral } = setup();
-		expect(deferral.match("propose_routine", 6)).toEqual({ names: ["propose_routine"], strong: true });
+		expect(deferral.match("propose_routine", 6)).toEqual({ names: ["propose_routine"], strong: true, withConnector: [] });
 		expect(deferral.match("set a reminder", 6).names).toEqual(["list_routines", "propose_routine", "routine_group", "routine_control", "find_page_value", "github_list_repos", "current_time"]);
 		expect(deferral.match("lista os itens", 6).names).toEqual([]);
 		expect(deferral.match("routines", 6).strong).toBe(true);
+	});
+
+	it("withConnector: só o grupo marcado (bots) carrega junto de um conector; profile e slides não", () => {
+		const { deferral } = setup();
+		expect(deferral.match("criar bot", 6).withConnector).toEqual(["propose_bot"]);
+		const profile = deferral.match("profile do cliente no CRM", 6);
+		expect(profile.names).toContain("propose_profile_update");
+		expect(profile.withConnector).toEqual([]);
+		const slides = deferral.match("slides do Google", 6);
+		expect(slides.names).toContain("inspect_presentation");
+		expect(slides.withConnector).toEqual([]);
 	});
 
 	it("carregar acrescenta ao fim, tira do pool, e só devolve as notas do grupo uma vez", () => {

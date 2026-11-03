@@ -6,6 +6,7 @@ import {
 	planTypeTarget,
 	pickTextMatch,
 	planClick,
+	planNameClick,
 	compactPlaywrightError,
 	explainFillError,
 } from "./target.mjs";
@@ -90,4 +91,18 @@ test("compactPlaywrightError: corta o call log e limita a 300 caracteres", () =>
 	assert.equal(out, "locator.click: Timeout 15000ms exceeded.");
 	assert.ok(compactPlaywrightError("a".repeat(900)).length <= 300);
 	assert.ok(raw.length > 2000);
+});
+
+test("planNameClick: exato (caixa/espaços) clica; parcial nunca clica e lista os parecidos", () => {
+	const c = [{ name: "Excluir conta", index: 0 }, { name: "Excluir tudo", index: 1 }, { name: "Salvar", index: 2 }];
+	assert.deepEqual(planNameClick(c, "excluir   CONTA"), { index: 0 });
+	assert.deepEqual(planNameClick(c, "Excluir"), { similar: ["Excluir conta", "Excluir tudo"] });
+	assert.deepEqual(planNameClick(c, "Compartilhar"), { none: true });
+	assert.deepEqual(planNameClick(c, "  "), { none: true });
+});
+
+test("planNameClick: várias exatas são ambíguas; mesmo elemento com nomes repetidos conta uma vez", () => {
+	const two = planNameClick([{ name: "Perguntar", index: 0, context: "A" }, { name: "Perguntar", index: 1, context: "B" }], "perguntar");
+	assert.deepEqual(two.ambiguous.map((x) => x.context), ["A", "B"]);
+	assert.deepEqual(planNameClick([{ name: "Perguntar", index: 3 }, { name: "perguntar", index: 3 }], "Perguntar"), { index: 3 });
 });

@@ -161,3 +161,22 @@ test("paginateText por linha: páginas consecutivas cobrem o texto e não partem
 	}
 	assert.equal(rebuilt, text);
 });
+
+// Padrões perigosos de propósito: montados em runtime (nunca como literal /.../) e só passam pela heurística, nunca são executados.
+const risky = (...parts) => parts.join("");
+
+test("findEntries: regex com quantificador aninhado (ReDoS) é recusada com orientação", () => {
+	assert.throws(() => findEntries([], { query: risky("(a+", ")+$"), regex: true }), /regex arriscada/);
+	assert.throws(() => findEntries([], { query: risky("(.*", ")*x"), regex: true }), /regex arriscada/);
+	assert.doesNotThrow(() => findEntries([], { query: "pre(ço|co)s?\\d+", regex: true }));
+	assert.doesNotThrow(() => findEntries([], { query: "(foo|bar)", regex: true }));
+});
+
+test("findEntries: heurística de ReDoS aceita regex comuns e recusa as ambíguas", () => {
+	for (const ok of ["(\\d+\\.)+\\d+", "(\\d+,)*", "(\\w+\\s)+", "(?:foo|bar)+"]) {
+		assert.doesNotThrow(() => findEntries([], { query: ok, regex: true }), ok);
+	}
+	for (const bad of [risky("(a|a", ")+"), risky("(a|ab", ")*"), risky("(x+x+", ")+"), risky("(\\w+\\w", ")+"), risky("(a+b?", ")+"), risky("(a*", ")*")]) {
+		assert.throws(() => findEntries([], { query: bad, regex: true }), /regex arriscada/, bad);
+	}
+});

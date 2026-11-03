@@ -55,6 +55,7 @@ import {
 	parseQuestionnaireAnsweredContent,
 	type RoutineNotifyMode,
 	GITHUB_SECURITY_REVIEW_TEMPLATE,
+	DAILY_BRIEF_TEMPLATE,
 	type RoutineAlertConfig,
 	allLanguageInstructions,
 	formatLimitDuration,
@@ -178,7 +179,7 @@ import { markGithubConnectionAuthFailed } from "./mcp/github-token.js";
 import { formatCompareForModel } from "./github/app/compare.js";
 import { ensureGithubRepoHook } from "./github/hook-sync.js";
 import type { McpRuntime } from "./mcp/runtime.js";
-import { isUnattendedOrigin } from "./autonomy-gate.js";
+import { isReadOnlyConnectorOrigin, isUnattendedOrigin } from "./autonomy-gate.js";
 import { type JevMcpAudit, type JevMcpEvaluator, type JevMcpMode, type JevReviewReason } from "./mcp/jev-gate.js";
 import { detectJevIntents, NO_INTENTS, type JevIntents } from "./jev/intent.js";
 import { observeOnly, type JevRuntime } from "./jev/decide.js";
@@ -197,6 +198,7 @@ import { DELEGATION_HINT, suggestDelegation } from "./jev/delegation.js";
 import { detectBlockPage } from "./jev/block-page.js";
 import { preselectMcpTools } from "./jev/tool-preselect.js";
 import { APP_INFO_TOOL } from "./tools/app-info.js";
+import { claimVision, createVisionClaimState } from "./tools/vision-fallback.js";
 import { CURRENT_TIME_TOOL } from "./tools/current-time.js";
 import { createPreviewSetupContext } from "./tools/preview-setup/runtime.js";
 import { SANDBOX_TOOL_NAMES, isSandboxTool } from "./tools/registry/sandbox-tools.js";
@@ -1162,7 +1164,7 @@ export const COMPUTER_USE_TOOLS: ChatTool[] = [
 					},
 					template: {
 						type: "string",
-						enum: [GITHUB_SECURITY_REVIEW_TEMPLATE],
+						enum: [GITHUB_SECURITY_REVIEW_TEMPLATE, DAILY_BRIEF_TEMPLATE],
 						description:
 							"Optional prompt template. github_security_review = periodic security review of a GitHub repo with a 0-10 score; requires repo. Replaces detail (detail becomes an optional extra focus). daily_brief = the morning brief \"Seu dia\" (agenda, e-mails that need the user, priorities) delivered as a chat message and a push, no panel; detail is optional extra focus.",
 					},
@@ -2736,6 +2738,8 @@ async function runComputerUseCore(params: {
 		if (params.toolFilter && !params.toolFilter(tool.function.name)) return false;
 		const decision = decideAction(autonomyPolicy, entry.autonomyMeta);
 		if (decision === "block") return false;
+		// Sem humano para aprovar (rotina, webhook, e-mail, bot): conector só leitura, em qualquer autonomia.
+		if (isReadOnlyConnectorOrigin(params.origin) && !entry.readOnly) return false;
 		return !isUnattendedOrigin(params.origin) || decision === "allow";
 	});
 	const canResolveCachedResults = Boolean(mcp) && (params.toolFilter?.(READ_CACHED_RESULT_TOOL.function.name) ?? true);
@@ -3355,8 +3359,8 @@ async function runComputerUseCore(params: {
 	const triagedInputs = [...(parsedCheckpoint?.triagedInputs ?? [])];
 	let replyCount = 0;
 	const canSeeImages = params.canSeeUserImages !== false;
-	// Último passo que já gastou o screenshot automático da leitura (no máximo um por passo).
-	let visionFallbackStep = -1;
+	// Screenshot automático da leitura: um por passo e, para busca vazia, um por run.
+	const visionClaim = createVisionClaimState();
 	const capabilitySnapshot = () => createCapabilitySnapshot({
 		tools: tools.map((tool) => tool.function.name),
 		vision: canSeeImages,
@@ -4751,11 +4755,7 @@ async function runComputerUseCore(params: {
 						await onEvent(event);
 					},
 					canSeeImages: canSeeImages,
-					claimVisionFallback: () => {
-						if (visionFallbackStep === decisionIndex) return false;
-						visionFallbackStep = decisionIndex;
-						return true;
-					},
+					claimVisionFallback: (reason) => claimVision(visionClaim, decisionIndex, reason),
 					currentStep: () => decisionIndex,
 					listScreenshotArtifacts: () => {
 						const ids: string[] = [];
