@@ -16,9 +16,12 @@ export const TEXT_CONFIRM_MS = 1000;
 // Sem ref/scope e sem nada mudando: dá tempo para a resposta começar antes de concluir "estável".
 export const TEXT_NO_CHANGE_GRACE_MS = 3000;
 export const TEXT_POLL_MS = 250;
-// Sinal de fim de geração: depois do último texto novo, este tempo basta quando o botão de parar sumiu
-// (ou o aria-busy voltou a false), em vez de esperar o silêncio inteiro.
-export const END_SIGNAL_IDLE_MS = 400;
+// Sinal de fim de geração (botão de parar sumiu / aria-busy voltou a false, no escopo medido): só vale depois que
+// o texto MUDOU e com histerese. O sinal precisa ficar "terminado" por END_SIGNAL_POLLS leituras seguidas e
+// END_SIGNAL_HOLD_MS, e o texto parado há END_SIGNAL_HOLD_MS, para um re-render do botão ou uma pausa curta do
+// stream (~1 s) não encerrar cedo. Sem sinal, vale o silêncio normal.
+export const END_SIGNAL_HOLD_MS = 1200;
+export const END_SIGNAL_POLLS = 3;
 // Nomes acessíveis (aria-label, title ou texto curto, minúsculos) de botão de parar a geração, pt e en.
 // Lista fechada e curta: comparação exata do nome do controle, nunca regex sobre o texto da página.
 export const STOP_BUTTON_NAMES = [
@@ -69,9 +72,17 @@ export function sampleTextInPage(opts) {
 	};
 
 	// Fim de geração: botão de parar visível OU [aria-busy=true] que existiu e sumiu desde o início desta espera.
-	const stopVisible = () => {
+	// Só vale DENTRO do escopo medido (o alvo e alguns ancestrais): um spinner ou botão alheio da página não conta.
+	const SCOPE_UP = 4;
+	const scopeRootOf = (el) => {
+		let root = el;
+		for (let i = 0; i < SCOPE_UP && root.parentElement && root.parentElement !== document.documentElement; i++) root = root.parentElement;
+		return root;
+	};
+	const liveIn = (root) => {
+		if (root.matches?.('[aria-busy="true"]') || root.querySelector('[aria-busy="true"]')) return true;
 		let n = 0;
-		for (const el of document.querySelectorAll('button, [role="button"]')) {
+		for (const el of root.querySelectorAll('button, [role="button"]')) {
 			if (++n > 2000) break;
 			const raw = el.getAttribute("aria-label") || el.getAttribute("title") || (el.textContent || "").slice(0, 40);
 			const name = raw.replace(/[….\s]+$/g, "").trim().toLowerCase();
@@ -81,9 +92,17 @@ export function sampleTextInPage(opts) {
 		}
 		return false;
 	};
-	const live = stopVisible() || Boolean(document.querySelector('[aria-busy="true"]'));
-	if (live) state.sawLive = true;
-	const ended = Boolean(state.sawLive && !live);
+	// Sinal de fim do escopo `el`: "ainda vivo" visto neste escopo e agora ausente. Trocar de escopo zera o histórico.
+	const endedFor = (el) => {
+		const root = scopeRootOf(el);
+		if (state.liveRoot !== root) {
+			state.liveRoot = root;
+			state.sawLive = false;
+		}
+		const live = liveIn(root);
+		if (live) state.sawLive = true;
+		return Boolean(state.sawLive && !live);
+	};
 
 	if (opts?.ref || opts?.scope) {
 		let el = null;
@@ -102,7 +121,8 @@ export function sampleTextInPage(opts) {
 			prev.last = now;
 		}
 		const entry = state.targets.get(key);
-		return { found: true, idleMs: now - entry.last, len: text.length, changed: entry.last > state.start + 1, ended };
+		const changed = entry.last > state.start + 1;
+		return { found: true, idleMs: now - entry.last, len: text.length, changed, ended: endedFor(el) && changed };
 	}
 
 	// Auto: bloco (ancestral não-inline) cujo texto mais variou de tamanho. Mede só o que
@@ -191,7 +211,7 @@ export function sampleTextInPage(opts) {
 		}
 		const prev = state.blocks.get(id);
 		if (!prev) {
-			state.blocks.set(id, { text, score: 0, last: now });
+			state.blocks.set(id, { text, score: 0, last: now, el: block });
 			continue;
 		}
 		if (prev.text !== text) {
@@ -200,10 +220,11 @@ export function sampleTextInPage(opts) {
 			prev.text = text;
 			prev.last = now;
 		}
+		prev.el = block;
 		if (prev.score > 0 && (!best || prev.score > best.score)) best = prev;
 	}
-	if (!best) return { found: true, changed: false, idleMs: now - state.start, len: 0, ended };
-	return { found: true, changed: true, idleMs: now - best.last, len: best.text.length, score: best.score, ended };
+	if (!best) return { found: true, changed: false, idleMs: now - state.start, len: 0, ended: false };
+	return { found: true, changed: true, idleMs: now - best.last, len: best.text.length, score: best.score, ended: endedFor(best.el) };
 }
 
 /**
@@ -222,13 +243,22 @@ export async function waitUntilTextStable({
 }) {
 	const start = now();
 	let last = { found: false, changed: false, len: 0 };
+	let endedSince = null;
+	let endedPolls = 0;
 	for (;;) {
 		const s = await sample();
 		const elapsed = now() - start;
 		if (s) last = s;
 		if (s?.found) {
-			// Botão de parar sumiu (ou aria-busy voltou a false) e o texto já assentou: a resposta terminou.
-			if (s.ended && (s.changed ? s.idleMs : elapsed) >= END_SIGNAL_IDLE_MS) {
+			// Botão de parar sumiu (ou aria-busy voltou a false) de forma sustentada e o texto, que já mudou, assentou.
+			if (s.ended && s.changed) {
+				if (endedSince === null) endedSince = elapsed;
+				endedPolls += 1;
+			} else {
+				endedSince = null;
+				endedPolls = 0;
+			}
+			if (endedPolls >= END_SIGNAL_POLLS && elapsed - endedSince >= END_SIGNAL_HOLD_MS && s.idleMs >= END_SIGNAL_HOLD_MS) {
 				return { met: true, waitedMs: elapsed, changed: Boolean(s.changed), textLength: s.len ?? 0, endSignal: true };
 			}
 			// Texto que já mexeu: precisa de quietMs de silêncio + confirmMs de confirmação. Nada mexeu ainda: dá tempo
@@ -279,12 +309,11 @@ export async function waitForTextStable(page, registry, { ref, scope, timeoutMs,
 		const changed = found.filter((part) => part.changed);
 		if (hasTarget) {
 			const pick = found.reduce((a, b) => (b.idleMs < a.idleMs ? b : a));
-			return { found: true, changed: Boolean(pick.changed), idleMs: pick.idleMs, len: pick.len, ended: found.some((part) => part.ended) };
+			return { found: true, changed: Boolean(pick.changed), idleMs: pick.idleMs, len: pick.len, ended: Boolean(pick.ended) };
 		}
-		const ended = found.some((part) => part.ended);
-		if (changed.length === 0) return { found: true, changed: false, idleMs: Math.min(...found.map((part) => part.idleMs)), len: 0, ended };
+		if (changed.length === 0) return { found: true, changed: false, idleMs: Math.min(...found.map((part) => part.idleMs)), len: 0, ended: false };
 		const pick = changed.reduce((a, b) => ((b.score ?? 0) > (a.score ?? 0) ? b : a));
-		return { found: true, changed: true, idleMs: pick.idleMs, len: pick.len, ended };
+		return { found: true, changed: true, idleMs: pick.idleMs, len: pick.len, ended: Boolean(pick.ended) };
 	};
 	return waitUntilTextStable({ sample, quietMs, capMs: timeoutMs, now, sleep });
 }

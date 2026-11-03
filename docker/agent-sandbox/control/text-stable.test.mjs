@@ -119,7 +119,29 @@ function next() {
 next();
 </script></body>`;
 
-const fixtures = await launchFixtureBrowser({ "/stream": stream, "/feedstream": feedStream, "/genstop": genStop, "/genpause": genPause });
+// aria-busy de um spinner alheio (cabeçalho, fora do escopo da resposta) some antes de a resposta começar.
+const foreignSpinner = `<body><header><div><span id="sp" aria-busy="true">carregando</span></div></header>
+<div id="app"><section><div><div><p id="ans">Resposta:</p></div></div></section></div>
+<script>
+setTimeout(() => document.getElementById('sp').setAttribute('aria-busy', 'false'), 300);
+const words = ['um','dois','tres','quatro','FIM'];
+let n = 0;
+function next() { document.getElementById('ans').textContent += ' ' + words[n++]; if (n < words.length) setTimeout(next, 300); }
+setTimeout(next, 1500);
+</script></body>`;
+// Botão de parar visível, some por 1 s no meio (re-render) e volta; some de vez no fim.
+const genBlink = `<body><div id="app"><section><div><div><p id="out">x</p></div></div></section></div><button id="stop" aria-label="Parar resposta">■</button>
+<script>
+const out = document.getElementById('out'); const stop = document.getElementById('stop');
+let n = 0;
+function add() { out.textContent += ' w' + (++n); }
+const iv = setInterval(add, 200);
+setTimeout(() => { clearInterval(iv); stop.style.display = 'none'; }, 1000);
+setTimeout(() => { stop.style.display = ''; add(); }, 2000);
+setTimeout(() => { add(); stop.remove(); }, 2300);
+</script></body>`;
+
+const fixtures = await launchFixtureBrowser({ "/foreign": foreignSpinner, "/blink": genBlink, "/stream": stream, "/feedstream": feedStream, "/genstop": genStop, "/genpause": genPause });
 after(() => fixtures?.close());
 const skip = fixtures ? false : "Chromium/playwright-core indisponível";
 
@@ -184,12 +206,35 @@ test("waitUntilTextStable: sinal de fim (botão de parar sumiu) encerra antes do
 	const res = await waitUntilTextStable({ sample, capMs: 20_000, ...clock });
 	assert.equal(res.met, true);
 	assert.equal(res.endSignal, true);
-	assert.ok(res.waitedMs < 2800, `waitedMs=${res.waitedMs}`);
+	assert.ok(res.waitedMs >= 3200 && res.waitedMs < 4000, `waitedMs=${res.waitedMs}`);
 	// Sem o sinal, o mesmo texto só conclui no silêncio + confirmação.
 	const clock2 = fakeClock();
 	const slow = await waitUntilTextStable({ sample: async () => ({ found: true, changed: true, idleMs: Math.max(0, clock2.now() - 2000), len: 40 }), capMs: 20_000, ...clock2 });
 	assert.ok(slow.waitedMs >= 4500);
 	assert.equal(slow.endSignal, undefined);
+});
+
+test("waitUntilTextStable: sinal de fim sem o texto ter mudado nunca encerra antes da graça", async () => {
+	const clock = fakeClock();
+	const sample = async () => ({ found: true, changed: false, idleMs: clock.now(), len: 0, ended: true });
+	const res = await waitUntilTextStable({ sample, capMs: 20_000, ...clock });
+	assert.equal(res.endSignal, undefined);
+	assert.ok(res.waitedMs >= 3000);
+});
+
+test("waitUntilTextStable: sinal de fim que some e volta em 1 s (re-render) não encerra", async () => {
+	const clock = fakeClock();
+	// Texto parado desde 500 ms; sinal "terminado" só entre 1000 e 2000 ms, depois o botão volta até 6000 ms.
+	const sample = async () => {
+		const t = clock.now();
+		const ended = (t >= 1000 && t < 2000) || t >= 6000;
+		return { found: true, changed: true, idleMs: Math.max(0, t - 500), len: 40, ended };
+	};
+	const res = await waitUntilTextStable({ sample, capMs: 20_000, ...clock });
+	assert.equal(res.met, true);
+	// Encerra pelo silêncio normal (500 + 2500), não pelo sinal de 1 s que sumiu e voltou.
+	assert.equal(res.endSignal, undefined);
+	assert.ok(res.waitedMs >= 2900, `waitedMs=${res.waitedMs}`);
 });
 
 test("real: botão de parar removido (e aria-busy=false) termina a espera cedo, sem passar do teto", { skip }, async () => {
@@ -208,4 +253,20 @@ test("real: pausa longa com o botão de parar ainda visível não encerra a espe
 	const res = await refs.browserWait({ for: "text_stable", timeoutMs: 15_000 });
 	assert.equal(res.met, true, JSON.stringify(res));
 	assert.equal(await page.locator("#out").innerText(), "w1 w2 w3 w4 w5 w6 w7 w8");
+});
+
+test("real: aria-busy de spinner alheio que some antes da resposta NÃO encerra cedo", { skip }, async () => {
+	const { refs, page } = await open("/foreign");
+	const res = await refs.browserWait({ for: "text_stable", timeoutMs: 15_000 });
+	assert.equal(res.met, true, JSON.stringify(res));
+	assert.equal(res.endSignal, undefined, JSON.stringify(res));
+	assert.match(await page.locator("#ans").innerText(), /FIM$/);
+});
+
+test("real: botão de parar que some e volta (pausa de 1 s) não encerra cedo", { skip }, async () => {
+	const { refs, page } = await open("/blink");
+	const res = await refs.browserWait({ for: "text_stable", scope: "#out", timeoutMs: 15_000 });
+	assert.equal(res.met, true, JSON.stringify(res));
+	const text = await page.locator("#out").innerText();
+	assert.match(text, /w5 w6 w7$/, text);
 });
