@@ -110,7 +110,7 @@ function ProfileRows({ item }: { item: BotProfileItem }) {
 					<Text variant="caption" className="font-medium">
 						{row.label}
 					</Text>
-					<Text variant="muted" numberOfLines={2} className="text-control line-through">
+					<Text variant="muted" numberOfLines={2} className={row.before === "—" ? "text-control" : "text-control line-through"}>
 						{row.before}
 					</Text>
 					<Text className="text-control font-medium">{row.after}</Text>

@@ -86,22 +86,22 @@ export default function NewBotScreen() {
 						returnKeyType="done"
 						onSubmitEditing={() => void create()}
 						editable={!busy}
-						className="h-16 w-full rounded-full bg-secondary px-6 text-center text-xl text-foreground"
+						className="h-14 w-full rounded-full bg-secondary px-6 text-center text-xl text-foreground outline-none"
 					/>
-					<View accessibilityRole="radiogroup" className="mt-5 w-full flex-row flex-wrap">
+					<View accessibilityRole="radiogroup" className="mt-4 w-full flex-row flex-wrap">
 						{NEW_BOT_SHAPES.map((item) => (
-							<View key={item} className="w-1/5 items-center py-1">
-								<Pressable role="radio" accessibilityLabel={`Forma ${item}`} accessibilityState={{ checked: item === shape }} onPress={() => setShape(item)} className={cn("size-[68px] items-center justify-center rounded-2xl border-2", item === shape ? "border-foreground/60" : "border-transparent")}>
-									<Avatar color={neutral} shape={item} size={56} animated={false} eyeColor={themeColor(scheme, "background")} />
+							<View key={item} className="w-1/5 items-center py-0.5">
+								<Pressable role="radio" accessibilityLabel={`Forma ${item}`} accessibilityState={{ checked: item === shape }} onPress={() => setShape(item)} className={cn("size-14 items-center justify-center rounded-2xl border-2", item === shape ? "border-foreground/60" : "border-transparent")}>
+									<Avatar color={neutral} shape={item} size={44} animated={false} eyeColor={themeColor(scheme, "background")} />
 								</Pressable>
 							</View>
 						))}
 					</View>
-					<View accessibilityRole="radiogroup" className="mt-3 w-full flex-row flex-wrap">
+					<View accessibilityRole="radiogroup" className="mt-2 w-full flex-row flex-wrap">
 						{NEW_BOT_COLORS.map((item) => {
 							const selected = item.value.toLowerCase() === color.toLowerCase();
 							return (
-								<View key={item.id} className="w-1/6 items-center py-1.5">
+								<View key={item.id} className="w-1/6 items-center py-1">
 									<Pressable role="radio" accessibilityLabel={`Cor ${item.name}`} accessibilityState={{ checked: selected }} onPress={() => setColor(item.value)} className={cn("size-11 items-center justify-center rounded-full border-2", selected ? "border-foreground" : "border-transparent")}>
 										<View style={{ backgroundColor: item.value, borderColor: themeColor(scheme, "border") }} className="size-8 rounded-full border" />
 									</Pressable>
