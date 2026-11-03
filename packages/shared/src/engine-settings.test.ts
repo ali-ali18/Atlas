@@ -51,7 +51,7 @@ describe("parseSetEngineArgs", () => {
 		expect(parseSetEngineArgs({ engine: "new", scope: "chat" })).toEqual({ ok: true, patch: { engine: "v2", scope: "chat" } });
 	});
 	it("falha com a lista do aceito: campo desconhecido, faixa, vazio, userId", () => {
-		for (const args of [{ userId: "x", engine: "new" }, { budget_usd: 0.01 }, { budget_usd: 21 }, { minutes: 0 }, { minutes: 181 }, { engine: "v3" }, { scope: "tudo" }, { scope: 1 }, { scope: "ALL" }, { helper_model: "a b" }, {}, null]) {
+		for (const args of [{ userId: "x", engine: "new" }, { budget_usd: 0.01 }, { budget_usd: 21 }, { minutes: 181 }, { minutes: -1 }, { engine: "v3" }, { scope: "tudo" }, { scope: 1 }, { scope: "ALL" }, { helper_model: "a b" }, {}, null]) {
 			const parsed = parseSetEngineArgs(args);
 			expect(parsed.ok, JSON.stringify(args)).toBe(false);
 			if (!parsed.ok) expect(parsed.error).toMatch(/Accepted fields/);
@@ -76,12 +76,12 @@ describe("looksLikeEngineRequest", () => {
 describe("describeEngineSettings", () => {
 	it("frase simples sem internals", () => {
 		// Bot sem escolha mostra o padrão (motor novo, em tudo); o `off` de emergência do worker não aparece aqui.
-		for (const raw of [{}, null, undefined]) expect(describeEngineSettings(raw)).toBe("Motor novo (padrão) · também em rotinas e grupos · sem limite de gasto, até 60 min por tarefa longa");
+		for (const raw of [{}, null, undefined]) expect(describeEngineSettings(raw)).toBe("Motor novo (padrão) · também em rotinas e grupos · sem limite de gasto, sem limite de tempo");
 		expect(describeEngineSettings({ engine: "v1" })).toBe("Motor anterior");
 		expect(describeEngineSettings({ engine: "v1", engineScope: "all" })).toBe("Motor anterior");
-		expect(describeEngineSettings({ engine: "v2" })).toBe("Motor novo · também em rotinas e grupos · sem limite de gasto, até 60 min por tarefa longa");
-		expect(describeEngineSettings({ engine: "v2", engineScope: "chat" })).toBe("Motor novo · sem limite de gasto, até 60 min por tarefa longa");
-		expect(describeEngineSettings({ engine: "v2", engineScope: "all" })).toBe("Motor novo · também em rotinas e grupos · sem limite de gasto, até 60 min por tarefa longa");
+		expect(describeEngineSettings({ engine: "v2" })).toBe("Motor novo · também em rotinas e grupos · sem limite de gasto, sem limite de tempo");
+		expect(describeEngineSettings({ engine: "v2", engineScope: "chat" })).toBe("Motor novo · sem limite de gasto, sem limite de tempo");
+		expect(describeEngineSettings({ engine: "v2", engineScope: "all" })).toBe("Motor novo · também em rotinas e grupos · sem limite de gasto, sem limite de tempo");
 		expect(describeEngineSettings({ engine: "v2", longWorkBudgetUsd: 2, longWorkMinutes: 90 })).toBe("Motor novo · também em rotinas e grupos · gasto máximo de US$ 2,00 e até 90 min por tarefa longa");
 		expect(describeEngineSettings({ engine: "v2", longWorkBudgetUsd: 1, longWorkMinutes: 10, helperModel: "a/b" })).toContain("US$ 1,00 e até 10 min");
 	});
@@ -115,6 +115,13 @@ describe("0 remove o teto de gasto (igual a vazio e null)", () => {
 		for (const empty of [0, null, ""]) expect(normalizeEngineSettings({ engine: "v2", longWorkBudgetUsd: empty, planMode: true })).toEqual({ engine: "v2", planMode: true });
 		expect(normalizeEngineSettings({ engine: "v2", longWorkBudgetUsd: 2 })).toEqual({ engine: "v2", longWorkBudgetUsd: 2 });
 		expect(normalizeEngineSettings({ engine: "v2" })).toEqual({ engine: "v2" });
+		// Tempo máximo também é opcional (sem limite por padrão, decisão do dono 02/11): vazio remove a chave.
+		for (const empty of [0, null, ""]) expect(normalizeEngineSettings({ engine: "v2", longWorkMinutes: empty, longWorkBudgetUsd: empty })).toEqual({ engine: "v2" });
+		expect(normalizeEngineSettings({ engine: "v2", longWorkMinutes: 30 })).toEqual({ engine: "v2", longWorkMinutes: 30 });
+		expect(withEngineSettings({ engine: "v2", longWorkMinutes: 30 }, { longWorkMinutes: null })).toEqual({ engine: "v2" });
+		expect(parseSetEngineArgs({ minutes: 0 })).toEqual({ ok: true, patch: { longWorkMinutes: null } });
+		expect(describeEngineSettings({ engine: "v2", longWorkMinutes: 45, engineScope: "chat" })).toBe("Motor novo · sem limite de gasto, até 45 min por tarefa longa");
+		expect(engineSettingsError({ longWorkMinutes: null })).toBeNull();
 		expect(normalizeEngineSettings(null)).toBeNull();
 		expect(engineSettingsError(normalizeEngineSettings({ engine: "v2", longWorkBudgetUsd: 0 }))).toBeNull();
 	});

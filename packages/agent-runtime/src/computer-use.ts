@@ -1889,6 +1889,10 @@ async function runComputerUseCore(params: {
 	priorTaskLedger?: unknown;
 	/** Lista de passos (`update_task_list`) de um run anterior da conversa. */
 	priorTaskList?: unknown;
+	/** Caderno do trabalho longo anterior da conversa (já escopado por dono): semeia uma continuação curta ("continua"). */
+	priorNotebook?: unknown;
+	/** Este run é uma continuação automática (o worker agendou depois de uma parada com trabalho aberto): herda lista e caderno. */
+	autoContinued?: boolean;
 	/** Pedidos deste bot a outros bots ainda sem resposta (`send_to_bot`), já escopados por dono. */
 	openBotRequests?: OpenBotRequest[];
 	/** Subagente: notas do filho ficam num armazém do delegate_task, que as anexa ao relatório. */
@@ -2033,7 +2037,7 @@ async function runComputerUseCore(params: {
 	let contextLength = params.contextLength;
 	const userId = params.userId ?? "default";
 	const maxSteps = params.maxSteps ?? MAX_STEPS_DEFAULT;
-	const budget = resolveBudget({ maxSteps, policy: params.budget });
+	const budget = resolveBudget({ maxSteps, policy: params.budget, humanTurn: params.humanTurn === true });
 	// Parte B: cotas default de pesquisa (web_search 6, web_extract 12) sem
 	// sobrescrever a política do bot/request.
 	// Contagem/idempotência seguem no checkpoint (toolCallCounts + steps).

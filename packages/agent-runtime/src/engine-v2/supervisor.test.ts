@@ -8,6 +8,10 @@ import {
 	RESERVE_GAPS_NOTE,
 	RESERVE_WRITE_NOTE,
 	STAGNATION_STEPS,
+	WAIT_REPEAT_LIMIT,
+	GLOBAL_FAILURE_ABORT_EXTRA,
+	GLOBAL_FAILURE_NOTE_AT,
+	deliveryInstruction,
 	WRAP_UP_NOTE,
 	PROMOTE_PLAN_STEPS,
 	budgetForProfile,
@@ -15,6 +19,8 @@ import {
 } from "./supervisor.js";
 
 const budget = { maxCostUsd: 1, maxActiveMs: 10 * 60_000 };
+/** Chat com teto de tempo que o DONO configurou (conta/bot): o padrão não tem mais tempo (decisão do dono, 02/11). */
+const OWNER_CHAT_8MIN = { maxCostUsd: Number.POSITIVE_INFINITY, maxActiveMs: 8 * 60_000 };
 const usage = (costUsd: number, activeMs = 0, step = 0) => ({ costUsd, activeMs, step });
 const record = (over: Partial<Parameters<ReturnType<typeof createSupervisor>["recordTool"]>[0]> = {}) => ({
 	step: 1,
@@ -26,12 +32,11 @@ const record = (over: Partial<Parameters<ReturnType<typeof createSupervisor>["re
 });
 
 describe("orçamento por perfil", () => {
-	it("nenhum perfil tem teto em US$ por padrão; o chat é menor no tempo", () => {
+	it("nenhum perfil tem teto de US$ nem de tempo por padrão (decisão do dono, 02/11)", () => {
 		expect(budgetForProfile("long_work")).toEqual(LONG_WORK_BUDGET);
-		expect(LONG_WORK_BUDGET).toEqual({ maxCostUsd: Number.POSITIVE_INFINITY, maxActiveMs: 60 * 60_000 });
+		expect(LONG_WORK_BUDGET).toEqual({ maxCostUsd: Number.POSITIVE_INFINITY, maxActiveMs: Number.POSITIVE_INFINITY });
 		expect(budgetForProfile("chat")).toEqual(CHAT_BUDGET);
-		expect(CHAT_BUDGET.maxCostUsd).toBe(Number.POSITIVE_INFINITY);
-		expect(CHAT_BUDGET.maxActiveMs).toBeLessThan(LONG_WORK_BUDGET.maxActiveMs);
+		expect(CHAT_BUDGET).toEqual({ maxCostUsd: Number.POSITIVE_INFINITY, maxActiveMs: Number.POSITIVE_INFINITY });
 	});
 
 	it("o bot ajusta o trabalho longo, mas o teto de custo da conta vence", () => {
@@ -43,8 +48,9 @@ describe("orçamento por perfil", () => {
 });
 
 describe("piso de tempo (brief e lembrete check)", () => {
-	it("o piso sobe o tempo do chat, nunca baixa o trabalho longo maior, e os tetos do dono vencem; sem piso em US$", () => {
-		expect(budgetForProfile("chat", { floor: { minutes: 30 } })).toEqual({ maxCostUsd: Number.POSITIVE_INFINITY, maxActiveMs: 30 * 60_000 });
+	it("o piso nunca baixa o trabalho longo maior, não cria teto onde não há, e os tetos do dono vencem; sem piso em US$", () => {
+		// Sem teto de tempo no perfil, o piso não inventa um (só os tetos do dono limitam).
+		expect(budgetForProfile("chat", { floor: { minutes: 30 } })).toEqual(CHAT_BUDGET);
 		expect(budgetForProfile("long_work", { longWorkBudgetUsd: 2, longWorkMinutes: 45, floor: { minutes: 30 } })).toEqual({ maxCostUsd: 2, maxActiveMs: 45 * 60_000 });
 		expect(budgetForProfile("chat", { floor: { minutes: 30 }, accountCapUsd: 0.1, accountCapMs: 5 * 60_000 })).toEqual({ maxCostUsd: 0.1, maxActiveMs: 5 * 60_000 });
 		expect(budgetForProfile("chat")).toEqual(CHAT_BUDGET);
@@ -59,15 +65,24 @@ describe("promoção chat -> trabalho longo", () => {
 	const LONG = { maxCostUsd: Number.POSITIVE_INFINITY, maxActiveMs: 60 * 60_000 };
 	const chat = (over: Partial<Parameters<typeof createSupervisor>[0]> = {}) => createSupervisor({ profile: "chat", budget: CHAT_BUDGET, promotable: true, ...over });
 
-	it("a 80% do tempo do chat com tool no último passo pede a promoção; sem tool ou sem humano, não", () => {
-		expect(chat().gate(usage(0, 4 * 60_000), { lastStepHadTools: true })).toEqual({ action: "call" });
-		expect(chat().gate(usage(0, 6.4 * 60_000), { lastStepHadTools: true })).toEqual({ action: "promote" });
-		expect(chat().gate(usage(0, 9 * 60_000), { lastStepHadTools: true })).toEqual({ action: "promote" });
-		expect(chat().gate(usage(0, 6.4 * 60_000), { lastStepHadTools: false })).toEqual({ action: "call", note: WRAP_UP_NOTE });
-		const unattended = createSupervisor({ profile: "chat", budget: CHAT_BUDGET });
+	it("tempo não promove mais: 80% de um teto de tempo do dono, com tool no último passo, só avisa (e entrega no limite)", () => {
+		const ownerCapped = (over: Partial<Parameters<typeof createSupervisor>[0]> = {}) => chat({ budget: OWNER_CHAT_8MIN, ...over });
+		expect(ownerCapped().gate(usage(0, 4 * 60_000), { lastStepHadTools: true })).toEqual({ action: "call" });
+		expect(ownerCapped().gate(usage(0, 6.4 * 60_000), { lastStepHadTools: true })).toEqual({ action: "call", note: WRAP_UP_NOTE });
+		expect(ownerCapped().gate(usage(0, 9 * 60_000), { lastStepHadTools: true })).toMatchObject({ action: "deliver", stop: { reason: "budget_wall" } });
+		const unattended = createSupervisor({ profile: "chat", budget: OWNER_CHAT_8MIN });
 		expect(unattended.gate(usage(0, 6.4 * 60_000), { lastStepHadTools: true })).toEqual({ action: "call", note: WRAP_UP_NOTE });
 		expect(unattended.gate(usage(0, 8 * 60_000), { lastStepHadTools: true })).toMatchObject({ action: "deliver", stop: { reason: "budget_wall" } });
 		expect(unattended.promote(LONG)).toBe(false);
+	});
+
+	it("chat sem teto de tempo (o padrão): passar de 8 min, 1 h ou 10 h não dá WRAP_UP_NOTE, nem entrega, nem promove", () => {
+		const supervisor = chat();
+		for (const minutes of [7, 8, 9, 30, 60, 600]) {
+			expect(supervisor.gate(usage(0, minutes * 60_000, 10), { lastStepHadTools: true }), `${minutes} min`).toEqual({ action: "call" });
+		}
+		expect(supervisor.fraction(usage(0, 600 * 60_000))).toBe(0);
+		expect(supervisor.promoted).toBe(false);
 	});
 
 	it("dinheiro nunca promove nem para: US$ 50 gastos no chat sem teto seguem", () => {
@@ -81,9 +96,9 @@ describe("promoção chat -> trabalho longo", () => {
 		expect(supervisor.profile).toBe("long_work");
 		expect(supervisor.budget).toEqual(LONG);
 		expect(supervisor.promoted).toBe(true);
-		// 8 min gastos já não entregam: o tempo do trabalho longo é 60 min.
+		// 9 min gastos não entregam; o trabalho longo (LONG, 60 min do dono neste teste) segue.
 		expect(supervisor.gate(usage(3, 9 * 60_000, 20), { lastStepHadTools: true })).toEqual({ action: "call" });
-		// Na reserva (70% do tempo) a pesquisa fecha como no trabalho longo.
+		// Na reserva (70% do tempo do dono) a pesquisa fecha como no trabalho longo.
 		expect(supervisor.gate(usage(3, 43 * 60_000, 25), { lastStepHadTools: true })).toMatchObject({ action: "call", note: expect.stringContaining("Research is over") });
 		expect(supervisor.phase()).toBe("write");
 	});
@@ -235,8 +250,32 @@ describe("repetição real", () => {
 		expect(third.abort).toBeUndefined();
 		expect(third.notes).toHaveLength(1);
 		expect(third.notes[0]).toMatch(/same arguments and got the same result/);
+		// 1ª reincidência: 2ª nota, com alternativa, ainda sem abortar.
 		const fourth = supervisor.recordTool(record({ step: 4 }));
-		expect(fourth.abort).toEqual({ reason: "loop_repeat", detail: "after_note" });
+		expect(fourth.abort).toBeUndefined();
+		expect(fourth.notes[0]).toMatch(/last warning before the run stops/);
+		const fifth = supervisor.recordTool(record({ step: 5 }));
+		expect(fifth.abort).toEqual({ reason: "loop_repeat", detail: "after_note" });
+	});
+
+	it("6 esperas idênticas (sandbox_shell_wait, browser_wait) não viram laço; passando do limite elas contam como qualquer repetição", () => {
+		const supervisor = createSupervisor({ profile: "long_work", budget });
+		for (const name of ["sandbox_shell_wait", "browser_wait"]) {
+			for (let step = 1; step <= 6; step++) expect(supervisor.recordTool(record({ step, name, argsKey: "job=1", resultKey: "still running" })), name).toEqual({ notes: [] });
+		}
+		let aborted = false;
+		for (let step = 1; step <= WAIT_REPEAT_LIMIT + 6; step++) {
+			if (supervisor.recordTool(record({ step, name: "sandbox_shell_wait", argsKey: "job=2", resultKey: "still running" })).abort) aborted = true;
+		}
+		expect(aborted).toBe(true);
+	});
+
+	it("3 falhas de browser_act em refs diferentes não bloqueiam; 3 no mesmo ref bloqueiam", () => {
+		const supervisor = createSupervisor({ profile: "long_work", budget });
+		for (let step = 1; step <= 4; step++) supervisor.recordTool(record({ step, name: "browser_act", ok: false, argsKey: `ref=${step}`, resultKey: `e${step}`, target: `e${step}`, message: "not found" }));
+		expect(supervisor.toolBlocked("browser_act", 5)).toBeUndefined();
+		for (let step = 6; step <= 8; step++) supervisor.recordTool(record({ step, name: "browser_act", ok: false, argsKey: `try=${step}`, resultKey: `x${step}`, target: "e9", message: "not found" }));
+		expect(supervisor.toolBlocked("browser_act", 9)).toMatch(/temporarily unavailable/);
 	});
 
 	it("uma chamada diferente no meio zera a sequência", () => {
@@ -337,7 +376,7 @@ describe("fases da pesquisa (as tools mudam de verdade)", () => {
 });
 
 describe("mensagem nova do usuário renova o tempo (onUserInput)", () => {
-	const chat = (over: Partial<Parameters<typeof createSupervisor>[0]> = {}) => createSupervisor({ profile: "chat", budget: CHAT_BUDGET, promotable: true, ...over });
+	const chat = (over: Partial<Parameters<typeof createSupervisor>[0]> = {}) => createSupervisor({ profile: "chat", budget: OWNER_CHAT_8MIN, promotable: true, ...over });
 
 	it("a fração de tempo recomeça em 0 a partir da mensagem; o aviso de fechamento pode vir de novo", () => {
 		const supervisor = chat({ promotable: false });
@@ -438,5 +477,191 @@ describe("promoção pela lista de tarefas do modelo", () => {
 		expect(supervisor.gate(usage(0.1, 10_000), { plannedSteps: 3 })).toEqual({ action: "promote" });
 		supervisor.promote({ maxCostUsd: 1, maxActiveMs: 60 * 60_000 });
 		expect(supervisor.gate(usage(1, 20_000), { plannedSteps: 3 })).toMatchObject({ action: "deliver", stop: { reason: "budget_cost" } });
+	});
+});
+
+describe("sem orçamento de tempo (decisão do dono, 02/11)", () => {
+	const noCap = { maxCostUsd: Number.POSITIVE_INFINITY, maxActiveMs: Number.POSITIVE_INFINITY };
+
+	it("chat de 9 min (now injetado pelo activeMs) não recebe WRAP_UP_NOTE nem deliver; nada vira NaN", () => {
+		const supervisor = createSupervisor({ profile: "chat", budget: CHAT_BUDGET });
+		const gate = supervisor.gate(usage(0, 9 * 60_000, 5));
+		expect(gate).toEqual({ action: "call" });
+		expect(Number.isNaN(supervisor.fraction(usage(0, 9 * 60_000)))).toBe(false);
+		expect(supervisor.fraction(usage(5, 9 * 60_000))).toBe(0);
+		expect(supervisor.researchRemaining(usage(0, 9 * 60_000))).toEqual({ costUsd: Number.POSITIVE_INFINITY, activeMs: Number.POSITIVE_INFINITY });
+	});
+
+	it("tetos do dono continuam iguais: custo, tempo e hardActiveMs avisam a 80% e entregam no limite", () => {
+		const owner = createSupervisor({ profile: "chat", budget: { maxCostUsd: 1, maxActiveMs: 8 * 60_000 } });
+		expect(owner.gate(usage(0, 6.4 * 60_000))).toEqual({ action: "call", note: WRAP_UP_NOTE });
+		expect(owner.gate(usage(0, 8 * 60_000))).toMatchObject({ action: "deliver", stop: { reason: "budget_wall" } });
+		const hard = createSupervisor({ profile: "chat", budget: CHAT_BUDGET, hardActiveMs: 30 * 60_000 });
+		expect(hard.gate(usage(0, 29 * 60_000))).toEqual({ action: "call" });
+		expect(hard.gate(usage(0, 30 * 60_000))).toMatchObject({ action: "deliver", stop: { reason: "budget_wall" } });
+		// longWorkMinutes / gasto do bot e teto da conta compõem com o perfil sem tempo.
+		expect(budgetForProfile("long_work", { longWorkMinutes: 45, accountCapMs: 20 * 60_000 }).maxActiveMs).toBe(20 * 60_000);
+		expect(budgetForProfile("long_work", { longWorkMinutes: 45 }).maxActiveMs).toBe(45 * 60_000);
+		expect(budgetForProfile("chat", { accountCapMs: 0 })).toEqual(CHAT_BUDGET);
+	});
+
+	it("o laço sem tempo termina por MAX_STEPS_SAFETY (chat e trabalho longo)", () => {
+		for (const profile of ["chat", "long_work"] as const) {
+			const supervisor = createSupervisor({ profile, budget: noCap });
+			expect(supervisor.gate(usage(0, 10 * 60 * 60_000, MAX_STEPS_SAFETY - 1)).action, profile).toBe("call");
+			const gate = supervisor.gate(usage(0, 10 * 60 * 60_000, MAX_STEPS_SAFETY));
+			expect(gate, profile).toMatchObject({ action: "deliver", stop: { reason: "budget_steps" } });
+		}
+	});
+
+	it("o laço sem tempo termina por repetição: nota na 3ª igual, aborto na 4ª", () => {
+		const supervisor = createSupervisor({ profile: "chat", budget: noCap });
+		supervisor.recordTool(record({ step: 1 }));
+		supervisor.recordTool(record({ step: 2 }));
+		expect(supervisor.recordTool(record({ step: 3 })).notes).toHaveLength(1);
+		expect(supervisor.recordTool(record({ step: 4 })).notes).toHaveLength(1);
+		expect(supervisor.recordTool(record({ step: 5 }))).toMatchObject({ abort: { reason: "loop_repeat" } });
+	});
+
+	it("falhas seguidas continuam bloqueando a tool sem tempo", () => {
+		const supervisor = createSupervisor({ profile: "chat", budget: noCap });
+		for (let step = 1; step <= 3; step++) supervisor.recordTool(record({ step, ok: false, argsKey: `q=${step}`, message: "boom" }));
+		expect(supervisor.toolBlocked("web_search", 4)).toMatch(/temporarily unavailable/);
+	});
+
+	it("trabalho longo sem tempo vai da pesquisa para a escrita por PASSOS (70% do teto de segurança)", () => {
+		const supervisor = createSupervisor({ profile: "long_work", budget: noCap });
+		const idleHours = 10 * 60 * 60_000;
+		expect(supervisor.gate(usage(0, idleHours, Math.floor(MAX_STEPS_SAFETY * 0.7) - 1))).toEqual({ action: "call" });
+		const gate = supervisor.gate(usage(0, idleHours, Math.ceil(MAX_STEPS_SAFETY * 0.7)));
+		expect(gate).toMatchObject({ action: "call", note: expect.stringContaining("Research is over") });
+		expect(supervisor.researchEnd()).toBe("steps");
+		expect(supervisor.phase()).toBe("write");
+		expect(supervisor.researchRemaining(usage(0, idleHours, 150))).toEqual({ costUsd: 0, activeMs: 0 });
+	});
+
+	it("trabalho longo sem tempo vai para a escrita por ESTAGNAÇÃO e por lista concluída", () => {
+		const stalled = createSupervisor({ profile: "long_work", budget: noCap });
+		stalled.gate(usage(0, 0, 1), { notebookCount: 1 });
+		stalled.gate(usage(0, 0, 2), { notebookCount: 2 });
+		let gate: ReturnType<typeof stalled.gate> = { action: "call" };
+		for (let step = 3; step < 3 + STAGNATION_STEPS; step++) gate = stalled.gate(usage(0, 99 * 60 * 60_000, step), { notebookCount: 2 });
+		expect(gate).toMatchObject({ action: "call", note: expect.stringContaining("Research is over") });
+		expect(stalled.researchEnd()).toBe("stagnation");
+
+		const done = createSupervisor({ profile: "long_work", budget: noCap });
+		expect(done.gate(usage(0, 99 * 60 * 60_000, 5), { listDone: true })).toMatchObject({ action: "call", note: expect.stringContaining("Research is over") });
+		expect(done.researchEnd()).toBe("list_done");
+	});
+
+	it("a promoção pela lista de 3+ passos continua; ajudantes recebem tempo infinito para repartir (o plano dos ajudantes os limita)", () => {
+		const supervisor = createSupervisor({ profile: "chat", budget: CHAT_BUDGET, promotable: true });
+		expect(supervisor.gate(usage(0, 0, 1), { plannedSteps: PROMOTE_PLAN_STEPS })).toEqual({ action: "promote" });
+		expect(supervisor.promote(LONG_WORK_BUDGET)).toBe(true);
+		expect(supervisor.researchRemaining(usage(0, 5 * 60 * 60_000, 3)).activeMs).toBe(Number.POSITIVE_INFINITY);
+	});
+});
+
+describe("estagnação: resultado novo é progresso; fase de escrita mantém as tools de ação", () => {
+	const noCap = { maxCostUsd: Number.POSITIVE_INFINITY, maxActiveMs: Number.POSITIVE_INFINITY };
+	const action = (step: number, result: string, over: Partial<ReturnType<typeof record>> = {}) => record({ step, name: "browser_act", argsKey: `ref=${step}`, resultKey: result, ...over });
+
+	it("STAGNATION_STEPS é 8 (ação de navegador legítima precisa de fôlego)", () => {
+		expect(STAGNATION_STEPS).toBe(8);
+	});
+
+	it("passos de ação com resultados distintos nunca estagnam; resultados repetidos ou falhas estagnam", () => {
+		const moving = createSupervisor({ profile: "long_work", budget: noCap });
+		moving.gate(usage(0, 0, 1), { notebookCount: 1 });
+		for (let step = 2; step < 40; step++) {
+			moving.recordTool(action(step, `pagina-${step}`));
+			expect(moving.gate(usage(0, 0, step), { notebookCount: 1 }).action).toBe("call");
+			expect(moving.phase()).toBe("research");
+		}
+		const stuck = createSupervisor({ profile: "long_work", budget: noCap });
+		stuck.gate(usage(0, 0, 1), { notebookCount: 1 });
+		// O 1º resultado ainda é novo (progresso); os 8 passos seguintes repetem a mesma página.
+		for (let step = 2; step < 3 + STAGNATION_STEPS; step++) {
+			stuck.recordTool(action(step, "mesma-pagina"));
+			stuck.gate(usage(0, 0, step), { notebookCount: 1 });
+		}
+		expect(stuck.researchEnd()).toBe("stagnation");
+		// Falha nunca é progresso, mesmo com mensagem diferente a cada vez.
+		const failing = createSupervisor({ profile: "long_work", budget: noCap });
+		failing.gate(usage(0, 0, 1), { notebookCount: 1 });
+		for (let step = 2; step < 2 + STAGNATION_STEPS; step++) {
+			failing.recordTool(action(step, `erro-${step}`, { ok: false, message: `falha ${step}` }));
+			failing.gate(usage(0, 0, step), { notebookCount: 1 });
+		}
+		expect(failing.researchEnd()).toBe("stagnation");
+	});
+
+	it("capturas de tela com bytes diferentes e sem texto novo NÃO são progresso: continuam estagnando", () => {
+		const supervisor = createSupervisor({ profile: "long_work", budget: noCap });
+		supervisor.gate(usage(0, 0, 1), { notebookCount: 1 });
+		for (let step = 2; step < 4 + STAGNATION_STEPS; step++) {
+			supervisor.recordTool(record({ step, name: "screenshot", argsKey: `shot=${step}`, resultKey: `bytes-${step}-${"x".repeat(step)}` }));
+			supervisor.gate(usage(0, 0, step), { notebookCount: 1 });
+		}
+		expect(supervisor.researchEnd()).toBe("stagnation");
+		// Texto novo (browser_read) ou URL nova vale como progresso.
+		const reading = createSupervisor({ profile: "long_work", budget: noCap });
+		reading.gate(usage(0, 0, 1), { notebookCount: 1 });
+		for (let step = 2; step < 4 + STAGNATION_STEPS; step++) {
+			reading.recordTool(record({ step, name: "browser_read", argsKey: "same", resultKey: `texto novo ${step}` }));
+			reading.gate(usage(0, 0, step), { notebookCount: 1 });
+		}
+		expect(reading.researchEnd()).toBeUndefined();
+	});
+
+	it("sem tempo, RESEARCH_TIME_RATIO não existe: a pesquisa nunca acaba por 'time'; com tempo do dono, acaba aos 70%", () => {
+		const infinite = createSupervisor({ profile: "long_work", budget: noCap });
+		for (let step = 1; step < 20; step++) infinite.gate(usage(0, step * 60 * 60_000, step), { notebookCount: step });
+		expect(infinite.researchEnd()).toBeUndefined();
+		const owner = createSupervisor({ profile: "long_work", budget: { maxCostUsd: Number.POSITIVE_INFINITY, maxActiveMs: 10 * 60_000 } });
+		owner.gate(usage(0, 7 * 60_000, 1));
+		expect(owner.researchEnd()).toBe("time");
+	});
+
+	it("na escrita, pedido sem documento mantém browser e sandbox; com documento só escrita", () => {
+		const make = (keepActionTools: boolean) => {
+			const supervisor = createSupervisor({ profile: "long_work", budget: noCap, keepActionTools });
+			supervisor.gate(usage(0, 0, 1), { listDone: true });
+			expect(supervisor.phase()).toBe("write");
+			return supervisor;
+		};
+		const keep = make(true);
+		for (const name of ["browser_act", "browser_snapshot", "sandbox_shell", "create_file", "notebook_write"]) expect(keep.phaseBlocked(name), name).toBeUndefined();
+		for (const name of ["web_search", "delegate", "memory_search"]) expect(keep.phaseBlocked(name), name).toMatch(/not available/);
+		const document = make(false);
+		expect(document.phaseBlocked("browser_act")).toMatch(/not available/);
+		expect(document.phaseAllows("create_file")).toBe(true);
+	});
+});
+
+describe("rede global de falhas seguidas", () => {
+	const noCap = { maxCostUsd: Number.POSITIVE_INFINITY, maxActiveMs: Number.POSITIVE_INFINITY };
+	const fail = (step: number) => record({ step, name: `tool_${step % 5}`, argsKey: `a${step}`, resultKey: `e${step}`, ok: false, target: `alvo-${step}`, message: `falhou ${step}` });
+
+	it("8 falhas seguidas de tools e alvos diferentes trazem uma nota; mais 3 encerram com a entrega honesta (tool_failures)", () => {
+		const supervisor = createSupervisor({ profile: "chat", budget: noCap });
+		for (let step = 1; step < GLOBAL_FAILURE_NOTE_AT; step++) expect(supervisor.recordTool(fail(step)).notes.some((note) => note.includes("in a row all failed"))).toBe(false);
+		const eighth = supervisor.recordTool(fail(GLOBAL_FAILURE_NOTE_AT));
+		expect(eighth.notes.some((note) => note.includes("in a row all failed"))).toBe(true);
+		expect(eighth.abort).toBeUndefined();
+		let verdict = eighth;
+		for (let step = GLOBAL_FAILURE_NOTE_AT + 1; step <= GLOBAL_FAILURE_NOTE_AT + GLOBAL_FAILURE_ABORT_EXTRA; step++) verdict = supervisor.recordTool(fail(step));
+		expect(verdict.abort).toEqual({ reason: "tool_failures", detail: "consecutive" });
+		expect(deliveryInstruction("tool_failures")).toMatch(/tools keep failing/);
+	});
+
+	it("um sucesso no meio zera a contagem", () => {
+		const supervisor = createSupervisor({ profile: "chat", budget: noCap });
+		for (let step = 1; step <= 7; step++) supervisor.recordTool(fail(step));
+		supervisor.recordTool(record({ step: 8, name: "web_search", argsKey: "ok", resultKey: "ok" }));
+		for (let step = 9; step <= 20; step++) {
+			const verdict = supervisor.recordTool(step % 6 === 0 ? record({ step, name: "web_search", argsKey: `ok${step}`, resultKey: `ok${step}` }) : fail(step));
+			expect(verdict.abort).toBeUndefined();
+		}
 	});
 });

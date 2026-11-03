@@ -337,7 +337,24 @@ describe("motor v2: Supervisor no laço", () => {
 		expect(result.stop?.reason).toBe("budget_cost");
 	});
 
-	it("mesma tool + mesmos args + mesmo resultado 3x vira nota; só a reincidência encerra (com entrega)", async () => {
+	it("laço encerrado com itens da lista abertos grava o detalhe items_open (o worker agenda a continuação)", async () => {
+		vi.useFakeTimers({ toFake: ["Date"] });
+		vi.setSystemTime(new Date("2026-11-01T12:00:00Z"));
+		const same = (id: string) => turn([call(id, "current_time", { timezone: "Asia/Tokyo" })]);
+		const outcome = await runV2({
+			messages: [{ role: "user", content: "oi" }],
+			script: [
+				turn([taskList("t0", [["Passo A", "in_progress"], ["Passo B", "pending"]])]),
+				turn([call("l0", "mcp_tool_search", { query: "current_time" })]),
+				same("l1"), same("l2"), same("l3"), same("l4"), same("l5"),
+				say("Parei; faltam passos."),
+			],
+		});
+		vi.useRealTimers();
+		expect(outcome.result.stop).toEqual({ reason: "loop_repeat", detail: "after_note:items_open" });
+	});
+
+	it("mesma tool + mesmos args + mesmo resultado 3x vira nota, a 4ª uma 2ª nota com alternativa, e só a 5ª encerra (com entrega)", async () => {
 		// Relógio fixo: o resultado de current_time traz os segundos e precisa ser igual nas 4 chamadas.
 		vi.useFakeTimers({ toFake: ["Date"] });
 		vi.setSystemTime(new Date("2026-11-01T12:00:00Z"));
@@ -350,6 +367,7 @@ describe("motor v2: Supervisor no laço", () => {
 				same("l2"),
 				same("l3"),
 				same("l4"),
+				same("l5"),
 				say("Parei de repetir; resultado parcial."),
 			],
 		});
@@ -360,7 +378,7 @@ describe("motor v2: Supervisor no laço", () => {
 		expect(result.stop).toEqual({ reason: "loop_repeat", detail: "after_note" });
 		expect(requests.at(-1)!.params.toolChoice).toBe("none");
 		expect(result.text).toBe("Parei de repetir; resultado parcial.");
-		expect(toolResults.filter((r) => r.name === "current_time")).toHaveLength(4);
+		expect(toolResults.filter((r) => r.name === "current_time")).toHaveLength(5);
 	});
 
 	it("falhas seguidas da mesma tool: nota e bloqueio temporário, sem matar o run", async () => {

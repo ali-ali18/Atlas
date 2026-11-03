@@ -783,16 +783,14 @@ describe("motor v2: o árbitro é progresso e tempo, não dinheiro (replays)", (
 		expect(content.split("## Não deu para confirmar")[0]).not.toMatch(/não confirmado/i);
 	});
 
-	it("gatilho por estagnação: 4 passos sem caderno novo nem item concluído mandam escrever; só write tools depois", async () => {
+	it("gatilho por estagnação: 8 passos de leitura sem resultado novo, sem caderno novo nem item concluído mandam escrever; só write tools depois", async () => {
 		const run = await runV2({
 			messages: [{ role: "user", content: PEDIDO_RELATORIO }],
 			coordinator: [
 				OPEN(),
 				turn([call("notebook_write", { title: "Alfa", excerpt: "Preço do fornecedor Alfa: R$ 40 à vista, sem frete", source: "https://alfa.example.com/preco" })]),
-				search(),
-				search(),
-				search(),
-				search(),
+				// Consultas diferentes (não é repetição), mas todas devolvem o mesmo vazio: nenhum resultado novo.
+				...Array.from({ length: 8 }, (_, n) => turn([call("memory_search", { query: `outra fonte ${n}` })])),
 				CLOSE(),
 				reportFile(),
 				say("Relatório pronto."),
@@ -800,11 +798,38 @@ describe("motor v2: o árbitro é progresso e tempo, não dinheiro (replays)", (
 		});
 		const noted = run.coordinatorRequests.findIndex((request) => messagesOf(request).includes("Research is over"));
 		expect(noted).toBeGreaterThan(0);
+		// A nota veio só depois dos 8 passos parados (OPEN + caderno + 8 leituras = 10 chamadas antes), não da lista concluída.
+		expect(noted).toBeGreaterThanOrEqual(10);
 		// Até a nota a pesquisa seguiu livre; depois, só escrita.
 		expect(run.coordinatorRequests[noted - 1]!.toolNames).toContain("memory_search");
 		for (const request of run.coordinatorRequests.slice(noted)) expect(request.toolNames.every((name) => WRITE_ONLY.has(name)), request.toolNames.join(",")).toBe(true);
 		expect(run.persisted).toHaveLength(1);
 		expect(run.result.stop).toMatchObject({ reason: "answered" });
+	});
+
+	it("8 passos de leitura com resultado DISTINTO a cada um (ações de navegador, p.ex.) seguem em pesquisa: resultado novo é progresso", async () => {
+		const db = await import("@workspace/db");
+		let n = 0;
+		vi.mocked(db.searchMemoryEntries).mockImplementation((async () => [{ entry: { content: `página ${++n} com conteúdo próprio`, category: null, target: "bot" }, score: 1 }]) as never);
+		try {
+			const run = await runV2({
+				messages: [{ role: "user", content: PEDIDO_RELATORIO }],
+				coordinator: [
+					OPEN(),
+					turn([call("notebook_write", { title: "Alfa", excerpt: "Preço do fornecedor Alfa: R$ 40 à vista, sem frete", source: "https://alfa.example.com/preco" })]),
+					...Array.from({ length: 9 }, (_, i) => turn([call("memory_search", { query: `etapa ${i}` })])),
+					CLOSE(),
+					reportFile(),
+					say("Relatório pronto."),
+				],
+			});
+			const noted = run.coordinatorRequests.findIndex((request) => messagesOf(request).includes("Research is over"));
+			// A pesquisa só acaba pela lista concluída (CLOSE), depois dos 9 passos; nenhuma tool saiu antes.
+			expect(noted).toBeGreaterThanOrEqual(11);
+			for (const request of run.coordinatorRequests.slice(0, 11)) expect(request.toolNames).toContain("delegate");
+		} finally {
+			vi.mocked(db.searchMemoryEntries).mockImplementation((async () => []) as never);
+		}
 	});
 
 	it("estagnação: entrada repetida, só com pontuação diferente ou quase vazia NÃO conta como progresso e não impede a parada", async () => {

@@ -20,6 +20,7 @@ import {
 	type SessionMessage,
 	type UserSettings,
 	formatCostLabel,
+	isShortContinuation,
 	isLlmChatRole,
 	readDecideForOtherBots,
 	readSubagentModel,
@@ -98,6 +99,7 @@ import {
 	readRunContextLength,
 	readRunModelAuto,
 	readRunHumanTurn,
+	getConversationNotebook,
 	releaseRunLease,
 	releasePausedRunLease,
 	renewRunLease,
@@ -137,7 +139,7 @@ import {
 	resolveBudget,
 	wallClockAnchors,
 } from "@workspace/agent-runtime";
-import { engineDefaultFromEnv, pickRunEngine, resolveRunLimits, runSelectedEngine } from "../engine-choice.js";
+import { earlyWallMs, engineDefaultFromEnv, pickRunEngine, resolveRunLimits, runSelectedEngine } from "../engine-choice.js";
 import { briefToolFilter, budgetStopFallbackText, isBotConfigEventObjective, createReviewerClient, resolveMaintenanceCandidates } from "@workspace/agent-runtime";
 import { briefDeliveryDeps, deliverBriefFailure, deliverDailyBrief, findRoutineRunIdWithRetry, isDetachedBriefRun } from "../daily-brief.js";
 import { appendConversationMessage, getLanguageContext, listRecentLoginAsks } from "@workspace/db";
@@ -147,6 +149,7 @@ import { runSystemLanguage } from "../system-language.js";
 import {
 	AUTO_CONTINUE_MAX,
 	autoContinueCauseOfBudgetStop,
+	autoContinueCauseOfLoopStop,
 	autoContinueScheduled,
 	autoContinueCauseOfFailure,
 	planAutoContinue,
@@ -1015,6 +1018,7 @@ async function executeLeasedRun(ctx: {
 	const budget = resolveBudget({
 		maxSteps: run.maxSteps,
 		policy: { ...accountBudgetPolicy(configSnapshot, run.maxSteps), ...botPolicy, ...requestBudget },
+		humanTurn: readRunHumanTurn(run),
 	});
 	let effectiveCostCap = effectiveCostCapUsd(budget.maxCostUsd, configSnapshot);
 	const runStartedAt = run.startedAt
@@ -1026,7 +1030,8 @@ async function executeLeasedRun(ctx: {
 	let sessionProbe: Promise<void> = Promise.resolve();
 	if (cachedSessionId) {
 		// Mesmo prazo do runtime: só tempo ativo (pausa e fila não contam).
-		const { deadlineAtMs } = wallClockAnchors({ maxWallMs: budget.maxWallMs, now: Date.now(), runStartedAt, restored: checkpoint });
+		// Ainda sem o motor escolhido: run sem humano usa o teto padrão dele (o mesmo que `resolveRunLimits` aplica depois).
+		const { deadlineAtMs } = wallClockAnchors({ maxWallMs: earlyWallMs(budget.maxWallMs, !(run.origin === "chat" && readRunHumanTurn(run))), now: Date.now(), runStartedAt, restored: checkpoint });
 		const initialContext = { signal: aborter.signal, deadlineAtMs };
 		const inherited = cachedSessionId;
 		// `getRunningSession` nunca rejeita (falha = sessão não está rodando).
@@ -1177,6 +1182,11 @@ async function executeLeasedRun(ctx: {
 	});
 	effectiveCostCap = runLimits.costCapUsd;
 	const runtimeBudget = runLimits.wallMs !== undefined ? { ...budget, maxWallMs: runLimits.wallMs } : budget;
+	// "continua" digitado: o caderno do trabalho anterior da conversa semeia o novo run (mesmo dono; falha = sem caderno).
+	const priorNotebook =
+		run.origin === "chat" && !groupRun && run.conversationId && (autoContinueAttempt > 0 || (readRunHumanTurn(run) && isShortContinuation(run.objective ?? "")))
+			? await getConversationNotebook(runUserId, run.conversationId, { excludeRunId: runId }).catch(() => null)
+			: null;
 	try {
 		const result = await runSelectedEngine({ ...engineChoice, modelMaxOutputTokens: (modelId) => providers.capabilities(modelId).then((caps) => caps.maxOutputTokens, () => null) }, {
 			messageTriageModel,
@@ -1322,6 +1332,8 @@ async function executeLeasedRun(ctx: {
 			priorResearchNotes,
 			priorTaskLedger,
 			priorTaskList,
+			...(priorNotebook ? { priorNotebook } : {}),
+			...(autoContinueAttempt > 0 ? { autoContinued: true } : {}),
 			openBotRequests,
 			planMode: readPlanMode(rawBotPolicy),
 			planPending,
@@ -1636,7 +1648,19 @@ async function executeLeasedRun(ctx: {
 						.catch(() => undefined);
 				},
 			},
-			{ name: "follow-up", run: () => chainRunFollowUp(run, runUserId, deps) },
+			{
+				// Laço do motor novo com itens abertos num chat digitado: continua sozinho (limitado), sem pedir "continua".
+				name: "follow-up",
+				run: async () => {
+					const loopCause = autoContinueCauseOfLoopStop(result.stop, { engine: engineChoice.engine, origin: run.origin, humanTurn: readRunHumanTurn(run) });
+					if (loopCause && (deps.enqueueNextRun || deps.autoContinueIo)) {
+						const autoIo = deps.autoContinueIo ?? createAutoContinueIo(deps.enqueueNextRun!);
+						const plan = await planAutoContinue(run, { cause: loopCause, progress: 1, costCapUsd: effectiveCostCap, costUsedUsd: result.usage.costUsd }, autoIo).catch((): AutoContinueDecision => ({ schedule: false, reason: "not_recoverable" }));
+						if (plan.schedule && autoContinueScheduled(await scheduleAutoContinue(run, runUserId, plan, autoIo))) return;
+					}
+					await chainRunFollowUp(run, runUserId, deps);
+				},
+			},
 			{ name: "delivery", run: () => settleDelivery(result.hitWall ? "budget_exhausted" : "completed", noUpdate ? null : result.text) },
 			{
 				// "Seu dia" nasce sem conversa: a frase curta e o push saem daqui, na conversa do bot (ver daily-brief.ts).

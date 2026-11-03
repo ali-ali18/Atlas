@@ -153,6 +153,12 @@ export function EngineSettings({ policyJson, onChange }: { policyJson: unknown; 
 							invalid={rejected === "minutes"}
 							label={t("botSettings.engineBudgetMinutes")}
 							onCommit={(text) => {
+								// Vazio ou 0 = sem limite de tempo (o padrão); só valor positivo vira teto.
+								if (isNoBudgetText(text)) {
+									setRejected(null);
+									save({ longWorkMinutes: null });
+									return true;
+								}
 								const minutes = parseBudgetMinutes(text);
 								if (minutes === null) {
 									setRejected("minutes");
@@ -162,8 +168,9 @@ export function EngineSettings({ policyJson, onChange }: { policyJson: unknown; 
 								save({ longWorkMinutes: minutes });
 								return true;
 							}}
+							placeholder={t("botSettings.engineBudgetUsdPlaceholder")}
 							suffix="min"
-							value={String(policy.longWorkMinutes)}
+							value={policy.longWorkMinutesExplicit ? String(policy.longWorkMinutes) : ""}
 						/>
 					</SettingRow>
 					<SettingRow description={t("botSettings.engineHelperDesc")} htmlFor="agent-engine-helper" icon={UsersIcon} label={t("botSettings.engineHelper")}>
