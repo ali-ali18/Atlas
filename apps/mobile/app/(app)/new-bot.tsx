@@ -1,6 +1,6 @@
-import { useRouter } from "expo-router";
+import { Stack, useRouter } from "expo-router";
 import * as React from "react";
-import { KeyboardAvoidingView, Pressable, ScrollView, TextInput, View } from "react-native";
+import { BackHandler, KeyboardAvoidingView, Pressable, ScrollView, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { CloseIcon } from "@/components/icons";
 import { Avatar } from "@/components/ui/avatar";
@@ -11,7 +11,7 @@ import { BOT_NAME_MAX } from "@/lib/bot-edit";
 import { createBot } from "@/lib/bot-api";
 import { cn } from "@/lib/cn";
 import { useHomeData } from "@/lib/home-data";
-import { canCreateBot, NEW_BOT_COLORS, NEW_BOT_SHAPES, randomAvatar, seededRandom } from "@/lib/new-bot";
+import { canCreateBot, shapeLabel, NEW_BOT_COLORS, NEW_BOT_SHAPES, randomAvatar, seededRandom } from "@/lib/new-bot";
 import { createNewBotSubmitter } from "@/lib/new-bot-submit";
 import { themeColor } from "@/lib/theme";
 import { useAppColorScheme } from "@/lib/use-theme";
@@ -41,11 +41,24 @@ export default function NewBotScreen() {
 			createNewBotSubmitter({
 				createBot: (body) => createBot(latest.current.apiFetch, body),
 				addBot: (bot) => latest.current.addBot(bot),
-				refresh: () => latest.current.refresh(),
+				refresh: () => latest.current.refresh({ fresh: true }),
 				onUnauthorized: () => void latest.current.signOut(),
 			}),
 		[],
 	);
+	// Criando: fechar no meio deixaria o bot nascer sem a pessoa ver. O X, o gesto e o voltar do Android esperam.
+	const mounted = React.useRef(true);
+	React.useEffect(() => {
+		mounted.current = true;
+		return () => {
+			mounted.current = false;
+		};
+	}, []);
+	React.useEffect(() => {
+		if (!busy) return;
+		const subscription = BackHandler.addEventListener("hardwareBackPress", () => true);
+		return () => subscription.remove();
+	}, [busy]);
 	const close = () => (router.canGoBack() ? router.back() : router.replace("/"));
 	const enabled = canCreateBot(name, busy);
 	const create = async () => {
@@ -53,7 +66,8 @@ export default function NewBotScreen() {
 		setBusy(true);
 		setError(null);
 		const outcome = await submitter({ name, shape, color });
-		if (outcome === null) return;
+		// A tela já saiu (sessão encerrada, por exemplo): o bot foi criado, mas não há o que navegar nem estado a mexer.
+		if (outcome === null || !mounted.current) return;
 		if (outcome.ok) {
 			// Fecha o formulário e abre o chat do bot novo (voltar do chat leva à home).
 			router.replace(`/chat/${encodeURIComponent(outcome.botId)}` as never);
@@ -65,9 +79,10 @@ export default function NewBotScreen() {
 	const neutral = themeColor(scheme, "muted-foreground");
 	return (
 		<SafeAreaView className="flex-1 bg-background">
+			<Stack.Screen options={{ gestureEnabled: !busy }} />
 			<KeyboardAvoidingView behavior="padding" className="flex-1">
 				<View className="flex-row items-center gap-3 px-4 pt-1.5">
-					<Pressable role="button" accessibilityLabel="Fechar" onPress={close} className="size-11 items-center justify-center rounded-full bg-secondary active:opacity-70">
+					<Pressable role="button" accessibilityLabel="Fechar" accessibilityState={{ disabled: busy }} disabled={busy} onPress={close} className={cn("size-11 items-center justify-center rounded-full bg-secondary active:opacity-70", busy && "opacity-40")}>
 						<CloseIcon size={20} tone="foreground" />
 					</Pressable>
 					<Text className="text-lg font-semibold">Criar novo Bot</Text>
@@ -91,9 +106,9 @@ export default function NewBotScreen() {
 					{/* Três linhas à vista (a referência); a lista é a do editor de avatar e do web e rola por dentro. */}
 					<ScrollView nestedScrollEnabled className="mt-4 w-full flex-none" style={{ height: 3 * 60 }} showsVerticalScrollIndicator={false}>
 					<View accessibilityRole="radiogroup" className="w-full flex-row flex-wrap">
-						{NEW_BOT_SHAPES.map((item) => (
+						{NEW_BOT_SHAPES.map((item, index) => (
 							<View key={item} className="w-1/5 items-center py-0.5">
-								<Pressable role="radio" accessibilityLabel={`Forma ${item}`} accessibilityState={{ checked: item === shape }} onPress={() => setShape(item)} className={cn("size-14 items-center justify-center rounded-2xl border-2", item === shape ? "border-foreground/60" : "border-transparent")}>
+								<Pressable role="radio" accessibilityLabel={shapeLabel(index, NEW_BOT_SHAPES.length)} accessibilityState={{ checked: item === shape }} onPress={() => setShape(item)} className={cn("size-14 items-center justify-center rounded-2xl border-2", item === shape ? "border-foreground/60" : "border-transparent")}>
 									<Avatar color={neutral} shape={item} size={44} animated={false} eyeColor={themeColor(scheme, "background")} />
 								</Pressable>
 							</View>

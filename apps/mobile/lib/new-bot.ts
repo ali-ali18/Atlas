@@ -48,5 +48,8 @@ export function buildNewBotBody(input: NewBotInput): NewBotCheck {
 	return { ok: true, body: { name: name.value, shape: input.shape, color } };
 }
 
+/** Rótulo de leitor de tela da forma: posição na grade, nunca o id interno. */
+export const shapeLabel = (index: number, total: number): string => `Forma ${index + 1} de ${total}`;
+
 /** "Criar" só habilita com um nome válido (e não enquanto cria). */
 export const canCreateBot = (rawName: string, busy: boolean): boolean => !busy && validateBotName(rawName).ok;

@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createBot, createErrorText } from "./bot-api";
 import { ChatApiError } from "./chat-api";
 import { AVATAR_SHAPES } from "./bot-edit";
-import { buildNewBotBody, canCreateBot, NEW_BOT_COLORS, NEW_BOT_SHAPES, randomAvatar, seededRandom } from "./new-bot";
+import { buildNewBotBody, canCreateBot, shapeLabel, NEW_BOT_COLORS, NEW_BOT_SHAPES, randomAvatar, seededRandom } from "./new-bot";
 
 const BLUE = "#1084FE";
 
@@ -59,6 +59,10 @@ describe("corpo do POST /v1/bots", () => {
 	});
 	it("a cor volta no hex canônico da paleta, mesmo vindo em minúsculas", () => {
 		expect(buildNewBotBody({ name: "X", shape: "blob", color: "#1084fe" })).toMatchObject({ ok: true, body: { color: BLUE } });
+	});
+	it("o rótulo acessível da forma é a posição, não o id interno", () => {
+		expect(shapeLabel(0, 25)).toBe("Forma 1 de 25");
+		for (let index = 0; index < NEW_BOT_SHAPES.length; index += 1) expect(shapeLabel(index, NEW_BOT_SHAPES.length)).toMatch(/^Forma \d+ de 25$/);
 	});
 	it("Criar só habilita com nome válido e fora de uma criação em andamento", () => {
 		expect(canCreateBot("", false)).toBe(false);
