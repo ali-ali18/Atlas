@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type AppsRow, buildAppsRows, buildChips, composioAction, composioCategoryOf, connectedCountText, connectedItems, customAction, initialOf, isFeatured, mergeToolkits, nativeAction, appRefId, parseAppRef, type SectionsInput } from "./apps";
+import { appRouteParams, isSvgUri, resolveIconUri, type AppsRow, buildAppsRows, buildChips, composioAction, composioCategoryOf, connectedCountText, connectedItems, customAction, initialOf, isFeatured, mergeToolkits, nativeAction, appRefId, parseAppRef, type SectionsInput } from "./apps";
 import type { ComposioToolkit, NativeConnector } from "./apps-parse";
 import type { CatalogBot } from "./catalog";
 
@@ -142,6 +142,28 @@ describe("chips", () => {
 		expect(composioCategoryOf("c:crm")).toBe("crm");
 		expect(composioCategoryOf("n:search")).toBeNull();
 		expect(composioCategoryOf("c:")).toBeNull();
+	});
+});
+
+describe("ícone e parâmetros da rota", () => {
+	it("caminho do app vira URL do servidor; https passa; o resto cai na inicial", () => {
+		expect(resolveIconUri("/connectors/github.svg", "https://api.exemplo.com/base")).toBe("https://api.exemplo.com/connectors/github.svg");
+		expect(resolveIconUri("/connectors/github.svg", null)).toBeNull();
+		expect(resolveIconUri("https://logos.x/a.png", null)).toBe("https://logos.x/a.png");
+		expect(resolveIconUri("http://logos.x/a.png", null)).toBeNull();
+		expect(resolveIconUri("//evil.com/a.svg", "https://api.exemplo.com")).toBeNull();
+		expect(resolveIconUri("/../etc/x.svg", "https://api.exemplo.com")).toBeNull();
+		expect(resolveIconUri("javascript:alert(1)", null)).toBeNull();
+		expect(resolveIconUri(null, "https://api.exemplo.com")).toBeNull();
+	});
+	it("isSvgUri olha o caminho, não a query", () => {
+		expect(isSvgUri("https://x/a.SVG")).toBe(true);
+		expect(isSvgUri("https://x/a.png?f=.svg")).toBe(false);
+	});
+	it("só o app do Composio leva nome, texto e logo na rota", () => {
+		expect(appRouteParams({ ref: { kind: "native", id: "github" }, name: "GitHub", description: "d", icon: "/c.svg" })).toEqual({ id: "native:github" });
+		expect(appRouteParams({ ref: { kind: "composio", id: "asana" }, name: "Asana", description: "", icon: null })).toEqual({ id: "composio:asana", name: "Asana" });
+		expect(appRouteParams({ ref: { kind: "composio", id: "asana" }, name: "Asana", description: "Tarefas", icon: "https://l/a.png" })).toEqual({ id: "composio:asana", name: "Asana", description: "Tarefas", logo: "https://l/a.png" });
 	});
 });
 

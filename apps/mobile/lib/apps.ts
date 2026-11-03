@@ -51,6 +51,16 @@ export function parseAppRef(value: string): AppRef | null {
 	return { kind, id };
 }
 
+/** Parâmetros da rota do detalhe. App do Composio não tem endpoint de detalhe: nome, texto e logo seguem pela rota. */
+export function appRouteParams(item: { ref: AppRef; name: string; description: string; icon: string | null }): Record<string, string> {
+	const params: Record<string, string> = { id: appRefId(item.ref) };
+	if (item.ref.kind !== "composio") return params;
+	params.name = item.name;
+	if (item.description) params.description = item.description;
+	if (item.icon) params.logo = item.icon;
+	return params;
+}
+
 // ---- categorias ----------------------------------------------------------------------------------------------------
 
 const NATIVE_CATEGORY_LABELS: Record<string, string> = { search: "Pesquisa web", google: "Google", productivity: "Produtividade", creative: "Criação", data: "Fontes de dados", custom: "Personalizado" };
@@ -243,6 +253,37 @@ export function mergeToolkits(current: readonly ComposioToolkit[], more: readonl
 /** Texto da pílula do topo: "3 conectados". */
 export function connectedCountText(count: number): string {
 	return `${count} ${count === 1 ? "conectado" : "conectados"}`;
+}
+
+/**
+ * O endereço da imagem do ícone. Nativos trazem um caminho do app (`/connectors/x.svg`, servido pelo servidor); o
+ * Composio traz uma URL https. Qualquer outra forma (esquema estranho, `..`, `//`) vira `null` e o ícone cai na inicial.
+ */
+export function resolveIconUri(src: string | null, serverUrl: string | null): string | null {
+	if (!src) return null;
+	if (/^\/(?!\/)[A-Za-z0-9._\-/]+$/.test(src) && !src.includes("..")) {
+		if (!serverUrl) return null;
+		try {
+			return new URL(src, serverUrl).href;
+		} catch {
+			return null;
+		}
+	}
+	try {
+		const url = new URL(src);
+		return url.protocol === "https:" && !url.username && !url.password ? url.href : null;
+	} catch {
+		return null;
+	}
+}
+
+/** SVG não abre no `Image` do React Native: vai pelo `SvgUri`. */
+export function isSvgUri(uri: string): boolean {
+	try {
+		return new URL(uri).pathname.toLowerCase().endsWith(".svg");
+	} catch {
+		return false;
+	}
 }
 
 /** Inicial para o ícone sem imagem. */

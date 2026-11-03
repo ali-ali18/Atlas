@@ -1,6 +1,7 @@
 import * as React from "react";
 import { FlatList, KeyboardAvoidingView, View } from "react-native";
 import { Button } from "@/components/ui/button";
+import { ChromePill } from "@/components/ui/chrome-pill";
 import { ScreenFrame } from "@/components/ui/screen-frame";
 import { Spinner } from "@/components/ui/spinner";
 import { Text } from "@/components/ui/text";
@@ -59,9 +60,9 @@ export function CatalogListView({ load, installed, query, onQuery, category, onC
 						Bots prontos
 					</Text>
 					{count > 0 ? (
-						<View className="h-9 items-center justify-center rounded-full bg-secondary px-3.5">
+						<ChromePill height={36} className="px-3.5">
 							<Text className="text-control font-medium">{installedCountText(count)}</Text>
-						</View>
+						</ChromePill>
 					) : null}
 				</View>
 				{bots && categories.length > 0 ? <CategoryFilters categories={categories} value={category} onChange={onCategory} /> : null}
