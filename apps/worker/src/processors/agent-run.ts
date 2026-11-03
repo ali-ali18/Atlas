@@ -2,7 +2,7 @@ import { createRunProviderServices } from "../provider-services.js";
 import { createAssistantSegmentRecorder } from "../assistant-segments.js";
 import { recordObserveChecks } from "../observe-checks.js";
 import { isNoUpdateReply, shouldReviewForSkill, type AlertVerdict, type ConnectorLessonJobPayload, type InspectContextPayload, type InspectHooksPayload, type InspectLessonsPayload, type LessonFeedbackEntry, type LessonReviewJobPayload, type RoutineNotifyMode, type SkillReviewJobPayload } from "@workspace/shared";
-import { REVISED_DRAFT_MAX_CHARS, parseQuestionnaireAnsweredContent, isRecheckObjective, isRecheckToolAllowed, parseModelRef, readPlanMode, readRunReasoningEffort, isFollowupCheckObjective } from "@workspace/shared";
+import { REVISED_DRAFT_MAX_CHARS, parseQuestionnaireAnsweredContent, parseModelRef, readPlanMode, readRunReasoningEffort, isFollowupCheckObjective } from "@workspace/shared";
 import { resolveRunReasoningEffort } from "../reasoning-effort.js";
 import {
 	ATLAS_JOB_NAMES,
@@ -141,7 +141,8 @@ import {
 	wallClockAnchors,
 } from "@workspace/agent-runtime";
 import { earlyWallMs, engineDefaultFromEnv, pickRunEngine, resolveRunLimits, runSelectedEngine } from "../engine-choice.js";
-import { briefToolFilter, budgetStopFallbackText, isBotConfigEventObjective, createReviewerClient, resolveMaintenanceCandidates } from "@workspace/agent-runtime";
+import { budgetStopFallbackText, isBotConfigEventObjective, createReviewerClient, resolveMaintenanceCandidates } from "@workspace/agent-runtime";
+import { runToolFilter } from "../run-tool-filter.js";
 import { briefDeliveryDeps, deliverBriefFailure, deliverDailyBrief, findRoutineRunIdWithRetry, isDetachedBriefRun } from "../daily-brief.js";
 import { appendConversationMessage, getLanguageContext, listRecentLoginAsks } from "@workspace/db";
 import { resolveReplyLanguage, stopOfCompletion, systemMessages, type BotLanguage, type RunStop } from "@workspace/shared";
@@ -1239,13 +1240,8 @@ async function executeLeasedRun(ctx: {
 			email: emailContext,
 			// `@App` do usuário neste turno: as tools desses conectores já entram no 1º passo.
 			forcedConnectors: forcedConnectors.length > 0 ? forcedConnectors : undefined,
-			// Verificação de pendências da reflexão: só leitura (nativa ou conector que se declara somente leitura).
-			// Brief "Seu dia": só leitura, em código (nativa da lista do brief; conector só se declarado de leitura).
-			toolFilter: isDetachedBriefRun(run)
-				? briefToolFilter(mcp)
-				: isRecheckObjective(run.origin, run.objective)
-					? (toolName: string) => isRecheckToolAllowed(toolName, mcp?.toolset.entries.get(toolName)?.readOnly)
-					: undefined,
+			// Brief "Seu dia", verificação de pendências e follow-up `check`: só leitura, em código.
+			toolFilter: runToolFilter(run, mcp),
 			autonomy,
 			skillIndex,
 			...(runLessons.length > 0 && run.botId

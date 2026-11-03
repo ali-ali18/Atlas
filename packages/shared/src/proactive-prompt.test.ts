@@ -5,6 +5,7 @@ import {
 	PROACTIVE_REFLECTION_MARKER,
 	buildFollowupPrompt,
 	isFollowupCheckObjective,
+	isFollowupCheckToolAllowed,
 	isNoUpdateReply,
 	PROACTIVE_NO_UPDATE_TOKEN,
 	buildProactiveChatPromptSection,
@@ -198,5 +199,25 @@ describe("isFollowupCheckObjective", () => {
 		expect(isFollowupCheckObjective("chat", check)).toBe(false);
 		expect(isFollowupCheckObjective("proactive", "This is a check.")).toBe(false);
 		expect(isFollowupCheckObjective("proactive", null)).toBe(false);
+	});
+});
+
+describe("isFollowupCheckToolAllowed", () => {
+	it("leitura nativa e de conector declarado de leitura passam", () => {
+		expect(isFollowupCheckToolAllowed("web_search", undefined)).toBe(true);
+		expect(isFollowupCheckToolAllowed("mcp_tool_search", undefined)).toBe(true);
+		expect(isFollowupCheckToolAllowed("mcp__erp__listar_pedidos", true)).toBe(true);
+	});
+	it("rever e rearmar as próprias conferências passa; cancelar e mandar mensagem solta não", () => {
+		for (const name of ["list_followups", "schedule_followup", "reschedule_followup"]) expect(isFollowupCheckToolAllowed(name, undefined), name).toBe(true);
+		expect(isFollowupCheckToolAllowed("cancel_followup", undefined)).toBe(false);
+		expect(isFollowupCheckToolAllowed("notify_user", undefined)).toBe(false);
+	});
+	it("escrita nativa e conector de escrita ou sem declaração ficam fora", () => {
+		for (const name of ["create_file", "email_send", "propose_routine", "page_create", "memory", "run_code", "delegate_task", "suggest_routine"]) {
+			expect(isFollowupCheckToolAllowed(name, undefined), name).toBe(false);
+		}
+		expect(isFollowupCheckToolAllowed("mcp__erp__criar_pedido", false)).toBe(false);
+		expect(isFollowupCheckToolAllowed("mcp__erp__desconhecida", undefined)).toBe(false);
 	});
 });
