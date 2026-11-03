@@ -51,7 +51,15 @@ const wform = `<body><h1>Order</h1>
 <form><button type="button" id="f" aria-expanded="false" aria-controls="fh">Filters</button><div id="fh" hidden>Filter help text</div></form>
 <script>document.getElementById('f').onclick=(e)=>{e.preventDefault();e.target.setAttribute('aria-expanded','true');document.getElementById('fh').hidden=false}</script></body>`;
 
-const fixtures = await launchFixtureBrowser({ "/wform": wform, "/lms": lms, "/host": host, "/inner": inner("Inner"), "/inner2": inner("Cross"), "/long": long, "/huge": huge });
+// Feed estilo YouTube: 15 mil comentários em #primary vêm ANTES (no documento) do painel lateral visível.
+const feed = `<body style="margin:0"><div id="primary" style="width:600px"><h1>Video title</h1><button id="ask">Ask</button><div id="comments"></div></div>
+<aside id="secondary" style="position:fixed;right:0;top:0;width:260px"><h2>Assistant</h2><p>RESPOSTA DO PAINEL: o video fala de testes.</p></aside>
+<script>document.getElementById('comments').innerHTML = Array.from({ length: 15000 }, (_, i) => '<p>Comment '+i+' about nothing in particular</p>').join('');</script></body>`;
+
+// 40 mil nós sem conteúdo (espaço e oculto) antes do texto: o limite antigo de nós estourava aqui.
+const blank = `<body><div id="x"></div><script>document.getElementById('x').innerHTML = Array.from({ length: 20000 }, () => '<span> </span><i hidden>x</i>').join('');</script><p>FINAL VISIVEL</p></body>`;
+
+const fixtures = await launchFixtureBrowser({ "/feed": feed, "/blank": blank, "/wform": wform, "/lms": lms, "/host": host, "/inner": inner("Inner"), "/inner2": inner("Cross"), "/long": long, "/huge": huge });
 after(() => fixtures?.close());
 const skip = fixtures ? false : "Chromium/playwright-core indisponível";
 
@@ -211,4 +219,29 @@ test("real: limite máximo de 20000 e teto de páginas gigantes (nunca despeja m
 	assert.equal(res.capped, true);
 	assert.ok(res.totalLength <= 400_000);
 	assert.ok(res.nextOffset > 0);
+});
+
+test("real: 15 mil comentários antes do painel lateral: read traz o painel no 1º chunk e marca capped", { skip }, async () => {
+	const { reader } = await open("/feed");
+	const res = await reader.readPage({});
+	const at = res.text.indexOf("RESPOSTA DO PAINEL");
+	assert.ok(at >= 0 && at < 8000, `painel no 1º chunk (pos ${at}):\n${res.text.slice(0, 600)}`);
+	assert.equal(res.capped, true);
+	// O que está na tela vem antes do resto, e o resto é rotulado.
+	assert.match(res.text, /\[on screen\]/);
+	assert.match(res.text, /\[rest of page\]/);
+	assert.ok(res.text.indexOf("Video title") < res.text.indexOf("[rest of page]"));
+});
+
+test("real: find acha o texto do painel lateral mesmo com a página gigante antes dele", { skip }, async () => {
+	const { reader } = await open("/feed");
+	const res = await reader.findText({ query: "RESPOSTA DO PAINEL" });
+	assert.equal(res.total, 1, JSON.stringify(res));
+});
+
+test("real: texto vazio e nó oculto não gastam o orçamento de leitura", { skip }, async () => {
+	const { reader } = await open("/blank");
+	const res = await reader.readPage({});
+	assert.match(res.text, /FINAL VISIVEL/);
+	assert.equal(res.capped, undefined);
 });

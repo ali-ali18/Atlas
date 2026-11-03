@@ -105,7 +105,13 @@ const form = `<body style="margin:20px"><div role="alert">Site accessibility: pr
 <input id="name" aria-label="Name"><div id="err" role="alert"></div><button type="submit">Save</button></form>
 <button onclick="document.body.insertAdjacentHTML('beforeend','<div role=alert>Cookie notice updated</div>')">Banner</button></body>`;
 
+// 15 mil comentários antes do painel; o clique abre o painel lateral (fixo) com a resposta.
+const feedPanel = `<body style="margin:0"><button id="ask" onclick="document.getElementById('panel').hidden=false">Ask</button><div id="comments"></div>
+<aside id="panel" hidden style="position:fixed;right:0;top:0;width:260px;background:#eee"><p>RESPOSTA DO PAINEL: resumo pronto.</p></aside>
+<script>document.getElementById('comments').innerHTML = Array.from({ length: 15000 }, (_, i) => '<p>Comment '+i+' about nothing</p>').join('');</script></body>`;
+
 const fixtures = await launchFixtureBrowser({
+	"/feedpanel": feedPanel,
 	"/accordion": accordion,
 	"/modal": modal,
 	"/noop": noop,
@@ -221,4 +227,10 @@ test("real: browser_click(text) e browser_type devolvem o mesmo diff", { skip },
 	assert.match(clicked.changes.added, /Unit 03 Intro/);
 	assert.ok(clicked.newElements.some((l) => /Unit 03 Intro/.test(l)));
 	assert.ok(clicked.waitMs >= 0);
+});
+
+test("real: clique que abre o painel lateral, atrás de 15 mil comentários, traz o texto novo do painel", { skip }, async () => {
+	const { refs, refOf } = await open("/feedpanel");
+	const res = await refs.browserAct({ ref: refOf("Ask"), action: "click" });
+	assert.ok(res.changes?.added?.includes("RESPOSTA DO PAINEL"), JSON.stringify(res.changes));
 });

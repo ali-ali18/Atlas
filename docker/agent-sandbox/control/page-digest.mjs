@@ -14,7 +14,10 @@ export const ERRORS_MAX = 5;
 /** Roda NA página: fatos brutos (texto por bloco, estados aria, diálogos, refs visíveis, erros). */
 export function readDigestInPage() {
 	const BLOCK_MAX = 160;
-	const MAX_NODES = 4000;
+	// Teto de CONTEÚDO útil (nó de texto não vazio, em bloco visível), não de nós
+	// percorridos: espaço em branco e conteúdo oculto não gastam o orçamento.
+	const MAX_TEXT_NODES = 6000;
+	const MAX_VISITED = 150000;
 	const MAX_BLOCKS = 1200;
 	const MAX_STATES = 300;
 	const MAX_REFS = 600;
@@ -77,41 +80,101 @@ export function readDigestInPage() {
 		return ok;
 	};
 
-	// Texto por bloco (ancestral não-inline mais próximo), em ordem de leitura.
+	// Geometria da viewport: o texto que está na tela entra primeiro (e é o que o
+	// teto preserva), o resto segue em ordem de documento. Critério estrutural.
+	const vw = window.innerWidth || document.documentElement.clientWidth || 0;
+	const vh = window.innerHeight || document.documentElement.clientHeight || 0;
+	const inViewCache = new Map();
+	const inView = (el) => {
+		let v = inViewCache.get(el);
+		if (v === undefined) {
+			const r = el.getBoundingClientRect();
+			v = r.width > 0 && r.height > 0 && r.bottom > 0 && r.right > 0 && r.top < vh && r.left < vw;
+			inViewCache.set(el, v);
+		}
+		return v;
+	};
+
+	// Texto por bloco (ancestral não-inline mais próximo). Passadas: A = dialog/aside/
+	// complementary visíveis na tela; B = blocos que intersectam a viewport; C = o resto.
 	const blocks = [];
 	const byBlock = new Map();
+	const blockOfCache = new Map();
 	const skip = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "TEMPLATE", "TEXTAREA", "OPTION"]);
-	let nodes = 0;
-	const textRoots = [document.body || document.documentElement, ...roots.slice(1)];
-	for (const textRoot of textRoots) {
+	const seenText = new WeakSet();
+	let useful = 0;
+	let visited = 0;
+	let full = false;
+	const blockOf = (parent) => {
+		let block = blockOfCache.get(parent);
+		if (block) return block;
+		block = parent;
+		while (block && block !== document.body) {
+			const display = getComputedStyle(block).display;
+			if (display !== "inline" && display !== "contents") break;
+			block = block.parentElement;
+		}
+		block = block || parent;
+		blockOfCache.set(parent, block);
+		return block;
+	};
+	const scan = (textRoot, onlyInView) => {
 		const walker = document.createTreeWalker(textRoot, NodeFilter.SHOW_TEXT);
-		for (let node = walker.nextNode(); node && nodes < MAX_NODES; node = walker.nextNode()) {
-			nodes += 1;
-			const raw = node.nodeValue;
-			if (!raw || !/\S/.test(raw)) continue;
-			const parent = node.parentElement;
-			if (!parent || skip.has(parent.tagName)) continue;
-			let block = parent;
-			while (block && block !== document.body) {
-				const display = getComputedStyle(block).display;
-				if (display !== "inline" && display !== "contents") break;
-				block = block.parentElement;
+		for (let node = walker.nextNode(); node && !full; node = walker.nextNode()) {
+			if (seenText.has(node)) continue;
+			visited += 1;
+			if (visited > MAX_VISITED) {
+				full = true;
+				break;
 			}
-			block = block || parent;
+			const raw = node.nodeValue;
+			if (!raw || !/\S/.test(raw)) {
+				seenText.add(node);
+				continue;
+			}
+			const parent = node.parentElement;
+			if (!parent || skip.has(parent.tagName)) {
+				seenText.add(node);
+				continue;
+			}
+			const block = blockOf(parent);
+			if (onlyInView && !inView(block)) continue;
 			let entry = byBlock.get(block);
-			if (!entry) {
-				if (blocks.length >= MAX_BLOCKS) break;
+			if (entry === undefined) {
 				if (!rendered(block)) {
 					byBlock.set(block, null);
+					seenText.add(node);
 					continue;
+				}
+				if (blocks.length >= MAX_BLOCKS) {
+					full = true;
+					break;
 				}
 				entry = { text: "" };
 				byBlock.set(block, entry);
 				blocks.push(entry);
 			}
-			if (entry) entry.text += ` ${raw}`;
+			if (!entry) {
+				seenText.add(node);
+				continue;
+			}
+			seenText.add(node);
+			useful += 1;
+			if (useful > MAX_TEXT_NODES) {
+				full = true;
+				break;
+			}
+			entry.text += ` ${raw}`;
 		}
-	}
+	};
+	const textRoots = [document.body || document.documentElement, ...roots.slice(1)];
+	// Passada A: painéis e diálogos visíveis na tela.
+	const priority = deepAll('dialog[open],aside,[role="complementary"],[role="dialog"],[role="alertdialog"],[aria-modal="true"]').filter(
+		(el) => rendered(el) && inView(el),
+	);
+	for (const el of priority) if (!full) scan(el, false);
+	for (const textRoot of textRoots) if (!full) scan(textRoot, true);
+	for (const textRoot of textRoots) if (!full) scan(textRoot, false);
 
 	const states = [];
 	const stateAttrs = ["aria-expanded", "aria-checked", "aria-selected", "aria-pressed"];
