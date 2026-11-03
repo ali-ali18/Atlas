@@ -188,9 +188,43 @@ export function mergedRowHeights(left: readonly number[], right: readonly number
 	return Array.from({ length: count }, (_, index) => Math.max(left[index] ?? 0, right[index] ?? 0));
 }
 
-/** A primeira coluna fica fixa quando há mais colunas e a tabela é mais larga que a tela. */
+/** A primeira coluna só fica fixa quando há 3+ colunas e a tabela é mais larga que a tela. */
 export function pinFirstColumn(widths: readonly number[], viewport: number): boolean {
-	return widths.length > 1 && viewport > 0 && widths.reduce((sum, width) => sum + width, 0) > viewport;
+	return widths.length >= 3 && viewport > 0 && widths.reduce((sum, width) => sum + width, 0) > viewport;
+}
+
+/** A coluna fixa nunca passa desta fração da tela (senão sobra uma fresta para as outras e a rolagem "anda pouco"). */
+export const PINNED_MAX_SHARE = 0.45;
+/** Menor largura de uma coluna de rótulo numa tabela que cabe (abaixo disso o texto quebra demais e é melhor rolar). */
+export const FLEX_MIN_WIDTH = 96;
+
+export type TableLayout =
+	/** Cabe na tela: sem rolagem nem barra. `flex[i]` = a coluna reparte o espaço que sobra (rótulos e texto); as demais (número à direita) ficam com a largura do conteúdo. */
+	| { kind: "fit"; widths: number[]; flex: boolean[] }
+	/** Não cabe: rola na horizontal. `pinned` = a primeira coluna fica fixa (`widths[0]` já limitada); a rolável tem `scrollWidth` (a soma das outras) e mostra `scrollViewport`. */
+	| { kind: "scroll"; pinned: boolean; widths: number[]; scrollWidth: number; scrollViewport: number };
+
+/**
+ * Como a tabela se distribui na largura `viewport` (0 = ainda não medida: desenha como "cabe").
+ * Cabe (rótulos podem encolher até 96 pt e quebrar) -> colunas repartem a largura, sem rolagem. Não cabe -> rola; com 3+ colunas a primeira fica fixa (até 45% da
+ * tela). Se, com a primeira limitada, o resto cabe na tela, volta a "cabe" (nada de rolagem de poucos pontos).
+ * A coluna rolável nunca é menor que o conteúdo: `scrollWidth` é a soma das larguras de conteúdo.
+ */
+export function tableLayout(widths: readonly number[], aligns: ReadonlyArray<"left" | "right" | "center">, viewport: number): TableLayout {
+	const total = widths.reduce((sum, width) => sum + width, 0);
+	const flex = widths.map((_, index) => aligns[index] !== "right");
+	if (!flex.some(Boolean) && flex.length > 0) flex[0] = true;
+	const fit = (): TableLayout => ({ kind: "fit", widths: [...widths], flex });
+	// Cabe se as colunas de número (largura do conteúdo) e as de rótulo, encolhidas até o mínimo (o texto quebra), cabem juntas.
+	const squeezed = widths.reduce((sum, width, index) => sum + (flex[index] ? Math.min(width, FLEX_MIN_WIDTH) : width), 0);
+	if (viewport <= 0 || total <= viewport || squeezed <= viewport) return fit();
+	if (!pinFirstColumn(widths, viewport)) return { kind: "scroll", pinned: false, widths: [...widths], scrollWidth: total, scrollViewport: viewport };
+	const first = Math.min(widths[0]!, Math.floor(viewport * PINNED_MAX_SHARE));
+	const adjusted = [first, ...widths.slice(1)];
+	const scrollWidth = total - widths[0]!;
+	const scrollViewport = viewport - first;
+	if (scrollWidth <= scrollViewport) return fit();
+	return { kind: "scroll", pinned: true, widths: adjusted, scrollWidth, scrollViewport };
 }
 
 // ---------- Linha do tempo, kanban, lista ----------
