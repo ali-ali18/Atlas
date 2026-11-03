@@ -12,7 +12,7 @@ export function rgbToHex([r, g, b]: Rgb): string {
 	return `#${[r, g, b].map((channel) => Math.round(Math.min(255, Math.max(0, channel))).toString(16).padStart(2, "0")).join("")}`;
 }
 
-/** Cor com transparência: `hexAlpha("#fb923c", 0.4)` -> "#fb923c66". */
+/** Cor com transparência: acrescenta o canal alfa (0 a 1) a uma cor em hex de 6 dígitos. */
 export function hexAlpha(hex: string, alpha: number): string {
 	return `${hex.slice(0, 7)}${Math.round(Math.min(1, Math.max(0, alpha)) * 255).toString(16).padStart(2, "0")}`;
 }

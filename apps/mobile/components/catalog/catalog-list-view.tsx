@@ -1,7 +1,7 @@
 import * as React from "react";
 import { FlatList, KeyboardAvoidingView, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "@/components/ui/button";
+import { ScreenFrame } from "@/components/ui/screen-frame";
 import { Spinner } from "@/components/ui/spinner";
 import { Text } from "@/components/ui/text";
 import { buildCatalogRows, type CatalogBot, type CatalogRow, categoriesOf } from "@/lib/catalog";
@@ -51,7 +51,7 @@ export function CatalogListView({ load, installed, query, onQuery, category, onC
 		);
 	}
 	return (
-		<SafeAreaView className="flex-1 bg-background">
+		<ScreenFrame>
 			<KeyboardAvoidingView behavior="padding" className="flex-1">
 				<View className="flex-row items-center gap-3 px-4 pt-1.5">
 					<CloseButton onPress={onClose} />
@@ -68,6 +68,6 @@ export function CatalogListView({ load, installed, query, onQuery, category, onC
 				<FlatList data={rows} keyExtractor={(row) => row.key} renderItem={renderItem} ListEmptyComponent={empty ?? undefined} style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 16 }} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" />
 				<CatalogSearchBar query={query} onChange={onQuery} />
 			</KeyboardAvoidingView>
-		</SafeAreaView>
+		</ScreenFrame>
 	);
 }

@@ -1,7 +1,7 @@
 import * as React from "react";
 import { BackHandler, KeyboardAvoidingView, Platform, Pressable, ScrollView, TextInput, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
 import { Avatar } from "@/components/ui/avatar";
+import { ScreenFrame } from "@/components/ui/screen-frame";
 import { Button } from "@/components/ui/button";
 import { ScreenHeader } from "@/components/ui/screen-header";
 import { Spinner } from "@/components/ui/spinner";
@@ -66,7 +66,6 @@ export function CatalogDetailView({ load, modelName, alreadyInstalled, busy, err
 	const toggleRoutine = (index: number) => setPicked((current) => (current.includes(index) ? current.filter((item) => item !== index) : [...current, index]));
 	const input: InstallInput = { name, useSuggestedModel: useModel && modelName !== null, routines: picked };
 	const valid = buildInstallBody(input).ok && !locked;
-	const off = themeColor(scheme, "ring");
 
 	let body: React.ReactNode;
 	if (load.status === "loading") {
@@ -168,7 +167,7 @@ export function CatalogDetailView({ load, modelName, alreadyInstalled, busy, err
 											{cronSentence(routine.cron)}
 										</Text>
 									</View>
-									<ToggleSwitch accessibilityLabel={`Criar a rotina ${routine.name}`} value={picked.includes(routine.index)} disabled={busy} onValueChange={() => toggleRoutine(routine.index)} color={current.color} offColor={off} />
+									<ToggleSwitch accessibilityLabel={`Criar a rotina ${routine.name}`} value={picked.includes(routine.index)} disabled={busy} onValueChange={() => toggleRoutine(routine.index)} color={current.color} />
 								</View>
 							</React.Fragment>
 						))}
@@ -184,7 +183,7 @@ export function CatalogDetailView({ load, modelName, alreadyInstalled, busy, err
 									{modelName}
 								</Text>
 							</View>
-							<ToggleSwitch accessibilityLabel="Usar o modelo sugerido" value={useModel} disabled={busy} onValueChange={setUseModel} color={current.color} offColor={off} />
+							<ToggleSwitch accessibilityLabel="Usar o modelo sugerido" value={useModel} disabled={busy} onValueChange={setUseModel} color={current.color} />
 						</View>
 					</Section>
 				) : null}
@@ -194,7 +193,7 @@ export function CatalogDetailView({ load, modelName, alreadyInstalled, busy, err
 
 	const ready = load.status === "ready";
 	return (
-		<SafeAreaView className="flex-1 bg-background">
+		<ScreenFrame>
 			<KeyboardAvoidingView behavior="padding" className="flex-1">
 				<ScreenHeader title="Bot pronto" onBack={busy ? () => undefined : onBack} />
 				<ScrollView className="flex-1" keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
@@ -220,6 +219,6 @@ export function CatalogDetailView({ load, modelName, alreadyInstalled, busy, err
 					</View>
 				) : null}
 			</KeyboardAvoidingView>
-		</SafeAreaView>
+		</ScreenFrame>
 	);
 }

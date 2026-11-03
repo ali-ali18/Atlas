@@ -1,19 +1,19 @@
-import { describe, expect, it, vi } from "vitest";
-
-// O tema importa o nativewind (só roda no app): aqui basta saber que o claro usa o token.
-vi.mock("./theme", () => ({ themeColor: (scheme: string, token: string) => `${scheme}:${token}` }));
+import { describe, expect, it } from "vitest";
 
 import { chatCardEdge, chatCardSkin, chatSurface } from "./chat-surface";
+import { colorTokens } from "./color-tokens";
 import { RING_SCALE } from "./shape-ring";
+import { surfaceColors } from "./surfaces";
 
 describe("pele do cartão do chat (tabela e propostas)", () => {
-	it("no escuro é o cartão do Grok: fundo #1f1f1f, borda #313131, raio 21", () => {
-		expect(chatCardSkin("dark")).toEqual({ backgroundColor: "#1f1f1f", borderWidth: 1, borderColor: "#313131", borderRadius: 21 });
-		expect(chatCardEdge("dark")).toBe("#313131");
+	it("no escuro é a superfície padrão do app: fundo, contorno e raio 21", () => {
+		const colors = surfaceColors("dark");
+		expect(chatCardSkin("dark")).toEqual({ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.surfaceEdge, borderRadius: 21 });
+		expect(chatCardEdge("dark")).toBe(colors.surfaceEdge);
 	});
 	it("no claro valem os tokens do tema, e o fundo é o mesmo da tabela", () => {
 		expect(chatCardSkin("light").backgroundColor).toBe(chatSurface("light", "card"));
-		expect(chatCardEdge("light")).toBe("light:border");
+		expect(chatCardEdge("light")).toBe(colorTokens.light.border);
 	});
 });
 
