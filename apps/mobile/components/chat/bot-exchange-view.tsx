@@ -1,6 +1,10 @@
 import { groupPositionAt } from "@workspace/shared";
 import { resolveColor, resolveShape } from "@workspace/shared/avatar/identity";
+import { projectFrame } from "@workspace/shared/avatar/render/project";
+import { stillFrame } from "@workspace/shared/avatar/render/still";
+import { groupTransform } from "@workspace/shared/avatar/render/svg";
 import * as React from "react";
+import Svg, { G, Path } from "react-native-svg";
 import { FlatList, Pressable, View } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { RoundButton } from "@/components/chat/chat-top-bar";
@@ -23,27 +27,52 @@ const FLASH_MS = 4000;
 /** Avatar do autor ao lado do balão, e o espaço que a pílula flutuante reserva no fim da lista. */
 const AVATAR_BOX = 28;
 const FOOTER_SPACE = 72;
-const STACK_BODY = 26;
+const STACK_BODY = 32;
 /** Quanto do primeiro avatar o segundo cobre, na horizontal. */
 const STACK_OVERLAP = 0.35;
+/** Respiro, em pt, entre a silhueta do segundo bot e o primeiro (o recorte). */
+const STACK_GAP_PT = 2;
+const ENGINE_BOX = 250;
 
 /**
- * Os dois bots lado a lado, na mesma linha de base, o segundo cobrindo uma parte do primeiro. O recorte que os separa
- * é um disco na MESMA cor da pílula (os corpos não são círculos, então não há contorno próprio): some à vista e só
- * "corta" o primeiro avatar. Os olhos também usam essa cor, em vez do fundo da tela.
+ * O recorte atrás do segundo bot: a PRÓPRIA silhueta dele, na cor da pílula, um pouco maior (traço de 2 pt). Antes era
+ * um disco do tamanho da célula, que cortava do primeiro avatar bem mais espaço do que o segundo ocupa.
+ */
+function SilhouetteCutout({ shape, size, fill }: { shape: string; size: number; fill: string }) {
+	const { transform, body, scale } = React.useMemo(() => {
+		const frame = stillFrame(shape, "neutral");
+		return { transform: groupTransform(frame), body: projectFrame(frame).body, scale: frame.scale * frame.scaleX };
+	}, [shape]);
+	const unitsPerPt = ENGINE_BOX / size;
+	const pad = STACK_GAP_PT * 2 * unitsPerPt;
+	const side = size + STACK_GAP_PT * 4;
+	return (
+		<Svg pointerEvents="none" width={side} height={side} viewBox={`${-pad} ${-pad} ${ENGINE_BOX + 2 * pad} ${ENGINE_BOX + 2 * pad}`} style={{ position: "absolute" }}>
+			<G transform={transform}>
+				<Path d={body} fill={fill} stroke={fill} strokeWidth={(2 * STACK_GAP_PT * unitsPerPt) / scale} strokeLinejoin="round" />
+			</G>
+		</Svg>
+	);
+}
+
+/**
+ * Os dois bots lado a lado, na mesma linha de base, o segundo cobrindo uma parte do primeiro. Entre os dois, só o
+ * recorte da silhueta do segundo (na cor da pílula): fundo transparente, nada de disco. Os olhos usam a cor da pílula.
  */
 function StackedAvatars({ first, second, fill }: { first: ExchangeBot; second: ExchangeBot; fill: string }) {
 	const box = Math.round(STACK_BODY / 0.705);
 	const cell = STACK_BODY + 4;
 	const shift = Math.round(cell * (1 - STACK_OVERLAP));
 	const base = { width: cell, height: cell, alignItems: "center" as const, justifyContent: "center" as const };
+	const secondShape = resolveShape(second.shape, second.id);
 	return (
 		<View style={{ width: shift + cell, height: cell }}>
 			<View style={[base, { position: "absolute", left: 0, top: 0 }]}>
 				<Avatar color={resolveColor(first.color, first.id)} shape={resolveShape(first.shape, first.id)} size={box} animated={false} eyeColor={fill} />
 			</View>
-			<View style={[base, { position: "absolute", left: shift, top: 0, borderRadius: cell / 2, backgroundColor: fill }]}>
-				<Avatar color={resolveColor(second.color, second.id)} shape={resolveShape(second.shape, second.id)} size={box} animated={false} eyeColor={fill} />
+			<View style={[base, { position: "absolute", left: shift, top: 0 }]}>
+				<SilhouetteCutout shape={secondShape} size={box} fill={fill} />
+				<Avatar color={resolveColor(second.color, second.id)} shape={secondShape} size={box} animated={false} eyeColor={fill} />
 			</View>
 		</View>
 	);
