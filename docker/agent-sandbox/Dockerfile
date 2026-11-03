@@ -72,6 +72,24 @@ RUN cd /tmp \
 	&& rm -f yt-dlp \
 	&& /usr/local/bin/yt-dlp --version
 
+# Claude Code OFICIAL (ADR 0006, "Claude pela sua assinatura"): o binário publicado pela Anthropic, SEM
+# modificação, em /usr/local/bin (de root: o `atlas` executa, mas não troca nem remove o binário). O login é
+# do próprio dono (`claude auth login` na tela do Computador); o Atlas nunca lê o token.
+# Versão fixa + SHA-256 do `linux-x64` publicado no manifest.json oficial dessa versão
+# (https://downloads.claude.ai/claude-code-releases/<versão>/manifest.json), conferido com `sha256sum -c`.
+# Para atualizar: troque CLAUDE_CODE_VERSION e CLAUDE_CODE_SHA256 pelo `platforms.linux-x64.checksum` do
+# manifest da nova versão, releia https://code.claude.com/docs/en/legal-and-compliance.md e rode o image.test.
+# DISABLE_AUTOUPDATER: o binário é de root e a versão é a fixada aqui; nada de trocar sozinho em runtime.
+ARG CLAUDE_CODE_VERSION=2.1.317
+ARG CLAUDE_CODE_SHA256=eb224419e344575faa4a1f39b290b649425a10cd5ee2ef1d003480cd9ae57eb0
+RUN cd /tmp \
+	&& curl -fsSL -o claude "https://downloads.claude.ai/claude-code-releases/${CLAUDE_CODE_VERSION}/linux-x64/claude" \
+	&& echo "${CLAUDE_CODE_SHA256}  claude" | sha256sum -c - \
+	&& install -m 0755 -o root -g root claude /usr/local/bin/claude \
+	&& rm -f claude \
+	&& /usr/local/bin/claude --version
+ENV DISABLE_AUTOUPDATER=1
+
 # Wallpaper (Unsplash) + dock (Plank): Chrome / Files / Settings / Editor / Terminal.
 RUN curl -fsSL -o /usr/share/backgrounds/atlas-wallpaper.jpg \
 	"https://images.unsplash.com/photo-1642132786071-bf92a177282e?q=80&w=1920&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D"

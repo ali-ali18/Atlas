@@ -118,3 +118,32 @@ test("Dockerfile: yt-dlp (video_transcript) em tag fixa, com checksum, de root e
 	// a conferência vem antes de instalar o binário
 	assert.ok(dockerfile.indexOf("sha256sum --ignore-missing") < dockerfile.indexOf("install -m 0755 -o root"));
 });
+
+test("Dockerfile: Claude Code oficial em versão fixa, com checksum, de root, sem autoupdate (ADR 0006)", () => {
+	const version = dockerfile.match(/^ARG CLAUDE_CODE_VERSION=(\d+\.\d+\.\d+)$/m);
+	assert.ok(version, "versão semver fixa em ARG CLAUDE_CODE_VERSION");
+	assert.doesNotMatch(dockerfile, /claude-code-releases\/(latest|stable)/);
+	// só o host oficial da Anthropic, versão vinda do ARG, binário linux-x64
+	assert.match(dockerfile, /"https:\/\/downloads\.claude\.ai\/claude-code-releases\/\$\{CLAUDE_CODE_VERSION\}\/linux-x64\/claude"/);
+	assert.match(dockerfile, /^ARG CLAUDE_CODE_SHA256=[0-9a-f]{64}$/m, "hash SHA-256 do binário fixado");
+	assert.match(dockerfile, /echo "\$\{CLAUDE_CODE_SHA256\}  claude" \| sha256sum -c -/);
+	assert.match(dockerfile, /install -m 0755 -o root -g root claude \/usr\/local\/bin\/claude/);
+	assert.match(dockerfile, /\/usr\/local\/bin\/claude --version/);
+	assert.match(dockerfile, /^ENV DISABLE_AUTOUPDATER=1$/m);
+	assert.doesNotMatch(dockerfile, /chown[^\n]*atlas[^\n]*\/usr\/local\/bin\/claude/);
+	// a conferência vem antes de instalar o binário
+	assert.ok(dockerfile.indexOf('| sha256sum -c -', dockerfile.indexOf("CLAUDE_CODE_SHA256}")) < dockerfile.indexOf("install -m 0755 -o root -g root claude"));
+});
+
+test("Dockerfile: o binário do Claude Code não é modificado nem embrulhado (termos da Anthropic)", () => {
+	const recipe = dockerfile.slice(dockerfile.indexOf("ARG CLAUDE_CODE_VERSION"), dockerfile.indexOf("# Wallpaper"));
+	assert.doesNotMatch(recipe, /\b(sed|patch|strip|upx|objcopy|bspatch)\b/, "sem patch no binário");
+	assert.doesNotMatch(recipe, /ANTHROPIC_(API_KEY|AUTH_TOKEN|BASE_URL)|CLAUDE_CODE_OAUTH_TOKEN/, "sem credencial nem proxy de token na imagem");
+});
+
+test("ADR 0006 pina a mesma versão e o mesmo hash da imagem", () => {
+	const adr = readFileSync(new URL("../../../docs/adr/0006-claude-pela-assinatura.md", import.meta.url), "utf8");
+	const version = dockerfile.match(/^ARG CLAUDE_CODE_VERSION=(.+)$/m)[1];
+	const sha = dockerfile.match(/^ARG CLAUDE_CODE_SHA256=(.+)$/m)[1];
+	assert.ok(adr.includes(version) && adr.includes(sha));
+});
