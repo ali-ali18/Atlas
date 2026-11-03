@@ -87,7 +87,8 @@ export async function runScenario(scenario: Scenario, options: RunScenarioOption
 		}
 	};
 
-	const runner = (options.engineV2 ? (params: RunParams) => runEngineV2(params, options.engineV2 as EngineV2Options) : runComputerUse) as typeof runComputerUse;
+	const engineV2 = options.engineV2 ?? (scenario.run.engine === "v2" ? ({ profile: "chat" } satisfies EngineV2Options) : undefined);
+	const runner = (engineV2 ? (params: RunParams) => runEngineV2(params, engineV2) : runComputerUse) as typeof runComputerUse;
 	const run = runner({
 		manager: {} as RunParams["manager"],
 		getSessionId: async () => {

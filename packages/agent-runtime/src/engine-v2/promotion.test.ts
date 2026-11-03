@@ -11,7 +11,7 @@ import { SYSTEM_MESSAGES } from "@workspace/shared";
 import type { PersistUserArtifactInput } from "@workspace/db";
 import { runEngineV2, type EngineV2Options } from "./run.js";
 import { DOCUMENT_BUDGET_NOTE, DOCUMENT_DELIVERY_NOTE, DOCUMENT_DONE_INSTRUCTION, documentMissingNote, stopReasonPhrase } from "./delivery.js";
-import { ENGINE_V2_CORE, ENGINE_V2_PROMOTED_NOTE, ENGINE_V2_UNATTENDED, UNASKED_MIDWORK_NOTE, midWorkQuestion } from "./prompt.js";
+import { ANNOUNCED_ACTION_NOTE, ENGINE_V2_CORE, ENGINE_V2_PROMOTED_NOTE, ENGINE_V2_UNATTENDED, UNASKED_MIDWORK_NOTE, announcesAction, midWorkQuestion } from "./prompt.js";
 import { RESERVE_GAPS_NOTE, RESERVE_WRITE_NOTE, WRAP_UP_NOTE, deliveryInstruction } from "./supervisor.js";
 import { budgetStopFallbackText } from "../computer-use.js";
 
@@ -598,5 +598,56 @@ describe("promoção decidida pelo modelo: lista de tarefas com 3+ passos (v2)",
 		});
 		expect(run.onPromoted).toHaveBeenCalledTimes(1);
 		expect(run.result.stop).toMatchObject({ reason: "budget_cost" });
+	});
+});
+
+describe("anunciar sem fazer (v2)", () => {
+	const discards = (run: Awaited<ReturnType<typeof runChat>>) => run.events.filter((event) => event.type === "assistant_discard").map((event) => (event as { reason?: string }).reason);
+
+	it("replay: 'Vou pedir o resumo ao Gemini.' sem tool call volta ao modelo uma vez, que executa a tool", async () => {
+		const run = await runChat({
+			stepMs: 1_000,
+			options: { promotable: false },
+			messages: [{ role: "user", content: "abra o Gemini e peça um resumo desse vídeo" }],
+			script: [
+				research(0.01),
+				say("Vou pedir o resumo ao Gemini."),
+				(seen) => {
+					expect(seen.lastUser).toContain("announced an action but called no tool");
+					return turn([call("memory_search", { query: "resumo do vídeo" })], 0.01);
+				},
+				say("Resumo do vídeo: ... (fonte: Gemini)."),
+			],
+		});
+		expect(discards(run)).toEqual(["announced_action"]);
+		expect(run.result.text).toContain("Resumo do vídeo");
+		expect(run.seen).toHaveLength(4);
+	});
+
+	it("o portão age uma vez só; pergunta, entrega real e promessa de avisar não são barradas; sem trabalho iniciado também não", async () => {
+		const twice = await runChat({ stepMs: 1_000, options: { promotable: false }, messages: [{ role: "user", content: "faça" }], script: [research(0.01), say("Vou abrir a página agora."), say("Agora vou pedir o resumo.")] });
+		expect(twice.result.text).toBe("Agora vou pedir o resumo.");
+		expect(discards(twice)).toEqual(["announced_action"]);
+		const offer = await runChat({ stepMs: 1_000, options: { promotable: false }, messages: [{ role: "user", content: "dólar?" }], script: [research(0.01), say("Está R$ 5,10. Quer que eu monitore?")] });
+		expect(discards(offer)).toEqual([]);
+		const done = await runChat({ stepMs: 1_000, options: { promotable: false }, messages: [{ role: "user", content: "resuma" }], script: [research(0.01), say(`Resumo pronto: ${words(70)}. Vou continuar de olho.`)] });
+		expect(discards(done)).toEqual([]);
+		const notify = await runChat({ stepMs: 1_000, options: { promotable: false }, messages: [{ role: "user", content: "monitora" }], script: [research(0.01), say("Criei o alerta. Vou te avisar quando mudar.")] });
+		expect(discards(notify)).toEqual([]);
+		const early = await runChat({ stepMs: 1_000, messages: [{ role: "user", content: "oi" }], script: [say("Vou te ajudar com isso.")] });
+		expect(discards(early)).toEqual([]);
+	});
+
+	it("announcesAction: promessa curta sem pergunta em pt-BR, inglês e espanhol", () => {
+		for (const text of ["Vou pedir o resumo ao Gemini.", "Agora vou clicar em enviar.", "Deixa eu abrir o painel.", "I'll ask Gemini now.", "Let me open the dashboard.", "Voy a abrir el panel."]) expect(announcesAction(text), text).toBe(true);
+		for (const text of ["", "Quer que eu monitore?", "Vou pedir o resumo ao Gemini?", "Resumo pronto.", "Vou te avisar quando mudar.", `${words(60)} vou pedir`]) expect(announcesAction(text), text).toBe(false);
+	});
+
+	it("o prompt manda chamar a tool no mesmo passo e não passar a execução ao usuário", () => {
+		const core = ENGINE_V2_CORE.join("\n");
+		expect(core).toMatch(/reply without a tool call ends your turn/i);
+		expect(core).toMatch(/Never announce an action/);
+		expect(core).toMatch(/never hand the execution to the user/);
+		expect(ANNOUNCED_ACTION_NOTE).toMatch(/call the tool in this step/);
 	});
 });

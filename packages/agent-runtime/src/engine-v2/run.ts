@@ -113,7 +113,7 @@ import { shouldExposeSetEngine } from "../tools/set-engine.js";
 import { buildEngineV2SystemPrompt } from "./prompt.js";
 import { originSystemNotes } from "./origin-notes.js";
 import { MAX_STEPS_SAFETY, type SupervisorProfile, budgetForProfile, createSupervisor, deliveryInstruction } from "./supervisor.js";
-import { ENGINE_V2_PROMOTED_NOTE, UNASKED_MIDWORK_NOTE, midWorkQuestion } from "./prompt.js";
+import { ANNOUNCED_ACTION_NOTE, ENGINE_V2_PROMOTED_NOTE, UNASKED_MIDWORK_NOTE, announcesAction, midWorkQuestion } from "./prompt.js";
 import { callCostUsd, estimateCostUsd, fallbackPricesFromEnv } from "./cost.js";
 import { dedupeLoginAsk, unattendedLoginOutcome } from "./login.js";
 import { createPreToolRunner } from "../hooks/pre-tool-runner.js";
@@ -1266,6 +1266,7 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 	let emptyRetries = 0;
 	// Promoção chat -> trabalho longo: o último passo teve tool (trabalho em andamento) e a pergunta solta volta no máximo uma vez.
 	let midWorkQuestionGated = false;
+	let announcedActionGated = false;
 	// Rodadas de tool deste run (mesmo as recusadas contam: o trabalho começou) mais as de execuções anteriores.
 	let toolRounds = 0;
 	const workStarted = () => toolRounds > 0 || [...toolCallCounts.values()].some((count) => count > 0);
@@ -1385,6 +1386,16 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 					await onEvent({ type: "assistant_discard", id: stepId, reason: "unneeded_question" });
 					conversation.push({ role: "assistant", content: text });
 					conversation.push({ role: "user", content: `${AUTO_CONTEXT} ${UNASKED_MIDWORK_NOTE}` });
+					step += 1;
+					continue;
+				}
+				// Texto que só promete uma ação ("Vou pedir o resumo ao Gemini.") sem chamar a tool encerraria o turno com nada feito:
+				// volta ao modelo uma vez por run, com o trabalho já iniciado. Pergunta e resposta final real não são barradas.
+				if (!announcedActionGated && !helperRole && workStarted() && announcesAction(text)) {
+					announcedActionGated = true;
+					await onEvent({ type: "assistant_discard", id: stepId, reason: "announced_action" });
+					conversation.push({ role: "assistant", content: text });
+					conversation.push({ role: "user", content: `${AUTO_CONTEXT} ${ANNOUNCED_ACTION_NOTE}` });
 					step += 1;
 					continue;
 				}
