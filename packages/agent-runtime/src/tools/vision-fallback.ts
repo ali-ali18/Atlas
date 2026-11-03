@@ -20,6 +20,21 @@ const NOTES: Record<VisionReason, string> = {
 		"[Vision fallback: the click reported no new text, so a screenshot of the screen is attached. If the panel or answer you expected is visible there, read it from the image; if it is still loading, call browser_wait with for=text_stable. A screenshot with marks=true shows ref numbers to click by (12 = e12).]",
 };
 
+export type VisionClaimState = { lastStep: number; notFoundUsed: boolean };
+export const createVisionClaimState = (): VisionClaimState => ({ lastStep: -1, notFoundUsed: false });
+
+/**
+ * Reserva do screenshot automático: no máximo um por passo e, para busca vazia (`not-found`), um por run
+ * (buscas sem resultado seguidas não gastam um print cada). `state` vive o run inteiro.
+ */
+export function claimVision(state: VisionClaimState, step: number, reason?: VisionReason): boolean {
+	if (state.lastStep === step) return false;
+	if (reason === "not-found" && state.notFoundUsed) return false;
+	state.lastStep = step;
+	if (reason === "not-found") state.notFoundUsed = true;
+	return true;
+}
+
 type ClickEffect = Pick<ControlActionEffect, "navigated" | "changes" | "errors" | "newElements" | "pointer"> & { field?: { secret?: boolean } };
 
 /**
@@ -71,7 +86,7 @@ export async function attachVisionFallback(outcome: Outcome, ctx: Pick<ToolConte
 		const sessionId = await ctx.getSessionId();
 		// Antes de gastar o passo: tela de login/senha nunca vai para o modelo como imagem.
 		if (await pageIsSensitive(ctx.manager, sessionId)) return result;
-		if (!ctx.claimVisionFallback()) return result;
+		if (!ctx.claimVisionFallback(vision)) return result;
 		const shot = await captureModelScreenshot(ctx.manager, sessionId);
 		return { ...result, summary: `${result.summary}\n${NOTES[vision]}`, image: shot.dataUrl };
 	} catch {

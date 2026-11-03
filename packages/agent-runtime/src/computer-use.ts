@@ -197,6 +197,7 @@ import { DELEGATION_HINT, suggestDelegation } from "./jev/delegation.js";
 import { detectBlockPage } from "./jev/block-page.js";
 import { preselectMcpTools } from "./jev/tool-preselect.js";
 import { APP_INFO_TOOL } from "./tools/app-info.js";
+import { claimVision, createVisionClaimState } from "./tools/vision-fallback.js";
 import { CURRENT_TIME_TOOL } from "./tools/current-time.js";
 import { createPreviewSetupContext } from "./tools/preview-setup/runtime.js";
 import { SANDBOX_TOOL_NAMES, isSandboxTool } from "./tools/registry/sandbox-tools.js";
@@ -3355,8 +3356,8 @@ async function runComputerUseCore(params: {
 	const triagedInputs = [...(parsedCheckpoint?.triagedInputs ?? [])];
 	let replyCount = 0;
 	const canSeeImages = params.canSeeUserImages !== false;
-	// Último passo que já gastou o screenshot automático da leitura (no máximo um por passo).
-	let visionFallbackStep = -1;
+	// Screenshot automático da leitura: um por passo e, para busca vazia, um por run.
+	const visionClaim = createVisionClaimState();
 	const capabilitySnapshot = () => createCapabilitySnapshot({
 		tools: tools.map((tool) => tool.function.name),
 		vision: canSeeImages,
@@ -4751,11 +4752,7 @@ async function runComputerUseCore(params: {
 						await onEvent(event);
 					},
 					canSeeImages: canSeeImages,
-					claimVisionFallback: () => {
-						if (visionFallbackStep === decisionIndex) return false;
-						visionFallbackStep = decisionIndex;
-						return true;
-					},
+					claimVisionFallback: (reason) => claimVision(visionClaim, decisionIndex, reason),
 					currentStep: () => decisionIndex,
 					listScreenshotArtifacts: () => {
 						const ids: string[] = [];

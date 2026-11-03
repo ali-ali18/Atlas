@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { attachVisionFallback, clickVision, isSilentClick, touchesSecret } from "./vision-fallback.js";
+import { attachVisionFallback, claimVision, clickVision, createVisionClaimState, isSilentClick, touchesSecret } from "./vision-fallback.js";
 import { formatRead } from "./computer-read.js";
 
 describe("isSilentClick", () => {
@@ -38,6 +38,19 @@ describe("clickVision / touchesSecret", () => {
 	});
 });
 
+describe("claimVision", () => {
+	it("um por passo; busca vazia (not-found) só uma vez por run, mesmo em passos diferentes", () => {
+		const state = createVisionClaimState();
+		expect(claimVision(state, 1, "not-found")).toBe(true);
+		expect(claimVision(state, 1, "capped")).toBe(false);
+		expect(claimVision(state, 2, "not-found")).toBe(false);
+		// A recusa de not-found não gasta o passo: outro motivo ainda pode usar o print do passo 2.
+		expect(claimVision(state, 2, "capped")).toBe(true);
+		expect(claimVision(state, 3, "silent-click")).toBe(true);
+		expect(claimVision(state, 4, "not-found")).toBe(false);
+	});
+});
+
 describe("attachVisionFallback", () => {
 	const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 0]);
 	const snapshot = (lines: string[], url = "https://site.test/app") => async () => ({ url, title: "App", total: lines.length, offset: 0, limit: 100, nextOffset: null, lines });
@@ -53,6 +66,15 @@ describe("attachVisionFallback", () => {
 		expect(out.summary).toContain("icon without text");
 		const login = make({ execBrowserSnapshot: snapshot(['[e1] textbox "Senha" (campo de senha: nunca preencha)']) });
 		expect((await attachVisionFallback({ summary: "x", vision: "not-found" }, login.ctx)).image).toBeUndefined();
+	});
+
+	it("not-found: só o primeiro print do run; a segunda busca vazia fica sem imagem", async () => {
+		const state = createVisionClaimState();
+		let step = 0;
+		const { ctx } = make({}, () => true);
+		const real = { ...ctx, claimVisionFallback: (reason?: "capped" | "silent-click" | "not-found") => claimVision(state, (step += 1), reason) };
+		expect((await attachVisionFallback({ summary: "a", vision: "not-found" }, real)).image).toBeDefined();
+		expect((await attachVisionFallback({ summary: "b", vision: "not-found" }, real)).image).toBeUndefined();
 	});
 
 	it("anexa a imagem e a nota quando tudo permite", async () => {

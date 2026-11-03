@@ -91,8 +91,8 @@ export type ToolContext = {
 	runCodeDeps?: Partial<RunCodeDeps>;
 	/** O modelo do run enxerga imagens (gráficos do run_code voltam como visão). */
 	canSeeImages?: boolean;
-	/** Reserva o screenshot automático deste passo (no máximo um por passo); ausente = sem fallback de visão. */
-	claimVisionFallback?: () => boolean;
+	/** Reserva o screenshot automático deste passo (no máximo um por passo; busca vazia, um por run); ausente = sem fallback de visão. */
+	claimVisionFallback?: (reason?: "capped" | "silent-click" | "not-found") => boolean;
 	/** Anexos de arquivo do usuário (leitura/lista/cópia); `vmAvailable` = o run tem o computador da VM. */
 	attachments?: { runtime: AttachmentRuntime; vmAvailable: boolean };
 	imageGeneration?: { apiKey: string; model: string; remaining: () => number; add: (count: number) => void; onCost: (costUsd: number | undefined) => void };
