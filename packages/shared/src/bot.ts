@@ -55,6 +55,8 @@ export type CreateBotInput = {
 	openRouterModel?: string | null;
 	language?: BotLanguageSetting;
 	memberIds?: string[];
+	/** Só no corpo de `POST /v1/bots`: `false` desliga o onboarding que o servidor dispara no bot novo (padrão: ligado). */
+	onboarding?: boolean;
 };
 
 export type UpdateBotInput = {
