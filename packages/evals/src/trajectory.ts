@@ -12,7 +12,7 @@ export type RecordedModelCall = {
 	tools: string[];
 	response?: { content: string | null; toolCalls?: Array<{ name: string; arguments: string }> };
 	finishReason?: string;
-	usage?: { promptTokens?: number; completionTokens?: number; costUsd?: number; costUnknown?: boolean };
+	usage?: { promptTokens?: number; completionTokens?: number; costUsd?: number; costUnknown?: boolean; cachedTokens?: number };
 	durationMs: number;
 	error?: string;
 };

@@ -12,8 +12,8 @@ import type { RecordedToolResult } from "./trajectory.js";
 
 type RunParams = Parameters<typeof runComputerUse>[0];
 
-/** Tools nativas que rodam de verdade no eval (puras, sem rede nem banco; `create_file` com armazenamento em memória). */
-export const REAL_NATIVE_TOOLS = ["track_items", "update_task_list", "create_file", "mcp_tool_search", "read_cached_result"] as const;
+/** Tools nativas que rodam de verdade no eval (puras, sem rede nem banco; `tool_search` do v3 só ranqueia o catálogo do run; `create_file` com armazenamento em memória). */
+export const REAL_NATIVE_TOOLS = ["track_items", "update_task_list", "create_file", "mcp_tool_search", "tool_search", "read_cached_result"] as const;
 
 /** Resposta neutra para tool sem fixture: o modelo segue sem inventar, e a matriz aponta a lacuna do cenário. */
 export const UNMOCKED_SUMMARY = "This tool is unavailable right now. Continue with the information you already have, or tell the user what you could not do.";
