@@ -27,3 +27,11 @@ test("runExclusive: abas diferentes não se bloqueiam e erro não trava a fila",
 	await assert.rejects(runExclusive(a, async () => { throw new Error("boom"); }), /boom/);
 	assert.equal(await runExclusive(a, async () => "ok"), "ok");
 });
+
+test("runExclusive: tarefa pendurada estoura o teto e a próxima segue", async () => {
+	const page = {};
+	const hung = runExclusive(page, () => new Promise(() => {}), { timeoutMs: 50 });
+	const next = runExclusive(page, async () => { await sleep(30); return "seguiu"; }, { timeoutMs: 50 });
+	await assert.rejects(hung, /ocupada por mais de/);
+	assert.equal(await next, "seguiu");
+});
