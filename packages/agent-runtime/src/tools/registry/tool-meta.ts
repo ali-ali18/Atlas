@@ -1,3 +1,4 @@
+import { DEFINED_TOOLS } from "../defined-tools.js";
 import type { ToolEffect, ToolMetaFields } from "./types.js";
 
 const READ_HTTP_METHODS = new Set(["GET", "HEAD"]);
@@ -17,6 +18,8 @@ const READ_HTTP_METHODS = new Set(["GET", "HEAD"]);
  * - `propose_routine`/`routine_group` criam webhook no GitHub do dono (`ensureGithubRepoHook`): `write_external`.
  *   `decide_bot_pending` aprova ação de outro bot: `write_external` (igual a `NATIVE_WRITE_TOOLS` do pre-tool).
  * - `endsTurn` = encerra o turno quando devolve cartão pendente (computer-use.ts, `stopFor*`).
+ * - `ownCard` = a tool já mostra o cartão de aprovação dela (e-mail, propostas, imagem, PR, segredo, login, sessão de
+ *   código): o motor v3 não põe o cartão genérico em cima (substitui a lista fixa `OWN_CARD_TOOLS` do approval.ts).
  * - `needsHuman` = muda as próprias permissões (hoje com o portão `humanTurn`) ou só existe com humano hoje: questionário, `sandbox_release`,
  *   skills, `delegate*` e `propose_bot` (espelha os filtros por origem do catálogo v1/v2).
  */
@@ -58,7 +61,7 @@ export const TOOL_META: Readonly<Record<string, ToolMetaFields>> = {
 	attachment_read: { effect: "read" },
 	attachment_list: { effect: "read" },
 	attachment_to_computer: { effect: "write_internal" },
-	generate_image: { effect: "write_internal", endsTurn: true },
+	generate_image: { effect: "write_internal", ownCard: true, endsTurn: true },
 	show_image: { effect: "read" },
 	create_file: { effect: "write_internal" },
 	inspect_presentation: { effect: "read" },
@@ -72,32 +75,30 @@ export const TOOL_META: Readonly<Record<string, ToolMetaFields>> = {
 	artifact_read: { effect: "read" },
 	lesson_feedback: { effect: "write_internal" },
 
-	// Misc
-	app_info: { effect: "read" },
-	current_time: { effect: "read" },
-	preview_setup: { effect: "write_internal" },
+	// Misc (`app_info` e `current_time` migraram para `defineTool`)
+	preview_setup: { effect: "write_internal", ownCard: true },
 
 	// Cofre
 	secret_list: { effect: "read" },
 	routine_webhook_info: { effect: "read" },
-	secret_request: { effect: "credential", endsTurn: true },
-	login_fill: { effect: "credential", endsTurn: true },
+	secret_request: { effect: "credential", ownCard: true, endsTurn: true },
+	login_fill: { effect: "credential", ownCard: true, endsTurn: true },
 
 	// Skills
 	skill_read: { effect: "read" },
 	list_skills: { effect: "read", endsTurn: true },
 	show_skill: { effect: "read", endsTurn: true },
-	propose_skill: { effect: "write_internal", needsHuman: true, endsTurn: true },
+	propose_skill: { effect: "write_internal", ownCard: true, needsHuman: true, endsTurn: true },
 	delete_skill: { effect: "write_internal", needsHuman: true, endsTurn: true },
-	propose_skill_change: { effect: "write_internal", needsHuman: true, endsTurn: true },
-	propose_skill_delete: { effect: "write_internal", needsHuman: true, endsTurn: true },
+	propose_skill_change: { effect: "write_internal", ownCard: true, needsHuman: true, endsTurn: true },
+	propose_skill_delete: { effect: "write_internal", ownCard: true, needsHuman: true, endsTurn: true },
 
 	// E-mail do bot
 	email_list: { effect: "read" },
 	email_read: { effect: "read" },
-	email_reply: { effect: "send" },
-	email_send: { effect: "send" },
-	email_create_mailbox: { effect: "write_external" },
+	email_reply: { effect: "send", ownCard: true },
+	email_send: { effect: "send", ownCard: true },
+	email_create_mailbox: { effect: "write_external", ownCard: true },
 
 	// Proativo
 	schedule_followup: { effect: "write_internal" },
@@ -109,9 +110,9 @@ export const TOOL_META: Readonly<Record<string, ToolMetaFields>> = {
 	notify_user: { effect: "write_internal" },
 
 	// Conectores
-	propose_connector: { effect: "write_internal", endsTurn: true },
-	propose_api_connection: { effect: "write_internal", endsTurn: true },
-	propose_custom_mcp: { effect: "write_internal", endsTurn: true },
+	propose_connector: { effect: "write_internal", ownCard: true, endsTurn: true },
+	propose_api_connection: { effect: "write_internal", ownCard: true, endsTurn: true },
+	propose_custom_mcp: { effect: "write_internal", ownCard: true, endsTurn: true },
 	api_search: { effect: "read" },
 	// Hoje o runtime só aceita operação GET/HEAD (api-connector/runtime.ts) e os args não trazem método: sem
 	// `method`, é leitura. Se um dia houver escrita, ela traz o método e cai em write_external.
@@ -129,25 +130,25 @@ export const TOOL_META: Readonly<Record<string, ToolMetaFields>> = {
 	list_routines: { effect: "read" },
 	routine_group: { effect: "write_external" },
 	routine_control: { effect: "write_internal" },
-	propose_routine: { effect: "write_external" },
+	propose_routine: { effect: "write_external", ownCard: true },
 	report_alert: { effect: "write_internal", endsTurn: true },
 	find_page_value: { effect: "read" },
 
 	// Bots e configuração
-	propose_bot: { effect: "write_internal", needsHuman: true, endsTurn: true },
-	propose_profile_update: { effect: "write_internal", endsTurn: true },
+	propose_bot: { effect: "write_internal", ownCard: true, needsHuman: true, endsTurn: true },
+	propose_profile_update: { effect: "write_internal", ownCard: true, endsTurn: true },
 	send_to_bot: { effect: "write_external" },
 	decide_bot_pending: { effect: "write_external" },
-	set_primary_bot: { effect: "write_internal" },
+	set_primary_bot: { effect: "write_internal", ownCard: true },
 	set_autonomy: { effect: "write_internal", needsHuman: true },
 	set_engine: { effect: "write_internal", needsHuman: true },
 	set_reasoning_effort: { effect: "write_internal" },
 	delegate_task: { effect: "write_internal", needsHuman: true },
-	propose_questionnaire: { effect: "write_internal", needsHuman: true, endsTurn: true },
+	propose_questionnaire: { effect: "write_internal", ownCard: true, needsHuman: true, endsTurn: true },
 
 	// Planejamento
 	research_note: { effect: "write_internal" },
-	propose_plan: { effect: "write_internal", endsTurn: true },
+	propose_plan: { effect: "write_internal", ownCard: true, endsTurn: true },
 	update_task_list: { effect: "write_internal" },
 	track_items: { effect: "write_internal" },
 
@@ -165,20 +166,20 @@ export const TOOL_META: Readonly<Record<string, ToolMetaFields>> = {
 
 	// Sessão de código (resolvedor `devSessionResolver`)
 	dev_session_start: { effect: "write_internal" },
-	shell: { effect: "write_internal" },
+	shell: { effect: "write_internal", ownCard: true },
 	shell_output: { effect: "read", poll: true },
 	shell_stdin: { effect: "write_internal" },
 	shell_kill: { effect: "write_internal" },
-	read_file: { effect: "read" },
-	write_file: { effect: "write_internal" },
-	edit_file: { effect: "write_internal" },
+	read_file: { effect: "read", ownCard: true },
+	write_file: { effect: "write_internal", ownCard: true },
+	edit_file: { effect: "write_internal", ownCard: true },
 	list_files: { effect: "read" },
 	grep: { effect: "read" },
 	todo_write: { effect: "write_internal" },
 	dev_environment_get: { effect: "read" },
 	dev_environment_update: { effect: "write_internal" },
-	request_secrets: { effect: "credential" },
-	dev_pr_create: { effect: "write_external" },
+	request_secrets: { effect: "credential", ownCard: true },
+	dev_pr_create: { effect: "write_external", ownCard: true },
 	dev_pr_checkout: { effect: "write_internal" },
 	dev_ci_status: { effect: "read", poll: true },
 	dev_ci_logs: { effect: "read" },
@@ -192,9 +193,19 @@ export function resolveToolEffect(name: string, args: Record<string, unknown>): 
 	return meta ? (meta.effectForArgs?.(args) ?? meta.effect) : undefined;
 }
 
-/** Metadado da tool de nome fixo; `undefined` para MCP e nome desconhecido (ver `mcpToolEffect`). */
+const DEFINED_META: ReadonlyMap<string, ToolMetaFields> = new Map(DEFINED_TOOLS.map((tool) => [tool.name, tool.meta]));
+
+/** Tool declarada com `defineTool` (o metadado vem dela, não da tabela). */
+export function isDefinedTool(name: string): boolean {
+	return DEFINED_META.has(name);
+}
+
+/**
+ * Metadado da tool de nome fixo: primeiro o de `defineTool`, depois a tabela (fallback das tools que ainda não
+ * migraram); `undefined` para MCP e nome desconhecido (ver `mcpToolEffect`).
+ */
 export function getToolMeta(name: string): ToolMetaFields | undefined {
-	return Object.hasOwn(TOOL_META, name) ? TOOL_META[name] : undefined;
+	return DEFINED_META.get(name) ?? (Object.hasOwn(TOOL_META, name) ? TOOL_META[name] : undefined);
 }
 
 /**

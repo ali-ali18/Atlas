@@ -277,6 +277,8 @@ export type ToolMetaFields = {
 	endsTurn?: boolean;
 	/** A tool muda as próprias permissões ou depende de decisão humana: sem humano presente a política a esconde. */
 	needsHuman?: true;
+	/** A tool já mostra o próprio cartão de aprovação: o motor v3 não mostra o genérico em cima dele. */
+	ownCard?: true;
 	/** Efeito conforme os args desta chamada; `effect` fica como o pior caso. Use `resolveToolEffect`. */
 	effectForArgs?: (args: Record<string, unknown>) => ToolEffect;
 	/** Com `effectForArgs`: o efeito mais permissivo possível, usado só na montagem do catálogo (a decisão real é na execução, com os args). */
