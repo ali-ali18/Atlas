@@ -213,6 +213,11 @@ describe("isFollowupCheckToolAllowed", () => {
 		expect(isFollowupCheckToolAllowed("cancel_followup", undefined)).toBe(false);
 		expect(isFollowupCheckToolAllowed("notify_user", undefined)).toBe(false);
 	});
+	it("API REST conectada (só GET/HEAD), anexo e leitura da caixa de e-mail passam no check", () => {
+		for (const name of ["api_search", "api_call", "attachment_read", "email_list", "email_read"]) expect(isFollowupCheckToolAllowed(name, undefined), name).toBe(true);
+		expect(isFollowupCheckToolAllowed("email_reply", undefined)).toBe(false);
+		expect(isFollowupCheckToolAllowed("propose_api_connection", undefined)).toBe(false);
+	});
 	it("escrita nativa e conector de escrita ou sem declaração ficam fora", () => {
 		for (const name of ["create_file", "email_send", "propose_routine", "page_create", "memory", "run_code", "delegate_task", "suggest_routine"]) {
 			expect(isFollowupCheckToolAllowed(name, undefined), name).toBe(false);

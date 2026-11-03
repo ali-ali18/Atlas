@@ -129,8 +129,20 @@ export function isFollowupCheckObjective(origin: string | null | undefined, obje
 	return origin === "proactive" && typeof objective === "string" && objective.startsWith(PROACTIVE_FOLLOWUP_MARKER) && objective.includes(FOLLOWUP_CHECK_TASK_START);
 }
 
-/** Além das leituras da verificação diária, o follow-up `check` pode rever a própria agenda de conferências. */
-export const FOLLOWUP_CHECK_EXTRA_TOOLS: ReadonlySet<string> = new Set(["list_followups", "schedule_followup", "reschedule_followup"]);
+/**
+ * Além das leituras da verificação diária, o follow-up `check` pode rever a própria agenda de conferências e usar
+ * as leituras nativas que só consultam: API REST conectada (`api_call` só aceita GET/HEAD), anexo e caixa de e-mail.
+ */
+export const FOLLOWUP_CHECK_EXTRA_TOOLS: ReadonlySet<string> = new Set([
+	"list_followups",
+	"schedule_followup",
+	"reschedule_followup",
+	"api_search",
+	"api_call",
+	"attachment_read",
+	"email_list",
+	"email_read",
+]);
 
 /**
  * Filtro de ferramentas do follow-up `check` (roda sem o usuário): só leitura, como a verificação diária
