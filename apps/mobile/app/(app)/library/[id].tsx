@@ -4,12 +4,12 @@ import * as React from "react";
 import { LibraryView } from "@/components/library/library-view";
 import { useAtlasSession } from "@/lib/atlas-session";
 import { webChatUrl } from "@/lib/chat-links";
-import { mergeLibraryItems } from "@/lib/library-items";
+import { mergeLibraryItems, type LibraryItem } from "@/lib/library-items";
 import { useLibrary } from "@/lib/use-library";
 
 /**
- * Biblioteca do bot (`id` = id do bot): documentos e painéis juntos, mais novos primeiro. Tocar numa linha abre o chat
- * do bot no navegador: o `GET /v1/files/:id` e o painel exigem o cookie da sessão, que fica no cabeçalho do app e que o
+ * Biblioteca do bot (`id` = id do bot): documentos e painéis juntos, mais novos primeiro. Painel abre a tela nativa do
+ * Painel; documento abre o chat do bot no navegador: o `GET /v1/files/:id` e o painel exigem o cookie da sessão, que fica no cabeçalho do app e que o
  * navegador do sistema não tem, então ainda não há como abrir o arquivo em si (sem visualizador nativo nesta etapa).
  */
 export default function LibraryScreen() {
@@ -22,7 +22,12 @@ export default function LibraryScreen() {
 	// biome-ignore lint/correctness/useExhaustiveDependencies: recalcula de propósito quando uma carga termina.
 	const now = React.useMemo(() => new Date(), [library.loaded, library.files.length, library.panels.length]);
 	const goBack = () => (router.canGoBack() ? router.back() : router.replace(`/profile/${encodeURIComponent(id)}` as never));
-	const open = () => {
+	const open = (item: LibraryItem) => {
+		// Painel abre a tela nativa; documento ainda abre o chat do bot no navegador (sem visualizador nativo).
+		if (item.source === "panel") {
+			router.push(`/pages/${encodeURIComponent(item.id)}?title=${encodeURIComponent(item.title)}` as never);
+			return;
+		}
 		const url = webChatUrl(serverUrl, id);
 		if (url) void WebBrowser.openBrowserAsync(url).catch(() => undefined);
 	};
