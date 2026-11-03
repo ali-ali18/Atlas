@@ -306,6 +306,11 @@ export type ComputerUseParams = {
 	 * Sem isto o guarda de "já pedi" só vale dentro do run e cada mensagem nova reabria o mesmo card.
 	 */
 	recentLoginAsks?: () => Promise<{ asked: readonly string[]; vaultTried: readonly string[] }>;
+	/**
+	 * Motor v3 (núcleo por uso, desenho 3.2): quantas vezes cada tool rodou nos runs deste bot nos últimos 30 dias.
+	 * Lido só ao abrir conversa nova (o catálogo fica congelado nas seguintes); v1 e v2 não leem.
+	 */
+	loadToolUsage?: () => Promise<Record<string, number>>;
 	/** Prazo da busca do código no e-mail (padrão 60 s). */
 	vaultEmailTimeoutMs?: number;
 	consumeSteerInputs?: () => Promise<

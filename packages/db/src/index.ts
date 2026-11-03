@@ -665,6 +665,7 @@ export {
 } from "./github-app.js";
 export * from "./push.js";
 export { listRecentLoginAsks, LOGIN_ASK_WINDOW_MS, type RecentLoginAsks } from "./login-asks.js";
+export { listBotToolUsage, BOT_TOOL_USAGE_WINDOW_MS } from "./tool-usage.js";
 export { conversationHoldsVm, VM_HOLD_WINDOW_MS } from "./vm-hold.js";
 export * from "./user-events.js";
 export {
