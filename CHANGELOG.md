@@ -26,6 +26,12 @@ Todas as mudanças relevantes do Atlas. Formato [Keep a Changelog](https://keepa
 ### Quebra de compatibilidade
 - **api:** `POST /v1/runs` (e demais entradas que aceitam `maxSteps`) agora REJEITA `maxSteps` acima de 200 com erro de validação (400); antes o valor era aceito e cortado em silêncio em 300 no motor anterior. Quem integra pela API pública deve enviar no máximo 200 (ou omitir: o padrão gravado é 200). `BREAKING CHANGE:` o limite de passos de uma execução é 200 (`RUN_MAX_STEPS`), igual ao limite de segurança do motor v2.
 
+### Corrigido (modo proativo e rotinas que só leem)
+- **agent:** com o modo proativo e o push ligados no mesmo chat (bot principal), "me avisa quando…" voltou a funcionar: só `notify_user` vira push; `schedule_followup`, `list/cancel/reschedule_followup` e `suggest_routine` gravam de verdade (antes falhavam pedindo "message" ou mandavam um push indevido).
+- **agent:** o schema de `propose_routine` aceita `template=daily_brief`; antes o enum só listava a revisão de segurança e o modelo criava uma rotina comum no lugar do "Seu dia".
+- **agent:** rotina, webhook e follow-up proativo nunca recebem tool de escrita de conector, em nenhum nível de autonomia (inclusive Autônomo e exceção "liberar"), decisão D1 do dono. É o mesmo corte de leitura do "Seu dia". Chat com o dono não muda.
+- **worker:** o follow-up de conferência (`check`) só lê em código (leitura nativa, conector declarado de leitura e rever/rearmar as próprias conferências); antes o "só leitura" estava só no prompt.
+
 ### Corrigido (árvore de acessibilidade)
 - **sandbox, agent:** a ref da árvore de acessibilidade passa a ser `aN` (`f1aN` em iframe) e a do DOM continua `eN`. Antes as duas tinham o mesmo formato e a aba decidia qual motor resolvia: depois de um clique por texto ou de um screenshot com marcas, `browser_act ref=e7` podia agir em outro elemento. A paginação do `browser_snapshot` não serve mais texto velho depois de uma ação que muda a página sem mudar a URL, e navegar zera a tabela de refs vencidas.
 
