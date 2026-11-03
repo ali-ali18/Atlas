@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { clampSpan, gapPx, gridColumns, gridItemWidth, isStatsOnly } from "./page-layout";
+import { clampSpan, gapPx, gridColumns, gridItemWidth, isStatsOnly, kanbanLayout } from "./page-layout";
+
+describe("kanban", () => {
+	it("celular empilha (colunas recolhíveis); tablet e paisagem põem lado a lado", () => {
+		expect(kanbanLayout(0)).toBe("stacked");
+		expect(kanbanLayout(379)).toBe("stacked");
+		expect(kanbanLayout(671)).toBe("stacked");
+		expect(kanbanLayout(672)).toBe("columns");
+		expect(kanbanLayout(1000)).toBe("columns");
+	});
+});
 
 describe("colunas da grade por largura", () => {
 	it("celular: 1 coluna; grade só de stat: 2", () => {

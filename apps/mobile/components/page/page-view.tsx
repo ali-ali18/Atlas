@@ -5,9 +5,9 @@ import { paletteAccent } from "@/lib/page-tone";
 import { useAppColorScheme } from "@/lib/use-theme";
 import { BarListNode, ProgressNode } from "./bars";
 import { ChartNode } from "./chart";
-import { ListNode } from "./collections";
+import { KanbanNode, ListNode, TimelineNode } from "./collections";
 import { BadgeNode, CalloutNode } from "./feedback";
-import { CardNode, DividerNode, GridNode, SectionNode, StackNode } from "./layout";
+import { CardNode, DividerNode, GridNode, SectionNode, StackNode, TabNode, TabsNode } from "./layout";
 import { PageThemeContext, type RenderedChild } from "./page-theme";
 import { StatNode } from "./stat";
 import { TableNode } from "./table";
@@ -34,6 +34,14 @@ export const PageNodeView = React.memo(function PageNodeView({ node }: { node: P
 			return <StackNode node={node}>{renderChildren(node)}</StackNode>;
 		case "card":
 			return <CardNode node={node}>{renderChildren(node)}</CardNode>;
+		case "tabs":
+			return <TabsNode node={node}>{renderChildren(node)}</TabsNode>;
+		case "tab":
+			return <TabNode>{renderChildren(node)}</TabNode>;
+		case "timeline":
+			return <TimelineNode node={node} />;
+		case "kanban":
+			return <KanbanNode node={node} />;
 		case "divider":
 			return <DividerNode />;
 		case "stat":

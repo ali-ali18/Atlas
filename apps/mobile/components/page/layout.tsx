@@ -1,7 +1,9 @@
 import * as React from "react";
-import { View } from "react-native";
+import { Pressable, ScrollView, View } from "react-native";
 import { Text } from "@/components/ui/text";
+import { resolveTab } from "@/lib/page-format";
 import { clampSpan, gapPx, gridColumns, gridItemWidth, isStatsOnly } from "@/lib/page-layout";
+import { pickTabChildren } from "@/lib/page-tabs";
 import { type Of, type RenderedChild, usePageTheme } from "./page-theme";
 
 /** Layout: section, grid, stack, card e divider. Os filhos já chegam desenhados (o desenho é recursivo). */
@@ -107,6 +109,59 @@ export function CardNode({ node, children }: { node: Of<"card">; children: Rende
 					{title}
 				</Text>
 			) : null}
+			{children.map((child) => (
+				<View key={child.node.id} className="min-w-0">
+					{child.element}
+				</View>
+			))}
+		</View>
+	);
+}
+
+/**
+ * Abas roláveis no topo da seção. A aba escolhida é estado local (não vai ao servidor nem à conversa); só o conteúdo da
+ * aba ativa é montado. Aba pedida que não existe cai na primeira (`resolveTab`).
+ */
+export function TabsNode({ node, children }: { node: Of<"tabs">; children: RenderedChild[] }) {
+	const tabs = node.props.tabs;
+	const [active, setActive] = React.useState(() => resolveTab(tabs, undefined).id);
+	const current = resolveTab(tabs, active).id;
+	const { surface, tone } = usePageTheme();
+	const accent = tone("accent");
+	return (
+		<View className="min-w-0 gap-3">
+			<ScrollView horizontal showsHorizontalScrollIndicator={false} accessibilityRole="tablist" contentContainerStyle={{ gap: 8 }} className="flex-grow-0">
+				{tabs.map((entry) => {
+					const selected = entry.id === current;
+					return (
+						<Pressable
+							key={entry.id}
+							role="tab"
+							accessibilityState={{ selected }}
+							onPress={() => setActive(entry.id)}
+							className="min-h-9 justify-center rounded-full px-4 active:opacity-80"
+							style={{ backgroundColor: selected ? accent.soft : surface.card, borderWidth: 1, borderColor: selected ? accent.edge : surface.edge }}
+						>
+							<Text className="text-control font-medium" numberOfLines={1} style={selected ? { color: accent.text } : undefined}>
+								{entry.label}
+							</Text>
+						</Pressable>
+					);
+				})}
+			</ScrollView>
+			{pickTabChildren(children, current).map((child) => (
+				<View key={child.node.id} className="min-w-0">
+					{child.element}
+				</View>
+			))}
+		</View>
+	);
+}
+
+/** Conteúdo de uma aba: os filhos empilhados (o `TabsNode` escolhe qual aba mostrar). */
+export function TabNode({ children }: { children: RenderedChild[] }) {
+	return (
+		<View className="min-w-0 gap-4">
 			{children.map((child) => (
 				<View key={child.node.id} className="min-w-0">
 					{child.element}

@@ -27,6 +27,11 @@ export function gridColumns(cols: number, width: number, statsOnly: boolean): nu
 	return wanted;
 }
 
+/** Kanban: colunas lado a lado a partir da largura de tablet/paisagem; abaixo disso empilham, cada uma recolhível. */
+export function kanbanLayout(width: number): "stacked" | "columns" {
+	return width >= BREAKPOINT_2XL ? "columns" : "stacked";
+}
+
 /** `span` do filho dentro da grade: de 1 até o número de colunas visíveis. */
 export function clampSpan(span: unknown, columns: number): number {
 	const wanted = typeof span === "number" && Number.isFinite(span) ? Math.floor(span) : 1;
