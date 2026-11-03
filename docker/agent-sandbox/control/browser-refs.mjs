@@ -13,6 +13,7 @@ import { AxUnavailableError, axEnabled } from "./ax-snapshot.mjs";
 import { StaleRefError, createAxStore, resolveAxRef } from "./ax-refs.mjs";
 import { isTreeRef } from "./ax-ref-names.mjs";
 import { createAxEngine } from "./browser-ax.mjs";
+import { runExclusive } from "./page-lock.mjs";
 
 export const ACT_ACTIONS = ["click", "type", "select", "check", "uncheck", "hover", "press", "clear"];
 export const WAIT_KINDS = ["text", "ref", "url", "network", "stable", "text_stable"];
@@ -108,7 +109,7 @@ export function createRefActions({
 
 	async function collect(page, { scope, mode, area, only, maxScan = SNAPSHOT_MAX_SCAN }) {
 		const raws = [];
-		let seq = mode === "full" ? 0 : registry.seq;
+		let seq = mode === "full" ? 0 : registry.seqOf(page);
 		for (const entry of framesOf(page)) {
 			if (raws.length >= maxScan) break;
 			let result;
@@ -129,7 +130,7 @@ export function createRefActions({
 			const tag = frameTag(entry);
 			for (const item of result.raw) raws.push(tag ? { ...item, inFrame: tag } : item);
 		}
-		registry.seq = seq;
+		registry.setSeq(page, seq);
 		return raws;
 	}
 
@@ -162,7 +163,7 @@ export function createRefActions({
 		if (ref !== undefined && ref !== null && ref !== "" && !REF_PATTERN.test(String(ref).trim())) {
 			throw new Error(`ref inválido "${ref}": use um ref do browser_snapshot (ex.: e12).`);
 		}
-		return withPageRetry(async (page) => {
+		return withPageRetry((page) => runExclusive(page, async () => {
 			let note;
 			if (wantAx) {
 				try {
@@ -191,7 +192,7 @@ export function createRefActions({
 				engine: "dom",
 				...(note ? { note } : {}),
 			};
-		}, { tries: 3 });
+		}), { tries: 3 });
 	}
 
 	/**
@@ -331,7 +332,7 @@ export function createRefActions({
 
 	async function browserAct(body) {
 		const args = parseActArgs(body);
-		return withPageRetry(async (page) => {
+		return withPageRetry((page) => runExclusive(page, async () => {
 			const found = await resolveRef(page, args.ref);
 			if (found.stale) throw new Error(found.stale);
 			const { locator, resolved } = found;
@@ -370,7 +371,7 @@ export function createRefActions({
 				newElements: observed.newElements,
 				newTotal: observed.newTotal,
 			};
-		}, { tries: 2 });
+		}), { tries: 2 });
 	}
 
 	async function waitForRef(page, ref, gone, deadline) {

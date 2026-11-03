@@ -35,6 +35,25 @@ test("registry: prefixos estáveis, outra origem marcada, frame desanexado some"
 	assert.equal(reg.frameOf(page, ""), main);
 });
 
+test("registry: o prefixo f1 de uma aba não resolve para o frame de outra aba", () => {
+	const mk = (url) => ({ url: () => url, name: () => "", isDetached: () => false });
+	const mkPage = (...inner) => {
+		const main = mk("http://a.test/");
+		return { main, inner, page: { mainFrame: () => main, frames: () => [main, ...inner] } };
+	};
+	const a = mkPage(mk("http://a.test/inner-a"));
+	const b = mkPage(mk("http://a.test/inner-b"));
+	const reg = createFrameRegistry();
+	reg.list(a.page);
+	assert.equal(reg.frameOf(a.page, "f1"), a.inner[0]);
+	assert.equal(reg.frameOf(b.page, "f1"), null, "aba B ainda não listou: f1 não existe nela");
+	reg.list(b.page);
+	assert.equal(reg.frameOf(b.page, "f1"), b.inner[0]);
+	assert.equal(reg.frameOf(a.page, "f1"), a.inner[0]);
+	reg.setSeq(a.page, 40);
+	assert.equal(reg.seqOf(b.page), 0, "contador de refs é por aba");
+});
+
 const host = `<body style="margin:10px"><h1>Course</h1><p>Main text</p>
 <iframe id="same" src="/inner" width="400" height="120"></iframe>
 <script>document.body.insertAdjacentHTML('beforeend','<iframe id="cross" src="http://localhost:'+location.port+'/inner2" width="400" height="120"></iframe>')</script>

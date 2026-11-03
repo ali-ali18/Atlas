@@ -17,6 +17,7 @@ import {
 } from "./outline.mjs";
 import { readPageInPage, READ_MAX_NODES, READ_MAX_ITEMS } from "./read-page.mjs";
 import { describeElement } from "./snapshot.mjs";
+import { runExclusive } from "./page-lock.mjs";
 
 export const EXPAND_MAX_SECTIONS = 30;
 export const SECTION_MAX_CHARS = 3000;
@@ -199,7 +200,7 @@ export function createPageReader({ withPageRetry, registry, collect, locateRef, 
 		if (asked > 0 && cache && cache.key === key && now() - cache.at < CACHE_TTL_MS && stillSame()) {
 			return { ...cache.meta, ...paginateText(cache.text, { offset: args.offset, limit: args.limit }, limits), cached: true };
 		}
-		return withPageRetry(async (page) => {
+		return withPageRetry((page) => runExclusive(page, async () => {
 			const snap = await readEntries(page);
 			let text = renderEntries(snap.entries, { view: args.view });
 			const collapsed = countCollapsed(snap.entries);
@@ -236,7 +237,7 @@ export function createPageReader({ withPageRetry, registry, collect, locateRef, 
 			};
 			cache = { key, at: now(), text: full, meta, page: tab, url: meta.url, epoch: epoch?.() };
 			return { ...meta, ...paginateText(full, { offset: args.offset, limit: args.limit }, limits) };
-		}, { tries: 3 });
+		}), { tries: 3 });
 	}
 
 	/** POST /browser/find */
