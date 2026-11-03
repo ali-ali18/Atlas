@@ -1,13 +1,15 @@
 import { effortForModel, REASONING_DEFAULT_LABEL, REASONING_EFFORT_LABELS, type ReasoningEffort } from "@workspace/shared";
 import * as React from "react";
-import { Pressable, View } from "react-native";
-import { CheckIcon, ChevronDownIcon, ChevronLeftIcon, ChevronRightIcon, ChevronUpIcon } from "@/components/icons";
+import { Pressable, StyleSheet, useWindowDimensions, View } from "react-native";
+import { CheckIcon, ChevronDownIcon, ChevronLeftIcon, ChevronRightIcon, ChevronUpIcon, CloseIcon, SearchIcon } from "@/components/icons";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { DraggableSheet } from "@/components/ui/draggable-sheet";
 import { Spinner } from "@/components/ui/spinner";
 import { Text } from "@/components/ui/text";
 import { findOption, unlistedOption, visibleOthers, type ModelOption } from "@/lib/model-catalog";
+import { searchModels } from "@/lib/model-search";
 import { currentSelection, RECOMMENDED_EFFORT, type ModelChoice } from "@/lib/model-choice";
 import type { ModelSelector } from "@/lib/use-model-selector";
 
@@ -17,14 +19,14 @@ const RECOMMENDED = "Recomendado";
 function Row({ title, hint, label, selected, onPress, first, trailing }: { title: string; hint?: string; /** Rótulo para leitor de tela (título, descrição, valor e selos); padrão: título e descrição. */ label?: string; selected?: boolean; onPress: () => void; first: boolean; trailing?: React.ReactNode }) {
 	return (
 		<>
-			{first ? null : <View className="h-px bg-border" />}
+			{first ? null : <Divider />}
 			<Pressable role="button" accessibilityLabel={label ?? (hint ? `${title}. ${hint}` : title)} accessibilityState={{ selected: selected ?? false }} onPress={onPress} className="min-h-16 flex-row items-center gap-3 px-5 py-3 active:bg-foreground/10">
 				<View className="min-w-0 flex-1">
 					<Text numberOfLines={1} className="text-control">
 						{title}
 					</Text>
 					{hint ? (
-						<Text variant="caption" numberOfLines={2} className="text-body">
+						<Text variant="caption" numberOfLines={1} className="text-body">
 							{hint}
 						</Text>
 					) : null}
@@ -34,6 +36,11 @@ function Row({ title, hint, label, selected, onPress, first, trailing }: { title
 			</Pressable>
 		</>
 	);
+}
+
+/** Separador fino entre linhas do mesmo cartão: começa no texto (recuo do `px-5`) e vai até a borda direita, na cor do token `border`. */
+function Divider() {
+	return <View className="ml-5 border-border" style={{ borderTopWidth: StyleSheet.hairlineWidth }} />;
 }
 
 const Card = ({ children }: { children: React.ReactNode }) => <View className="overflow-hidden rounded-card bg-muted">{children}</View>;
@@ -53,6 +60,7 @@ export function ModelSheet({ visible, onClose, selector }: { visible: boolean; o
 	const [page, setPage] = React.useState<"main" | "effort">("main");
 	const [othersOpen, setOthersOpen] = React.useState(false);
 	const [showAllOthers, setShowAllOthers] = React.useState(false);
+	const [query, setQuery] = React.useState("");
 	const { catalog, choice, setChoice, loadCatalog, notice } = selector;
 	const data = catalog.catalog;
 
@@ -62,6 +70,7 @@ export function ModelSheet({ visible, onClose, selector }: { visible: boolean; o
 			setPage("main");
 			setOthersOpen(false);
 			setShowAllOthers(false);
+			setQuery("");
 		}
 	}, [visible, loadCatalog]);
 
@@ -72,6 +81,7 @@ export function ModelSheet({ visible, onClose, selector }: { visible: boolean; o
 	const effort = selection.mode === "model" && option ? shownEffort(selection, option) : undefined;
 
 	const pickModel = (picked: ModelOption) => {
+		setQuery("");
 		const keep = selection.mode === "model" && selection.effort && picked.efforts.includes(selection.effort) ? selection.effort : undefined;
 		setChoice({ mode: "model", model: picked.id, ...(keep ? { effort: keep } : {}) });
 		// Modelo com esforço ajustável: a folha fica aberta para a linha "Esforço" (como o seletor do web).
@@ -100,6 +110,12 @@ export function ModelSheet({ visible, onClose, selector }: { visible: boolean; o
 		));
 
 	const others = data ? visibleOthers(data.others, showAllOthers) : { shown: [], hidden: 0 };
+	// Busca: uma lista só com todas as fontes (principais e outros, inclusive ChatGPT e chaves próprias).
+	const searching = query.trim().length > 0;
+	const found = data && searching ? visibleOthers(searchModels([...data.featured, ...data.others], query), showAllOthers) : { shown: [], hidden: 0 };
+	const foundTotal = found.shown.length + found.hidden;
+	// Enquanto busca a folha não encolhe a cada letra (o campo ficaria pulando): os resultados guardam uma altura mínima.
+	const resultsMinHeight = Math.round(useWindowDimensions().height * 0.4);
 
 	if (page === "effort" && option) {
 		return (
@@ -135,7 +151,39 @@ export function ModelSheet({ visible, onClose, selector }: { visible: boolean; o
 	}
 
 	return (
-		<DraggableSheet visible={visible} onClose={onClose} header={<Text variant="heading">Selecionar modelo</Text>}>
+		<DraggableSheet
+			visible={visible}
+			onClose={onClose}
+			header={<Text variant="heading">Selecionar modelo</Text>}
+			fixed={
+				data ? (
+					<View className="justify-center">
+						<View pointerEvents="none" className="absolute left-4 z-10">
+							<SearchIcon size={18} />
+						</View>
+						<Input
+							accessibilityLabel="Buscar modelo"
+							placeholder="Buscar modelo"
+							value={query}
+							onChangeText={(text) => {
+								setQuery(text);
+								setShowAllOthers(false);
+							}}
+							autoCapitalize="none"
+							autoCorrect={false}
+							returnKeyType="search"
+							clearButtonMode="never"
+							className="pl-11 pr-11"
+						/>
+						{query.length > 0 ? (
+							<Pressable role="button" accessibilityLabel="Limpar busca" hitSlop={8} onPress={() => (setQuery(""), setShowAllOthers(false))} className="absolute right-3 size-8 items-center justify-center rounded-full active:opacity-70">
+								<CloseIcon size={18} />
+							</Pressable>
+						) : null}
+					</View>
+				) : null
+			}
+		>
 			{catalog.status === "loading" && !data ? (
 				<View className="flex-row items-center gap-3 rounded-card bg-muted px-5 py-5">
 					<Spinner label="Carregando modelos" />
@@ -160,8 +208,29 @@ export function ModelSheet({ visible, onClose, selector }: { visible: boolean; o
 					Não consegui ler o modelo atual.
 				</Text>
 			) : null}
-			{data && data.featured.length > 0 ? <Card>{modelRows(data.featured)}</Card> : null}
-			{option && efforts.length > 0 && selection.mode === "model" ? (
+			{data && searching ? (
+				<View style={{ minHeight: resultsMinHeight }}>
+				{foundTotal === 0 ? (
+					<Text variant="muted" className="px-1 py-4 text-center">
+						Nenhum modelo encontrado
+					</Text>
+				) : (
+					<Card>
+						{modelRows(found.shown)}
+						{found.hidden > 0 ? (
+							<>
+								<Divider />
+								<Pressable role="button" accessibilityLabel={`Ver tudo (${foundTotal})`} onPress={() => setShowAllOthers(true)} className="min-h-14 flex-row items-center px-5 active:bg-foreground/10">
+									<Text className="text-control">Ver tudo ({foundTotal})</Text>
+								</Pressable>
+							</>
+						) : null}
+					</Card>
+				)}
+				</View>
+			) : null}
+			{data && !searching && data.featured.length > 0 ? <Card>{modelRows(data.featured)}</Card> : null}
+			{!searching && option && efforts.length > 0 && selection.mode === "model" ? (
 				<Card>
 					<Row
 						first
@@ -180,7 +249,7 @@ export function ModelSheet({ visible, onClose, selector }: { visible: boolean; o
 					/>
 				</Card>
 			) : null}
-			{data && data.others.length > 0 ? (
+			{data && !searching && data.others.length > 0 ? (
 				<Card>
 					<Pressable role="button" accessibilityLabel="Outros modelos" accessibilityState={{ expanded: othersOpen }} onPress={() => setOthersOpen((open) => !open)} className="min-h-14 flex-row items-center gap-3 px-5 active:bg-foreground/10">
 						<Text className="flex-1 text-control">Outros modelos</Text>
@@ -189,11 +258,11 @@ export function ModelSheet({ visible, onClose, selector }: { visible: boolean; o
 					</Pressable>
 					{othersOpen ? (
 						<>
-							<View className="h-px bg-border" />
+							<Divider />
 							{modelRows(others.shown)}
 							{others.hidden > 0 ? (
 								<>
-									<View className="h-px bg-border" />
+									<Divider />
 									<Pressable role="button" accessibilityLabel={`Ver tudo (${data.others.length})`} onPress={() => setShowAllOthers(true)} className="min-h-14 flex-row items-center px-5 active:bg-foreground/10">
 										<Text className="text-control">Ver tudo ({data.others.length})</Text>
 									</Pressable>
@@ -203,9 +272,11 @@ export function ModelSheet({ visible, onClose, selector }: { visible: boolean; o
 					) : null}
 				</Card>
 			) : null}
+			{searching ? null : (
 			<Card>
 				<Row first title="Automático" hint="O Atlas escolhe o modelo pela dificuldade do pedido." label="Automático. O Atlas escolhe o modelo pela dificuldade do pedido." selected={selection.mode === "auto"} onPress={() => (setChoice({ mode: "auto" }), onClose())} />
 			</Card>
+			)}
 		</DraggableSheet>
 	);
 }
