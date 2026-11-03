@@ -567,6 +567,33 @@ describe("estagnação: resultado novo é progresso; fase de escrita mantém as 
 		expect(failing.researchEnd()).toBe("stagnation");
 	});
 
+	it("capturas de tela com bytes diferentes e sem texto novo NÃO são progresso: continuam estagnando", () => {
+		const supervisor = createSupervisor({ profile: "long_work", budget: noCap });
+		supervisor.gate(usage(0, 0, 1), { notebookCount: 1 });
+		for (let step = 2; step < 4 + STAGNATION_STEPS; step++) {
+			supervisor.recordTool(record({ step, name: "screenshot", argsKey: `shot=${step}`, resultKey: `bytes-${step}-${"x".repeat(step)}` }));
+			supervisor.gate(usage(0, 0, step), { notebookCount: 1 });
+		}
+		expect(supervisor.researchEnd()).toBe("stagnation");
+		// Texto novo (browser_read) ou URL nova vale como progresso.
+		const reading = createSupervisor({ profile: "long_work", budget: noCap });
+		reading.gate(usage(0, 0, 1), { notebookCount: 1 });
+		for (let step = 2; step < 4 + STAGNATION_STEPS; step++) {
+			reading.recordTool(record({ step, name: "browser_read", argsKey: "same", resultKey: `texto novo ${step}` }));
+			reading.gate(usage(0, 0, step), { notebookCount: 1 });
+		}
+		expect(reading.researchEnd()).toBeUndefined();
+	});
+
+	it("sem tempo, RESEARCH_TIME_RATIO não existe: a pesquisa nunca acaba por 'time'; com tempo do dono, acaba aos 70%", () => {
+		const infinite = createSupervisor({ profile: "long_work", budget: noCap });
+		for (let step = 1; step < 20; step++) infinite.gate(usage(0, step * 60 * 60_000, step), { notebookCount: step });
+		expect(infinite.researchEnd()).toBeUndefined();
+		const owner = createSupervisor({ profile: "long_work", budget: { maxCostUsd: Number.POSITIVE_INFINITY, maxActiveMs: 10 * 60_000 } });
+		owner.gate(usage(0, 7 * 60_000, 1));
+		expect(owner.researchEnd()).toBe("time");
+	});
+
 	it("na escrita, pedido sem documento mantém browser e sandbox; com documento só escrita", () => {
 		const make = (keepActionTools: boolean) => {
 			const supervisor = createSupervisor({ profile: "long_work", budget: noCap, keepActionTools });

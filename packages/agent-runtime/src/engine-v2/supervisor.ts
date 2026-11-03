@@ -4,7 +4,10 @@
  * Unidade: dinheiro (US$) e tempo ativo, mas SÓ quando o dono configurou um teto (decisão do dono, 02/11: "remover esse
  * orçamento"). Por padrão nenhum perfil tem tempo nem US$ máximo (`Infinity`): o run termina quando o modelo responde
  * sem tool ou quando o usuário para. As redes de segurança contra laço continuam: `MAX_STEPS_SAFETY`, nota e aborto
- * por repetição, bloqueio por falhas seguidas. O que ele decide, em ordem:
+ * por repetição, bloqueio por falhas seguidas e, no trabalho longo, a estagnação (8 passos sem resultado novo, caderno
+ * novo nem item concluído manda escrever; resultado novo de tool, exceto captura de tela, é progresso). Não há teto "soft"
+ * de passos nem tool removida no meio do trabalho, salvo a fase de escrita do trabalho longo (que mantém browser e sandbox
+ * quando o pedido não é um documento). O que ele decide, em ordem:
  *  1. `gate`: antes de cada chamada ao modelo, deixa seguir, avisa UMA vez a ~80% de um teto do dono ("entregue") ou
  *     manda fazer a última chamada SEM tools quando o teto acaba (ou os passos de segurança). Nunca aborta sem resposta.
  *  2. `recordTool`: depois de cada tool, vigia travamento real (mesma tool + mesmos args + mesmo resultado)
@@ -145,6 +148,8 @@ const WRITE_TOOLS = ["create_file", "notebook_write", "notebook_read", "update_t
 const GAP_READ_TOOLS = ["web_search", "web_extract"] as const;
 /** Tools de ação (navegador e VM): ficam na fase de escrita quando o pedido não é um documento. */
 const ACTION_TOOL_PREFIX = /^(browser|sandbox)_/;
+/** Capturas visuais: bytes quase iguais a cada passo não são "resultado novo"; só texto, URL ou título novos contam (browser_read, browser_snapshot). */
+const VISUAL_CAPTURE_TOOLS = /^(screenshot|computer\w*|browser_screenshot|show_image|generate_image)$/;
 /** Passos seguidos em que o modelo só insiste em tool que a fase não libera: depois disso o supervisor entrega. */
 export const PHASE_STRIKES_TO_DELIVER = 2;
 
@@ -384,7 +389,7 @@ export function createSupervisor(config: {
 		recordTool(record: ToolRecord): ToolVerdict {
 			const notes: string[] = [];
 			// Resultado novo de uma tool que deu certo = progresso (alimenta a estagnação).
-			if (record.ok && !seenResultKeys.has(`${record.name}|${record.resultKey}`)) {
+			if (record.ok && !VISUAL_CAPTURE_TOOLS.test(record.name) && !seenResultKeys.has(`${record.name}|${record.resultKey}`)) {
 				seenResultKeys.add(`${record.name}|${record.resultKey}`);
 				novelResults += 1;
 			}
