@@ -88,12 +88,14 @@ export const COMPUTER_REF_TOOLS: ChatTool[] = [
 		function: {
 			name: "browser_wait",
 			description:
-				"Wait up to 20 s for `text` (or gone=true), a `ref`, a `url` fragment, an idle `network` or a `stable` page. USE after slow loads or saves. Do NOT use it as a pause or in a loop; on timeout, take a snapshot or screenshot and report honestly.",
+				"Wait up to 20 s for `text` (or gone=true), a `ref`, a `url` fragment, an idle `network`, a `stable` page, or `text_stable`. `text_stable` waits until the text of a target stops changing for ~1.5 s: pass `ref` or a CSS `scope`, or neither to follow the block of text that changed most (video and player updates are ignored, so it works on a page with a playing video). USE `text_stable` after asking a chat or AI panel, before reading its answer; USE the others after slow loads or saves. Do NOT use it as a pause or in a loop; on timeout, take a snapshot or screenshot and report honestly.",
 			parameters: {
 				type: "object",
 				properties: {
-					for: { type: "string", enum: ["text", "ref", "url", "network", "stable"] },
+					for: { type: "string", enum: ["text", "ref", "url", "network", "stable", "text_stable"] },
 					value: { type: "string", description: "Text, ref or URL fragment" },
+					ref: { type: "string", description: "text_stable: ref of the element whose text to follow" },
+					scope: { type: "string", description: "text_stable: CSS selector of the container whose text to follow" },
 					gone: { type: "boolean", description: "Wait until it is gone" },
 					timeout_ms: { type: "number", description: "Default 8000, max 20000" },
 				},
@@ -341,9 +343,14 @@ export async function executeComputerRefTool(
 		}
 		case "browser_wait": {
 			const kind = String(args.for ?? "");
-			if (!["text", "ref", "url", "network", "stable"].includes(kind)) {
-				throw new Error("for inválido: use text, ref, url, network ou stable");
+			if (!["text", "ref", "url", "network", "stable", "text_stable"].includes(kind)) {
+				throw new Error("for inválido: use text, ref, url, network, stable ou text_stable");
 			}
+			const targetRef = typeof args.ref === "string" ? args.ref.trim() : "";
+			if (targetRef && !/^(?:f\d{1,3})?e\d{1,5}$/.test(targetRef)) {
+				throw new Error("ref inválido: use um ref do browser_read ou browser_snapshot (ex.: e12 ou f1e12)");
+			}
+			const targetScope = typeof args.scope === "string" ? args.scope.trim().slice(0, 300) : "";
 			const value = args.value === undefined ? undefined : String(args.value);
 			if ((kind === "text" || kind === "url" || kind === "ref") && !value?.trim()) {
 				throw new Error(`for=${kind} exige \`value\``);
@@ -357,6 +364,8 @@ export async function executeComputerRefTool(
 				value,
 				timeoutMs,
 				gone: args.gone === true,
+				...(kind === "text_stable" && targetRef ? { ref: targetRef } : {}),
+				...(kind === "text_stable" && !targetRef && targetScope ? { scope: targetScope } : {}),
 			});
 			const label = `${kind}${value ? ` "${value.slice(0, 60)}"` : ""}`;
 			if (!result.met) {
@@ -364,8 +373,14 @@ export async function executeComputerRefTool(
 					`Espera por ${label} não concluiu (${result.reason ?? "timeout"}) após ${result.waitedMs} ms. Tire um novo browser_snapshot ou screenshot para ver o estado real.`,
 				);
 			}
+			const textNote =
+				kind === "text_stable"
+					? result.changed === false
+						? " The text did not change while waiting: if you expected an answer, it may not have started; read the page or take a screenshot."
+						: " The text stopped changing: read it now."
+					: "";
 			return {
-				summary: `Esperou ${label} por ${result.waitedMs} ms. Página: ${result.title} (${result.url})`,
+				summary: `Esperou ${label} por ${result.waitedMs} ms. Página: ${result.title} (${result.url})${textNote}`,
 			};
 		}
 		default:

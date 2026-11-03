@@ -186,6 +186,27 @@ describe("F12/B - snapshot e ação por ref (replay do caso Bling)", () => {
 		expect(execBrowserAct).toHaveBeenCalledTimes(1);
 	});
 
+	it("browser_wait text_stable repassa ref/scope, valida o ref e orienta quando o texto não mexeu", async () => {
+		const execBrowserWait = vi.fn(async (_s: string, p: { for: string }) => ({
+			ok: true, met: true, for: p.for, waitedMs: 3500, url: "u", title: "t", changed: p.for === "text_stable" && execBrowserWait.mock.calls.length < 3, textLength: 120,
+		}));
+		const { toolResults } = await runWith({ execBrowserWait }, [
+			step([{ id: "1", name: "browser_wait", args: { for: "text_stable", scope: "#answer" } }]),
+			step([{ id: "2", name: "browser_wait", args: { for: "text_stable", ref: "f1e4" } }]),
+			step([{ id: "3", name: "browser_wait", args: { for: "text_stable" } }]),
+			step([{ id: "4", name: "browser_wait", args: { for: "text_stable", ref: "div" } }]),
+			text("ok"),
+		]);
+		expect(toolResults.map((r) => r.ok)).toEqual([true, true, true, false]);
+		expect(execBrowserWait.mock.calls[0]?.[1]).toMatchObject({ for: "text_stable", scope: "#answer" });
+		expect(execBrowserWait.mock.calls[1]?.[1]).toMatchObject({ for: "text_stable", ref: "f1e4" });
+		expect(execBrowserWait.mock.calls[1]?.[1]).not.toHaveProperty("scope");
+		expect(toolResults[0]?.summary).toContain("stopped changing");
+		expect(toolResults[2]?.summary).toContain("did not change while waiting");
+		expect(toolResults[3]?.summary).toMatch(/ref inválido/);
+		expect(execBrowserWait).toHaveBeenCalledTimes(3);
+	});
+
 	it("ref com prefixo de frame (f2e7) chega ao sandbox; prefixo malformado é recusado", async () => {
 		const execBrowserAct = vi.fn(async (_s: string, p: { ref: string; action: string }) => ({
 			ok: true, ref: p.ref, action: p.action, url: "u", navigated: false, settled: true, newElements: [], newTotal: 0,

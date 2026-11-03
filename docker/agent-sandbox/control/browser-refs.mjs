@@ -6,11 +6,12 @@ import { installProbeInPage, settleAfterAction } from "./stability.mjs";
 import { diffPageDigest, readDigest, summarizeChanges } from "./page-digest.mjs";
 import { safePointer } from "./pointer.mjs";
 import { createFrameRegistry, frameTag, splitRef } from "./frames.mjs";
+import { waitForTextStable } from "./text-stable.mjs";
 import { collectInteractive } from "./snapshot-page.mjs";
 import { SNAPSHOT_MAX_SCAN, buildSnapshot, describeElement, formatElementLine } from "./snapshot.mjs";
 
 export const ACT_ACTIONS = ["click", "type", "select", "check", "uncheck", "hover", "press", "clear"];
-export const WAIT_KINDS = ["text", "ref", "url", "network", "stable"];
+export const WAIT_KINDS = ["text", "ref", "url", "network", "stable", "text_stable"];
 const MAX_TYPE_LENGTH = 20_000;
 const MAX_VALUE_LENGTH = 300;
 const REF_PATTERN = /^(?:f\d{1,3})?e\d{1,5}$/;
@@ -64,8 +65,20 @@ export function parseWaitArgs(body) {
 	}
 	if (value.length > MAX_VALUE_LENGTH) throw new Error(`value muito longo (máx. ${MAX_VALUE_LENGTH}).`);
 	const asked = Number(body?.timeoutMs);
-	const timeoutMs = Number.isFinite(asked) && asked > 0 ? Math.min(WAIT_MAX_MS, Math.floor(asked)) : WAIT_DEFAULT_MS;
-	return { kind, value: value.trim(), timeoutMs, gone: Boolean(body?.gone) };
+	// text_stable espera resposta de chat/IA: o padrão já é o teto.
+	const fallback = kind === "text_stable" ? WAIT_MAX_MS : WAIT_DEFAULT_MS;
+	const timeoutMs = Number.isFinite(asked) && asked > 0 ? Math.min(WAIT_MAX_MS, Math.floor(asked)) : fallback;
+	const out = { kind, value: value.trim(), timeoutMs, gone: Boolean(body?.gone) };
+	if (kind === "text_stable") {
+		// Alvo opcional: `ref` (de um read/snapshot) ou `scope` (seletor CSS). Sem nenhum, o bloco que mais mudou.
+		const ref = typeof body?.ref === "string" ? body.ref.trim() : "";
+		if (ref && !REF_PATTERN.test(ref)) throw new Error("ref inválido em text_stable: use um ref do browser_read/browser_snapshot (ex.: e12).");
+		const scope = typeof body?.scope === "string" ? body.scope.trim() : "";
+		if (scope.length > MAX_VALUE_LENGTH) throw new Error(`scope muito longo (máx. ${MAX_VALUE_LENGTH}).`);
+		if (ref) out.ref = ref;
+		else if (scope) out.scope = scope;
+	}
+	return out;
 }
 
 function refSelector(ref) {
@@ -311,11 +324,12 @@ export function createRefActions({
 	}
 
 	async function browserWait(body) {
-		const { kind, value, timeoutMs, gone } = parseWaitArgs(body);
+		const { kind, value, timeoutMs, gone, ref, scope } = parseWaitArgs(body);
 		return withPageRetry(async (page) => {
 			const started = now();
 			let met = false;
 			let reason = "";
+			let textInfo;
 			try {
 				if (kind === "text") {
 					await page.waitForFunction(
@@ -332,6 +346,11 @@ export function createRefActions({
 					met = true;
 				} else if (kind === "ref") {
 					met = await waitForRef(page, value, gone, started + timeoutMs);
+				} else if (kind === "text_stable") {
+					const stable = await waitForTextStable(page, registry, { ref, scope, timeoutMs, now, sleep: pause });
+					met = stable.met;
+					if (!met) reason = stable.reason;
+					textInfo = { changed: stable.changed, textLength: stable.textLength };
 				} else {
 					const effect = await stabilize(page, { capMs: timeoutMs });
 					met = effect.settled;
@@ -347,6 +366,7 @@ export function createRefActions({
 				waitedMs: now() - started,
 				url: page.url(),
 				title: await page.title().catch(() => ""),
+				...(textInfo ?? {}),
 				...(met ? {} : { reason }),
 			};
 		}, { tries: 2 });

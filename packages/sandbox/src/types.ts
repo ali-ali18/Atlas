@@ -251,8 +251,12 @@ export type ControlActResult = ControlActionEffect & {
 };
 
 export type ControlWaitParams = {
-	for: "text" | "ref" | "url" | "network" | "stable";
+	for: "text" | "ref" | "url" | "network" | "stable" | "text_stable";
 	value?: string;
+	/** text_stable: ref do alvo (senão `scope`; sem nenhum, o bloco que mais mudou). */
+	ref?: string;
+	/** text_stable: seletor CSS do alvo. */
+	scope?: string;
 	timeoutMs?: number;
 	gone?: boolean;
 };
@@ -265,6 +269,10 @@ export type ControlWaitResult = {
 	url: string;
 	title: string;
 	reason?: string;
+	/** text_stable: o texto chegou a mudar durante a espera. */
+	changed?: boolean;
+	/** text_stable: tamanho do texto do alvo. */
+	textLength?: number;
 };
 
 // --- Shell / arquivos dentro da sandbox (docker exec no container do bot) ---
