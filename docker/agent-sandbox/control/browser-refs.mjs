@@ -203,7 +203,7 @@ export function createRefActions({
 		try {
 			return { ...(await resolveAxRef(page, axStore.tableFor(page), ref)), engine: "ax" };
 		} catch (error) {
-			if (error instanceof StaleRefError) return { stale: error.message };
+			if (error instanceof StaleRefError) return { stale: error.message, staleKind: error.kind };
 			throw error;
 		}
 	}
@@ -375,7 +375,11 @@ export function createRefActions({
 
 	async function waitForRef(page, ref, gone, deadline) {
 		for (;;) {
-			const locator = (await resolveRef(page, ref)).locator;
+			const found = await resolveRef(page, ref);
+			// Ref vencida sem saber o porquê (ou ambígua) não prova que o elemento sumiu: gone:true dava "sucesso" falso.
+			// Só "o papel+nome não existe mais" vale como sumiu.
+			if (found.stale && found.staleKind !== "missing") throw new Error(found.stale);
+			const locator = found.locator;
 			const visible = locator ? await locator.isVisible().catch(() => false) : false;
 			if (gone ? !visible : visible) return true;
 			if (now() >= deadline) return false;

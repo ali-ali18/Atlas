@@ -189,6 +189,18 @@ test("real: text_stable aceita ref aN da árvore de acessibilidade (o agente tam
 	assert.equal(await page.locator("[data-atlas-wait-target]").count(), 0, "a marca temporária some");
 });
 
+test("real: wait ref gone com ref aN: elemento removido = sumiu; ref desconhecida NÃO é sucesso", { skip }, async () => {
+	const { refs, page } = await open("/stream", { ax: true });
+	const snap = await refs.browserSnapshot({});
+	const ref = /\[(a\d+)\]/.exec(snap.lines.find((l) => l.includes('"Ask"')))[1];
+	const unknown = await refs.browserWait({ for: "ref", value: "a999", gone: true, timeoutMs: 600 });
+	assert.equal(unknown.met, false, "ref que nunca existiu não prova que sumiu");
+	assert.match(unknown.reason, /venceu|snapshot/);
+	await page.evaluate(() => [...document.querySelectorAll("button")].find((b) => b.textContent.includes("Ask"))?.remove());
+	const gone = await refs.browserWait({ for: "ref", value: ref, gone: true, timeoutMs: 3000 });
+	assert.equal(gone.met, true, JSON.stringify(gone));
+});
+
 test("real: text_stable com teto curto e texto que cresce devolve met:false e o motivo", { skip }, async () => {
 	const { refs } = await open();
 	const res = await refs.browserWait({ for: "text_stable", scope: "#answer", timeoutMs: 600 });
