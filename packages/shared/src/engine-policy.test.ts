@@ -264,6 +264,17 @@ describe("perfil do run", () => {
 		]) expect(looksLikeLongTask(text), text).toBe(true);
 	});
 
+	it("raízes soltas e pedidos sem alvo digital não viram trabalho longo", () => {
+		for (const text of [
+			"pode me enviar o acesso do wifi do escritório?",
+			"qual o link para acessar o painel? vou abrir agora",
+			"o que significa open source? e como baixar?",
+			"vai na padaria e pede um pão",
+			"me ajuda a baixar o preço e enviar pro cliente",
+			"como faço para exportar o relatorio e enviar ao financeiro?",
+		]) expect(looksLikeLongTask(text), text).toBe(false);
+	});
+
 	it("conversa curta ou pergunta com um verbo solto continua chat", () => {
 		for (const text of ["oi", "bom dia", "obrigado", "vai chover amanhã em São Paulo?", "me envie um resumo do que combinamos ontem", "o preço ficou entre 10 e 20 reais, certo?"]) {
 			expect(looksLikeLongTask(text), text).toBe(false);
