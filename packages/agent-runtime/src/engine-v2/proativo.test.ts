@@ -10,6 +10,7 @@ import {
 	createRoutineFromProposal,
 	listFollowups,
 	listRoutines,
+	rescheduleOwnedFollowup,
 	reserveProactiveMessage,
 } from "@workspace/db";
 import { BOT_CONFIG_EVENT_SYSTEM_INSTRUCTION, runComputerUse, type ComputerUseParams } from "../computer-use.js";
@@ -35,6 +36,12 @@ vi.mock("@workspace/db", async (importOriginal) => {
 		getBotConversationId: vi.fn(async () => "conv-1"),
 		listFollowups: vi.fn(async () => []),
 		cancelFollowup: vi.fn(async () => true),
+		rescheduleOwnedFollowup: vi.fn(async () => ({
+			ok: true,
+			followup: { id: "f9", dueAt: new Date("2030-01-01T12:00:00Z"), stages: [] },
+			requestedFor: new Date("2030-01-01T12:00:00Z"),
+			movedForQuietHours: false,
+		})),
 		listRoutines: vi.fn(async () => []),
 		findRecentProposalByName: vi.fn(async () => null),
 		appendRoutineProposalCard: vi.fn(async () => "msg-1"),
@@ -174,6 +181,67 @@ describe.each(["v1", "v2"] as const)("push avulso (notify_user) [%s]", (engine) 
 		} finally {
 			vi.useRealTimers();
 		}
+	});
+});
+
+describe.each(["v1", "v2"] as const)("modo proativo + push no mesmo chat [%s]", (engine) => {
+	// Bot principal com o modo proativo ligado e push (VAPID) liberado: os dois contextos coexistem no chat.
+	// Só `notify_user` vira push; as demais tools proativas têm de chegar ao db, não ao push.
+	const both = () => ({ userPush: { mode: "chat" as const, send: vi.fn(async () => undefined) } });
+
+	it("schedule_followup agenda de verdade e não dispara push", async () => {
+		const extra = both();
+		const { results } = await run(engine, { ...extra, calls: [toolCall("schedule_followup", { when: "daqui a 3 dias", note: "Prova de cálculo" }), done] });
+		expect(createFollowup).toHaveBeenCalledWith(expect.objectContaining({ userId: "user-1", botId: "bot-1", note: "Prova de cálculo" }));
+		expect(extra.userPush.send).not.toHaveBeenCalled();
+		expect(results[0]).toMatchObject({ name: "schedule_followup", ok: true });
+		expect(JSON.parse(results[0]!.summary)).toMatchObject({ scheduled: true });
+	});
+
+	it("list, reschedule e cancel_followup consultam o db do dono", async () => {
+		const item = { id: "f9", kind: "check", source: "chat", note: "Ver se o pedido chegou", dueAt: new Date(Date.now() + 86_400_000), stages: [] };
+		vi.mocked(listFollowups).mockResolvedValue([item] as never);
+		try {
+			const extra = both();
+			const { results } = await run(engine, {
+				...extra,
+				calls: [
+					toolCall("list_followups", {}),
+					toolCall("reschedule_followup", { id: "f9", when: "daqui a 2 dias" }, "c2"),
+					toolCall("cancel_followup", { id: "f9" }, "c3"),
+					done,
+				],
+			});
+			expect(results.map((r) => [r.name, r.ok])).toEqual([
+				["list_followups", true],
+				["reschedule_followup", true],
+				["cancel_followup", true],
+			]);
+			expect(results[0]!.summary).toContain("f9");
+			expect(rescheduleOwnedFollowup).toHaveBeenCalledWith(expect.objectContaining({ userId: "user-1", botId: "bot-1", followupId: "f9" }));
+			expect(cancelFollowup).toHaveBeenCalledWith("user-1", "f9", "bot-1");
+			expect(extra.userPush.send).not.toHaveBeenCalled();
+		} finally {
+			vi.mocked(listFollowups).mockResolvedValue([]);
+		}
+	});
+
+	it("suggest_routine grava o card de sugestão em vez de mandar push", async () => {
+		const extra = both();
+		const { results } = await run(engine, {
+			...extra,
+			calls: [toolCall("suggest_routine", { name: "Resumo da semana", prompt: "Resuma a semana", cron: "0 8 * * 1" }), done],
+		});
+		expect(results[0]).toMatchObject({ name: "suggest_routine", ok: true });
+		expect(appendRoutineProposalCard).toHaveBeenCalledWith("conv-1", expect.objectContaining({ kind: "routine-proposal", mode: "suggest" }));
+		expect(extra.userPush.send).not.toHaveBeenCalled();
+	});
+
+	it("notify_user continua indo para o push", async () => {
+		const extra = both();
+		await run(engine, { ...extra, calls: [toolCall("notify_user", { message: "Preciso da sua aprovação." }), done] });
+		expect(extra.userPush.send).toHaveBeenCalledWith("Preciso da sua aprovação.");
+		expect(appendConversationMessage).not.toHaveBeenCalled();
 	});
 });
 
