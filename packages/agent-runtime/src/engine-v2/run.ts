@@ -360,7 +360,7 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 	/** Maior lista que o MODELO montou neste run (só `update_task_list` chega aqui; lista herdada não conta): 3+ promove o chat. */
 	// "continua" digitado depois de um trabalho com itens abertos: a lista herdada vale como plano para promover o chat
 	// (sem isso "continua" cairia no chat curto e recomeçaria do zero). Outra mensagem com lista herdada nunca promove.
-	const continuation = !helperRole && origin === "chat" && humanTurn && isShortContinuation(lastUserMessage);
+	const continuation = !helperRole && origin === "chat" && (params.autoContinued === true || (humanTurn && isShortContinuation(lastUserMessage)));
 	const inheritedOpenPlan = continuation ? (taskTracker.taskList() ?? []) : [];
 	let modelPlannedSteps = inheritedOpenPlan.some((item) => item.status !== "completed") ? inheritedOpenPlan.length : 0;
 	const emitTaskListEvent = async (items: Array<{ content: string; status: "pending" | "in_progress" | "completed" }>) => {

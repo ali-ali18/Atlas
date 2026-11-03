@@ -175,6 +175,7 @@ export {
 	getConversationTaskList,
 	getConversationNotebook,
 	getContinuationInheritance,
+	notebookForContinuation,
 	getConversationTranscript,
 	getRunTranscript,
 	type RunTranscript,

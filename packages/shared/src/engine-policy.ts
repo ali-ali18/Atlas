@@ -286,7 +286,9 @@ function distinctActionVerbs(plain: string): number {
 export function isShortContinuation(text: string): boolean {
 	const plain = (text ?? "").normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().trim();
 	if (plain.length === 0 || plain.length > 40) return false;
-	return /^(?:(?:ok|certo|entao|pode|por favor|pfv|vai),?\s+)*(?:continu\w*|segu\w+|prossig\w+|prosseg\w+|retom\w+|em frente|vai em frente|go on|keep going|carry on|proceed)(?:\s+(?:ai|ae|em frente|de onde parou|onde parou|com isso|por favor|pfv|please))*[\s.!]*$/.test(plain);
+	// Só formas de continuar: "segue", "seguir", "pode seguir", "continua", "continue", "vai em frente", "manda ver", "prossiga".
+	// Não casa "segundo", "segura", "segurança" (a raiz "segu" sozinha pegava tudo isso).
+	return /^(?:(?:ok|certo|entao|pode|por favor|pfv|vai),?\s+)*(?:continu(?:a|e|ar|em)|segue|seguir|prossiga|prosseguir|retome|retomar|em frente|manda ver|go on|keep going|carry on|proceed)(?:\s+(?:ai|ae|em frente|de onde parou|onde parou|com isso|por favor|pfv|please))*[\s.!]*$/.test(plain);
 }
 
 /**

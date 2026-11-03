@@ -338,10 +338,10 @@ describe("perfil do run", () => {
 
 describe("isShortContinuation", () => {
 	it("mensagem curta que só manda seguir", () => {
-		for (const text of ["continua", "Continue", "pode seguir", "segue", "segue em frente", "ok, continua", "vai em frente!", "continua de onde parou", "go on", "keep going", "pode continuar por favor"]) expect(isShortContinuation(text), text).toBe(true);
+		for (const text of ["continua", "Continue", "pode seguir", "segue", "segue em frente", "ok, continua", "vai em frente!", "continua de onde parou", "go on", "keep going", "pode continuar por favor", "segue", "seguir", "manda ver", "prossiga"]) expect(isShortContinuation(text), text).toBe(true);
 	});
 
 	it("pedido novo, pergunta ou texto longo não é continuação", () => {
-		for (const text of ["", "oi", "continua a pesquisa sobre o preço do lítio em várias lojas e monte um relatório", "o que você acha de continuar?", "seguro de carro", "Bom dia"]) expect(isShortContinuation(text), text).toBe(false);
+		for (const text of ["", "oi", "continua a pesquisa sobre o preço do lítio em várias lojas e monte um relatório", "o que você acha de continuar?", "seguro de carro", "Bom dia", "segundo", "segura", "segurança"]) expect(isShortContinuation(text), text).toBe(false);
 	});
 });

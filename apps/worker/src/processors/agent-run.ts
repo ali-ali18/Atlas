@@ -1183,7 +1183,7 @@ async function executeLeasedRun(ctx: {
 	const runtimeBudget = runLimits.wallMs !== undefined ? { ...budget, maxWallMs: runLimits.wallMs } : budget;
 	// "continua" digitado: o caderno do trabalho anterior da conversa semeia o novo run (mesmo dono; falha = sem caderno).
 	const priorNotebook =
-		run.origin === "chat" && !groupRun && run.conversationId && readRunHumanTurn(run) && isShortContinuation(run.objective ?? "")
+		run.origin === "chat" && !groupRun && run.conversationId && (autoContinueAttempt > 0 || (readRunHumanTurn(run) && isShortContinuation(run.objective ?? "")))
 			? await getConversationNotebook(runUserId, run.conversationId, { excludeRunId: runId }).catch(() => null)
 			: null;
 	try {
@@ -1332,6 +1332,7 @@ async function executeLeasedRun(ctx: {
 			priorTaskLedger,
 			priorTaskList,
 			...(priorNotebook ? { priorNotebook } : {}),
+			...(autoContinueAttempt > 0 ? { autoContinued: true } : {}),
 			openBotRequests,
 			planMode: readPlanMode(rawBotPolicy),
 			planPending,

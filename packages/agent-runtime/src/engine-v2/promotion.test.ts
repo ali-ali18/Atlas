@@ -711,6 +711,32 @@ describe("\"continua\" depois de um trabalho com itens abertos (v2)", () => {
 		expect(run.onPromoted).toHaveBeenCalledTimes(1);
 	});
 
+	it("continuação automática (autoContinued) com a instrução do worker também promove pela lista herdada e recebe o caderno", async () => {
+		const run = await runChat({
+			stepMs: 5_000,
+			messages: [{ role: "user", content: "Continue the previous task from where it stopped. Do not repeat steps that are already done." }],
+			extra: { priorTaskList: OPEN_LIST, priorNotebook: NOTEBOOK, autoContinued: true },
+			script: [
+				turn([call("notebook_read", {})], 0.1),
+				(seen) => {
+					expect(seen.transcript).toContain("Entrei no painel");
+					return say("Feito.", 0.1);
+				},
+				say("Feito.", 0.1),
+				say("Feito.", 0.1),
+			],
+		});
+		expect(run.onPromoted).toHaveBeenCalledTimes(1);
+		// Sem o sinal de continuação automática a mesma mensagem longa não promove nem usa o caderno antigo.
+		const plain = await runChat({
+			stepMs: 5_000,
+			messages: [{ role: "user", content: "Continue the previous task from where it stopped. Do not repeat steps that are already done." }],
+			extra: { priorTaskList: OPEN_LIST, priorNotebook: NOTEBOOK },
+			script: [say("Ok.")],
+		});
+		expect(plain.onPromoted).not.toHaveBeenCalled();
+	});
+
 	it("a mesma lista herdada com outra mensagem (ou sem humano) não promove nem usa o caderno antigo", async () => {
 		const other = await runChat({ stepMs: 5_000, messages: [{ role: "user", content: "Bom dia" }], extra: { priorTaskList: OPEN_LIST, priorNotebook: NOTEBOOK }, script: [say("Bom dia!")] });
 		expect(other.onPromoted).not.toHaveBeenCalled();

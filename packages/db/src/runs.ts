@@ -403,22 +403,30 @@ export async function getContinuationInheritance(userId: string, conversationId:
 	return readRunInheritance(last);
 }
 
-/** Caderno do último run da conversa que tinha um (semeia a continuação). Mesmo escopo de dono; sem caderno = null. */
+/**
+ * Caderno do trabalho anterior da conversa, para semear uma continuação. Só se o ÚLTIMO run de chat da conversa parou com
+ * trabalho aberto (`stoppedWithOpenWork`): senão o caderno é de um trabalho já entregue e não deve contaminar um pedido novo.
+ * Lê só `checkpointJson->'notebook'` (não o checkpoint inteiro). Mesmo escopo de dono; sem caderno = null.
+ */
 export async function getConversationNotebook(userId: string, conversationId: string, options?: { excludeRunId?: string }): Promise<unknown[] | null> {
 	if (!userId || !conversationId) return null;
-	const rows = await prisma.agentRun.findMany({
-		where: { conversationId, userId: { in: ownerIds(userId) }, origin: "chat", ...(options?.excludeRunId ? { id: { not: options.excludeRunId } } : {}) },
-		select: { checkpointJson: true },
-		orderBy: { createdAt: "desc" },
-		take: 3,
-	});
-	for (const row of rows) {
-		const raw = row.checkpointJson;
-		if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
-		const notebook = (raw as { notebook?: unknown }).notebook;
-		if (Array.isArray(notebook) && notebook.length > 0) return notebook;
-	}
-	return null;
+	const rows = await prisma.$queryRaw<Array<{ stopReason: string | null; stopDetail: string | null; notebook: unknown }>>`
+		SELECT "stopReason", "stopDetail", "checkpointJson"->'notebook' AS "notebook"
+		FROM "agent_runs"
+		WHERE "conversationId" = ${conversationId}
+			AND "userId" IN (${Prisma.join(ownerIds(userId))})
+			AND "origin" = 'chat'
+			${options?.excludeRunId ? Prisma.sql`AND "id" <> ${options.excludeRunId}` : Prisma.empty}
+		ORDER BY "createdAt" DESC
+		LIMIT 1
+	`;
+	return notebookForContinuation(rows[0]);
+}
+
+/** Regra pura de `getConversationNotebook` (testável sem banco): o caderno do último run só serve se ele parou com trabalho aberto. */
+export function notebookForContinuation(last: { stopReason?: string | null; stopDetail?: string | null; notebook?: unknown } | undefined): unknown[] | null {
+	if (!last || !stoppedWithOpenWork({ reason: last.stopReason, detail: last.stopDetail })) return null;
+	return Array.isArray(last.notebook) && last.notebook.length > 0 ? last.notebook : null;
 }
 
 export async function createAgentRun(input: {
