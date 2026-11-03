@@ -304,9 +304,14 @@ test("código de verificação (B3): só em campo de código visível de formul�
 	});
 });
 
-test("navigate: só http(s) e about:blank; file:, javascript: e data: são recusados", () => {
-	for (const ok of ["https://a.test/x", "http://a.test", "about:blank", "example.com"]) assert.doesNotThrow(() => assertNavigableUrl(ok), ok);
-	for (const bad of ["file:///tmp/chrome-data/Default/Cookies", "javascript:alert(1)", "data:text/html,<b>x", "chrome://settings"]) {
-		assert.throws(() => assertNavigableUrl(bad), /URL não permitida/, bad);
+test("navigate: http(s), about:blank e file:// da pasta de trabalho; o resto é recusado", () => {
+	for (const ok of ["https://a.test/x", "http://a.test", "about:blank", "example.com", "file:///home/atlas/work/x.html", "file:///home/atlas/work/sub/a%20b.pdf", "file://localhost/home/atlas/work/img.png"]) {
+		assert.doesNotThrow(() => assertNavigableUrl(ok), ok);
 	}
+	const bad = [
+		"file:///tmp/chrome-data/Default/Cookies", "file:///etc/passwd", "file:///proc/self/environ", "file:///home/atlas/.ssh/id_rsa",
+		"file:///home/atlas/work/../.ssh/id_rsa", "file:///home/atlas/work/%2e%2e/%2e%2e/etc/passwd", "file:///home/atlas/workshop/x", "file://evil.test/home/atlas/work/x",
+		"javascript:alert(1)", "data:text/html,<b>x", "chrome://settings",
+	];
+	for (const url of bad) assert.throws(() => assertNavigableUrl(url), /URL não permitida/, url);
 });

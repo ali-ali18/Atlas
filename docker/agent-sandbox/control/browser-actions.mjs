@@ -1,3 +1,5 @@
+import { realpathSync } from "node:fs";
+import { posix } from "node:path";
 import { isChromeDeadError, shouldRetryPlaywrightError } from "./browser-session.mjs";
 import { settleAfterAction, waitForPageReady } from "./stability.mjs";
 import { INTERACTIVE_SELECTOR, createClickLadder } from "./click-ladder.mjs";
@@ -125,7 +127,35 @@ function loginRefusalMessage(kind, verdict) {
 const NOT_FOUND_HINT =
 	"Use browser_snapshot para ver os elementos da página. Se o controle só tem ícone (janela estreita, menu \"…\"), tire um browser_screenshot com marks e procure o ícone.";
 
-/** Só http(s) e about:blank: `file://` (perfil/cookies da VM) e `javascript:`/`data:` ficam de fora. */
+/** Pasta de trabalho do usuário na VM (volume por conversa; ver Dockerfile). `file://` só vale aqui dentro. */
+export const WORKSPACE_DIR = "/home/atlas/work";
+
+function isInsideWorkspace(path) {
+	return path === WORKSPACE_DIR || path.startsWith(`${WORKSPACE_DIR}/`);
+}
+
+/** `file://` só para arquivo da pasta de trabalho: nunca o perfil do Chrome (/tmp/chrome-data), /proc, /etc ou chaves. */
+function assertWorkspaceFileUrl(parsed) {
+	const refuse = () => new Error(`URL não permitida (file:): só arquivos dentro de ${WORKSPACE_DIR} podem ser abertos.`);
+	if (parsed.hostname !== "" && parsed.hostname !== "localhost") throw refuse();
+	let decoded;
+	try {
+		decoded = decodeURIComponent(parsed.pathname);
+	} catch {
+		throw refuse();
+	}
+	if (decoded.includes("\0") || decoded.includes("\\")) throw refuse();
+	const path = posix.normalize(decoded);
+	if (!isInsideWorkspace(path)) throw refuse();
+	// Link simbólico dentro da pasta apontando para fora (ex.: -> /etc/passwd) também é recusado.
+	try {
+		if (!isInsideWorkspace(realpathSync(path))) throw refuse();
+	} catch (error) {
+		if (error?.code !== "ENOENT" && error?.code !== "ENOTDIR") throw refuse();
+	}
+}
+
+/** Só http(s), about:blank e file:// da pasta de trabalho; `javascript:`/`data:` e o resto ficam de fora. */
 export function assertNavigableUrl(raw) {
 	let parsed;
 	try {
@@ -133,8 +163,9 @@ export function assertNavigableUrl(raw) {
 	} catch {
 		return; // sem esquema válido: o goto do Playwright dá o erro claro
 	}
+	if (parsed.protocol === "file:") return assertWorkspaceFileUrl(parsed);
 	const ok = parsed.protocol === "http:" || parsed.protocol === "https:" || String(raw).trim() === "about:blank";
-	if (!ok) throw new Error(`URL não permitida (${parsed.protocol}): navegue só para http(s) ou about:blank.`);
+	if (!ok) throw new Error(`URL não permitida (${parsed.protocol}): navegue só para http(s), about:blank ou arquivos da pasta de trabalho (file://).`);
 }
 
 export function createBrowserActions({
