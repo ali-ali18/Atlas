@@ -243,9 +243,6 @@ export function cardKey(item: ChatItem): string | null {
 			return `task-list|${item.runId}`;
 		case "web-card":
 			return item.key;
-		case "images":
-			// Ao vivo não há id de mensagem: a identidade é o conjunto de arquivos (o gravado tem os mesmos).
-			return `images|${item.images.map((image) => image.artifactId).join(",")}`;
 		default:
 			return null;
 	}
@@ -286,6 +283,15 @@ export function reconcile(persisted: readonly ChatItem[], live: readonly ChatIte
 		} else if (item.kind === "assistant") {
 			if (!item.text.trim()) continue;
 			if (normalize(item.text).length >= MIN_COVERED_LENGTH && persistedAssistantCovers(persisted, item.text)) continue;
+		} else if (item.kind === "images") {
+			// Ao vivo não há id de mensagem: o cartão gravado com os mesmos arquivos (um por vez) é o mesmo. Só o AO VIVO
+			// é comparado com o gravado; duas mensagens gravadas com o mesmo arquivo continuam sendo duas.
+			const same = imagesSignature(item);
+			const match = persisted.find((row) => row.kind === "images" && !consumed.has(row.id) && imagesSignature(row) === same);
+			if (match) {
+				consumed.add(match.id);
+				continue;
+			}
 		} else {
 			const key = cardKey(item);
 			const at = key ? persistedKeys.get(key) : undefined;
@@ -298,6 +304,11 @@ export function reconcile(persisted: readonly ChatItem[], live: readonly ChatIte
 		result.push(item);
 	}
 	return dedupeKeys(result);
+}
+
+/** Conjunto de arquivos de um cartão de imagens, na ordem (identidade do ao vivo contra o gravado). */
+export function imagesSignature(item: Extract<ChatItem, { kind: "images" }>): string {
+	return item.images.map((image) => image.artifactId).join(",");
 }
 
 function isOlderThan(row: ChatItem, optimistic: ChatItem): boolean {

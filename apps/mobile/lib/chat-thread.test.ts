@@ -208,6 +208,20 @@ describe("cartão de imagens gravado", () => {
 		expect(reconcile([saved], [live])).toEqual([saved]);
 		expect(reconcile([], [live])).toEqual([live]);
 	});
+	it("a mesma imagem em duas mensagens gravadas continua sendo duas (o histórico não perde cartão)", () => {
+		const first = sessionMessageToItem(imagesRow("assistant", {}, "m3")) as ChatItem;
+		const second = sessionMessageToItem(imagesRow("assistant", {}, "m4")) as ChatItem;
+		expect(dedupeKeys([first, second])).toHaveLength(2);
+		expect(reconcile([first, second], [])).toHaveLength(2);
+	});
+	it("o cartão ao vivo casa com um gravado por vez", () => {
+		const first = sessionMessageToItem(imagesRow("assistant", {}, "m3")) as ChatItem;
+		const second = sessionMessageToItem(imagesRow("assistant", {}, "m4")) as ChatItem;
+		const live = (id: string): ChatItem => ({ id, kind: "images", origin: "assistant", images: [{ artifactId: "a1", mime: "image/png", width: 800, height: 600 }, { artifactId: "a2", mime: "image/jpeg", width: 10, height: 10 }] });
+		expect(reconcile([first], [live("l1")])).toHaveLength(1);
+		expect(reconcile([first], [live("l1"), live("l2")])).toHaveLength(2);
+		expect(reconcile([first, second], [live("l1"), live("l2")])).toHaveLength(2);
+	});
 	it("arquivos diferentes são cartões diferentes", () => {
 		const saved = sessionMessageToItem(imagesRow("assistant")) as ChatItem;
 		const other: ChatItem = { id: "images-r2-z", kind: "images", origin: "assistant", images: [{ artifactId: "z", mime: "image/png", width: 1, height: 1 }] };
