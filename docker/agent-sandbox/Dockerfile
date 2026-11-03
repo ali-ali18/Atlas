@@ -59,16 +59,17 @@ RUN curl -fsSL -o /tmp/code.deb \
 
 # yt-dlp: legendas de vídeo para a tool video_transcript (script Python único; o python3 já está na
 # imagem). Fica em /usr/local/bin, de root: o `atlas` executa, mas não troca o binário.
-# Tag fixa (build reproduzível) + SHA2-256SUMS publicado na MESMA tag, conferido com `sha256sum -c`.
-# Para atualizar: troque YT_DLP_VERSION por outra tag de https://github.com/yt-dlp/yt-dlp/releases.
-# (A tag 2025.10.22 foi escolhida sem rede no momento da edição: se o build falhar no download, confirme a tag.)
-ARG YT_DLP_VERSION=2025.10.22
+# Tag fixa (build reproduzível) + hash SHA-256 do binário fixado aqui (do SHA2-256SUMS dessa tag),
+# conferido com `sha256sum -c`: um release trocado depois não passa no build.
+# Para atualizar: troque YT_DLP_VERSION e YT_DLP_SHA256 pela linha " yt-dlp" do SHA2-256SUMS da nova tag
+# em https://github.com/yt-dlp/yt-dlp/releases.
+ARG YT_DLP_VERSION=2026.10.26
+ARG YT_DLP_SHA256=e51e69e89489f199530f13d32a4342da3ddb2cf34842f364603a066db05afbf3
 RUN cd /tmp \
 	&& curl -fsSL -o yt-dlp "https://github.com/yt-dlp/yt-dlp/releases/download/${YT_DLP_VERSION}/yt-dlp" \
-	&& curl -fsSL -o SHA2-256SUMS "https://github.com/yt-dlp/yt-dlp/releases/download/${YT_DLP_VERSION}/SHA2-256SUMS" \
-	&& sha256sum --ignore-missing -c SHA2-256SUMS \
+	&& echo "${YT_DLP_SHA256}  yt-dlp" | sha256sum -c - \
 	&& install -m 0755 -o root -g root yt-dlp /usr/local/bin/yt-dlp \
-	&& rm -f yt-dlp SHA2-256SUMS \
+	&& rm -f yt-dlp \
 	&& /usr/local/bin/yt-dlp --version
 
 # Wallpaper (Unsplash) + dock (Plank): Chrome / Files / Settings / Editor / Terminal.

@@ -110,8 +110,8 @@ test("Dockerfile: yt-dlp (video_transcript) em tag fixa, com checksum, de root e
 	assert.ok(version, "tag fixa AAAA.MM.DD em ARG YT_DLP_VERSION");
 	assert.doesNotMatch(dockerfile, /yt-dlp\/releases\/latest/);
 	assert.match(dockerfile, /releases\/download\/\$\{YT_DLP_VERSION\}\/yt-dlp"/);
-	assert.match(dockerfile, /releases\/download\/\$\{YT_DLP_VERSION\}\/SHA2-256SUMS"/);
-	assert.match(dockerfile, /sha256sum --ignore-missing -c SHA2-256SUMS/);
+	assert.match(dockerfile, /^ARG YT_DLP_SHA256=[0-9a-f]{64}$/m, "hash SHA-256 do binário fixado");
+	assert.match(dockerfile, /echo "\$\{YT_DLP_SHA256\}  yt-dlp" \| sha256sum -c -/);
 	assert.match(dockerfile, /install -m 0755 -o root -g root yt-dlp \/usr\/local\/bin\/yt-dlp/);
 	assert.match(dockerfile, /\/usr\/local\/bin\/yt-dlp --version/);
 	assert.doesNotMatch(dockerfile, /chown[^\n]*atlas[^\n]*yt-dlp/);
