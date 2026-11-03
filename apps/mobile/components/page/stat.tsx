@@ -1,6 +1,7 @@
 import { View } from "react-native";
 import { Text } from "@/components/ui/text";
 import { DELTA_TONE, formatPageDelta, formatPageValue } from "@/lib/page-format";
+import { statFontSize } from "@/lib/page-layout";
 import { type Of, usePageTheme } from "./page-theme";
 
 const VALUE_SIZE = { sm: 20, md: 26, lg: 34 } as const;
@@ -13,6 +14,7 @@ export function StatNode({ node }: { node: Of<"stat"> }) {
 	const { label, value, unit, format, delta, size = "md", tone } = node.props;
 	const { surface, tone: toneOf } = usePageTheme();
 	const shown = formatPageValue(value, { unit, format });
+	const fontSize = statFontSize(VALUE_SIZE[size], shown.length);
 	const deltaText = delta ? formatPageDelta(delta, { unit, format }) : null;
 	return (
 		<View
@@ -30,7 +32,7 @@ export function StatNode({ node }: { node: Of<"stat"> }) {
 				adjustsFontSizeToFit
 				minimumFontScale={0.6}
 				className="font-semibold"
-				style={{ fontSize: VALUE_SIZE[size], lineHeight: VALUE_SIZE[size] + 6, fontVariant: ["tabular-nums"], ...(tone ? { color: toneOf(tone).text } : null) }}
+				style={{ fontSize, lineHeight: fontSize + 6, fontVariant: ["tabular-nums"], ...(tone ? { color: toneOf(tone).text } : null) }}
 			>
 				{shown}
 			</Text>

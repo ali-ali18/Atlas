@@ -27,6 +27,17 @@ export function gridColumns(cols: number, width: number, statsOnly: boolean): nu
 	return wanted;
 }
 
+/**
+ * Tamanho do valor de um stat pelo tamanho pedido e pelo comprimento do texto. `adjustsFontSizeToFit` só existe no
+ * nativo (a prévia web e alguns aparelhos ignoram), então o texto longo ("R$ 128.450,50") já nasce menor, em vez de
+ * cortar com reticências.
+ */
+export function statFontSize(base: number, textLength: number): number {
+	if (textLength > 12) return Math.round(base * 0.65);
+	if (textLength > 9) return Math.round(base * 0.8);
+	return base;
+}
+
 /** Kanban: colunas lado a lado a partir da largura de tablet/paisagem; abaixo disso empilham, cada uma recolhível. */
 export function kanbanLayout(width: number): "stacked" | "columns" {
 	return width >= BREAKPOINT_2XL ? "columns" : "stacked";

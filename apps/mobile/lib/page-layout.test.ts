@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { clampSpan, gapPx, gridColumns, gridItemWidth, isStatsOnly, kanbanLayout } from "./page-layout";
+import { clampSpan, gapPx, gridColumns, gridItemWidth, isStatsOnly, kanbanLayout, statFontSize } from "./page-layout";
+
+describe("valor do stat", () => {
+	it("texto curto fica no tamanho pedido; o longo encolhe em degraus", () => {
+		expect(statFontSize(26, 5)).toBe(26);
+		expect(statFontSize(26, 9)).toBe(26);
+		expect(statFontSize(26, 10)).toBe(21);
+		expect(statFontSize(26, 13)).toBe(17);
+		expect(statFontSize(34, 20)).toBe(22);
+	});
+});
 
 describe("kanban", () => {
 	it("celular empilha (colunas recolhíveis); tablet e paisagem põem lado a lado", () => {
