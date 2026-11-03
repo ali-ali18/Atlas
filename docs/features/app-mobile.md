@@ -331,6 +331,21 @@ O painel e o documento abrem numa **folha que sobe de baixo por cima da tela atu
 - **Cartão de arquivo do chat:** o cartão guarda `fileId`, `mime` e `size` (ao vivo e persistido); cartão gravado antes de o app guardar o id continua indo ao navegador.
 - **Só se confirma no aparelho:** o arraste e o toque no fundo (PanResponder dentro do `Modal`), o Voltar do Android, a folha de compartilhar (`expo-sharing`, gravação no cache) e o desempenho de um markdown de 300 KB. A prévia (Chromium, 411x860, escuro) não exercita o gesto nem o compartilhar.
 
+## Visualizador de imagens
+
+Tocar numa imagem do chat abre o visualizador em **tela cheia**, no estilo do Grok: fundo preto, a imagem inteira (contain) com cantos arredondados, **X** redondo à esquerda e **"…"** redondo à direita (`ChromeButton`), legenda curta embaixo e uma **tira de miniaturas** com todas as imagens da conversa, na ordem do fio (anexos do usuário e imagens do bot). A atual tem borda clara; tocar numa miniatura troca a imagem, e deslizar para o lado também (pager horizontal paginado), com a miniatura acompanhando. É sempre escuro, qualquer que seja o tema do sistema (`SchemeOverrideContext` em `lib/use-theme.ts`).
+
+- **No fio:** o cartão `images` (role `images`, origem `user` ou `assistant`) deixou de ser "Abrir no navegador" e é um tipo do fio (`ChatItem.kind = "images"`): uma imagem grande na proporção dela, ou uma grade de quadrados (2 e 4 em duas colunas, 3 a 6 em três), do lado de quem enviou, com a legenda do cartão embaixo. O evento ao vivo `images` e o cartão gravado têm a mesma identidade (o conjunto de arquivos), então o merge nunca mostra os dois.
+- **De onde vem a legenda:** a descrição da imagem (`alt`); senão a legenda do cartão (`caption`, o texto que o bot mandou junto); senão, no anexo do usuário, o texto da fala colada ao cartão. Sem nada disso, sem legenda. Cortada em 160 caracteres, no máximo duas linhas (`lib/image-viewer.ts`).
+- **Dados:** a imagem é o arquivo do servidor (`GET /v1/files/:id`, o mesmo do web; o servidor filtra pelo dono). O app baixa com a sessão, mostra como `data:` URI e guarda as 24 mais recentes em memória (`lib/image-source.ts`), então cartão, miniatura e visualizador não baixam a mesma imagem três vezes. Uma `uri` local só é aceita se for `data:image/(png|jpeg|webp|gif)`, `file:` ou http(s) (`isSafeImageUri`); nunca vem do servidor.
+- **Menu do "…"** (`ActionSheet` escuro, três itens com ícone):
+  - **Encaminhar:** hoje abre a folha de compartilhar do sistema com o **arquivo** da imagem (baixado com a sessão, gravado no cache e apagado depois). O app ainda não tem anexo no composer nem rota de servidor para reenviar uma imagem a outro bot, então "mandar para outro bot" fica para quando houver anexo no app.
+  - **Compartilhar:** o mesmo caminho (`expo-sharing` + `expo-file-system`, já no Expo Go).
+  - **Salvar:** `expo-media-library` (nova dependência, `~58.0.13`, no Expo Go do SDK 58 e com o plugin no `app.json`), pedindo só a permissão de **escrever**; o aviso curto "Imagem salva" aparece em cima da legenda. No navegador não há galeria: o aviso manda usar Compartilhar. Sem permissão ou sem conexão, a frase diz o que houve (`lib/image-actions.ts`).
+- **Lógica pura (com testes):** `lib/image-viewer.ts` (coleta e dedupe na ordem do fio, legenda, índice inicial pela imagem tocada, índice pela rolagem, ajuste contain, nome do arquivo, grade), `lib/image-source.ts` (carregador com LRU) e `lib/image-actions.ts` (frases).
+- **Ainda não:** pinça para zoom (o pager horizontal e o gesto de pinça competem no RN sem teste no aparelho; fica para uma tarefa própria), "mandar para outro bot" no Encaminhar e arrastar para baixo para fechar.
+- **Só se confirma no aparelho:** o deslizar entre imagens (a prévia é o Chromium, que usa o scroll do navegador), a folha de compartilhar do sistema, o pedido de permissão e a gravação na galeria (Android e iOS) e o desempenho de imagens grandes em `data:` URI.
+
 ## Pele e peças (consistência visual)
 
 Antes cada tela escolhia a sua cor (chat `#09090b`, Rotinas `#1e1e1e`, Perfil `bg-card`), a sua borda e até o seu interruptor (o `Switch` do RN no Perfil). Agora há um padrão só, em `lib/surfaces.ts` (`surfaceColors(scheme)` / `useSurfaces()`), com par claro/escuro:
