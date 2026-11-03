@@ -81,7 +81,21 @@ import {
 import { todayNote } from "../context/today-note.js";
 import { contextBudgetFor } from "../context/budget.js";
 import { namespaceToolCallId, renameProviderItemCallIds } from "../context/transcript.js";
-import { STUB_LAST_GROUP_MAX_CHARS, applyPromptHygiene } from "../hygiene.js";
+import {
+	COLLAPSE_BATCH_MAX_CHARS,
+	COLLAPSE_BATCH_SIZE,
+	COLLAPSE_PRESSURE_RATIO,
+	DEFAULT_CONTEXT_LENGTH,
+	KEEP_RECENT_SCREENSHOTS,
+	RECENT_TOOL_GROUPS_KEPT,
+	STUB_LAST_GROUP_MAX_CHARS,
+	applyPromptHygiene,
+	estimateMessagesTokens,
+	omitOldScreenshots,
+	trimHistory,
+} from "../hygiene.js";
+import { compactWithSummary, createStreamSummarizer } from "../context/summary-compaction.js";
+import { CONTEXT_WARN_RATIO, CONTEXT_SOFT_RATIO, CONTEXT_HARD_RATIO, CONTEXT_WINDOW_NOTE, contextKeepEnabled } from "./context-keep.js";
 import { toolsJsonCharsOf } from "../tools-json-size.js";
 import { modelStepTelemetry } from "../telemetry/step-telemetry.js";
 import { isUnattendedOrigin } from "../autonomy-gate.js";
@@ -573,6 +587,41 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 		await persistCheckpoint(step);
 	}
 
+	// --- contexto (E1): resumo antes do corte duro ---
+	const contextKeep = contextKeepEnabled();
+	const summarizeContext = createStreamSummarizer({ streamChat, model: () => params.messageTriageModel?.trim() || model, apiKey, signal: params.abortSignal });
+	let summaryRetryAtStep = 0;
+	let contextWarned = false;
+	/**
+	 * Acima do teto do orçamento de contexto, a parte antiga do histórico CANÔNICO vira um resumo do modelo de manutenção (como no v1).
+	 * Falhou ou não encolheu: a higiene da cópia enviada cobre, e só se ainda não couber é que o erro fiel da janela sobe.
+	 */
+	const summarizeIfNeeded = async (budget: ReturnType<typeof contextBudgetFor>, toolsChars: number) => {
+		if (!budget.summarize || helperRole || step < summaryRetryAtStep) return;
+		const estimate = (list: readonly LlmMessage[]) => estimateMessagesTokens(list, toolsChars);
+		// Capturas antigas nunca vão ao modelo (só as 2 últimas): contá-las inflaria o histórico e resumiria à toa.
+		const forEstimate = omitOldScreenshots(conversation, KEEP_RECENT_SCREENSHOTS);
+		if (estimate(forEstimate) <= budget.ceilingTokens) return;
+		const result = await compactWithSummary({
+			messages: forEstimate,
+			budget,
+			estimate,
+			trim: trimHistory,
+			summarize: summarizeContext,
+			taskState: taskTracker.snapshot(),
+			objectiveText: params.objective ?? lastUserMessage,
+			languageInstruction: replyLanguage.instruction,
+		});
+		if (result.usage) usageTotals = addUsage(usageTotals, result.usage);
+		if (result.status === "summarized") {
+			conversation = result.messages;
+			contextWarned = false;
+			// Não resume de novo nos próximos passos: o prefixo em cache precisa se firmar.
+			summaryRetryAtStep = step + 3;
+			await onEvent({ type: "context_compacted", before: result.before, after: result.after });
+		} else if (result.status === "failed") summaryRetryAtStep = step + 5;
+	};
+
 	// --- chamada ao modelo ---
 	const closingSignal = (ms = CLOSING_CALL_TIMEOUT_MS) => AbortSignal.any([...(params.abortSignal ? [params.abortSignal] : []), AbortSignal.timeout(ms)]);
 	const mediaMemo = createMediaMemo();
@@ -607,26 +656,50 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 		if (callTools.length === 0) toolChoice = "none";
 		await ensureContinue(closing ? params.abortSignal : undefined);
 		await ensureNotPaused();
-		const hygiene = applyPromptHygiene(history, {
+		const toolsChars = toolsJsonCharsOf(callTools);
+		const budget = params.contextBudget ?? contextBudgetFor(params.contextMemory, contextLength);
+		if (contextKeep) await summarizeIfNeeded(budget, toolsChars);
+		const hygiene = applyPromptHygiene(contextKeep ? omitOldScreenshots(conversation, KEEP_RECENT_SCREENSHOTS) : conversation, {
 			language,
 			lastGroupMaxChars: hygieneLastGroupChars,
 			contextLength,
-			toolsJsonChars: toolsJsonCharsOf(callTools),
+			toolsJsonChars: toolsChars,
 			model,
-			contextBudget: params.contextBudget ?? contextBudgetFor(params.contextMemory, contextLength),
+			contextBudget: budget,
 			objectiveText: params.objective ?? lastUserMessage,
 			taskState: () => taskTracker.snapshot(),
+			// Contexto que MANTÉM o trabalho (E1): os 6 últimos grupos de resultados ficam inteiros e os antigos só encolhem sob
+			// pressão real; o corte duro só vem depois do resumo. Desligável com ATLAS_ENGINE_V2_CONTEXT_KEEP=off.
+			...(contextKeep
+				? {
+						keepRecentGroups: RECENT_TOOL_GROUPS_KEPT,
+						collapseBatch: { size: COLLAPSE_BATCH_SIZE, maxPendingChars: COLLAPSE_BATCH_MAX_CHARS },
+						collapseOverTokens: Math.floor(budget.ceilingTokens * COLLAPSE_PRESSURE_RATIO),
+						softRatio: CONTEXT_SOFT_RATIO,
+						hardRatio: CONTEXT_HARD_RATIO,
+					}
+				: {}),
 		});
-		conversation = hygiene.messages;
+		// A higiene vale só para a cópia ENVIADA ao modelo: o histórico canônico fica intacto (sem E1, o comportamento antigo).
+		if (!contextKeep) conversation = hygiene.messages;
+		const sentHistory = hygiene.messages;
+		// Aviso único perto de 75% da janela (o resumo já roda no teto do orçamento; isto avisa o modelo para guardar o que importa).
+		// Vai neste passo como camada volátil (a higiene da cópia enviada pode limpar o resultado em que o aviso fica anexado no histórico).
+		let contextWarnNow = false;
+		if (contextKeep && !contextWarned && estimateMessagesTokens(omitOldScreenshots(conversation, KEEP_RECENT_SCREENSHOTS), toolsChars) >= (contextLength ?? DEFAULT_CONTEXT_LENGTH) * CONTEXT_WARN_RATIO) {
+			contextWarned = true;
+			contextWarnNow = true;
+			if (!appendToLatestToolResult(conversation, CONTEXT_WINDOW_NOTE)) conversation.push({ role: "user", content: `${AUTO_CONTEXT} ${CONTEXT_WINDOW_NOTE}` });
+		}
 		const taskNote = renderTaskListNote(taskTracker.taskList());
 		const nowNote = process.env.ATLAS_NOW_NOTE === "off" ? null : todayNote(new Date(), params.timeZone);
-		const layers = [taskNote, nowNote].filter((layer): layer is string => Boolean(layer));
+		const layers = [taskNote, nowNote, contextWarnNow ? CONTEXT_WINDOW_NOTE : null].filter((layer): layer is string => Boolean(layer));
 		// Índice do caderno: camada fora do histórico (a higiene/compactação nunca o descarta). Títulos vêm de páginas,
 		// então vai como contexto automático de usuário e não como instrução de sistema.
 		const notebookIndex = notebook?.index();
 		const notebookLayer: LlmMessage[] = notebookIndex ? [{ role: "user", content: `${AUTO_CONTEXT} ${notebookIndex}` }] : [];
 		const withLayers: LlmMessage[] =
-			layers.length || notebookLayer.length ? [...conversation, ...layers.map((content) => ({ role: "system" as const, content })), ...notebookLayer] : conversation;
+			layers.length || notebookLayer.length ? [...sentHistory, ...layers.map((content) => ({ role: "system" as const, content })), ...notebookLayer] : sentHistory;
 		const transport = await resolveLlmMessagesForModel(withLayers, params.loadScreenshot, {
 			canSeeUserImages: params.canSeeUserImages,
 			canSeeScreenshots: canSeeImages,
@@ -657,7 +730,7 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 				reasoningMaxTokens: params.reasoningMaxTokens,
 				...(reasoningFor ? { reasoningEffort: reasoningFor } : {}),
 				sessionId: !conversationId ? params.runId : `c${createHash("sha256").update(`${botId ?? ""}:${conversationId}`).digest("hex").slice(0, 31)}`,
-				...(layers.length > 0 || notebookLayer.length > 0 ? { cacheStableIndex: conversation.length - 1 } : {}),
+				...(layers.length > 0 || notebookLayer.length > 0 ? { cacheStableIndex: sentHistory.length - 1 } : {}),
 			},
 			{
 				onDelta: (delta) => {
