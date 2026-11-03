@@ -60,37 +60,58 @@ test("isChromeDeadError: Chrome morto sim; seletor/timeout de página não", () 
 	assert.equal(isChromeDeadError("Timeout 15000ms exceeded waiting for selector"), false);
 });
 
-test("Chrome pendurado (evaluate não responde) é morto, relançado e reconectado", async () => {
+function hangingHarness({ slowBrowserProbe }) {
 	const log = [];
 	let clock = 0;
-	const hung = { isClosed: () => false, evaluate: () => new Promise(() => {}) };
-	const fresh = { isClosed: () => false, evaluate: async () => 1 };
-	let connections = 0;
-	const makeBrowser = (page) => ({
+	let probes = 0;
+	const page = { isClosed: () => false, evaluate: () => new Promise(() => {}) };
+	const cdp = { send: async () => { probes += 1; if (slowBrowserProbe()) await new Promise(() => {}); return {}; }, detach: async () => {} };
+	const makeBrowser = () => ({
 		isConnected: () => true,
 		close: async () => log.push("close"),
+		newBrowserCDPSession: async () => cdp,
 		contexts: () => [{ pages: () => [page] }],
 	});
 	const session = createBrowserSession({
 		cdpUrl: "http://127.0.0.1:9222",
 		now: () => clock,
+		healthTimeoutMs: 20,
 		wait: async () => {},
 		kill: async () => log.push("kill"),
 		launch: async () => log.push("launch"),
-		chromium: {
-			connectOverCDP: async () => {
-				connections += 1;
-				// 1ª conexão: Chrome pendurado; depois do kill/launch: Chrome novo.
-				return makeBrowser(log.includes("launch") || connections > 1 ? fresh : hung);
-			},
-		},
+		chromium: { connectOverCDP: async () => makeBrowser() },
 	});
-	assert.equal(await session.getPage(), hung); // primeira vez: sem health-check ainda
-	clock += 10_000;
-	// Agora o health-check roda, estoura o timeout de 3 s e reinicia.
-	const page = await session.getPage();
-	assert.equal(page, fresh);
-	assert.deepEqual(log.filter((l) => l !== "close"), ["kill"]);
+	return { session, log, page, tick: (ms) => { clock += ms; }, probes: () => probes };
+}
+
+test("aba pesada (evaluate preso) com o Chrome respondendo NÃO reinicia o Chrome", async () => {
+	const h = hangingHarness({ slowBrowserProbe: () => false });
+	await h.session.getPage();
+	for (let i = 0; i < 5; i += 1) {
+		h.tick(10_000);
+		assert.equal(await h.session.getPage(), h.page);
+	}
+	assert.deepEqual(h.log, []);
+	assert.ok(h.probes() >= 5, "a sonda é o CDP do navegador, não o evaluate da aba");
+});
+
+test("Chrome sem resposta: reinicia só após falhas seguidas e com teto por janela (sem laço)", async () => {
+	const h = hangingHarness({ slowBrowserProbe: () => true });
+	await h.session.getPage();
+	h.tick(10_000);
+	await h.session.getPage(); // 1ª falha: segue com a aba, sem matar
+	assert.deepEqual(h.log, []);
+	h.tick(10_000);
+	await h.session.getPage(); // 2ª falha seguida: reinicia
+	assert.deepEqual(h.log.filter((l) => l !== "close"), ["kill"]);
+	// Chrome continua mudo: no máximo MAX_AUTO_RESTARTS por janela e 30 s entre reinícios.
+	for (let i = 0; i < 40; i += 1) {
+		h.tick(10_000);
+		await h.session.getPage();
+	}
+	const restarts = h.log.filter((l) => l === "kill").length;
+	assert.ok(restarts <= 3, `reiniciou ${restarts}x em ~400 s`);
+	assert.match(h.session.takeNotice() ?? "", /slow to respond|restart limit/);
 });
 
 test("restart() mata, relança e devolve página nova com o mesmo perfil", async () => {

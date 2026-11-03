@@ -17,6 +17,8 @@ import {
 } from "./outline.mjs";
 import { readPageInPage, READ_MAX_NODES, READ_MAX_ITEMS } from "./read-page.mjs";
 import { describeElement } from "./snapshot.mjs";
+import { MAX_FRAMES } from "./frames.mjs";
+import { runExclusive } from "./page-lock.mjs";
 
 export const EXPAND_MAX_SECTIONS = 30;
 export const SECTION_MAX_CHARS = 3000;
@@ -54,7 +56,11 @@ async function openState(locator) {
 
 const clipText = (text, max) => (text.length > max ? `${text.slice(0, max - 1)}…` : text);
 
-export function createPageReader({ withPageRetry, registry, collect, locateRef, observeAction, clickElement, now = Date.now }) {
+/**
+ * `peekPage`: aba da requisição (a continuação só vale na MESMA aba). `epoch`: contador que o servidor
+ * incrementa a cada ação/navegação; mudou, o texto em cache é de antes da ação.
+ */
+export function createPageReader({ withPageRetry, registry, collect, locateRef, observeAction, clickElement, now = Date.now, peekPage, epoch }) {
 	let cache = null;
 
 	/** Numera o que falta (sem renumerar o que já tem ref) e lê todos os frames. */
@@ -95,7 +101,7 @@ export function createPageReader({ withPageRetry, registry, collect, locateRef, 
 			frames.push({ prefix: entry.prefix, label: entry.label, crossOrigin: entry.crossOrigin, main: entry.main, items: out.items, truncated: out.truncated });
 		}
 		const entries = flattenFrames(frames, rawByRef);
-		return { entries, raws, rawByRef, frames: frames.length, nodeCapped: budgetSpent || frames.some((frame) => frame.truncated) };
+		return { entries, raws, rawByRef, frames: frames.length, framesOmitted: registry.omittedOf?.(page) ?? 0, nodeCapped: budgetSpent || frames.some((frame) => frame.truncated) };
 	}
 
 	/** Conteúdo de uma seção recém-aberta: o painel controlado pelo botão; sem painel, o texto novo do diff. */
@@ -181,10 +187,21 @@ export function createPageReader({ withPageRetry, registry, collect, locateRef, 
 		const asked = Number(args.offset);
 		const limits = { defaultLimit: READ_DEFAULT_LIMIT, maxLimit: READ_MAX_LIMIT, breakOnLine: true };
 		// Continuação da mesma leitura: serve do cache (não reabre acordeão nem relê a página).
-		if (asked > 0 && cache && cache.key === key && now() - cache.at < CACHE_TTL_MS) {
+		// A chave inclui aba + URL + época de ações: outra aba, outra página ou uma ação no meio relê a página.
+		const tab = peekPage?.();
+		const stillSame = () => {
+			if (!cache) return false;
+			if (cache.page !== tab || cache.epoch !== epoch?.()) return false;
+			try {
+				return !tab || cache.url === tab.url();
+			} catch {
+				return false;
+			}
+		};
+		if (asked > 0 && cache && cache.key === key && now() - cache.at < CACHE_TTL_MS && stillSame()) {
 			return { ...cache.meta, ...paginateText(cache.text, { offset: args.offset, limit: args.limit }, limits), cached: true };
 		}
-		return withPageRetry(async (page) => {
+		return withPageRetry((page) => runExclusive(page, async () => {
 			const snap = await readEntries(page);
 			let text = renderEntries(snap.entries, { view: args.view });
 			const collapsed = countCollapsed(snap.entries);
@@ -194,6 +211,7 @@ export function createPageReader({ withPageRetry, registry, collect, locateRef, 
 				expansion = await expandSections(page, snap, { view: args.view, which: args.expand === "all" ? undefined : args.expand });
 				text += expansionText(expansion, args.view);
 			}
+			if (snap.framesOmitted) text += `\n\n[${snap.framesOmitted} more iframe${snap.framesOmitted === 1 ? "" : "s"} beyond the limit of ${MAX_FRAMES} were not read]`;
 			let full = normalizeText(text);
 			let capped = false;
 			if (full.length > READ_TOTAL_MAX) {
@@ -205,6 +223,7 @@ export function createPageReader({ withPageRetry, registry, collect, locateRef, 
 				title: await page.title(),
 				view: args.view,
 				frames: snap.frames,
+				...(snap.framesOmitted ? { framesOmitted: snap.framesOmitted } : {}),
 				collapsed,
 				...(similar ? { similar: { count: similar.count } } : {}),
 				...(expansion
@@ -219,9 +238,9 @@ export function createPageReader({ withPageRetry, registry, collect, locateRef, 
 					: {}),
 				...(snap.nodeCapped || capped ? { capped: true } : {}),
 			};
-			cache = { key, at: now(), text: full, meta };
+			cache = { key, at: now(), text: full, meta, page: tab, url: meta.url, epoch: epoch?.() };
 			return { ...meta, ...paginateText(full, { offset: args.offset, limit: args.limit }, limits) };
-		}, { tries: 3 });
+		}), { tries: 3 });
 	}
 
 	/** POST /browser/find */
@@ -241,6 +260,7 @@ export function createPageReader({ withPageRetry, registry, collect, locateRef, 
 				total: found.total,
 				matches: found.matches,
 				frames: snap.frames,
+				...(snap.framesOmitted ? { framesOmitted: snap.framesOmitted } : {}),
 				collapsed: countCollapsed(snap.entries),
 			};
 		}, { tries: 3 });

@@ -32,6 +32,11 @@ export function isPublicV1Request(method: string, path: string): boolean {
 	// assets são relativos. Só GET/HEAD; a rota (routes/sandbox.ts) valida assinatura, validade e posse. Nenhuma outra
 	// rota de sandbox fica pública.
 	if ((method === "GET" || method === "HEAD") && /^\/v1\/sandbox\/vt\/[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\//.test(path)) return true;
+	// Passagem de sessão do app mobile para o navegador do celular (concluir OAuth de conector): o navegador não tem cookie,
+	// então a autenticação é o token da URL (256 bits, só o hash no banco, uso único, 60 s, limitado por IP), emitido por
+	// POST autenticado (requireUser) e amarrado ao dono e à URL gerada pelo servidor (mobile-oauth-handoff.ts). SÓ este GET
+	// exato: nada mais sob /v1/mobile fica público.
+	if (method === "GET" && path === "/v1/mobile/oauth-handoff") return true;
 	if (method === "POST" && /^\/v1\/hooks\/[^/]+(?:\/[^/]+)?$/.test(path)) return true;
 	// GET só responde a dica "use POST" (405), igual para qualquer hookKey.
 	if (method === "GET" && /^\/v1\/hooks\/[^/]+$/.test(path)) return true;

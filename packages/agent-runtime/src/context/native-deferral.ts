@@ -12,6 +12,8 @@ export type NativeMatch = {
 	names: string[];
 	/** Nome exato de tool ou nome de grupo na consulta (vence uma busca de conector). */
 	strong: boolean;
+	/** Subconjunto de `names` de grupos marcados `loadWithConnectorMatch`: carrega mesmo quando um conector casou. */
+	withConnector: string[];
 };
 
 export type NativeDeferral = {
@@ -56,9 +58,9 @@ export function createNativeDeferral(input: {
 					.map((term) => term.trim().toLowerCase())
 					.filter(Boolean),
 			);
-			if (terms.size === 0 || deferred.size === 0) return { names: [], strong: false };
+			if (terms.size === 0 || deferred.size === 0) return { names: [], strong: false, withConnector: [] };
 			const exact = [...deferred.keys()].filter((name) => terms.has(name.toLowerCase()));
-			if (exact.length > 0) return { names: exact.slice(0, limit), strong: true };
+			if (exact.length > 0) return { names: exact.slice(0, limit), strong: true, withConnector: [] };
 			// Grupo por nome ou por palavra distintiva: carrega o grupo inteiro (poucas tools coesas).
 			const queryTokens = new Set(tokenize(query));
 			const scored: Array<{ group: NativeToolGroup; score: number; named: boolean }> = [];
@@ -78,7 +80,11 @@ export function createNativeDeferral(input: {
 				if (names.length > 0 && names.length + members.length > limit) break;
 				names.push(...members);
 			}
-			return { names, strong: scored.some((entry) => entry.named) };
+			const withConnector = names.filter((name) => {
+				const group = deferred.get(name)?.group;
+				return group ? NATIVE_TOOL_GROUPS[group].loadWithConnectorMatch === true : false;
+			});
+			return { names, strong: scored.some((entry) => entry.named), withConnector };
 		},
 		loadGroupOf(name) {
 			const group = deferred.get(name)?.group;

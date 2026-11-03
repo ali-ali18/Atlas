@@ -101,7 +101,6 @@ import {
 	rotateRoutineSecret as rotateRoutineSecretRequest,
 	runRoutineNow,
 	updateBot as updateBotRequest,
-	createAgentRun as createAgentRunRequest,
 	listSections as listSectionsRequest,
 	createSection as createSectionRequest,
 	updateSection as updateSectionRequest,
@@ -115,7 +114,6 @@ import {
 	planModelPersist,
 	planConfigClose,
 	realignSnapshotModel,
-	stableStringify,
 	toConfigSnapshot,
 } from "@/lib/bot-config";
 import {
@@ -226,29 +224,6 @@ function botToAgent(bot: Bot): Agent {
 	// policyJson vive no runtime mesmo sem campo tipado em Agent (data.ts
 	// intocado): entra no diff do config-close via cast.
 	return { ...base, policyJson: bot.policyJson ?? undefined } as Agent;
-}
-
-function buildBotCreatedSystem(botName: string): string {
-	const name = botName.trim().slice(0, 80) || "bot";
-	return (
-		`Você é o assistente do bot recém-criado "${name}". Responda em PT-BR, simpático e direto. ` +
-		`Apresente-se brevemente como "${name}" (1-2 frases + diga que vai fazer umas perguntas para ajudar na experiência dele) — nunca como Atlas, nunca como outro assistente. ` +
-		`Fale SEMPRE em primeira pessoa como "${name}" (diga "vou", nunca "o ${name} vai..."). ` +
-		`OBRIGATÓRIO: sua PRIMEIRA resposta já deve chamar propose_questionnaire (1 item) — nunca termine só com a apresentação. ` +
-		`Faça UMA pergunta por vez via questionário (tool propose_questionnaire com 1 item) e aguarde a resposta antes da próxima; no máximo 3 perguntas objetivas sobre papel, tom e primeira tarefa. ` +
-		`Antes de perguntar, consulte session_search e memory_search para aproveitar contexto de outras conversas do usuário. ` +
-		`NUNCA mande as perguntas todas de uma vez. ` +
-		`Se o briefing for durável (papel, preferências), salve com a tool memory. ` +
-		`Ao concluir o onboarding (respostas suficientes ou usuário satisfeito), consolide briefing/snippet e chame propose_profile_update — nunca edite o perfil diretamente. Não use texto estático pronto.`
-	);
-}
-
-function hashString(input: string): string {
-	let hash = 5381;
-	for (let index = 0; index < input.length; index += 1) {
-		hash = ((hash << 5) + hash + input.charCodeAt(index)) >>> 0;
-	}
-	return hash.toString(16);
 }
 
 /** Espera curta antes de gravar as mudanças da config do bot (agrupa o que se digita em sequência). */
@@ -388,8 +363,6 @@ export function Template4Client({
 	} | null>(null);
 	const configFlushingRef = useRef(new Set<string>());
 	const configAutosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-	/** Dedup do run de boas-vindas (`bot-created`); fechar a Config nunca cria run. */
-	const configFlushedHashesRef = useRef(new Set<string>());
 	/** Confirmação visual do salvamento ao fechar a Config. */
 	const [configNotice, setConfigNotice] = useState<{
 		tone: "saved" | "error";
@@ -916,42 +889,10 @@ export function Template4Client({
 				...(briefing ? { description: briefing } : {}),
 			});
 
-			const target: Bot = bot;
 			setAgents((previous) => [botToAgent(bot), ...previous]);
 			setActiveId(bot.id);
 
-			// Welcome run agêntico (fire-and-forget): mesmo padrão do config-close,
-			// origin "chat". Offline/fila fora = sem run na v1 (débito aceito).
-			const welcomeHash = hashString(
-				stableStringify({ botId: target.id, name: target.name, briefing }),
-			);
-			const welcomeKey = `bot-created:${target.id}:${welcomeHash}`;
-			if (!configFlushedHashesRef.current.has(welcomeKey)) {
-				configFlushedHashesRef.current.add(welcomeKey);
-				const userJson = JSON.stringify({
-					event: "bot-created",
-					name: target.name,
-					description: briefing,
-				});
-				void createAgentRunRequest({
-					messages: [
-						{ role: "system", content: buildBotCreatedSystem(target.name) },
-						{ role: "user", content: userJson },
-					],
-					botId: target.id,
-					...(target.conversationId
-						? { conversationId: target.conversationId }
-						: {}),
-					origin: "chat",
-					objective:
-						`[bot-created] Perguntas de onboarding do ${target.name}`.slice(
-							0,
-							120,
-						),
-					clientKey: welcomeKey.slice(0, 128),
-					silent: true,
-				}).catch((error) => console.error("bot-created run failed", error));
-			}
+			// O onboarding do bot novo é disparado pelo servidor (POST /v1/bots); o cliente não cria run.
 			setNaming(false);
 			if (createAsPrimaryRef.current) {
 				createAsPrimaryRef.current = false;

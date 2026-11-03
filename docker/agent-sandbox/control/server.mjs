@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { chromium } from "playwright-core";
 import { createBrowserSession } from "./browser-session.mjs";
 import { attachTabNotice, createTabScope, parseTabHeader, parseTabsRequest, runTabsAction } from "./browser-tabs.mjs";
-import { createBrowserActions } from "./browser-actions.mjs";
+import { assertNavigableUrl, createBrowserActions } from "./browser-actions.mjs";
 import { collectPageText, normalizeText, paginateText } from "./text-page.mjs";
 import { settleAfterAction } from "./stability.mjs";
 import { compactPlaywrightError } from "./target.mjs";
@@ -16,6 +16,7 @@ import { createRefActions } from "./browser-refs.mjs";
 import { createPageReader } from "./reader.mjs";
 import { parseScreenshotOptions, scrotPlan } from "./screenshot-options.mjs";
 import { withMarks } from "./marks.mjs";
+import { HttpError, readJsonBody } from "./request-body.mjs";
 import { countUserProcesses, countViewerClients, createActivityTracker } from "./activity.mjs";
 
 const PORT = Number.parseInt(process.env.SANDBOX_CONTROL_PORT ?? "3080", 10);
@@ -33,13 +34,6 @@ async function run(command, args, options = {}) {
 function sendJson(res, status, body) {
 	res.writeHead(status, { "Content-Type": "application/json" });
 	res.end(JSON.stringify(body));
-}
-
-async function readJsonBody(req) {
-	const chunks = [];
-	for await (const chunk of req) chunks.push(chunk);
-	const text = Buffer.concat(chunks).toString("utf8");
-	return text ? JSON.parse(text) : {};
 }
 
 // --- Screenshot do desktop inteiro (root window) ---
@@ -150,7 +144,11 @@ const refActions = createRefActions({
 });
 const { browserSnapshot, browserAct, browserWait, observeAction } = refActions;
 actions.setObserver(observeAction);
+// Muda a cada ação/navegação: a continuação em cache do browser_read não vale depois de agir na página.
+let actionEpoch = 0;
 const { readPage, findText } = createPageReader({
+	peekPage: () => peekPage(),
+	epoch: () => actionEpoch,
 	withPageRetry,
 	registry: refActions.registry,
 	collect: refActions.collect,
@@ -252,8 +250,11 @@ const handleRequest = async (req, res) => {
 	}
 };
 
+const READ_ONLY_POSTS = new Set(["/browser/read", "/browser/find", "/browser/snapshot"]);
+
 const handleControlRequest = async (req, res) => {
 	try {
+		if (req.method === "POST" && !READ_ONLY_POSTS.has(req.url)) actionEpoch += 1;
 		if (req.method === "GET" && req.url === "/idle") {
 			sendJson(res, 200, activity.snapshot());
 			return;
@@ -315,6 +316,7 @@ const handleControlRequest = async (req, res) => {
 		if (req.method === "POST" && req.url === "/browser/tab/open") {
 			const body = await readJsonBody(req);
 			const url = typeof body?.url === "string" && body.url ? body.url : undefined;
+			if (url) assertNavigableUrl(url);
 			sendJson(res, 200, await tabScope.openTab(url));
 			return;
 		}
@@ -479,6 +481,10 @@ const handleControlRequest = async (req, res) => {
 
 		sendJson(res, 404, { error: "not found" });
 	} catch (error) {
+		if (error instanceof HttpError) {
+			sendJson(res, error.status, { error: error.message });
+			return;
+		}
 		const message = error instanceof Error ? error.message : "unknown error";
 		console.error("[sandbox-control]", compactPlaywrightError(message, 500));
 		// O call log do Playwright (2 a 4 KB) não vai ao modelo.

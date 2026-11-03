@@ -3,6 +3,7 @@ import type { Hono } from "hono";
 import { requireUser } from "./auth.js";
 import { apiCompress } from "./compress.js";
 import { jsonBodyLimit } from "./json-body-limit.js";
+import { handoffResponseHeaders } from "../mobile-oauth-handoff.js";
 import { rateLimitByIp } from "./rate-limit.js";
 import { basicResponseHeaders } from "../routes/previews.js";
 
@@ -51,6 +52,9 @@ export function registerEdgeMiddleware(app: Hono, options: { corsOrigins: string
 	// Viewer da VM por token no caminho (público, sem login): limite por IP, mesmo valor da prévia (o noVNC carrega dezenas de
 	// arquivos). Antes do `requireUser` para valer também para quem não tem sessão.
 	app.use("/v1/sandbox/vt/*", rateLimitByIp(1200, 60_000));
+	// Passagem de sessão do app (público, token na URL): no-store/no-referrer em toda resposta, inclusive o 429, e limite por IP.
+	app.use("/v1/mobile/oauth-handoff", handoffResponseHeaders);
+	app.use("/v1/mobile/oauth-handoff", rateLimitByIp(30, 60_000));
 	app.use("/v1/*", requireUser);
 	app.use("/v1/*", jsonBodyLimit);
 }

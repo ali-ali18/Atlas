@@ -49,6 +49,8 @@ import {
 	type McpConnectorSecrets,
 } from "@workspace/agent-runtime";
 import { scopeFor, type AuthEnv } from "../middleware/auth.js";
+import { defaultOAuthHandoff } from "../mobile-oauth-handoff-default.js";
+import { parseOAuthClient, withHandoffUrl, type OAuthHandoff } from "../mobile-oauth-handoff.js";
 import { MCP_OAUTH_PAGE_CSP, mcpOAuthResultHtml, mcpWebOrigin, sanitizeMcpTools, type McpOAuthPopupResult } from "./mcp.js";
 
 export const COMPOSIO_CALLBACK_PATH = "/v1/composio/callback";
@@ -78,6 +80,8 @@ export type ComposioRoutesDeps = {
 	now: () => number;
 	/** Espera entre tentativas de ativação da conta (injetável para teste). */
 	sleep?: (ms: number) => Promise<void>;
+	/** Só testes: gerador do link de passagem de sessão do app mobile. */
+	handoff?: OAuthHandoff;
 };
 
 const defaultStore: ComposioStore = {
@@ -392,6 +396,8 @@ export function createComposioRoutes(deps: ComposioRoutesDeps = defaultComposioD
 		} catch {
 			return c.json({ error: "Invalid JSON body" }, 400);
 		}
+		const oauthClient = parseOAuthClient(body);
+		if (!oauthClient.ok) return c.json({ error: oauthClient.error }, 400);
 		const toolkit = parseComposioToolkitSlug((body as { toolkit?: unknown } | null)?.toolkit);
 		if (!toolkit) return c.json({ error: "App inválido" }, 400);
 		let loaded: Loaded | null;
@@ -430,7 +436,10 @@ export function createComposioRoutes(deps: ComposioRoutesDeps = defaultComposioD
 			if (!marked) return c.json({ error: "Conexão não encontrada" }, 404);
 			const callbackUrl = `${deps.webOrigin()}${COMPOSIO_CALLBACK_PATH}?state=${encodeURIComponent(state)}`;
 			const link = await client.createConnectLink({ authConfigId, composioUser: composioUserId(userId), callbackUrl });
-			return c.json({ redirectUrl: link.redirectUrl });
+			return c.json(await withHandoffUrl({ redirectUrl: link.redirectUrl }, {
+				mobile: oauthClient.mobile, handoff: deps.handoff ?? defaultOAuthHandoff(), userId,
+				sessionId: oauthClient.mobile ? c.get("session").session.id : "", next: link.redirectUrl,
+			}));
 		} catch (error) {
 			const failure = clientError(error, secretList(loaded));
 			return c.json({ error: failure.message }, failure.status);

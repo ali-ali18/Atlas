@@ -96,7 +96,8 @@ describe("screenshot com region (zoom) e marks", () => {
 		});
 		expect(shot.summary).toContain("Zoom");
 		expect(shot.summary).toContain("user has not received");
-		expect(shot.summary).toContain("refs");
+		expect(shot.summary).toContain("DOM refs");
+		expect(shot.summary).toContain("not the aN refs");
 		expect(modelPointToScreen("s-z", 10, 20)).toEqual({ x: 135, y: 145 });
 	});
 

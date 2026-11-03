@@ -1,6 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { stabilizePage, waitUntilContentReady, waitUntilQuiet, waitUntilSettled } from "./stability.mjs";
+import net from "node:net";
+import http from "node:http";
+import { after } from "node:test";
+import { launchFixtureBrowser } from "./test-browser.mjs";
+import { installProbeInPage, readProbeInPage, waitForNetworkQuiet, stabilizePage, waitUntilContentReady, waitUntilQuiet, waitUntilSettled } from "./stability.mjs";
 
 function clock() {
 	let t = 0;
@@ -131,3 +135,85 @@ test("espera: documento novo (probe fresh/null) vira navigated", async () => {
 	assert.equal(b.state, "navigated");
 });
 
+
+const probeFixtures = await launchFixtureBrowser({ "/": "<html><body>probe</body></html>" });
+after(() => probeFixtures?.close());
+
+test("real: XHR.send que lança e requisição eterna não prendem o contador de requisições", { skip: probeFixtures ? false : "Chromium indisponível" }, async () => {
+	// Servidor que aceita a conexão e nunca responde (long-poll).
+	const sockets = [];
+	const hang = net.createServer((socket) => sockets.push(socket));
+	await new Promise((resolve) => hang.listen(0, "127.0.0.1", resolve));
+	const page = await probeFixtures.newPage();
+	try {
+		await page.goto(`${probeFixtures.base}/`);
+		await page.evaluate(installProbeInPage);
+		await page.evaluate((url) => {
+			try { new XMLHttpRequest().send(); } catch { /* send antes de open lança */ }
+			fetch(url, { mode: "no-cors" }).catch(() => {});
+		}, `http://127.0.0.1:${hang.address().port}/poll`);
+		const early = await page.evaluate(readProbeInPage, false);
+		assert.ok(early.inflight <= 1, `só o fetch recente conta (${early.inflight})`);
+		await new Promise((resolve) => setTimeout(resolve, 2800));
+		const late = await page.evaluate(readProbeInPage, false);
+		assert.equal(late.inflight, 0, "long-poll com mais de 2,5 s deixa de segurar a estabilidade");
+	} finally {
+		await page.close();
+		for (const socket of sockets) socket.destroy();
+		await new Promise((resolve) => hang.close(resolve));
+	}
+});
+
+test("real: rede quieta termina rápido mesmo com polling/websocket que nunca deixa networkidle", { skip: probeFixtures ? false : "Chromium indisponível" }, async () => {
+	const page = await probeFixtures.newPage();
+	try {
+		await page.goto(`${probeFixtures.base}/`);
+		// Polling a cada 300 ms, o tempo todo: networkidle (500 ms sem requisição) nunca chegaria.
+		await page.evaluate(() => { setInterval(() => fetch("/poll").catch(() => {}), 300); });
+		const started = Date.now();
+		// Janela curta (250 ms) entre eventos de rede: o polling de 300 ms deixa lacunas.
+		const res = await waitForNetworkQuiet(page, { timeoutMs: 10_000, quietMs: 250 });
+		assert.equal(res.quiet, true);
+		assert.ok(Date.now() - started < 3000, `demorou ${Date.now() - started} ms`);
+	} finally {
+		await page.close();
+	}
+});
+
+test("real: rede com requisição em voo recente NÃO é quieta e cai no teto com motivo", { skip: probeFixtures ? false : "Chromium indisponível" }, async () => {
+	const sockets = [];
+	const hang = net.createServer((socket) => sockets.push(socket));
+	await new Promise((resolve) => hang.listen(0, "127.0.0.1", resolve));
+	const page = await probeFixtures.newPage();
+	try {
+		await page.goto(`${probeFixtures.base}/`);
+		await page.evaluate(installProbeInPage);
+		await page.evaluate((url) => { fetch(url, { mode: "no-cors" }).catch(() => {}); }, `http://127.0.0.1:${hang.address().port}/x`);
+		const res = await waitForNetworkQuiet(page, { timeoutMs: 1200 });
+		assert.equal(res.quiet, false);
+	} finally {
+		await page.close();
+		for (const socket of sockets) socket.destroy();
+		await new Promise((resolve) => hang.close(resolve));
+	}
+});
+
+test("real: wait de rede não diz quieto com requisição lenta (4 s) ainda pendente", { skip: probeFixtures ? false : "Chromium indisponível" }, async () => {
+	const slow = http.createServer((req, res) => {
+		setTimeout(() => { res.setHeader("access-control-allow-origin", "*"); res.end("ok"); }, 4000);
+	});
+	await new Promise((resolve) => slow.listen(0, "127.0.0.1", resolve));
+	const page = await probeFixtures.newPage();
+	try {
+		await page.goto(`${probeFixtures.base}/`);
+		await page.evaluate(installProbeInPage);
+		await page.evaluate((url) => { fetch(url).catch(() => {}); }, `http://127.0.0.1:${slow.address().port}/slow`);
+		const res = await waitForNetworkQuiet(page, { timeoutMs: 9000 });
+		assert.equal(res.quiet, true);
+		assert.ok(res.waitedMs >= 3800, `disse quieto cedo demais: ${res.waitedMs} ms`);
+	} finally {
+		await page.close();
+		slow.closeAllConnections?.();
+		await new Promise((resolve) => slow.close(resolve));
+	}
+});

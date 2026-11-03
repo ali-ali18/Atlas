@@ -19,6 +19,7 @@ import {
 import { loadConfig } from "./config.js";
 import { registerEdgeMiddleware } from "./middleware/edge.js";
 import { atlasOrigin, auth, authProviders, authSecretValue, isOwnerEmail } from "./auth.js";
+import { createHandoffSessionRevoker, createMobileOAuthHandoffRoutes } from "./mobile-oauth-handoff.js";
 import { createMobileAuthRoutes } from "./routes/mobile-auth.js";
 import { createViewerUpgradeHandler } from "./routes/sandbox-viewer.js";
 import { createPreviewBasicRoutes, createPreviewOpenRoutes, createPreviewService, createUpgradeDispatcher, loadPreviewConfig, previewBootLog } from "./routes/previews.js";
@@ -214,7 +215,7 @@ app.route("/", createRunRoutes(config));
 app.route("/", createEventRoutes());
 app.route("/", createBotPendingRoutes(config));
 app.route("/", createAvatarRoutes());
-app.route("/", createBotRoutes());
+app.route("/", createBotRoutes({ onboarding: { queue: agentRunQueue, envDefault: config.openRouterModel, openRouterApiKey: config.openRouterApiKey } }));
 app.route("/", createGroupRoutes());
 app.route("/", createConversationRoutes());
 app.route("/", createReactionRoutes());
@@ -266,6 +267,11 @@ app.route("/", createPublicPageRoutes());
 app.route("/", createProfileRoutes());
 app.route("/", createMemoryRoutes());
 app.route("/", createLessonRoutes());
+// Passagem de sessão do app para o navegador (OAuth de conector): rota pública por token; a sessão curta que ela cria é revogada no fim do callback.
+app.route("/", createMobileOAuthHandoffRoutes({ auth, baseOrigin: atlasOrigin }));
+const revokeHandoffSession = createHandoffSessionRevoker(auth);
+app.use("/v1/mcp/oauth/callback", revokeHandoffSession);
+app.use("/v1/composio/callback", revokeHandoffSession);
 app.route("/", createMcpRoutes({
 	onConnected: (userId, catalogId) => resumeRunsAwaitingConnector(agentRunQueue, userId, catalogId),
 	onApiConnected: (userId, slug) => resumeRunsAwaitingConnector(agentRunQueue, userId, slug, "api"),

@@ -81,7 +81,7 @@ export async function captureModelScreenshot(
 
 function marksNote(request: ScreenshotRequest): string {
 	return request.marks
-		? " Numbers over elements are browser_snapshot refs (e.g. 12 = e12)."
+		? " Numbers over elements are DOM refs: 12 = ref e12, valid in browser_act. They are not the aN refs of a tree snapshot."
 		: "";
 }
 

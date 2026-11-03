@@ -58,6 +58,22 @@ test("escada: degraus em ordem com timeouts curtos e relata qual funcionou", asy
 	assert.ok(log.indexOf("focus") < log.indexOf("js"));
 });
 
+test("escada: contexto destruído sem mudar a URL conta como feito mas avisa contextLost", async () => {
+	const log = [];
+	const { locator, page } = fakeTarget({ info: plainInfo, log });
+	const target = locator.locator();
+	target.click = async () => { throw new Error("locator.click: Execution context was destroyed, most likely because of a navigation"); };
+	const { clickElement } = createClickLadder();
+	const result = await clickElement(page, locator, { label: "Salvar" });
+	assert.equal(result.ok, true);
+	assert.equal(result.contextLost, true);
+	// Se a URL mudou, foi navegação de verdade: sem aviso.
+	let url = "https://x.test/p";
+	page.url = () => url;
+	target.click = async () => { url = "https://x.test/novo"; throw new Error("Execution context was destroyed"); };
+	assert.equal((await clickElement(page, locator, { label: "Salvar" })).contextLost, undefined);
+});
+
 test("escada: tudo falha -> erro compacto (<= 300) sem call log e com o que foi tentado", async () => {
 	const log = [];
 	const { locator, page } = fakeTarget({ info: plainInfo, log });

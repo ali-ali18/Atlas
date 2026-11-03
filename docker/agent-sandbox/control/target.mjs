@@ -116,6 +116,37 @@ export function planClick(candidates, wanted) {
 	};
 }
 
+const MAX_SIMILAR = 5;
+
+/**
+ * Fallback por NOME ACESSÍVEL (botão só-ícone): correspondência EXATA (trim, espaços, caixa). `includes` clicaria
+ * "Excluir conta" ao pedir "Excluir". Candidatos: { name, index, context? } já filtrados (visíveis, habilitados,
+ * sem aria-hidden/inert, dentro da página); um mesmo `index` com nomes repetidos conta como um alvo só.
+ * Devolve `{ index }`, `{ none: true }` (nada parecido), `{ similar: [nomes] }` (só parecidos: o modelo escolhe) ou
+ * `{ ambiguous: [{ name, context }] }` (várias exatas).
+ */
+export function planNameClick(candidates, wanted) {
+	const target = norm(wanted);
+	if (!target) return { none: true };
+	const exact = new Map();
+	for (const candidate of candidates) {
+		if (norm(candidate.name) === target && !exact.has(candidate.index)) exact.set(candidate.index, candidate);
+	}
+	if (exact.size === 1) return { index: [...exact.values()][0].index };
+	if (exact.size > 1) {
+		return { ambiguous: [...exact.values()].map((candidate) => ({ name: candidate.name, context: candidate.context ?? "" })) };
+	}
+	const similar = [];
+	for (const candidate of candidates) {
+		const name = norm(candidate.name);
+		if (name && (name.includes(target) || target.includes(name)) && !similar.includes(candidate.name.trim())) {
+			similar.push(candidate.name.trim());
+		}
+	}
+	if (similar.length > 0) return { similar: similar.slice(0, MAX_SIMILAR) };
+	return { none: true };
+}
+
 export const ERROR_MAX = 300;
 
 /**

@@ -58,6 +58,8 @@ import {
 	secretValues,
 } from "@workspace/agent-runtime";
 import { scopeFor, type AuthEnv } from "../middleware/auth.js";
+import { defaultOAuthHandoff } from "../mobile-oauth-handoff-default.js";
+import { parseOAuthClient, withHandoffUrl, type OAuthHandoff } from "../mobile-oauth-handoff.js";
 import { scheduleConnectorGuide } from "../connector-guide-queue.js";
 import { completeApiOAuthCallback, defaultApiConnectionRouteDeps, type ApiConnectionRouteDeps, type ApiOAuthCallbackOutcome } from "./api-connections.js";
 
@@ -399,12 +401,16 @@ async function beginOAuth(record: McpConnectionRecord, client: McpOAuthClient, u
 	}
 }
 
-function oauthResponse(c: Context, result: BeginOAuthResult) {
+/** Passagem de sessão para o navegador do celular (`client: "mobile"`); ver mobile-oauth-handoff.ts. */
+type HandoffInput = { mobile: boolean; handoff: OAuthHandoff; userId: string; sessionId: string };
+
+async function oauthResponse(c: Context, result: BeginOAuthResult, handoff: HandoffInput) {
 	if (!result.ok) return c.json({ error: result.error }, result.status);
-	return c.json(
+	const body = await withHandoffUrl(
 		{ connection: toMcpConnectionView(result.connection), authorizeUrl: result.authorizeUrl ?? null },
-		result.authorizeUrl ? 202 : 201,
+		{ ...handoff, next: result.authorizeUrl },
 	);
+	return c.json(body, result.authorizeUrl ? 202 : 201);
 }
 
 export type McpRouteOptions = {
@@ -416,6 +422,8 @@ export type McpRouteOptions = {
 	apiOAuthDeps?: Partial<ApiConnectionRouteDeps>;
 	/** Testa a chave de uma fonte de dados (brapi) antes de guardar. Padrão: uma cotação de verdade. Só testes trocam. */
 	probeDataSource?: (catalogId: string, key: string) => Promise<void>;
+	/** Só testes: gerador do link de passagem de sessão do app mobile. */
+	handoff?: OAuthHandoff;
 };
 
 export function createMcpRoutes(options: McpRouteOptions = {}) {
@@ -426,6 +434,10 @@ export function createMcpRoutes(options: McpRouteOptions = {}) {
 		if (!options.onConnected || !userId || userId === "default" || !catalogId) return;
 		void options.onConnected(userId, catalogId).catch((error) => console.error("resume runs after connect failed", error));
 	};
+
+	const handoffFor = (c: Context<AuthEnv>, userId: string, mobile: boolean): HandoffInput => ({
+		mobile, handoff: options.handoff ?? defaultOAuthHandoff(), userId, sessionId: mobile ? c.get("session").session.id : "",
+	});
 
 	app.get("/v1/mcp/catalog", async (c) => {
 		try {
@@ -483,6 +495,8 @@ export function createMcpRoutes(options: McpRouteOptions = {}) {
 		const { userId } = scopeFor(c.get("session"));
 		let body: unknown;
 		try { body = await c.req.json(); } catch { return c.json({ error: "Invalid JSON body" }, 400); }
+		const client = parseOAuthClient(body);
+		if (!client.ok) return c.json({ error: client.error }, 400);
 		const parsed = parseCreateMcpBody(body);
 		if (!parsed.value) return c.json({ error: parsed.error }, 400);
 		const input = parsed.value;
@@ -517,7 +531,7 @@ export function createMcpRoutes(options: McpRouteOptions = {}) {
 							url: publicMcpUrl(entry), authType: "oauth", status: "pending_auth", accountLabel,
 						});
 					if (existing && input.accountLabel) await updateMcpConnection(existing.id, { accountLabel: input.accountLabel }, userId);
-					return oauthResponse(c, await beginOAuth(record, readiness.client, userId));
+					return oauthResponse(c, await beginOAuth(record, readiness.client, userId), handoffFor(c, userId, client.mobile));
 				} catch {
 					return c.json({ error: "Não foi possível iniciar o login" }, 503);
 				}
@@ -579,7 +593,7 @@ export function createMcpRoutes(options: McpRouteOptions = {}) {
 					userId, catalogId: null, slug: slugifyConnectorName(name), name, url,
 					authType: "oauth", status: "pending_auth", accountLabel: input.custom.accountLabel,
 				});
-				return oauthResponse(c, await beginOAuth(record, readiness.client, userId));
+				return oauthResponse(c, await beginOAuth(record, readiness.client, userId), handoffFor(c, userId, client.mobile));
 			} catch {
 				return c.json({ error: "Não foi possível iniciar o login" }, 503);
 			}
@@ -643,6 +657,9 @@ export function createMcpRoutes(options: McpRouteOptions = {}) {
 	/** Refaz o login OAuth (token expirado/revogado → "Reconectar"). */
 	app.post("/v1/mcp/connections/:id/reauth", async (c) => {
 		const { userId } = scopeFor(c.get("session"));
+		// Corpo opcional (app antigo e web mandam vazio).
+		const client = parseOAuthClient(await c.req.json().catch(() => null));
+		if (!client.ok) return c.json({ error: client.error }, 400);
 		if (!isSecretBoxConfigured()) return c.json({ error: SECRET_BOX_ERROR }, 503);
 		try {
 			const existing = await getMcpConnection(c.req.param("id"), userId);
@@ -651,7 +668,7 @@ export function createMcpRoutes(options: McpRouteOptions = {}) {
 			if (existing.authType !== "oauth") return c.json({ error: "Conector não usa login OAuth" }, 400);
 			const readiness = mcpOAuthClientFor(existing);
 			if (!readiness.ready) return c.json({ error: oauthNotConfigured(readiness.missing) }, 400);
-			return oauthResponse(c, await beginOAuth(existing, readiness.client, userId));
+			return oauthResponse(c, await beginOAuth(existing, readiness.client, userId), handoffFor(c, userId, client.mobile));
 		} catch {
 			return c.json({ error: "Não foi possível iniciar o login" }, 503);
 		}

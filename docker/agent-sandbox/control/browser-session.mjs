@@ -47,8 +47,16 @@ export function safeTabTitle(raw) {
 	return title ? JSON.stringify(title) : "";
 }
 
-const HEALTH_TIMEOUT_MS = 3000;
+// Saúde do Chrome = resposta do PROCESSO (CDP Browser.getVersion), não de uma aba: uma aba pesada
+// (carregando, script longo) deixa o `evaluate` lento sem o Chrome estar pendurado.
+const HEALTH_TIMEOUT_MS = 10_000;
 const HEALTH_EVERY_MS = 5000;
+/** Falhas seguidas da sonda antes de reiniciar o Chrome. */
+export const HEALTH_FAILS_TO_RESTART = 2;
+/** Reinício automático por falta de resposta: no máximo N por janela e com intervalo mínimo (sem laço). */
+export const MAX_AUTO_RESTARTS = 3;
+export const AUTO_RESTART_WINDOW_MS = 10 * 60_000;
+export const AUTO_RESTART_MIN_GAP_MS = 30_000;
 
 /** F12/A5 — erro de Chrome morto/desconectado (não de página ou seletor). */
 export function isChromeDeadError(message) {
@@ -80,7 +88,7 @@ export function shouldRetryPlaywrightError(message) {
 }
 
 export function createBrowserSession({ chromium, cdpUrl, launch = launchChrome,
-	kill = killChrome, wait = delay, attempts = 15, now = Date.now }) {
+	kill = killChrome, wait = delay, attempts = 15, now = Date.now, healthTimeoutMs = HEALTH_TIMEOUT_MS }) {
 	let browser;
 	let page;
 	let pending;
@@ -108,18 +116,46 @@ export function createBrowserSession({ chromium, cdpUrl, launch = launchChrome,
 		}
 	};
 
+	let healthFails = 0;
+	let autoRestarts = [];
+
+	/** Round trip leve ao processo do Chrome. Sem sessão CDP de navegador (stub), cai no evaluate da aba. */
+	async function probeChrome(candidate) {
+		if (typeof browser?.newBrowserCDPSession !== "function") return candidate.evaluate("1");
+		const cdp = await browser.newBrowserCDPSession();
+		try {
+			return await cdp.send("Browser.getVersion");
+		} finally {
+			await cdp.detach?.().catch?.(() => undefined);
+		}
+	}
+
 	async function isHealthy(candidate) {
 		if (now() - lastHealthyAt < HEALTH_EVERY_MS) return true;
+		let timer;
 		try {
 			await Promise.race([
-				candidate.evaluate("1"),
-				new Promise((_, reject) => setTimeout(() => reject(new Error("health timeout")), HEALTH_TIMEOUT_MS).unref?.()),
+				probeChrome(candidate),
+				new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("health timeout")), healthTimeoutMs); }),
 			]);
 			lastHealthyAt = now();
+			healthFails = 0;
 			return true;
 		} catch {
+			healthFails += 1;
 			return false;
+		} finally {
+			clearTimeout(timer);
 		}
+	}
+
+	/** Pode reiniciar sozinho agora? Respeita intervalo mínimo e teto por janela. */
+	function mayAutoRestart() {
+		const t = now();
+		autoRestarts = autoRestarts.filter((at) => t - at < AUTO_RESTART_WINDOW_MS);
+		if (autoRestarts.length >= MAX_AUTO_RESTARTS) return false;
+		const last = autoRestarts.at(-1);
+		return last === undefined || t - last >= AUTO_RESTART_MIN_GAP_MS;
 	}
 
 	// Só o Chrome local/empacotado é gerenciado aqui.
@@ -134,6 +170,7 @@ export function createBrowserSession({ chromium, cdpUrl, launch = launchChrome,
 		notices = [];
 		omittedNotices = 0;
 		lastHealthyAt = 0;
+		healthFails = 0;
 		await old?.close?.().catch(() => undefined);
 		await kill();
 		await wait(500);
@@ -163,7 +200,15 @@ export function createBrowserSession({ chromium, cdpUrl, launch = launchChrome,
 		}
 		if (page && !page.isClosed()) {
 			if (await isHealthy(page)) return page;
-			// F12/A5 — Chrome pendurado (evaluate não responde): reinicia e reconecta.
+			// Uma sonda lenta não prova Chrome pendurado (aba pesada): só reinicia após falhas seguidas,
+			// com intervalo mínimo e teto por janela. Sem permissão, segue com a aba e avisa o modelo.
+			if (healthFails < HEALTH_FAILS_TO_RESTART) return page;
+			if (!mayAutoRestart()) {
+				if (healthFails === HEALTH_FAILS_TO_RESTART) pushNotice("The browser is slow to respond and was not restarted automatically (restart limit reached). Wait a few seconds before the next action; if it keeps failing, tell the user.");
+				return page;
+			}
+			autoRestarts.push(now());
+			healthFails = 0;
 			await reset();
 			return resolvePage();
 		}
