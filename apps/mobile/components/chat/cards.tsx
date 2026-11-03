@@ -1,11 +1,12 @@
+import { resolveColor, resolveShape } from "@workspace/shared/avatar/identity";
 import { CHAT_CARD_COPY } from "@workspace/ui/lib/chat-card-copy";
 import * as React from "react";
 import { Pressable, TextInput, View } from "react-native";
 import { ExternalLinkIcon, ListChecksIcon } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { ChatCard, ChatCardActions, ChatCardHeader, ChatCardLine } from "@/components/ui/chat-card";
+import { Avatar } from "@/components/ui/avatar";
 import { Text } from "@/components/ui/text";
-import { InlineAvatar } from "./mention-text";
 import { cn } from "@/lib/cn";
 import type { ChatItem } from "@/lib/chat-types";
 import { findLinkedBot, type MentionBotRef } from "@/lib/message-text";
@@ -175,14 +176,24 @@ export function MarkerRow({ text }: { text: string }) {
 export function BotLinkMarkerRow({ link, fallback, bots }: { link: { botId: string; botName: string; title: string }; fallback: string; bots?: readonly MentionBotRef[] }) {
 	const bot = bots ? findLinkedBot(bots, link) : undefined;
 	if (!link.botName.trim()) return <MarkerRow text={fallback} />;
+	const title = link.title.trim();
+	// Linha flexível (e não `Text` aninhado): o avatar fica no centro vertical das palavras em qualquer plataforma (num
+	// `Text` o View inline senta na linha de base e sobe/desce conforme a fonte). Quebrando, cada linha fica centralizada.
 	return (
-		<View className="items-center px-4 py-2.5">
-			<Text variant="caption" numberOfLines={2} className="text-center text-body">
-				{"Enviou mensagem para "}
-				{bot ? <InlineAvatar bot={bot} /> : null}
-				<Text className="text-body font-medium text-foreground">{link.botName.trim()}</Text>
-				{link.title.trim() ? `: ${link.title.trim()}` : ""}
+		<View className="flex-row flex-wrap items-center justify-center gap-x-1.5 px-4 py-2.5">
+			<Text variant="caption" className="text-body">
+				Enviou mensagem para
 			</Text>
+			{bot ? <Avatar color={resolveColor(bot.color, bot.id)} shape={resolveShape(bot.shape, bot.id)} size={16} animated={false} /> : null}
+			<Text variant="caption" className="text-body">
+				<Text className="text-body font-medium text-foreground">{link.botName.trim()}</Text>
+				{title ? ":" : ""}
+			</Text>
+			{title ? (
+				<Text variant="caption" numberOfLines={2} className="text-center text-body">
+					{title}
+				</Text>
+			) : null}
 		</View>
 	);
 }
