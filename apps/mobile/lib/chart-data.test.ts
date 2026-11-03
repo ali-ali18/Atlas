@@ -2,6 +2,8 @@ import { parseChartSpec, type ChartSpec } from "@workspace/shared";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_CHART_COLORS } from "./chart-palette";
 import {
+	BAR_MAX_HEIGHT,
+	barLayout,
 	buildBarRows,
 	buildChartRows,
 	buildForecast,
@@ -313,5 +315,28 @@ describe("fatia sob o dedo", () => {
 	it("respeita o ângulo inicial (-90 = começa no topo)", () => {
 		expect(pieSliceAt([1, 1], 80, 0, -90, 64, 100)).toBe(0);
 		expect(pieSliceAt([1, 1], -80, 0, -90, 64, 100)).toBe(1);
+	});
+});
+
+describe("layout das barras", () => {
+	const labels = (n: number) => Array.from({ length: n }, (_, i) => `Cliente número ${i + 1}`);
+	it("500 categorias deitadas davam um Canvas de 17 mil pt: agora ficam na vertical, com rótulos afinados", () => {
+		const layout = barLayout({ labels: labels(500), seriesCount: 1, orientation: "horizontal", plotWidth: 300 });
+		expect(layout.horizontal).toBe(false);
+		expect(layout.height).toBe(240);
+		expect(layout.rowLabels).toBeLessThanOrEqual(12);
+	});
+	it("60 categorias com nomes longos não deitam sozinhas além do limite, e a altura nunca passa do teto", () => {
+		expect(barLayout({ labels: labels(61), seriesCount: 1, plotWidth: 300 }).horizontal).toBe(false);
+		const sixty = barLayout({ labels: labels(60), seriesCount: 3, orientation: "horizontal", plotWidth: 300 });
+		expect(sixty.horizontal).toBe(true);
+		expect(sixty.height).toBe(BAR_MAX_HEIGHT);
+		expect(sixty.rowLabels).toBe(Math.floor((BAR_MAX_HEIGHT - 34) / 22));
+	});
+	it("poucas categorias seguem como antes (altura pelo número de linhas, mínimo 200)", () => {
+		expect(barLayout({ labels: labels(4), seriesCount: 1, orientation: "horizontal", plotWidth: 300 })).toMatchObject({ horizontal: true, height: 200 });
+		expect(barLayout({ labels: labels(10), seriesCount: 2, orientation: "horizontal", plotWidth: 300 }).height).toBe(10 * 42 + 36);
+		expect(barLayout({ labels: ["A", "B", "C"], seriesCount: 1, plotWidth: 300 }).horizontal).toBe(false);
+		expect(barLayout({ labels: ["A", "B"], seriesCount: 1, orientation: "vertical", plotWidth: 300 }).horizontal).toBe(false);
 	});
 });

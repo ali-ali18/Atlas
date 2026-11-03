@@ -277,6 +277,25 @@ export function shouldUseHorizontalBars(labels: readonly string[], plotInnerWidt
 	return longest > 9 || labels.length > 40;
 }
 
+/** Teto de altura do gráfico de barras deitadas: acima disso o Canvas passa do limite de textura da GPU (branco ou crash no Android). */
+export const BAR_MAX_HEIGHT = 1200;
+/** Acima disto de categorias as barras não deitam: ficam na vertical com rótulos afinados (a altura estouraria o teto). */
+export const BAR_MAX_HORIZONTAL_ROWS = 60;
+
+/**
+ * Orientação, altura e quantos rótulos de categoria cabem no gráfico de barras. Deitada só até 60 categorias (mesmo com
+ * `orientation: "horizontal"` no spec), com a altura limitada a 1200 pt; a vertical tem 240 pt e rótulos afinados.
+ */
+export function barLayout(input: { labels: readonly string[]; seriesCount: number; orientation?: "vertical" | "horizontal"; plotWidth: number }): { horizontal: boolean; height: number; rowLabels: number } {
+	const rows = input.labels.length;
+	const wanted = input.orientation === "horizontal" || (input.orientation === undefined && shouldUseHorizontalBars(input.labels, input.plotWidth));
+	const horizontal = wanted && rows <= BAR_MAX_HORIZONTAL_ROWS;
+	if (!horizontal) return { horizontal, height: 240, rowLabels: Math.max(2, Math.min(12, Math.floor(input.plotWidth / Math.max(1, xLabelSlot(input.labels))))) };
+	const perGroup = input.seriesCount > 1 ? 14 * input.seriesCount + 14 : 34;
+	const height = Math.min(BAR_MAX_HEIGHT, Math.max(200, rows * perGroup + 36));
+	return { horizontal, height, rowLabels: Math.max(2, Math.floor((height - 34) / 22)) };
+}
+
 export type BarRows = { rows: Array<{ x: number } & Record<SeriesKey, number>>; labels: string[]; titles: string[] };
 
 /** Linhas do gráfico de barras: posição 0..n-1, valor ausente vira 0 (como no web); `labels` é o texto do eixo. */
