@@ -229,9 +229,9 @@ function ViewerBody({ images, startIndex, onClose, actions }: Omit<Props, "visib
 								accessibilityState={{ selected: active }}
 								onPress={() => goTo(at)}
 								style={{ width: THUMB, height: THUMB, opacity: active ? 1 : 0.55 }}
-								className={active ? "rounded-xl border-2 border-foreground p-0.5" : "rounded-xl border border-transparent"}
+								className={active ? "overflow-hidden rounded-xl border-2 border-foreground" : "overflow-hidden rounded-xl border-2 border-transparent"}
 							>
-								<ChatImageView image={item} style={{ width: "100%", height: "100%", borderRadius: active ? 8 : 10 }} />
+								<ChatImageView image={item} style={{ width: "100%", height: "100%", borderRadius: 10 }} />
 							</Pressable>
 						);
 					}}
