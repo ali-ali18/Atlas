@@ -2,13 +2,13 @@
 // para, responde cartões e pagina. Todo o estado vive aqui, lido e escrito de forma síncrona (nada de ref
 // defasada de render), e as dependências (API, stream, cache, relógio) entram por injeção para testar as corridas
 // (envio durante o fim do run, parar antes do `runId`, toque duplo em aprovação…). O hook só assina e desenha.
-import type { AgentActivity, ComputerUseEvent } from "@workspace/shared";
+import type { AgentActivity, CompactConversationResponse, ComputerUseEvent } from "@workspace/shared";
 import type { RunModelFields } from "./model-choice";
-import { ChatApiError, isModelRejection, ModelUnavailableError, isNetworkError, isUnauthorized, sendErrorText, type CreateRunInput, type CreateRunResult } from "./chat-api";
+import { ChatApiError, compactErrorText, isModelRejection, ModelUnavailableError, isNetworkError, isUnauthorized, sendErrorText, type CreateRunInput, type CreateRunResult } from "./chat-api";
 import { applyRunEvent, createLiveState, startLiveRun, type LiveState } from "./chat-live";
 import { followRun, type FollowOptions, type OpenStream } from "./chat-stream";
 import { initialSync, syncLine, syncReducer, type SyncAction, type SyncState } from "./chat-sync";
-import { dockedTaskList, mergeTail, oldestCursor, PAGE_SIZE, prependOlder, reconcile, sessionMessageToItem, withSourceMarkers, type MessagePage, type PageCursor } from "./chat-thread";
+import { compactionMarkerText, dockedTaskList, mergeTail, oldestCursor, PAGE_SIZE, prependOlder, reconcile, sessionMessageToItem, withSourceMarkers, type MessagePage, type PageCursor } from "./chat-thread";
 import type { ChatItem, Reaction, ReplyQuote } from "./chat-types";
 import { myReaction, sameReactions, toggleUserReaction } from "./message-actions";
 
@@ -24,6 +24,7 @@ export type ChatApi = {
 	setReaction: (messageId: string, emoji: string) => Promise<void>;
 	clearReaction: (messageId: string) => Promise<void>;
 	markConversationUnread: (conversationId: string) => Promise<void>;
+	compactConversation: (conversationId: string, focus?: string) => Promise<CompactConversationResponse>;
 };
 
 export type ChatCache = { load: () => Promise<ChatItem[] | null>; save: (items: readonly ChatItem[]) => Promise<void> };
@@ -84,6 +85,8 @@ export class ChatController {
 
 	private botId: string | null;
 	private conversationId: string | null;
+	/** Um `/compact` em andamento. */
+	private compacting = false;
 	/** A conversa foi criada por este controlador (um `conversationId` que chegue depois da home não a troca). */
 	private createdHere = false;
 	private oldest: PageCursor | null = null;
@@ -590,6 +593,39 @@ export class ChatController {
 			this.fail(reason);
 			if (!this.disposed) this.set({ error: isUnauthorized(reason) ? sendErrorText(reason) : "Não consegui marcar como não lida agora. Tente de novo." });
 			return false;
+		}
+	}
+
+	/**
+	 * `/compact [foco]`: resume a conversa levada. O cartão "Conversa compactada" entra no fim do fio (mesmo id do que o
+	 * servidor grava, então a releitura não duplica). Conversa curta ou recusa do servidor: aviso amigável. Um toque
+	 * duplo não dispara duas compactações. `true` = compactou.
+	 */
+	async compact(focus?: string): Promise<boolean> {
+		const convId = this.conversationId;
+		if (this.disposed || this.compacting) return false;
+		if (!convId) {
+			this.set({ error: "Ainda não há o que compactar nesta conversa." });
+			return false;
+		}
+		this.compacting = true;
+		this.set({ error: null });
+		try {
+			const result = await this.deps.api.compactConversation(convId, focus);
+			if (this.disposed || this.conversationId !== convId) return false;
+			if (result.status === "noop") {
+				this.set({ error: result.message });
+				return false;
+			}
+			const item: ChatItem = { id: result.messageId, kind: "marker", text: compactionMarkerText(result.before, result.after) };
+			if (!this.state.persisted.some((candidate) => candidate.id === item.id)) this.set({ persisted: [...this.state.persisted, item] });
+			return true;
+		} catch (reason) {
+			this.fail(reason);
+			if (!this.disposed) this.set({ error: compactErrorText(reason) });
+			return false;
+		} finally {
+			this.compacting = false;
 		}
 	}
 

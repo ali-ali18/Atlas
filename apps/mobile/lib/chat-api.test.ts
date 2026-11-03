@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ChatApiError, isModelRejection, MODEL_UNAVAILABLE_TEXT, ModelUnavailableError, sendErrorText, clearReaction, createRun, createRunInput, markConversationUnread, setReaction } from "./chat-api";
+import { ChatApiError, COMPACT_FAILED_TEXT, compactConversation, compactErrorText, isModelRejection, MODEL_UNAVAILABLE_TEXT, ModelUnavailableError, sendErrorText, clearReaction, createRun, createRunInput, markConversationUnread, setReaction } from "./chat-api";
 import type { ApiFetch } from "./home-sync";
 import { runModelFields } from "./model-choice";
 
@@ -91,5 +91,23 @@ describe("isModelRejection: o servidor recusou o modelo enviado", () => {
 	it("o aviso para o usuário é amigável", () => {
 		expect(sendErrorText(new ModelUnavailableError(400))).toBe(MODEL_UNAVAILABLE_TEXT);
 		expect(MODEL_UNAVAILABLE_TEXT).toContain("voltei ao modelo do bot");
+	});
+});
+
+describe("compactConversation (/compact)", () => {
+	it("POST /v1/conversations/:id/compact com o foco no corpo, sem foco corpo vazio", async () => {
+		const { apiFetch, calls } = fake(200, { status: "noop", reason: "too_small", message: "curta" });
+		await compactConversation(apiFetch, "c 1");
+		await compactConversation(apiFetch, "c1", "decisões");
+		expect(calls[0]).toEqual({ path: "/v1/conversations/c%201/compact", method: "POST", body: {} });
+		expect(calls[1]!.body).toEqual({ focus: "decisões" });
+	});
+	it("o erro do servidor (409, 503) aparece como veio; 502 do proxy e rede viram o aviso amigável", async () => {
+		const busy = await compactConversation(fake(409, { error: "Há uma execução em andamento." }).apiFetch, "c1").catch((error) => error);
+		expect(compactErrorText(busy)).toBe("Há uma execução em andamento.");
+		const proxy = await compactConversation(async () => new Response("<html>502</html>", { status: 502, statusText: "Bad Gateway" }), "c1").catch((error) => error);
+		expect(compactErrorText(proxy)).toBe(COMPACT_FAILED_TEXT);
+		expect(compactErrorText(new TypeError("Network request failed"))).toBe(COMPACT_FAILED_TEXT);
+		expect(compactErrorText(new ChatApiError("x", 401))).toBe("Sua sessão expirou. Entre de novo.");
 	});
 });
