@@ -3,7 +3,7 @@ import * as React from "react";
 import { View } from "react-native";
 import { useDerivedValue } from "react-native-reanimated";
 import { Bar, BarGroup, CartesianChart, HorizontalBar, HorizontalBarGroup, HorizontalStackedBar, StackedBar, useChartPressState } from "victory-native";
-import { barLayout, buildBarRows, chartValueFormatter, niceScale, pickTickValues, pressRows, SERIES_KEYS } from "@/lib/chart-data";
+import { barLayout, buildBarRows, chartValueFormatter, niceScale, pickTickValues, pressRows, SERIES_KEYS, xLabelSlot } from "@/lib/chart-data";
 import { seriesColor } from "@/lib/chart-palette";
 import { type AxisMarks, AxisOverlay, PRESS_CONFIG, PressLayer, useAxisScales, useEntrance, usePressTap } from "./chart-env";
 import type { ChartPlotProps } from "./chart-types";
@@ -59,7 +59,7 @@ export function BarPlot({ spec, theme, width }: ChartPlotProps) {
 	const roundedH = { topRight: 3, bottomRight: 3 } as const;
 	return (
 		<View style={{ height }}>
-			{marks ? <AxisOverlay marks={marks} gutter={gutter} color={theme.label} width={width} rowLabels={horizontal} /> : null}
+			{marks ? <AxisOverlay marks={marks} gutter={gutter} color={theme.label} width={width} rowLabels={horizontal} slot={Math.max(48, xLabelSlot(model.labels))} /> : null}
 			<PressLayer state={state} mode="x" scheme={theme.scheme} contentFor={contentFor} />
 			<CartesianChart
 				data={model.rows}

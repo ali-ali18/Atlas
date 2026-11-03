@@ -72,8 +72,7 @@ export function useAxisScales() {
 }
 
 /** Rótulos dos eixos por cima do gráfico: Y alinhado à direita na margem esquerda, X centrado sob a marca (sem passar da borda). */
-export function AxisOverlay({ marks, gutter, color, width, rowLabels = false }: { marks: AxisMarks; gutter: number; color: string; width: number; rowLabels?: boolean }) {
-	const slot = 64;
+export function AxisOverlay({ marks, gutter, color, width, rowLabels = false, slot = 64 }: { marks: AxisMarks; gutter: number; color: string; width: number; rowLabels?: boolean; /** Largura de cada rótulo do eixo X: a mesma usada para contar quantos cabem (`xLabelSlot`). */ slot?: number }) {
 	return (
 		<View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants" className="absolute inset-0">
 			{marks.y.map((mark) => (

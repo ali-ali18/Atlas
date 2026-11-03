@@ -37,12 +37,12 @@ export function CartesianPlot({ spec, theme, width }: ChartPlotProps) {
 	const gutter = Math.max(36, Math.max(...scale.ticks.map((tick) => axisFormat(tick).length)) * 6 + 14);
 	const composed = spec.type === "composed";
 	const pad = composed ? Math.max(14, (width - gutter - 12) / (2 * model.rows.length)) : 8;
+	// Largura de cada rótulo do eixo X: a mesma para contar quantos cabem e para desenhar (senão o texto seria cortado).
+	const slot = React.useMemo(() => xLabelSlot(model.rows.map((row) => model.labelOf(row.x))) + 6, [model]);
 	const xTicks = React.useMemo(() => {
 		// Rótulos entre todos os períodos (os projetados também), espalhados pela largura útil do gráfico.
-		const all = model.rows.map((row) => row.x);
-		const slot = xLabelSlot(all.map((x) => model.labelOf(x))) + 6;
-		return pickTickValues(all, labelBudget(width - gutter - 12 - 2 * pad, slot));
-	}, [model, width, gutter, pad]);
+		return pickTickValues(model.rows.map((row) => row.x), labelBudget(width - gutter - 12 - 2 * pad, slot));
+	}, [model, width, gutter, pad, slot]);
 	const marks: AxisMarks | null = axes.scales && axes.bounds ? { bounds: axes.bounds, y: scale.ticks.map((tick) => ({ text: axisFormat(tick), at: axes.scales!.y(tick) })), x: xTicks.map((x) => ({ text: model.labelOf(x), at: axes.scales!.x(x) })) } : null;
 	const stackedArea = spec.type === "area" && spec.stacked === true;
 	const contentFor = React.useCallback((index: number) => pressContent(spec, theme.colors, model, index), [spec, theme.colors, model]);
@@ -56,7 +56,7 @@ export function CartesianPlot({ spec, theme, width }: ChartPlotProps) {
 	const indicatorOpacity = useDerivedValue(() => (state.isActive.value ? 1 : 0));
 	return (
 		<View style={{ height: HEIGHT }}>
-			{marks ? <AxisOverlay marks={marks} gutter={gutter} color={theme.label} width={width} /> : null}
+			{marks ? <AxisOverlay marks={marks} gutter={gutter} color={theme.label} width={width} slot={slot} /> : null}
 			<PressLayer state={state} mode="matched" scheme={theme.scheme} contentFor={contentFor} />
 			<CartesianChart
 				data={model.rows}
