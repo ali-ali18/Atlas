@@ -113,10 +113,17 @@ describe("run-stop-reason em tempo linear (CodeQL)", () => {
 });
 
 describe("stoppedWithOpenWork", () => {
-	it("laço, teto de passos, falhas e lista aberta deixam trabalho por fazer; resposta normal não", async () => {
+	it("só há trabalho por fazer quando sobraram itens abertos da lista DO run, qualquer que seja o motivo da parada", async () => {
 		const { stoppedWithOpenWork } = await import("./run-stop-reason.js");
-		for (const stop of [{ reason: "loop_repeat" }, { reason: "budget_steps" }, { reason: "tool_failures" }, { reason: "answered", detail: "tasklist_open" }, { reason: "loop_repeat", detail: "after_note:items_open" }]) expect(stoppedWithOpenWork(stop), JSON.stringify(stop)).toBe(true);
-		for (const stop of [{ reason: "answered" }, { reason: "cancelled" }, { reason: null }, {}]) expect(stoppedWithOpenWork(stop), JSON.stringify(stop)).toBe(false);
+		for (const stop of [
+			{ reason: "answered", detail: "tasklist_open" },
+			{ reason: "loop_repeat", detail: "after_note:items_open" },
+			{ reason: "budget_steps", detail: "delivered:items_open" },
+			{ reason: "budget_wall", detail: "items_open" },
+			{ reason: "answered", detail: "items_open" },
+		]) expect(stoppedWithOpenWork(stop), JSON.stringify(stop)).toBe(true);
+		// Parar por laço, teto ou falhas SEM itens abertos deste run não herda nada: a mensagem seguinte é assunto novo.
+		for (const stop of [{ reason: "loop_repeat" }, { reason: "budget_steps" }, { reason: "tool_failures" }, { reason: "budget_cost", detail: "delivered" }, { reason: "answered" }, { reason: "cancelled" }, { reason: null }, {}]) expect(stoppedWithOpenWork(stop), JSON.stringify(stop)).toBe(false);
 	});
 });
 

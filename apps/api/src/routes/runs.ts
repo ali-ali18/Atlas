@@ -460,9 +460,6 @@ export function createRunRoutes(
 				humanTurn: isHumanTypedTurn(request, followUpFromConfirm),
 				// Clique de cartão: é resposta humana dentro do trabalho do dono (herda turno humano, motor e perfil do último run).
 				inheritFromConversation: request.origin === "chat" && !isHumanTypedTurn(request, followUpFromConfirm),
-				// Mensagem digitada depois de um run que parou com trabalho aberto: herda o perfil em vez de recomeçar do zero,
-				// seja qual for o texto (o db confere o estado do último run; o modelo decide se é continuação ou assunto novo).
-				inheritWhenContinuation: isHumanTypedTurn(request, followUpFromConfirm),
 				contextLength: peekModelContextLength(model),
 				onMergedIntoActiveRun: (runId) => notifyRunSignal(publish, runId, "input"),
 			});

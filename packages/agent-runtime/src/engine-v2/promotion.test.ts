@@ -11,7 +11,7 @@ import { SYSTEM_MESSAGES } from "@workspace/shared";
 import type { PersistUserArtifactInput } from "@workspace/db";
 import { runEngineV2, type EngineV2Options } from "./run.js";
 import { DOCUMENT_BUDGET_NOTE, DOCUMENT_DONE_INSTRUCTION, DOCUMENT_STOPPED_NOTE, documentMissingNote, stopReasonPhrase } from "./delivery.js";
-import { CONTINUED_WORK_NOTE, ENGINE_V2_CORE, ENGINE_V2_PROMOTED_NOTE, ENGINE_V2_UNATTENDED, openItemsNote } from "./prompt.js";
+import { continuedWorkNote, ENGINE_V2_CORE, ENGINE_V2_PROMOTED_NOTE, ENGINE_V2_UNATTENDED, openItemsNote } from "./prompt.js";
 import { STAGNATION_ACTION_NOTE, WRAP_UP_NOTE, deliveryInstruction } from "./supervisor.js";
 import { budgetStopFallbackText } from "../computer-use.js";
 
@@ -351,7 +351,7 @@ describe("nunca pedir 'continua'", () => {
 		const texts: string[] = [
 			...ENGINE_V2_UNATTENDED,
 			ENGINE_V2_PROMOTED_NOTE,
-			CONTINUED_WORK_NOTE,
+			continuedWorkNote(["Pesquisar"]),
 			openItemsNote(["Pesquisar"]),
 			WRAP_UP_NOTE,
 			STAGNATION_ACTION_NOTE,
@@ -691,46 +691,60 @@ describe("anunciar sem fazer (v2): sinal estrutural, sem regex e sem apagar text
 	});
 });
 
-describe("\"continua\" depois de um trabalho com itens abertos (v2)", () => {
+describe("herança por estado depois de um trabalho com itens abertos (v2): só contexto, nunca perfil nem portão", () => {
 	const OPEN_LIST = [{ content: "Abrir o painel", status: "completed" }, { content: "Pedir o resumo ao Gemini", status: "in_progress" }, { content: "Montar o relatório", status: "pending" }] as never;
 	const NOTEBOOK = [{ id: "n1", title: "Painel", excerpt: "Entrei no painel com o login da loja", kind: "finding", author: "coordinator", step: 1 }] as never;
+	const NOTE = /stopped with open items/;
 
-	it("HERANÇA POR ESTADO: com continuedWork, QUALQUER texto promove pela lista herdada, semeia o caderno e leva a nota 'continuação ou assunto novo'", async () => {
+	it("assunto novo depois de um run com itens abertos: leva a nota, mas não promove, não sofre cobrança, não propaga e não grava 'Não deu para confirmar'", async () => {
 		for (const text of ["continua", "e quanto custa o frete?", "Bom dia"]) {
 			const run = await runChat({
 				stepMs: 5_000,
 				messages: [{ role: "user", content: text }],
-				extra: { priorTaskList: OPEN_LIST, priorNotebook: NOTEBOOK, continuedWork: true },
+				extra: { priorOpenItems: OPEN_LIST, priorNotebook: NOTEBOOK, continuedWork: true },
 				script: [
 					(seen) => {
-						expect(seen.transcript, text).toContain(CONTINUED_WORK_NOTE);
-						return turn([call("notebook_read", {})], 0.1);
+						expect(seen.transcript, text).toMatch(NOTE);
+						expect(seen.transcript, text).toContain("Pedir o resumo ao Gemini");
+						expect(seen.transcript, text).toContain("otherwise ignore them");
+						// A lista antiga é só contexto: o rastreador está vazio, sem cartão e sem portão.
+						expect(seen.transcript, text).not.toContain("Current task list");
+						return say("Bom dia! O frete sai por R$ 20.", 0.1);
 					},
-					(seen) => {
-						expect(seen.transcript, text).toContain("Entrei no painel");
-						return say("Feito.", 0.1);
-					},
-					say("Feito.", 0.1),
-					say("Feito.", 0.1),
-					say("Feito.", 0.1),
 				],
 			});
-			expect(run.onPromoted, text).toHaveBeenCalledTimes(1);
+			expect(run.onPromoted, text).not.toHaveBeenCalled();
+			expect(run.seen, text).toHaveLength(1);
+			// Nenhum lembrete, nenhuma pendência no texto e nada para o run seguinte herdar (stop sem items_open).
+			expect(run.result.text, text).toBe("Bom dia! O frete sai por R$ 20.");
+			expect(run.result.stop, text).toEqual({ reason: "answered" });
+			expect(run.events.filter((event) => event.type === "task_list"), text).toHaveLength(0);
 		}
 	});
 
-	it("sem o estado (último run entregue), nem 'continua' herda nada: o texto não decide", async () => {
-		const run = await runChat({ stepMs: 5_000, messages: [{ role: "user", content: "continua" }], extra: { priorTaskList: OPEN_LIST, priorNotebook: NOTEBOOK }, script: [say("Ok.")] });
-		expect(run.onPromoted).not.toHaveBeenCalled();
-		expect(run.seen[0]!.transcript).not.toContain(CONTINUED_WORK_NOTE);
+	it("assunto novo com trabalho iniciado: item herdado e não tocado não recebe o lembrete de itens abertos", async () => {
+		const run = await runChat({
+			stepMs: 1_000,
+			options: { promotable: false },
+			messages: [{ role: "user", content: "e quanto custa o frete?" }],
+			extra: { priorOpenItems: OPEN_LIST, continuedWork: true },
+			script: [research(0.01), say("O frete sai por R$ 20.")],
+		});
+		expect(run.seen).toHaveLength(2);
+		expect(run.result.text).toBe("O frete sai por R$ 20.");
+		expect(run.result.stop).toEqual({ reason: "answered" });
 	});
 
-	it("continuação automática (autoContinued) com a instrução do worker também promove pela lista herdada e recebe o caderno", async () => {
+	it("continuação real: o modelo atualiza a lista mantendo os itens, então promove, recebe o caderno e pode retomar", async () => {
 		const run = await runChat({
 			stepMs: 5_000,
-			messages: [{ role: "user", content: "Continue the previous task from where it stopped. Do not repeat steps that are already done." }],
-			extra: { priorTaskList: OPEN_LIST, priorNotebook: NOTEBOOK, autoContinued: true },
+			messages: [{ role: "user", content: "continua" }],
+			extra: { priorOpenItems: OPEN_LIST, priorNotebook: NOTEBOOK, continuedWork: true },
 			script: [
+				(seen) => {
+					expect(seen.transcript).toMatch(NOTE);
+					return turn([taskList([["Abrir o painel", "completed"], ["Pedir o resumo ao Gemini", "in_progress"], ["Montar o relatório", "pending"]])], 0.1);
+				},
 				turn([call("notebook_read", {})], 0.1),
 				(seen) => {
 					expect(seen.transcript).toContain("Entrei no painel");
@@ -742,14 +756,36 @@ describe("\"continua\" depois de um trabalho com itens abertos (v2)", () => {
 			],
 		});
 		expect(run.onPromoted).toHaveBeenCalledTimes(1);
-		// Sem o sinal de continuação automática a mesma mensagem longa não promove nem usa o caderno antigo.
-		const plain = await runChat({
+	});
+
+	it("sem o estado (último run entregue), nem 'continua' herda nada: o texto não decide", async () => {
+		const run = await runChat({ stepMs: 5_000, messages: [{ role: "user", content: "continua" }], extra: { priorTaskList: OPEN_LIST, priorNotebook: NOTEBOOK }, script: [say("Ok.")] });
+		expect(run.onPromoted).not.toHaveBeenCalled();
+		expect(run.seen[0]!.transcript).not.toMatch(NOTE);
+	});
+
+	it("continuação automática (autoContinued) é a MESMA tarefa: a lista do pai semeia o rastreador, mas só promove se o modelo a atualizar", async () => {
+		const instruction = "Continue the previous task from where it stopped. Do not repeat steps that are already done.";
+		const run = await runChat({
 			stepMs: 5_000,
-			messages: [{ role: "user", content: "Continue the previous task from where it stopped. Do not repeat steps that are already done." }],
-			extra: { priorTaskList: OPEN_LIST, priorNotebook: NOTEBOOK },
-			script: [say("Ok.")],
+			messages: [{ role: "user", content: instruction }],
+			extra: { priorTaskList: OPEN_LIST, priorNotebook: NOTEBOOK, autoContinued: true },
+			script: [
+				turn([taskList([["Abrir o painel", "completed"], ["Pedir o resumo ao Gemini", "in_progress"], ["Montar o relatório", "pending"]])], 0.1),
+				turn([call("notebook_read", {})], 0.1),
+				(seen) => {
+					expect(seen.transcript).toContain("Entrei no painel");
+					return say("Feito.", 0.1);
+				},
+				say("Feito.", 0.1),
+				say("Feito.", 0.1),
+				say("Feito.", 0.1),
+			],
 		});
-		expect(plain.onPromoted).not.toHaveBeenCalled();
+		expect(run.onPromoted).toHaveBeenCalledTimes(1);
+		// A lista herdada sozinha (sem o modelo mantê-la) não promove.
+		const untouched = await runChat({ stepMs: 5_000, messages: [{ role: "user", content: instruction }], extra: { priorTaskList: OPEN_LIST, priorNotebook: NOTEBOOK, autoContinued: true }, script: [say("Ok.")] });
+		expect(untouched.onPromoted).not.toHaveBeenCalled();
 	});
 
 	it("a mesma lista herdada com outra mensagem (ou sem humano) não promove nem usa o caderno antigo", async () => {
@@ -757,6 +793,13 @@ describe("\"continua\" depois de um trabalho com itens abertos (v2)", () => {
 		expect(other.onPromoted).not.toHaveBeenCalled();
 		const bot = await runChat({ stepMs: 5_000, messages: [{ role: "user", content: "continua" }], extra: { humanTurn: false, origin: "bot", priorTaskList: OPEN_LIST }, options: { promotable: false, onPromoted: undefined }, script: [say("Ok.")] });
 		expect(bot.onPromoted).not.toHaveBeenCalled();
+	});
+
+	it("termina com itens abertos DESTE run: o stop leva items_open (o próximo turno recebe a nota); com a lista fechada, não", async () => {
+		const open = await runChat({ stepMs: 1_000, options: { promotable: false }, messages: [{ role: "user", content: "faça" }], script: [research(0.01), turn([taskList([["Abrir o Gemini", "completed"], ["Pedir o resumo ao Gemini", "in_progress"]])], 0.01), say("um"), say("dois"), say("três"), say("quatro")] });
+		expect(open.result.stop).toEqual({ reason: "answered", detail: "items_open" });
+		const closed = await runChat({ stepMs: 1_000, options: { promotable: false }, messages: [{ role: "user", content: "faça" }], script: [research(0.01), turn([taskList([["A", "completed"], ["B", "completed"]])], 0.01), say("Pronto.")] });
+		expect(closed.result.stop).toEqual({ reason: "answered" });
 	});
 });
 

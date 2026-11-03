@@ -75,12 +75,12 @@ export function stopReasonOfBudget(kind: BudgetKindLike | undefined): RunStopRea
 }
 
 /**
- * O run terminou com trabalho por fazer (laço, teto de passos, falhas seguidas, lista de tarefas aberta) e não com a resposta
- * completa? Uma mensagem curta de continuação do usuário herda o perfil e o caderno só depois disso.
+ * O run terminou com itens abertos DA PRÓPRIA lista de tarefas (a que o modelo atualizou ou recriou nele)? O runtime grava
+ * `items_open` (ou `tasklist_open`) no detalhe da parada nesse caso, seja qual for o motivo (laço, teto, falhas, resposta).
+ * Parar por teto sem lista aberta não é "trabalho por fazer": a mensagem seguinte é um assunto novo e não herda nada.
  */
 export function stoppedWithOpenWork(stop: { reason?: string | null; detail?: string | null }): boolean {
-	if (stop.detail === "tasklist_open" || stop.detail?.includes("items_open")) return true;
-	return ["loop_repeat", "budget_steps", "budget_stalled", "budget_wall", "budget_cost", "tool_failures", "no_progress", "truncated"].includes(stop.reason ?? "");
+	return stop.detail === "tasklist_open" || Boolean(stop.detail?.includes("items_open"));
 }
 
 /** Qual trava de loop do runtime abortou o run (`AgentRunLoopDetectedError.kind`). */

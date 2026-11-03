@@ -1889,11 +1889,13 @@ async function runComputerUseCore(params: {
 	priorTaskLedger?: unknown;
 	/** Lista de passos (`update_task_list`) de um run anterior da conversa. */
 	priorTaskList?: unknown;
+	/** Itens abertos da lista do run anterior (mensagem digitada depois de um run que parou com itens abertos): só CONTEXTO, não semeia a lista. */
+	priorOpenItems?: unknown;
 	/** Caderno do trabalho longo anterior da conversa (já escopado por dono): semeia uma continuação curta ("continua"). */
 	priorNotebook?: unknown;
 	/** Este run é uma continuação automática (o worker agendou depois de uma parada com trabalho aberto): herda lista e caderno. */
 	autoContinued?: boolean;
-	/** O último run da conversa parou com trabalho aberto e esta mensagem foi digitada: herda lista e caderno (estado, não o texto). */
+	/** O último run da conversa parou com itens abertos e esta mensagem foi digitada: recebe os itens como nota e o caderno (estado, não o texto); nunca perfil nem portão. */
 	continuedWork?: boolean;
 	/** Pedidos deste bot a outros bots ainda sem resposta (`send_to_bot`), já escopados por dono. */
 	openBotRequests?: OpenBotRequest[];

@@ -176,7 +176,6 @@ export {
 	getConversationNotebook,
 	recordRunCaps,
 	lastChatRunStoppedWithOpenWork,
-	getContinuationInheritance,
 	notebookForContinuation,
 	getConversationTranscript,
 	getRunTranscript,

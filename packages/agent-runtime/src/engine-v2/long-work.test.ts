@@ -645,7 +645,7 @@ describe("motor v2: estouro do orçamento ainda entrega o documento", () => {
 		const content = Buffer.from(run.persisted[0]!.bytes).toString("utf8");
 		expect(content).toContain("https://alfa.example.com/preco");
 		expect(content).toContain("## Não deu para confirmar");
-		expect(run.result.stop).toEqual({ reason: "budget_cost", detail: "delivered" });
+		expect(run.result.stop).toEqual({ reason: "budget_cost", detail: "delivered:items_open" });
 		expect(run.result.text).not.toMatch(/Não consegui gerar o documento/);
 	});
 
@@ -727,7 +727,7 @@ describe("motor v2: o árbitro é progresso e tempo, não dinheiro (replays)", (
 				coordinator: [OPEN_DOC(), later(11), reportFile(), say("Entreguei dentro do limite de tempo.")],
 				options: { longWorkMinutes: 10 },
 			});
-			expect(hard.result.stop).toEqual({ reason: "budget_wall", detail: "delivered" });
+			expect(hard.result.stop).toEqual({ reason: "budget_wall", detail: "delivered:items_open" });
 			expect(hard.persisted).toHaveLength(1);
 			expect(hard.coordinatorRequests.at(-2)!.toolNames).toEqual(["create_file"]);
 		} finally {
@@ -750,7 +750,7 @@ describe("motor v2: o árbitro é progresso e tempo, não dinheiro (replays)", (
 			coordinator: [OPEN_DOC(), search(1.4), reportFile(0.2), say("Pronto.")],
 			options: { longWorkBudgetUsd: 1 },
 		});
-		expect(over.result.stop).toEqual({ reason: "budget_cost", detail: "delivered" });
+		expect(over.result.stop).toEqual({ reason: "budget_cost", detail: "delivered:items_open" });
 		expect(over.persisted).toHaveLength(1);
 		expect(over.coordinatorRequests.at(-2)!.params.maxOutputTokens).toBe(16_000);
 	});
