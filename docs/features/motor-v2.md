@@ -192,6 +192,22 @@ O núcleo do prompt v2 manda continuar até resolver e só parar por decisão, l
 
 **Riscos e custo:** a ordem das passadas muda a posição do conteúdo no texto (o que está na tela sobe), não o conteúdo; páginas pequenas saem iguais. O digest compara conjuntos de blocos antes/depois: se o clique rola a página, o texto que entrou na viewport pode aparecer como "novo" (ruído limitado a 1000 caracteres). O screenshot automático soma tokens de imagem por passo com leitura cortada ou clique sem texto novo; o teto de um por passo e o filtro (clique sem navegação, diálogo ou estado) seguram o custo. O prompt do "Bom dia" ficou dentro do teto de 40.500 caracteres (`computer-use.economy-replay.test.ts`) porque as descrições de `browser_wait`, `browser_read` e `browser_act` foram enxugadas.
 
+## Árvore de acessibilidade: ler e agir por ref (ADR 0005)
+
+**O que é.** `browser_snapshot` devolve a árvore de acessibilidade da página (papel, nome, estado e uma ref por elemento acionável, inclusive iframe de outro site e shadow DOM), podada para caber no contexto. `browser_act` age pela ref.
+
+**Problema.** O coletor de DOM tinha tetos (800 refs, 12 mil nós) que cortavam antes do painel lateral em páginas grandes e a ref morria quando o framework recriava o elemento.
+
+**Como funciona.** Arquivos em `docker/agent-sandbox/control/`: `ax-snapshot.mjs` (captura, 4 s), `ax-prune.mjs` (parse, poda, janela, colapso, render; puro), `browser-ax.mjs` (sonda de recorte e orquestração), `ax-refs.mjs` (tabela e resolução de ref vencida), `ax-diff.mjs` (diff por ref; puro). Contrato: `POST /browser/snapshot` aceita `engine` (`"dom"` força o v1), `area`, `ref`, `offset`/`limit` (caracteres na árvore) e devolve `engine`, `tree`, `treeLength`, `lines[]` (formato v1, para o muro de login), `omitted`, `hidden`, `note`. `POST /browser/act` devolve `note` (ref re-resolvida) e `changes.tree` (<= 25 linhas). No agente: `view:"tree"|"list"`, `area`, `ref`, `offset`/`limit`; `view:"list"` e `scope` pedem `engine:"dom"`. Flag `ATLAS_AX_SNAPSHOT`: ligada por padrão, `off` volta ao v1.
+
+**Segurança.** Valor de campo só sai se a sonda provar que não é senha nem código (fail-closed); a senha aparece só como "(campo de senha: nunca preencha)". Resultado passa por `redactSecrets` e leva a nota de dado não confiável.
+
+**Riscos.** Ref reaproveitada para outro conteúdo; `browser_read`/`browser_find` voltam as refs da aba para o DOM até o próximo snapshot; sandbox antigo ou Playwright sem o recurso cai no v1 sem ruído; página de ~60 mil nós passa de 4 s e cai no v1 com nota.
+
+**Custo (medido aqui, Chromium 141).** Fixture A (iframe de outro site, shadow, `aria-hidden`, `aside`, ~5,9 mil elementos): chunk 1 de 593 chars em ~1,0 s. Fixture estilo YouTube (`aside` com a resposta, ~17 mil elementos): chunk 1 de 763 chars em ~1,8 s, quase todo na captura do Playwright; poda e render levam dezenas de ms. O prefixo do "Bom dia" não cresce (40.415 chars, teto 40.500).
+
+**Como testar.** `node --test` em `docker/agent-sandbox/control` (`ax-*.test.mjs` e `browser-ax.test.mjs`, com Chromium real e dois servidores locais para o iframe de outro site; pulam sem Chromium), `pnpm --filter @workspace/agent-runtime test` (`computer-refs.tree.test.ts`, replay em `engine-v2/contexto.integration.test.ts`, `computer-use.economy-replay.test.ts`).
+
 ## Limites desta fase (o que o v2 ainda não faz)
 - **Origens:** por padrão todas as suportadas (chat, rotina com alerta, brief e "só importante", grupo, bot→bot, proativo, webhook e e-mail recebido), a não ser com `engineScope: "chat"` explícito, `engine: "v1"` ou `ATLAS_ENGINE_V2_DEFAULT=off`/`chat`, ver acima. O subagente herda o motor do pai.
 - **Padrão do deploy e a UI (01/11):** `describeEngineSettings`, a engrenagem e `set_engine` leem só o `policyJson` e a constante `ENGINE_DEFAULT_SCOPE`; bot sem escolha aparece como "Novo (padrão)" e roda no v2. Só o `ATLAS_ENGINE_V2_DEFAULT=off` de emergência é invisível para a UI. Bot que voltou ao v1 antes da 0.3.5 (chave removida, sem `engine: "v1"`) agora roda no v2: regrave "Anterior" na engrenagem se quiser mantê-lo no motor anterior.
