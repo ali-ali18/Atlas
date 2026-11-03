@@ -60,7 +60,6 @@ export function catalogErrorText(error: unknown, action: "list" | "detail" | "in
 		if (error.status === 404) return action === "detail" ? "Não encontrei este bot no catálogo." : "Não encontrei este bot. Ele pode ter saído do catálogo.";
 		if (action === "install") {
 			if (error.status === 422) return "O conteúdo deste bot foi bloqueado pela varredura de segurança. Ele não foi instalado.";
-			if (error.status === 400) return "O nome deve ter de 1 a 40 caracteres.";
 			return "Não consegui instalar o bot agora. Tente de novo.";
 		}
 		return action === "list" ? "Não consegui carregar o catálogo agora. Tente de novo em instantes." : "Não consegui abrir este bot agora. Tente de novo em instantes.";

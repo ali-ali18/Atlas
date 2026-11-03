@@ -1,15 +1,16 @@
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import * as React from "react";
 import { CatalogDetailView, type DetailDone, type DetailLoad } from "@/components/catalog/catalog-detail-view";
 import { useAtlasSession } from "@/lib/atlas-session";
 import { catalogErrorText, fetchCatalogBot, fetchModelNames, installCatalogBot } from "@/lib/catalog-api";
 import { createCatalogInstaller, type InstallInput } from "@/lib/catalog-install";
-import { installedSlugs, type InstalledMap } from "@/lib/catalog-installed";
+import { installedKey, installedSlugs, type InstalledMap } from "@/lib/catalog-installed";
 import { loadInstalled, saveInstall } from "@/lib/catalog-installed-store";
 import { isUnauthorized } from "@/lib/chat-api";
+import { UNKNOWN_LOCK_MS } from "@/lib/catalog-install";
 import { ensureHomeBot } from "@/lib/ensure-bot";
 import { useHomeData } from "@/lib/home-data";
-import { fetchHomeBot } from "@/lib/home-sync";
+import { fetchHome, fetchHomeBot } from "@/lib/home-sync";
 import { createRoutine } from "@/lib/routines-api";
 
 /**
@@ -20,16 +21,18 @@ import { createRoutine } from "@/lib/routines-api";
 export default function CatalogBotScreen() {
 	const router = useRouter();
 	const { slug } = useLocalSearchParams<{ slug: string }>();
-	const { apiFetch, signOut } = useAtlasSession();
+	const { apiFetch, signOut, serverUrl, email } = useAtlasSession();
 	const { snapshot, addBot, refresh } = useHomeData();
 	const [load, setLoad] = React.useState<DetailLoad>({ status: "loading" });
 	const [modelName, setModelName] = React.useState<string | null>(null);
 	const [busy, setBusy] = React.useState(false);
 	const [error, setError] = React.useState<string | null>(null);
 	const [done, setDone] = React.useState<DetailDone | null>(null);
+	const [locked, setLocked] = React.useState(false);
 	const [installedMap, setInstalledMap] = React.useState<InstalledMap>({});
-	const latest = React.useRef({ apiFetch, signOut, addBot, refresh });
-	latest.current = { apiFetch, signOut, addBot, refresh };
+	const storageKey = serverUrl && email ? installedKey(serverUrl, email) : null;
+	const latest = React.useRef({ apiFetch, signOut, addBot, refresh, snapshot, storageKey });
+	latest.current = { apiFetch, signOut, addBot, refresh, snapshot, storageKey };
 	const mounted = React.useRef(true);
 	React.useEffect(() => {
 		mounted.current = true;
@@ -58,7 +61,7 @@ export default function CatalogBotScreen() {
 	}, [slug]);
 	React.useEffect(() => {
 		reload();
-		void loadInstalled().then(setInstalledMap);
+		if (latest.current.storageKey) void loadInstalled(latest.current.storageKey).then(setInstalledMap);
 	}, [reload]);
 
 	// Um instalador por abertura da tela: o toque duplo e o "já instalado" valem para ele.
@@ -68,7 +71,14 @@ export default function CatalogBotScreen() {
 				install: (wanted, body) => installCatalogBot(latest.current.apiFetch, wanted, body),
 				createRoutine: (botId, routine) => createRoutine(latest.current.apiFetch, botId, routine),
 				ensureBot: (botId) => ensureHomeBot({ fetchBot: (wanted) => fetchHomeBot(latest.current.apiFetch, wanted), addBot: (bot) => latest.current.addBot(bot), refresh: (options) => latest.current.refresh(options) }, botId),
-				remember: saveInstall,
+				remember: async (wanted, botId) => {
+					if (latest.current.storageKey) await saveInstall(latest.current.storageKey, wanted, botId);
+				},
+				homeBots: () => (latest.current.snapshot?.bots ?? []).map((bot) => ({ id: bot.id, name: bot.name })),
+				fetchBots: async () => {
+					const result = await fetchHome(latest.current.apiFetch);
+					return result.ok ? result.snapshot.bots.map((bot) => ({ id: bot.id, name: bot.name })) : null;
+				},
 				onUnauthorized: () => void latest.current.signOut(),
 			}),
 		[],
@@ -90,6 +100,11 @@ export default function CatalogBotScreen() {
 		if (!outcome.ok) {
 			setBusy(false);
 			setError(outcome.error);
+			// Sem saber se o bot nasceu: o botão fica travado um tempo (o instalador também ignora toques nele).
+			if (outcome.locked) {
+				setLocked(true);
+				setTimeout(() => mounted.current && setLocked(false), UNKNOWN_LOCK_MS);
+			}
 			return;
 		}
 		if (outcome.warnings.length === 0) return openChat(outcome.botId);
@@ -99,5 +114,11 @@ export default function CatalogBotScreen() {
 
 	const alreadyInstalled = installedSlugs(installedMap, (snapshot?.bots ?? []).map((bot) => bot.id)).has(slug);
 	const back = () => (router.canGoBack() ? router.back() : router.replace("/"));
-	return <CatalogDetailView load={load} modelName={modelName} alreadyInstalled={alreadyInstalled} busy={busy} error={error} done={done} onInstall={(input) => void install(input)} onOpenChat={() => done && openChat(done.botId)} onBack={back} onRetry={reload} />;
+	return (
+		<>
+			{/* Instalando: o gesto de voltar do iOS também espera (o botão e o voltar do Android já esperam). */}
+			<Stack.Screen options={{ gestureEnabled: !busy }} />
+			<CatalogDetailView load={load} modelName={modelName} alreadyInstalled={alreadyInstalled} busy={busy} error={error} done={done} onInstall={(input) => void install(input)} onOpenChat={() => done && openChat(done.botId)} onBack={back} onRetry={reload} locked={locked} />
+		</>
+	);
 }

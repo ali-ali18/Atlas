@@ -5,7 +5,11 @@
 /** slug do modelo -> ids dos bots criados a partir dele neste aparelho. */
 export type InstalledMap = Record<string, string[]>;
 
-export const INSTALLED_KEY = "atlas.catalog.installed.v1";
+/** Tudo do catálogo no aparelho (a limpeza ao sair apaga todas as contas e versões). */
+export const INSTALLED_PREFIX = "atlas.catalog.";
+
+/** Uma chave por servidor e conta: trocar de conta não mostra o "Instalado" da outra (mesmo molde de `cacheKey` da home). */
+export const installedKey = (serverUrl: string, email: string): string => `${INSTALLED_PREFIX}installed.v1:${serverUrl}|${email.toLowerCase()}`;
 
 /** Aceita só `{ slug: [id, ...] }`; qualquer outra coisa (cache velho, texto torto) vira mapa vazio. */
 export function parseInstalled(raw: string | null): InstalledMap {

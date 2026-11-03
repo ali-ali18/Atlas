@@ -1,9 +1,9 @@
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import * as React from "react";
 import { CatalogListView, type CatalogLoad } from "@/components/catalog/catalog-list-view";
 import { useAtlasSession } from "@/lib/atlas-session";
 import { catalogErrorText, fetchCatalog } from "@/lib/catalog-api";
-import { installedSlugs, type InstalledMap } from "@/lib/catalog-installed";
+import { installedKey, installedSlugs, type InstalledMap } from "@/lib/catalog-installed";
 import { loadInstalled } from "@/lib/catalog-installed-store";
 import { isUnauthorized } from "@/lib/chat-api";
 import { useHomeData } from "@/lib/home-data";
@@ -11,7 +11,7 @@ import { useHomeData } from "@/lib/home-data";
 /** Catálogo de bots prontos (a grade da home): a lista vem do servidor ao abrir; "Instalado" vem do que este aparelho instalou e ainda está na home. */
 export default function CatalogScreen() {
 	const router = useRouter();
-	const { apiFetch, signOut } = useAtlasSession();
+	const { apiFetch, signOut, serverUrl, email } = useAtlasSession();
 	const { snapshot } = useHomeData();
 	const [load, setLoad] = React.useState<CatalogLoad>({ status: "loading" });
 	const [query, setQuery] = React.useState("");
@@ -30,10 +30,19 @@ export default function CatalogScreen() {
 			},
 		);
 	}, []);
-	React.useEffect(() => {
-		reload();
-		void loadInstalled().then(setInstalledMap);
-	}, [reload]);
+	React.useEffect(reload, [reload]);
+	// "Instalado" é relido a cada vez que a lista volta ao foco (voltar do detalhe depois de instalar, por exemplo).
+	const storageKey = serverUrl && email ? installedKey(serverUrl, email) : null;
+	useFocusEffect(
+		React.useCallback(() => {
+			if (!storageKey) return;
+			let active = true;
+			void loadInstalled(storageKey).then((map) => active && setInstalledMap(map));
+			return () => {
+				active = false;
+			};
+		}, [storageKey]),
+	);
 
 	const botIds = React.useMemo(() => (snapshot?.bots ?? []).map((bot) => bot.id), [snapshot]);
 	const installed = React.useMemo(() => installedSlugs(installedMap, botIds), [installedMap, botIds]);

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { catalogErrorText, fetchCatalog, fetchCatalogBot, fetchModelNames, installCatalogBot } from "./catalog-api";
-import { buildInstallBody, createCatalogInstaller, humanizeWarning, type InstallDeps } from "./catalog-install";
+import { buildInstallBody, createCatalogInstaller, decideAfterNetworkError, humanizeWarning, ROUTINES_LOST_TEXT, UNKNOWN_CREATED_TEXT, UNKNOWN_LOCK_MS, type InstallDeps } from "./catalog-install";
 import { ChatApiError } from "./chat-api";
 
 const reply = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
@@ -39,6 +39,8 @@ function deps(over: Partial<InstallDeps> = {}) {
 		ensureBot: vi.fn(async () => void calls.push("ensure")),
 		remember: vi.fn(async () => void calls.push("remember")),
 		onUnauthorized: vi.fn(),
+		homeBots: () => [{ id: "b0", name: "Antigo" }],
+		fetchBots: vi.fn(async () => [{ id: "b0", name: "Antigo" }]),
 		...over,
 	};
 	return { value, calls };
@@ -92,6 +94,19 @@ describe("instalador", () => {
 		const outcome = await createCatalogInstaller(value)("resumo", input);
 		expect(outcome).toEqual({ ok: false, error: "Sua sessão expirou. Entre de novo." });
 		expect(value.onUnauthorized).toHaveBeenCalledTimes(1);
+	});
+	it("401 numa rotina no meio do laço: encerra a sessão uma vez, não cria as demais nem busca o bot", async () => {
+		const { value } = deps({
+			install: vi.fn(async () => ({ botId: "bot-9", name: "Resumo", installedSkills: [], warnings: [], routines: [{ name: "A", prompt: "p", cron: "0 9 * * *" }, { name: "B", prompt: "p", cron: "0 9 * * *" }, { name: "C", prompt: "p", cron: "0 9 * * *" }] })),
+			createRoutine: vi.fn(async (_b, routine) => {
+				if (routine.name === "B") throw new ChatApiError("x", 401);
+			}),
+		});
+		const outcome = await createCatalogInstaller(value)("resumo", input);
+		expect(value.createRoutine).toHaveBeenCalledTimes(2);
+		expect(value.onUnauthorized).toHaveBeenCalledTimes(1);
+		expect(value.ensureBot).not.toHaveBeenCalled();
+		expect(outcome).toEqual({ ok: true, botId: "bot-9", name: "Resumo", warnings: ["Não consegui criar a rotina “B”. Você pode criá-la depois.", "Não consegui criar a rotina “C”. Você pode criá-la depois."] });
 	});
 	it("nome inválido não chama o servidor", async () => {
 		const { value } = deps();
@@ -153,9 +168,60 @@ describe("chamadas à API do catálogo (fetch mockado)", () => {
 	});
 	it("frases de erro sem texto técnico", () => {
 		expect(catalogErrorText(new ChatApiError("x", 422), "install")).toContain("bloqueado pela varredura");
-		expect(catalogErrorText(new ChatApiError("x", 400), "install")).toBe("O nome deve ter de 1 a 40 caracteres.");
+		// O nome já foi validado no app: um 400 do servidor não é culpa do nome.
+		expect(catalogErrorText(new ChatApiError("x", 400), "install")).toBe("Não consegui instalar o bot agora. Tente de novo.");
 		expect(catalogErrorText(new ChatApiError("x", 404), "detail")).toBe("Não encontrei este bot no catálogo.");
 		expect(catalogErrorText(new ChatApiError("Falha ao falar com o marketplace.", 503), "list")).not.toContain("marketplace");
 		expect(catalogErrorText(new TypeError("Network request failed"), "list")).toBe("Sem conexão com o seu servidor. Tente de novo.");
+	});
+});
+
+describe("erro de rede no install (o bot pode ter nascido)", () => {
+	const lost = () => Promise.reject(new TypeError("Network request failed"));
+	it("decisão pura: bot novo com o nome pedido = criado; home sem ele = não criado; sem home = não sei", () => {
+		const before = ["b0"];
+		expect(decideAfterNetworkError(before, [{ id: "b0", name: "Resumo" }, { id: "b7", name: "  Resumo " }], "Resumo")).toEqual({ kind: "created", botId: "b7" });
+		// um bot que já existia com o mesmo nome não conta
+		expect(decideAfterNetworkError(before, [{ id: "b0", name: "Resumo" }], "Resumo")).toEqual({ kind: "not-created" });
+		// bot novo de outro nome também não
+		expect(decideAfterNetworkError(before, [{ id: "b0", name: "x" }, { id: "b8", name: "Outro" }], "Resumo")).toEqual({ kind: "not-created" });
+		expect(decideAfterNetworkError(before, null, "Resumo")).toEqual({ kind: "unknown" });
+	});
+	it("o bot nasceu: segue como instalado (ensure + resultado), sem instalar de novo, e avisa das rotinas escolhidas", async () => {
+		const { value } = deps({ install: vi.fn(lost), fetchBots: vi.fn(async () => [{ id: "b0", name: "Antigo" }, { id: "b7", name: "Resumo" }]) });
+		const submit = createCatalogInstaller(value);
+		expect(await submit("resumo", input)).toEqual({ ok: true, botId: "b7", name: "Resumo", warnings: [ROUTINES_LOST_TEXT] });
+		expect(value.ensureBot).toHaveBeenCalledWith("b7");
+		expect(value.remember).toHaveBeenCalledWith("resumo", "b7");
+		expect(await submit("resumo", input)).toBeNull();
+		expect(value.install).toHaveBeenCalledTimes(1);
+	});
+	it("o bot nasceu e nenhuma rotina foi escolhida: sem aviso de rotina", async () => {
+		const { value } = deps({ install: vi.fn(lost), fetchBots: vi.fn(async () => [{ id: "b7", name: "Resumo" }]) });
+		expect(await createCatalogInstaller(value)("resumo", { ...input, routines: [] })).toMatchObject({ ok: true, warnings: [] });
+	});
+	it("home atualizada sem bot novo: não nasceu, erro de rede normal e dá para tentar de novo", async () => {
+		const { value } = deps({ install: vi.fn(lost) });
+		const submit = createCatalogInstaller(value);
+		expect(await submit("resumo", input)).toEqual({ ok: false, error: "Sem conexão com o seu servidor. Tente de novo." });
+		await submit("resumo", input);
+		expect(value.install).toHaveBeenCalledTimes(2);
+	});
+	it("sem conseguir saber: aviso, botão travado por alguns segundos e depois libera", async () => {
+		let clock = 1000;
+		const { value } = deps({ install: vi.fn(lost), fetchBots: vi.fn(async () => null), now: () => clock });
+		const submit = createCatalogInstaller(value);
+		expect(await submit("resumo", input)).toEqual({ ok: false, error: UNKNOWN_CREATED_TEXT, locked: true });
+		clock += UNKNOWN_LOCK_MS - 1;
+		expect(await submit("resumo", input)).toBeNull();
+		expect(value.install).toHaveBeenCalledTimes(1);
+		clock += 1;
+		await submit("resumo", input);
+		expect(value.install).toHaveBeenCalledTimes(2);
+	});
+	it("erro de servidor (não de rede) não tenta recuperar", async () => {
+		const { value } = deps({ install: vi.fn(async () => Promise.reject(new ChatApiError("x", 503))) });
+		await createCatalogInstaller(value)("resumo", input);
+		expect(value.fetchBots).not.toHaveBeenCalled();
 	});
 });
