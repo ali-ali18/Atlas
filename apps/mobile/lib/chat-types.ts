@@ -22,8 +22,12 @@ export type ChatItem =
 	| (Base & { kind: "task-list"; runId: string; items: TaskItem[] })
 	| (Base & { kind: "confirm"; confirmId: string; title: string; description?: string; confirmLabel?: string; cancelLabel?: string; status: ConfirmStatus })
 	| (Base & { kind: "questionnaire"; questionnaireId: string; title: string; description?: string; items: QuestionnaireCardItem[]; status: QuestionnaireStatus; answers?: Record<string, string | string[]> })
-	/** Cartão que ainda não tem tela nativa (gráfico, painel, arquivo, rotina…): uma linha com "Abrir no navegador". */
-	| (Base & { kind: "web-card"; card: WebCardKind; title: string; key: string })
+	/**
+	 * Cartão que ainda não tem tela nativa (gráfico, arquivo, rotina…): uma linha com "Abrir no navegador".
+	 * Painel (`card: "page"`) com `pageId` abre a tela nativa; `revision` e `sourceCount` são o resumo do cartão.
+	 * Cartão de painel antigo (gravado no cache sem `pageId`) continua abrindo no navegador.
+	 */
+	| (Base & { kind: "web-card"; card: WebCardKind; title: string; key: string; pageId?: string; revision?: number; sourceCount?: number; fileId?: string; mime?: string; size?: number })
 	/** Marcador de uma linha no fio (conversa compactada, mensagem enviada a outro bot). */
 	| (Base & { kind: "marker"; text: string });
 

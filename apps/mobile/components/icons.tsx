@@ -16,6 +16,12 @@ import {
 	Copy as LucideCopy,
 	Ellipsis as LucideEllipsis,
 	ExternalLink as LucideExternalLink,
+	File as LucideFile,
+	FileSpreadsheet as LucideFileSpreadsheet,
+	FileText as LucideFileText,
+	Image as LucideImage,
+	LayoutDashboard as LucideLayoutDashboard,
+	Presentation as LucidePresentation,
 	Hash as LucideHash,
 	LibraryBig as LucideLibraryBig,
 	Link as LucideLink,
@@ -272,4 +278,34 @@ export function FolderInputIcon({ size = 20, tone = "foreground" }: LineIconProp
 /** Lucide `FolderOutput` (menu da conversa: Tirar da seção). */
 export function FolderOutputIcon({ size = 20, tone = "foreground" }: LineIconProps) {
 	return <LucideFolderOutput size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `LayoutDashboard` (Painel, na Biblioteca). */
+export function LayoutDashboardIcon({ size = 20, tone = "foreground" }: LineIconProps) {
+	return <LucideLayoutDashboard size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `FileText` (Documento). */
+export function FileTextIcon({ size = 20, tone = "foreground" }: LineIconProps) {
+	return <LucideFileText size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `FileSpreadsheet` (Planilha). */
+export function FileSpreadsheetIcon({ size = 20, tone = "foreground" }: LineIconProps) {
+	return <LucideFileSpreadsheet size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `Presentation` (Apresentação). */
+export function PresentationIcon({ size = 20, tone = "foreground" }: LineIconProps) {
+	return <LucidePresentation size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `Image` (Imagem). */
+export function ImageIcon({ size = 20, tone = "foreground" }: LineIconProps) {
+	return <LucideImage size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `File` (Arquivo sem tipo conhecido). */
+export function FileIcon({ size = 20, tone = "foreground" }: LineIconProps) {
+	return <LucideFile size={size} color={useStroke(tone)} strokeWidth={2} />;
 }

@@ -106,3 +106,32 @@ describe("escritor do cache (época)", () => {
 		expect(CHAT_CACHE_MAX_TEXT).toBe(4_000);
 	});
 });
+
+describe("cache do chat: cartão de painel", () => {
+	const page = (extra: Record<string, unknown> = {}) => ({ id: "p", kind: "web-card", card: "page", title: "Vendas", key: "page:p1", ...extra });
+	it("guarda pageId, revisão e fontes", () => {
+		const item: ChatItem = { id: "p", kind: "web-card", card: "page", title: "Vendas", key: "page:p1", pageId: "p1", revision: 3, sourceCount: 2 };
+		expect(parseChat(serializeChat([item], NOW), NOW)?.items).toEqual([item]);
+	});
+	it("cache antigo sem pageId continua válido e abre no navegador", () => {
+		const parsed = parseChat(JSON.stringify({ v: 1, savedAt: NOW, items: [page()] }), NOW);
+		expect(parsed?.items).toEqual([page()]);
+		expect(parsed?.items[0]).not.toHaveProperty("pageId");
+	});
+	it("descarta pageId inválido ou longo e campos de painel em outro tipo de cartão", () => {
+		const bad = parseChat(JSON.stringify({ v: 1, savedAt: NOW, items: [page({ pageId: 5, revision: "x", sourceCount: null }), page({ pageId: "x".repeat(200) }), { ...page({ pageId: "p1" }), card: "chart" }] }), NOW);
+		expect(bad?.items.map((item) => ("pageId" in item ? item.pageId : undefined))).toEqual([undefined, undefined, undefined]);
+	});
+});
+
+describe("cache do chat: cartão de arquivo", () => {
+	const file = (extra: Record<string, unknown> = {}) => ({ id: "f", kind: "web-card", card: "file", title: "a.md", key: "file:f1", ...extra });
+	it("guarda fileId, mime e tamanho (o cartão volta a abrir a folha)", () => {
+		const item: ChatItem = { id: "f", kind: "web-card", card: "file", title: "a.md", key: "file:f1", fileId: "f1", mime: "text/markdown", size: 120 };
+		expect(parseChat(serializeChat([item], NOW), NOW)?.items).toEqual([item]);
+	});
+	it("descarta id, mime e tamanho inválidos, e campos de arquivo em outro cartão", () => {
+		const bad = parseChat(JSON.stringify({ v: 1, savedAt: NOW, items: [file({ fileId: 5, mime: 1, size: "x" }), file({ fileId: "x".repeat(200) }), file({ fileId: "f1", mime: "m".repeat(200), size: -1 }), { ...file({ fileId: "f1" }), card: "chart" }] }), NOW);
+		expect(bad?.items).toEqual([file(), file(), file({ fileId: "f1" }), { ...file(), card: "chart" }]);
+	});
+});
