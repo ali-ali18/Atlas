@@ -4,7 +4,8 @@
 import type { CacheStorage } from "./home-cache";
 import type { ChatItem, ConfirmStatus, ProposalStatus, QuestionnaireStatus, TaskItem } from "./chat-types";
 
-export const CHAT_CACHE_VERSION = 1;
+// v2: cartões de proposta de bot passaram a ser nativos; o v1 guardava a linha "Abrir no navegador" e é descartado.
+export const CHAT_CACHE_VERSION = 2;
 const ALL_VERSIONS_PREFIX = "atlas.chat.";
 const PREFIX = `${ALL_VERSIONS_PREFIX}v${CHAT_CACHE_VERSION}:`;
 export const CHAT_CACHE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;

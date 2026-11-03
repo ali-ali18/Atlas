@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CHAT_CACHE_MAX_AGE_MS, CHAT_CACHE_MAX_BYTES, CHAT_CACHE_MAX_TEXT, createChatCacheWriter, CHAT_CACHE_MAX_ITEMS, chatCacheKey, clearChatCache, loadChatCache, parseChat, saveChatCache, serializeChat } from "./chat-cache";
+import { CHAT_CACHE_VERSION, CHAT_CACHE_MAX_AGE_MS, CHAT_CACHE_MAX_BYTES, CHAT_CACHE_MAX_TEXT, createChatCacheWriter, CHAT_CACHE_MAX_ITEMS, chatCacheKey, clearChatCache, loadChatCache, parseChat, saveChatCache, serializeChat } from "./chat-cache";
 import type { ChatItem } from "./chat-types";
 import type { CacheStorage } from "./home-cache";
 
@@ -25,7 +25,7 @@ const msgs: ChatItem[] = [
 
 describe("cache do chat", () => {
 	it("a chave leva servidor, e-mail (sem caixa) e conversa", () => {
-		expect(chatCacheKey("https://a.test", "Dono@Ex.com", "c1")).toBe("atlas.chat.v1:https://a.test|dono@ex.com|c1");
+		expect(chatCacheKey("https://a.test", "Dono@Ex.com", "c1")).toBe("atlas.chat.v2:https://a.test|dono@ex.com|c1");
 		expect(chatCacheKey("https://a.test", "a@b.c", "c1")).not.toBe(chatCacheKey("https://a.test", "a@b.c", "c2"));
 		expect(chatCacheKey("https://a.test", "a@b.c", "c1")).not.toBe(chatCacheKey("https://a.test", "x@b.c", "c1"));
 	});
@@ -52,7 +52,7 @@ describe("cache do chat", () => {
 		expect(parsed.items.at(-1)?.id).toBe("m99");
 		const withExtra = JSON.parse(serializeChat(msgs, NOW));
 		expect(Object.keys(withExtra.items[0]).sort()).toEqual(["createdAt", "id", "kind", "text"]);
-		const raw = JSON.stringify({ v: 1, savedAt: NOW, items: [{ id: "1", kind: "user", text: "x", token: "segredo", cookie: "c" }] });
+		const raw = JSON.stringify({ v: CHAT_CACHE_VERSION, savedAt: NOW, items: [{ id: "1", kind: "user", text: "x", token: "segredo", cookie: "c" }] });
 		expect(JSON.stringify(parseChat(raw, NOW))).not.toContain("segredo");
 	});
 	it("o valor fica bem abaixo do limite do armazenamento", () => {
@@ -66,7 +66,7 @@ describe("cache do chat", () => {
 		expect(parseChat("não é json", NOW)).toBeNull();
 		expect(parseChat(JSON.stringify({ v: 99, savedAt: NOW, items: [] }), NOW)).toBeNull();
 		expect(parseChat(serializeChat(msgs, NOW), NOW + CHAT_CACHE_MAX_AGE_MS + 1)).toBeNull();
-		expect(parseChat(JSON.stringify({ v: 1, savedAt: NOW, items: [{ id: 3 }, null, { id: "a", kind: "nope" }] }), NOW)?.items).toEqual([]);
+		expect(parseChat(JSON.stringify({ v: CHAT_CACHE_VERSION, savedAt: NOW, items: [{ id: 3 }, null, { id: "a", kind: "nope" }] }), NOW)?.items).toEqual([]);
 	});
 	it("armazenamento que falha não derruba a tela", async () => {
 		const broken: CacheStorage = { getItem: async () => Promise.reject(new Error("x")), setItem: async () => Promise.reject(new Error("x")), removeItem: async () => undefined, getAllKeys: async () => Promise.reject(new Error("x")) };
@@ -121,7 +121,14 @@ describe("cartões de proposta no cache", () => {
 		expect(raw).not.toContain("\"error\"");
 	});
 	it("item torto no disco é descartado", () => {
-		const raw = JSON.stringify({ v: 1, savedAt: 1_000, items: [{ id: "x", kind: "bot-proposal", proposalId: "p" }, { id: "y", kind: "bot-profile", proposalId: "p", botId: "b", status: "pending", fields: ["zzz"], before: {}, after: {} }] });
+		const raw = JSON.stringify({ v: CHAT_CACHE_VERSION, savedAt: 1_000, items: [{ id: "x", kind: "bot-proposal", proposalId: "p" }, { id: "y", kind: "bot-profile", proposalId: "p", botId: "b", status: "pending", fields: ["zzz"], before: {}, after: {} }] });
 		expect(parseChat(raw, 1_000)!.items).toEqual([]);
+	});
+});
+
+describe("versão do cache", () => {
+	it("o cache da versão anterior (com web-card de proposta) é descartado", () => {
+		const old = JSON.stringify({ v: CHAT_CACHE_VERSION - 1, savedAt: NOW, items: [{ id: "1", kind: "web-card", card: "proposal", title: "Proposta de bot", key: "bot-proposal:1" }] });
+		expect(parseChat(old, NOW)).toBeNull();
 	});
 });
