@@ -55,7 +55,7 @@ export const EMAIL_REPLY_TOOL: ChatTool = {
 	function: {
 		name: "email_reply",
 		description:
-			"Reply in an existing thread (keeps the subject and thread; the recipient is the person who wrote in the thread). Plain text body, in the language of the thread. May show a confirmation card to the user; if it does, say nothing was sent yet and END your turn. Never include secrets, files or personal data of the owner unless the owner explicitly asked.",
+			"Reply in an existing thread (keeps the subject and thread; the recipient is the person who wrote in the thread). Plain text body, in the language of the thread. May show a confirmation card to the user (always, when answering an incoming e-mail and the owner has not allowed automatic replies); if it does, say nothing was sent yet and END your turn. Never include secrets, files or personal data of the owner unless the owner explicitly asked.",
 		parameters: {
 			type: "object",
 			properties: {
@@ -148,9 +148,19 @@ const EMAIL_APPROVAL_TTL_MS = 24 * 60 * 60 * 1000;
 const READ_THREAD_CHARS = 14_000;
 const READ_MESSAGE_CHARS = 5_000;
 
-export function decideEmailSend(policy: EffectiveAutonomy, tool: "email_send" | "email_reply", prepared: Pick<PreparedSend, "newRecipient">): AutonomyDecision {
+/**
+ * `ownerApprovalRequired`: `email_reply` sem a liberação do dono, de qualquer origem ("responder e-mails sozinho"):
+ * nunca entrega direto, vira cartão de aprovação mesmo no Autônomo.
+ */
+export function decideEmailSend(
+	policy: EffectiveAutonomy,
+	tool: "email_send" | "email_reply",
+	prepared: Pick<PreparedSend, "newRecipient">,
+	options: { ownerApprovalRequired?: boolean } = {},
+): AutonomyDecision {
 	const base = decideAction(policy, { actionClass: "write", tool, host: false });
 	if (base === "block") return "block";
+	if (options.ownerApprovalRequired) return "ask";
 	// Destinatário novo: confirma mesmo no Autônomo.
 	if (prepared.newRecipient) return "ask";
 	return base;
@@ -307,7 +317,10 @@ export async function executeEmailTool(
 		if ((await email.service.remainingToday(mailbox)) <= 0) {
 			throw new Error(`Limite diário de ${mailbox.dailySendLimit} e-mails atingido. O dono pode ajustar na aba E-mail do bot. Não tente enviar de outro jeito.`);
 		}
-		const decision = decideEmailSend(email.sendPolicy() ?? { level: DEFAULT_AUTONOMY_LEVEL, exceptions: [] }, name, prepared);
+		// Resposta por e-mail: por padrão o dono aprova (cartão na conversa do bot, vale 24h); só a config da caixa libera.
+		// Vale em qualquer origem: um e-mail que entra num run já ativo (join) mantém a origem "chat", e subagente herda a do pai.
+		const ownerApprovalRequired = name === "email_reply" && !mailbox.autoReply;
+		const decision = decideEmailSend(email.sendPolicy() ?? { level: DEFAULT_AUTONOMY_LEVEL, exceptions: [] }, name, prepared, { ownerApprovalRequired });
 		if (decision === "block") throw new Error("Envio de e-mail bloqueado pela autonomia do usuário.");
 		if (decision === "allow") {
 			const key = createHash("sha256").update(`${ctx.runId ?? ""}|${mailbox.id}|${prepared.to}|${prepared.subject}|${prepared.body}`).digest("hex").slice(0, 40);

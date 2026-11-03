@@ -31,6 +31,8 @@ export type BotMailboxRecord = {
 	allowedSenders: string[];
 	dailySendLimit: number;
 	enabled: boolean;
+	/** Dono liberou responder e-mails recebidos sem aprovação. */
+	autoReply: boolean;
 	createdAt: Date;
 };
 
@@ -80,6 +82,7 @@ export function toMailboxDto(row: BotMailboxRecord, sentToday: number): BotMailb
 		dailySendLimit: row.dailySendLimit,
 		sentToday,
 		enabled: row.enabled,
+		autoReply: row.autoReply,
 		createdAt: row.createdAt.toISOString(),
 	};
 }
@@ -144,7 +147,7 @@ export async function createMailbox(input: {
 export async function updateMailboxSettings(
 	botId: string,
 	userId: string,
-	patch: { allowedSenders?: string[]; dailySendLimit?: number; enabled?: boolean; secretsEnc?: string | null },
+	patch: { allowedSenders?: string[]; dailySendLimit?: number; enabled?: boolean; autoReply?: boolean; secretsEnc?: string | null },
 ): Promise<BotMailboxRecord | null> {
 	const current = await getMailboxForBot(botId, userId);
 	if (!current) return null;
@@ -154,6 +157,7 @@ export async function updateMailboxSettings(
 			...(patch.allowedSenders ? { allowedSenders: patch.allowedSenders } : {}),
 			...(patch.dailySendLimit !== undefined ? { dailySendLimit: patch.dailySendLimit } : {}),
 			...(patch.enabled !== undefined ? { enabled: patch.enabled } : {}),
+			...(patch.autoReply !== undefined ? { autoReply: patch.autoReply } : {}),
 			...(patch.secretsEnc !== undefined ? { secretsEnc: patch.secretsEnc } : {}),
 		},
 	})) as BotMailboxRecord;

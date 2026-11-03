@@ -41,6 +41,8 @@ export type BotMailboxDto = {
 	/** Quantos e-mails o bot já enviou nas últimas 24 horas. */
 	sentToday: number;
 	enabled: boolean;
+	/** Dono liberou o bot a responder e-mails recebidos sem pedir aprovação (padrão: false). */
+	autoReply: boolean;
 	createdAt: string;
 };
 

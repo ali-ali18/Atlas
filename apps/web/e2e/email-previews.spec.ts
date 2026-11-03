@@ -15,7 +15,7 @@ const HOUR = 3_600_000
 const ADDRESS = "assistente-k3x9qa@openmail.sh"
 const MAILBOX = {
   id: "mbx-e2e", botId: "bot-e2e", provider: "openmail", address: ADDRESS,
-  allowedSenders: ["ana.lima@empresa.com", "@parceiro.com.br"], dailySendLimit: 20, sentToday: 3, enabled: true, createdAt: ago(3 * 24 * HOUR),
+  allowedSenders: ["ana.lima@empresa.com", "@parceiro.com.br"], dailySendLimit: 20, sentToday: 3, enabled: true, autoReply: false, createdAt: ago(3 * 24 * HOUR),
 }
 const MESSAGES = [
   { id: "em-1", direction: "in", threadId: "thr-1", from: "ana.lima@empresa.com", to: [ADDRESS], subject: "Cotação de fretes para novembro", snippet: "Oi, consegue me mandar a cotação?", status: "received", conversationId: "conv-e2e", createdAt: ago(12 * MIN) },

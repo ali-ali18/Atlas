@@ -198,7 +198,7 @@ export function createEmailRoutes(deps: EmailRouteDeps = defaultDeps) {
 		} catch {
 			return c.json({ error: "Corpo inválido" }, 400);
 		}
-		const patch: { allowedSenders?: string[]; dailySendLimit?: number; enabled?: boolean } = {};
+		const patch: { allowedSenders?: string[]; dailySendLimit?: number; enabled?: boolean; autoReply?: boolean } = {};
 		if (body.allowedSenders !== undefined) {
 			if (!Array.isArray(body.allowedSenders) || body.allowedSenders.length > EMAIL_ALLOWED_SENDERS_MAX) return c.json({ error: `Até ${EMAIL_ALLOWED_SENDERS_MAX} remetentes permitidos` }, 400);
 			const rules: string[] = [];
@@ -217,6 +217,10 @@ export function createEmailRoutes(deps: EmailRouteDeps = defaultDeps) {
 		if (body.enabled !== undefined) {
 			if (typeof body.enabled !== "boolean") return c.json({ error: "Valor inválido para enabled" }, 400);
 			patch.enabled = body.enabled;
+		}
+		if (body.autoReply !== undefined) {
+			if (typeof body.autoReply !== "boolean") return c.json({ error: "Valor inválido para autoReply" }, 400);
+			patch.autoReply = body.autoReply;
 		}
 		try {
 			const userId = userOf(c);

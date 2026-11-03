@@ -3,7 +3,8 @@ import test from "node:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { AllowedSendersManager } from "./allowed-senders-page";
-import { SenderPreviewList } from "./bot-email-tab";
+import { AddressCard, SenderPreviewList } from "./bot-email-tab";
+import type { BotMailboxDto } from "@workspace/shared";
 import { buildSendersSearch, parseSendersLocation } from "@/lib/email-senders-url";
 
 Object.assign(globalThis, { React });
@@ -62,4 +63,19 @@ test("endereço da página de remetentes na URL", () => {
 	assert.equal(parseSendersLocation("?x=1"), null);
 	assert.equal(buildSendersSearch("?x=1", "bot-1"), "?x=1&remetentes=bot-1");
 	assert.equal(buildSendersSearch("?x=1&remetentes=bot-1", null), "?x=1");
+});
+
+const mailbox: BotMailboxDto = { id: "m", botId: "b", provider: "openmail", address: "bot@openmail.sh", allowedSenders: [], dailySendLimit: 20, sentToday: 0, enabled: true, autoReply: false, createdAt: "2026-10-18T10:00:00Z" };
+
+test("endereço: 'Responder e-mails sozinho' vem desligado, com a frase de aprovação", () => {
+	const out = html(<AddressCard busy={false} mailbox={mailbox} onToggle={() => {}} onToggleAutoReply={() => {}} />);
+	assert.match(out, /Responder e-mails sozinho/);
+	assert.match(out, /você aprova cada resposta/);
+	assert.match(out, /aria-checked="false"[^>]*aria-labelledby="email-auto-reply-label"/);
+});
+
+test("endereço: com a liberação do dono o interruptor aparece ligado", () => {
+	const out = html(<AddressCard busy={false} mailbox={{ ...mailbox, autoReply: true }} onToggle={() => {}} onToggleAutoReply={() => {}} />);
+	assert.match(out, /O bot responde sem pedir a sua aprovação/);
+	assert.match(out, /aria-checked="true"[^>]*aria-labelledby="email-auto-reply-label"/);
 });

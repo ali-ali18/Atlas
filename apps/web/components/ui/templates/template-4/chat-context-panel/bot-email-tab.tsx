@@ -67,7 +67,7 @@ export function DomainChoice({ domains, value, onChange, disabled }: { domains: 
 	);
 }
 
-function AddressCard({ mailbox, busy, onToggle }: { mailbox: BotMailboxDto; busy: boolean; onToggle: (enabled: boolean) => void }) {
+export function AddressCard({ mailbox, busy, onToggle, onToggleAutoReply }: { mailbox: BotMailboxDto; busy: boolean; onToggle: (enabled: boolean) => void; onToggleAutoReply: (autoReply: boolean) => void }) {
 	const t = useT();
 	const [copied, setCopied] = useState(false);
 	useEffect(() => {
@@ -105,6 +105,15 @@ function AddressCard({ mailbox, busy, onToggle }: { mailbox: BotMailboxDto; busy
 					<p className="text-muted-foreground text-xs">{mailbox.enabled ? t("botSettings.email.receivingOn") : t("botSettings.email.receivingOff")}</p>
 				</div>
 				<Switch aria-labelledby="email-enabled-label" checked={mailbox.enabled} disabled={busy} onCheckedChange={onToggle} />
+			</div>
+			<div className="-mx-3 flex items-center justify-between gap-3 border-border border-t px-3 pt-3" data-testid="email-auto-reply">
+				<div className="min-w-0">
+					<p className="font-medium text-sm" id="email-auto-reply-label">
+						{t("botSettings.email.autoReply")}
+					</p>
+					<p className="text-muted-foreground text-xs">{mailbox.autoReply ? t("botSettings.email.autoReplyOn") : t("botSettings.email.autoReplyOff")}</p>
+				</div>
+				<Switch aria-labelledby="email-auto-reply-label" checked={mailbox.autoReply} disabled={busy} onCheckedChange={onToggleAutoReply} />
 			</div>
 		</div>
 	);
@@ -438,7 +447,7 @@ export function BotEmailTab({ botId, active, onOpenConversation }: { botId: stri
 	const mailbox = data.mailbox;
 	return (
 		<div className="flex min-w-0 flex-col gap-5" data-email-state="on">
-			<AddressCard busy={email.busy} mailbox={mailbox} onToggle={(enabled) => void email.patch({ enabled })} />
+			<AddressCard busy={email.busy} mailbox={mailbox} onToggle={(enabled) => void email.patch({ enabled })} onToggleAutoReply={(autoReply) => void email.patch({ autoReply })} />
 			<AllowedSenders busy={email.busy} mailbox={mailbox} onChange={(allowedSenders) => email.patch({ allowedSenders })} onOpenAll={() => openSendersPage(botId)} />
 			<DailyLimit busy={email.busy} mailbox={mailbox} onChange={(dailySendLimit) => email.patch({ dailySendLimit })} />
 			<Messages messages={data.messages} onOpenConversation={onOpenConversation} />

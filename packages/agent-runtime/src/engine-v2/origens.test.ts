@@ -361,9 +361,9 @@ describe("v2 em webhook: sem humano, mesmas regras do v1", () => {
 });
 
 describe("v2 em e-mail recebido", () => {
-	const box = { id: "mbx_1", botId: "bot-1", userId: "user-1", provider: "openmail", address: "bot@openmail.sh", providerInboxId: "inb", secretsEnc: null, webhookSecretHash: "h", allowedSenders: ["ana@empresa.com"], dailySendLimit: 20, enabled: true, createdAt: new Date() } as BotMailboxRecord;
-	const emailCtx = (sendPolicy: unknown, delivered: unknown[] = []): EmailRunContext => ({
-		mailbox: box,
+	const box = { id: "mbx_1", botId: "bot-1", userId: "user-1", provider: "openmail", address: "bot@openmail.sh", providerInboxId: "inb", secretsEnc: null, webhookSecretHash: "h", allowedSenders: ["ana@empresa.com"], dailySendLimit: 20, enabled: true, autoReply: false, createdAt: new Date() } as BotMailboxRecord;
+	const emailCtx = (sendPolicy: unknown, delivered: unknown[] = [], autoReply = false): EmailRunContext => ({
+		mailbox: { ...box, autoReply },
 		botName: "Atendente",
 		sendPolicy: () => sendPolicy as never,
 		service: {
@@ -410,12 +410,39 @@ describe("v2 em e-mail recebido", () => {
 		}
 	});
 
-	it("responder pelo e-mail: email_reply entrega (política do dono permite) e o run termina", async () => {
+	it("responder pelo e-mail sem a liberação do dono: nem no Autônomo envia; fica o cartão de aprovação (v2)", async () => {
+		const delivered: unknown[] = [];
+		const { events, results, result } = await runOrigin({
+			origin: "email",
+			text: framed,
+			extra: { email: emailCtx(autonomous, delivered), conversationId: "conv-o" },
+			script: [toolCall("e1", "email_reply", { thread_id: "thr_1", body: "Recebi, retorno amanhã." }), say("Deixei a resposta para o dono aprovar.")],
+		});
+		expect(delivered).toHaveLength(0);
+		expect(events.some((event) => event.type === "confirm")).toBe(true);
+		expect(results[0]).toMatchObject({ name: "email_reply" });
+		expect(result.stop).toEqual({ reason: "awaiting_confirmation", detail: "confirm" });
+	});
+
+	it("chat no Autônomo sem a liberação do dono: email_reply abre o cartão e não envia (v2)", async () => {
+		const delivered: unknown[] = [];
+		const { events, result } = await runOrigin({
+			origin: "chat",
+			text: "responde o e-mail da Ana por e-mail: pode ser",
+			extra: { email: emailCtx(autonomous, delivered), conversationId: "conv-o" },
+			script: [toolCall("e1", "email_reply", { thread_id: "thr_1", body: "Recebi." }), say("Deixei para aprovar.")],
+		});
+		expect(delivered).toHaveLength(0);
+		expect(events.some((event) => event.type === "confirm")).toBe(true);
+		expect(result.stop).toEqual({ reason: "awaiting_confirmation", detail: "confirm" });
+	});
+
+	it("responder pelo e-mail: com a liberação do dono, email_reply entrega (política do dono permite) e o run termina", async () => {
 		const delivered: unknown[] = [];
 		const { results, result } = await runOrigin({
 			origin: "email",
 			text: framed,
-			extra: { email: emailCtx(autonomous, delivered) },
+			extra: { email: emailCtx(autonomous, delivered, true) },
 			script: [toolCall("e1", "email_reply", { thread_id: "thr_1", body: "Recebi, retorno amanhã." }), say("Respondi a Ana.")],
 		});
 		expect(delivered).toHaveLength(1);
