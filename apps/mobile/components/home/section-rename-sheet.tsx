@@ -50,8 +50,8 @@ export function SectionRenameSheet({ section, onClose, onSave }: { section: { id
 					className="h-14 rounded-2xl border px-5 text-lg text-foreground"
 				/>
 			</View>
-			<Button size="lg" onPress={save} disabled={!canSave} className="h-14 w-full rounded-full">
-				<Text className="text-lg">Salvar</Text>
+			<Button size="lg" onPress={save} disabled={!canSave} className="w-full">
+				<Text>Salvar</Text>
 			</Button>
 			{keyboard > 0 ? <View style={{ height: keyboard }} /> : null}
 		</DraggableSheet>
