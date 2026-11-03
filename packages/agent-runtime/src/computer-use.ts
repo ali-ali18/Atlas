@@ -55,6 +55,7 @@ import {
 	parseQuestionnaireAnsweredContent,
 	type RoutineNotifyMode,
 	GITHUB_SECURITY_REVIEW_TEMPLATE,
+	DAILY_BRIEF_TEMPLATE,
 	type RoutineAlertConfig,
 	allLanguageInstructions,
 	formatLimitDuration,
@@ -178,7 +179,7 @@ import { markGithubConnectionAuthFailed } from "./mcp/github-token.js";
 import { formatCompareForModel } from "./github/app/compare.js";
 import { ensureGithubRepoHook } from "./github/hook-sync.js";
 import type { McpRuntime } from "./mcp/runtime.js";
-import { isUnattendedOrigin } from "./autonomy-gate.js";
+import { isReadOnlyConnectorOrigin, isUnattendedOrigin } from "./autonomy-gate.js";
 import { type JevMcpAudit, type JevMcpEvaluator, type JevMcpMode, type JevReviewReason } from "./mcp/jev-gate.js";
 import { detectJevIntents, NO_INTENTS, type JevIntents } from "./jev/intent.js";
 import { observeOnly, type JevRuntime } from "./jev/decide.js";
@@ -1163,7 +1164,7 @@ export const COMPUTER_USE_TOOLS: ChatTool[] = [
 					},
 					template: {
 						type: "string",
-						enum: [GITHUB_SECURITY_REVIEW_TEMPLATE],
+						enum: [GITHUB_SECURITY_REVIEW_TEMPLATE, DAILY_BRIEF_TEMPLATE],
 						description:
 							"Optional prompt template. github_security_review = periodic security review of a GitHub repo with a 0-10 score; requires repo. Replaces detail (detail becomes an optional extra focus). daily_brief = the morning brief \"Seu dia\" (agenda, e-mails that need the user, priorities) delivered as a chat message and a push, no panel; detail is optional extra focus.",
 					},
@@ -2737,6 +2738,8 @@ async function runComputerUseCore(params: {
 		if (params.toolFilter && !params.toolFilter(tool.function.name)) return false;
 		const decision = decideAction(autonomyPolicy, entry.autonomyMeta);
 		if (decision === "block") return false;
+		// Sem humano para aprovar (rotina, webhook, e-mail, bot): conector só leitura, em qualquer autonomia.
+		if (isReadOnlyConnectorOrigin(params.origin) && !entry.readOnly) return false;
 		return !isUnattendedOrigin(params.origin) || decision === "allow";
 	});
 	const canResolveCachedResults = Boolean(mcp) && (params.toolFilter?.(READ_CACHED_RESULT_TOOL.function.name) ?? true);

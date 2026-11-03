@@ -876,6 +876,8 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 
 	// Screenshot automático da leitura: um por passo e, para busca vazia, um por run.
 	const visionClaim = createVisionClaimState();
+	// Uma proposta de bot por run (o card usa `bot-${runId}`): mesmo contador do v1.
+	const botProposals = { count: 0 };
 	const buildContext = (call: LlmToolCall, signal: AbortSignal | undefined, forceConfirm = false): ToolContext => ({
 		loginAsked,
 		secrets: secretSession,
@@ -914,6 +916,7 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 		conversationId,
 		runId,
 		origin,
+		botProposals,
 		...(origin === "routine" && params.routinePageId ? { routinePageId: params.routinePageId } : {}),
 		autonomy: autonomyHandle,
 		skillStore: params.skillStore,

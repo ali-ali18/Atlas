@@ -3,6 +3,7 @@
  * puras: o contexto vem pronto do banco e o relógio entra por `now`.
  */
 import { formatFollowupDue, localParts, type ProactiveSettings } from "./proactive.js";
+import { isRecheckToolAllowed } from "./reflection.js";
 
 export const PROACTIVE_REFLECTION_MARKER = "[PROACTIVE REFLECTION]";
 export const PROACTIVE_FOLLOWUP_MARKER = "[SCHEDULED FOLLOW-UP]";
@@ -126,6 +127,30 @@ export function buildReflectionPrompt(input: {
 /** O objetivo do run é um lembrete `check` (conferência de follow-up), não um `reminder`. */
 export function isFollowupCheckObjective(origin: string | null | undefined, objective: string | null | undefined): boolean {
 	return origin === "proactive" && typeof objective === "string" && objective.startsWith(PROACTIVE_FOLLOWUP_MARKER) && objective.includes(FOLLOWUP_CHECK_TASK_START);
+}
+
+/**
+ * Além das leituras da verificação diária, o follow-up `check` pode rever a própria agenda de conferências e usar
+ * as leituras nativas que só consultam: API REST conectada (`api_call` só aceita GET/HEAD), anexo e caixa de e-mail.
+ */
+export const FOLLOWUP_CHECK_EXTRA_TOOLS: ReadonlySet<string> = new Set([
+	"list_followups",
+	"schedule_followup",
+	"reschedule_followup",
+	"api_search",
+	"api_call",
+	"attachment_read",
+	"email_list",
+	"email_read",
+]);
+
+/**
+ * Filtro de ferramentas do follow-up `check` (roda sem o usuário): só leitura, como a verificação diária
+ * (`isRecheckToolAllowed`), mais rever/rearmar as próprias conferências. Escrita nativa (arquivo, painel,
+ * e-mail, rotina, memória) e conector sem declaração de leitura ficam fora: o prompt diz READ-ONLY, o código garante.
+ */
+export function isFollowupCheckToolAllowed(name: string, mcpReadOnly: boolean | undefined): boolean {
+	return FOLLOWUP_CHECK_EXTRA_TOOLS.has(name) || isRecheckToolAllowed(name, mcpReadOnly);
 }
 
 export function buildFollowupPrompt(input: {

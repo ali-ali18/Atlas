@@ -80,33 +80,47 @@ describe("envio e autonomia", () => {
 
 	it("destinatário novo exige cartão mesmo no Autônomo", async () => {
 		const { ctx, deps, service, cards } = setup(AUTONOMOUS);
-		const out = await executeEmailTool("email_send", { to: "Novo@Cliente.com", subject: "Proposta", body: "olá" }, ctx, deps);
+		const out = await executeEmailTool("email_send", { to: "Novo@Cliente.com", subject: "Proposta", body: "olá" }, { ...ctx, origin: "chat" }, deps);
 		expect(service.deliver).not.toHaveBeenCalled();
 		expect(out.confirmEvent!.description).toContain("novo@cliente.com (novo destinatário)");
 		expect(cards).toHaveLength(1);
+	});
+
+	it("email_send sem humano (rotina, webhook, proativo, e-mail, bot) não entrega nem no Autônomo; chat e email_reply seguem a política", async () => {
+		for (const origin of ["routine", "webhook", "proactive", "email", "bot"]) {
+			const { ctx, deps, service } = setup(AUTONOMOUS);
+			await expect(executeEmailTool("email_send", { to: "ana@empresa.com", subject: "a", body: "b" }, { ...ctx, origin }, deps), origin).rejects.toThrow("aprovação do dono");
+			expect(service.deliver, origin).not.toHaveBeenCalled();
+		}
+		const chat = setup(AUTONOMOUS);
+		await executeEmailTool("email_send", { to: "ana@empresa.com", subject: "a", body: "b" }, { ...chat.ctx, origin: "chat" }, chat.deps);
+		expect(chat.service.deliver).toHaveBeenCalledTimes(1);
+		const reply = setup(AUTONOMOUS);
+		await executeEmailTool("email_reply", { thread_id: "thr_1", body: "ok" }, { ...reply.ctx, origin: "email" }, reply.deps);
+		expect(reply.service.deliver).toHaveBeenCalledTimes(1);
 	});
 
 	it("Sempre perguntar pergunta até para quem está na lista; exceção 'bloqueado' bloqueia", async () => {
 		const always = setup(ALWAYS);
 		expect((await executeEmailTool("email_reply", { thread_id: "thr_1", body: "x" }, always.ctx, always.deps)).confirmEvent).toBeDefined();
 		const blocked = setup({ level: "autonomous", exceptions: [{ tool: "email_send", mode: "blocked" }] });
-		await expect(executeEmailTool("email_send", { to: "ana@empresa.com", subject: "a", body: "b" }, blocked.ctx, blocked.deps)).rejects.toThrow("bloqueado pela autonomia");
+		await expect(executeEmailTool("email_send", { to: "ana@empresa.com", subject: "a", body: "b" }, { ...blocked.ctx, origin: "chat" }, blocked.deps)).rejects.toThrow("bloqueado pela autonomia");
 	});
 
 	it("limite diário: recusa antes de pedir confirmação", async () => {
 		const { ctx, deps, service, cards } = setup(AUTONOMOUS, { remaining: 0 });
-		await expect(executeEmailTool("email_send", { to: "ana@empresa.com", subject: "a", body: "b" }, ctx, deps)).rejects.toThrow("Limite diário");
+		await expect(executeEmailTool("email_send", { to: "ana@empresa.com", subject: "a", body: "b" }, { ...ctx, origin: "chat" }, deps)).rejects.toThrow("Limite diário");
 		expect(service.deliver).not.toHaveBeenCalled();
 		expect(cards).toHaveLength(0);
 	});
 
 	it("rotina/webhook que precisaria perguntar não tem a quem: erro, sem cartão", async () => {
 		const { ctx, deps, cards } = setup(BALANCED);
-		await expect(executeEmailTool("email_send", { to: "ana@empresa.com", subject: "a", body: "b" }, { ...ctx, origin: "routine" }, deps)).rejects.toThrow("precisa de confirmação");
+		await expect(executeEmailTool("email_reply", { thread_id: "thr_1", body: "b" }, { ...ctx, origin: "routine" }, deps)).rejects.toThrow("precisa de confirmação");
 		expect(cards).toHaveLength(0);
-		// Autônomo na rotina para quem está na lista envia (política existente)
+		// Autônomo na rotina: a resposta na conversa de e-mail para quem está na lista envia (política existente)
 		const auto = setup(AUTONOMOUS);
-		await executeEmailTool("email_send", { to: "ana@empresa.com", subject: "a", body: "b" }, { ...auto.ctx, origin: "routine" }, auto.deps);
+		await executeEmailTool("email_reply", { thread_id: "thr_1", body: "b" }, { ...auto.ctx, origin: "routine" }, auto.deps);
 		expect(auto.service.deliver).toHaveBeenCalled();
 	});
 

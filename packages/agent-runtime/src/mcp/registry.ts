@@ -99,8 +99,10 @@ export type BuildMcpToolsetOptions = {
 	/** Política de autonomia efetiva (padrão: Equilibrado). `block` tira a tool. */
 	autonomy?: EffectiveAutonomy;
 	/**
-	 * Sem humano para confirmar (rotina/webhook): só entram as tools cuja
-	 * decisão é `allow`. As de `ask` ficam fora.
+	 * Sem humano na conversa (rotina, webhook, follow-up proativo): só entram as
+	 * tools de LEITURA cuja decisão é `allow`, em qualquer nível de autonomia
+	 * (inclusive Autônomo). Escrita em conector só com aprovação explícita do
+	 * dono (decisão D1, 03/11): o mesmo corte do brief "Seu dia" (`readOnly`).
 	 */
 	unattended?: boolean;
 	maxTools?: number;
@@ -173,8 +175,8 @@ export function buildMcpToolset(
 			});
 			const decision = decideAction(autonomy, autonomyMeta);
 			if (decision === "block") continue;
-			if (options.unattended && decision !== "allow") continue;
 			const readOnly = autonomyMeta.actionClass === "read";
+			if (options.unattended && (decision !== "allow" || !readOnly)) continue;
 			const chatTool: ChatTool = {
 				type: "function",
 				function: {

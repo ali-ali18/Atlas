@@ -10,6 +10,7 @@ import {
 	createRoutineFromProposal,
 	listFollowups,
 	listRoutines,
+	rescheduleOwnedFollowup,
 	reserveProactiveMessage,
 } from "@workspace/db";
 import { BOT_CONFIG_EVENT_SYSTEM_INSTRUCTION, runComputerUse, type ComputerUseParams } from "../computer-use.js";
@@ -35,6 +36,12 @@ vi.mock("@workspace/db", async (importOriginal) => {
 		getBotConversationId: vi.fn(async () => "conv-1"),
 		listFollowups: vi.fn(async () => []),
 		cancelFollowup: vi.fn(async () => true),
+		rescheduleOwnedFollowup: vi.fn(async () => ({
+			ok: true,
+			followup: { id: "f9", dueAt: new Date("2030-01-01T12:00:00Z"), stages: [] },
+			requestedFor: new Date("2030-01-01T12:00:00Z"),
+			movedForQuietHours: false,
+		})),
 		listRoutines: vi.fn(async () => []),
 		findRecentProposalByName: vi.fn(async () => null),
 		appendRoutineProposalCard: vi.fn(async () => "msg-1"),
@@ -174,6 +181,67 @@ describe.each(["v1", "v2"] as const)("push avulso (notify_user) [%s]", (engine) 
 		} finally {
 			vi.useRealTimers();
 		}
+	});
+});
+
+describe.each(["v1", "v2"] as const)("modo proativo + push no mesmo chat [%s]", (engine) => {
+	// Bot principal com o modo proativo ligado e push (VAPID) liberado: os dois contextos coexistem no chat.
+	// Só `notify_user` vira push; as demais tools proativas têm de chegar ao db, não ao push.
+	const both = () => ({ userPush: { mode: "chat" as const, send: vi.fn(async () => undefined) } });
+
+	it("schedule_followup agenda de verdade e não dispara push", async () => {
+		const extra = both();
+		const { results } = await run(engine, { ...extra, calls: [toolCall("schedule_followup", { when: "daqui a 3 dias", note: "Prova de cálculo" }), done] });
+		expect(createFollowup).toHaveBeenCalledWith(expect.objectContaining({ userId: "user-1", botId: "bot-1", note: "Prova de cálculo" }));
+		expect(extra.userPush.send).not.toHaveBeenCalled();
+		expect(results[0]).toMatchObject({ name: "schedule_followup", ok: true });
+		expect(JSON.parse(results[0]!.summary)).toMatchObject({ scheduled: true });
+	});
+
+	it("list, reschedule e cancel_followup consultam o db do dono", async () => {
+		const item = { id: "f9", kind: "check", source: "chat", note: "Ver se o pedido chegou", dueAt: new Date(Date.now() + 86_400_000), stages: [] };
+		vi.mocked(listFollowups).mockResolvedValue([item] as never);
+		try {
+			const extra = both();
+			const { results } = await run(engine, {
+				...extra,
+				calls: [
+					toolCall("list_followups", {}),
+					toolCall("reschedule_followup", { id: "f9", when: "daqui a 2 dias" }, "c2"),
+					toolCall("cancel_followup", { id: "f9" }, "c3"),
+					done,
+				],
+			});
+			expect(results.map((r) => [r.name, r.ok])).toEqual([
+				["list_followups", true],
+				["reschedule_followup", true],
+				["cancel_followup", true],
+			]);
+			expect(results[0]!.summary).toContain("f9");
+			expect(rescheduleOwnedFollowup).toHaveBeenCalledWith(expect.objectContaining({ userId: "user-1", botId: "bot-1", followupId: "f9" }));
+			expect(cancelFollowup).toHaveBeenCalledWith("user-1", "f9", "bot-1");
+			expect(extra.userPush.send).not.toHaveBeenCalled();
+		} finally {
+			vi.mocked(listFollowups).mockResolvedValue([]);
+		}
+	});
+
+	it("suggest_routine grava o card de sugestão em vez de mandar push", async () => {
+		const extra = both();
+		const { results } = await run(engine, {
+			...extra,
+			calls: [toolCall("suggest_routine", { name: "Resumo da semana", prompt: "Resuma a semana", cron: "0 8 * * 1" }), done],
+		});
+		expect(results[0]).toMatchObject({ name: "suggest_routine", ok: true });
+		expect(appendRoutineProposalCard).toHaveBeenCalledWith("conv-1", expect.objectContaining({ kind: "routine-proposal", mode: "suggest" }));
+		expect(extra.userPush.send).not.toHaveBeenCalled();
+	});
+
+	it("notify_user continua indo para o push", async () => {
+		const extra = both();
+		await run(engine, { ...extra, calls: [toolCall("notify_user", { message: "Preciso da sua aprovação." }), done] });
+		expect(extra.userPush.send).toHaveBeenCalledWith("Preciso da sua aprovação.");
+		expect(appendConversationMessage).not.toHaveBeenCalled();
 	});
 });
 
@@ -411,6 +479,61 @@ describe.each(["v1", "v2"] as const)("evento de configuração do bot [%s]", (en
 	it("conversa comum não recebe a instrução do evento", async () => {
 		const { systems } = await run(engine, { proactive: false, message: "oi, tudo bem?", calls: [done] });
 		expect(systems.some((text) => text.includes("BOT EVENT"))).toBe(false);
+	});
+});
+
+describe.each(["v1", "v2"] as const)("rotina comum no Autônomo não escreve em conector (D1) [%s]", (engine) => {
+	const autonomy = { level: "autonomous" as const, exceptions: [] };
+	const connection = {
+		id: "conn-mail", slug: "gmail", name: "Gmail", disabledTools: [],
+		tools: [
+			{ name: "search_messages", inputSchema: { type: "object", properties: { query: { type: "string" } } }, annotations: { readOnlyHint: true } },
+			{ name: "send_message", inputSchema: { type: "object", properties: { to: { type: "string" } } }, annotations: { readOnlyHint: false, destructiveHint: false } },
+			{ name: "create_draft", inputSchema: { type: "object", properties: {} }, annotations: { readOnlyHint: false, destructiveHint: false } },
+		],
+	};
+
+	async function runWith(origin: "routine" | "email" | "bot" | "chat", calls: CompleteChatWithToolsResult[] = []) {
+		// O worker monta o toolset com `unattended` para rotina, webhook e follow-up proativo.
+		const toolset = buildMcpToolset([connection], { autonomy, unattended: origin !== "chat" });
+		const connector = vi.fn(async () => ({ ok: true, text: "ok", truncated: false }));
+		const out = await run(engine, {
+			origin,
+			proactive: false,
+			message: origin === "routine" ? "[EXECUÇÃO DE ROTINA] responda os e-mails" : "manda um e-mail para x@y.com",
+			calls: [...calls, done],
+			extra: { autonomy, mcp: { toolset, call: connector } },
+		});
+		return { ...out, connector };
+	}
+
+	it("rotina: só a leitura do conector aparece; pedir a escrita é recusado sem chamar o conector", async () => {
+		const { seenTools, connector, results } = await runWith("routine", [toolCall("mcp__gmail__send_message", { to: "x@y.com" })]);
+		expect(seenTools[0]).toContain("mcp__gmail__search_messages");
+		expect(seenTools[0]).not.toContain("mcp__gmail__send_message");
+		expect(seenTools[0]).not.toContain("mcp__gmail__create_draft");
+		expect(connector).not.toHaveBeenCalled();
+		expect(results[0]).toMatchObject({ ok: false });
+	});
+
+	it.each(["email", "bot"] as const)("origem %s (sem humano para aprovar) também só vê a leitura", async (origin) => {
+		const { seenTools } = await runWith(origin);
+		expect(seenTools[0]).toContain("mcp__gmail__search_messages");
+		expect(seenTools[0]).not.toContain("mcp__gmail__send_message");
+		expect(seenTools[0]).not.toContain("mcp__gmail__create_draft");
+	});
+
+	it.each(["email", "bot"] as const)("origem %s com toolset completo ainda é cortada pelo motor", async (origin) => {
+		// Defesa em profundidade: mesmo que o caller monte o toolset sem `unattended`, o motor filtra a escrita.
+		const toolset = buildMcpToolset([connection], { autonomy });
+		const out = await run(engine, { origin, proactive: false, message: "responda", calls: [done], extra: { autonomy, mcp: { toolset, call: vi.fn() } } });
+		expect(out.seenTools[0]).toContain("mcp__gmail__search_messages");
+		expect(out.seenTools[0]).not.toContain("mcp__gmail__send_message");
+	});
+
+	it("chat com humano no Autônomo continua vendo a escrita", async () => {
+		const { seenTools } = await runWith("chat");
+		expect(seenTools[0]).toContain("mcp__gmail__send_message");
 	});
 });
 
