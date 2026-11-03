@@ -8,6 +8,8 @@ import { keepsRevisedDraft, type ComputerUseEvent } from "@workspace/shared";
  * - resposta da triagem (`<turno>-reply<N>`): gravada na hora, com o relógio do servidor;
  * - texto de um passo seguido de tools: gravado quando a chamada de tool chega (o texto já está completo),
  *   com a hora do primeiro delta;
+ * - texto de um passo que NÃO teve tool e foi seguido por outro passo (o run o devolveu ao modelo com uma nota): gravado quando
+ *   o passo seguinte começa, para o recarregar mostrar o mesmo que o ao vivo;
  * - texto do passo final: nunca gravado aqui (o fim do run o grava como antes), então não duplica;
  * - rascunho retirado (`assistant_discard` com motivo que o mantém na tela): gravado como card recolhido
  *   (`writeDraft`), para recarregar mostrar o mesmo que o ao vivo.
@@ -40,8 +42,16 @@ export function createAssistantSegmentRecorder(deps: { write: AssistantSegmentWr
 					return;
 				}
 				const current = steps.find((item) => item.id === event.id);
-				if (current) current.text += event.delta;
-				else steps.push({ id: event.id, text: event.delta, at: now() });
+				if (current) {
+					current.text += event.delta;
+					return;
+				}
+				// Um passo NOVO começou: os anteriores já terminaram. O texto que o modelo já transmitiu nunca some (regra de 03/11):
+				// se ele não foi seguido de tool (portão que só devolveu uma nota), grava agora em vez de perder no recarregar.
+				// O passo final nunca chega aqui antes do fim do run (o fim grava o texto final).
+				const finished = steps;
+				steps = [{ id: event.id, text: event.delta, at: now() }];
+				for (const item of finished) await safeWrite(item.text, item.at);
 				return;
 			}
 			if (event.type === "assistant_discard") {

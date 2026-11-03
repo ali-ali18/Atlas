@@ -4,7 +4,7 @@ import { Platform, ScrollView, Text as RNText, View } from "react-native";
 import Animated, { useAnimatedScrollHandler, useAnimatedStyle, useSharedValue } from "react-native-reanimated";
 import { SendIcon } from "@/components/icons";
 import { Text } from "@/components/ui/text";
-import { chatSurface } from "@/lib/chat-surface";
+import { chatCardEdge, chatSurface } from "@/lib/chat-surface";
 import { cn } from "@/lib/cn";
 import { parseMarkdown, tableColumnWidths, type Block, type Inline } from "@/lib/markdown";
 import { themeColor } from "@/lib/theme";
@@ -111,7 +111,7 @@ export function TableCard({ block, scheme, onLongPress, aligns }: { block: Extra
 	});
 	// Cores medidas no app do Grok (tema escuro): borda do cartão #313131 e divisor das linhas #2a2a2a, mais claros que o
 	// token `border` (#222223, quase invisível sobre o cartão). No claro vale o token.
-	const edge = scheme === "dark" ? "#313131" : themeColor(scheme, "border");
+	const edge = chatCardEdge(scheme);
 	const divider = scheme === "dark" ? "#2a2a2a" : themeColor(scheme, "border");
 	const overflow = viewport > 0 && total > viewport;
 	return (

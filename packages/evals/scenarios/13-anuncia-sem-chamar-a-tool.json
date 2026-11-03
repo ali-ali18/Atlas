@@ -1,30 +1,111 @@
 {
   "version": 1,
   "id": "anuncia-sem-chamar-a-tool",
-  "title": "Texto 'Vou pedir o resumo ao Gemini' sem tool call → o bot volta e executa a tool no mesmo run",
-  "description": "Modelos fracos anunciam a próxima ação e encerram o turno. O runtime dá no máximo um empurrão; o resultado final precisa vir depois de a tool rodar.",
-  "tags": ["promessa", "agir-sem-perguntar"],
-  "bot": { "name": "Ada", "about": "Assistente de pesquisa.", "language": "pt-BR" },
+  "title": "Texto 'Vou conferir…' sem tool call, com itens abertos na lista → o bot volta e executa a tool no mesmo run",
+  "description": "O modelo anuncia a próxima ação e encerra o turno com itens abertos na lista de tarefas. O runtime lembra os itens abertos (sinal estrutural, sem regex sobre o texto) e o resultado final vem depois de a tool rodar; nenhum texto é descartado.",
+  "tags": [
+    "promessa",
+    "agir-sem-perguntar"
+  ],
+  "bot": {
+    "name": "Ada",
+    "about": "Assistente de pesquisa.",
+    "language": "pt-BR"
+  },
   "user": "pesquisa o preço do lítio e me diz o valor de hoje",
-  "run": { "engine": "v2" },
+  "run": {
+    "engine": "v2"
+  },
   "tools": {
     "fixtures": [
-      { "tool": "web_search", "result": { "ok": true, "summary": "Results:\n1. Lithium carbonate price today: US$ 9,800/t (source: example-metals.test, 2026-10)." } }
+      {
+        "tool": "web_search",
+        "result": {
+          "ok": true,
+          "summary": "Results:\n1. Lithium carbonate price today: US$ 9,800/t (source: example-metals.test, 2026-10)."
+        }
+      }
     ]
   },
   "expect": [
-    { "type": "completed" },
-    { "id": "buscou-de-novo", "type": "tool_called", "tool": "web_search" },
-    { "type": "max_discards", "value": 1 },
-    { "type": "no_unfulfilled_promise" },
-    { "type": "text_contains", "value": "9.800" }
+    {
+      "type": "completed"
+    },
+    {
+      "id": "buscou-de-novo",
+      "type": "tool_called",
+      "tool": "web_search"
+    },
+    {
+      "type": "max_discards",
+      "value": 0
+    },
+    {
+      "type": "no_unfulfilled_promise"
+    },
+    {
+      "type": "text_contains",
+      "value": "9.800"
+    }
   ],
   "mock": {
     "turns": [
-      { "calls": [{ "name": "web_search", "args": { "query": "preço do lítio" } }] },
-      { "say": "Vou conferir o valor de hoje em uma segunda fonte." },
-      { "calls": [{ "name": "web_search", "args": { "query": "preço do carbonato de lítio hoje" } }] },
-      { "say": "Lítio (carbonato): cerca de US$ 9.800/t hoje (fonte: example-metals.test)." }
+      {
+        "calls": [
+          {
+            "name": "update_task_list",
+            "args": {
+              "items": [
+                {
+                  "content": "Buscar o preço do lítio",
+                  "status": "in_progress"
+                },
+                {
+                  "content": "Conferir numa segunda fonte",
+                  "status": "pending"
+                }
+              ]
+            }
+          },
+          {
+            "name": "web_search",
+            "args": {
+              "query": "preço do lítio"
+            }
+          }
+        ]
+      },
+      {
+        "say": "Vou conferir o valor de hoje em uma segunda fonte."
+      },
+      {
+        "calls": [
+          {
+            "name": "web_search",
+            "args": {
+              "query": "preço do carbonato de lítio hoje"
+            }
+          },
+          {
+            "name": "update_task_list",
+            "args": {
+              "items": [
+                {
+                  "content": "Buscar o preço do lítio",
+                  "status": "completed"
+                },
+                {
+                  "content": "Conferir numa segunda fonte",
+                  "status": "completed"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "say": "Lítio (carbonato): cerca de US$ 9.800/t hoje (fonte: example-metals.test)."
+      }
     ]
   }
 }

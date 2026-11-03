@@ -2,6 +2,7 @@
 // `AppState`, e entrega o que a tela desenha. Toda chamada passa por `apiFetch`/`openRunStream` da sessão.
 import * as React from "react";
 import { AppState } from "react-native";
+import * as cardApi from "./card-api";
 import * as chatApi from "./chat-api";
 import type { MobileAvatarState } from "./avatar-activity";
 import { useAvatarLive } from "./use-avatar-live";
@@ -10,6 +11,9 @@ import { ChatController, deriveView, type ChatApi, type ChatDeps } from "./chat-
 import type { ChatItem, ReplyQuote } from "./chat-types";
 import { clearBotRun, setBotRun } from "./run-store";
 import { useAtlasSession } from "./atlas-session";
+import { ensureHomeBot } from "./ensure-bot";
+import { useHomeData } from "./home-data";
+import { fetchHomeBot } from "./home-sync";
 import { homeStorage } from "./home-storage";
 import type { HomeBot } from "./home-types";
 import { useModelSelector, type ModelSelector } from "./use-model-selector";
@@ -33,6 +37,7 @@ export type ChatHook = ReturnType<typeof deriveView> & {
 	stop: () => void;
 	decide: (item: Extract<ChatItem, { kind: "confirm" }>, approve: boolean) => void;
 	answer: ChatController["answer"];
+	resolveProposal: ChatController["resolveProposal"];
 	react: (messageId: string, emoji: string) => void;
 	markUnread: () => Promise<boolean>;
 	retry: () => void;
@@ -44,8 +49,9 @@ export type ChatHook = ReturnType<typeof deriveView> & {
 export function useChat(bot: HomeBot | undefined): ChatHook {
 	const { apiFetch, openRunStream, serverUrl, email, signOut, onSignOut } = useAtlasSession();
 	// Dependências que mudam a cada render: o controlador (um só) lê sempre as de agora.
-	const latest = React.useRef({ apiFetch, openRunStream, serverUrl, email, signOut });
-	latest.current = { apiFetch, openRunStream, serverUrl, email, signOut };
+	const { addBot, applyBotUpdate, refresh } = useHomeData();
+	const latest = React.useRef({ apiFetch, openRunStream, serverUrl, email, signOut, addBot, applyBotUpdate, refresh });
+	latest.current = { apiFetch, openRunStream, serverUrl, email, signOut, addBot, applyBotUpdate, refresh };
 	const modelSelector = useModelSelector(bot?.id ?? null, bot?.conversationId ?? null, () => void signOut());
 	// O controlador (um só) lê o seletor de agora na hora do envio.
 	const selectorRef = React.useRef(modelSelector);
@@ -64,6 +70,8 @@ export function useChat(bot: HomeBot | undefined): ChatHook {
 			setReaction: (messageId, emoji) => chatApi.setReaction(latest.current.apiFetch, messageId, emoji),
 			clearReaction: (messageId) => chatApi.clearReaction(latest.current.apiFetch, messageId),
 			markConversationUnread: (conversationId) => chatApi.markConversationUnread(latest.current.apiFetch, conversationId),
+			resolveBotProposal: (input) => cardApi.resolveBotProposal(latest.current.apiFetch, input),
+			resolveBotProfile: (input) => cardApi.resolveBotProfile(latest.current.apiFetch, input),
 		};
 		const deps: ChatDeps = {
 			api,
@@ -85,6 +93,11 @@ export function useChat(bot: HomeBot | undefined): ChatHook {
 			modelFields: () => selectorRef.current.fields(),
 			onConversationCreated: (id) => selectorRef.current.onConversationCreated(id),
 			onModelRejected: () => selectorRef.current.onModelRejected(),
+			// O agente entra na home com a conversa de verdade (busca no servidor) e a atualização seguinte é nova.
+			onBotCreated: async (created) => {
+				await ensureHomeBot({ fetchBot: (botId) => fetchHomeBot(latest.current.apiFetch, botId), addBot: latest.current.addBot, refresh: latest.current.refresh }, created.id, created);
+			},
+			onProfileApplied: (botId, patch) => latest.current.applyBotUpdate(botId, patch),
 		};
 		return new ChatController(deps, { id: bot?.id ?? null, conversationId: bot?.conversationId ?? null });
 		// biome-ignore lint/correctness/useExhaustiveDependencies: um controlador por tela; o bot entra por `update`
@@ -145,6 +158,7 @@ export function useChat(bot: HomeBot | undefined): ChatHook {
 		stop,
 		decide: (item, approve) => controller.decide(item, approve),
 		answer: (item, answers) => controller.answer(item, answers),
+		resolveProposal: (item, decision) => controller.resolveProposal(item, decision),
 		react: (messageId, emoji) => void controller.react(messageId, emoji),
 		markUnread: () => controller.markUnread(),
 		retry: () => void controller.retry(),

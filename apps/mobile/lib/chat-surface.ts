@@ -9,6 +9,16 @@ export function chatSurface(scheme: "light" | "dark", kind: "bubble" | "card" = 
 	return kind === "card" ? "#1f1f1f" : "#202020";
 }
 
+/** Borda do cartão da tabela e dos cartões de proposta: no escuro, o #313131 medido no app do Grok; no claro, o token. */
+export function chatCardEdge(scheme: "light" | "dark"): string {
+	return scheme === "dark" ? "#313131" : themeColor(scheme, "border");
+}
+
+/** Pele do cartão do chat (tabela, propostas): fundo, borda e raio do app do Grok. Peça única, sem caixas aninhadas. */
+export function chatCardSkin(scheme: "light" | "dark") {
+	return { backgroundColor: chatSurface(scheme, "card"), borderWidth: 1, borderColor: chatCardEdge(scheme), borderRadius: 21 } as const;
+}
+
 /**
  * Cores do "chrome" do chat (campo de mensagem, botões redondos, topo) no escuro, medidas no app do Grok: preenchimento
  * #2c2c2e, contorno #4b4b4d (bem mais claro que o token `border`, #222223, que quase some) e botão interno #3e3d42.

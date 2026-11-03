@@ -116,6 +116,7 @@ export function collectInteractive(options) {
 			nameAttr: clip(el.getAttribute("name") || el.id, 60),
 			value: value === undefined ? undefined : clip(value, 120),
 			secret: isPassword,
+			oneTimeCode: (el.getAttribute("autocomplete") || "").toLowerCase().includes("one-time-code"),
 			checked:
 				typeof el.checked === "boolean" && (type === "checkbox" || type === "radio")
 					? el.checked

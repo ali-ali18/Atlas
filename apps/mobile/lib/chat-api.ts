@@ -50,7 +50,7 @@ async function failure(response: Response): Promise<never> {
 	throw new ChatApiError(message, response.status);
 }
 
-async function json<T>(apiFetch: ApiFetch, path: string, init: RequestInit = {}): Promise<T> {
+export async function json<T>(apiFetch: ApiFetch, path: string, init: RequestInit = {}): Promise<T> {
 	const response = await apiFetch(path, { ...init, headers: { accept: "application/json", ...(init.body ? { "content-type": "application/json" } : {}), ...(init.headers as Record<string, string> | undefined) } });
 	if (!response.ok) return failure(response);
 	return (await response.json()) as T;

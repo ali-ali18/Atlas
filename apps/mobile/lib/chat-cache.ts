@@ -2,9 +2,10 @@
 // Mesma ideia do cache da home: a chave leva servidor + e-mail + conversa (trocar de conta nunca mostra o fio da
 // outra), só vai para o disco o que a tela desenha, e `clearChatCache` apaga tudo ao sair.
 import type { CacheStorage } from "./home-cache";
-import type { ChatItem, ConfirmStatus, QuestionnaireStatus, TaskItem } from "./chat-types";
+import type { ChatItem, ConfirmStatus, ProposalStatus, QuestionnaireStatus, TaskItem } from "./chat-types";
 
-export const CHAT_CACHE_VERSION = 1;
+// v2: cartões de proposta de bot passaram a ser nativos; o v1 guardava a linha "Abrir no navegador" e é descartado.
+export const CHAT_CACHE_VERSION = 2;
 const ALL_VERSIONS_PREFIX = "atlas.chat.";
 const PREFIX = `${ALL_VERSIONS_PREFIX}v${CHAT_CACHE_VERSION}:`;
 export const CHAT_CACHE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
@@ -26,6 +27,8 @@ const isString = (value: unknown): value is string => typeof value === "string";
 const CONFIRM: readonly ConfirmStatus[] = ["pending", "approved", "rejected", "failed"];
 const QUESTIONNAIRE: readonly QuestionnaireStatus[] = ["pending", "submitted", "dismissed"];
 const TASK: readonly TaskItem["status"][] = ["pending", "in_progress", "completed"];
+const PROPOSAL: readonly ProposalStatus[] = ["pending", "approved", "rejected"];
+const PROFILE_FIELDS = ["name", "snippet", "description", "openRouterModel"] as const;
 const WEB_CARDS = ["chart", "page", "file", "routine", "login", "images", "proposal", "approval"] as const;
 
 function pickTasks(value: unknown): TaskItem[] | null {
@@ -69,6 +72,37 @@ export function pickItem(value: unknown): ChatItem | null {
 			// Respostas e perguntas inteiras não vão para o disco: o cartão reabre pelo servidor. Aqui fica só o que o fio desenha.
 			if (!isString(value.questionnaireId) || !isString(value.title) || !QUESTIONNAIRE.includes(value.status as QuestionnaireStatus)) return null;
 			return { ...base, kind: "questionnaire", questionnaireId: value.questionnaireId, title: value.title.slice(0, 300), items: [], status: value.status as QuestionnaireStatus };
+		case "bot-proposal": {
+			// Só o que o cartão desenha; o texto longo (briefing, primeira tarefa) é cortado.
+			if (!isString(value.proposalId) || !isString(value.name) || !isString(value.description) || !isString(value.color) || !isString(value.shape) || !PROPOSAL.includes(value.status as ProposalStatus)) return null;
+			return {
+				...base,
+				kind: "bot-proposal",
+				proposalId: value.proposalId,
+				status: value.status as ProposalStatus,
+				name: value.name.slice(0, 80),
+				description: value.description.slice(0, 600),
+				color: value.color.slice(0, 20),
+				shape: value.shape.slice(0, 40),
+				model: isString(value.model) ? value.model.slice(0, 120) : null,
+				skills: Array.isArray(value.skills) ? value.skills.filter(isString).slice(0, 5).map((skill) => skill.slice(0, 60)) : [],
+				firstTask: isString(value.firstTask) ? value.firstTask.slice(0, 600) : null,
+				...(isString(value.botId) ? { botId: value.botId } : {}),
+			};
+		}
+		case "bot-profile": {
+			if (!isString(value.proposalId) || !isString(value.botId) || !PROPOSAL.includes(value.status as ProposalStatus) || !Array.isArray(value.fields) || !isRecord(value.before) || !isRecord(value.after)) return null;
+			const fields = value.fields.filter((field): field is (typeof PROFILE_FIELDS)[number] => PROFILE_FIELDS.includes(field as (typeof PROFILE_FIELDS)[number]));
+			if (fields.length === 0) return null;
+			const text = (raw: unknown) => (isString(raw) ? raw.slice(0, 600) : null);
+			const before = { name: text(value.before.name) ?? "", snippet: text(value.before.snippet) ?? "", description: text(value.before.description), openRouterModel: text(value.before.openRouterModel) };
+			const after: Extract<ChatItem, { kind: "bot-profile" }>["after"] = {};
+			if (isString(value.after.name)) after.name = value.after.name.slice(0, 80);
+			if (isString(value.after.snippet)) after.snippet = value.after.snippet.slice(0, 200);
+			if (isString(value.after.description) || value.after.description === null) after.description = text(value.after.description);
+			if (isString(value.after.openRouterModel) || value.after.openRouterModel === null) after.openRouterModel = text(value.after.openRouterModel);
+			return { ...base, kind: "bot-profile", proposalId: value.proposalId, botId: value.botId, status: value.status as ProposalStatus, fields, before, after };
+		}
 		case "web-card":
 			if (!isString(value.title) || !isString(value.key) || !WEB_CARDS.includes(value.card as (typeof WEB_CARDS)[number])) return null;
 			// `pageId` só vale em painel e só se for texto curto: cache antigo (sem ele) cai no "Abrir no navegador".
@@ -94,7 +128,7 @@ export function pickItem(value: unknown): ChatItem | null {
 export function serializeChat(items: readonly ChatItem[], now: number): string {
 	// Só o que o servidor gravou: balão otimista (`msg-*`) e fala em andamento (`cu-*`) não vão para o disco.
 	// Cartão que espera resposta (confirm/questionário pendente) fica de fora: o estado de verdade vem do servidor.
-	const settled = items.filter((item) => !item.id.startsWith("msg-") && !item.id.startsWith("cu-") && !(item.kind === "questionnaire" && item.status === "pending") && !(item.kind === "confirm" && item.status === "pending"));
+	const settled = items.filter((item) => !item.id.startsWith("msg-") && !item.id.startsWith("cu-") && !(item.kind === "questionnaire" && item.status === "pending") && !(item.kind === "confirm" && item.status === "pending") && !((item.kind === "bot-proposal" || item.kind === "bot-profile") && item.status === "pending"));
 	let picked = settled.slice(-CHAT_CACHE_MAX_ITEMS).map(pickItem).filter((item): item is ChatItem => item !== null);
 	let text = JSON.stringify({ v: CHAT_CACHE_VERSION, savedAt: now, items: picked });
 	while (text.length > CHAT_CACHE_MAX_BYTES && picked.length > 1) {

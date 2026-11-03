@@ -75,12 +75,12 @@ export function stopReasonOfBudget(kind: BudgetKindLike | undefined): RunStopRea
 }
 
 /**
- * O run terminou com trabalho por fazer (laço, teto de passos, falhas seguidas, lista de tarefas aberta) e não com a resposta
- * completa? Uma mensagem curta de continuação do usuário herda o perfil e o caderno só depois disso.
+ * O run terminou com itens abertos DA PRÓPRIA lista de tarefas (a que o modelo atualizou ou recriou nele)? O runtime grava
+ * `items_open` (ou `tasklist_open`) no detalhe da parada nesse caso, seja qual for o motivo (laço, teto, falhas, resposta).
+ * Parar por teto sem lista aberta não é "trabalho por fazer": a mensagem seguinte é um assunto novo e não herda nada.
  */
 export function stoppedWithOpenWork(stop: { reason?: string | null; detail?: string | null }): boolean {
-	if (stop.detail === "tasklist_open" || stop.detail?.includes("items_open")) return true;
-	return ["loop_repeat", "budget_steps", "budget_stalled", "budget_wall", "budget_cost", "tool_failures", "no_progress", "truncated"].includes(stop.reason ?? "");
+	return stop.detail === "tasklist_open" || Boolean(stop.detail?.includes("items_open"));
 }
 
 /** Qual trava de loop do runtime abortou o run (`AgentRunLoopDetectedError.kind`). */
@@ -177,4 +177,65 @@ export function inferStopReasonFromLegacy(input: { status: string; error?: strin
 	if (/falh(?:ou|as) .{0,120}(?:seguid|ferrament)|ferramenta.{0,120}falh/.test(error)) return "tool_failures";
 	if (/sem progresso|nenhum arquivo/.test(error)) return "no_progress";
 	return input.status === "failed" ? "error" : "other";
+}
+
+const SOURCE_LABEL: Record<"account" | "server" | "bot" | "request", string> = { account: "conta", server: "servidor", bot: "bot", request: "pedido" };
+
+function formatUsdPtBr(value: number): string {
+	return `US$ ${value.toFixed(2).replace(".", ",")}`;
+}
+
+function formatDurationPtBr(ms: number): string {
+	const minutes = Math.max(1, Math.round(ms / 60_000));
+	return minutes >= 120 && minutes % 60 === 0 ? `${minutes / 60} h` : `${minutes} min`;
+}
+
+/**
+ * "Motivo da parada" em pt-BR simples, para o inspetor de run. Só diz "teto" quando um teto que o dono configurou disparou
+ * (com valor e origem, se gravados); repetição e falhas dizem que a abordagem não funcionou. `undefined` = nada a mostrar
+ * (resposta normal ou motivo desconhecido).
+ */
+export function describeRunStop(
+	stop: { reason?: string | null; detail?: string | null },
+	caps: { costUsd?: number; costSource?: "account" | "server" | "bot"; wallMs?: number; wallSource?: "account" | "server" | "bot"; steps?: number; stepsSource?: "account" | "bot" | "request" } = {},
+): string | undefined {
+	const withOpen = (text: string) => (stop.detail?.includes("items_open") ? `${text}; ficaram itens em aberto` : text);
+	switch (stop.reason) {
+		case "budget_cost": {
+			const where = caps.costUsd !== undefined ? ` (${formatUsdPtBr(caps.costUsd)}${caps.costSource ? ` · ${SOURCE_LABEL[caps.costSource]}` : ""})` : "";
+			return `Teto de gasto configurado${where}`;
+		}
+		case "budget_wall": {
+			const where = caps.wallMs !== undefined ? ` (${formatDurationPtBr(caps.wallMs)}${caps.wallSource ? ` · ${SOURCE_LABEL[caps.wallSource]}` : ""})` : "";
+			return `Teto de tempo configurado${where}`;
+		}
+		case "budget_steps":
+			// Só é "o que você configurou" quando o teto de passos efetivo veio do dono; o de segurança é outra coisa (e mostra o valor real).
+			if (caps.steps !== undefined && caps.stepsSource) return `Limite de passos que você configurou (${caps.steps}, em ${SOURCE_LABEL[caps.stepsSource]})`;
+			return `Limite de passos de segurança de uma execução${caps.steps !== undefined ? ` (${caps.steps})` : ""}`;
+		case "budget_tokens":
+		case "budget_context":
+			return "O contexto do modelo ficou cheio";
+		case "loop_repeat":
+		case "loop_stall_guard":
+			return withOpen("O bot repetiu a mesma ação sem avançar: a abordagem não funcionou");
+		case "tool_failures":
+			return withOpen("As ferramentas falharam várias vezes seguidas: a abordagem não funcionou");
+		case "truncated":
+			return "A resposta foi cortada pelo limite de saída do modelo";
+		case "no_progress":
+			return "Sem progresso detectado";
+		case "awaiting_confirmation":
+			return "Esperando uma resposta ou confirmação sua";
+		case "paused_login":
+			return "Pausado esperando o seu login";
+		case "cancelled":
+			return "Cancelado";
+		case "retries_exhausted":
+		case "crash_recoveries":
+		case "error":
+			return "Erro técnico durante a execução";
+		default:
+			return undefined;
+	}
 }

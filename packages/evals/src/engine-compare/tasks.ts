@@ -1,4 +1,3 @@
-import { looksLikeLongTask } from "@workspace/shared";
 import { parseScenario, type MockTurn, type Scenario } from "../scenario.js";
 import { COMPETITORS, SKUS, STORES, SUPPLIERS, brl, competitorPage, skuPage, storePage, supplierPage } from "./world.js";
 
@@ -19,6 +18,8 @@ export type EngineTask = {
 	expectsDocument: boolean;
 	scenario: Scenario;
 	turns: { v1: MockTurn[]; v2: MockTurn[] };
+	/** O roteiro é de trabalho longo (declarado aqui, não adivinhado pelo texto): o v2 roda em `long_work` com lista de tarefas. */
+	longWork: boolean;
 };
 
 const search = (query: string): MockTurn => ({ calls: [{ name: "web_search", args: { query } }] });
@@ -52,14 +53,17 @@ function prose(subject: string, facts: string[], words: number): string {
 	return out.join(" ");
 }
 
-type TaskInput = Omit<EngineTask, "scenario"> & { fixtures: Scenario["tools"]["fixtures"] };
+type TaskInput = Omit<EngineTask, "scenario" | "longWork"> & { fixtures: Scenario["tools"]["fixtures"] };
+
+/** Conversa curta: o único roteiro que NÃO é trabalho longo. */
+const SHORT_TASK_IDS: ReadonlySet<string> = new Set(["bom-dia", "pergunta-simples"]);
 
 /**
- * No v2, pedido de tarefa (`looksLikeLongTask`) roda em trabalho longo e o prompt exige lista de tarefas: o roteiro que
+ * No v2, tarefa longa roda em trabalho longo e o prompt exige lista de tarefas: o roteiro que
  * não a tem ganha uma, aberta no início e fechada antes da resposta final.
  */
-function withTaskList(user: string, turns: MockTurn[]): MockTurn[] {
-	if (!looksLikeLongTask(user) || turns.some((turn) => "calls" in turn && turn.calls.some((call) => call.name === "update_task_list"))) return turns;
+function withTaskList(longWork: boolean, turns: MockTurn[]): MockTurn[] {
+	if (!longWork || turns.some((turn) => "calls" in turn && turn.calls.some((call) => call.name === "update_task_list"))) return turns;
 	const body = turns.slice(0, -1);
 	const last = turns.at(-1)!;
 	return [taskList([["Pesquisar", "in_progress"], ["Entregar", "pending"]]), ...body, taskList([["Pesquisar", "completed"], ["Entregar", "completed"]]), last];
@@ -67,7 +71,8 @@ function withTaskList(user: string, turns: MockTurn[]): MockTurn[] {
 
 function build(input: TaskInput): EngineTask {
 	const { fixtures, ...rest } = input;
-	rest.turns = { v1: rest.turns.v1, v2: withTaskList(rest.user, rest.turns.v2) };
+	const longWork = !SHORT_TASK_IDS.has(rest.id);
+	rest.turns = { v1: rest.turns.v1, v2: withTaskList(longWork, rest.turns.v2) };
 	const parsed = parseScenario({
 		version: 1,
 		id: rest.id,
@@ -81,7 +86,7 @@ function build(input: TaskInput): EngineTask {
 		mock: { turns: rest.turns.v1 },
 	});
 	if (!parsed.ok) throw new Error(`tarefa ${rest.id} inválida: ${parsed.error}`);
-	return { ...rest, scenario: parsed.scenario };
+	return { ...rest, longWork, scenario: parsed.scenario };
 }
 
 const equals = (value: string) => ({ equals: value });

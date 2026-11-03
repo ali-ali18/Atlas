@@ -3,7 +3,7 @@
 // à parte: o servidor entrega a conversa de cada bot em `bot.lastMessage`/`bot.conversationId`.
 import type { Bot } from "@workspace/shared";
 import { toHomeBot } from "./home-list";
-import type { HomeSnapshot } from "./home-types";
+import type { HomeBot, HomeSnapshot } from "./home-types";
 
 export type { HomeSnapshot } from "./home-types";
 export type SyncFailure = "unauthorized" | "network" | "server";
@@ -60,4 +60,10 @@ export async function fetchHome(apiFetch: ApiFetch, signal?: AbortSignal): Promi
 	const [botsBody, sectionsBody] = await Promise.all(responses.map(readJson));
 	const snapshot = parseSnapshot(botsBody, sectionsBody);
 	return snapshot ? { ok: true, snapshot } : { ok: false, reason: "server" };
+}
+
+/** O bot de verdade (com a conversa dele) como o servidor o devolve agora; `null` se não veio (falha ou não existe). */
+export async function fetchHomeBot(apiFetch: ApiFetch, botId: string, signal?: AbortSignal): Promise<HomeBot | null> {
+	const result = await fetchHome(apiFetch, signal);
+	return result.ok ? (result.snapshot.bots.find((bot) => bot.id === botId) ?? null) : null;
 }

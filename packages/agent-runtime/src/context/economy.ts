@@ -4,6 +4,7 @@ import {
 	deferredToolsIndex,
 	isNativeToolGroup,
 	nativeToolGroupOf,
+	addCompanionGroups,
 	planNativeTools,
 	type NativeToolPlan,
 } from "./native-tools.js";
@@ -88,6 +89,8 @@ export function planContextEconomy(input: {
 		hasImageAttachments: input.hasImageAttachments,
 		profileAllowed: input.profileAllowed,
 	});
+	// Navegador pedido pela tarefa (não o pré-carregado do sandbox, que vale para todo chat): leva o desktop e as abas junto.
+	const browserByTask = groups.has("browser");
 	if ((input.profileRequested || input.onboardingIncomplete) && input.profileAllowed) groups.add("profile");
 	// Sem a tool (rotina, webhook, conversa entre bots) o procedimento de "novo agente" é só ruído.
 	if (!input.eligible.some((tool) => tool.function.name === "propose_bot")) groups.delete("bots");
@@ -110,6 +113,8 @@ export function planContextEconomy(input: {
 		if (group && isNativeToolGroup(group)) groups.add(group);
 	}
 	const routed = new Set([...groups].filter((group) => !stickyOnly.has(group)));
+	// O "Bom dia" com sandbox já leva o navegador; os acompanhantes só entram quando há tarefa de navegador (ou a retomada/conversa já o tinha).
+	if (browserByTask || stickyOnly.has("browser") || (input.resumedToolNames ?? []).some((name) => nativeToolGroupOf(name) === "browser")) addCompanionGroups(groups);
 	const plan = planNativeTools(input.eligible, groups);
 	return { groups, routed, plan, index: deferredToolsIndex(input.eligible, groups) };
 }

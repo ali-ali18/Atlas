@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+	describeRunStop,
 	inferStopReasonFromLegacy,
 	isRunStopReason,
 	RUN_STOP_REASONS,
@@ -112,9 +113,48 @@ describe("run-stop-reason em tempo linear (CodeQL)", () => {
 });
 
 describe("stoppedWithOpenWork", () => {
-	it("laço, teto de passos, falhas e lista aberta deixam trabalho por fazer; resposta normal não", async () => {
+	it("só há trabalho por fazer quando sobraram itens abertos da lista DO run, qualquer que seja o motivo da parada", async () => {
 		const { stoppedWithOpenWork } = await import("./run-stop-reason.js");
-		for (const stop of [{ reason: "loop_repeat" }, { reason: "budget_steps" }, { reason: "tool_failures" }, { reason: "answered", detail: "tasklist_open" }, { reason: "loop_repeat", detail: "after_note:items_open" }]) expect(stoppedWithOpenWork(stop), JSON.stringify(stop)).toBe(true);
-		for (const stop of [{ reason: "answered" }, { reason: "cancelled" }, { reason: null }, {}]) expect(stoppedWithOpenWork(stop), JSON.stringify(stop)).toBe(false);
+		for (const stop of [
+			{ reason: "answered", detail: "tasklist_open" },
+			{ reason: "loop_repeat", detail: "after_note:items_open" },
+			{ reason: "budget_steps", detail: "delivered:items_open" },
+			{ reason: "budget_wall", detail: "items_open" },
+			{ reason: "answered", detail: "items_open" },
+		]) expect(stoppedWithOpenWork(stop), JSON.stringify(stop)).toBe(true);
+		// Parar por laço, teto ou falhas SEM itens abertos deste run não herda nada: a mensagem seguinte é assunto novo.
+		for (const stop of [{ reason: "loop_repeat" }, { reason: "budget_steps" }, { reason: "tool_failures" }, { reason: "budget_cost", detail: "delivered" }, { reason: "answered" }, { reason: "cancelled" }, { reason: null }, {}]) expect(stoppedWithOpenWork(stop), JSON.stringify(stop)).toBe(false);
+	});
+});
+
+describe("describeRunStop (Motivo da parada, em pt-BR simples)", () => {
+	it("teto de gasto configurado cita valor e origem; teto de tempo também", () => {
+		expect(describeRunStop({ reason: "budget_cost", detail: "delivered" }, { costUsd: 0.25, costSource: "server" })).toBe("Teto de gasto configurado (US$ 0,25 · servidor)");
+		expect(describeRunStop({ reason: "budget_cost" }, { costUsd: 2, costSource: "bot" })).toBe("Teto de gasto configurado (US$ 2,00 · bot)");
+		expect(describeRunStop({ reason: "budget_cost" }, { costUsd: 1, costSource: "account" })).toBe("Teto de gasto configurado (US$ 1,00 · conta)");
+		expect(describeRunStop({ reason: "budget_wall" }, { wallMs: 20 * 60_000, wallSource: "bot" })).toBe("Teto de tempo configurado (20 min · bot)");
+		// Run antigo, sem teto gravado: não inventa valor nem origem.
+		expect(describeRunStop({ reason: "budget_cost" })).toBe("Teto de gasto configurado");
+	});
+
+	it("repetição e falhas dizem que a abordagem não funcionou, sem falar em teto; itens abertos aparecem", () => {
+		for (const reason of ["loop_repeat", "tool_failures"]) {
+			const text = describeRunStop({ reason, detail: "after_note:items_open" })!;
+			expect(text).toMatch(/abordagem não funcionou/);
+			expect(text).toMatch(/itens em aberto/);
+			expect(text).not.toMatch(/teto|limite|orçamento|tempo/i);
+		}
+	});
+
+	it("limite de passos é de segurança; resposta normal e motivo desconhecido não mostram nada", () => {
+		expect(describeRunStop({ reason: "budget_steps" })).toBe("Limite de passos de segurança de uma execução");
+		// Teto do dono (conta, bot ou pedido): diz valor e origem. O de segurança mostra o valor real e não vira "que você configurou".
+		expect(describeRunStop({ reason: "budget_steps" }, { steps: 80, stepsSource: "bot" })).toBe("Limite de passos que você configurou (80, em bot)");
+		expect(describeRunStop({ reason: "budget_steps" }, { steps: 120, stepsSource: "account" })).toBe("Limite de passos que você configurou (120, em conta)");
+		expect(describeRunStop({ reason: "budget_steps" }, { steps: 50, stepsSource: "request" })).toBe("Limite de passos que você configurou (50, em pedido)");
+		expect(describeRunStop({ reason: "budget_steps" }, { steps: 200 })).toBe("Limite de passos de segurança de uma execução (200)");
+		expect(describeRunStop({ reason: "answered" })).toBeUndefined();
+		expect(describeRunStop({ reason: "algo_novo" })).toBeUndefined();
+		expect(describeRunStop({})).toBeUndefined();
 	});
 });

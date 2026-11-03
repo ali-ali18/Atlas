@@ -188,116 +188,57 @@ export function chooseRunEngine(input: {
 }
 
 /**
- * O pedido parece uma tarefa (pesquisa, relatório, levantamento) e não conversa curta? Atalho barato e
- * deliberadamente conservador, não o juiz final: "Bom dia" e perguntas de uma linha ficam em `chat`, e o que a regra
- * não pega o modelo ainda promove no meio do run (lista de tarefas). Quem quer outra coisa força `workProfile` na
- * política do bot. Regras, em ordem: verbo + entregável; pesquisa em várias fontes ("pesquise em várias páginas");
- * pesquisa "na internet/web" de tamanho razoável; 3+ verbos encadeados; pedido longo com verbo de trabalho.
+ * Perfil do run: forçado pela política do bot (`workProfile`); em `auto` o run NASCE em `chat`. Decisão do dono (03/11): nada de
+ * regex sobre o texto do pedido para decidir comportamento. A promoção a trabalho longo vem de sinais estruturais, no meio do
+ * run: a lista de 3+ passos que o modelo monta e a 1ª tool de navegador/desktop (`supervisor.gate`).
  */
-export function looksLikeLongTask(text: string): boolean {
-	const plain = (text ?? "")
-		.normalize("NFD")
-		.replace(/\p{M}/gu, "")
-		.toLowerCase()
-		.trim();
-	if (plain.length < 25) return false;
-	const verb = /\b(pesquis\w+|levant\w+|analis\w+|compar\w+|mapea\w+|investig\w+|monta|monte|montar|elabor\w+|prepar\w+|gere|gerar|crie|criar|escrev\w+|faca|fazer|assista|assistir|abra|abrir|pergunt\w+|resum\w+|researc\w+|analy[sz]e|compare|build|prepare|draft|write|create|generate|benchmark\w*|watch|summari[sz]e|open|ask)\b/;
-	const deliverable = /\b(relatorio|estudo|pesquisa de mercado|panorama|benchmark|dossie|planilha|apresentacao|painel|dashboard|analise|comparativo|levantamento|report|study|market research|spreadsheet|presentation|deep dive|overview)\b/;
-	// Pergunta de informação ("qual o link para acessar o painel?") não é pedido: sai antes de procurar verbo + entregável.
-	const asked = plain.split(/(?<=[.!?])\s+/).filter((sentence) => !/^(?:qual|quais|como|o que|onde|quando|por que|porque|quem|what|how|where|when|why|which|who)\b.*\?$/.test(sentence)).join(" ");
-	if (verb.test(asked) && deliverable.test(asked)) return true;
-	if (RESEARCH_MANY_SOURCES.test(plain)) return true;
-	// Pedido de várias etapas encadeadas ("abra..., faça perguntas..., compare... e monte"): 3+ verbos de ação diferentes,
-	// em pedido de tamanho razoável e com conectores de sequência (vírgulas, "e", "depois"). Pedido casual curto fica em chat.
-	if (plain.length >= CHAINED_MIN_CHARS && distinctActionVerbs(plain) >= 3 && sequenceConnectors(plain) >= 2) return true;
-	// Pedido de ação em site ou app ("abra o Gemini e peça um resumo", "vai no site da loja, loga e me diz o status"):
-	// verbo de ação no começo de oração COM alvo digital explícito. Várias etapas no navegador não cabem no modo chat curto.
-	if (distinctBrowserActionVerbs(plain) >= 1) return true;
-	// Pedido longo com verbo de trabalho (várias linhas de instrução) também é tarefa.
-	return plain.length >= 200 && verb.test(plain);
+export function resolveRunProfile(input: { policy: EnginePolicy }): RunProfile {
+	return input.policy.workProfile !== "auto" ? input.policy.workProfile : "chat";
 }
 
-/** Verbos de agir em site/app (pt e en), no imperativo ou infinitivo de pedido. */
-const BROWSER_ACTION_VERBS =
-	"acesse|acessar|access|entra|entre|entrar|enter|vai|va|ir|go|exporte|exportar|export|baixe|baixar|download|peca|pede|pedir|ask|envie|enviar|send|preencha|preenche|preencher|fill|clique|clica|clicar|click|loga|logue|logar|login|log|abra|abre|abrir|open|navegue|navegar|navigate|digite|digitar|type";
-/** Verbo no COMEÇO de oração (início, depois de "e", vírgula, ponto ou ";") ou depois de "pode/quero que você": "o link para acessar" não conta. */
-const CLAUSE_START_ACTION = new RegExp(
-	`(?:^|[,;.!]\\s*|\\b(?:e|and|then|depois)\\s+)(?:(?:por favor|please|pode|consegue|poderia|quero que voce|queria que voce|can you|could you)\\s+)*(?:me\\s+)?(?:${BROWSER_ACTION_VERBS})\\b`,
-	"g",
-);
-/** Alvo digital explícito: URL, site/app/painel/conta/página/portal/sistema ou serviço conhecido. Sem alvo ("vai na padaria e pede um pão") é conversa. */
-const DIGITAL_TARGET =
-	/\bhttps?:\/\/\S+|\bwww\.\S+|\b(?:site|sites|app|aplicativo|painel|dashboard|conta|pagina|portal|sistema|plataforma|webmail|website|account|page|gemini|chatgpt|claude|bling|google|youtube|notion|slack|whatsapp|gmail|drive|linkedin|instagram|github|jira|trello|shopify|mercado livre)\b/;
+/** De onde veio um teto que o dono configurou: a conta, o servidor (operador) ou o bot. */
+export type RunCapSource = "account" | "server" | "bot";
 
-/**
- * Pedido de agir em site ou app: verbo de ação no começo de oração (ou depois de "pode/quero que você") COM alvo digital
- * explícito. 2+ verbos encadeados sozinhos não bastam ("vai na padaria e pede um pão" é conversa).
- */
-function distinctBrowserActionVerbs(plain: string): number {
-	if (!DIGITAL_TARGET.test(plain)) return 0;
-	return (plain.match(CLAUSE_START_ACTION) ?? []).length;
+/** Tetos que valem para o run (gravados no `budgetJson` no começo), para o motivo da parada dizer valor e origem. */
+export type RunCaps = {
+	costUsd?: number;
+	costSource?: RunCapSource;
+	wallMs?: number;
+	wallSource?: RunCapSource;
+	/** Teto de passos EFETIVO do run (no v2, no máximo o limite de segurança). */
+	steps?: number;
+	/** Só quando o teto de passos efetivo é o que o dono configurou (conta, bot ou pedido); sem origem = limite de segurança. */
+	stepsSource?: RunStepsSource;
+};
+
+/** De onde veio o teto de passos que o dono configurou. */
+export type RunStepsSource = "account" | "bot" | "request";
+const STEPS_SOURCES: ReadonlySet<string> = new Set(["account", "bot", "request"]);
+
+const CAP_SOURCES: ReadonlySet<string> = new Set(["account", "server", "bot"]);
+
+/** `budgetJson` com os tetos do run, preservando o resto. Sem nenhum teto devolve o `budgetJson` como estava. */
+export function withRunCaps(budgetJson: unknown, caps: RunCaps): Record<string, unknown> {
+	const base = asRecord(budgetJson);
+	const clean: RunCaps = {
+		...(caps.costUsd !== undefined && Number.isFinite(caps.costUsd) && caps.costUsd > 0 ? { costUsd: caps.costUsd, ...(caps.costSource ? { costSource: caps.costSource } : {}) } : {}),
+		...(caps.wallMs !== undefined && Number.isFinite(caps.wallMs) && caps.wallMs > 0 ? { wallMs: Math.round(caps.wallMs), ...(caps.wallSource ? { wallSource: caps.wallSource } : {}) } : {}),
+		...(caps.steps !== undefined && Number.isFinite(caps.steps) && caps.steps >= 1 ? { steps: Math.floor(caps.steps), ...(caps.stepsSource ? { stepsSource: caps.stepsSource } : {}) } : {}),
+	};
+	return Object.keys(clean).length > 0 ? { ...base, caps: clean } : { ...base };
 }
 
-/** Verbo de procurar/pesquisar/levantar (pt e en), sem exigir substantivo de entregável. */
-/**
- * Verbo de pesquisa no imperativo ou infinitivo. Fora: "já pesquisei"/"já procurei" (é relato, não pedido) e "check"
- * (em inglês quase nunca é pesquisa: "check the many pages of this PDF").
- */
-const SOURCE_VERB = "(?<!\\bja\\s)\\b(?:pesquis\\w+|busc\\w+|procur\\w+|levant\\w+|investig\\w+|olhad\\w+|confer\\w+|researc\\w+|search\\w*|look through|look up)\\b";
-/** Plural de fontes: "várias páginas", "diversos sites", "several sources" (até 2 palavras entre o quantificador e o substantivo). */
-const MANY_SOURCES =
-	"\\b(?:vari[oa]s|diversas?|diversos?|muitas?|muitos?|multipl[oa]s?|several|multiple|many)\\b(?:\\s+\\w+){0,2}\\s+(?:paginas?|fontes?|sites?|websites?|links?|lojas?|portais|sources?|pages?)\\b(?!\\s+(?:of\\s+(?:this|the|that)|d[oae]s?\\s+(?:pdf|documento|arquivo|livro|ebook)))";
-/** Até 9 palavras sem pontuação entre o verbo e as fontes ("pesquisa pra mim os preços de 5 notebooks em várias lojas"). */
-const WORD_GAP = "(?:\\s+[^\\s,.;:!?]+){0,9}";
-/**
- * Pedido de pesquisa em várias fontes (sem precisar de "relatório"/"estudo"): o verbo perto das fontes, sem vírgula ou
- * ponto no meio, na ordem "pesquise ... em várias páginas" ou "em várias páginas, pesquise ...". "Procurar um presente,
- * vi várias lojas e não decidi" e "já pesquisei em várias páginas e não achei" ficam de fora. Pesquisa de um fato só
- * ("pesquisa na internet o dólar hoje") não é tarefa longa: se virar, quem promove é o modelo, pela lista de tarefas.
- */
-/** "Confira/veja/check" colado nas fontes ("..., check multiple sources", "e ver vários sites") vale mesmo com vírgula antes. */
-const CHECK_MANY = "\\b(?:check|confira|confere|veja|ver|consulte|olhe)\\s+(?:\\w+\\s+)?" + MANY_SOURCES;
-/** Vírgula no meio vale quando as fontes vêm numa preposição ("compare com o Hermes, em várias fontes"). */
-const COMMA_GAP = "(?:\\s+[^\\s.;:!?]+){0,12}";
-const IN_MANY = "\\s+(?:em|nas?|nos?|pelas?|pelos?|entre|in|across|from|on)\\s+" + MANY_SOURCES;
-const RESEARCH_MANY_SOURCES = new RegExp(`${SOURCE_VERB}${WORD_GAP}\\s+${MANY_SOURCES}|${SOURCE_VERB}${COMMA_GAP}${IN_MANY}|${MANY_SOURCES}[,]?${WORD_GAP}\\s+${SOURCE_VERB}|${CHECK_MANY}`);
-
-const ACTION_VERB_STEMS: ReadonlyArray<RegExp> = [
-	/\b(pesquis\w+|researc\w+)\b/, /\b(levant\w+)\b/, /\b(analis\w+|analy[sz]e)\b/, /\b(compar\w+|compare)\b/, /\b(mapea\w+)\b/, /\b(investig\w+)\b/,
-	/\b(monte|montar|build)\b/, /\b(elabor\w+|prepar\w+|prepare|draft)\b/, /\b(gere|gerar|generate)\b/, /\b(crie|criar|create)\b/, /\b(escrev\w+|write)\b/,
-	/\b(faca|fazer)\b/, /\b(assista|assistir|watch)\b/, /\b(abra|abrir|open)\b/, /\b(pergunt\w+|ask)\b/, /\b(resum\w+|summari[sz]e)\b/,
-];
-
-/** Tamanho mínimo do pedido para 3+ verbos valerem como etapas encadeadas. */
-const CHAINED_MIN_CHARS = 90;
-
-function sequenceConnectors(plain: string): number {
-	return (plain.match(/,|;|\b(e|depois|entao|em seguida|and then|then|and)\b/g) ?? []).length;
-}
-
-function distinctActionVerbs(plain: string): number {
-	return ACTION_VERB_STEMS.reduce((count, stem) => count + (stem.test(plain) ? 1 : 0), 0);
-}
-
-/**
- * Mensagem digitada curta que só manda o bot seguir ("continua", "pode seguir", "segue", "go on"). Depois de um run que
- * parou com itens abertos ela herda o perfil e o caderno do trabalho anterior em vez de recomeçar do zero.
- */
-export function isShortContinuation(text: string): boolean {
-	const plain = (text ?? "").normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().trim();
-	if (plain.length === 0 || plain.length > 40) return false;
-	// Só formas de continuar: "segue", "seguir", "pode seguir", "continua", "continue", "vai em frente", "manda ver", "prossiga".
-	// Não casa "segundo", "segura", "segurança" (a raiz "segu" sozinha pegava tudo isso).
-	return /^(?:(?:ok|certo|entao|pode|por favor|pfv|vai),?\s+)*(?:continu(?:a|e|ar|em)|segue|seguir|prossiga|prosseguir|retome|retomar|em frente|manda ver|go on|keep going|carry on|proceed)(?:\s+(?:ai|ae|em frente|de onde parou|onde parou|com isso|por favor|pfv|please))*[\s.!]*$/.test(plain);
-}
-
-/**
- * Perfil do run: forçado pela política do bot ou decidido pelo pedido (só importa no v2). E-mail recebido e webhook
- * nunca escolhem o perfil caro pelo texto: quem escreveu o e-mail/payload é de fora e o texto é dado não confiável; só o dono libera
- * `long_work` (pela política do bot).
- */
-export function resolveRunProfile(input: { policy: EnginePolicy; text: string; origin?: string }): RunProfile {
-	if (input.policy.workProfile !== "auto") return input.policy.workProfile;
-	if (input.origin === "email" || input.origin === "webhook") return "chat";
-	return looksLikeLongTask(input.text) ? "long_work" : "chat";
+/** Tetos gravados no `budgetJson` do run (`{}` = nenhum). */
+export function readRunCaps(budgetJson: unknown): RunCaps {
+	const raw = asRecord(asRecord(budgetJson).caps);
+	const source = (value: unknown): RunCapSource | undefined => (typeof value === "string" && CAP_SOURCES.has(value) ? (value as RunCapSource) : undefined);
+	const costUsd = typeof raw.costUsd === "number" && Number.isFinite(raw.costUsd) && raw.costUsd > 0 ? raw.costUsd : undefined;
+	const wallMs = typeof raw.wallMs === "number" && Number.isFinite(raw.wallMs) && raw.wallMs > 0 ? raw.wallMs : undefined;
+	const steps = typeof raw.steps === "number" && Number.isFinite(raw.steps) && raw.steps >= 1 ? Math.floor(raw.steps) : undefined;
+	const stepsSource = typeof raw.stepsSource === "string" && STEPS_SOURCES.has(raw.stepsSource) ? (raw.stepsSource as RunStepsSource) : undefined;
+	return {
+		...(steps !== undefined ? { steps, ...(stepsSource ? { stepsSource } : {}) } : {}),
+		...(costUsd !== undefined ? { costUsd, ...(source(raw.costSource) ? { costSource: source(raw.costSource) } : {}) } : {}),
+		...(wallMs !== undefined ? { wallMs, ...(source(raw.wallSource) ? { wallSource: source(raw.wallSource) } : {}) } : {}),
+	};
 }

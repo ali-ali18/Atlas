@@ -39,12 +39,12 @@ export function autoContinueCauseOfBudgetStop(error: Pick<BudgetExhaustedError, 
 }
 
 /**
- * O run do motor novo terminou em laço (`loop_repeat`) com itens da lista abertos, num chat digitado pelo dono? Então o worker
+ * O run do motor novo terminou em laço (`loop_repeat` ou `tool_failures`) com itens da lista abertos, num chat digitado pelo dono? Então o worker
  * agenda a continuação sozinho (mesmo limite `AUTO_CONTINUE_MAX`), em vez de deixar o dono mandar "continua" e recomeçar do zero.
  */
 export function autoContinueCauseOfLoopStop(stop: { reason?: string; detail?: string } | undefined, run: { engine: string; origin: string; humanTurn: boolean }): AutoContinueCause | null {
 	if (run.engine !== "v2" || run.origin !== "chat" || !run.humanTurn) return null;
-	return stop?.reason === "loop_repeat" && stop.detail?.includes("items_open") ? "loop" : null;
+	return (stop?.reason === "loop_repeat" || stop?.reason === "tool_failures") && stop.detail?.includes("items_open") ? "loop" : null;
 }
 
 /** Falha do run que a fila já tentou de novo: só a transitória (5xx/429/rede/timeout) merece retomada. */

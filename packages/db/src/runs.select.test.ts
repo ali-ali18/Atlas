@@ -23,6 +23,8 @@ const row = {
 	sandboxSessionId: null,
 	error: null,
 	resultText: null,
+	stopReason: null,
+	stopDetail: null,
 	cancelRequested: false,
 	budgetJson: null,
 	usageJson: null,

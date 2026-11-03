@@ -8,9 +8,12 @@ import { DoneButton } from "@/components/bot/done-button";
 import { SoonSheet } from "@/components/home/soon-sheet";
 import { ChevronLeftIcon } from "@/components/icons";
 import { Avatar } from "@/components/ui/avatar";
+import { ShapeOption } from "@/components/ui/shape-option";
 import { Text } from "@/components/ui/text";
 import { getDraft, updateDraft } from "@/lib/bot-draft";
 import { AVATAR_PALETTE, AVATAR_SHAPES, defaultAvatar } from "@/lib/bot-edit";
+import { shapeLabel } from "@/lib/new-bot";
+import { chatChrome } from "@/lib/chat-surface";
 import { cn } from "@/lib/cn";
 import { themeColor } from "@/lib/theme";
 import { useAppColorScheme } from "@/lib/use-theme";
@@ -67,17 +70,15 @@ export default function AvatarEditorScreen() {
 				</View>
 				<View className="w-full overflow-hidden rounded-panel bg-card">
 					<View className="flex-row flex-wrap justify-center gap-x-1 gap-y-2 px-2 pb-4 pt-5">
-						{AVATAR_SHAPES.map((item) => (
-							<Pressable key={item} role="radio" accessibilityLabel={`Forma ${item}`} accessibilityState={{ checked: item === shape }} onPress={() => setShape(item)} className={cn("size-16 items-center justify-center rounded-full border-2", item === shape ? "border-foreground/50" : "border-transparent")}>
-								<Avatar color={color} shape={item} size={56} animated={false} eyeColor={themeColor(scheme, "card")} />
-							</Pressable>
+						{AVATAR_SHAPES.map((item, index) => (
+							<ShapeOption key={item} shape={item} color={color} label={shapeLabel(index, AVATAR_SHAPES.length)} selected={item === shape} cell={64} size={56} eyeColor={themeColor(scheme, "card")} onPress={() => setShape(item)} />
 						))}
 					</View>
 					<View className="flex-row flex-wrap justify-center gap-x-3 gap-y-3 px-4 pb-5 pt-1">
 							{AVATAR_PALETTE.map((item) => {
 								const selected = item.value.toLowerCase() === color.toLowerCase();
 								return (
-									<Pressable key={item.id} role="radio" accessibilityLabel={`Cor ${item.name}`} accessibilityState={{ checked: selected }} onPress={() => setColor(item.value)} className={cn("size-10 items-center justify-center rounded-full border-2", selected ? "border-foreground/50" : "border-transparent")}>
+									<Pressable key={item.id} role="radio" accessibilityLabel={`Cor ${item.name}`} accessibilityState={{ checked: selected }} onPress={() => setColor(item.value)} style={{ borderColor: selected ? chatChrome(scheme).edge : "transparent" }} className="size-10 items-center justify-center rounded-full border-2">
 										<View style={{ backgroundColor: item.value, borderColor: themeColor(scheme, "border") }} className="size-8 rounded-full border" />
 									</Pressable>
 								);

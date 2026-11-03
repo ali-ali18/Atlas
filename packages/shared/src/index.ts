@@ -245,6 +245,7 @@ export type {
 export {
 	AGENT_RUNTIME_CHECKPOINT_VERSION,
 	RUN_MAX_RECOVERIES,
+	RUN_MAX_STEPS,
 	RUN_RECOVERY_LIMIT_MESSAGE,
 	readRunRecoveries,
 	readRunRecoveredAtStep,
@@ -395,6 +396,14 @@ export { IMAGE_LIMITS, ALLOWED_IMAGE_MIMES, sniffImageType, scaledImageSize, art
 export { groupUserImageRows, attachHistoryImages, type HistoryImageGroup, type HistoryImageItem } from "./history-images.js";
 export {
 	detectLoginWall,
+	detectLoginHint,
+	isKnownLoginUrl,
+	isLoginPathUrl,
+	hasOneTimeCodeField,
+	hasFormInput,
+	LOGIN_PATH_WORDS,
+	loginHintNote,
+	type LoginHint,
 	hasPasswordField,
 	loginKey,
 	siteOf,

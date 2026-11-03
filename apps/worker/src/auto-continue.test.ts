@@ -189,6 +189,9 @@ test("laço do motor novo com itens abertos num chat digitado agenda a continua�
 	const typed = { engine: "v2", origin: "chat", humanTurn: true };
 	const stop = { reason: "loop_repeat", detail: "after_note:items_open" };
 	assert.equal(autoContinueCauseOfLoopStop(stop, typed), "loop");
+	// Falhas seguidas de tool (tool_failures) com itens abertos também continuam sozinhas.
+	assert.equal(autoContinueCauseOfLoopStop({ reason: "tool_failures", detail: "consecutive:items_open" }, typed), "loop");
+	assert.equal(autoContinueCauseOfLoopStop({ reason: "tool_failures", detail: "consecutive" }, typed), null);
 	// Sem itens abertos, motor anterior, rotina ou turno sem humano: nada de continuação automática.
 	assert.equal(autoContinueCauseOfLoopStop({ reason: "loop_repeat", detail: "after_note" }, typed), null);
 	assert.equal(autoContinueCauseOfLoopStop(stop, { ...typed, engine: "v1" }), null);
