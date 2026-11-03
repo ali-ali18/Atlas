@@ -96,8 +96,9 @@ function Inlines({ nodes, scheme, plainCode = false }: { nodes: readonly Inline[
  * Tabela como no Grok: um cartão único (a tabela inteira é o balão, sem balão por fora), rola para o lado com a
  * barrinha de rolagem no canto. Larguras explícitas por coluna (`tableColumnWidths`): no Android um ScrollView
  * horizontal sem tamanho definido esticava as linhas até a altura da tela (cartão gigante e vazio).
+ * `aligns`: alinhamento por coluna (o painel alinha número à direita); sem ele, tudo à esquerda como no chat.
  */
-export function TableCard({ block, scheme, onLongPress }: { block: Extract<Block, { type: "table" }>; scheme: "light" | "dark"; onLongPress?: () => void }) {
+export function TableCard({ block, scheme, onLongPress, aligns }: { block: Extract<Block, { type: "table" }>; scheme: "light" | "dark"; onLongPress?: () => void; aligns?: readonly ("left" | "right" | "center")[] }) {
 	const press = useTouchLongPress(onLongPress);
 	const widths = tableColumnWidths(block.header, block.rows);
 	const total = widths.reduce((sum, width) => sum + width, 0);
@@ -130,7 +131,7 @@ export function TableCard({ block, scheme, onLongPress }: { block: Extract<Block
 						<View key={`row-${rowIndex}`} style={{ flexDirection: "row", borderTopWidth: rowIndex > 0 ? 1 : 0, borderTopColor: divider }}>
 							{row.map((cell, column) => (
 								<View key={`cell-${column}`} style={{ width: widths[column], paddingHorizontal: 18.5, paddingVertical: 11.5 }}>
-									<Text className={cn("text-base leading-snug", rowIndex === 0 && "font-semibold")}>
+									<Text className={cn("text-base leading-snug", rowIndex === 0 && "font-semibold")} style={aligns?.[column] && aligns[column] !== "left" ? { textAlign: aligns[column] } : undefined}>
 										<Inlines nodes={cell} scheme={scheme} plainCode />
 									</Text>
 								</View>
