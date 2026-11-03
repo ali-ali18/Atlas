@@ -16,6 +16,7 @@ import { createRefActions } from "./browser-refs.mjs";
 import { createPageReader } from "./reader.mjs";
 import { parseScreenshotOptions, scrotPlan } from "./screenshot-options.mjs";
 import { withMarks } from "./marks.mjs";
+import { HttpError, readJsonBody } from "./request-body.mjs";
 import { countUserProcesses, countViewerClients, createActivityTracker } from "./activity.mjs";
 
 const PORT = Number.parseInt(process.env.SANDBOX_CONTROL_PORT ?? "3080", 10);
@@ -33,13 +34,6 @@ async function run(command, args, options = {}) {
 function sendJson(res, status, body) {
 	res.writeHead(status, { "Content-Type": "application/json" });
 	res.end(JSON.stringify(body));
-}
-
-async function readJsonBody(req) {
-	const chunks = [];
-	for await (const chunk of req) chunks.push(chunk);
-	const text = Buffer.concat(chunks).toString("utf8");
-	return text ? JSON.parse(text) : {};
 }
 
 // --- Screenshot do desktop inteiro (root window) ---
@@ -486,6 +480,10 @@ const handleControlRequest = async (req, res) => {
 
 		sendJson(res, 404, { error: "not found" });
 	} catch (error) {
+		if (error instanceof HttpError) {
+			sendJson(res, error.status, { error: error.message });
+			return;
+		}
 		const message = error instanceof Error ? error.message : "unknown error";
 		console.error("[sandbox-control]", compactPlaywrightError(message, 500));
 		// O call log do Playwright (2 a 4 KB) não vai ao modelo.
