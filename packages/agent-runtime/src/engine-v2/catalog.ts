@@ -15,7 +15,7 @@ import { decideAction, hostAutonomyMeta, type EffectiveAutonomy } from "@workspa
 import { loadCodeRunnerConfig } from "@workspace/sandbox";
 import { COMPUTER_USE_TOOLS, TOOL_SEARCH_WITH_BUILTINS } from "../computer-use.js";
 import { createNativeDeferral, type NativeDeferral } from "../context/native-deferral.js";
-import { deferredToolsIndex, planNativeTools } from "../context/native-tools.js";
+import { addCompanionGroups, deferredToolsIndex, planNativeTools } from "../context/native-tools.js";
 import { routeContextGroups } from "../context/intent-router.js";
 import { economyRouterText, orderEconomyTools } from "../context/economy.js";
 import type { ContextGroup } from "../context/prompt-blocks.js";
@@ -214,6 +214,7 @@ export function buildEngineV2Catalog(input: {
 		const group = planNativeTools(native, new Set()).deferred.get(name)?.group;
 		if (group) preloaded.add(group);
 	}
+	addCompanionGroups(preloaded);
 	const plan = planNativeTools(native, preloaded);
 
 	const mcp = input.mcp;

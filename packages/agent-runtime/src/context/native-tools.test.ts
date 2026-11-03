@@ -3,7 +3,7 @@ import type { ChatTool } from "@workspace/llm";
 import { routeContextGroups } from "./intent-router.js";
 import { economyRouterText, orderEconomyTools, planContextEconomy } from "./economy.js";
 import { createNativeDeferral } from "./native-deferral.js";
-import { NATIVE_TOOL_GROUPS, deferredToolsIndex, nativeToolGroupOf, planNativeTools } from "./native-tools.js";
+import { NATIVE_TOOL_GROUPS, addCompanionGroups, deferredToolsIndex, nativeToolGroupOf, planNativeTools } from "./native-tools.js";
 import { contextEconomyEnabled } from "./flag.js";
 import type { ContextGroup } from "./prompt-blocks.js";
 
@@ -224,5 +224,50 @@ describe("carregamento sob demanda", () => {
 		const match = deferral.match("browser routine skill", 4);
 		expect(match.names.length).toBeLessThanOrEqual(NATIVE_TOOL_GROUPS.browser.tools.length);
 		expect(new Set(match.names.map((name) => nativeToolGroupOf(name))).size).toBe(1);
+	});
+});
+
+describe("navegador leva click, type, key, scroll e abas junto", () => {
+	const CORE = ["click", "type", "key", "scroll", "browser_tabs"];
+
+	it("grupo browser pré-carregado traz o desktop e as abas no mesmo passo (nenhum 'Tool X was not loaded')", () => {
+		const groups = addCompanionGroups(new Set<ContextGroup>(["browser"]));
+		expect([...groups].sort()).toEqual(["browser", "desktop", "tabs"]);
+		const plan = planNativeTools(all, groups);
+		expect(names(plan.preloaded)).toEqual(expect.arrayContaining(["navigate", "browser_act", ...CORE]));
+		for (const name of CORE) expect(plan.deferred.has(name)).toBe(false);
+	});
+
+	it("sem navegador, desktop e abas seguem adiados (o 'Bom dia' não cresce)", () => {
+		const groups = addCompanionGroups(new Set<ContextGroup>(["routines"]));
+		expect([...groups]).toEqual(["routines"]);
+		const plan = planNativeTools(all, groups);
+		for (const name of CORE) expect(plan.deferred.has(name)).toBe(true);
+	});
+
+	it("a 1ª chamada a uma tool do navegador adiado carrega o grupo inteiro de uma vez, com o desktop e as abas", () => {
+		const plan = planNativeTools(all, new Set());
+		const tools: ChatTool[] = [];
+		const deferral = createNativeDeferral({ deferred: plan.deferred, tools, promptedGroups: new Set<ContextGroup>() });
+		const { loaded } = deferral.loadGroupOf("navigate");
+		expect(loaded).toEqual(expect.arrayContaining(["navigate", "browser_act", ...CORE]));
+		for (const name of CORE) expect(deferral.isDeferred(name)).toBe(false);
+		// Catálogo estável: depois de carregado, chamar de novo não muda mais nada.
+		const size = tools.length;
+		expect(deferral.loadGroupOf("click").loaded).toEqual([]);
+		expect(tools).toHaveLength(size);
+	});
+
+	it("carregar só o desktop não puxa o navegador (a dependência é de uma mão só)", () => {
+		const plan = planNativeTools(all, new Set());
+		const tools: ChatTool[] = [];
+		const deferral = createNativeDeferral({ deferred: plan.deferred, tools, promptedGroups: new Set<ContextGroup>() });
+		deferral.loadGroupOf("click");
+		expect(deferral.isDeferred("navigate")).toBe(true);
+	});
+
+	it("sandbox_shell já vem com o grupo shell", () => {
+		expect(NATIVE_TOOL_GROUPS.shell.tools).toContain("sandbox_shell");
+		expect(nativeToolGroupOf("sandbox_shell")).toBe("shell");
 	});
 });
