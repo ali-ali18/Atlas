@@ -23,7 +23,7 @@ const FLASH_MS = 4000;
 /** Avatar do autor ao lado do balão, e o espaço que a pílula flutuante reserva no fim da lista. */
 const AVATAR_BOX = 28;
 const FOOTER_SPACE = 72;
-const STACK_BODY = 26;
+const STACK_BODY = 32;
 /** Quanto do primeiro avatar o segundo cobre, na horizontal. */
 const STACK_OVERLAP = 0.35;
 
