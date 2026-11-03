@@ -75,3 +75,14 @@ test("os arquivos do instalador existem (o wrapper é executável)", () => {
 	}
 	assert.ok((statSync(new URL("../install/atlas-install", import.meta.url)).mode & 0o111) !== 0);
 });
+
+// A tela do Xvfb, a janela do Chrome e a escala da screenshot do modelo precisam concordar: o modelo clica em
+// coordenadas da imagem reduzida, e `modelPointToScreen` volta à tela real com o fator medido nos bytes devolvidos.
+test("tela: Xvfb e janela do Chrome usam as mesmas variáveis e o mesmo padrão (1280x720)", () => {
+	const chrome = read("bin/atlas-chrome");
+	assert.match(entrypoint, /XVFB_W="\$\{XVFB_WIDTH:-1280\}"/);
+	assert.match(entrypoint, /XVFB_H="\$\{XVFB_HEIGHT:-720\}"/);
+	assert.match(entrypoint, /-screen 0 "\$\{XVFB_W\}x\$\{XVFB_H\}x24"/);
+	assert.match(chrome, /--window-size="\$\{XVFB_WIDTH:-1280\},\$\{XVFB_HEIGHT:-720\}"/);
+	assert.doesNotMatch(dockerfile, /XVFB_(WIDTH|HEIGHT)\s*=\s*(?!1280\b|720\b)\d+/, "ENV do Dockerfile divergente do padrão do entrypoint");
+});
