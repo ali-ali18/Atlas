@@ -256,7 +256,24 @@ export type ToolGroup =
 
 export type ToolHandler = (args: Record<string, unknown>, ctx: ToolContext) => Promise<ToolResult> | ToolResult;
 
-export type ToolRegistration = {
+/**
+ * Efeito de uma tool no mundo (desenho do harness v3, seção 7). A política única do v3 decide por ele:
+ * `read` só lê; `write_internal` muda estado do próprio Atlas ou da VM do bot (inclui propostas que viram
+ * cartão de aprovação); `write_external` escreve em sistema de terceiros; `send` entrega mensagem a alguém;
+ * `money` move dinheiro; `public_link` publica algo acessível sem login; `credential` toca em segredo/login.
+ */
+export type ToolEffect = "read" | "write_internal" | "write_external" | "send" | "money" | "public_link" | "credential";
+
+/** Metadado estático de uma tool: não muda o comportamento do v1/v2, só descreve a tool para quem decide. */
+export type ToolMetaFields = {
+	effect: ToolEffect;
+	/** Espera ou status de job: chamadas repetidas são esperadas e ficam isentas da rede de repetição. */
+	poll?: boolean;
+	/** Depois do lote desta tool o turno termina (veredito de alerta, pergunta ao humano). */
+	endsTurn?: boolean;
+};
+
+export type ToolRegistration = Partial<ToolMetaFields> & {
 	handler: ToolHandler;
 	group: ToolGroup;
 	/** A tool só lê (não escreve em conta de usuário nem em conector). */
