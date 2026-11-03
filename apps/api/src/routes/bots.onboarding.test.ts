@@ -86,7 +86,7 @@ test("POST /v1/bots: falha do onboarding (lança ou fila quebrada) não derruba 
 
 	// Caminho real: createRun lança dentro do serviço, que devolve failed sem propagar.
 	const warn = mock.method(console, "warn", () => undefined);
-	stubMethod(prisma.agentRun, "findFirst", async () => null);
+	stubMethod(prisma.agentRun, "findMany", async () => []);
 	stubMethod(prisma.agentRun, "create", async () => { throw new Error("db down secret-token-123"); });
 	stubMethod(prisma.conversation, "findFirst", async () => ({ id: "conv-new" }));
 	stubMethod(prisma.bot, "findMany", async () => []);
@@ -111,6 +111,9 @@ test("startBotOnboarding cria o run com objective, flags e chave certos e enfile
 		{
 			findExisting: async () => null,
 			resolveModel: async () => ({ model: "env/model", auto: true }),
+			checkModel: async () => null,
+			contextLength: () => null,
+			maskMessages: (async (_user: string, messages: unknown[]) => messages) as never,
 			createRun: (async (input: Row) => { created.push(input); return { id: "run-1", status: "queued" }; }) as never,
 			enqueue: async (_queue, runId) => { enqueued.push(runId); return true; },
 		},
@@ -145,10 +148,10 @@ test("startBotOnboarding não duplica: run de onboarding existente (repetição 
 
 test("startBotOnboarding sem fila ou sem conversa não faz nada; erro da fila vira failed", async () => {
 	const base = { bot: { id: "bot-1", name: "Lia", conversationId: "conv-1" }, userId: "user-a", envDefault: "e/m" };
-	assert.deepEqual(await startBotOnboarding({ ...base, queue: null }), { outcome: "skipped" });
+	assert.deepEqual(await startBotOnboarding({ ...base, queue: null }), { outcome: "skipped", reason: "no_queue" });
 	assert.deepEqual(
 		await startBotOnboarding({ ...base, bot: { id: "b", name: "L", conversationId: null }, queue: {} as never }),
-		{ outcome: "skipped" },
+		{ outcome: "skipped", reason: "no_conversation" },
 	);
 	mock.method(console, "warn", () => undefined);
 	const failed = await startBotOnboarding(
@@ -156,6 +159,9 @@ test("startBotOnboarding sem fila ou sem conversa não faz nada; erro da fila vi
 		{
 			findExisting: async () => null,
 			resolveModel: async () => ({ model: "e/m", auto: false }),
+			checkModel: async () => null,
+			contextLength: () => null,
+			maskMessages: (async (_user: string, messages: unknown[]) => messages) as never,
 			createRun: (async () => ({ id: "run-1" })) as never,
 			enqueue: async () => { throw new Error("redis down"); },
 		},
@@ -164,11 +170,12 @@ test("startBotOnboarding sem fila ou sem conversa não faz nada; erro da fila vi
 });
 
 test("findBotCreatedRun filtra pelo dono: usuário B não enxerga o onboarding do bot de A", async () => {
-	const runs = [{ id: "run-a", userId: "user-a", conversationId: "conv-1", objective: "[bot-created] Perguntas de onboarding do Lia", status: "completed" }];
-	stubMethod(prisma.agentRun, "findFirst", async ({ where }: { where: Row }) =>
-		runs.find((row) => row.userId === where.userId && row.conversationId === where.conversationId && row.objective.startsWith("[bot-created]")) ?? null);
-	assert.equal((await findBotCreatedRun("user-a", "conv-1"))?.id, "run-a");
+	const runs = [{ id: "run-a", userId: "user-a", conversationId: "conv-1", objective: "[Bot-Created] Perguntas de onboarding do Lia", status: "completed", budgetJson: null, jobEnqueuedAt: null }];
+	stubMethod(prisma.agentRun, "findMany", async ({ where }: { where: Row }) =>
+		runs.filter((row) => row.userId === where.userId && row.conversationId === where.conversationId && row.objective.toLowerCase().startsWith("[bot-created]")));
+	assert.deepEqual(await findBotCreatedRun("user-a", "conv-1"), { id: "run-a", status: "completed", enqueued: true });
 	assert.equal(await findBotCreatedRun("user-b", "conv-1"), null);
+	assert.equal(await findBotCreatedRun("user-a", "conv-outra"), null, "[bot-created] em outra conversa não casa");
 });
 
 test("POST /v1/bots: usuário B (sessão) cria o seu e o onboarding roda no dono B, nunca no bot de A", async () => {
@@ -184,7 +191,7 @@ test("POST /v1/runs: web antigo pedindo o onboarding de um bot que o servidor j�
 	// A consulta de grupo (memberIds não vazio) não acha nada: é um bot comum.
 	stubMethod(prisma.bot, "findFirst", async ({ where }: { where: { id?: string; memberIds?: unknown } }) =>
 		where.id === "bot-1" && !where.memberIds ? { id: "bot-1", conversationId: "conv-1" } : null);
-	stubMethod(prisma.agentRun, "findFirst", async () => ({ id: "run-server", status: "running" }));
+	stubMethod(prisma.agentRun, "findMany", async () => [{ id: "run-server", status: "running", budgetJson: null, jobEnqueuedAt: null }]);
 	const create = stubMethod(prisma.agentRun, "create", async () => ({ id: "run-dup" }));
 	const app = new Hono();
 	app.use("*", async (c, next) => {
@@ -208,4 +215,133 @@ test("POST /v1/runs: web antigo pedindo o onboarding de um bot que o servidor j�
 	assert.equal(response.status, 200);
 	assert.deepEqual(await response.json(), { runId: "run-server", status: "running", enqueued: true });
 	assert.equal(create.mock.callCount(), 0);
+});
+
+const baseInput = { bot: { id: "bot-1", name: "Lia", description: "vendas", conversationId: "conv-1" }, userId: "user-a", queue: {} as never, envDefault: "env/model" };
+const okDeps = {
+	findExisting: async () => null,
+	resolveModel: async () => ({ model: "env/model", auto: false }),
+	checkModel: async () => null,
+	contextLength: () => 200_000,
+	maskMessages: (async (_user: string, messages: unknown[]) => messages) as never,
+	enqueue: async () => true,
+};
+
+test("startBotOnboarding: modelo sem chave ou fora do catálogo não cria run e devolve skipped com motivo", async () => {
+	mock.method(console, "warn", () => undefined);
+	let created = 0;
+	const result = await startBotOnboarding(baseInput, {
+		...okDeps,
+		checkModel: async () => ({ error: "OPENROUTER_API_KEY is not configured on the API server" }),
+		createRun: (async () => { created += 1; return { id: "x" }; }) as never,
+	});
+	assert.deepEqual(result, { outcome: "skipped", reason: "model_unavailable" });
+	assert.equal(created, 0);
+});
+
+test("checkRunModel (o do POST /v1/runs): sem chave OpenRouter e catálogo indisponível bloqueiam; modelo bom passa", async () => {
+	const { checkRunModel } = await import("./runs.js");
+	const ok = async () => ({});
+	assert.equal(await checkRunModel("u", "google/gemini-2.5-flash", { validateModel: ok, openRouterApiKey: "k" }), null);
+	assert.equal((await checkRunModel("u", "google/gemini-2.5-flash", { validateModel: ok, openRouterApiKey: undefined }))?.status, 503);
+	assert.equal((await checkRunModel("u", "x/y", { validateModel: async () => ({ status: 400, error: "unknown" }), openRouterApiKey: "k" }))?.status, 400);
+	assert.equal((await checkRunModel("u", "x/y", { validateModel: async () => ({ warning: "catalog down" }), openRouterApiKey: "k" }))?.status, 409);
+});
+
+test("startBotOnboarding passa contextLength e mascara segredos nas mensagens", async () => {
+	const created: Array<{ contextLength?: number | null; request: { messages: Array<{ role: string; content: string }> } }> = [];
+	await startBotOnboarding(baseInput, {
+		...okDeps,
+		maskMessages: (async (_user: string, messages: Array<{ role: string; content: string }>) =>
+			messages.map((m) => (m.role === "user" ? { ...m, content: m.content.replace("vendas", "[segredo]") } : m))) as never,
+		createRun: (async (input: never) => { created.push(input); return { id: "run-1" }; }) as never,
+	});
+	assert.equal(created[0]?.contextLength, 200_000);
+	assert.match(created[0]!.request.messages[1]!.content, /\[segredo\]/);
+	assert.doesNotMatch(created[0]!.request.messages[1]!.content, /vendas/);
+});
+
+test("startBotOnboarding: o idioma resolvido entra no prompt do run", async () => {
+	const created: Array<{ request: { messages: Array<{ role: string; content: string }> } }> = [];
+	await startBotOnboarding({ ...baseInput, language: "en-US" }, {
+		...okDeps,
+		createRun: (async (input: never) => { created.push(input); return { id: "run-1" }; }) as never,
+	});
+	assert.match(created[0]!.request.messages[0]!.content, /## Language/);
+	assert.match(created[0]!.request.messages[0]!.content, /Always reply to the user in /);
+});
+
+test("POST /v1/bots passa ao onboarding o idioma do bot, ou o do navegador no modo auto, ou pt-BR", async () => {
+	stubBotCreate();
+	const languages: unknown[] = [];
+	const app = appFor("user-a", async (input) => { languages.push((input as { language?: unknown }).language); return { outcome: "skipped", reason: "x" }; });
+	const send = (body: Row, acceptLanguage?: string) => app.request("/v1/bots", {
+		method: "POST",
+		headers: { "Content-Type": "application/json", ...(acceptLanguage ? { "Accept-Language": acceptLanguage } : {}) },
+		body: JSON.stringify(body),
+	});
+	await send({ name: "A", language: "auto" }, "en-US,en;q=0.9");
+	await send({ name: "B", language: "auto" });
+	await send({ name: "C", language: "es-ES" }, "en-US");
+	assert.deepEqual(languages, ["en-US", "pt-BR", "es-ES"]);
+});
+
+function runsApp(userId: string) {
+	const app = new Hono();
+	app.use("*", async (c, next) => {
+		(c as unknown as { set: (k: string, v: unknown) => void }).set("session", { user: { id: userId } });
+		await next();
+	});
+	app.route("/", createRunRoutes({ agentRunQueue: { add: async () => ({}), getJob: async () => undefined } } as never));
+	return app;
+}
+const runBody = (extra: Row) => JSON.stringify({
+	messages: [{ role: "user", content: "{}" }], botId: "bot-1", conversationId: "conv-1", origin: "chat",
+	objective: "[bot-created] Perguntas de onboarding do Lia", silent: true, ...extra,
+});
+const postRun = (app: ReturnType<typeof runsApp>, body: string) =>
+	app.request("/v1/runs", { method: "POST", headers: { "Content-Type": "application/json" }, body });
+
+function stubOwned(runs: Row[]) {
+	stubMethod(prisma.conversation, "findFirst", async () => ({ id: "conv-1" }));
+	stubMethod(prisma.bot, "findFirst", async ({ where }: { where: { id?: string; memberIds?: unknown } }) =>
+		where.id === "bot-1" && !where.memberIds ? { id: "bot-1", conversationId: "conv-1" } : null);
+	return stubMethod(prisma.agentRun, "findMany", async () => runs);
+}
+
+test("POST /v1/runs: guarda não bloqueia conversa comum (não silenciosa) que começa com [bot-created]", async () => {
+	const findMany = stubOwned([{ id: "run-server", status: "running", budgetJson: null, jobEnqueuedAt: null }]);
+	const response = await postRun(runsApp("user-a"), runBody({ silent: false }));
+	assert.notDeepEqual(await response.json().catch(() => null), { runId: "run-server", status: "running", enqueued: true });
+	assert.equal(findMany.mock.callCount(), 0, "nem consulta o guarda");
+});
+
+test("POST /v1/runs: run digitado pelo dono (humanTurn) com o marcador não conta como onboarding", async () => {
+	stubOwned([{ id: "run-typed", status: "completed", budgetJson: { humanTurn: true }, jobEnqueuedAt: null }]);
+	const response = await postRun(runsApp("user-a"), runBody({}));
+	const body = (await response.json().catch(() => ({}))) as { runId?: string };
+	assert.notEqual(body.runId, "run-typed");
+});
+
+test("POST /v1/runs: sem onboarding existente o pedido segue adiante (não é respondido pelo guarda)", async () => {
+	const findMany = stubOwned([]);
+	const response = await postRun(runsApp("user-a"), runBody({}));
+	assert.equal(findMany.mock.callCount(), 1);
+	assert.notEqual(response.status, 200);
+});
+
+test("POST /v1/runs: o 200 do guarda reflete o job (queued sem job = enqueued:false)", async () => {
+	stubOwned([{ id: "run-q", status: "queued", budgetJson: null, jobEnqueuedAt: null }]);
+	const response = await postRun(runsApp("user-a"), runBody({}));
+	assert.equal(response.status, 200);
+	assert.deepEqual(await response.json(), { runId: "run-q", status: "queued", enqueued: false });
+});
+
+test("POST /v1/runs: outro dono recebe 404 e nunca vê o run de onboarding", async () => {
+	stubMethod(prisma.conversation, "findFirst", async ({ where }: { where: { userId?: string } }) => (where.userId === "user-a" ? { id: "conv-1" } : null));
+	stubMethod(prisma.bot, "findFirst", async ({ where }: { where: { ownerId?: string } }) => (where.ownerId === "user-a" ? { id: "bot-1", conversationId: "conv-1" } : null));
+	const findMany = stubMethod(prisma.agentRun, "findMany", async () => [{ id: "run-server", status: "running", budgetJson: null, jobEnqueuedAt: null }]);
+	const response = await postRun(runsApp("user-b"), runBody({}));
+	assert.equal(response.status, 404);
+	assert.equal(findMany.mock.callCount(), 0);
 });

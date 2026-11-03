@@ -15,6 +15,8 @@ import {
 	DELEGATE_MODEL_MAX_CHARS,
 	parseModelRef,
 	isValidTimeZone,
+	pickLanguageFromAcceptLanguage,
+	resolveReplyLanguage,
 	parseClockMinutes,
 	PROACTIVE_MAX_PER_DAY_MAX,
 	PROACTIVE_MAX_PER_DAY_MIN,
@@ -240,7 +242,7 @@ export function createBotRoutes(
 		isKnownModel?: (id: string) => Promise<boolean | null>;
 		validateModel?: (userId: string, model: string) => Promise<ModelValidation>;
 		/** Fila de runs e modelo padrão do ambiente para o onboarding do bot novo; sem fila, não há onboarding. */
-		onboarding?: { queue: RunQueue | null; envDefault: string; start?: typeof startBotOnboarding };
+		onboarding?: { queue: RunQueue | null; envDefault: string; openRouterApiKey?: string; start?: typeof startBotOnboarding };
 	} = {},
 ) {
 	const startOnboarding = deps.onboarding?.start ?? startBotOnboarding;
@@ -306,7 +308,9 @@ export function createBotRoutes(
 			const bot = await createBot(input, userId);
 			// Onboarding no servidor: só bot comum (grupo não), e `onboarding:false` desliga. Falha aqui nunca derruba o 201.
 			if (wantsOnboarding(json) && !(input.memberIds && input.memberIds.length > 0) && deps.onboarding) {
-				await startOnboarding({ bot, userId, queue: deps.onboarding.queue, envDefault: deps.onboarding.envDefault }).catch(() => undefined);
+				// Idioma: o do bot; no modo auto, o do navegador (o evento é JSON em inglês e não diz o idioma do usuário).
+				const language = resolveReplyLanguage({ setting: bot.language, accountLocale: pickLanguageFromAcceptLanguage(c.req.header("accept-language")), hasUserMessage: false }).language;
+				await startOnboarding({ bot, userId, queue: deps.onboarding.queue, envDefault: deps.onboarding.envDefault, openRouterApiKey: deps.onboarding.openRouterApiKey, language }).catch(() => undefined);
 			}
 			return c.json({ ...bot, ...(validation.warning ? { warnings: [validation.warning] } : {}) }, 201);
 		} catch (error) {
