@@ -7,7 +7,6 @@ import { PendingBotPatches } from "@/lib/home-patches";
 import type { HomeBot, SectionRef } from "@/lib/home-types";
 import { snapshotWithoutSection } from "@/lib/section-actions";
 import { fetchHome, type HomeSnapshot, type SyncFailure } from "@/lib/home-sync";
-import { PREVIEW_HOME_SNAPSHOT, previewHomeEnabled } from "@/lib/preview-home";
 import { useAtlasSession } from "@/lib/atlas-session";
 
 export type HomeData = {
@@ -76,12 +75,6 @@ export function HomeDataProvider({ children }: { children: React.ReactNode }) {
 			}),
 		[],
 	);
-
-	React.useEffect(() => {
-		if (!previewHomeEnabled()) return;
-		setSnapshot(PREVIEW_HOME_SNAPSHOT);
-		setError(null);
-	}, []);
 
 	// Outra conta ou outro servidor: o que estava em voo morre e nada dele chega à tela nem ao disco.
 	React.useEffect(() => {

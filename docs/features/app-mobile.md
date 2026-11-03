@@ -243,7 +243,6 @@ Sem custo de infraestrutura nem tokens na etapa 0. EAS Update e Build (etapa 2) 
 - `pnpm exec turbo typecheck`.
 - `pnpm --filter @workspace/mobile export:web` e abrir `apps/mobile/dist` (prévias em 390x844, tema escuro e claro).
 - No aparelho: `pnpm --filter @workspace/mobile start` e abrir no Expo Go (celular e computador na mesma rede).
-- Prévia da home sem servidor (só desenvolvimento): `EXPO_PUBLIC_PREVIEW_HOME=1 pnpm --filter @workspace/mobile exec expo start --web` abre a home com dado de mentira (`lib/preview-home.ts`; exige `__DEV__`).
 
 ## Link do viewer da VM para a WebView (API)
 

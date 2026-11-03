@@ -5,6 +5,8 @@ import { ChevronDownIcon, SendIcon } from "@/components/icons";
 import { Input } from "@/components/ui/input";
 import { Text } from "@/components/ui/text";
 import { formatListDate, NO_SECTION_KEY, type HomeSection } from "@/lib/home-list";
+import { chatChrome } from "@/lib/chat-surface";
+import { useAppColorScheme } from "@/lib/use-theme";
 import { BotAvatar } from "./bot-avatar";
 
 const ROW_BODY = 48;
@@ -66,6 +68,20 @@ export function SectionBlock({
 }) {
 	const editable = section.key !== NO_SECTION_KEY && Boolean(onSectionMenu);
 	const draftName = React.useRef(section.title);
+	// Enviar pelo teclado tira o foco e dispara o onBlur logo depois: só o primeiro dos dois salva.
+	const settled = React.useRef(false);
+	React.useEffect(() => {
+		if (!renaming) return;
+		draftName.current = section.title;
+		settled.current = false;
+	}, [renaming, section.title]);
+	const settle = (action: () => void) => {
+		if (settled.current) return;
+		settled.current = true;
+		action();
+	};
+	const scheme = useAppColorScheme();
+	const chrome = chatChrome(scheme);
 	return (
 		<View>
 			{renaming ? (
@@ -77,12 +93,15 @@ export function SectionBlock({
 						onChangeText={(text) => {
 							draftName.current = text;
 						}}
-						onSubmitEditing={() => onCommitRename?.(draftName.current)}
-						onBlur={() => {
-							if (draftName.current.trim() === section.title.trim()) onCancelRename?.();
-							else onCommitRename?.(draftName.current);
-						}}
-						className="h-11 px-4"
+						onSubmitEditing={() => settle(() => onCommitRename?.(draftName.current))}
+						onBlur={() =>
+							settle(() => {
+								if (draftName.current.trim() === section.title.trim()) onCancelRename?.();
+								else onCommitRename?.(draftName.current);
+							})
+						}
+						style={{ backgroundColor: chrome.fill, borderColor: chrome.edge }}
+						className="h-11 rounded-full border px-4"
 						accessibilityLabel="Nome da seção"
 					/>
 				</View>

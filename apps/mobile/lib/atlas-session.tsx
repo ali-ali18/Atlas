@@ -8,7 +8,6 @@ import { canMarkSynced, phaseOf, type AccessPhase } from "@/lib/auth-flow";
 import { clearHomeCacheLogged } from "@/lib/home-storage";
 import { clearAllBotRuns } from "@/lib/run-store";
 import { clearServerUrl, loadServerUrl, saveServerUrl } from "@/lib/server-store";
-import { previewHomeEnabled } from "@/lib/preview-home";
 
 export type AtlasSession = {
 	phase: AccessPhase;
@@ -54,12 +53,6 @@ export function AtlasSessionProvider({ children }: { children: React.ReactNode }
 	const [synced, setSynced] = React.useState(false);
 
 	React.useEffect(() => {
-		if (previewHomeEnabled()) {
-			setServerUrl("http://127.0.0.1:8787");
-			setLoaded(true);
-			setSynced(true);
-			return;
-		}
 		void loadServerUrl().then((saved) => {
 			setServerUrl(saved);
 			setLoaded(true);
@@ -85,8 +78,8 @@ export function AtlasSessionProvider({ children }: { children: React.ReactNode }
 	const email = reading?.email ?? null;
 	const name = reading?.name ?? null;
 	const image = reading?.image ?? null;
-	const pending = previewHomeEnabled() ? false : Boolean(client) && (reading ? reading.pending : true);
-	const hasSession = previewHomeEnabled() || email !== null;
+	const pending = Boolean(client) && (reading ? reading.pending : true);
+	const hasSession = email !== null;
 
 	// Saída em andamento: segura qualquer `markSynced` de um carregamento antigo até a próxima sessão de pé.
 	const signingOut = React.useRef(false);
@@ -161,9 +154,9 @@ export function AtlasSessionProvider({ children }: { children: React.ReactNode }
 			onSignOut,
 			serverUrl,
 			client,
-			email: previewHomeEnabled() ? "preview@atlas.local" : email,
-			name: previewHomeEnabled() ? "Prévia" : name,
-			image: previewHomeEnabled() ? null : image,
+			email,
+			name,
+			image,
 			justSignedIn,
 			markSignedIn,
 			consumeJustSignedIn,
