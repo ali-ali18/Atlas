@@ -8,11 +8,14 @@ import { PinnedGrid } from "@/components/home/pinned-grid";
 import { SearchFooter } from "@/components/home/search-footer";
 import { SectionBlock } from "@/components/home/section-block";
 import { HomeBotMenu } from "@/components/home/home-bot-menu";
+import { HomeSectionMenu, commitSectionRename, type SectionMenuTarget } from "@/components/home/home-section-menu";
+import { SectionRenameSheet } from "@/components/home/section-rename-sheet";
 import { SoonSheet } from "@/components/home/soon-sheet";
 import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
 import { useAtlasSession } from "@/lib/atlas-session";
 import { useHomeData } from "@/lib/home-data";
+import { NO_SECTION_KEY } from "@/lib/home-list";
 import { staleNotice } from "@/lib/home-copy";
 import { buildHome, buildSearchIndex } from "@/lib/home-list";
 import { themeColor } from "@/lib/theme";
@@ -30,12 +33,14 @@ type Soon = "novo" | "apps" | null;
 export default function HomeScreen() {
 	const router = useRouter();
 	const scheme = useAppColorScheme();
-	const { name, email, image, signOut, changeServer } = useAtlasSession();
-	const { snapshot, refreshing, error, refresh } = useHomeData();
+	const { name, email, image, signOut, changeServer, apiFetch } = useAtlasSession();
+	const { snapshot, refreshing, error, refresh, applySectionUpdate } = useHomeData();
 	const [query, setQuery] = React.useState("");
 	const [collapsed, setCollapsed] = React.useState<Record<string, boolean>>({});
 	const [soon, setSoon] = React.useState<Soon>(null);
 	const [menuBot, setMenuBot] = React.useState<HomeBot | null>(null);
+	const [menuSection, setMenuSection] = React.useState<SectionMenuTarget | null>(null);
+	const [renamingSection, setRenamingSection] = React.useState<SectionMenuTarget | null>(null);
 	// "agora" muda com cada atualização: a data da linha ("agora", "14:05") acompanha.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: snapshot renova o relógio de propósito
 	const now = React.useMemo(() => new Date(), [snapshot]);
@@ -93,6 +98,11 @@ export default function HomeScreen() {
 						onToggle={() => setCollapsed((previous) => ({ ...previous, [section.key]: !previous[section.key] }))}
 						onOpen={open}
 						onMenu={setMenuBot}
+						onSectionMenu={
+							section.key === NO_SECTION_KEY
+								? undefined
+								: (target) => setMenuSection({ id: target.key, name: target.title })
+						}
 						showEmpty={!searching}
 					/>
 				))}
@@ -116,6 +126,20 @@ export default function HomeScreen() {
 				<SearchFooter query={query} onChange={setQuery} onGrid={() => setSoon("apps")} />
 			</KeyboardAvoidingView>
 			<HomeBotMenu bot={menuBot} onClose={() => setMenuBot(null)} />
+			<HomeSectionMenu
+				section={menuSection}
+				onClose={() => setMenuSection(null)}
+				onStartRename={setRenamingSection}
+			/>
+			<SectionRenameSheet
+				section={renamingSection}
+				onClose={() => setRenamingSection(null)}
+				onSave={(name) => {
+					const target = renamingSection;
+					setRenamingSection(null);
+					if (target) commitSectionRename(apiFetch, { applySectionUpdate, refresh }, target.id, target.name, name);
+				}}
+			/>
 			<SoonSheet open={soon !== null} title={soon === "apps" ? "Apps" : "Novo chat"} onClose={() => setSoon(null)} />
 		</SafeAreaView>
 	);
