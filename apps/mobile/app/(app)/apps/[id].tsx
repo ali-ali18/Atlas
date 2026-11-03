@@ -1,5 +1,6 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
 import * as React from "react";
+import { AppState } from "react-native";
 import * as WebBrowser from "expo-web-browser";
 import { AppDetailView, type AppDetailLoad } from "@/components/apps/app-detail-view";
 import { type AppDetail, composioDetail, customDetail, isComposioConnected, isConnectionConnected, isNativeConnected, nativeDetail } from "@/lib/app-detail";
@@ -8,9 +9,17 @@ import { parseAppRef } from "@/lib/apps";
 import { browserUrl, type ConnectResult } from "@/lib/apps-parse";
 import { useAtlasSession } from "@/lib/atlas-session";
 import { isUnauthorized } from "@/lib/chat-api";
+import type { AppStateSource } from "@/lib/browser-return";
 import { runBrowserConnect } from "@/lib/connect-flow";
 import { useAppsData } from "@/lib/use-apps-data";
 
+/** No Android o navegador só "fecha" para nós quando o app volta ao primeiro plano (ver `lib/browser-return.ts`). */
+const APP_STATE: AppStateSource = {
+	subscribe: (listener) => {
+		const subscription = AppState.addEventListener("change", listener);
+		return () => subscription.remove();
+	},
+};
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 /**
@@ -99,6 +108,7 @@ export default function AppDetailScreen() {
 				if (mounted.current) setWaiting(true);
 				const outcome = await runBrowserConnect(result.url, {
 					open: (url) => WebBrowser.openBrowserAsync(url),
+					appState: APP_STATE,
 					dismiss: () => void WebBrowser.dismissBrowser(),
 					check: () => checkConnected(detail),
 					now: Date.now,

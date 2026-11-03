@@ -1,6 +1,8 @@
 // Conectar um aplicativo pelo navegador: abre o login do provedor e fica conferindo (a cada 1 s, até 90 s) se a conexão
 // ficou ativa. Navegador fechado sem conectar = a pessoa desistiu: para sem erro. Relógio e espera são injetados.
 
+import { type AppStateSource, createBrowserCloseTracker, NEVER_CHANGES } from "./browser-return";
+
 export const POLL_INTERVAL_MS = 1000;
 export const POLL_TIMEOUT_MS = 90_000;
 
@@ -17,8 +19,10 @@ export function decidePoll(input: { connected: boolean; browserClosed: boolean; 
 export type ConnectOutcome = "connected" | "closed" | "timeout";
 
 export type ConnectFlowDeps = {
-	/** Abre o navegador; resolve quando ele fecha. */
-	open: (url: string) => Promise<unknown>;
+	/** Abre o navegador. iOS resolve ao fechar; Android resolve ao abrir (`type: "opened"`): ver `browser-return.ts`. */
+	open: (url: string) => Promise<{ type?: unknown } | null | undefined | void>;
+	/** AppState (injetado): no Android é ele que avisa que o navegador fechou. Assinado antes de abrir. */
+	appState?: AppStateSource;
 	/** Fecha o navegador (depois de conectar). */
 	dismiss: () => void;
 	/** Lê o servidor: a conexão já está ativa? Falha de rede conta como "ainda não". */
@@ -30,20 +34,24 @@ export type ConnectFlowDeps = {
 };
 
 export async function runBrowserConnect(url: string, deps: ConnectFlowDeps): Promise<ConnectOutcome> {
-	let closed = false;
+	const tracker = createBrowserCloseTracker(deps.appState ?? NEVER_CHANGES);
 	const startedAt = deps.now();
 	void deps.open(url).then(
-		() => {
-			closed = true;
-		},
-		() => {
-			closed = true;
-		},
+		(result) => tracker.settle(result ?? null),
+		() => tracker.settle(null),
 	);
+	try {
+		return await poll(deps, tracker.closed, startedAt);
+	} finally {
+		tracker.dispose();
+	}
+}
+
+async function poll(deps: ConnectFlowDeps, isClosed: () => boolean, startedAt: number): Promise<ConnectOutcome> {
 	for (;;) {
 		await deps.sleep(deps.intervalMs ?? POLL_INTERVAL_MS);
 		// Lê "fechou" antes da conferência: se fechou, esta é a conferência final (o servidor pode ter acabado de receber o login).
-		const browserClosed = closed;
+		const browserClosed = isClosed();
 		const connected = await deps.check().catch(() => false);
 		const decision = decidePoll({ connected, browserClosed, startedAt, now: deps.now(), timeoutMs: deps.timeoutMs });
 		if (decision === "continue") continue;

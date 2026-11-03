@@ -75,4 +75,63 @@ describe("runBrowserConnect", () => {
 		const outcome = await runBrowserConnect("https://x", { open: () => Promise.reject(new Error("x")), dismiss: () => {}, check: async () => false, now, sleep });
 		expect(outcome).toBe("closed");
 	});
+
+	describe("Android: openBrowserAsync resolve ao abrir", () => {
+		function appState() {
+			let listener: (state: string) => void = () => {};
+			let unsubscribed = false;
+			return { source: { subscribe: (cb: (state: string) => void) => { listener = cb; return () => void (unsubscribed = true); } }, emit: (state: string) => listener(state), wasUnsubscribed: () => unsubscribed };
+		}
+		it("'opened' + background + active = fechado, com conferência final", async () => {
+			const { now, sleep } = clock();
+			const app = appState();
+			let ticks = 0;
+			const check = vi.fn(async () => false);
+			const outcome = await runBrowserConnect("https://x", {
+				open: async () => ({ type: "opened" }),
+				appState: app.source,
+				dismiss: () => {},
+				check,
+				now,
+				sleep: async (ms) => {
+					await sleep(ms);
+					ticks += 1;
+					if (ticks === 2) app.emit("background");
+					if (ticks === 3) app.emit("active");
+				},
+			});
+			expect(outcome).toBe("closed");
+			// Não parou no 1º segundo: esperou o retorno ao app e ainda conferiu uma última vez.
+			expect(check.mock.calls.length).toBeGreaterThanOrEqual(3);
+			expect(app.wasUnsubscribed()).toBe(true);
+		});
+		it("'opened' que volta conectado: conectado", async () => {
+			const { now, sleep } = clock();
+			const app = appState();
+			let ticks = 0;
+			const outcome = await runBrowserConnect("https://x", { open: async () => ({ type: "opened" }), appState: app.source, dismiss: () => {}, check: async () => ticks >= 2, now, sleep: async (ms) => { await sleep(ms); ticks += 1; if (ticks === 1) app.emit("background"); if (ticks === 2) app.emit("active"); } });
+			expect(outcome).toBe("connected");
+		});
+		it("'opened' sem voltar ao app continua até o timeout", async () => {
+			const { now, sleep } = clock();
+			const app = appState();
+			const outcome = await runBrowserConnect("https://x", { open: async () => ({ type: "opened" }), appState: app.source, dismiss: () => {}, check: async () => false, now, sleep });
+			expect(outcome).toBe("timeout");
+			expect(now()).toBe(POLL_TIMEOUT_MS);
+		});
+		it("'active' sem ter saído do app não conta como retorno", async () => {
+			const { now, sleep } = clock();
+			const app = appState();
+			app.emit("active");
+			const outcome = await runBrowserConnect("https://x", { open: async () => ({ type: "opened" }), appState: app.source, dismiss: () => {}, check: async () => false, now, sleep: async (ms) => { app.emit("active"); await sleep(ms); } });
+			expect(outcome).toBe("timeout");
+		});
+		it("'cancel' e 'dismiss' (iOS) = fechado", async () => {
+			for (const type of ["cancel", "dismiss"]) {
+				const { now, sleep } = clock();
+				const outcome = await runBrowserConnect("https://x", { open: async () => ({ type }), dismiss: () => {}, check: async () => false, now, sleep });
+				expect(outcome).toBe("closed");
+			}
+		});
+	});
 });
