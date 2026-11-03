@@ -6,26 +6,34 @@ import { useAtlasSession } from "./atlas-session";
 import { fetchCatalog } from "./catalog-api";
 import type { CatalogBot } from "./catalog";
 import { isUnauthorized } from "./chat-api";
+import { withTimeout } from "./with-timeout";
 
 export type AppsData = {
 	status: "loading" | "ready" | "error";
 	error: string | null;
 	entries: NativeConnector[];
 	connections: McpConnection[];
+	/** Ainda lendo o estado do Composio (status, conexões, categorias): a tela já aparece, a seção de apps espera. */
+	composioLoading: boolean;
 	composioConfigured: boolean;
 	/** Não deu para ler o estado do Composio (status ou conexões): erro, não "desligado" nem lista vazia. */
 	composioFailed: boolean;
 	composioConnections: ComposioConnection[];
 	composioCategories: ComposioCategory[];
-	/** `null` = o catálogo de bots não carregou (a seção some, sem erro). */
+	/** `null` = o catálogo de bots ainda não chegou ou não carregou (a seção aparece quando chegar). */
 	bots: CatalogBot[] | null;
 };
 
-const EMPTY: AppsData = { status: "loading", error: null, entries: [], connections: [], composioConfigured: false, composioFailed: false, composioConnections: [], composioCategories: [], bots: null };
+const EMPTY: AppsData = { status: "loading", error: null, entries: [], connections: [], composioLoading: true, composioConfigured: false, composioFailed: false, composioConnections: [], composioCategories: [], bots: null };
+
+/** Limite de cada pedido: uma parte lenta (Composio, catálogo remoto de bots) não prende a tela girando. */
+export const APPS_REQUEST_TIMEOUT_MS = 15_000;
 
 /**
- * Tudo o que a tela de aplicativos e o detalhe leem: catálogo nativo, conexões, estado do Composio e bots. O catálogo
- * nativo é o único obrigatório; o resto é "se vier, melhor". `reload()` relê em silêncio (sem voltar ao "carregando").
+ * Tudo o que a tela de aplicativos e o detalhe leem, em três partes independentes que aparecem conforme chegam:
+ * (1) catálogo nativo + conexões, o único obrigatório (libera a tela); (2) estado do Composio; (3) bots do catálogo.
+ * Antes a tela só aparecia quando as três terminavam, e o Composio ou o catálogo remoto lentos a deixavam girando.
+ * Cada pedido tem limite de tempo. `reload()` relê em silêncio (sem voltar ao "carregando").
  */
 export function useAppsData(): AppsData & { reload: () => Promise<void> } {
 	const { apiFetch, signOut } = useAtlasSession();
@@ -45,50 +53,65 @@ export function useAppsData(): AppsData & { reload: () => Promise<void> } {
 	const reload = React.useCallback(async () => {
 		const mine = ++generation.current;
 		const { apiFetch: fetcher } = latest.current;
+		const timed = <T,>(promise: Promise<T>) => withTimeout(promise, APPS_REQUEST_TIMEOUT_MS);
+		const current = () => mounted.current && mine === generation.current;
+		const merge = (patch: Partial<AppsData>) => {
+			if (current()) setData((previous) => ({ ...previous, ...patch }));
+		};
+		const unauthorized = (reason: unknown) => {
+			if (!isUnauthorized(reason)) return false;
+			void latest.current.signOut();
+			return true;
+		};
 		const soft = <T,>(promise: Promise<T>, fallback: T): Promise<T> =>
 			promise.catch((reason) => {
 				if (isUnauthorized(reason)) throw reason;
 				return fallback;
 			});
-		try {
-			const [entries, connections, composioStatus, bots] = await Promise.all([
-				fetchMcpCatalog(fetcher),
-				soft(fetchMcpConnections(fetcher), [] as McpConnection[]),
-				fetchComposioConfigured(fetcher).then(
-					(configured) => ({ configured, failed: false }),
-					(reason) => {
-						if (isUnauthorized(reason)) throw reason;
-						return { configured: false, failed: true };
-					},
-				),
-				soft(fetchCatalog(fetcher), null),
-			]);
-			let composioConnections: ComposioConnection[] = [];
-			let composioCategories: ComposioCategory[] = [];
-			let composioFailed = composioStatus.failed;
-			if (composioStatus.configured) {
-				// Sem saber o que já está conectado, melhor mostrar erro do que oferecer "Conectar" em dobro.
-				const [connectionsResult, categories] = await Promise.all([
-					fetchComposioConnections(fetcher).then(
+
+		// (2) Composio: não segura a tela. Sem saber o que já está conectado, melhor erro do que "Conectar" em dobro.
+		const composio = (async () => {
+			try {
+				const configured = await timed(fetchComposioConfigured(fetcher));
+				if (!configured) {
+					merge({ composioLoading: false, composioConfigured: false, composioFailed: false, composioConnections: [], composioCategories: [] });
+					return;
+				}
+				const [connections, categories] = await Promise.all([
+					timed(fetchComposioConnections(fetcher)).then(
 						(list) => list as ComposioConnection[] | null,
 						(reason) => {
 							if (isUnauthorized(reason)) throw reason;
 							return null;
 						},
 					),
-					fetchComposioCategories(fetcher),
+					// Categorias só enfeitam os chips: falhar não é erro.
+					soft(timed(fetchComposioCategories(fetcher)), [] as ComposioCategory[]),
 				]);
-				if (connectionsResult) composioConnections = connectionsResult;
-				else composioFailed = true;
-				composioCategories = categories;
+				merge({ composioLoading: false, composioConfigured: true, composioFailed: connections === null, composioConnections: connections ?? [], composioCategories: categories });
+			} catch (reason) {
+				if (unauthorized(reason)) return;
+				merge({ composioLoading: false, composioConfigured: false, composioFailed: true });
 			}
-			if (mounted.current && mine === generation.current) setData({ status: "ready", error: null, entries, connections, composioConfigured: composioStatus.configured, composioFailed, composioConnections, composioCategories, bots });
+		})();
+
+		// (3) Bots do catálogo: aparecem quando chegarem; falha só esconde a seção.
+		const bots = soft(timed(fetchCatalog(fetcher)), null).then(
+			(list) => merge({ bots: list }),
+			(reason) => void unauthorized(reason),
+		);
+
+		// (1) Nativos + conexões: liberam a tela.
+		try {
+			const [entries, connections] = await Promise.all([timed(fetchMcpCatalog(fetcher)), soft(timed(fetchMcpConnections(fetcher)), [] as McpConnection[])]);
+			merge({ status: "ready", error: null, entries, connections });
 		} catch (reason) {
-			if (isUnauthorized(reason)) void latest.current.signOut();
-			if (mine !== generation.current) return;
-			// Já havia dados: a falha de uma releitura não derruba a tela.
-			if (mounted.current) setData((current) => (current.status === "ready" ? current : { ...EMPTY, status: "error", error: appsErrorText(reason, "list") }));
+			if (!unauthorized(reason) && current()) {
+				// Já havia dados: a falha de uma releitura não derruba a tela.
+				setData((previous) => (previous.status === "ready" ? previous : { ...previous, status: "error", error: appsErrorText(reason, "list") }));
+			}
 		}
+		await Promise.all([composio, bots]);
 	}, []);
 	return { ...data, reload };
 }
@@ -128,7 +151,7 @@ export function useComposioList(options: { enabled: boolean; query: string; cate
 			return;
 		}
 		setState({ status: "loading" });
-		fetchComposioToolkits(latest.current.apiFetch, { search: query, category, limit: PAGE }).then(
+		withTimeout(fetchComposioToolkits(latest.current.apiFetch, { search: query, category, limit: PAGE }), APPS_REQUEST_TIMEOUT_MS).then(
 			(page) => {
 				if (mine !== generation.current) return;
 				cursor.current = page.nextCursor;
@@ -149,7 +172,7 @@ export function useComposioList(options: { enabled: boolean; query: string; cate
 		if (!next) return;
 		cursor.current = null;
 		setState((current) => (current.status === "ready" ? { ...current, loadingMore: true } : current));
-		fetchComposioToolkits(latest.current.apiFetch, { search: query, category, cursor: next, limit: PAGE }).then(
+		withTimeout(fetchComposioToolkits(latest.current.apiFetch, { search: query, category, cursor: next, limit: PAGE }), APPS_REQUEST_TIMEOUT_MS).then(
 			(page) => {
 				if (mine !== generation.current) return;
 				cursor.current = page.nextCursor;

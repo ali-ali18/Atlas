@@ -74,12 +74,14 @@ export default function AppDetailScreen() {
 			const connection = data.connections.find((item) => item.id === ref.id);
 			return connection ? customDetail(connection) : null;
 		}
+		// Sem saber ainda o que já está conectado no Composio, não oferece "Conectar" (evita conexão em dobro).
+		if (data.composioLoading) return null;
 		return composioDetail({ slug: ref.id, name: name || ref.id, description: description ?? "", logo: logo ?? null }, data.composioConnections, data.composioConfigured, data.composioFailed);
-	}, [ref, data.status, data.entries, data.connections, data.composioConnections, data.composioConfigured, data.composioFailed, name, description, logo]);
+	}, [ref, data.status, data.entries, data.connections, data.composioConnections, data.composioConfigured, data.composioFailed, data.composioLoading, name, description, logo]);
 
 	let load: AppDetailLoad;
 	if (!ref) load = { status: "missing" };
-	else if (data.status === "loading") load = { status: "loading" };
+	else if (data.status === "loading" || (ref.kind === "composio" && data.composioLoading)) load = { status: "loading" };
 	else if (data.status === "error") load = { status: "error", message: data.error ?? "" };
 	else load = detail ? { status: "ready", detail } : { status: "missing" };
 

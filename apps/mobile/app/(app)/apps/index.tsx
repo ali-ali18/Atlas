@@ -1,7 +1,7 @@
 import { useFocusEffect, useRouter } from "expo-router";
 import * as React from "react";
 import { AppsView } from "@/components/apps/apps-view";
-import { type AppItem, type ComposioState, appRouteParams, buildAppsRows, buildChips, composioCategoryOf, connectedItems } from "@/lib/apps";
+import { type AppItem, type ComposioState, appRouteParams, buildAppsRows, buildChips, composioCategoryOf, composioWantsMore, connectedItems } from "@/lib/apps";
 import { useAppsData, useComposioList, useDebounced } from "@/lib/use-apps-data";
 import { useInstalledSlugs } from "@/lib/use-installed-slugs";
 
@@ -14,7 +14,7 @@ export default function AppsScreen() {
 	const [chip, setChip] = React.useState("");
 	// O filtro local responde na hora; o servidor (Composio) só é perguntado depois de uma pausa na digitação.
 	const serverQuery = useDebounced(query.trim(), 350);
-	const composio = useComposioList({ enabled: data.status === "ready" && data.composioConfigured && !data.composioFailed, query: serverQuery, category: composioCategoryOf(chip) });
+	const composio = useComposioList({ enabled: data.status === "ready" && !data.composioLoading && data.composioConfigured && !data.composioFailed, query: serverQuery, category: composioCategoryOf(chip) });
 
 	const { reload } = data;
 	// Ao abrir e ao voltar do detalhe (depois de conectar ou desconectar), o estado dos botões é relido em silêncio.
@@ -25,7 +25,7 @@ export default function AppsScreen() {
 	);
 
 	// Estado do Composio que a tela mostra: falha ao ler o status/conexões é erro (com "Tentar de novo"), não "desligado".
-	const composioState: ComposioState = data.composioFailed ? { status: "error" } : composio.state;
+	const composioState: ComposioState = data.composioLoading ? { status: "loading" } : data.composioFailed ? { status: "error" } : composio.state;
 	const rows = React.useMemo(
 		() => buildAppsRows({ entries: data.entries, connections: data.connections, composioConnections: data.composioConnections, composioLogos: composio.logos, composio: composioState, bots: data.bots, query, chip }),
 		[data.entries, data.connections, data.composioConnections, data.bots, composio.logos, composioState, query, chip],
@@ -58,12 +58,15 @@ export default function AppsScreen() {
 			onQuery={setQuery}
 			connectedCount={connectedCount}
 			installed={installed}
-			composioLoading={composioState.status === "loading" && data.composioConfigured && (chip === "" || composioCategoryOf(chip) !== null)}
+			composioLoading={composioState.status === "loading" && (data.composioLoading || data.composioConfigured) && (chip === "" || composioCategoryOf(chip) !== null)}
 			onOpenConnected={() => router.push("/apps/connected" as never)}
 			onClose={close}
 			onOpenApp={openApp}
 			onOpenBot={(slug) => router.push(`/catalog/${encodeURIComponent(slug)}` as never)}
 			onMore={more}
+			onEndReached={() => {
+				if (composioWantsMore(composioState)) loadMore();
+			}}
 			onRetry={() => (data.status === "error" || data.composioFailed ? void reload() : composio.retry())}
 		/>
 	);
