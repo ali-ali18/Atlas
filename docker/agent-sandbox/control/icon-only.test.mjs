@@ -12,7 +12,7 @@ const page = `<body style="margin:10px">
 <div style="display:flex;gap:8px">
 <button id="share">Compartilhar</button>
 <button id="ask" aria-label="Perguntar" title="Perguntar ao Gemini" onclick="document.title='asked'"><span style="display:none">Texto escondido</span>${svg}</button>
-<button id="alt" onclick="document.title='alt'"><img alt="Salvar na lista" width="16" height="16" src="data:image/gif;base64,R0lGODlhAQABAAAAACw="></button>
+<button id="alt" onclick="document.title='alt'"><img alt="Salvar na lista" width="16" height="16" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"></button>
 <button id="lby" aria-labelledby="lbl" onclick="document.title='lby'">${svg}</button><span id="lbl" hidden>Curtir vídeo</span>
 <button id="ttl" title="Mais ações" onclick="document.title='ttl'">${svg}</button>
 <button id="svgt" onclick="document.title='svgt'"><svg width="16" height="16"><title>Cortar clipe</title><rect width="16" height="16"/></svg></button>
@@ -71,4 +71,16 @@ test("real: texto visível continua tendo prioridade sobre o nome acessível", {
 	await p.evaluate(() => { document.getElementById("share").addEventListener("click", () => { document.title = "shared"; }); });
 	await actions.browserClick({ text: "Compartilhar" });
 	assert.equal(await p.title(), "shared");
+});
+
+test("real: browser_snapshot (árvore AX) lista o botão só-ícone pelo nome", { skip }, async () => {
+	const p = await fixtures.newPage();
+	await p.goto(`${fixtures.base}/yt`);
+	await p.waitForLoadState("load");
+	const actions = createBrowserActions({ getPage: async () => p });
+	const refs = createRefActions({ withPageRetry: actions.withPageRetry, clickElement: actions.clickElement });
+	actions.setObserver(refs.observeAction);
+	const snap = await refs.browserSnapshot({});
+	assert.equal(snap.engine, "ax");
+	for (const name of NAMES) assert.match(snap.tree, new RegExp(`button "${name}`), snap.tree);
 });
