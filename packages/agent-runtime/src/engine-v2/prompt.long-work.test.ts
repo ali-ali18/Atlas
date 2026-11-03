@@ -1,3 +1,4 @@
+import { ROUTINE_MODE_LINES } from "../loop/prompt-builder.js";
 import { describe, expect, it } from "vitest";
 import { buildEngineV2SystemPrompt } from "./prompt.js";
 
@@ -27,5 +28,16 @@ describe("buildEngineV2SystemPrompt: trabalho longo e lista de tarefas", () => {
 		const prompt = buildEngineV2SystemPrompt({ profile: "chat", model: base.model });
 		expect(prompt).not.toContain("Long task:");
 		expect(prompt).not.toContain("FIRST tool call");
+	});
+});
+
+describe("run sem humano: escrita de conector", () => {
+	const base = { profile: "chat" as const, model: "anthropic/claude-haiku-4.5" };
+	const line = /Connector writes are not available here; tell the owner what change is needed instead of claiming it was done/;
+	it("rotina (v2 e v1) e e-mail recebido avisam; o chat não paga o texto", () => {
+		expect(buildEngineV2SystemPrompt({ ...base, routine: true, unattended: true })).toMatch(line);
+		expect(buildEngineV2SystemPrompt({ ...base, emailRun: true })).toMatch(line);
+		expect(ROUTINE_MODE_LINES.join("\n")).toMatch(line);
+		expect(buildEngineV2SystemPrompt({ ...base })).not.toMatch(line);
 	});
 });

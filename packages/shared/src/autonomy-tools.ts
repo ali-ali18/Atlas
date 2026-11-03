@@ -169,7 +169,8 @@ export function classifyMcpTool(input: {
 }): ActionClass {
 	const hints = input.annotations;
 	if (input.catalogReadOnly) return "read";
-	if (hints?.readOnlyHint === true && hints.destructiveHint !== true) return "read";
+	// `readOnlyHint` é declaração de terceiro: nome com verbo irreversível (delete_all) nunca conta como leitura.
+	if (hints?.readOnlyHint === true && hints.destructiveHint !== true && !hasIrreversibleVerb(toolNameTokens(input.name))) return "read";
 	if (hints?.destructiveHint === true) return "irreversible";
 	const unannotated = hints?.readOnlyHint === undefined && hints?.destructiveHint === undefined;
 	if (input.readByName && unannotated && isComposioReadToolName(input.name)) return "read";

@@ -6,7 +6,9 @@ import { executeProactiveTool, executeUserPush } from "../../proactive.js";
 import type { ToolFamily } from "../registry.js";
 
 async function handleScheduleFollowupGroup(name: string, args: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult> {
-	if (ctx.userPush) return executeUserPush(args, ctx.userPush);
+	// Só `notify_user` vira push avulso. No chat do bot principal o contexto proativo e o de push coexistem:
+	// desviar as outras tools para o push quebrava follow-ups e sugestões de rotina (pediam "message").
+	if (name === "notify_user" && ctx.userPush) return executeUserPush(args, ctx.userPush);
 	if (!ctx.proactive) throw new Error("Modo proativo desligado neste bot.");
 	return executeProactiveTool(name, args, ctx.proactive);
 }

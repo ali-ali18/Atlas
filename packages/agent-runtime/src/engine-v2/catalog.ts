@@ -30,7 +30,7 @@ import { PAGE_READ_TOOL_NAME, PAGE_TOOLS, PAGE_UPDATE_TOOL_NAME } from "../tools
 import { RUN_CODE_TOOL } from "../tools/run-code.js";
 import { UPDATE_TASK_LIST_TOOL_V2, shouldExposeTaskList } from "../tools/task-list.js";
 import { ROUTINE_EXCLUDED_TOOLS } from "../tools/routine-excluded.js";
-import { isUnattendedOrigin } from "../autonomy-gate.js";
+import { isReadOnlyConnectorOrigin, isUnattendedOrigin } from "../autonomy-gate.js";
 import { SANDBOX_TOOL_NAMES } from "../tools/registry/sandbox-tools.js";
 import { VIDEO_TRANSCRIPT_TOOL_NAME, videoTranscriptBlocked } from "../tools/video-transcript.js";
 import { SANDBOX_SHELL_TOOL_NAMES, sandboxShellAllowedForOrigin, sandboxShellBlocked, type SandboxShellToolName } from "../tools/sandbox-shell.js";
@@ -225,7 +225,8 @@ export function buildEngineV2Catalog(input: {
 		if (!entry || !allow(tool.function.name)) return false;
 		const decision = decideAction(input.autonomy, entry.autonomyMeta);
 		if (decision === "block") return false;
-		// Sem humano para aprovar (rotina, webhook): só o que a autonomia libera sem perguntar.
+		// Sem humano para aprovar (rotina, webhook, e-mail, bot): conector só leitura, em qualquer autonomia.
+		if (isReadOnlyConnectorOrigin(input.origin) && !entry.readOnly) return false;
 		return !isUnattendedOrigin(input.origin) || decision === "allow";
 	});
 	const wantsSearch = allow("mcp_tool_search") && (plan.deferred.size > 0 || Boolean(mcp?.toolset.deferred));

@@ -201,6 +201,8 @@ describe("classificação de tools", () => {
 
 	it("readOnlyHint = leitura; destructive junto não é leitura", () => {
 		expect(c("list_events", { readOnlyHint: true })).toBe("read");
+		// Servidor de terceiro que marca readOnlyHint em tool destrutiva: o nome vence.
+		expect(c("delete_all", { readOnlyHint: true })).toBe("irreversible");
 		expect(c("x", { readOnlyHint: true, destructiveHint: true })).toBe("irreversible");
 	});
 	it("catálogo readOnlyTools = leitura sem anotação", () => {
