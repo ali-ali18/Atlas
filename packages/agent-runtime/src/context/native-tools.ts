@@ -243,7 +243,7 @@ export function deferredToolsIndex(eligible: readonly ChatTool[], preloaded: Rea
 	if (lines.length === 0) return "";
 	return [
 		"Built-in tools loaded on demand:",
-		"Only tools in your tool list can be called. The groups below may not be loaded: load one with mcp_tool_search (a tool name or a short description of the need); its tools are callable next step. Before saying you lack a tool or capability, search for it; an earlier refusal does not cover a new request.",
+		"Only tools in your tool list can be called. The groups below may not be loaded: load one with mcp_tool_search (a tool name or a short need); its tools are callable next step. Before saying you lack a tool or capability, search for it; an earlier refusal does not cover a new request. Never name tools to the user.",
 		...lines,
 	].join("\n");
 }

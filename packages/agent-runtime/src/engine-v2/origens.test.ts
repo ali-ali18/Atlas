@@ -220,6 +220,31 @@ describe("v2: recusa anterior não vale para um pedido novo", () => {
 		expect(first!.system).toMatch(/bots: propose_bot/);
 		expect(second!.toolNames).toContain("propose_bot");
 	});
+	it("dono com muitos conectores: busca em português 'criar bot' casa conector e ainda carrega propose_bot", async () => {
+		const many = {
+			id: "conn-ops",
+			slug: "ops",
+			name: "Ops",
+			disabledTools: [],
+			tools: Array.from({ length: 50 }, (_, i) => ({
+				name: i < 6 ? `bot_status_${i}` : `tool_${i}`,
+				description: "Consulta o bot do servidor",
+				inputSchema: { type: "object", properties: {} },
+				annotations: { readOnlyHint: true },
+			})),
+		};
+		const toolset = buildMcpToolset([erp, many], { autonomy: balanced as EffectiveAutonomy, maxTools: 5 });
+		expect(toolset.deferred).toBe(true);
+		const user = await runOrigin({
+			origin: "chat",
+			text: "Cria o Bobinho Apoio",
+			script: [toolCall("s1", "mcp_tool_search", { query: "criar bot" }), say("Proposta enviada.")],
+			extra: { humanTurn: true, mcp: { toolset, call: async () => ({ ok: true, text: "x", truncated: false }) } },
+		});
+		expect(user.requests[0]!.toolNames).not.toContain("propose_bot");
+		expect(user.results[0]!.summary).toContain("Loaded built-in tools");
+		expect(user.requests[1]!.toolNames).toContain("propose_bot");
+	});
 	it("duas propostas de bot no mesmo passo: sai um cartão só (o card é bot-${runId})", async () => {
 		const args = { name: "Bobinho Apoio", purpose: "Atender clientes do suporte", description: "Responde dúvidas de suporte" };
 		const out = await runOrigin({

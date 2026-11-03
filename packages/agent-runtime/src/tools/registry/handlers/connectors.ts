@@ -587,6 +587,9 @@ export async function githubIdentityOutcome(input: {
 /** Teto do texto de listagem devolvido quando a busca não acha nada. */
 export const MCP_SEARCH_LISTING_MAX_CHARS = 1_500;
 
+/** Grupo nativo de até N tools casado por palavra solta ainda carrega junto da busca de conector (custo baixo). */
+const NATIVE_WITH_CONNECTOR_MAX_TOOLS = 2;
+
 /**
  * `mcp_tool_search`: ativa tools MCP por nome exato (na query) ou por
  * necessidade (scoring simples em mcp/activation.ts). A ativação de fato
@@ -611,12 +614,15 @@ export async function executeMcpToolSearch(
 	// Consulta de conector que achou algo não é sequestrada por palavra solta de tool nativa:
 	// só nome exato de tool ou de grupo carrega as duas.
 	const connector = hasConnectors ? await searchConnectorTools(args, ctx) : null;
-	if (connector?.matched && !nativeMatch.strong) return { summary: connector.summary };
+	// Grupo nativo pequeno (ex.: `bots`, 1 tool) que casou por palavra distintiva carrega junto com o conector: a busca
+	// fuzzy de conector sempre acha algo ("create" em Figma/GitHub) e escondia a tool nativa de quem tem muitos conectores.
+	const nativeLight = nativeMatch.names.length > 0 && nativeMatch.names.length <= NATIVE_WITH_CONNECTOR_MAX_TOOLS;
+	if (connector?.matched && !nativeMatch.strong && !nativeLight) return { summary: connector.summary };
 	let nativeSummary = "";
 	if (native && nativeMatch.names.length > 0) {
 		const { loaded, notes } = native.load(nativeMatch.names);
 		if (loaded.length > 0) {
-			nativeSummary = [`Loaded built-in tools (${loaded.length}): ${loaded.join(", ")}.`, "They are callable from the next step.", notes]
+			nativeSummary = [`Loaded built-in tools (${loaded.length}): ${loaded.join(", ")}.`, "They are callable from the next step. Never name tools to the user.", notes]
 				.filter(Boolean)
 				.join("\n");
 		}
