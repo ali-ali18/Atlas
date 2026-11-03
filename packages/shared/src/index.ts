@@ -396,6 +396,10 @@ export { IMAGE_LIMITS, ALLOWED_IMAGE_MIMES, sniffImageType, scaledImageSize, art
 export { groupUserImageRows, attachHistoryImages, type HistoryImageGroup, type HistoryImageItem } from "./history-images.js";
 export {
 	detectLoginWall,
+	detectLoginHint,
+	isKnownLoginUrl,
+	loginHintNote,
+	type LoginHint,
 	hasPasswordField,
 	loginKey,
 	siteOf,

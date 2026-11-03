@@ -330,3 +330,78 @@ describe("integração E1: janela do modelo", () => {
 		expect(run.result.stop).toEqual({ reason: "answered" });
 	});
 });
+
+/** E2/E3: ferramentas do navegador juntas e paradas indevidas (replay YouTube -> Gemini). */
+describe("integração E2/E3: navegador completo, login só estrutural, cartão informativo não para", () => {
+	const toolResults = (events: ComputerUseEvent[]) => events.flatMap((event) => (event.type === "tool_result" ? [{ name: event.name, ok: event.ok, summary: event.summary }] : []));
+	const geminiLines = ['[e1] link "Sign in"', '[e2] button "Continue with Google"', '[e3] button "Continue with email"', '[e4] textbox "Pergunte ao Gemini"'];
+	const geminiSnapshot = (lines: string[]) => async () => ({ url: "https://gemini.google.com/app", title: "Gemini", lines, offset: 0, total: lines.length, nextOffset: null });
+
+	it("o clique sai sem 'Tool click was not loaded': click, type, key, scroll e browser_tabs já estão na lista do 1º passo", async () => {
+		const execClick = vi.fn(async () => ({ ok: true }));
+		const run = await runBrowser({
+			messages: [{ role: "user", content: "abra o YouTube e clique no primeiro vídeo" }],
+			manager: { ...geminiManager(), execClick },
+			script: [turn([call("navigate", { url: "https://www.youtube.com" })]), turn([call("click", { x: 100, y: 200 })]), say("Cliquei no primeiro vídeo.")],
+		});
+		expect(run.result.stop).toEqual({ reason: "answered" });
+		for (const name of ["click", "type", "key", "scroll", "browser_tabs"]) expect(run.steps[0]!.toolNames, name).toContain(name);
+		const results = toolResults(run.events);
+		expect(results.map((item) => item.name)).toEqual(["navigate", "click"]);
+		expect(results.every((item) => item.ok && !/was not loaded/i.test(item.summary))).toBe(true);
+		expect(execClick).toHaveBeenCalledTimes(1);
+	});
+
+	it("1ª tool de navegador sem pedido roteado: o grupo carrega inteiro (com click e abas) e o clique seguinte não perde passo; o catálogo não encolhe", async () => {
+		const run = await runBrowser({
+			messages: [{ role: "user", content: "Preciso de uma ajuda" }],
+			manager: { ...geminiManager(), execClick: vi.fn(async () => ({ ok: true })) },
+			script: [turn([call("navigate", { url: "https://www.youtube.com" })]), turn([call("navigate", { url: "https://www.youtube.com" })]), turn([call("click", { x: 1, y: 2 })]), say("Feito.")],
+		});
+		const results = toolResults(run.events);
+		expect(results.map((item) => item.name)).toEqual(["navigate", "navigate", "click"]);
+		expect(results[0]!.summary).toMatch(/was not loaded/i);
+		expect(results[2]!.summary).not.toMatch(/was not loaded/i);
+		expect(run.steps[1]!.toolNames).toEqual(expect.arrayContaining(["navigate", "click", "type", "key", "scroll", "browser_tabs"]));
+		// Estável: tudo o que estava no passo anterior continua no seguinte.
+		for (let at = 1; at < run.steps.length; at += 1) for (const name of run.steps[at - 1]!.toolNames) expect(run.steps[at]!.toolNames).toContain(name);
+	});
+
+	it("a página do Gemini com 'Continue with Google' e SEM senha não pausa: vira nota e o run responde", async () => {
+		const onLoginRequired = vi.fn(async () => undefined);
+		const run = await runBrowser({
+			messages: [{ role: "user", content: "abra o Gemini e peça um resumo" }],
+			manager: { execNavigate: async (_s: string, url: string) => ({ url, title: "Gemini", ready: true }), execBrowserSnapshot: geminiSnapshot(geminiLines) },
+			script: [turn([call("navigate", { url: "https://gemini.google.com/app" })]), turn([call("browser_snapshot", {})]), say("O Gemini pede entrar; me diga se posso seguir sem conta.")],
+			extra: { onLoginRequired },
+		});
+		expect(run.result.stop).toEqual({ reason: "answered" });
+		expect(run.events.some((event) => event.type === "login")).toBe(false);
+		expect(onLoginRequired).not.toHaveBeenCalled();
+		const snapshot = toolResults(run.events).find((item) => item.name === "browser_snapshot");
+		expect(snapshot?.ok).toBe(true);
+		expect(snapshot?.summary).toContain("may need a login");
+		expect(snapshot?.summary).not.toContain("LOGIN REQUIRED");
+		expect(run.checkpoints.at(-1)?.pendingLogin).toBeUndefined();
+	});
+
+	it("uma página com campo de senha pausa e mostra o cartão de login", async () => {
+		const events: ComputerUseEvent[] = [];
+		const onLoginRequired = vi.fn(async () => undefined);
+		const outcome = await runBrowser({
+			messages: [{ role: "user", content: "abra o Gemini e peça um resumo" }],
+			manager: {
+				execNavigate: async (_s: string, url: string) => ({ url, title: "Gemini", ready: true }),
+				execBrowserSnapshot: geminiSnapshot(['[e1] textbox "E-mail"', '[e2] textbox "Senha" (campo de senha: nunca preencha)', '[e3] button "Entrar"']),
+			},
+			script: [turn([call("navigate", { url: "https://gemini.google.com/app" })]), turn([call("browser_snapshot", {})]), say("não deve chegar aqui")],
+			extra: { onLoginRequired, onEvent: (event: ComputerUseEvent) => void events.push(event) },
+		}).then(
+			() => undefined,
+			(error: unknown) => error,
+		);
+		expect(outcome).toMatchObject({ name: "AgentRunPausedError" });
+		expect(events.filter((event) => event.type === "login")).toMatchObject([{ site: "gemini.google.com", status: "pending" }]);
+		expect(onLoginRequired).toHaveBeenCalledTimes(1);
+	});
+});

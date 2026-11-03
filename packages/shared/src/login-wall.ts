@@ -19,10 +19,21 @@ export type LoginWall = {
 	site: string;
 	/** Chave de "já perguntei": origem + caminho, sem query/hash. */
 	key: string;
-	reason: "password-field" | "login-page" | "session-expired";
+	/** Só dois sinais estruturais pausam o run: campo de senha visível no snapshot ou URL de login conhecida. */
+	reason: "password-field" | "login-page";
 };
 
-const LOGIN_URL = /(^|[/._-])(login|log-in|signin|sign-in|entrar|acesso|acessar|auth|sso|session|logon)([/._?-]|$)/i;
+/** Sinal fraco: a página talvez peça login, mas isso não pausa. Vira só uma nota ao modelo. */
+export type LoginHint = {
+	site: string;
+	reason: "session-expired" | "sign-in-entries" | "login-title";
+};
+
+/** Hosts cuja tela é, por definição, a de entrar (provedores de identidade). */
+const LOGIN_HOSTS: ReadonlySet<string> = new Set(["accounts.google.com", "login.microsoftonline.com", "login.live.com"]);
+/** Trechos de caminho de login (comparados por segmento inteiro, sem extensão: `/login.php` vale, `/login-tips` não). */
+const LOGIN_PATH_SEGMENTS: ReadonlySet<string> = new Set(["login", "log-in", "signin", "sign-in", "logon", "entrar"]);
+
 const LOGIN_TITLE = /\b(login|log in|sign in|entrar|acessar|faça login|fazer login|acesse sua conta)\b/i;
 const CREDENTIAL_WORDS = /\b(senha|password|usu[aá]rio|e-?mail|login)\b/i;
 const SESSION_EXPIRED = /(sua sess[aã]o (expirou|foi encerrada|expirada)|session (has )?expired|sess[aã]o expirada|fa[cç]a login (novamente|para continuar)|please (log|sign) in)/i;
@@ -49,51 +60,56 @@ export function hasPasswordField(lines: readonly string[] | undefined): boolean 
 	return (lines ?? []).some((line) => line.includes("(campo de senha"));
 }
 
+/** A URL é de uma tela de login conhecida (host de provedor de identidade ou segmento de caminho de login)? */
+export function isKnownLoginUrl(url: string): boolean {
+	let parsed: URL;
+	try {
+		parsed = new URL(url);
+	} catch {
+		return false;
+	}
+	if (LOGIN_HOSTS.has(parsed.hostname.toLowerCase())) return true;
+	// Rota por hash (`/#/login`) também conta.
+	const segments = `${parsed.pathname}/${parsed.hash.replace(/^#/, "")}`.split(/[/?]/);
+	return segments.some((segment) => LOGIN_PATH_SEGMENTS.has(segment.toLowerCase().split(".")[0] ?? ""));
+}
+
+/**
+ * Pausa o run SÓ com sinal estrutural: campo de senha visível no snapshot (`input[type=password]`) ou URL de login
+ * conhecida. "Please sign in" solto, botões "Continue with…" e título com "Entrar" não bastam: são `detectLoginHint`.
+ */
 export function detectLoginWall(input: LoginWallInput): LoginWall | null {
 	const url = input.url ?? "";
 	if (!/^https?:/i.test(url)) return null;
 	const base = { site: siteOf(url), key: loginKey(url) };
-	const text = input.text ?? "";
-	const joinedLines = (input.lines ?? []).join("\n");
-	const urlLooksLogin = LOGIN_URL.test(safePath(url));
-	const titleLooksLogin = LOGIN_TITLE.test(input.title ?? "");
-
-	if (hasPasswordField(input.lines)) {
-		return { ...base, reason: "password-field" };
-	}
-	if (SESSION_EXPIRED.test(text) || SESSION_EXPIRED.test(joinedLines)) {
-		return { ...base, reason: "session-expired" };
-	}
-	// SSO pode aparecer em /home com título do produto, sem URL de login nem
-	// senha. Exija controles reais de SSO + e-mail + continuar; texto de blog
-	// ou um botão Google isolado não identifica uma sessão interrompida.
-	const ssoButton = /\b(?:button|link)\s+"(?:continue with|sign in with|log in with|continuar com|entrar com) (?:google|apple|microsoft|github|slack)"/i;
-	const emailInput = /\btextbox\s+"[^"\n]*\b(?:e-?mail|email address)\b[^"\n]*"/i;
-	const continueButton = /\bbutton\s+"(?:continue|continuar|entrar|sign in|log in)"/i;
-	if (ssoButton.test(joinedLines) && emailInput.test(joinedLines) && continueButton.test(joinedLines)) {
-		return { ...base, reason: "login-page" };
-	}
-	// Página de entrada sem textbox (Linear): só botões de provedor de identidade
-	// ("Continue with Google/email/SAML SSO", "Log in with passkey") ou um rótulo
-	// "Log in to <app>" numa página enxuta. Exige 2+ entradas distintas, para que
-	// um botão Google isolado numa tela de conteúdo não pause o run.
-	if (countIdentityEntries(input.lines) >= 2 || hasLoginToLabel(input.lines)) {
-		return { ...base, reason: "login-page" };
-	}
-	// Texto da página (sem snapshot): "Senha"/"Password" + sinal de login na URL/título.
-	if ((urlLooksLogin || titleLooksLogin) && CREDENTIAL_WORDS.test(`${text}\n${joinedLines}`)) {
-		return { ...base, reason: "login-page" };
-	}
+	if (hasPasswordField(input.lines)) return { ...base, reason: "password-field" };
+	if (isKnownLoginUrl(url)) return { ...base, reason: "login-page" };
 	return null;
 }
 
-function safePath(url: string): string {
-	try {
-		const parsed = new URL(url);
-		return `${parsed.pathname}${parsed.hash}`;
-	} catch {
-		return url;
-	}
+/**
+ * Sinais fracos de login (sessão expirada no texto, 2+ entradas de identidade, SSO com e-mail, título de login com
+ * palavras de credencial). Não pausa nada: o chamador acrescenta uma nota ("pode precisar de login") e o modelo decide.
+ */
+export function detectLoginHint(input: LoginWallInput): LoginHint | null {
+	const url = input.url ?? "";
+	if (!/^https?:/i.test(url)) return null;
+	const site = siteOf(url);
+	const text = input.text ?? "";
+	const joinedLines = (input.lines ?? []).join("\n");
+	if (SESSION_EXPIRED.test(text) || SESSION_EXPIRED.test(joinedLines)) return { site, reason: "session-expired" };
+	const ssoButton = /\b(?:button|link)\s+"(?:continue with|sign in with|log in with|continuar com|entrar com) (?:google|apple|microsoft|github|slack)"/i;
+	const emailInput = /\btextbox\s+"[^"\n]*\b(?:e-?mail|email address)\b[^"\n]*"/i;
+	const continueButton = /\bbutton\s+"(?:continue|continuar|entrar|sign in|log in)"/i;
+	if (ssoButton.test(joinedLines) && emailInput.test(joinedLines) && continueButton.test(joinedLines)) return { site, reason: "sign-in-entries" };
+	if (countIdentityEntries(input.lines) >= 2 || hasLoginToLabel(input.lines)) return { site, reason: "sign-in-entries" };
+	if (LOGIN_TITLE.test(input.title ?? "") && CREDENTIAL_WORDS.test(`${text}\n${joinedLines}`)) return { site, reason: "login-title" };
+	return null;
+}
+
+/** Nota ao modelo para um sinal fraco (inglês, curta): não pausa, não pede cartão. */
+export function loginHintNote(hint: LoginHint): string {
+	return `\nNote: this page (${hint.site}) may need a login. If you cannot proceed without one, tell the user what you need.`;
 }
 
 const IDENTITY_ENTRY = /\b(?:button|link|clickable)\s+"(?:continue|continuar|sign in|log in|login|entrar)\s+(?:with|com)\s+(?:google|apple|microsoft|github|gitlab|slack|facebook|linkedin|sso|saml|e-?mail|passkey|a passkey|okta)\b/gi;

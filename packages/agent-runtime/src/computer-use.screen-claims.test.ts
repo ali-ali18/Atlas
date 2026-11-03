@@ -88,7 +88,7 @@ describe("portão contra inventar a tela", () => {
 
 	it("página de login lida e afirmação de login: pede conferência", async () => {
 		const { events } = await run({
-			snapshotUrl: "https://painel.exemplo.com/login",
+			snapshotUrl: "https://painel.exemplo.com/auth",
 			script: [step("browser_snapshot"), say("Estou logado no painel."), say("Ainda vejo a tela de entrada.")],
 		});
 		expect(events.find((e) => e.type === "assistant_discard")).toMatchObject({ reason: "unverified_screen" });

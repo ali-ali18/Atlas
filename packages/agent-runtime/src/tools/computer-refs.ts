@@ -8,7 +8,9 @@ import type {
 } from "@workspace/sandbox";
 import {
 	detectCaptchaWall,
+	detectLoginHint,
 	detectLoginWall,
+	loginHintNote,
 	type CaptchaWallInput,
 	type ComputerUseEvent,
 	type LoginWallInput,
@@ -127,7 +129,11 @@ export function checkLoginWall(
 	input: LoginWallInput,
 ): { note: string; loginEvent?: LoginEvent } | null {
 	const wall = detectLoginWall(input);
-	if (!wall) return null;
+	if (!wall) {
+		// Sinal fraco (sessão expirada no texto, botões "Continue with…"): só uma nota, sem cartão e sem pausa.
+		const hint = detectLoginHint(input);
+		return hint ? { note: loginHintNote(hint) } : null;
+	}
 	if (ctx.loginAsked.has(wall.key)) {
 		return {
 			note:
