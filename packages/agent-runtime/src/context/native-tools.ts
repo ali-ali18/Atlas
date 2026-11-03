@@ -110,7 +110,7 @@ export const NATIVE_TOOL_GROUPS: Record<NativeToolGroup, GroupSpec> = {
 	},
 	bots: {
 		tools: ["propose_bot"],
-		hint: "propose a new agent (bot) for the user, shown as an approval card",
+		hint: "create a new bot (agent) for the user: proposed as an approval card",
 		keywords: ["agent", "agente", "agentes", "bot", "bots", "assistente", "assistant", "novo agente", "new agent"],
 	},
 	routines: {
@@ -243,7 +243,7 @@ export function deferredToolsIndex(eligible: readonly ChatTool[], preloaded: Rea
 	if (lines.length === 0) return "";
 	return [
 		"Built-in tools loaded on demand:",
-		"Only the tools in your tool list can be called. The ones below may not be loaded yet: load a group by calling mcp_tool_search with a tool name or a short description of the need; the tools are callable from the next step and the usage notes come with the result. A name already in your tool list needs no loading.",
+		"Only tools in your tool list can be called. The groups below may not be loaded: load one with mcp_tool_search (a tool name or a short description of the need); its tools are callable next step. Before saying you lack a tool or capability, search for it; an earlier refusal does not cover a new request.",
 		...lines,
 	].join("\n");
 }

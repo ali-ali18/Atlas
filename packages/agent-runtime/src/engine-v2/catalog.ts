@@ -19,6 +19,7 @@ import { addCompanionGroups, deferredToolsIndex, planNativeTools } from "../cont
 import { routeContextGroups } from "../context/intent-router.js";
 import { economyRouterText, orderEconomyTools } from "../context/economy.js";
 import type { ContextGroup } from "../context/prompt-blocks.js";
+import { PROPOSE_BOT_TOOL, shouldExposeProposeBot } from "../tools/bot-proposal.js";
 import { API_CALL_TOOL, API_SEARCH_TOOL, PROPOSE_API_CONNECTION_TOOL } from "../api-connector/tools.js";
 import { emailToolsFor, type EmailRunContext } from "../email/tools.js";
 import { SHOW_IMAGE_TOOL } from "../tools/show-image.js";
@@ -172,6 +173,8 @@ export function buildEngineV2Catalog(input: {
 		}
 		if (loadCodeRunnerConfig().enabled) add(RUN_CODE_TOOL);
 		if (input.origin === "chat") add(PROPOSE_API_CONNECTION_TOOL);
+		// Mesma regra do v1: só no chat com o usuário (sem isto o v2 nunca oferecia a tool e o bot negava com razão).
+		if (!input.helper && shouldExposeProposeBot({ origin: input.origin, isSubagent: false })) add(PROPOSE_BOT_TOOL);
 	}
 	if (input.apiConnector) {
 		add(API_SEARCH_TOOL);

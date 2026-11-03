@@ -53,6 +53,13 @@ describe("catálogo das tools nativas raras", () => {
 		expect(deferredToolsIndex(eligible)).toContain("routines: list_routines, propose_routine");
 	});
 
+	it("o índice manda procurar antes de dizer que falta uma ferramenta e lista o grupo de bots", () => {
+		const index = deferredToolsIndex(all);
+		expect(index).toMatch(/Before saying you lack a tool or capability, search for it/);
+		expect(index).toMatch(/earlier refusal does not cover a new request/);
+		expect(index).toMatch(/bots: propose_bot\. create a new bot \(agent\)/);
+	});
+
 	it("a ordem final põe o condicional por último e ordena o conector por nome", () => {
 		const plan = planNativeTools(all, new Set<ContextGroup>(["files"]));
 		const ordered = orderEconomyTools({
