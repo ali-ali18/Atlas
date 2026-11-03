@@ -24,7 +24,7 @@ export function AppActionButton({ action, name, onPress, size = "sm", busy = fal
 		);
 	}
 	return (
-		<Button size={size} variant="secondary" accessibilityLabel={accessibilityLabel} disabled={inert || disabled || busy} onPress={onPress} className={action === "connected" ? `opacity-60 ${className ?? ""}` : className}>
+		<Button size={size} variant="secondary" accessibilityLabel={accessibilityLabel} disabled={inert || disabled || busy} onPress={onPress} style={{ backgroundColor: surfaces.chromeFill, borderColor: surfaces.chromeEdge }} className={action === "connected" ? `opacity-60 ${className ?? ""}` : className}>
 			{busy ? <Spinner /> : null}
 			<Text>{label}</Text>
 		</Button>
