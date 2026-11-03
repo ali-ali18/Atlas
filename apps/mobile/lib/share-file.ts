@@ -4,26 +4,40 @@
 import { File, Paths } from "expo-file-system";
 import * as Sharing from "expo-sharing";
 import { Share } from "react-native";
-import { truncateForShare } from "./document-view";
+import { cacheFileName } from "./document-view";
 
-/** Nome seguro para gravar no cache: sem pasta, sem caracteres reservados. */
-export function cacheFileName(filename: string): string {
-	const base = filename.split(/[\\/]/).pop() ?? "";
-	const clean = base.replace(/[\u0000-\u001f<>:"|?*]/g, "").replace(/^\.+/, "").trim();
-	return clean || "documento";
-}
-
-/** Texto: `Share.share` do React Native (corta se for gigante). */
+/** Texto: `Share.share` do React Native. Quem chama só usa para texto que cabe (`textFitsShare`); o resto vai como arquivo. */
 export async function shareText(message: string, title: string): Promise<void> {
-	await Share.share({ message: truncateForShare(message).text, title }).catch(() => undefined);
+	await Share.share({ message, title }).catch(() => undefined);
 }
 
-/** Arquivo: grava no cache e compartilha. Devolve false onde o sistema não oferece compartilhar arquivo (web). */
+/** Falha ao gravar o arquivo no cache ou abrir a folha do sistema (não é problema de rede). */
+export class ShareFileError extends Error {
+	constructor() {
+		super("Não consegui preparar o arquivo.");
+	}
+}
+
+/**
+ * Arquivo: grava no cache, compartilha e APAGA a cópia temporária ao terminar (com ou sem erro; `shareAsync` só volta
+ * depois que a pessoa escolhe o destino). Devolve false onde o sistema não oferece compartilhar arquivo (web).
+ * Falha local vira `ShareFileError`, para a tela não dizer "sem conexão".
+ */
 export async function shareBytes(bytes: Uint8Array, filename: string, mime: string): Promise<boolean> {
-	if (!(await Sharing.isAvailableAsync())) return false;
+	if (!(await Sharing.isAvailableAsync().catch(() => false))) return false;
 	const file = new File(Paths.cache, cacheFileName(filename));
-	file.create({ overwrite: true });
-	await file.write(bytes);
-	await Sharing.shareAsync(file.uri, { mimeType: mime || undefined, dialogTitle: filename });
-	return true;
+	try {
+		file.create({ overwrite: true });
+		await file.write(bytes);
+		await Sharing.shareAsync(file.uri, { mimeType: mime || undefined, dialogTitle: filename });
+		return true;
+	} catch {
+		throw new ShareFileError();
+	} finally {
+		try {
+			if (file.exists) file.delete();
+		} catch {
+			// O cache é limpo pelo sistema se faltar espaço; apagar é só boa educação.
+		}
+	}
 }

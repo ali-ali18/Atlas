@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { base64Encode, csvToTable, decodeUtf8, detectDelimiter, documentViewKind, imageDataUri, pageShareMessage, parseCsv, prettyJson, truncateForShare } from "./document-view";
+import { base64Encode, cacheFileName, csvToTable, decodeUtf8, detectDelimiter, documentViewKind, imageDataUri, MAX_SHARE_CHARS, pageShareMessage, parseCsv, prettyJson, textFitsShare } from "./document-view";
 
 const bytes = (...values: number[]) => new Uint8Array(values);
 const encode = (text: string) => new Uint8Array(Buffer.from(text, "utf8"));
@@ -72,23 +72,31 @@ describe("base64 e imagem", () => {
 	});
 });
 
-describe("corte para compartilhar", () => {
-	it("texto curto passa inteiro", () => {
-		expect(truncateForShare("abc", 10)).toEqual({ text: "abc", truncated: false });
-	});
-	it("texto grande é cortado e marcado", () => {
-		const result = truncateForShare("a".repeat(50), 10);
-		expect(result.truncated).toBe(true);
-		expect(result.text).toBe(`${"a".repeat(10)}\n…`);
-	});
-	it("não parte um par substituto no corte", () => {
-		const result = truncateForShare("a😀b", 2);
-		expect(result.text).toBe("a\n…");
+describe("compartilhar", () => {
+	it("texto até o limite vai como texto; acima vai como arquivo", () => {
+		expect(textFitsShare("a".repeat(MAX_SHARE_CHARS))).toBe(true);
+		expect(textFitsShare("a".repeat(MAX_SHARE_CHARS + 1))).toBe(false);
 	});
 	it("mensagem de painel: título + resumo", () => {
 		expect(pageShareMessage("Atlas", " Resumo ")).toBe("Atlas\n\nResumo");
 		expect(pageShareMessage("Atlas", "")).toBe("Atlas");
 		expect(pageShareMessage("Atlas", null)).toBe("Atlas");
+	});
+});
+
+describe("nome do arquivo temporário", () => {
+	it("tira pasta, controle, bidi e reservados", () => {
+		expect(cacheFileName("../../etc/passwd")).toBe("passwd");
+		expect(cacheFileName("rel\u202Etxt.exe")).toBe("reltxt.exe");
+		expect(cacheFileName('a<b>:"c|d?.pdf')).toBe("abcd.pdf");
+		expect(cacheFileName("relatório (final)-v2.pdf")).toBe("relatório (final)-v2.pdf");
+		expect(cacheFileName("\u0000\u202E")).toBe("documento");
+		expect(cacheFileName(".env")).toBe("env");
+	});
+	it("limita o tamanho e preserva a extensão", () => {
+		const name = cacheFileName(`${"a".repeat(300)}.pdf`);
+		expect(name.length).toBeLessThanOrEqual(80);
+		expect(name.endsWith(".pdf")).toBe(true);
 	});
 });
 
@@ -98,6 +106,8 @@ describe("CSV", () => {
 		expect(detectDelimiter("a;b;c")).toBe(";");
 		expect(detectDelimiter("a\tb")).toBe("\t");
 		expect(detectDelimiter("")).toBe(",");
+		expect(detectDelimiter('"Nome, completo";Idade')).toBe(";");
+		expect(detectDelimiter('"a;b;c",d')).toBe(",");
 	});
 	it("aspas, vírgula e quebra de linha dentro do campo, aspas duplas", () => {
 		expect(parseCsv('a,b\n"x, y","linha1\nlinha2"\n"diz ""oi""",z\n')).toEqual([["a", "b"], ["x, y", "linha1\nlinha2"], ['diz "oi"', "z"]]);
@@ -119,7 +129,22 @@ describe("CSV", () => {
 		const table = csvToTable(csv, 3);
 		expect(table).toMatchObject({ totalRows: 10, shownRows: 3 });
 		expect(table.block?.rows).toHaveLength(3);
-		expect(csvToTable("")).toEqual({ block: null, totalRows: 0, shownRows: 0 });
+		expect(csvToTable("")).toEqual({ block: null, totalRows: 0, shownRows: 0, totalColumns: 0, shownColumns: 0 });
+	});
+});
+
+describe("CSV grande", () => {
+	it("200 mil linhas não estouram a pilha e só as primeiras são desenhadas", () => {
+		const csv = `n\n${"1\n".repeat(200_000)}`;
+		const table = csvToTable(csv);
+		expect(table).toMatchObject({ totalRows: 200_000, shownRows: 500 });
+	});
+	it("limita as colunas e informa o total", () => {
+		const header = Array.from({ length: 300 }, (_, index) => `c${index}`).join(",");
+		const table = csvToTable(`${header}\n${header}`);
+		expect(table).toMatchObject({ totalColumns: 300, shownColumns: 50 });
+		expect(table.block?.header).toHaveLength(50);
+		expect(table.block?.rows[0]).toHaveLength(50);
 	});
 });
 
@@ -127,5 +152,12 @@ describe("JSON", () => {
 	it("reindenta o válido e mantém o inválido como veio", () => {
 		expect(prettyJson('{"a":1}')).toBe('{\n  "a": 1\n}');
 		expect(prettyJson("{quebrado")).toBe("{quebrado");
+		expect(prettyJson('{"s":"a, b: {c}","n":[1,2]}')).toBe('{\n  "s": "a, b: {c}",\n  "n": [\n    1,\n    2\n  ]\n}');
+	});
+	it("não altera dados: inteiro acima de 2^53 e chave repetida ficam como vieram", () => {
+		const big = '{"id":1234567890123456789}';
+		expect(prettyJson(big)).toBe(big);
+		const dup = '{"a":1,"a":2}';
+		expect(prettyJson(dup)).toBe(dup);
 	});
 });

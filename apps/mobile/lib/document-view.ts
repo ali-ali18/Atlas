@@ -146,20 +146,16 @@ export function imageDataUri(mime: string, bytes: Uint8Array): string {
 	return `data:${safe};base64,${base64Encode(bytes)}`;
 }
 
-/** Corta o texto para o compartilhar do sistema, sem partir um par substituto no meio. */
-export function truncateForShare(text: string, max = MAX_SHARE_CHARS): { text: string; truncated: boolean } {
-	if (text.length <= max) return { text, truncated: false };
-	let end = max;
-	const last = text.charCodeAt(end - 1);
-	if (last >= 0xd800 && last <= 0xdbff) end -= 1;
-	return { text: `${text.slice(0, end)}\n…`, truncated: true };
-}
-
-/** Separador do CSV: o que mais aparece na primeira linha (vírgula, ponto e vírgula, tab). */
+/** Separador do CSV: o que mais aparece na primeira linha FORA de aspas (vírgula, ponto e vírgula, tab). */
 export function detectDelimiter(firstLine: string): "," | ";" | "\t" {
-	const count = (char: string) => firstLine.split(char).length - 1;
+	const counts: Record<string, number> = { ",": 0, ";": 0, "\t": 0 };
+	let quoted = false;
+	for (const char of firstLine) {
+		if (char === '"') quoted = !quoted;
+		else if (!quoted && char in counts) counts[char]! += 1;
+	}
 	const candidates: Array<"," | ";" | "\t"> = [",", ";", "\t"];
-	return candidates.reduce((best, char) => (count(char) > count(best) ? char : best), "," as "," | ";" | "\t");
+	return candidates.reduce((best, char) => (counts[char]! > counts[best]! ? char : best), "," as "," | ";" | "\t");
 }
 
 /** CSV (RFC 4180: aspas, aspas duplas, quebra de linha dentro de campo) em linhas de células. Sem linhas vazias no fim. */
@@ -201,25 +197,74 @@ export function parseCsv(text: string): string[][] {
 	return rows;
 }
 
-export type CsvTable = { block: Extract<Block, { type: "table" }> | null; totalRows: number; shownRows: number };
+export type CsvTable = { block: Extract<Block, { type: "table" }> | null; totalRows: number; shownRows: number; totalColumns: number; shownColumns: number };
 
-/** CSV como bloco de tabela do chat (a primeira linha é o cabeçalho). Células são texto puro: nada vira link nem negrito. */
-export function csvToTable(text: string, maxRows = MAX_CSV_ROWS): CsvTable {
+/** Colunas desenhadas (acima disso a tabela travaria a rolagem). */
+export const MAX_CSV_COLUMNS = 50;
+
+/**
+ * CSV como bloco de tabela do chat (a primeira linha é o cabeçalho). Células são texto puro: nada vira link nem negrito.
+ * A largura só olha as linhas exibidas (nunca `Math.max(...)` sobre o arquivo todo) e é limitada a `maxColumns`.
+ */
+export function csvToTable(text: string, maxRows = MAX_CSV_ROWS, maxColumns = MAX_CSV_COLUMNS): CsvTable {
 	const rows = parseCsv(text);
-	if (rows.length === 0) return { block: null, totalRows: 0, shownRows: 0 };
-	const width = Math.max(...rows.map((row) => row.length));
+	if (rows.length === 0) return { block: null, totalRows: 0, shownRows: 0, totalColumns: 0, shownColumns: 0 };
+	const shown = rows.slice(0, 1 + maxRows);
+	const totalColumns = rows.reduce((max, row) => (row.length > max ? row.length : max), 0);
+	const width = Math.min(maxColumns, shown.reduce((max, row) => (row.length > max ? row.length : max), 0));
 	const cells = (row: string[]) => Array.from({ length: width }, (_, index) => [{ type: "text" as const, text: row[index] ?? "" }]);
-	const body = rows.slice(1, 1 + maxRows);
-	return { block: { type: "table", header: cells(rows[0]!), rows: body.map(cells) }, totalRows: rows.length - 1, shownRows: body.length };
+	const body = shown.slice(1);
+	return { block: { type: "table", header: cells(shown[0]!), rows: body.map(cells) }, totalRows: rows.length - 1, shownRows: body.length, totalColumns, shownColumns: width };
 }
 
-/** JSON legível: reindenta se for válido; senão mostra como veio. */
+/**
+ * JSON legível: reindenta só se o resultado diz EXATAMENTE a mesma coisa. `JSON.parse` arredonda inteiros acima de 2^53 e
+ * apaga chaves repetidas; nesses casos (e se for inválido) mostra o texto como veio.
+ */
 export function prettyJson(text: string): string {
 	try {
-		return JSON.stringify(JSON.parse(text), null, 2);
+		const pretty = JSON.stringify(JSON.parse(text), null, 2);
+		return stripJsonSpace(pretty) === stripJsonSpace(text) ? pretty : text;
 	} catch {
 		return text;
 	}
+}
+
+/** Remove o espaço em branco que fica fora das strings (para comparar dois JSON só pelo conteúdo). */
+function stripJsonSpace(json: string): string {
+	let out = "";
+	let inString = false;
+	for (let i = 0; i < json.length; i++) {
+		const char = json[i]!;
+		if (inString) {
+			out += char;
+			if (char === "\\") out += json[++i] ?? "";
+			else if (char === '"') inString = false;
+		} else if (char === '"') {
+			inString = true;
+			out += char;
+		} else if (char !== " " && char !== "\n" && char !== "\r" && char !== "\t") out += char;
+	}
+	return out;
+}
+
+/** Cabe no compartilhar de texto do sistema? Acima disso o documento vai como arquivo (nada de cortar sem avisar). */
+export function textFitsShare(text: string): boolean {
+	return text.length <= MAX_SHARE_CHARS;
+}
+
+/**
+ * Nome seguro para gravar no cache: sem pasta, só letras, números e `. _ ( ) -`, sem controle nem bidi (U+202E),
+ * no máximo 80 caracteres e preservando a extensão. Vazio vira "documento".
+ */
+export function cacheFileName(filename: string): string {
+	const base = (filename.split(/[\\/]/).pop() ?? "").normalize("NFC");
+	const clean = base.replace(/[^\p{L}\p{N} ._()-]/gu, "").replace(/^[.\s]+/, "").trim();
+	if (!clean) return "documento";
+	if (clean.length <= 80) return clean;
+	const dot = clean.lastIndexOf(".");
+	const ext = dot > 0 && clean.length - dot <= 12 ? clean.slice(dot) : "";
+	return clean.slice(0, 80 - ext.length).trimEnd() + ext;
 }
 
 /** Texto compartilhado de um painel: título, uma linha em branco e o resumo (sem link público: isso exige confirmação). */
