@@ -665,12 +665,14 @@ export { conversationHoldsVm, VM_HOLD_WINDOW_MS } from "./vm-hold.js";
 export * from "./user-events.js";
 export {
 	planRetention,
+	pruneOldAgentSteps,
 	pruneOldRunEvents,
 	pruneRoutineRuns,
 	runDataRetention,
 	RETAINED_RUN_EVENT_TYPES,
 	ROUTINE_RUNS_KEEP,
 	RUN_EVENTS_RETENTION_DAYS,
+	AGENT_STEPS_RETENTION_DAYS,
 	type RetentionResult,
 } from "./retention.js";
 export * from "./user-needed.js";
@@ -705,6 +707,7 @@ export {
 	type StartEmailRunDeps,
 } from "./bot-mailbox.js";
 export { countCompletedToolResults, getRunInspectionData, type RunInspectionData } from "./run-inspect.js";
+export { recordSpan, type SpanInput } from "./spans.js";
 export {
 	applyLessonDeltas,
 	enforceLessonCap,

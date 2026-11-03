@@ -26,6 +26,8 @@ export type StepTelemetry = {
 	/** Tool: tempo do executor. */
 	toolMs?: number;
 	toolName?: string;
+	/** Tool: decisão da política antes de executar (`confirm` = pediu confirmação; `blocked` = barrada). */
+	policyDecision?: "allow" | "confirm" | "blocked";
 	/** Tool `navigate`: onde o tempo foi (V0). Só números; o texto da página nunca entra. */
 	nav?: NavigateTiming;
 	/** Clique: degrau da escada de alvo que funcionou (preenchido a partir da V1). */

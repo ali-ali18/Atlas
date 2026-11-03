@@ -5,11 +5,14 @@ import { prisma } from "./client.js";
  * - `run_events` de runs ENCERRADOS há mais de 30 dias: apaga, menos os tipos que a UI ainda lê de um run
  *   antigo (inspetor, revisão de lições, histórico da sessão de código, fim/erro). A linha do run fica
  *   (status, resultado, erro).
+ * - `agent_steps` (diário e spans) de runs encerrados há mais de 90 dias: apaga. A linha do run fica.
  * - `routine_runs`: guarda as 50 execuções mais recentes de cada rotina (nunca apaga uma em andamento).
  * - Mensagens da conversa NUNCA são apagadas aqui.
  * Tudo em lotes pequenos (SELECT de ids + DELETE por id) para não segurar trava longa nas tabelas.
  */
 export const RUN_EVENTS_RETENTION_DAYS = 30;
+/** Diário `agent_steps` (tracing e auditoria): 90 dias depois do fim do run (decisão D11 do harness v3). */
+export const AGENT_STEPS_RETENTION_DAYS = 90;
 export const ROUTINE_RUNS_KEEP = 50;
 export const RETENTION_BATCH = 1_000;
 
@@ -47,13 +50,15 @@ export const RETAINED_RUN_EVENT_TYPES = [
 /** Execuções de rotina que ainda podem mudar: nunca apagadas, mesmo além das 50. */
 const ACTIVE_ROUTINE_RUN_STATUSES = ["queued", "running"];
 
-export type RetentionPlan = { runEventsBefore: Date; routineRunsKeep: number };
+export type RetentionPlan = { runEventsBefore: Date; agentStepsBefore: Date; routineRunsKeep: number };
 
 /** Decisão pura: o corte das duas limpezas a partir de `now`. */
-export function planRetention(now: Date, options: { runEventsDays?: number; routineRunsKeep?: number } = {}): RetentionPlan {
+export function planRetention(now: Date, options: { runEventsDays?: number; agentStepsDays?: number; routineRunsKeep?: number } = {}): RetentionPlan {
 	const days = options.runEventsDays ?? RUN_EVENTS_RETENTION_DAYS;
+	const stepDays = options.agentStepsDays ?? AGENT_STEPS_RETENTION_DAYS;
 	return {
 		runEventsBefore: new Date(now.getTime() - days * 24 * 60 * 60 * 1000),
+		agentStepsBefore: new Date(now.getTime() - stepDays * 24 * 60 * 60 * 1000),
 		routineRunsKeep: options.routineRunsKeep ?? ROUTINE_RUNS_KEEP,
 	};
 }
@@ -62,8 +67,18 @@ type BatchOptions = { batchSize?: number; maxBatches?: number; pause?: () => Pro
 
 const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 25));
 
-/** Apaga eventos de runs encerrados antes do corte (menos os tipos retidos). Devolve quantos apagou. */
-export async function pruneOldRunEvents(before: Date, options: BatchOptions = {}): Promise<number> {
+/**
+ * Laço comum das limpezas por run encerrado: de 200 em 200 runs terminais anteriores ao corte, lista ids de linhas
+ * (`findIds`) e apaga por id (`deleteIds`), em lotes. Devolve quantas apagou.
+ */
+async function pruneForEndedRuns(
+	before: Date,
+	options: BatchOptions,
+	rows: {
+		findIds: (runIds: string[], take: number) => Promise<string[]>;
+		deleteIds: (ids: string[]) => Promise<number>;
+	},
+): Promise<number> {
 	const batchSize = options.batchSize ?? RETENTION_BATCH;
 	const maxBatches = options.maxBatches ?? 500;
 	const pause = options.pause ?? tick;
@@ -82,21 +97,36 @@ export async function pruneOldRunEvents(before: Date, options: BatchOptions = {}
 		cursor = runs[runs.length - 1]!.id;
 		const runIds = runs.map((run) => run.id);
 		for (;;) {
-			const rows = await prisma.runEvent.findMany({
-				where: { runId: { in: runIds }, type: { notIn: [...RETAINED_RUN_EVENT_TYPES] } },
-				take: batchSize,
-				select: { id: true },
-			});
-			if (rows.length === 0) break;
-			const result = await prisma.runEvent.deleteMany({ where: { id: { in: rows.map((row) => row.id) } } });
-			deleted += result.count;
+			const ids = await rows.findIds(runIds, batchSize);
+			if (ids.length === 0) break;
+			deleted += await rows.deleteIds(ids);
 			batches += 1;
-			if (rows.length < batchSize || batches >= maxBatches) break;
+			if (ids.length < batchSize || batches >= maxBatches) break;
 			await pause();
 		}
 		if (runs.length < 200) break;
 	}
 	return deleted;
+}
+
+/** Apaga eventos de runs encerrados antes do corte (menos os tipos retidos). Devolve quantos apagou. */
+export function pruneOldRunEvents(before: Date, options: BatchOptions = {}): Promise<number> {
+	return pruneForEndedRuns(before, options, {
+		findIds: async (runIds, take) =>
+			(await prisma.runEvent.findMany({ where: { runId: { in: runIds }, type: { notIn: [...RETAINED_RUN_EVENT_TYPES] } }, take, select: { id: true } })).map((row) => row.id),
+		deleteIds: async (ids) => (await prisma.runEvent.deleteMany({ where: { id: { in: ids } } })).count,
+	});
+}
+
+/**
+ * Apaga o diário (`agent_steps`/spans) de runs encerrados antes do corte (decisão D11: 90 dias). Por run encerrado,
+ * não por `createdAt`: não precisa de índice novo e nunca corta o diário de um run que ainda pode retomar.
+ */
+export function pruneOldAgentSteps(before: Date, options: BatchOptions = {}): Promise<number> {
+	return pruneForEndedRuns(before, options, {
+		findIds: async (runIds, take) => (await prisma.agentStep.findMany({ where: { runId: { in: runIds } }, take, select: { id: true } })).map((row) => row.id),
+		deleteIds: async (ids) => (await prisma.agentStep.deleteMany({ where: { id: { in: ids } } })).count,
+	});
 }
 
 /** Guarda só as `keep` execuções mais recentes de cada rotina (as em andamento ficam sempre). */
@@ -138,14 +168,15 @@ export async function pruneRoutineRuns(keep: number, options: BatchOptions = {})
 	return deleted;
 }
 
-export type RetentionResult = { runEvents: number; routineRuns: number };
+export type RetentionResult = { runEvents: number; agentSteps: number; routineRuns: number };
 
-/** Passo diário completo. Cada parte falha sozinha (a outra ainda roda); o erro sobe depois para o job registrar. */
+/** Passo diário completo. Cada parte falha sozinha (as outras ainda rodam); o erro sobe depois para o job registrar. */
 export async function runDataRetention(now: Date = new Date(), options: BatchOptions = {}): Promise<RetentionResult> {
 	const plan = planRetention(now);
 	const errors: unknown[] = [];
 	const runEvents = await pruneOldRunEvents(plan.runEventsBefore, options).catch((error) => (errors.push(error), 0));
+	const agentSteps = await pruneOldAgentSteps(plan.agentStepsBefore, options).catch((error) => (errors.push(error), 0));
 	const routineRuns = await pruneRoutineRuns(plan.routineRunsKeep, options).catch((error) => (errors.push(error), 0));
 	if (errors.length > 0) throw errors[0];
-	return { runEvents, routineRuns };
+	return { runEvents, agentSteps, routineRuns };
 }

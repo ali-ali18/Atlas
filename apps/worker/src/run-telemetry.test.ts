@@ -4,6 +4,7 @@ import type { RuntimeStepRecord } from "@workspace/agent-runtime";
 import { createJevTelemetryCollector } from "@workspace/agent-runtime";
 import {
 	createRunTelemetryTracker,
+	spanFromStep,
 	stepTelemetryFields,
 	withRunTelemetry,
 } from "./run-telemetry.js";
@@ -123,4 +124,25 @@ test("A7: tracker propaga o pedido e o último modelo servido para o usageJson d
 	assert.equal(meta.requestedModel, "a/b");
 	assert.equal(meta.servedModel, "c/d");
 	assert.equal(withRunTelemetry({ promptTokens: 1, completionTokens: 1, totalTokens: 2 }, meta)?.telemetry?.servedModel, "c/d");
+});
+
+test("spanFromStep: modelo vira span com provedor, modelo servido, cache, saída, TTFT e finishReason", () => {
+	const span = spanFromStep({
+		decisionIndex: 2,
+		subIndex: 0,
+		type: "model",
+		status: "completed",
+		outputJson: { content: "oi", finishReason: "stop" },
+		telemetry: { v: 1, provider: "openrouter", requestedModel: "a/b", servedModel: "a/b-fallback", cachedTokens: 60, completionTokens: 12, ttftMs: 410 },
+	});
+	assert.deepEqual(span, { decisionIndex: 2, subIndex: 0, kind: "model", provider: "openrouter", model: "a/b-fallback", cachedTokens: 60, outputTokens: 12, ttftMs: 410, finishReason: "stop" });
+});
+
+test("spanFromStep: tool terminada vira span com a decisão da política; tool em andamento e checkpoint não", () => {
+	const done = spanFromStep({ decisionIndex: 1, subIndex: 1, type: "tool_result", status: "completed", telemetry: { v: 1, toolName: "read", toolMs: 5, policyDecision: "confirm" } });
+	assert.deepEqual(done, { decisionIndex: 1, subIndex: 1, kind: "tool", policyDecision: "confirm" });
+	assert.equal(spanFromStep({ decisionIndex: 1, subIndex: 1, type: "tool", status: "running" }), null);
+	assert.equal(spanFromStep({ decisionIndex: 1, subIndex: 98, type: "checkpoint", status: "completed" }), null);
+	// Passo do v1 (tool_result sem telemetria de tool) não gera span.
+	assert.equal(spanFromStep({ decisionIndex: 1, subIndex: 1, type: "tool_result", status: "completed" }), null);
 });

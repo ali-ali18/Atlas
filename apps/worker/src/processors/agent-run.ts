@@ -31,6 +31,7 @@ import {
 	type Notify,
 	prisma,
 	appendAgentStep,
+	recordSpan,
 	appendConversationCard,
 	listOpenBotRequests,
 	appendRunAssistantSegment,
@@ -164,6 +165,7 @@ import { createAutoContinueIo } from "../auto-continue-io.js";
 import { resolveTranscriptHistory, type TranscriptHistory } from "./transcript-history.js";
 import {
 	createRunTelemetryTracker,
+	spanFromStep,
 	stepTelemetryFields,
 	withRunTelemetry,
 } from "../run-telemetry.js";
@@ -1175,6 +1177,8 @@ async function executeLeasedRun(ctx: {
 		// Brief e lembrete `check` pedem mais fôlego que o chat (no v1 não têm teto de custo): piso de orçamento, sem trabalho longo.
 		longerShortRun: isDetachedBriefRun(run) || isFollowupCheckObjective(run.origin, run.objective),
 		globalDefault: engineDefaultFromEnv(),
+		accountId: run.userId,
+		env: process.env,
 		record: (choice) => recordRunEngine(runId, choice),
 	});
 	// Trabalho longo no v2 com orçamento gravado no bot: o dono do bot vale mais que o teto por execução da conta.
@@ -1425,6 +1429,11 @@ async function executeLeasedRun(ctx: {
 					});
 				} catch (error) {
 					asLeaseError(error);
+				}
+				// Tracing do motor v2: o span vai na linha que acabou de ser gravada. `recordSpan` nunca lança.
+				if (v2) {
+					const span = spanFromStep(step);
+					if (span) await recordSpan({ ...span, userId: runUserId, runId });
 				}
 			},
 			onCheckpoint: persistCheckpoint,

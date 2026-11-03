@@ -284,6 +284,26 @@ describe("motor v2: laço", () => {
 		expect(last.nextStepIndex).toBeGreaterThanOrEqual(2);
 	});
 
+	it("tracing: cada chamada de modelo e cada tool terminada saem com telemetria de span (sem args nem resultado)", async () => {
+		const { steps } = await runV2({
+			messages: [{ role: "user", content: "Monte um relatório rápido das horas" }],
+			script: [turn([call("a1", "mcp_tool_search", { query: "current_time" })], 0.001), turn([call("a2", "current_time", { timezone: "Asia/Tokyo" })], 0.002), say("Pronto.", 0.003)],
+			options: { profile: "chat" },
+		});
+		const models = steps.filter((step) => step.type === "model");
+		expect(models).toHaveLength(3);
+		for (const step of models) {
+			expect(step.telemetry?.servedModel).toBe("m");
+			expect(step.telemetry?.provider).toBeDefined();
+			expect(step.durationMs).toBeDefined();
+		}
+		expect((models.at(-1)!.outputJson as { finishReason?: string }).finishReason).toBe("stop");
+		const tools = steps.filter((step) => step.type === "tool_result");
+		expect(tools.map((step) => step.telemetry?.toolName)).toEqual(["mcp_tool_search", "current_time"]);
+		expect(tools.every((step) => step.telemetry?.policyDecision === "allow")).toBe(true);
+		expect(JSON.stringify(tools.map((step) => step.telemetry))).not.toContain("Tokyo");
+	});
+
 	it("a retomada continua do checkpoint (histórico, passo e uso acumulados)", async () => {
 		const first = await runV2({
 			messages: [{ role: "user", content: "Quero um relatório" }],

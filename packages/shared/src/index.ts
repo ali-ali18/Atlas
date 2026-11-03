@@ -283,6 +283,7 @@ export {
 	estimateTokens,
 } from "./tokens.js";
 export { parseSseBlock } from "./sse.js";
+export { RUN_EVENT_TYPES, RUN_TERMINAL_EVENTS, runTerminalKey, type RunEventType, type RunTerminalEvent } from "./sse-contract.js";
 export { createSseReplayGuard } from "./sse-replay.js";
 export { botAccent, relativeLuminance, type BotAccent } from "./bot-accent.js";
 export * from "./read-state.js";

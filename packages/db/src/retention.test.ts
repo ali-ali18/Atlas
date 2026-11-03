@@ -7,7 +7,7 @@ import { afterEach, test } from "node:test";
 
 process.env.ATLAS_HOOK_PEPPER ||= "test-pepper";
 const { prisma } = await import("./client.js");
-const { planRetention, pruneOldRunEvents, pruneRoutineRuns, runDataRetention, RETAINED_RUN_EVENT_TYPES } = await import("./retention.js");
+const { planRetention, pruneOldAgentSteps, pruneOldRunEvents, pruneRoutineRuns, runDataRetention, RETAINED_RUN_EVENT_TYPES } = await import("./retention.js");
 
 type Row = Record<string, unknown>;
 const NOW = new Date("2026-10-23T07:17:00.000Z");
@@ -51,8 +51,9 @@ function installRuns(runs: Row[], events: Row[]) {
 	});
 }
 
-test("planRetention: 30 dias antes de now; 50 execuções por rotina", () => {
-	assert.deepEqual(planRetention(NOW), { runEventsBefore: new Date(NOW.getTime() - 30 * DAY), routineRunsKeep: 50 });
+test("planRetention: 30 dias (eventos) e 90 dias (diário agent_steps) antes de now; 50 execuções por rotina", () => {
+	assert.deepEqual(planRetention(NOW), { runEventsBefore: new Date(NOW.getTime() - 30 * DAY), agentStepsBefore: new Date(NOW.getTime() - 90 * DAY), routineRunsKeep: 50 });
+	assert.deepEqual(planRetention(NOW, { agentStepsDays: 10 }).agentStepsBefore, new Date(NOW.getTime() - 10 * DAY));
 	assert.deepEqual(planRetention(NOW, { runEventsDays: 7, routineRunsKeep: 3 }).runEventsBefore, new Date(NOW.getTime() - 7 * DAY));
 });
 
@@ -84,6 +85,28 @@ test("eventos de run encerrado há 30+ dias saem (menos os tipos que a UI lê); 
 	}
 	// Rodar de novo não acha mais nada.
 	assert.equal(await pruneOldRunEvents(planRetention(NOW).runEventsBefore, { batchSize: 3, pause: noPause }), 0);
+});
+
+test("diário: passos de run encerrado há 90+ dias saem; run de 40 dias, recente e em andamento ficam", async () => {
+	const runs: Row[] = [
+		{ id: "ancient", status: "completed", finishedAt: new Date(NOW.getTime() - 91 * DAY) },
+		{ id: "ancient-failed", status: "failed", finishedAt: new Date(NOW.getTime() - 200 * DAY) },
+		{ id: "forty", status: "completed", finishedAt: new Date(NOW.getTime() - 40 * DAY) },
+		{ id: "paused", status: "paused", finishedAt: null },
+	];
+	const steps: Row[] = [];
+	let n = 0;
+	for (const run of runs) for (let i = 0; i < 5; i += 1) steps.push({ id: `s${String(n++).padStart(3, "0")}`, runId: run.id });
+	installRuns(runs, []);
+	stub(prisma.agentStep, "findMany", async (args: { where: { runId: { in: string[] } }; take: number }) => steps.filter((step) => args.where.runId.in.includes(step.runId as string)).slice(0, args.take).map((step) => ({ id: step.id })));
+	stub(prisma.agentStep, "deleteMany", async (args: { where: { id: { in: string[] } } }) => {
+		const before = steps.length;
+		for (let i = steps.length - 1; i >= 0; i -= 1) if (args.where.id.in.includes(steps[i]!.id as string)) steps.splice(i, 1);
+		return { count: before - steps.length };
+	});
+	const deleted = await pruneOldAgentSteps(planRetention(NOW).agentStepsBefore, { batchSize: 3, pause: noPause });
+	assert.equal(deleted, 10);
+	assert.deepEqual([...new Set(steps.map((step) => step.runId))].sort(), ["forty", "paused"]);
 });
 
 test("rotinas: a 51ª execução em diante sai, por rotina; execução em andamento nunca", async () => {
