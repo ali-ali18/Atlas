@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { appRouteParams, isSvgUri, resolveIconUri, type AppsRow, buildAppsRows, buildChips, composioAction, composioCategoryOf, connectedCountText, connectedItems, customAction, initialOf, isFeatured, mergeToolkits, nativeAction, appRefId, parseAppRef, type SectionsInput } from "./apps";
+import { appRouteParams, isSvgUri, resolveIconUri, type AppsRow, buildAppsRows, buildChips, composioAction, composioCategoryOf, composioWantsMore, connectedCountText, connectedItems, customAction, initialOf, isFeatured, mergeToolkits, nativeAction, appRefId, parseAppRef, type SectionsInput } from "./apps";
 import type { ComposioToolkit, NativeConnector } from "./apps-parse";
 import type { CatalogBot } from "./catalog";
 
@@ -75,11 +75,11 @@ const headers = (rows: AppsRow[]) => rows.filter((row) => row.kind === "header")
 const appKeys = (rows: AppsRow[]) => rows.filter((row) => row.kind === "app").map((row) => (row as { key: string }).key);
 
 describe("buildAppsRows", () => {
-	it("sem busca: conectados, destaque, categorias, apps e bots, nessa ordem, sem repetir conectado", () => {
+	it("sem busca: conectados, destaque, categorias, bots e apps, nessa ordem, sem repetir conectado", () => {
 		const rows = buildAppsRows(base());
-		expect(headers(rows)).toEqual(["Conectados", "Em destaque", "Google", "Pesquisa web", "Produtividade", "Apps", "Bots"]);
+		expect(headers(rows)).toEqual(["Conectados", "Em destaque", "Google", "Pesquisa web", "Produtividade", "Bots", "Apps"]);
 		expect(appKeys(rows)).toEqual(["native:github", "custom:x1", "composio:slack_x", "f:firecrawl", "n:gmail", "n:firecrawl", "n:notion", "c:asana", "c:trello"]);
-		expect(rows.some((row) => row.kind === "more" && row.target === "composio")).toBe(true);
+		expect(rows.some((row) => row.kind === "autoload")).toBe(true);
 	});
 	it("Composio: o conectado (pelas conexões do dono, não pelo item velho) e o que já é nativo ficam de fora de Apps", () => {
 		expect(appKeys(buildAppsRows(base())).filter((key) => key.startsWith("c:"))).toEqual(["c:asana", "c:trello"]);
@@ -91,10 +91,11 @@ describe("buildAppsRows", () => {
 		const gone = buildAppsRows(base({ composioConnections: [] }));
 		expect(appKeys(gone)).toContain("c:trello");
 	});
-	it("'Ver mais' continua quando a página inteira foi filtrada mas há mais páginas", () => {
+	it("o marcador de carregar ao rolar continua quando a página inteira foi filtrada mas há mais páginas", () => {
 		const rows = buildAppsRows(base({ composio: { status: "ready", items: [toolkit("so-nativo", { nativeCatalogId: "github" })], hasMore: true, loadingMore: false } }));
 		expect(appKeys(rows).filter((key) => key.startsWith("c:"))).toEqual([]);
-		expect(rows.some((row) => row.kind === "more" && row.target === "composio")).toBe(true);
+		expect(rows.some((row) => row.kind === "autoload")).toBe(true);
+		expect(rows.some((row) => row.kind === "more" && row.target === "composio")).toBe(false);
 		const none = buildAppsRows(base({ composio: { status: "ready", items: [], hasMore: false, loadingMore: false } }));
 		expect(headers(none)).not.toContain("Apps");
 	});
@@ -148,10 +149,22 @@ describe("buildAppsRows", () => {
 		const loading = buildAppsRows(base({ entries: [], connections: [], composioConnections: [], bots: null, composio: { status: "loading" } }));
 		expect(loading).toEqual([]);
 	});
-	it("Composio com erro mostra aviso com nova tentativa; 'Ver mais' mostra o estado de carregando", () => {
+	it("Composio com erro mostra aviso com nova tentativa; o fim da lista mostra o carregando da próxima página", () => {
 		expect(buildAppsRows(base({ composio: { status: "error" } })).find((row) => row.kind === "note")).toMatchObject({ retry: true });
-		const more = buildAppsRows(base({ composio: { status: "ready", items: [toolkit("a")], hasMore: true, loadingMore: true } })).find((row) => row.kind === "more" && row.target === "composio");
+		const more = buildAppsRows(base({ composio: { status: "ready", items: [toolkit("a")], hasMore: true, loadingMore: true } })).find((row) => row.kind === "autoload");
 		expect(more).toMatchObject({ loading: true });
+	});
+	it("bots vêm antes dos apps do Composio (a lista do Composio cresce ao rolar)", () => {
+		const rows = buildAppsRows(base({ composio: { status: "ready", items: [toolkit("a")], hasMore: true, loadingMore: false } }));
+		const labels = headers(rows);
+		if (labels.includes("Bots")) expect(labels.indexOf("Bots")).toBeLessThan(labels.indexOf("Apps"));
+		expect(rows.at(-1)?.kind).toBe("autoload");
+	});
+	it("só pede a próxima página do Composio quando há mais e nenhuma está a caminho", () => {
+		expect(composioWantsMore({ status: "ready", items: [], hasMore: true, loadingMore: false })).toBe(true);
+		expect(composioWantsMore({ status: "ready", items: [], hasMore: true, loadingMore: true })).toBe(false);
+		expect(composioWantsMore({ status: "ready", items: [], hasMore: false, loadingMore: false })).toBe(false);
+		expect(composioWantsMore({ status: "loading" })).toBe(false);
 	});
 	it("não repete o app do Composio que é nativo nas conexões", () => {
 		const items = connectedItems({ entries: [native({ id: "github", status: "connected", connectionId: "c" })], connections: [], composioConnections: [{ id: "1", toolkit: "github", toolkitName: "GitHub", noAuth: false }, { id: "2", toolkit: "x", toolkitName: "X", noAuth: false }, { id: "3", toolkit: "x", toolkitName: "X", noAuth: false }], composioLogos: new Map([["x", "https://l/x.png"]]) });

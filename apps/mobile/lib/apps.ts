@@ -102,6 +102,8 @@ export type AppsRow =
 	| { kind: "bot"; key: string; bot: CatalogBot }
 	| { kind: "note"; key: string; text: string; retry?: boolean }
 	| { kind: "more"; key: string; label: string; loading: boolean; target: "composio" | "bots" }
+	/** Fim da lista do Composio com mais páginas: a próxima carrega sozinha ao rolar até aqui (spinner enquanto chega). */
+	| { kind: "autoload"; key: string; loading: boolean }
 	| { kind: "empty"; key: string; text: string };
 
 export const FEATURED_IDS = ["firecrawl", "github", "google_drive", "slack"] as const;
@@ -166,6 +168,11 @@ export type SectionsInput = {
  * Composio só os apps. Com busca, os nativos/conectados/bots são filtrados aqui (o Composio vem filtrado do servidor).
  * Quem já está em "Conectados" não se repete nas outras seções.
  */
+/** A lista do Composio tem mais páginas para puxar quando a rolagem chegar ao fim (e nenhuma está a caminho). */
+export function composioWantsMore(state: ComposioState): boolean {
+	return state.status === "ready" && state.hasMore && !state.loadingMore;
+}
+
 export function buildAppsRows(input: SectionsInput): AppsRow[] {
 	const words = plain(input.query).split(/\s+/).filter(Boolean);
 	const searching = words.length > 0;
@@ -209,6 +216,17 @@ export function buildAppsRows(input: SectionsInput): AppsRow[] {
 		}
 	}
 
+	// Bots antes dos apps do Composio: a lista do Composio cresce sem fim ao rolar e esconderia os bots no final.
+	if (showBots && input.bots) {
+		const filtered = filterCatalog(input.bots, input.query, "");
+		if (filtered.length > 0) {
+			rows.push({ kind: "header", key: "h:bots", label: "Bots" });
+			const preview = chip === "" && !searching ? filtered.slice(0, BOTS_PREVIEW) : filtered;
+			for (const bot of preview) rows.push({ kind: "bot", key: `b:${bot.slug}`, bot });
+			if (preview.length < filtered.length) rows.push({ kind: "more", key: "more:bots", label: `Ver todos (${filtered.length})`, loading: false, target: "bots" });
+		}
+	}
+
 	if (showComposio) {
 		const state = input.composio;
 		const label = "Apps";
@@ -224,22 +242,12 @@ export function buildAppsRows(input: SectionsInput): AppsRow[] {
 			// Conectados (pelas conexões do dono) vão para "Conectados"; os que também são nativos aparecem como nativos.
 			const connectedSlugs = new Set(input.composioConnections.map((connection) => connection.toolkit));
 			const shown = state.items.filter((item) => item.nativeCatalogId === null && !connectedSlugs.has(item.slug));
-			// Página toda filtrada mas com mais páginas: o "Ver mais" continua (senão a lista ficaria sem saída).
+			// Página toda filtrada mas com mais páginas: o marcador de fim continua (a rolagem puxa a próxima página).
 			if (shown.length > 0 || state.hasMore) {
 				rows.push({ kind: "header", key: "h:composio", label });
 				for (const item of shown) rows.push({ kind: "app", key: `c:${item.slug}`, item: composioItem(item) });
-				if (state.hasMore) rows.push({ kind: "more", key: "more:composio", label: "Ver mais", loading: state.loadingMore, target: "composio" });
+				if (state.hasMore) rows.push({ kind: "autoload", key: "more:composio", loading: state.loadingMore });
 			}
-		}
-	}
-
-	if (showBots && input.bots) {
-		const filtered = filterCatalog(input.bots, input.query, "");
-		if (filtered.length > 0) {
-			rows.push({ kind: "header", key: "h:bots", label: "Bots" });
-			const preview = chip === "" && !searching ? filtered.slice(0, BOTS_PREVIEW) : filtered;
-			for (const bot of preview) rows.push({ kind: "bot", key: `b:${bot.slug}`, bot });
-			if (preview.length < filtered.length) rows.push({ kind: "more", key: "more:bots", label: `Ver todos (${filtered.length})`, loading: false, target: "bots" });
 		}
 	}
 

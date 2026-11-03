@@ -34,6 +34,8 @@ export type AppsViewProps = {
 	onOpenApp: (item: AppItem) => void;
 	onOpenBot: (slug: string) => void;
 	onMore: (target: "composio" | "bots") => void;
+	/** Rolou até o fim: puxa a próxima página do Composio (quem chama decide se há). */
+	onEndReached: () => void;
 	onRetry: () => void;
 };
 
@@ -42,7 +44,7 @@ export type AppsViewProps = {
  * de categoria rolando de lado; as seções (Conectados, Em destaque, categorias, Apps, Bots) e a busca fixa embaixo.
  */
 export function AppsView(props: AppsViewProps) {
-	const { load, rows, chips, chip, onChip, query, onQuery, connectedCount, installed, composioLoading, onOpenConnected, onClose, onOpenApp, onOpenBot, onMore, onRetry } = props;
+	const { load, rows, chips, chip, onChip, query, onQuery, connectedCount, installed, composioLoading, onOpenConnected, onClose, onOpenApp, onOpenBot, onMore, onEndReached, onRetry } = props;
 	const renderItem = React.useCallback(
 		({ item: row }: { item: AppsRow }) => {
 			switch (row.kind) {
@@ -74,6 +76,8 @@ export function AppsView(props: AppsViewProps) {
 							</Button>
 						</View>
 					);
+				case "autoload":
+					return <View className="h-14 items-center justify-center">{row.loading ? <Spinner label="Carregando mais apps" /> : null}</View>;
 				case "empty":
 					return (
 						<Text variant="muted" className="px-8 pt-24 text-center text-control">
@@ -127,7 +131,7 @@ export function AppsView(props: AppsViewProps) {
 					) : null}
 				</View>
 				{ready ? <CategoryFilters categories={chips} value={chip} onChange={onChip} /> : null}
-				<FlatList data={ready ? rows : []} keyExtractor={(row) => row.key} renderItem={renderItem} ListEmptyComponent={empty} ListFooterComponent={footer} style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 16 }} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" />
+				<FlatList data={ready ? rows : []} keyExtractor={(row) => row.key} renderItem={renderItem} ListEmptyComponent={empty} ListFooterComponent={footer} style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 16 }} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" onEndReached={onEndReached} onEndReachedThreshold={0.6} />
 				<CatalogSearchBar query={query} onChange={onQuery} placeholder="Buscar aplicativos e bots" />
 			</KeyboardAvoidingView>
 		</ScreenFrame>
