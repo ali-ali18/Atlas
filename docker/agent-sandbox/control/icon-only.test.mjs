@@ -18,13 +18,26 @@ const page = `<body style="margin:10px">
 <button id="svgt" onclick="document.title='svgt'"><svg width="16" height="16"><title>Cortar clipe</title><rect width="16" height="16"/></svg></button>
 </div></body>`;
 
-const fixtures = await launchFixtureBrowser({ "/yt": page });
+const pageDelete = `<body style="margin:10px"><button aria-label="Excluir conta" onclick="document.title='conta'">${svg}</button>
+<button aria-label="Excluir tudo" onclick="document.title='tudo'">${svg}</button></body>`;
+const pageTwoAsk = `<body style="margin:10px"><button aria-label="Perguntar" onclick="document.title='um'">${svg}</button>
+<button aria-label="Perguntar" onclick="document.title='dois'">${svg}</button></body>`;
+// Um "Enviar" desabilitado, um escondido de leitores e um fora da página: sobra o utilizável.
+const pageUsable = `<body style="margin:10px"><button aria-label="Enviar" disabled>${svg}</button>
+<div aria-hidden="true"><button aria-label="Enviar" onclick="document.title='hidden'">${svg}</button></div>
+<button aria-label="Enviar" style="position:absolute;left:-5000px" onclick="document.title='off'">${svg}</button>
+<button aria-label="Enviar" onclick="document.title='ok'">${svg}</button></body>`;
+// Card clicável que contém um botão "Excluir": o card não herda o nome do botão de dentro.
+const pageCard = `<body style="margin:10px"><div id="card" role="button" tabindex="0" onclick="document.title='card'" style="padding:8px;border:1px solid #888">
+<span>${svg}</span><button aria-label="Excluir" onclick="event.stopPropagation();document.title='btn'">${svg}</button></div></body>`;
+
+const fixtures = await launchFixtureBrowser({ "/yt": page, "/del": pageDelete, "/ask2": pageTwoAsk, "/usable": pageUsable, "/card": pageCard });
 after(() => fixtures?.close());
 const skip = fixtures ? false : "Chromium/playwright-core indisponível";
 
-async function open() {
+async function open(path = "/yt") {
 	const p = await fixtures.newPage();
-	await p.goto(`${fixtures.base}/yt`);
+	await p.goto(`${fixtures.base}${path}`);
 	await p.waitForLoadState("load");
 	const actions = createBrowserActions({ getPage: async () => p });
 	const refs = createRefActions({ withPageRetry: actions.withPageRetry, clickElement: actions.clickElement, axOn: () => false });
@@ -83,4 +96,33 @@ test("real: browser_snapshot (árvore AX) lista o botão só-ícone pelo nome", 
 	const snap = await refs.browserSnapshot({});
 	assert.equal(snap.engine, "ax");
 	for (const name of NAMES) assert.match(snap.tree, new RegExp(`button "${name}`), snap.tree);
+});
+
+test("real: nome acessível é exato: \"Excluir\" não clica \"Excluir conta\" e lista os parecidos", { skip }, async () => {
+	const { p, actions } = await open("/del");
+	await assert.rejects(actions.browserClick({ text: "Excluir" }), /Nomes parecidos: "Excluir conta", "Excluir tudo"/);
+	assert.equal(await p.title(), "");
+	await actions.browserClick({ text: "excluir  CONTA" });
+	assert.equal(await p.title(), "conta");
+});
+
+test("real: dois controles com o mesmo nome acessível viram ambíguo, sem clicar", { skip }, async () => {
+	const { p, actions } = await open("/ask2");
+	await assert.rejects(actions.browserClick({ text: "Perguntar" }), /Mais de um controle se chama "Perguntar"/);
+	assert.equal(await p.title(), "");
+});
+
+test("real: nome acessível ignora desabilitado, aria-hidden e fora da página", { skip }, async () => {
+	const { p, actions } = await open("/usable");
+	await actions.browserClick({ text: "Enviar" });
+	assert.equal(await p.title(), "ok");
+});
+
+test("real: card clicável não herda o nome do botão \"Excluir\" de dentro", { skip }, async () => {
+	const { p, actions, reader } = await open("/card");
+	const res = await reader.readPage({});
+	// Antes, o card (role=button) herdava o aria-label do botão de dentro e aparecia como "Excluir".
+	assert.doesNotMatch(res.text, /"Excluir"/, res.text);
+	await actions.browserClick({ text: "Excluir" });
+	assert.equal(await p.title(), "btn");
 });
