@@ -220,6 +220,34 @@ describe("v2: recusa anterior não vale para um pedido novo", () => {
 		expect(first!.system).toMatch(/bots: propose_bot/);
 		expect(second!.toolNames).toContain("propose_bot");
 	});
+	it("duas propostas de bot no mesmo passo: sai um cartão só (o card é bot-${runId})", async () => {
+		const args = { name: "Bobinho Apoio", purpose: "Atender clientes do suporte", description: "Responde dúvidas de suporte" };
+		const out = await runOrigin({
+			origin: "chat",
+			text: "crie um bot de apoio ao suporte",
+			script: [
+				{
+					model: "m",
+					finishReason: "tool_calls",
+					message: {
+						role: "assistant",
+						content: null,
+						tool_calls: [
+							{ id: "p1", type: "function", function: { name: "propose_bot", arguments: JSON.stringify(args) } },
+							{ id: "p2", type: "function", function: { name: "propose_bot", arguments: JSON.stringify({ ...args, name: "Outro" }) } },
+						],
+					},
+				} as CompleteChatWithToolsResult,
+				say("ok"),
+			],
+			extra: { humanTurn: true },
+		});
+		// O cartão de proposta pede decisão e encerra o run: a 2ª chamada do mesmo passo nem roda.
+		expect(out.events.filter((e) => e.type === "bot-proposal")).toHaveLength(1);
+		const proposals = out.results.filter((r) => r.name === "propose_bot");
+		expect(proposals).toHaveLength(1);
+		expect(proposals[0]!.ok).toBe(true);
+	});
 });
 
 describe("v2 em bot→bot e grupo", () => {
