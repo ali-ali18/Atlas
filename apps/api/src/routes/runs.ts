@@ -13,6 +13,7 @@ import {
 	parseQuestionnaireAnswerBody,
 	questionnaireAnswerClientKey,
 	buildRunInspection,
+	isBotCreatedObjective,
 	scrubString,
 	type ComputerUseEvent,
 	type CreateAgentRunRequest,
@@ -63,6 +64,7 @@ import { peekModelContextLength } from "./models.js";
 import { resolveRunModel, resolveRunModelChoice } from "../chat/effective-model.js";
 import { createReactionOnlyDeps, maybeReactOnly, type ReactionOnlyDeps } from "../chat/reaction-only.js";
 import { validateProviderModel } from "../providers/model-catalog.js";
+import { findBotCreatedRun } from "../chat/bot-onboarding.js";
 
 
 
@@ -292,6 +294,26 @@ export async function reconcileQueuedAgentRuns(
 	return recovered;
 }
 
+/** Modelo utilizável para um run novo (catálogo confirmado e chave do provedor); `null` = ok. Compartilhado com o onboarding do servidor. */
+export async function checkRunModel(
+	userId: string,
+	model: string,
+	deps: { validateModel: typeof validateProviderModel; openRouterApiKey: string | undefined },
+): Promise<{ error: string; status: 400 | 404 | 409 | 503 } | null> {
+	const result = await deps.validateModel(userId, model);
+	if ("status" in result) {
+		return { error: result.error, status: result.status === 503 ? 409 : result.status };
+	}
+	// Exige catálogo confirmado antes de criar run ou consumir um card.
+	if (result.warning) {
+		return { error: `Catálogo ${parseModelRef(model).provider === "chatgpt" ? "ChatGPT" : "do provedor"} indisponível. Tente novamente antes de iniciar a tarefa.`, status: 409 };
+	}
+	if (parseModelRef(model).provider === "openrouter" && !deps.openRouterApiKey) {
+		return { error: "OPENROUTER_API_KEY is not configured on the API server", status: 503 };
+	}
+	return null;
+}
+
 export function createRunRoutes(
 	config: Omit<ApiConfig, "agentRunQueue"> & { agentRunQueue: RunQueue | null },
 	dependencies: {
@@ -312,22 +334,8 @@ export function createRunRoutes(
 	const subscribeEvents = dependencies.subscribeRunEvents ?? subscribeRunEventsSignal;
 	const eventsSubscribed = dependencies.runEventsSubscribed ?? (dependencies.subscribeRunEvents ? () => false : isRunEventsSignalSubscribed);
 	const app = new Hono<AuthEnv>();
-	async function validateRunModel(userId: string, model: string): Promise<{
-		error: string; status: 400 | 404 | 409 | 503;
-	} | null> {
-		const result = await validateModel(userId, model);
-		if ("status" in result) {
-			return { error: result.error, status: result.status === 503 ? 409 : result.status };
-		}
-		// Exige catálogo confirmado antes de criar run ou consumir um card.
-		if (result.warning) {
-			return { error: `Catálogo ${parseModelRef(model).provider === "chatgpt" ? "ChatGPT" : "do provedor"} indisponível. Tente novamente antes de iniciar a tarefa.`, status: 409 };
-		}
-		if (parseModelRef(model).provider === "openrouter" && !config.openRouterApiKey) {
-			return { error: "OPENROUTER_API_KEY is not configured on the API server", status: 503 };
-		}
-		return null;
-	}
+	const validateRunModel = (userId: string, model: string) =>
+		checkRunModel(userId, model, { validateModel, openRouterApiKey: config.openRouterApiKey });
 
 	/**
 	 * POST /v1/runs — cria AgentRun (chat | routine | webhook).
@@ -373,6 +381,14 @@ export function createRunRoutes(
 		catch (error) {
 			if (error instanceof ResourceOwnershipError) return c.json({ error: "Resource not found" }, 404);
 			throw error;
+		}
+		// Onboarding de bot novo é do servidor (`POST /v1/bots`): o web antigo ainda pede o seu, e um segundo run não nasce.
+		if (request.silent === true && request.origin === "chat" && isBotCreatedObjective(request.objective) && request.botId && request.conversationId) {
+			const existing = await findBotCreatedRun(scopeFor(c.get("session")).userId, request.conversationId);
+			if (existing) {
+				const body: CreateAgentRunResponse = { runId: existing.id, status: existing.status as CreateAgentRunResponse["status"], enqueued: existing.enqueued };
+				return c.json(body, 200);
+			}
 		}
 		try { const owner = scopeFor(c.get("session")).userId; await resolveUserImagesCard(request.attachments ?? [], owner); await resolveUserFileCards(request.attachments ?? [], owner); }
 		catch { return c.json({ error: "anexo inválido" }, 400); }
