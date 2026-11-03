@@ -84,6 +84,7 @@ export {
 	TOOL_FAILURE_BLOCK_AFTER,
 	BUDGET_EXTENSION_DEFAULT,
 	BUDGET_HARD_CAP,
+	BUDGET_SOFT_DEFAULT,
 	addUsage,
 	emptyUsage,
 	parseBudgetPolicy,

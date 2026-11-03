@@ -2035,7 +2035,7 @@ async function runComputerUseCore(params: {
 	let contextLength = params.contextLength;
 	const userId = params.userId ?? "default";
 	const maxSteps = params.maxSteps ?? MAX_STEPS_DEFAULT;
-	const budget = resolveBudget({ maxSteps, policy: params.budget });
+	const budget = resolveBudget({ maxSteps, policy: params.budget, humanTurn: params.humanTurn === true });
 	// Parte B: cotas default de pesquisa (web_search 6, web_extract 12) sem
 	// sobrescrever a política do bot/request.
 	// Contagem/idempotência seguem no checkpoint (toolCallCounts + steps).

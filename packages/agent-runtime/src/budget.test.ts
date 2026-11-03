@@ -18,11 +18,14 @@ describe("wallClockAnchors", () => {
 });
 
 describe("resolveBudget", () => {
-	it("padrão (decisão do dono, 02/11): sem soft de 24 passos e sem teto de relógio; só o teto de passos de segurança", () => {
+	it("padrão (decisão do dono, 02/11): sem teto de relógio; turno humano sem soft (soft = hard), run sem humano com soft de 24", () => {
 		const budget = resolveBudget({});
 		expect(budget.hardMaxSteps).toBe(BUDGET_HARD_CAP);
-		// Soft = hard: não há fase de avaliação brando como freio.
-		expect(budget.softMaxSteps).toBe(BUDGET_HARD_CAP);
+		// Sem humano (rotina, brief, check, subagente): o soft de 24 passos e o softEvaluate continuam.
+		expect(budget.softMaxSteps).toBe(24);
+		// Turno humano: soft = hard, sem fase de avaliação brando como freio.
+		expect(resolveBudget({ humanTurn: true }).softMaxSteps).toBe(BUDGET_HARD_CAP);
+		expect(resolveBudget({ humanTurn: false, maxSteps: 10 }).softMaxSteps).toBe(10);
 		expect(budget.extensionSteps).toBe(24);
 		expect(budget.maxWallMs).toBe(0);
 		expect(budget.maxTokens).toBeUndefined();

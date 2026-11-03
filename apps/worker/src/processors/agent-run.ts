@@ -1018,6 +1018,7 @@ async function executeLeasedRun(ctx: {
 	const budget = resolveBudget({
 		maxSteps: run.maxSteps,
 		policy: { ...accountBudgetPolicy(configSnapshot, run.maxSteps), ...botPolicy, ...requestBudget },
+		humanTurn: readRunHumanTurn(run),
 	});
 	let effectiveCostCap = effectiveCostCapUsd(budget.maxCostUsd, configSnapshot);
 	const runStartedAt = run.startedAt
