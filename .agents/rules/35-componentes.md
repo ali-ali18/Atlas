@@ -46,3 +46,13 @@ Antes de criar componente, procure aqui. Se existe algo 80% igual, estenda (prop
 ## Estado e dados no front
 - Servidor só por `lib/atlas-api.ts` e `use-atlas-chat.ts`; eventos tipados em `packages/shared`. Nada de `fetch` solto em componente.
 - Estilo: Tailwind + `cn`, variantes com `cva`. Ícones de marca: SVG com `fill="currentColor"`. Botão de ícone tem `aria-label`.
+
+## App mobile (apps/mobile): pele e peças
+Vale para toda tela e componente do app. Tokens em `apps/mobile/lib/surfaces.ts` (`surfaceColors(scheme)`, hook `useSurfaces()`); peças em `apps/mobile/components/ui/`. Verificável por `apps/mobile/lib/visual-base-guard.test.ts`.
+- **Fundo de tela único:** toda tela abre em `ScreenFrame` (área segura + `screen`, o fundo do chat). Tela não pinta o próprio fundo nem usa `SafeAreaView` solto.
+- **Cartão único:** cartão e grupo de linhas são `SurfaceCard`/`SurfaceGroup` (`surface` + contorno `surfaceEdge`, raio `SURFACE_RADIUS`). Linha pressionável do grupo é `SurfaceRow`; o divisor (`divider`) é automático, vai de ponta a ponta e nenhuma linha desenha o seu.
+- **Todo chrome usa `chromeFill`/`chromeEdge`:** voltar, fechar, "…", compartilhar, ajuda, novo chat = `ChromeButton` (tamanhos `lg`/`md`/`sm`); pílula do bot e chips = `ChromePill`; busca, nome e login = `ChromeInput` (ou `InputGroup`/`Input`, que já trazem a pele); composer e menus flutuantes leem os mesmos tokens. Topo de tela interna é `ScreenHeader` (voltar com borda + título centralizado).
+- **Um interruptor só:** `ToggleSwitch`. Nunca importe `Switch` do `react-native`.
+- **Cartões e folhas do chat:** `ChatCard` já usa `surface`/`surfaceEdge`; folhas (`DraggableSheet`, `SoonSheet`, `OptionSheet`) usam `sheet`, e o conteúdo delas é `SurfaceGroup`.
+- **Nada de cor solta em tela:** hex só em `lib/surfaces.ts` e `lib/color-tokens.ts`; o resto usa `useSurfaces()` ou os tokens do tema (`bg-background`, `text-muted-foreground`). Sem `border-border`/`bg-card`/`bg-popover` para pele de chrome, cartão ou folha. O guarda falha com hex novo fora dos tokens (baseline por arquivo, só cai) e com `Switch` do RN importado.
+- **Como estender:** precisa de outro tamanho, tom ou estado? Acrescente variante/prop na peça (ou token novo em `surfaces.ts` com par claro/escuro e teste), nunca copie o desenho na tela. Tela nova da fila (Computador, Biblioteca, Painéis, seletor, criar bot, catálogo) nasce com estas peças.

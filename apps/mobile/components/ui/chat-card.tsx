@@ -3,6 +3,7 @@ import { cva, type VariantProps } from "class-variance-authority";
 import * as React from "react";
 import { Pressable, Text, View } from "react-native";
 import { cn } from "@/lib/cn";
+import { useSurfaces } from "@/lib/use-surfaces";
 
 // Espelho do ChatCard de packages/ui: mesmos nomes, props, variantes e vocabulário (CHAT_CARD_COPY é
 // importado do próprio packages/ui). Diferenças inevitáveis: sem <section>/<p>; o ícone `leading` é um
@@ -18,7 +19,7 @@ const BADGE_TONE: Record<ChatCardTone, { box: string; text: string }> = {
 	muted: { box: "bg-foreground/[0.06]", text: "text-muted-foreground" },
 };
 
-const chatCardVariants = cva("min-w-0 rounded-2xl bg-muted/60", {
+const chatCardVariants = cva("min-w-0 rounded-2xl border", {
 	variants: {
 		variant: {
 			card: "w-full flex-col gap-3 p-3",
@@ -28,8 +29,10 @@ const chatCardVariants = cva("min-w-0 rounded-2xl bg-muted/60", {
 	defaultVariants: { variant: "card" },
 });
 
-export function ChatCard({ className, variant = "card", ...props }: React.ComponentProps<typeof View> & VariantProps<typeof chatCardVariants>) {
-	return <View className={cn(chatCardVariants({ variant }), className)} {...props} />;
+/** Casca de todo cartão do chat: a superfície e o contorno padrão do app (`surface`/`surfaceEdge`, lib/surfaces.ts). */
+export function ChatCard({ className, variant = "card", style, ...props }: React.ComponentProps<typeof View> & VariantProps<typeof chatCardVariants>) {
+	const surfaces = useSurfaces();
+	return <View style={[{ backgroundColor: surfaces.surface, borderColor: surfaces.surfaceEdge }, style]} className={cn(chatCardVariants({ variant }), className)} {...props} />;
 }
 
 export function ChatCardLeading({ className, ...props }: React.ComponentProps<typeof View>) {
