@@ -104,3 +104,10 @@ test("tela: o fator de escala da screenshot do modelo bate com a largura da tela
 	assert.equal(percent, 80);
 	assert.equal((width * percent) / 100, maxWidth);
 });
+
+test("Dockerfile: yt-dlp (video_transcript) instalado de root em /usr/local/bin e conferido no build", () => {
+	assert.match(dockerfile, /RUN curl -fsSL -o \/usr\/local\/bin\/yt-dlp \\\n\thttps:\/\/github\.com\/yt-dlp\/yt-dlp\/releases\/latest\/download\/yt-dlp/);
+	assert.match(dockerfile, /chmod 0755 \/usr\/local\/bin\/yt-dlp/);
+	assert.match(dockerfile, /\/usr\/local\/bin\/yt-dlp --version/);
+	assert.doesNotMatch(dockerfile, /chown[^\n]*atlas[^\n]*yt-dlp/);
+});

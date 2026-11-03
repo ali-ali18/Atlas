@@ -57,6 +57,13 @@ RUN curl -fsSL -o /tmp/code.deb \
 	&& rm -f /tmp/code.deb \
 	&& rm -rf /var/lib/apt/lists/*
 
+# yt-dlp: legendas de vídeo para a tool video_transcript (script Python único; o python3 já está na
+# imagem). Fica em /usr/local/bin, de root: o `atlas` executa, mas não troca o binário.
+RUN curl -fsSL -o /usr/local/bin/yt-dlp \
+	https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp \
+	&& chmod 0755 /usr/local/bin/yt-dlp \
+	&& /usr/local/bin/yt-dlp --version
+
 # Wallpaper (Unsplash) + dock (Plank): Chrome / Files / Settings / Editor / Terminal.
 RUN curl -fsSL -o /usr/share/backgrounds/atlas-wallpaper.jpg \
 	"https://images.unsplash.com/photo-1642132786071-bf92a177282e?q=80&w=1920&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D"
