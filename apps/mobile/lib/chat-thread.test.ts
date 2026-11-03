@@ -182,6 +182,39 @@ describe("cartão de arquivo gravado", () => {
 	});
 });
 
+describe("cartão de imagens gravado", () => {
+	const imagesRow = (origin: string, extra: Record<string, unknown> = {}, id = "m3") => row(id, "images", JSON.stringify({ v: 1, kind: "images", origin, items: [{ artifactId: "a1", mime: "image/png", width: 800, height: 600, alt: "Gaveta aberta", name: "gaveta.png" }, { artifactId: "a2", mime: "image/jpeg", width: 10, height: 10 }], ...extra }));
+	it("vira um cartão de imagens com a origem, as imagens e a legenda", () => {
+		expect(sessionMessageToItem(imagesRow("assistant", { caption: "Resultado" }))).toEqual({
+			id: "m3",
+			kind: "images",
+			origin: "assistant",
+			images: [
+				{ artifactId: "a1", mime: "image/png", width: 800, height: 600, alt: "Gaveta aberta", name: "gaveta.png" },
+				{ artifactId: "a2", mime: "image/jpeg", width: 10, height: 10 },
+			],
+			caption: "Resultado",
+			createdAt: "2026-11-01T10:00:00.000Z",
+		});
+	});
+	it("anexo do usuário mantém a origem e não inventa legenda", () => {
+		const item = sessionMessageToItem(imagesRow("user"));
+		expect(item).toMatchObject({ kind: "images", origin: "user" });
+		expect(item).not.toHaveProperty("caption");
+	});
+	it("o cartão ao vivo some quando o gravado tem os mesmos arquivos", () => {
+		const saved = sessionMessageToItem(imagesRow("assistant")) as ChatItem;
+		const live: ChatItem = { id: "images-r1-a1+a2", kind: "images", origin: "assistant", images: [{ artifactId: "a1", mime: "image/png", width: 800, height: 600 }, { artifactId: "a2", mime: "image/jpeg", width: 10, height: 10 }] };
+		expect(reconcile([saved], [live])).toEqual([saved]);
+		expect(reconcile([], [live])).toEqual([live]);
+	});
+	it("arquivos diferentes são cartões diferentes", () => {
+		const saved = sessionMessageToItem(imagesRow("assistant")) as ChatItem;
+		const other: ChatItem = { id: "images-r2-z", kind: "images", origin: "assistant", images: [{ artifactId: "z", mime: "image/png", width: 1, height: 1 }] };
+		expect(reconcile([saved], [other])).toHaveLength(2);
+	});
+});
+
 describe("lista de tarefas", () => {
 	it("progresso, linha da doca e rótulo do fio", () => {
 		const items = tasks("r", "completed", "in_progress", "pending", "pending", "pending");

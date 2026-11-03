@@ -15,6 +15,13 @@ export type QuestionnaireStatus = "pending" | "submitted" | "dismissed";
 
 type Base = { id: string; createdAt?: string };
 
+/**
+ * Uma imagem de um cartão de imagens (anexo do usuário ou imagem do bot). `artifactId` é o arquivo no servidor
+ * (`GET /v1/files/:id`, com a sessão). `uri` só existe para imagem local (prévia, envio otimista): `data:`, `file:` ou
+ * http(s); nunca vem do servidor (ver `isSafeImageUri`).
+ */
+export type ChatImage = { artifactId: string; mime: string; width: number; height: number; alt?: string; name?: string; uri?: string };
+
 export type ChatItem =
 	| (Base & { kind: "user"; text: string; reactions?: Reaction[]; replyTo?: ReplyQuote })
 	/** `source`: rotina, lembrete ou evento que produziu a fala (vira o marcador acima do balão). */
@@ -28,6 +35,8 @@ export type ChatItem =
 	 * Cartão de painel antigo (gravado no cache sem `pageId`) continua abrindo no navegador.
 	 */
 	| (Base & { kind: "web-card"; card: WebCardKind; title: string; key: string; pageId?: string; revision?: number; sourceCount?: number; fileId?: string; mime?: string; size?: number })
+	/** Imagens do fio (anexo do usuário ou imagem gerada/enviada pelo bot), com a legenda do cartão quando há. */
+	| (Base & { kind: "images"; origin: "user" | "assistant"; images: ChatImage[]; caption?: string })
 	/** Marcador de uma linha no fio (conversa compactada, mensagem enviada a outro bot). */
 	| (Base & { kind: "marker"; text: string });
 

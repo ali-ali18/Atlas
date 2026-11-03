@@ -69,7 +69,7 @@ export function cardToItem(id: string, card: PersistedConversationCard, createdA
 		case "login":
 			return { ...base, kind: "web-card", card: "login", title: `Entrar em ${card.site}`, key: `login:${card.loginId}` };
 		case "images":
-			return { ...base, kind: "web-card", card: "images", title: "Imagens", key: `images:${id}` };
+			return { ...base, kind: "images", origin: card.origin, images: card.items.map(({ artifactId, mime, width, height, alt, name }) => ({ artifactId, mime, width, height, ...(alt ? { alt } : {}), ...(name ? { name } : {}) })), ...(card.caption ? { caption: card.caption } : {}) };
 		case "routine-proposal":
 		case "bot-proposal":
 		case "bot-profile":
@@ -243,6 +243,9 @@ export function cardKey(item: ChatItem): string | null {
 			return `task-list|${item.runId}`;
 		case "web-card":
 			return item.key;
+		case "images":
+			// Ao vivo não há id de mensagem: a identidade é o conjunto de arquivos (o gravado tem os mesmos).
+			return `images|${item.images.map((image) => image.artifactId).join(",")}`;
 		default:
 			return null;
 	}
