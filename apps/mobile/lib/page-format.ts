@@ -142,12 +142,33 @@ export function updatedAgoLabel(iso: string | null | undefined, now: number): st
 /** Quantas linhas do gráfico entram na tabela provisória (o gráfico de verdade abre no navegador). */
 export const CHART_TABLE_MAX_ROWS = 12;
 
-/** Dados do gráfico como tabela simples (primeira coluna = eixo X, uma por série). `hidden` = linhas que ficaram de fora. */
+const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})/;
+
+/** Datas ISO do eixo X como "05/10"; se os anos diferem, "05/10/26". Texto que não é data ISO vai como veio. */
+export function formatChartDates(values: ReadonlyArray<string | number | null | undefined>): string[] {
+	const parsed = values.map((value) => (typeof value === "string" ? ISO_DATE.exec(value) : null));
+	const years = new Set(parsed.map((match) => match?.[1]).filter(Boolean));
+	return values.map((value, index) => {
+		const match = parsed[index];
+		if (!match) return formatPageValue(value as string | null | undefined);
+		return years.size > 1 ? `${match[3]}/${match[2]}/${match[1]!.slice(2)}` : `${match[3]}/${match[2]}`;
+	});
+}
+
+/**
+ * Dados do gráfico como tabela simples (primeira coluna = eixo X, uma por série). Eixo de datas mostra as ÚLTIMAS
+ * linhas (o recente importa) e o cabeçalho é "Período"; senão as primeiras e "Item" (nome interno do campo nunca vai
+ * para a tela). X numérico (ano) sem separador de milhar. `hidden` = linhas que ficaram de fora.
+ */
 export function chartTable(spec: ChartSpec): { title: string; header: string[]; rows: string[][]; hidden: number } | null {
 	if (!spec.data.length || !spec.series.length) return null;
-	const header = [spec.x, ...spec.series.map((series) => series.label)];
+	const isDate = spec.xKind === "date";
+	const header = [isDate ? "Período" : "Item", ...spec.series.map((series) => series.label)];
 	const format = { unit: spec.unit, format: spec.format };
 	const cell = (value: string | number | null | undefined) => formatPageValue(value, format);
-	const rows = spec.data.slice(0, CHART_TABLE_MAX_ROWS).map((point) => [typeof point[spec.x] === "number" ? formatDecimal(point[spec.x] as number, 0, 2) : formatPageValue(point[spec.x] as string | null | undefined), ...spec.series.map((series) => cell(point[series.key]))]);
+	const data = isDate ? spec.data.slice(-CHART_TABLE_MAX_ROWS) : spec.data.slice(0, CHART_TABLE_MAX_ROWS);
+	const xs = data.map((point) => point[spec.x]);
+	const labels = isDate ? formatChartDates(xs) : xs.map((x) => (typeof x === "number" ? String(x) : formatPageValue(x)));
+	const rows = data.map((point, index) => [labels[index]!, ...spec.series.map((series) => cell(point[series.key]))]);
 	return { title: spec.title?.trim() || "Gráfico", header, rows, hidden: Math.max(0, spec.data.length - rows.length) };
 }

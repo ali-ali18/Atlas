@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ChartSpec } from "@workspace/shared";
-import { barPercent, chartTable, currencyDigits, formatCompact, formatDecimal, formatPageDelta, formatPageNumber, formatPageValue, resolveTab, shortDeltaLabel, sourceCountLabel, updatedAgoLabel } from "./page-format";
+import { barPercent, chartTable, currencyDigits, formatChartDates, formatCompact, formatDecimal, formatPageDelta, formatPageNumber, formatPageValue, resolveTab, shortDeltaLabel, sourceCountLabel, updatedAgoLabel } from "./page-format";
 
 describe("números do painel (sem Intl)", () => {
 	it("decimal pt-BR: milhar com ponto, vírgula, sem zeros sobrando", () => {
@@ -119,13 +119,30 @@ describe("gráfico como tabela provisória", () => {
 		...extra,
 	});
 	it("cabeçalho do eixo e das séries, valores formatados, vazio como traço", () => {
-		expect(chartTable(spec())).toEqual({ title: "Receita", header: ["mes", "Valor"], rows: [["Jan", "R$ 1.500"], ["Fev", "—"]], hidden: 0 });
+		expect(chartTable(spec())).toEqual({ title: "Receita", header: ["Item", "Valor"], rows: [["Jan", "R$ 1.500"], ["Fev", "—"]], hidden: 0 });
 	});
 	it("limita as linhas e diz quantas ficaram de fora", () => {
 		const data = Array.from({ length: 30 }, (_, i) => ({ mes: `m${i}`, v: i }));
 		const table = chartTable(spec({ data, unit: undefined }));
 		expect(table?.rows).toHaveLength(12);
 		expect(table?.hidden).toBe(18);
+	});
+	it("eixo de datas: cabeçalho Período, dd/mm, e as ÚLTIMAS 12 linhas", () => {
+		const data = Array.from({ length: 20 }, (_, i) => ({ mes: `2026-10-${String(i + 1).padStart(2, "0")}`, v: i }));
+		const table = chartTable(spec({ data, xKind: "date", x: "mes", unit: undefined }));
+		expect(table?.header).toEqual(["Período", "Valor"]);
+		expect(table?.rows[0]).toEqual(["09/10", "8"]);
+		expect(table?.rows.at(-1)).toEqual(["20/10", "19"]);
+		expect(table?.hidden).toBe(8);
+	});
+	it("datas de anos diferentes levam o ano com dois dígitos; texto que não é data fica como veio", () => {
+		expect(formatChartDates(["2025-12-30T10:00:00Z", "2026-01-02"])).toEqual(["30/12/25", "02/01/26"]);
+		expect(formatChartDates(["2026-03-01", "2026-03-02"])).toEqual(["01/03", "02/03"]);
+		expect(formatChartDates(["Semana 1", null])).toEqual(["Semana 1", "—"]);
+	});
+	it("X numérico (ano) não leva separador de milhar", () => {
+		const table = chartTable(spec({ data: [{ mes: 2024, v: 1 }, { mes: 2025, v: 2 }] }));
+		expect(table?.rows.map((row) => row[0])).toEqual(["2024", "2025"]);
 	});
 	it("sem dados ou sem série não vira tabela; título ausente = Gráfico", () => {
 		expect(chartTable(spec({ data: [] }))).toBeNull();
