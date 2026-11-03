@@ -80,9 +80,27 @@ test("os arquivos do instalador existem (o wrapper é executável)", () => {
 // coordenadas da imagem reduzida, e `modelPointToScreen` volta à tela real com o fator medido nos bytes devolvidos.
 test("tela: Xvfb e janela do Chrome usam as mesmas variáveis e o mesmo padrão (1280x720)", () => {
 	const chrome = read("bin/atlas-chrome");
-	assert.match(entrypoint, /XVFB_W="\$\{XVFB_WIDTH:-1280\}"/);
-	assert.match(entrypoint, /XVFB_H="\$\{XVFB_HEIGHT:-720\}"/);
+	const xvfbW = /XVFB_W="\$\{XVFB_WIDTH:-(\d+)\}"/.exec(entrypoint)?.[1];
+	const xvfbH = /XVFB_H="\$\{XVFB_HEIGHT:-(\d+)\}"/.exec(entrypoint)?.[1];
+	const win = /--window-size="\$\{XVFB_WIDTH:-(\d+)\},\$\{XVFB_HEIGHT:-(\d+)\}"/.exec(chrome);
+	assert.ok(xvfbW && xvfbH && win, "padrões não encontrados no entrypoint/atlas-chrome");
+	// Valores reais, não só o texto: Xvfb e Chrome têm que ser iguais entre si.
+	assert.equal(win[1], xvfbW, "largura da janela do Chrome diverge da tela do Xvfb");
+	assert.equal(win[2], xvfbH, "altura da janela do Chrome diverge da tela do Xvfb");
+	assert.deepEqual([xvfbW, xvfbH], ["1280", "720"]);
 	assert.match(entrypoint, /-screen 0 "\$\{XVFB_W\}x\$\{XVFB_H\}x24"/);
-	assert.match(chrome, /--window-size="\$\{XVFB_WIDTH:-1280\},\$\{XVFB_HEIGHT:-720\}"/);
-	assert.doesNotMatch(dockerfile, /XVFB_(WIDTH|HEIGHT)\s*=\s*(?!1280\b|720\b)\d+/, "ENV do Dockerfile divergente do padrão do entrypoint");
+	for (const m of dockerfile.matchAll(/XVFB_(WIDTH|HEIGHT)\s*=\s*(\d+)/g)) {
+		assert.equal(m[2], m[1] === "WIDTH" ? xvfbW : xvfbH, "ENV do Dockerfile divergente do padrão do entrypoint");
+	}
+});
+
+test("tela: o fator de escala da screenshot do modelo bate com a largura da tela", () => {
+	const shared = readFileSync(new URL("../../../packages/shared/src/screenshot-scale.ts", import.meta.url), "utf8");
+	const maxWidth = Number(/SCREENSHOT_MODEL_MAX_WIDTH\s*=\s*(\d+)/.exec(shared)?.[1]);
+	const width = Number(/XVFB_W="\$\{XVFB_WIDTH:-(\d+)\}"/.exec(entrypoint)?.[1]);
+	assert.ok(maxWidth > 0 && width > 0);
+	const percent = width <= maxWidth ? 100 : Math.floor((maxWidth / width) * 100);
+	// 1280 -> 1024 px de largura = 80%; a imagem devolvida tem width*percent/100 e o inverso volta à tela real.
+	assert.equal(percent, 80);
+	assert.equal((width * percent) / 100, maxWidth);
 });
