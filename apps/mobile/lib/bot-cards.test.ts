@@ -101,8 +101,10 @@ describe("textos para o usuário", () => {
 		expect(botProposalTitle(card({ status: "approved" }))).toBe("Agente criado: “Estoquinho”");
 		expect(botProposalTitle(card({ status: "rejected" }))).toBe("Proposta dispensada: “Estoquinho”");
 		expect(skillLabel("daily-report")).toBe("Daily report");
-		expect(proposalModelLabel(null)).toBe("Modelo padrão");
-		expect(proposalModelLabel("anthropic/claude-sonnet")).toBe("claude-sonnet");
+		// o id interno nunca é mostrado: sem nome de exibição conhecido, sem linha
+		expect(proposalModelLabel(null)).toBeNull();
+		expect(proposalModelLabel("anthropic/claude-sonnet-4.5")).toBeNull();
+		expect(proposalModelLabel("anthropic/claude-sonnet-4.5", { "anthropic/claude-sonnet-4.5": "Anthropic: Claude Sonnet 4.5" })).toBe("Claude Sonnet 4.5");
 	});
 	it("a primeira tarefa vira uma linha curta", () => {
 		expect(summarizeTask("  confere\n\n o estoque  ")).toBe("confere o estoque");

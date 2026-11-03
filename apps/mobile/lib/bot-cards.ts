@@ -1,7 +1,7 @@
 // Cartões de proposta com gate humano no fio: "Criar agente" (`bot-proposal`) e "Atualizar perfil" (`bot-profile`).
 // Funções puras (testadas em bot-cards.test.ts): do que o servidor grava ou emite ao que a tela desenha, a regra
 // "o decidido vence" entre ao vivo e gravado (a do `collapseBotProposalCards` do web), as frases de erro e os textos.
-import { type BotProfileCardField, type BotProposalEvent, parseBotProposal, type PersistedBotProposalCard, type PersistedConversationCard } from "@workspace/shared";
+import { modelDisplayName, type BotProfileCardField, type BotProposalEvent, parseBotProposal, type PersistedBotProposalCard, type PersistedConversationCard } from "@workspace/shared";
 import type { ChatItem, ProposalStatus } from "./chat-types";
 import type { HomeBot } from "./home-types";
 
@@ -85,10 +85,14 @@ export function withProposalResolution(item: ChatItem, resolutions: Readonly<Rec
 
 // ---- textos dos cartões ------------------------------------------------------------------------------------------
 
-/** Modelo para o usuário: o nome depois da última barra ("anthropic/claude-sonnet" → "claude-sonnet"); sem modelo, o padrão da conta. */
-export function proposalModelLabel(model: string | null): string {
-	if (!model) return "Modelo padrão";
-	return model.split("/").pop() || model;
+/**
+ * Modelo para o usuário: só o nome de exibição (do catálogo, quando o app o tiver); o id interno nunca aparece. Sem
+ * modelo (padrão da conta) ou sem nome conhecido, `null` e a linha some.
+ */
+export function proposalModelLabel(model: string | null, names: Readonly<Record<string, string>> = {}): string | null {
+	if (!model) return null;
+	const name = names[model]?.trim();
+	return name ? modelDisplayName(name, model) : null;
 }
 
 /** Habilidade para o usuário: o slug sem hífens, com a primeira letra maiúscula ("daily-report" → "Daily report"). */

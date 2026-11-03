@@ -23,6 +23,8 @@ const BADGE: Record<ProposalStatus, { tone: ChatCardTone; label: string }> = {
 
 /** O que a proposta de agente mostra por dentro: avatar, nome, modelo, papel, habilidades e a primeira tarefa. */
 function ProposalBody({ item }: { item: BotProposalItem }) {
+	// O app ainda não tem catálogo de modelos: sem nome de exibição conhecido, a linha do modelo não aparece.
+	const modelLabel = proposalModelLabel(item.model);
 	return (
 		<View className="min-w-0 gap-3 rounded-xl bg-background/70 p-3" accessibilityLabel={`Agente ${item.name}`}>
 			<View className="min-w-0 flex-row items-center gap-3">
@@ -31,7 +33,7 @@ function ProposalBody({ item }: { item: BotProposalItem }) {
 					<Text numberOfLines={1} className="text-base font-medium">
 						{item.name}
 					</Text>
-					<Text variant="caption">{proposalModelLabel(item.model)}</Text>
+					{modelLabel ? <Text variant="caption">{modelLabel}</Text> : null}
 				</View>
 			</View>
 			<Text variant="muted" className="text-control">
