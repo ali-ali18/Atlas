@@ -875,6 +875,8 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 
 	// Último passo que já gastou o screenshot automático da leitura (no máximo um por passo).
 	let visionFallbackStep = -1;
+	// Uma proposta de bot por run (o card usa `bot-${runId}`): mesmo contador do v1.
+	const botProposals = { count: 0 };
 	const buildContext = (call: LlmToolCall, signal: AbortSignal | undefined, forceConfirm = false): ToolContext => ({
 		loginAsked,
 		secrets: secretSession,
@@ -913,6 +915,7 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 		conversationId,
 		runId,
 		origin,
+		botProposals,
 		...(origin === "routine" && params.routinePageId ? { routinePageId: params.routinePageId } : {}),
 		autonomy: autonomyHandle,
 		skillStore: params.skillStore,

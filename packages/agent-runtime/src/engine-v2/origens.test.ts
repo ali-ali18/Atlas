@@ -193,6 +193,63 @@ describe("v2 em rotina: login sem humano", () => {
 	});
 });
 
+describe("v2: recusa anterior não vale para um pedido novo", () => {
+	it("pedido de outro bot sem a tool; depois o dono pede e o modelo procura, carrega o grupo bots e vê propose_bot", async () => {
+		// 1º turno: origem "bot" nunca tem propose_bot, então a recusa é correta.
+		const other = await runOrigin({ origin: "bot", text: "Cria o bobinho apoio pfv", script: [say("Não tenho ferramenta para criar bots.")] });
+		expect(other.requests[0]!.toolNames).not.toContain("propose_bot");
+
+		// 2º turno: o dono pede no chat. As palavras-chave não casam ("bobinho"): a tool nasce adiada e o índice manda procurar.
+		const refusal = "Não tenho ferramenta para criar bots.";
+		const user = await runOrigin({
+			origin: "chat",
+			script: [toolCall("s1", "mcp_tool_search", { query: "create a new bot" }), say("Proposta enviada.")],
+			extra: {
+				humanTurn: true,
+				messages: [
+					{ role: "user", content: "Cria o bobinho apoio pfv" },
+					{ role: "assistant", content: refusal },
+					{ role: "user", content: "Cria o bobinho apoio pfv, vc tem a ferramenta" },
+				],
+			},
+		});
+		const [first, second] = user.requests;
+		expect(first!.toolNames).not.toContain("propose_bot");
+		expect(first!.toolNames).toContain("mcp_tool_search");
+		expect(first!.system).toMatch(/Before saying you lack a tool or capability, search for it/);
+		expect(first!.system).toMatch(/bots: propose_bot/);
+		expect(second!.toolNames).toContain("propose_bot");
+	});
+	it("duas propostas de bot no mesmo passo: sai um cartão só (o card é bot-${runId})", async () => {
+		const args = { name: "Bobinho Apoio", purpose: "Atender clientes do suporte", description: "Responde dúvidas de suporte" };
+		const out = await runOrigin({
+			origin: "chat",
+			text: "crie um bot de apoio ao suporte",
+			script: [
+				{
+					model: "m",
+					finishReason: "tool_calls",
+					message: {
+						role: "assistant",
+						content: null,
+						tool_calls: [
+							{ id: "p1", type: "function", function: { name: "propose_bot", arguments: JSON.stringify(args) } },
+							{ id: "p2", type: "function", function: { name: "propose_bot", arguments: JSON.stringify({ ...args, name: "Outro" }) } },
+						],
+					},
+				} as CompleteChatWithToolsResult,
+				say("ok"),
+			],
+			extra: { humanTurn: true },
+		});
+		// O cartão de proposta pede decisão e encerra o run: a 2ª chamada do mesmo passo nem roda.
+		expect(out.events.filter((e) => e.type === "bot-proposal")).toHaveLength(1);
+		const proposals = out.results.filter((r) => r.name === "propose_bot");
+		expect(proposals).toHaveLength(1);
+		expect(proposals[0]!.ok).toBe(true);
+	});
+});
+
 describe("v2 em bot→bot e grupo", () => {
 	it("bot→bot: sem tools sensíveis; sem roster (nenhum outro bot) também não há envio entre bots", async () => {
 		const { requests } = await runOrigin({ origin: "bot", script: [say("ok")] });
