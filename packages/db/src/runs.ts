@@ -19,7 +19,7 @@ import type {
 	RunInputStatus,
 	RunUsage,
 } from "@workspace/shared";
-import { RUN_MAX_STEPS, stoppedWithOpenWork, sanitizeStopDetail, readRunEngine, readRunProfile, withRunEngine, withRunPromotion, withRunCaps, type RunCaps, type RunEngine, type RunProfile } from "@workspace/shared";
+import { RUN_MAX_STEPS, stoppedWithOpenWork, sanitizeStopDetail, readRunProfile, readStoredRunEngine, withRunEngine, withRunPromotion, withRunCaps, type RunCaps, type RequestedEngine, type RunProfile } from "@workspace/shared";
 import type { RunStop } from "@workspace/shared";
 import { parseReasoningEffort, withReplyContext, type ReasoningEffort, type ReplyQuote } from "@workspace/shared";
 import { AGENT_RUNTIME_CHECKPOINT_VERSION, RUN_MAX_RECOVERIES, RUN_RECOVERY_LIMIT_MESSAGE, nextRunRecoveryState, buildMessageSource, LIVE_RUN_INPUT_MODES, isCardConfirmToken, isPersistedMessageOrigin, isTaskListDone, parseTaskList, normalizeRunInputMode, openItems, parseTaskLedger, parseToolCacheState, parseToolResultStatus, redactSecrets, splitReplySegments } from "@workspace/shared";
@@ -245,7 +245,7 @@ export function readRunHumanTurn(run: { budgetJson?: unknown }): boolean {
  * ler-e-escrever) e só se o run ainda não tem motor gravado: duas execuções concorrentes não se sobrescrevem.
  * Devolve o motor que ficou valendo no run (o gravado agora ou o que já estava), ou `null` se o run não existe.
  */
-export async function recordRunEngine(runId: string, choice: { engine: RunEngine; profile?: RunProfile }): Promise<RunEngine | null> {
+export async function recordRunEngine(runId: string, choice: { engine: RequestedEngine; profile?: RunProfile }): Promise<RequestedEngine | null> {
 	const patch = JSON.stringify({ engine: choice.engine, ...(choice.profile ? { engineProfile: choice.profile } : {}) });
 	const updated = await prisma.$executeRaw`
 		UPDATE "agent_runs"
@@ -253,7 +253,7 @@ export async function recordRunEngine(runId: string, choice: { engine: RunEngine
 		WHERE "id" = ${runId} AND COALESCE("budgetJson", '{}'::jsonb)->>'engine' IS NULL`;
 	if (updated > 0) return choice.engine;
 	const row = await prisma.agentRun.findUnique({ where: { id: runId }, select: { budgetJson: true } });
-	return row ? (readRunEngine(row.budgetJson) ?? null) : null;
+	return row ? (readStoredRunEngine(row.budgetJson) ?? null) : null;
 }
 
 /**
@@ -267,7 +267,7 @@ export async function recordRunPromotion(runId: string, userId: string): Promise
 		UPDATE "agent_runs"
 		SET "budgetJson" = COALESCE("budgetJson", '{}'::jsonb) || ${patch}::jsonb
 		WHERE "id" = ${runId} AND "userId" = ${userId}
-		  AND COALESCE("budgetJson", '{}'::jsonb)->>'engine' = 'v2'
+		  AND COALESCE("budgetJson", '{}'::jsonb)->>'engine' IN ('v2', 'v3')
 		  AND COALESCE("budgetJson", '{}'::jsonb)->>'engineProfile' IS DISTINCT FROM 'long_work'`;
 	return updated > 0;
 }
@@ -384,11 +384,12 @@ export function buildQueuedRunData(input: {
  * do dono (falha transitória) e a resposta de questionário ou de cartão dentro dele seguem `long_work` e sem o teto da conta,
  * em vez de virarem um run "sem dono" de chat curto.
  */
-export type RunInheritance = { humanTurn: boolean; engine?: RunEngine; profile?: RunProfile };
+export type RunInheritance = { humanTurn: boolean; engine?: RequestedEngine; profile?: RunProfile };
 
 export function readRunInheritance(run: { budgetJson?: unknown } | null | undefined): RunInheritance {
 	if (!run) return { humanTurn: false };
-	const engine = readRunEngine(run.budgetJson);
+	// Cru (com `v3`): a continuação de um run do v3 volta ao v3 se a flag ainda deixar (o worker decide).
+	const engine = readStoredRunEngine(run.budgetJson);
 	const profile = readRunProfile(run.budgetJson);
 	return { humanTurn: readRunHumanTurn(run), ...(engine ? { engine } : {}), ...(profile ? { profile } : {}) };
 }

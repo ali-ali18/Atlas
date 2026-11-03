@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+	readStoredRunEngine,
 	ENGINE_DEFAULT_SCOPE,
 	chooseRunEngine,
 	resolveEngine,
@@ -96,6 +97,13 @@ describe("motor gravado no run", () => {
 		expect(readRunEngine(stored)).toBe("v2");
 		expect(readRunProfile(stored)).toBe("long_work");
 		expect(readRunProfile({ engineProfile: "x" })).toBeUndefined();
+	});
+	it("motor v3 gravado: o leitor comum vê o motor novo (v2); o leitor cru do worker vê v3", () => {
+		const stored = withRunEngine({ humanTurn: true }, { engine: "v3", profile: "chat" });
+		expect(stored).toMatchObject({ engine: "v3" });
+		expect(readRunEngine(stored)).toBe("v2");
+		expect(readStoredRunEngine(stored)).toBe("v3");
+		expect(readStoredRunEngine({ engine: "v9" })).toBeUndefined();
 	});
 });
 

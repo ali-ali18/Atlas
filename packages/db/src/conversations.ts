@@ -1064,6 +1064,60 @@ export async function findExecutedConfirmCall(
 	return null;
 }
 
+/** Detalhe gravado no cartão quando a chamada aprovada já rodou: a aprovação vale para UMA execução. */
+export const TOOL_CALL_CONSUMED_DETAIL = "executada";
+/** Detalhe gravado quando a recusa já foi entregue ao run de continuação: um pedido novo mostra cartão novo. */
+export const TOOL_CALL_DECLINE_USED_DETAIL = "recusa já informada ao bot";
+const TOOL_CARD_PREFIX = "confirm-tool";
+
+/**
+ * Run que pediu a aprovação, pelo id do cartão genérico (`confirm-tool<8 hex>-<runId>`). Mesma regra do `askingRunId` da
+ * API (último segmento), que é de onde vem a semente do run de continuação. Puro.
+ */
+export function toolCardAskingRunId(confirmId: string): string | undefined {
+	if (!confirmId.startsWith(TOOL_CARD_PREFIX)) return undefined;
+	const runId = confirmId.split("-").pop();
+	return runId && runId !== "local" && !runId.startsWith("tool") ? runId : undefined;
+}
+
+/**
+ * Decisão do dono sobre uma chamada de tool nativa (motor v3, cartão genérico `tool-call`). Vale SÓ para o run de
+ * continuação que seguiu ao cartão: quem pergunta informa `askingRunId` (o run que mostrou o cartão, da semente do run
+ * atual); cartão de outro run é ignorado. Na conversa do dono, dentro da janela, o cartão mais recente desta chamada
+ * (`callKey` = tool + args):
+ * - aprovado e não usado: marca como usado (troca otimista; dois runs não usam a mesma aprovação) → `approved`;
+ * - recusado e ainda não informado: marca como informado → `declined` (uma vez, como a aprovação);
+ * - já usado, pendente, substituído ou inexistente: `null` (o runtime mostra cartão novo).
+ */
+export async function takeToolCallApproval(
+	userId: string,
+	conversationId: string,
+	callKey: string,
+	askingRunId: string | undefined,
+	windowMs = 2 * 60 * 60_000,
+): Promise<"approved" | "declined" | null> {
+	if (!userId || !conversationId || !callKey || !askingRunId) return null;
+	const rows = await prisma.conversationMessage.findMany({
+		where: { conversationId, role: "confirm", conversation: { userId } },
+		orderBy: { createdAt: "desc" },
+		take: 30,
+	});
+	for (const row of rows) {
+		if (Date.now() - row.createdAt.getTime() > windowMs) break;
+		const card = parseConversationCard(row.content);
+		if (card?.kind !== "confirm" || card.callKey !== callKey || toolCardAskingRunId(card.confirmId) !== askingRunId) continue;
+		if (!card.outcome) return null;
+		const declined = !card.outcome.ok && card.status === "rejected" && card.outcome.detail !== SUPERSEDED_CARD_DETAIL && card.outcome.detail !== TOOL_CALL_DECLINE_USED_DETAIL;
+		const approved = card.outcome.ok && card.status === "approved" && card.outcome.detail !== TOOL_CALL_CONSUMED_DETAIL;
+		if (!declined && !approved) return null;
+		const outcome = approved ? { ok: true, detail: TOOL_CALL_CONSUMED_DETAIL } : { ok: false, detail: TOOL_CALL_DECLINE_USED_DETAIL };
+		const used = await prisma.conversationMessage.updateMany({ where: { id: row.id, content: row.content }, data: { content: serializeConversationCard({ ...card, outcome }) } });
+		if (used.count === 0) return null;
+		return approved ? "approved" : "declined";
+	}
+	return null;
+}
+
 /**
  * Estado do cartão de confirmação mais recente da conversa (`dev`: é aprovação de sessão de código)
  * (`null` = não há). Serve para reconhecer um "Executar" repetido de um cartão

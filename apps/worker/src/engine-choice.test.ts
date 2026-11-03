@@ -434,22 +434,84 @@ test("teto de passos: a origem só existe quando o dono configurou; acima do lim
 	assert.deepEqual(runCapsOf({ costCapUsd: undefined, wallMs: undefined, sources: {}, stepsCap: { steps: 80, stepsSource: "bot" } }), { steps: 80, stepsSource: "bot" });
 });
 
-test("bot com engine v3 roda no v2 e grava v2 no run (v3 ainda não existe), na allowlist ou não", async () => {
-	for (const env of [{}, { ATLAS_ENGINE_V3_ACCOUNTS: "user-a" }, { ATLAS_ENGINE_V3: "off", ATLAS_ENGINE_V3_ACCOUNTS: "user-a" }]) {
+test("bot com engine v3: grava v3 só com flag + allowlist; senão roda e grava v2", async () => {
+	for (const env of [{}, { ATLAS_ENGINE_V3: "off", ATLAS_ENGINE_V3_ACCOUNTS: "user-a" }, { ATLAS_ENGINE_V3_ACCOUNTS: "user-b" }]) {
 		const { recorded, choose } = setup({ policyJson: { engine: "v3" }, accountId: "user-a", env });
 		const choice = await choose();
 		assert.equal(choice.engine, "v2", JSON.stringify(env));
+		assert.equal(choice.resolved, "v2", JSON.stringify(env));
 		assert.deepEqual(recorded, [{ engine: "v2", profile: "chat" }], JSON.stringify(env));
 	}
-	const inList = await setup({ policyJson: { engine: "v3" }, accountId: "user-a", env: { ATLAS_ENGINE_V3_ACCOUNTS: "user-a" } }).choose();
+	const { recorded, choose } = setup({ policyJson: { engine: "v3" }, accountId: "user-a", env: { ATLAS_ENGINE_V3_ACCOUNTS: "user-a" } });
+	const inList = await choose();
+	assert.equal(inList.engine, "v2");
 	assert.equal(inList.resolved, "v3");
-	const outList = await setup({ policyJson: { engine: "v3" }, accountId: "user-b", env: { ATLAS_ENGINE_V3_ACCOUNTS: "user-a" } }).choose();
-	assert.equal(outList.resolved, "v2");
+	assert.deepEqual(recorded, [{ engine: "v3", profile: "chat" }]);
 });
 
-test("run com engine v3 gravado (ou checkpoint de v3) retoma no v2 sem regravar", async () => {
-	const { recorded, choose } = setup({ budgetJson: { engine: "v3" }, hasCheckpoint: true, policyJson: { engine: "v3" } });
-	const choice = await choose();
-	assert.equal(choice.engine, "v2");
-	assert.deepEqual(recorded, []);
+test("motivo real da escolha do v3 (log do worker)", async () => {
+	const { v3ResolutionReason } = await import("./engine-choice.js");
+	assert.equal(v3ResolutionReason({ resolved: "v3", accountId: "a" }), "flag ligada e conta na allowlist");
+	assert.equal(v3ResolutionReason({ resolved: "v2", accountId: "a", env: { ATLAS_ENGINE_V3: "off" } }), "ATLAS_ENGINE_V3=off");
+	assert.equal(v3ResolutionReason({ resolved: "v2", accountId: "" }), "run sem conta");
+	assert.equal(v3ResolutionReason({ resolved: "v2", accountId: "a", env: {} }), "conta fora de ATLAS_ENGINE_V3_ACCOUNTS");
+});
+
+test("log da escolha do v3 leva runId, botId e o motivo", async () => {
+	const lines: string[] = [];
+	const original = console.info;
+	console.info = (line: unknown) => { lines.push(String(line)); };
+	try {
+		await pickRunEngine({ run: { origin: "chat", budgetJson: null }, policyJson: { engine: "v3" }, isGroupRun: false, hasCheckpoint: false, accountId: "user-a", env: {}, runId: "run-9", botId: "bot-7", record: async (choice) => choice.engine });
+	} finally {
+		console.info = original;
+	}
+	assert.deepEqual(lines, ["[engine] run=run-9 bot=bot-7 v3 pedido → v2 (conta fora de ATLAS_ENGINE_V3_ACCOUNTS)"]);
+});
+
+test("run com engine v3 gravado retoma no v3 enquanto a flag deixar; sem a flag, no v2; nunca regrava", async () => {
+	const back = setup({ budgetJson: { engine: "v3" }, hasCheckpoint: true, policyJson: { engine: "v3" }, accountId: "user-a", env: { ATLAS_ENGINE_V3_ACCOUNTS: "user-a" } });
+	const resumed = await back.choose();
+	assert.equal(resumed.engine, "v2");
+	assert.equal(resumed.resolved, "v3");
+	assert.deepEqual(back.recorded, []);
+	// O bot pode ter voltado ao v2 depois: o run que nasceu no v3 continua no v3 (o motor é do run).
+	const botChanged = await setup({ budgetJson: { engine: "v3" }, hasCheckpoint: true, policyJson: { engine: "v2" }, accountId: "user-a", env: { ATLAS_ENGINE_V3_ACCOUNTS: "user-a" } }).choose();
+	assert.equal(botChanged.resolved, "v3");
+	const off = setup({ budgetJson: { engine: "v3" }, hasCheckpoint: true, policyJson: { engine: "v3" }, accountId: "user-a", env: { ATLAS_ENGINE_V3: "off", ATLAS_ENGINE_V3_ACCOUNTS: "user-a" } });
+	const fallback = await off.choose();
+	assert.equal(fallback.engine, "v2");
+	assert.equal(fallback.resolved, "v2");
+	assert.deepEqual(off.recorded, []);
+});
+
+test("runSelectedEngine: com o v3 resolvido roda o motor v3; sem ele, o v2 (mesma entrada e saída)", async () => {
+	const { runSelectedEngine } = await import("./engine-choice.js");
+	const run = async (resolved: "v2" | "v3") => {
+		const engines: string[] = [];
+		const result = await runSelectedEngine({ engine: "v2", resolved, profile: "chat" }, {
+			manager: {} as never,
+			getSessionId: async () => "s",
+			sandboxEnabled: false,
+			model: "m",
+			apiKey: "k",
+			runId: `run-${resolved}`,
+			origin: "chat",
+			humanTurn: true,
+			messages: [{ role: "user", content: "oi" }],
+			onEvent: () => undefined,
+			onStep: async (step) => {
+				const engine = (step.outputJson as { engine?: unknown } | undefined)?.engine;
+				if (typeof engine === "string") engines.push(engine);
+			},
+			streamChat: async () => ({ model: "m", message: { role: "assistant", content: "olá" }, finishReason: "stop" }),
+		});
+		return { result, engines };
+	};
+	const v3 = await run("v3");
+	assert.equal(v3.result.text, "olá");
+	assert.ok(v3.engines.includes("v3"), JSON.stringify(v3.engines));
+	const v2 = await run("v2");
+	assert.equal(v2.result.text, "olá");
+	assert.ok(v2.engines.includes("v2") && !v2.engines.includes("v3"), JSON.stringify(v2.engines));
 });

@@ -20,6 +20,8 @@ export function createPreToolRunner(input: {
 	loadedToolNames: () => readonly string[];
 	onInspect?: (payload: InspectHooksPayload) => void;
 	recordFeedback?: (entries: Array<{ ref: string; outcome: "helped" }>) => unknown;
+	/** `confirm_always` vale também para tool nativa (motor v3). Padrão: só conector. */
+	confirmNative?: boolean;
 }) {
 	const lessons: HookLesson[] = (input.preToolRules ?? (input.lessons ?? []).map((item) => ({ id: item.id, scope: item.scope, scopeKey: item.scopeKey, rule: item.rule ?? null }))).filter((item) => item.rule);
 	const planState = { pending: input.planPending };
@@ -42,7 +44,7 @@ export function createPreToolRunner(input: {
 					isWrite: entry ? !entry.readOnly : isNativeWriteTool(name),
 					parameters: input.toolset?.available.get(name)?.function.parameters as { properties?: Record<string, unknown> } | undefined,
 				},
-				{ lessons, succeeded, planPending: planState.pending, isToolAvailable },
+				{ lessons, succeeded, planPending: planState.pending, isToolAvailable, ...(input.confirmNative ? { confirmNative: true } : {}) },
 			);
 			if (result.hits.length > 0) input.onInspect?.({ type: "inspect_hooks", hits: result.hits.slice(0, 10) as PreToolHit[] });
 			if (result.blockedLessonIds.length > 0) blockedBy.set(name, new Set([...(blockedBy.get(name) ?? []), ...result.blockedLessonIds]));

@@ -445,6 +445,8 @@ export function buildRuntimeCheckpoint(input: {
 	carriedNotes?: AgentRunCheckpoint["carriedNotes"];
 	recoveries?: number;
 	recoveredAtStep?: number;
+	engine?: "v3";
+	engineV3?: Record<string, unknown>;
 }): AgentRunCheckpoint {
 	return {
 		version: AGENT_RUNTIME_CHECKPOINT_VERSION,
@@ -497,6 +499,8 @@ export function buildRuntimeCheckpoint(input: {
 		// O contador de recuperações é do reconciliador: o runtime só o carrega para não zerá-lo a cada gravação.
 		...(input.recoveries ? { recoveries: input.recoveries } : {}),
 		...(input.recoveries && input.recoveredAtStep !== undefined ? { recoveredAtStep: input.recoveredAtStep } : {}),
+		...(input.engine ? { engine: input.engine } : {}),
+		...(input.engineV3 ? { engineV3: input.engineV3 } : {}),
 	};
 }
 
@@ -612,6 +616,8 @@ export function parseRuntimeCheckpoint(
 		...(parseTranscriptWatermark(value.transcriptWatermark) ? { transcriptWatermark: parseTranscriptWatermark(value.transcriptWatermark)! } : {}),
 		...(readRunRecoveries(value) > 0 ? { recoveries: readRunRecoveries(value) } : {}),
 		...(readRunRecoveries(value) > 0 && readRunRecoveredAtStep(value) !== undefined ? { recoveredAtStep: readRunRecoveredAtStep(value)! } : {}),
+		...(value.engine === "v3" ? { engine: "v3" as const } : {}),
+		...(value.engineV3 && typeof value.engineV3 === "object" && !Array.isArray(value.engineV3) ? { engineV3: value.engineV3 } : {}),
 		...(parseTranscriptSeed(value.transcriptSeed) ? { transcriptSeed: parseTranscriptSeed(value.transcriptSeed)! } : {}),
 	};
 }

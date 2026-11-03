@@ -1178,6 +1178,8 @@ async function executeLeasedRun(ctx: {
 		longerShortRun: isDetachedBriefRun(run) || isFollowupCheckObjective(run.origin, run.objective),
 		globalDefault: engineDefaultFromEnv(),
 		accountId: run.userId,
+		runId,
+		botId: run.botId,
 		env: process.env,
 		record: (choice) => recordRunEngine(runId, choice),
 	});

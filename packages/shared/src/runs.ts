@@ -463,6 +463,10 @@ export type AgentRunCheckpoint = {
 	 * recomeça: só recuperação sem progresso conta (run longo que atravessa deploys não falha).
 	 */
 	recoveredAtStep?: number;
+	/** Motor que gravou este checkpoint (`v3` = harness v3; ausente = v1/v2). Só informativo: o motor do run mora no `budgetJson`. */
+	engine?: "v3";
+	/** Estado dos freios do motor v3 (empurrões, rede de repetição, lista do modelo), para a retomada não zerar os tetos. JSON opaco, validado pelo v3. */
+	engineV3?: Record<string, unknown>;
 };
 
 /** Na recuperação de número N (N >= este valor) o run falha em vez de voltar à fila. */

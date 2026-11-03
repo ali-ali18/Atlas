@@ -481,6 +481,21 @@ export function infraSetupFollowUpContent(userText: string, infra: { label: stri
 	].join("\n");
 }
 
+/**
+ * Decisão do dono sobre a chamada de tool nativa que o motor v3 estacionou (cartão genérico `tool-call`). O desfecho vira o
+ * resultado da chamada que parou; aprovar libera UMA execução da MESMA chamada (o runtime confere a chave tool + args).
+ */
+export function toolCallFollowUpContent(userText: string, call: { tool: string; label: string }, decision: "approved" | "declined"): string {
+	return [
+		userText,
+		"",
+		decision === "approved"
+			? `[The owner APPROVED: ${call.label}.] Call ${call.tool} again with EXACTLY the same arguments to run it now (the approval covers one run of that exact call). Then tell the result in 1-2 simple sentences.`
+			: `[The owner did NOT approve: ${call.label}.] Nothing was done. Do not retry it; say so in one sentence and offer an alternative if there is one.`,
+		NO_RENARRATION,
+	].join("\n");
+}
+
 /** Nomes (nunca valores) que já estão salvos no ambiente, entre os pedidos. */
 export async function savedRequestedSecretNames(userId: string, request: { environmentId: string; names: string[] }): Promise<string[]> {
 	if (request.environmentId === VAULT_ENVIRONMENT_ID) {
@@ -726,6 +741,13 @@ export async function maybeHandleConfirmedAction(input: {
 			const userText = input.text.trim();
 			return { handled: false, followUp: { objective: userText, content: infraSetupFollowUpContent(userText, infraDeclined, "declined"), ...seedField(pending.payload, "preview_setup", infraSetupFollowUpContent("", infraDeclined, "declined"), userText) } };
 		}
+		const toolCallDeclined = pending.payload.action === "tool-call" ? pending.payload.toolCall : undefined;
+		if (input.continueInAgent && toolCallDeclined) {
+			if (!(await claimSkillPendingIntent(pending.id, userId, input.conversationId))) return { handled: false, duplicate: true };
+			await updateConfirmCardStatus(input.conversationId, "rejected", pending.payload.confirmId, undefined, { ok: false, detail: "não aprovado pelo usuário" }).catch(() => undefined);
+			const userText = input.text.trim();
+			return { handled: false, followUp: { objective: userText, content: toolCallFollowUpContent(userText, toolCallDeclined, "declined"), ...seedField(pending.payload, toolCallDeclined.tool, toolCallFollowUpContent("", toolCallDeclined, "declined"), userText) } };
+		}
 		const vaultUseDeclined = pending.payload.action === "vault-use" ? pending.payload.vaultUse : undefined;
 		if (input.continueInAgent && vaultUseDeclined) {
 			await updateConfirmCardStatus(input.conversationId, "rejected", pending.payload.confirmId, undefined, { ok: false, detail: "não autorizado pelo usuário" }).catch(() => undefined);
@@ -825,6 +847,14 @@ export async function maybeHandleConfirmedAction(input: {
 			await updateConfirmCardStatus(input.conversationId, "approved", pending.payload.confirmId, undefined, { ok: true, detail: "aprovado pelo usuário" }).catch(() => undefined);
 			const userText = input.text.trim();
 			return { handled: false, followUp: { objective: userText, content: infraSetupFollowUpContent(userText, infraApproved, "approved"), ...seedField(pending.payload, "preview_setup", infraSetupFollowUpContent("", infraApproved, "approved"), userText) } };
+		}
+		const toolCallApproved = pending.payload.action === "tool-call" ? pending.payload.toolCall : undefined;
+		if (input.continueInAgent && toolCallApproved) {
+			// O aval fica no cartão (resultado ok): o runtime só executa quando acha esta chave aprovada, e uma vez só.
+			if (!(await claimSkillPendingIntent(pending.id, userId, input.conversationId))) return { handled: false, duplicate: true };
+			await updateConfirmCardStatus(input.conversationId, "approved", pending.payload.confirmId, undefined, { ok: true, detail: "aprovado pelo usuário" }).catch(() => undefined);
+			const userText = input.text.trim();
+			return { handled: false, followUp: { objective: userText, content: toolCallFollowUpContent(userText, toolCallApproved, "approved"), ...seedField(pending.payload, toolCallApproved.tool, toolCallFollowUpContent("", toolCallApproved, "approved"), userText) } };
 		}
 		const prCreate = pending.payload.action === "dev-pr-create" ? pending.payload.devPrCreate : undefined;
 		if (input.continueInAgent && prCreate) {
