@@ -580,7 +580,7 @@ describe("aviso de passos (75% do teto efetivo)", () => {
 	});
 
 	it("o aviso de passos não fala de tempo nem de custo, e a última chamada (budget_steps) também não", () => {
-		expect(stepsNoticeNote(10)).not.toMatch(/\b(time|cost|spend)/i);
+		expect(stepsNoticeNote(10)).not.toMatch(/\b(time|cost|spend|budget|limit)/i);
 		expect(deliveryInstruction("budget_steps", { steps: 200 })).not.toMatch(/\btime\b/i);
 	});
 });

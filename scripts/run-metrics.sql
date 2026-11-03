@@ -1,7 +1,8 @@
 -- Métricas de saúde dos runs do agente (E6 do motor v2). SOMENTE LEITURA: um único SELECT, nada é gravado.
 --
 -- Uso (Dokploy: terminal do container do Postgres, ou qualquer psql com acesso ao banco):
---   psql "$DATABASE_URL" -v days=7 -f scripts/run-metrics.sql
+--   PGOPTIONS='-c default_transaction_read_only=on -c statement_timeout=60s' psql "$DATABASE_URL" -v days=7 -f scripts/run-metrics.sql
+-- (somente leitura e com prazo: sem índice só em createdAt a janela vira seq scan; rode à mão, não em rotina no primário.)
 -- `days` = janela em dias (obrigatório; tente 7 e 30). Sem -v days o psql avisa e a consulta não roda.
 --
 -- Parada por contexto = `budget_context` (janela do modelo estourada; `context` também é aceito por segurança).
@@ -38,7 +39,7 @@ SELECT
 	count(*) FILTER (WHERE "stopReason" = 'answered') AS "n_answered",
 	count(*) FILTER (WHERE "stopReason" IN ('budget_context', 'context')) AS "n_context",
 	count(*) FILTER (WHERE "stopReason" = 'loop_repeat') AS "n_loop_repeat",
-	count(*) FILTER (WHERE "stopReason" LIKE 'budget\_%') AS "n_budget",
+	count(*) FILTER (WHERE "stopReason" LIKE 'budget\_%' AND "stopReason" <> 'budget_context') AS "n_budget",
 	count(*) FILTER (WHERE "stopReason" = 'tool_failures') AS "n_tool_failures",
 	count(*) FILTER (WHERE "stopReason" IS NULL) AS "n_sem_motivo",
 	count(*) FILTER (WHERE "stopReason" IS NOT NULL AND "stopReason" NOT IN ('answered', 'context', 'loop_repeat', 'tool_failures') AND "stopReason" NOT LIKE 'budget\_%') AS "n_outros",
