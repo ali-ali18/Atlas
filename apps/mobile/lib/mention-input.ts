@@ -1,12 +1,19 @@
 // Autocompletar do composer (puro): o `@` oferece bots e o `/` habilidades, com as mesmas regras do web
 // (`apps/web/lib/mention-input.ts`, via `@workspace/shared`). Escolher o item tira o gatilho do texto: quem fica no
 // campo é o marcador (ver `composer-markers.ts`), não o texto cru.
-import { activeTriggerQuery, filterMentionCandidates, filterSkillCandidates, type ComposerTrigger } from "@workspace/shared";
+import { activeTriggerQuery, COMPACT_COMMAND, filterMentionCandidates, filterSkillCandidates, type ComposerTrigger } from "@workspace/shared";
 import type { Marker } from "./composer-markers";
 import type { HomeBot } from "./home-types";
 
 export type BotCandidate = { id: string; name: string; color?: string; shape?: string };
-export type SkillCandidate = { id: string; name: string; description?: string | null };
+/** `kind: "command"`: comando do composer (`/compact`), que o `/` lista antes das habilidades e que não vira marcador. */
+export type SkillCandidate = { id: string; name: string; description?: string | null; kind?: "command" };
+
+/** Comandos do composer que o `/` oferece (como `composerCommandCandidates` do web). */
+export function composerCommands(input: { compactAvailable: boolean }): SkillCandidate[] {
+	if (!input.compactAvailable) return [];
+	return [{ id: `command:${COMPACT_COMMAND}`, name: COMPACT_COMMAND, description: "Compactar a conversa", kind: "command" }];
+}
 
 export type TriggerState =
 	| { trigger: "@"; start: number; query: string; candidates: BotCandidate[] }
@@ -20,12 +27,12 @@ export type TriggerState =
 export function triggerState(
 	text: string,
 	caret: number,
-	sources: { bots: readonly BotCandidate[]; skills: readonly SkillCandidate[] | null },
+	sources: { bots: readonly BotCandidate[]; skills: readonly SkillCandidate[] | null; commands?: readonly SkillCandidate[] },
 ): TriggerState | null {
 	const slash = sources.skills ? activeTriggerQuery(text, caret, "/") : null;
 	const at = activeTriggerQuery(text, caret, "@");
 	if (slash && sources.skills && (!at || slash.start > at.start)) {
-		return { trigger: "/", start: slash.start, query: slash.query, candidates: filterSkillCandidates(sources.skills, slash.query) };
+		return { trigger: "/", start: slash.start, query: slash.query, candidates: [...filterSkillCandidates(sources.commands ?? [], slash.query), ...filterSkillCandidates(sources.skills, slash.query)] };
 	}
 	// "custa @ 5": espaço logo depois do gatilho = a pessoa só escreveu um arroba, não uma menção.
 	if (at && !/^\s/.test(at.query)) {
@@ -76,9 +83,10 @@ export function applyPick(
 	state: TriggerState,
 	index: number,
 	options: { skillsFull?: boolean } = {},
-): { text: string; caret: number; marker: Marker | null } | null {
+): { text: string; caret: number; marker: Marker | null; /** Comando escolhido (não vira marcador nem texto: quem chamou o executa). */ command?: "compact" } | null {
 	const candidate = state.candidates[index];
 	if (!candidate) return null;
+	if (state.trigger === "/" && (candidate as SkillCandidate).kind === "command") return { ...removeTrigger(text, caret, state.start), marker: null, command: "compact" };
 	if (state.trigger === "/" && options.skillsFull) return null;
 	const marker: Marker =
 		state.trigger === "@"

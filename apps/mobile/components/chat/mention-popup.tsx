@@ -1,7 +1,7 @@
 import { resolveColor, resolveShape } from "@workspace/shared/avatar/identity";
 import * as React from "react";
 import { Pressable, ScrollView, View } from "react-native";
-import { SparklesIcon } from "@/components/icons";
+import { CompactIcon, SparklesIcon } from "@/components/icons";
 import { Avatar } from "@/components/ui/avatar";
 import { Spinner } from "@/components/ui/spinner";
 import { Text } from "@/components/ui/text";
@@ -27,6 +27,7 @@ export function MentionPopup({
 	onRetry,
 	onPick,
 	onPressChange,
+	commandBusy,
 }: {
 	state: TriggerState;
 	loading?: boolean;
@@ -38,6 +39,8 @@ export function MentionPopup({
 	onPick: (state: TriggerState, index: number) => void;
 	/** Dedo na lista (o campo perde o foco no web antes do toque terminar: o composer não fecha a lista nesse meio-tempo). */
 	onPressChange?: (pressing: boolean) => void;
+	/** O bot está respondendo: o comando (`/compact`) fica desabilitado, com "Disponível quando o bot terminar". */
+	commandBusy?: boolean;
 }) {
 	const chrome = chatChrome(useAppColorScheme());
 	const empty = state.candidates.length === 0;
@@ -74,38 +77,46 @@ export function MentionPopup({
 				)
 			) : (
 				<ScrollView keyboardShouldPersistTaps="always" showsVerticalScrollIndicator={false}>
-					{state.candidates.map((candidate: BotCandidate | SkillCandidate, index) => (
+					{state.candidates.map((candidate: BotCandidate | SkillCandidate, index) => {
+						const command = "kind" in candidate && candidate.kind === "command";
+						const off = command ? commandBusy === true : locked;
+						return (
 						<Pressable
 							key={candidate.id}
 							role="button"
-							accessibilityLabel={state.trigger === "@" ? candidate.name : `Habilidade ${candidate.name}`}
-							accessibilityState={{ disabled: locked }}
-							disabled={locked}
+							accessibilityLabel={state.trigger === "@" ? candidate.name : command ? `Comando ${candidate.name}` : `Habilidade ${candidate.name}`}
+							accessibilityState={{ disabled: off }}
+							disabled={off}
 							onPressIn={() => onPressChange?.(true)}
 							onPressOut={() => onPressChange?.(false)}
 							onPress={() => onPick(state, index)}
-							style={{ minHeight: ROW_HEIGHT, opacity: locked ? 0.4 : 1 }}
+							style={{ minHeight: ROW_HEIGHT, opacity: off ? 0.4 : 1 }}
 							className="flex-row items-center gap-3 rounded-2xl px-3 py-1.5 active:bg-foreground/10"
 						>
 							{state.trigger === "@" ? (
 								<Avatar color={resolveColor((candidate as BotCandidate).color, candidate.id)} shape={resolveShape((candidate as BotCandidate).shape, candidate.id)} size={AVATAR} animated={false} eyeColor={chrome.fill} />
 							) : (
 								<View style={{ width: AVATAR, height: AVATAR, backgroundColor: chrome.control }} className="items-center justify-center rounded-full">
-									<SparklesIcon size={14} />
+									{command ? <CompactIcon size={14} /> : <SparklesIcon size={14} />}
 								</View>
 							)}
 							<View className="min-w-0 flex-1">
 								<Text numberOfLines={1} className="text-control font-medium">
 									{state.trigger === "/" ? `/${candidate.name}` : candidate.name}
 								</Text>
-								{"description" in candidate && candidate.description?.trim() ? (
+								{command && off ? (
+									<Text variant="caption" numberOfLines={1} className="text-body">
+										Disponível quando o bot terminar
+									</Text>
+								) : "description" in candidate && candidate.description?.trim() ? (
 									<Text variant="caption" numberOfLines={1} className="text-body">
 										{candidate.description.trim()}
 									</Text>
 								) : null}
 							</View>
 						</Pressable>
-					))}
+						);
+					})}
 				</ScrollView>
 			)}
 		</View>

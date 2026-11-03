@@ -211,7 +211,7 @@ export default function ChatScreen() {
 							<ChevronDownIcon size={22} tone="foreground" />
 						</Pressable>
 					) : null}
-					<Composer mentionBots={mentionBots} skills={bot.memberIds.length > 0 ? null : composerSkills.skills} skillsLoading={composerSkills.loading} skillsFailed={composerSkills.failed} onSlash={composerSkills.load} initialText={typeof draft === "string" ? draft : undefined} botName={bot.name} color={color} foreground={foreground} running={chat.running} onSend={(text) => {
+					<Composer onCompact={bot.memberIds.length > 0 ? undefined : (focus) => void chat.compact(focus)} mentionBots={mentionBots} skills={bot.memberIds.length > 0 ? null : composerSkills.skills} skillsLoading={composerSkills.loading} skillsFailed={composerSkills.failed} onSlash={composerSkills.load} initialText={typeof draft === "string" ? draft : undefined} botName={bot.name} color={color} foreground={foreground} running={chat.running} onSend={(text) => {
 							chat.send(text, replyTo ?? undefined);
 							setReplyTo(null);
 						}} onStop={chat.stop} onSoon={(what) => setSoon(what)} onModel={() => setModelOpen(true)} modelPill={modelPill} holdWriting={modelOpen} onWriting={chat.modelSelector.loadCatalog} replyTo={replyTo} onCancelReply={() => setReplyTo(null)} />

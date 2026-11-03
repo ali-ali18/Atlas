@@ -1,3 +1,4 @@
+import { parseCompactCommand } from "@workspace/shared";
 import * as React from "react";
 import { LayoutAnimation, Platform, Pressable, TextInput, useWindowDimensions, View } from "react-native";
 import { useReducedMotion } from "react-native-reanimated";
@@ -9,7 +10,7 @@ import { ReplyChip } from "./reply-chip";
 import { ArrowUpIcon, MicIcon, PlusIcon, StopIcon, WaveformIcon } from "@/components/icons";
 import { Text } from "@/components/ui/text";
 import { addMarker, adoptLeadingMarkers, composeMessage, fieldMaxLength, fieldOffset, fieldValue, hasContent, readFieldChange, removeMarker, skillsFull, splitLeadingMarkers, type Marker } from "@/lib/composer-markers";
-import { applyPick, removeTrigger, triggerState, type BotCandidate, type SkillCandidate, type TriggerState } from "@/lib/mention-input";
+import { applyPick, composerCommands, removeTrigger, triggerState, type BotCandidate, type SkillCandidate, type TriggerState } from "@/lib/mention-input";
 import { pillAccessibilityLabel, type ModelPill } from "@/lib/model-pill";
 import { chatChrome } from "@/lib/chat-surface";
 import { themeColor } from "@/lib/theme";
@@ -61,6 +62,8 @@ type ComposerProps = {
 	onSlash?: () => void;
 	/** Marcadores que o campo já abre (ex.: a prévia). */
 	initialMarkers?: readonly Marker[];
+	/** `/compact [foco]`: o `/` oferece o comando (antes das habilidades) e escolher ou enviar `/compact` chama isto em vez de virar mensagem. Ausente (grupo) = sem comando. */
+	onCompact?: (focus?: string) => void;
 };
 
 /**
@@ -72,7 +75,7 @@ type ComposerProps = {
  * Estrutura e borda como no `chat-composer` do web: uma View só, com `border border-border` e `bg-input`, colada na
  * pílula (sem respiro nem wrapper), com o raio total direto nela, nos dois formatos (pílula e retângulo).
  */
-export function Composer({ initialText, botName, color, foreground, running, onSend, onStop, onSoon, onModel, modelPill, holdWriting, onWriting, replyTo, onCancelReply, mentionBots = NO_BOTS, skills = null, skillsLoading, skillsFailed, onSlash, initialMarkers }: ComposerProps) {
+export function Composer({ initialText, botName, color, foreground, running, onSend, onStop, onSoon, onModel, modelPill, holdWriting, onWriting, replyTo, onCancelReply, mentionBots = NO_BOTS, skills = null, skillsLoading, skillsFailed, onSlash, initialMarkers, onCompact }: ComposerProps) {
 	// `color` é o destaque do bot (`botAccent`): o primeiro plano é o que vem dele, sempre branco.
 	const onColor = foreground;
 	const scheme = useAppColorScheme();
@@ -101,9 +104,10 @@ export function Composer({ initialText, botName, color, foreground, running, onS
 	const pressing = React.useRef(false);
 	// Só abre com o cursor parado (sem trecho selecionado), calculado pelo cursor real e não pelo fim do texto.
 	const caret = selection.start === selection.end ? Math.min(text.length, Math.max(0, selection.start - offset)) : null;
+	const commands = React.useMemo(() => composerCommands({ compactAvailable: Boolean(onCompact) }), [onCompact]);
 	const trigger = React.useMemo(
-		() => (caret === null || closed ? null : triggerState(text, caret, { bots: mentionBots, skills })),
-		[text, caret, closed, mentionBots, skills],
+		() => (caret === null || closed ? null : triggerState(text, caret, { bots: mentionBots, skills, commands })),
+		[text, caret, closed, mentionBots, skills, commands],
 	);
 	const slashOpen = trigger?.trigger === "/";
 	React.useEffect(() => {
@@ -172,13 +176,23 @@ export function Composer({ initialText, botName, color, foreground, running, onS
 	// Largura do grupo da direita: microfone + botão da cor do bot.
 	const rightWidth = BUTTON * 2 + 8;
 	const mode = hasText ? "send" : running ? "stop" : "voice";
+	const clearField = () => {
+		setText("");
+		setMarkers([]);
+		setStacked(false);
+		baseline.current = null;
+	};
 	const press = () => {
 		if (mode === "send") {
+			// `/compact [foco]` escrito à mão também é o comando (como no web); com o bot respondendo segue como texto.
+			const command = onCompact && !running && markers.length === 0 ? parseCompactCommand(text) : null;
+			if (command) {
+				onCompact?.(command.focus);
+				clearField();
+				return;
+			}
 			onSend(composeMessage(markers, text));
-			setText("");
-			setMarkers([]);
-			setStacked(false);
-			baseline.current = null;
+			clearField();
 		} else if (mode === "stop") onStop();
 		else onSoon("voz");
 	};
@@ -190,6 +204,13 @@ export function Composer({ initialText, botName, color, foreground, running, onS
 		const next = applyPick(text, caret ?? text.length, state, index, { skillsFull: skillLimit });
 		if (!next) return;
 		animate();
+		// Comando: não vira marcador nem texto. Dispara e limpa o campo (como o web).
+		if (next.command) {
+			if (running) return;
+			onCompact?.();
+			clearField();
+			return;
+		}
 		const nextMarkers = next.marker ? addMarker(markers, next.marker) : markers;
 		setMarkers(nextMarkers);
 		setText(next.text);
@@ -205,7 +226,7 @@ export function Composer({ initialText, botName, color, foreground, running, onS
 	};
 	return (
 		<View className="mb-2 gap-2" style={{ marginHorizontal: 19.5 }}>
-			{trigger ? <MentionPopup state={trigger} loading={skillsLoading} failed={skillsFailed} limitReached={skillLimit} onRetry={onSlash} onPick={pick} onPressChange={(down) => { pressing.current = down; }} /> : null}
+			{trigger ? <MentionPopup state={trigger} loading={skillsLoading} failed={skillsFailed} limitReached={skillLimit} onRetry={onSlash} onPick={pick} onPressChange={(down) => { pressing.current = down; }} commandBusy={running} /> : null}
 			<View className="overflow-hidden border" style={{ borderRadius: open || replyTo ? STACKED_RADIUS : PILL_RADIUS, borderColor: chrome.edge, backgroundColor: chrome.fill }}>
 				{replyTo && onCancelReply ? <ReplyChip quote={replyTo} onCancel={onCancelReply} /> : null}
 				{/*

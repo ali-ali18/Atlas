@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { HomeBot } from "./home-types";
-import { applyPick, mentionableBots, removeTrigger, triggerState } from "./mention-input";
+import { applyPick, composerCommands, mentionableBots, removeTrigger, triggerState } from "./mention-input";
 
 const bots = [
 	{ id: "b1", name: "Cookie" },
@@ -127,5 +127,35 @@ describe("mentionableBots", () => {
 	});
 	it("sem bot atual não oferece nada", () => {
 		expect(mentionableBots(all, undefined)).toEqual([]);
+	});
+});
+
+describe("/compact na lista do /", () => {
+	const commands = composerCommands({ compactAvailable: true });
+	it("o comando só existe quando o chat sabe tratá-lo (grupo não tem)", () => {
+		expect(composerCommands({ compactAvailable: false })).toEqual([]);
+		expect(commands).toEqual([{ id: "command:compact", name: "compact", description: "Compactar a conversa", kind: "command" }]);
+	});
+	it("aparece primeiro, antes das habilidades", () => {
+		const state = triggerState("/", 1, { bots, skills, commands });
+		expect(state?.candidates.map((c) => c.id)).toEqual(["command:compact", "s1", "s2"]);
+	});
+	it("aparece mesmo sem habilidades carregadas (lista vazia)", () => {
+		expect(triggerState("/", 1, { bots, skills: [], commands })?.candidates.map((c) => c.id)).toEqual(["command:compact"]);
+	});
+	it("filtra por prefixo: 'comp' mostra o comando, 'agen' não", () => {
+		expect(triggerState("/comp", 5, { bots, skills, commands })?.candidates.map((c) => c.id)).toEqual(["command:compact"]);
+		expect(triggerState("/agen", 5, { bots, skills, commands })?.candidates.map((c) => c.id)).toEqual(["s2"]);
+	});
+	it("sem comandos na fonte (grupo), o / não ganha nada", () => {
+		expect(triggerState("/", 1, { bots, skills })?.candidates.map((c) => c.id)).toEqual(["s1", "s2"]);
+	});
+	it("escolher o comando tira o gatilho, não cria marcador e devolve o comando (mesmo com o limite de habilidades batido)", () => {
+		const state = triggerState("/comp", 5, { bots, skills, commands })!;
+		expect(applyPick("/comp", 5, state, 0, { skillsFull: true })).toEqual({ text: "", caret: 0, marker: null, command: "compact" });
+	});
+	it("escolher uma habilidade continua virando marcador", () => {
+		const state = triggerState("/", 1, { bots, skills, commands })!;
+		expect(applyPick("/", 1, state, 1)?.marker).toMatchObject({ kind: "skill", id: "s1" });
 	});
 });

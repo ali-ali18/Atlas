@@ -7,6 +7,7 @@ import {
 	ChevronLeft as LucideChevronLeft,
 	ChevronRight as LucideChevronRight,
 	ChevronUp as LucideChevronUp,
+	ChevronsDownUp as LucideChevronsDownUp,
 	ChevronsUpDown as LucideChevronsUpDown,
 	Circle as LucideCircle,
 	CircleCheck as LucideCircleCheck,
@@ -265,6 +266,11 @@ export function ReplyIcon({ size = 20, tone = "foreground" }: LineIconProps) {
 /** Lucide `Sparkles` (a habilidade: o mesmo ícone do web nos chips e na lista do `/`). */
 export function SparklesIcon({ size = 16, tone = "muted-foreground" }: LineIconProps) {
 	return <LucideSparkles size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `ChevronsDownUp`: o comando `/compact` (comprimir a conversa). */
+export function CompactIcon({ size = 16, tone = "muted-foreground" }: LineIconProps) {
+	return <LucideChevronsDownUp size={size} color={useStroke(tone)} strokeWidth={2} />;
 }
 
 /** Lucide `X`. */
