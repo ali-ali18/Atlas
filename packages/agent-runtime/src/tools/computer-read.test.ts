@@ -144,4 +144,11 @@ describe("formatRead: leitura cortada", () => {
 		expect(out).toContain("take a screenshot and read it before asking the user");
 		expect(out).not.toContain("browser_find");
 	});
+
+	it("executor pede visão só quando a leitura veio cortada", async () => {
+		const capped = await executeComputerReadTool("browser_read", {}, ctx({ execBrowserRead: vi.fn(async () => read({ capped: true })) }));
+		expect(capped.vision).toBe("capped");
+		const normal = await executeComputerReadTool("browser_read", {}, ctx({ execBrowserRead: vi.fn(async () => read()) }));
+		expect(normal.vision).toBeUndefined();
+	});
 });

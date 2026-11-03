@@ -1,5 +1,6 @@
 import { redactSecrets } from "../mcp/sanitize.js";
 import { formatBrowserClick, formatBrowserType } from "./computer-changes.js";
+import { isSilentClick } from "./vision-fallback.js";
 import type { ComputerToolContext, ComputerToolOutcome } from "./computer-refs.js";
 
 // V6 — `browser_act` sem ref: clique por texto/seletor, digitação no campo em foco
@@ -48,7 +49,10 @@ export async function executeTargetlessAct(
 			throw new Error("click needs a `ref` (from browser_snapshot, browser_read or browser_find) or the element's visible `text`");
 		}
 		const result = await ctx.manager.execBrowserClick(await ctx.getSessionId(), { selector, text });
-		return { summary: redactSecrets(formatBrowserClick(result)) };
+		return {
+			summary: redactSecrets(formatBrowserClick(result)),
+			...(isSilentClick(result) ? { vision: "silent-click" as const } : {}),
+		};
 	}
 	if (action === "type") {
 		if (!value) throw new Error("type needs `value` (the text to enter)");

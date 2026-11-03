@@ -735,7 +735,7 @@ export const COMPUTER_USE_TOOLS: ChatTool[] = [
 		function: {
 			name: "screenshot",
 			description:
-				"Capture the screen as an image. USE for visual checks (canvas, charts, layout, an app outside the browser) and when a read does not contain what you just triggered or expect on screen (a side panel, chat answer, overlay): take a screenshot and read it before asking the user. Prefer browser_read or browser_find for ordinary page text. `region` zooms into a rectangle of the last image; `marks` draws each element's ref number on it (12 = e12), so you can click by ref.",
+				"Capture the screen as an image. USE for visual checks (canvas, charts, layout, other apps) and for what a read missed (side panel, chat answer, overlay). Do NOT use it for ordinary page text (browser_read). `region` zooms into the last image; `marks` draws each element's ref number (12 = e12) to click by ref.",
 			parameters: {
 				type: "object",
 				properties: {
@@ -760,7 +760,7 @@ export const COMPUTER_USE_TOOLS: ChatTool[] = [
 		function: {
 			name: "navigate",
 			description:
-				"Open a URL in the VM browser; returns the final URL and title (warns if the page is still rendering). USE to load a page you know. Do NOT use it to read the page or follow its links (browser_read, browser_act).",
+				"Open a URL in the VM browser; returns the final URL and title. USE to load a page you know. Do NOT use it to read the page or follow its links (browser_read, browser_act).",
 			parameters: {
 				type: "object",
 				properties: {
@@ -3352,6 +3352,8 @@ async function runComputerUseCore(params: {
 	const triagedInputs = [...(parsedCheckpoint?.triagedInputs ?? [])];
 	let replyCount = 0;
 	const canSeeImages = params.canSeeUserImages !== false;
+	// Último passo que já gastou o screenshot automático da leitura (no máximo um por passo).
+	let visionFallbackStep = -1;
 	const capabilitySnapshot = () => createCapabilitySnapshot({
 		tools: tools.map((tool) => tool.function.name),
 		vision: canSeeImages,
@@ -4746,6 +4748,11 @@ async function runComputerUseCore(params: {
 						await onEvent(event);
 					},
 					canSeeImages: canSeeImages,
+					claimVisionFallback: () => {
+						if (visionFallbackStep === decisionIndex) return false;
+						visionFallbackStep = decisionIndex;
+						return true;
+					},
 					currentStep: () => decisionIndex,
 					listScreenshotArtifacts: () => {
 						const ids: string[] = [];

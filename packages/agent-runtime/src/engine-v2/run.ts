@@ -867,6 +867,8 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 				}
 			: undefined;
 
+	// Último passo que já gastou o screenshot automático da leitura (no máximo um por passo).
+	let visionFallbackStep = -1;
 	const buildContext = (call: LlmToolCall, signal: AbortSignal | undefined, forceConfirm = false): ToolContext => ({
 		loginAsked,
 		secrets: secretSession,
@@ -967,6 +969,11 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 			await onEvent(event);
 		},
 		canSeeImages,
+		claimVisionFallback: () => {
+			if (visionFallbackStep === step) return false;
+			visionFallbackStep = step;
+			return true;
+		},
 		currentStep: () => step,
 		listScreenshotArtifacts: () => {
 			const ids: string[] = [];

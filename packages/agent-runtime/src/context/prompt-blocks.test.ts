@@ -19,9 +19,9 @@ const all = new Set<ContextGroup>(CONTEXT_GROUPS);
 describe("prompt em blocos (L5)", () => {
 	it("o prompt legado (todos os blocos, ordem original) é é o prompt legado com a regra de skills em inglês e o vocabulário V6 do navegador e a política única de agir primeiro (com leitura por intenção), sem identidade nem idioma no núcleo e sem as frases cobertas pela disciplina do modelo (hash fixa o texto)", () => {
 		const legacy = legacySystemPrompt();
-		expect(legacy.length).toBe(25_843);
+		expect(legacy.length).toBe(25_910);
 		expect(createHash("sha256").update(legacy).digest("hex")).toBe(
-			"98b62c8dbb81baf153b042b1b286ccf339f35e63d64bbc402c21c69e1b13ada6",
+			"24c22d8f089f1233868445f908ba49c99336f98ba87e3fe7eb5afc78f60c74eb",
 		);
 		expect(SYSTEM_PROMPT).toBe(legacy);
 	});
