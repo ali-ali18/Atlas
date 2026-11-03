@@ -8,9 +8,10 @@ import {
 	isStatusColumn,
 	kanbanView,
 	listView,
-	mergeRowHeight,
+	mergedRowHeights,
 	pinFirstColumn,
 	progressView,
+	setRowHeight,
 	SECTION_GAP,
 	stackGap,
 	statView,
@@ -172,14 +173,16 @@ describe("tabela", () => {
 		expect(pinFirstColumn([500], 300)).toBe(false);
 		expect(pinFirstColumn([200, 200], 0)).toBe(false);
 	});
-	it("altura de linha sincronizada entre a coluna fixa e a rolável: só cresce", () => {
-		let heights: readonly number[] = [];
-		heights = mergeRowHeight(heights, 1, 30.2);
-		expect(heights).toEqual([0, 31]);
-		const same = mergeRowHeight(heights, 1, 20);
-		expect(same).toBe(heights);
-		expect(mergeRowHeight(heights, 1, 44)).toEqual([0, 44]);
-		expect(mergeRowHeight(heights, 0, 12)).toEqual([12, 31]);
+	it("altura de linha: cada lado guarda a natural e a mínima é a maior das duas (e encolhe de volta)", () => {
+		let left: readonly number[] = [];
+		left = setRowHeight(left, 1, 30.2);
+		expect(left).toEqual([0, 31]);
+		expect(setRowHeight(left, 1, 31)).toBe(left);
+		const right = setRowHeight(setRowHeight([], 0, 20), 1, 44);
+		expect(mergedRowHeights(left, right, 2)).toEqual([20, 44]);
+		// o conteúdo mudou e a linha ficou menor: antes a altura só crescia e a linha ficava alta demais
+		expect(mergedRowHeights(setRowHeight(left, 1, 18), setRowHeight(right, 1, 22), 2)).toEqual([20, 22]);
+		expect(mergedRowHeights([], [], 3)).toEqual([0, 0, 0]);
 	});
 });
 

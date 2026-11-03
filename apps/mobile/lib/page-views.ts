@@ -170,14 +170,22 @@ export function tableView(props: PageNodePropsMap["table"]): TableView {
 	};
 }
 
-/** Altura de cada linha quando a coluna fixa e a rolável medem separado: a maior das duas vence (só cresce, sem laço de layout). */
-export function mergeRowHeight(heights: readonly number[], index: number, measured: number): readonly number[] {
+/** Guarda a altura NATURAL medida de uma linha (substitui o valor antigo: conteúdo menor encolhe a linha de volta). */
+export function setRowHeight(heights: readonly number[], index: number, measured: number): readonly number[] {
 	const rounded = Math.ceil(measured);
-	if ((heights[index] ?? 0) >= rounded) return heights;
+	if (heights[index] === rounded) return heights;
 	const next = [...heights];
 	for (let i = heights.length; i < index; i += 1) next[i] = 0;
 	next[index] = rounded;
 	return next;
+}
+
+/**
+ * Altura mínima de cada linha quando a coluna fixa e a rolável medem separado: a maior das duas alturas naturais. Como
+ * cada lado mede o conteúdo (sem o mínimo aplicado) e este valor é recalculado, nada fica "preso" no maior valor já visto.
+ */
+export function mergedRowHeights(left: readonly number[], right: readonly number[], count: number): number[] {
+	return Array.from({ length: count }, (_, index) => Math.max(left[index] ?? 0, right[index] ?? 0));
 }
 
 /** A primeira coluna fica fixa quando há mais colunas e a tabela é mais larga que a tela. */

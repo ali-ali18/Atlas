@@ -6,12 +6,13 @@ import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
 import { hexAlpha } from "@/lib/color-math";
 import { visibleRows } from "@/lib/page-table";
-import { mergeRowHeight, pinFirstColumn, type TableCellView, type TableColumnView, tableView } from "@/lib/page-views";
+import { mergedRowHeights, pinFirstColumn, setRowHeight, type TableCellView, type TableColumnView, tableView } from "@/lib/page-views";
 import { type Of, usePageTheme } from "./page-theme";
 
 const PAD_X = 14;
 
 type Heights = readonly number[];
+type Side = "left" | "right";
 
 function Cell({ text, align, width, header, tone }: { text: string; align: TableCellView["align"]; width: number; header?: boolean; tone?: string }) {
 	const { surface } = usePageTheme();
@@ -25,18 +26,18 @@ function Cell({ text, align, width, header, tone }: { text: string; align: Table
 }
 
 /** Linha (ou cabeçalho) de células; mede a própria altura para a coluna fixa e a rolável ficarem alinhadas linha a linha. */
-function Row({ index, cells, columns, from, to, heights, onHeight, padY, background, header }: { index: number; cells: ReadonlyArray<TableCellView | string>; columns: readonly TableColumnView[]; from: number; to: number; heights: Heights; onHeight: (index: number, height: number) => void; padY: number; background?: string; header?: boolean }) {
+function Row({ index, cells, columns, from, to, minHeight, onHeight, padY, background, header }: { index: number; cells: ReadonlyArray<TableCellView | string>; columns: readonly TableColumnView[]; from: number; to: number; minHeight: number; onHeight: (index: number, height: number) => void; padY: number; background?: string; header?: boolean }) {
 	const { surface, tone: toneOf } = usePageTheme();
 	return (
-		<View
-			onLayout={(event) => onHeight(index, event.nativeEvent.layout.height)}
-			style={{ flexDirection: "row", alignItems: "stretch", minHeight: heights[index] ?? 0, paddingVertical: padY, borderTopWidth: index > 0 ? 1 : 0, borderTopColor: surface.edge, backgroundColor: background }}
-		>
+		// O de fora aplica a altura mínima (a maior dos dois lados); o de dentro mede só o conteúdo, sem esse mínimo.
+		<View style={{ justifyContent: "center", minHeight, borderTopWidth: index > 0 ? 1 : 0, borderTopColor: surface.edge, backgroundColor: background }}>
+			<View onLayout={(event) => onHeight(index, event.nativeEvent.layout.height)} style={{ flexDirection: "row", alignItems: "stretch", paddingVertical: padY }}>
 			{columns.slice(from, to).map((column, offset) => {
 				const cell = cells[from + offset]!;
 				const content = typeof cell === "string" ? { text: cell, align: column.align, tone: null } : cell;
 				return <Cell key={column.key} text={content.text} align={content.align} width={column.width} header={header} tone={content.tone ? toneOf(content.tone).text : undefined} />;
 			})}
+			</View>
 		</View>
 	);
 }
@@ -67,7 +68,7 @@ export function TableNode({ node }: { node: Of<"table"> }) {
 	const { surface } = usePageTheme();
 	const [expanded, setExpanded] = React.useState(false);
 	const [viewport, setViewport] = React.useState(0);
-	const [heights, setHeights] = React.useState<Heights>([]);
+	const [measured, setMeasured] = React.useState<Record<Side, Heights>>({ left: [], right: [] });
 	const shown = React.useMemo(() => visibleRows(node.props.rows, expanded), [node.props.rows, expanded]);
 	const view = React.useMemo(() => tableView({ ...node.props, rows: [...shown.rows] }), [node.props, shown.rows]);
 	const widths = view.columns.map((column) => column.width);
@@ -81,15 +82,17 @@ export function TableNode({ node }: { node: Of<"table"> }) {
 	const onScroll = useAnimatedScrollHandler((event) => {
 		offset.value = event.contentOffset.x;
 	});
-	const onHeight = React.useCallback((index: number, height: number) => setHeights((previous) => mergeRowHeight(previous, index, height)), []);
+	const onLeft = React.useCallback((index: number, height: number) => setMeasured((previous) => (previous.left[index] === Math.ceil(height) ? previous : { ...previous, left: setRowHeight(previous.left, index, height) })), []);
+	const onRight = React.useCallback((index: number, height: number) => setMeasured((previous) => (previous.right[index] === Math.ceil(height) ? previous : { ...previous, right: setRowHeight(previous.right, index, height) })), []);
+	const minHeights = React.useMemo(() => mergedRowHeights(pinned ? measured.left : [], measured.right, view.rows.length + 1), [measured, pinned, view.rows.length]);
 	const padY = view.compact ? 6 : 10;
 	const header = view.columns.map((column) => column.label);
 	const rowBackground = (index: number) => (view.striped && index % 2 === 1 ? hexAlpha(surface.track, 0.3) : undefined);
-	const body = (from: number, to: number) => (
+	const body = (from: number, to: number, onHeight: (index: number, height: number) => void) => (
 		<View>
-			<Row index={0} cells={header} columns={view.columns} from={from} to={to} heights={heights} onHeight={onHeight} padY={8} background={surface.soft} header />
+			<Row index={0} cells={header} columns={view.columns} from={from} to={to} minHeight={minHeights[0] ?? 0} onHeight={onHeight} padY={8} background={surface.soft} header />
 			{view.rows.map((cells, rowIndex) => (
-				<Row key={rowIndex} index={rowIndex + 1} cells={cells} columns={view.columns} from={from} to={to} heights={heights} onHeight={onHeight} padY={padY} background={rowBackground(rowIndex)} />
+				<Row key={rowIndex} index={rowIndex + 1} cells={cells} columns={view.columns} from={from} to={to} minHeight={minHeights[rowIndex + 1] ?? 0} onHeight={onHeight} padY={padY} background={rowBackground(rowIndex)} />
 			))}
 		</View>
 	);
@@ -97,9 +100,9 @@ export function TableNode({ node }: { node: Of<"table"> }) {
 		<View className="min-w-0 gap-2">
 			<View className="overflow-hidden" style={{ borderRadius: 10, borderWidth: 1, borderColor: surface.edge }} onLayout={(event) => setViewport(Math.floor(event.nativeEvent.layout.width) - 2)}>
 				<View style={{ flexDirection: "row" }}>
-					{pinned ? <View style={{ width: widths[0], borderRightWidth: 1, borderRightColor: surface.edge }}>{body(0, 1)}</View> : null}
+					{pinned ? <View style={{ width: widths[0], borderRightWidth: 1, borderRightColor: surface.edge }}>{body(0, 1, onLeft)}</View> : null}
 					<Animated.ScrollView horizontal nestedScrollEnabled showsHorizontalScrollIndicator={false} scrollEventThrottle={16} onScroll={onScroll} style={{ flex: 1 }} contentContainerStyle={{ flexGrow: 1 }}>
-						<View style={{ width: Math.max(scrollWidth, scrollViewport) }}>{body(split, view.columns.length)}</View>
+						<View style={{ width: Math.max(scrollWidth, scrollViewport) }}>{body(split, view.columns.length, onRight)}</View>
 					</Animated.ScrollView>
 				</View>
 				{overflow ? <ScrollBar viewport={scrollViewport > 0 ? scrollViewport : viewport} content={scrollWidth} offset={offset} /> : null}
