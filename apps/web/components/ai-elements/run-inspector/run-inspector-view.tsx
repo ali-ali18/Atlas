@@ -196,6 +196,7 @@ function StepCard({ step, scale }: { step: InspectStepView; scale: number }) {
 		step.provider,
 		step.model ?? step.requestedModel,
 		step.durationMs !== undefined ? formatMs(step.durationMs, locale) : undefined,
+		step.ttftMs !== undefined ? t("aiElements.inspector.step.ttft", { value: formatMs(step.ttftMs, locale) }) : undefined,
 		step.finishReason ? t("aiElements.inspector.step.finish", { reason: step.finishReason }) : undefined,
 	].filter(Boolean);
 	return (
@@ -248,6 +249,7 @@ function ToolRow({ call }: { call: InspectToolCall }) {
 				<span className="min-w-0 truncate font-medium font-mono text-xs">{call.name}</span>
 				<span className="flex items-center gap-2 text-muted-foreground text-xs">
 					{call.durationMs !== undefined ? formatMs(call.durationMs, locale) : null}
+					{call.policyDecision ? <Badge variant="outline">{t(call.policyDecision === "blocked" ? "aiElements.inspector.tool.policyBlocked" : "aiElements.inspector.tool.policyConfirm")}</Badge> : null}
 					<Badge variant={status.variant}>{t(status.label)}</Badge>
 				</span>
 			</div>
@@ -329,6 +331,12 @@ export function RunInspectorView({ inspection, onCopy, copied = false }: { inspe
 						{formatTokens(totals.promptTokens, locale)} / {formatTokens(totals.completionTokens, locale)}
 					</dd>
 				</div>
+				{totals.cacheReadTokens !== undefined && totals.promptTokens > 0 ? (
+					<div>
+						<dt className="text-muted-foreground">{t("aiElements.inspector.view.cache")}</dt>
+						<dd>{formatPercent(Math.min(1, totals.cacheReadTokens / totals.promptTokens), locale)}</dd>
+					</div>
+				) : null}
 				{totals.costUsd !== undefined ? (
 					<div>
 						<dt className="text-muted-foreground">{t("aiElements.inspector.view.cost")}</dt>

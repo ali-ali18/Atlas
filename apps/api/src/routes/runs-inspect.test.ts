@@ -77,3 +77,15 @@ test("outro usuário recebe 404 e nada é lido além do run", async () => {
 	assert.equal(steps.mock.callCount() + events.mock.callCount() + cards.mock.callCount(), 0);
 	assert.equal((await appFor(A).request("/v1/runs/inexistente/inspect")).status, 404);
 });
+
+test("dono vê as colunas de span (modelo, cache, TTFT, política da tool) e outro usuário continua em 404", async () => {
+	stubRows();
+	stubMethod(prisma.agentStep, "findMany", async () => [
+		{ ...stepRows[0]!, kind: "model", provider: "anthropic", model: "a/b", cachedTokens: 80, outputTokens: 10, ttftMs: 300, finishReason: "stop", policyDecision: null },
+		{ ...stepRows[1]!, kind: "tool", provider: null, model: null, cachedTokens: null, outputTokens: null, ttftMs: null, finishReason: null, policyDecision: "blocked" },
+	]);
+	const { inspection } = await (await appFor(A).request("/v1/runs/run-a/inspect")).json() as { inspection: import("@workspace/shared").RunInspection };
+	assert.deepEqual([inspection.steps[0]!.provider, inspection.steps[0]!.model, inspection.steps[0]!.cacheReadTokens, inspection.steps[0]!.ttftMs, inspection.steps[0]!.finishReason], ["anthropic", "a/b", 80, 300, "stop"]);
+	assert.equal(inspection.toolCalls[0]!.policyDecision, "blocked");
+	assert.equal((await appFor(B).request("/v1/runs/run-a/inspect")).status, 404);
+});
