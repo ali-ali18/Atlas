@@ -32,6 +32,7 @@ import { UPDATE_TASK_LIST_TOOL_V2, shouldExposeTaskList } from "../tools/task-li
 import { ROUTINE_EXCLUDED_TOOLS } from "../tools/routine-excluded.js";
 import { isUnattendedOrigin } from "../autonomy-gate.js";
 import { SANDBOX_TOOL_NAMES } from "../tools/registry/sandbox-tools.js";
+import { VIDEO_TRANSCRIPT_TOOL_NAME, videoTranscriptBlocked } from "../tools/video-transcript.js";
 import { SANDBOX_SHELL_TOOL_NAMES, sandboxShellAllowedForOrigin, sandboxShellBlocked, type SandboxShellToolName } from "../tools/sandbox-shell.js";
 import { SANDBOX_RELEASE_TOOL_NAME } from "../tools/sandbox-release.js";
 import { MCP_MAX_EXPOSED_TOOLS, MCP_MAX_TOOLS_JSON_CHARS } from "../mcp/registry.js";
@@ -148,6 +149,7 @@ export function buildEngineV2Catalog(input: {
 			const shell = name as SandboxShellToolName;
 			if (!sandboxShellAllowedForOrigin(shell, input.origin) || sandboxShellBlocked(input.autonomy, shell)) continue;
 		}
+		if (name === VIDEO_TRANSCRIPT_TOOL_NAME && videoTranscriptBlocked(input.autonomy)) continue;
 		if (SKILL_WRITE_TOOL_NAMES.has(name) && input.origin !== "chat") continue;
 		add(tool);
 	}

@@ -287,6 +287,7 @@ import {
 } from "./tools/sandbox-shell.js";
 import { createBrowserWatch, SCREEN_CLAIM_NOTE } from "./tools/browser-claims.js";
 import { SANDBOX_RELEASE_TOOL, SANDBOX_RELEASE_TOOL_NAME } from "./tools/sandbox-release.js";
+import { VIDEO_TRANSCRIPT_TOOL, VIDEO_TRANSCRIPT_TOOL_NAME, videoTranscriptBlocked } from "./tools/video-transcript.js";
 import {
 	createDevSessionRuntime,
 	DEV_SESSION_READONLY_TOOL_NAMES,
@@ -830,6 +831,7 @@ export const COMPUTER_USE_TOOLS: ChatTool[] = [
 	COMPUTER_TABS_TOOL,
 	...SANDBOX_SHELL_TOOLS,
 	SANDBOX_RELEASE_TOOL,
+	VIDEO_TRANSCRIPT_TOOL,
 	{
 		type: "function",
 		function: {
@@ -2378,6 +2380,7 @@ async function runComputerUseCore(params: {
 			if (!(SANDBOX_SHELL_TOOL_NAMES as readonly string[]).includes(shellTool)) return true;
 			return sandboxShellAllowedForOrigin(shellTool, params.origin) && !sandboxShellBlocked(autonomyPolicy, shellTool);
 		})
+		.filter((tool) => tool.function.name !== VIDEO_TRANSCRIPT_TOOL_NAME || !videoTranscriptBlocked(autonomyPolicy))
 		.filter((tool) => (tool.function.name !== "propose_connector" && tool.function.name !== "propose_custom_mcp") || params.origin === "chat")
 		// Sem humano para aprovar (rotina, webhook, subagente): skill só se lê.
 		.filter((tool) => !isUnattendedOrigin(params.origin) || !SKILL_WRITE_TOOL_NAMES.has(tool.function.name))

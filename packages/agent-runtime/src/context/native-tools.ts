@@ -55,6 +55,13 @@ export const NATIVE_TOOL_GROUPS: Record<NativeToolGroup, GroupSpec> = {
 		keywords: ["abas", "aba", "guia", "guias"],
 		hidden: true,
 	},
+	video: {
+		// Viaja com o navegador de uma tarefa (link no pedido), nunca no "Bom dia": o schema pesa ~1 mil chars. Fora do índice do prompt.
+		tools: ["video_transcript"],
+		hint: "get the spoken text (captions) of a video to summarize or quote it",
+		keywords: ["video", "videos", "youtube", "youtu", "legenda", "legendas", "transcricao", "transcript", "captions", "subtitles"],
+		hidden: true,
+	},
 	shell: {
 		tools: ["sandbox_shell", "sandbox_shell_wait", "sandbox_read", "sandbox_list", "sandbox_download"],
 		hint: "run shell commands and scripts in the VM, install programs, download and read files; for bulk or repetitive extraction",
@@ -164,7 +171,7 @@ const GROUP_ORDER = Object.keys(NATIVE_TOOL_GROUPS) as NativeToolGroup[];
  * já foi enviado segue igual e o prefixo em cache aguenta). `shell` já traz `sandbox_shell` com o resto.
  */
 export const GROUP_COMPANIONS: Partial<Record<NativeToolGroup, readonly NativeToolGroup[]>> = {
-	browser: ["desktop", "tabs"],
+	browser: ["desktop", "tabs", "video"],
 };
 
 /** Acrescenta aos grupos pedidos os acompanhantes obrigatórios (navegador -> desktop e abas). Muda e devolve o mesmo conjunto. */
