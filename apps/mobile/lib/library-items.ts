@@ -3,7 +3,7 @@ import type { LibraryFile, LibraryPanel } from "./library-api";
 
 export type LibraryItemKind = "panel" | "document" | "sheet" | "presentation" | "image" | "file";
 
-export type LibraryItem = { key: string; source: "file" | "panel"; id: string; kind: LibraryItemKind; title: string; date: string };
+export type LibraryItem = { key: string; source: "file" | "panel"; id: string; kind: LibraryItemKind; title: string; date: string; /** Só de documento: o mime e o tamanho (bytes) que o servidor informou. */ mime?: string; size?: number };
 
 const SHEET = /(spreadsheet|ms-excel|\.sheet|\/csv$)/i;
 const PRESENTATION = /(presentation|powerpoint)/i;
@@ -36,7 +36,7 @@ const time = (iso: string) => {
 export function mergeLibraryItems(files: readonly LibraryFile[], panels: readonly LibraryPanel[]): LibraryItem[] {
 	const items: LibraryItem[] = [
 		...panels.map((panel): LibraryItem => ({ key: `panel:${panel.id}`, source: "panel", id: panel.id, kind: "panel", title: panel.title, date: panel.updatedAt })),
-		...files.map((file): LibraryItem => ({ key: `file:${file.id}`, source: "file", id: file.id, kind: libraryItemKind(file.mime, file.filename), title: file.filename, date: file.createdAt })),
+		...files.map((file): LibraryItem => ({ key: `file:${file.id}`, source: "file", id: file.id, kind: libraryItemKind(file.mime, file.filename), title: file.filename, date: file.createdAt, ...(file.mime ? { mime: file.mime } : {}), size: file.size })),
 	];
 	return items.sort((a, b) => time(b.date) - time(a.date));
 }

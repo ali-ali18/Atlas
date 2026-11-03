@@ -63,6 +63,10 @@ describe("applyRunEvent", () => {
 		expect(state.paused).toBe(true);
 		expect(state.items.map((item) => item.kind)).toEqual(["confirm", "questionnaire", "web-card", "web-card"]);
 	});
+	it("evento de arquivo guarda fileId, mime e tamanho no cartão (abre a folha do documento)", () => {
+		const state = apply([{ type: "file", artifactId: "f9", filename: "vm.md", mime: "text/markdown", size: 321, format: "markdown", version: 1 } as never]);
+		expect(state.items).toEqual([{ id: "file-f9", kind: "web-card", card: "file", title: "vm.md", key: "file:f9", fileId: "f9", mime: "text/markdown", size: 321 }]);
+	});
 	it("evento de painel guarda pageId, revisão e fontes no cartão (sem o spec)", () => {
 		const spec = { v: 2, title: "Vendas", root: { id: "r", type: "stack", props: {} } } as never;
 		const state = apply([{ type: "page", action: "created", pageId: "p1", revision: 1, title: "Vendas", spec, sourceCount: 2 }]);

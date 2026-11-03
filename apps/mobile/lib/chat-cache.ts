@@ -81,6 +81,10 @@ export function pickItem(value: unknown): ChatItem | null {
 				...(value.card === "page" && isString(value.pageId) && value.pageId.length > 0 && value.pageId.length <= 160 ? { pageId: value.pageId } : {}),
 				...(value.card === "page" && typeof value.revision === "number" && Number.isFinite(value.revision) ? { revision: value.revision } : {}),
 				...(value.card === "page" && typeof value.sourceCount === "number" && Number.isFinite(value.sourceCount) ? { sourceCount: value.sourceCount } : {}),
+				// Arquivo: id curto, mime em texto curto e tamanho finito e não negativo; sem eles o cartão cai no navegador.
+				...(value.card === "file" && isString(value.fileId) && value.fileId.length > 0 && value.fileId.length <= 160 ? { fileId: value.fileId } : {}),
+				...(value.card === "file" && isString(value.fileId) && value.fileId.length > 0 && value.fileId.length <= 160 && isString(value.mime) && value.mime.length > 0 && value.mime.length <= 120 ? { mime: value.mime } : {}),
+				...(value.card === "file" && isString(value.fileId) && value.fileId.length > 0 && value.fileId.length <= 160 && typeof value.size === "number" && Number.isFinite(value.size) && value.size >= 0 ? { size: value.size } : {}),
 			};
 		default:
 			return null;

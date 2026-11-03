@@ -52,3 +52,19 @@ export function settleSheet(from: SheetRest, dy: number, vy: number, heights: Sh
 	if (height < middle) return to("collapsed");
 	return to(from);
 }
+
+/** A folha tem uma altura só (inicial = máxima), como a de conteúdo. */
+export function isSingleHeight({ collapsed, expanded }: SheetHeights): boolean {
+	return expanded <= collapsed;
+}
+
+/** Estado de repouso depois de assentar: com altura única "expanded" não existe (senão o arremesso para baixo viraria "recolher" e não fecharia). */
+export function normalizeRest(next: SheetRest, heights: SheetHeights): SheetRest {
+	return isSingleHeight(heights) ? "collapsed" : next;
+}
+
+/** Toque na alça: alterna as duas alturas; com altura única não muda nada. */
+export function tapRest(from: SheetRest, heights: SheetHeights): SheetRest {
+	if (isSingleHeight(heights)) return "collapsed";
+	return from === "collapsed" ? "expanded" : "collapsed";
+}

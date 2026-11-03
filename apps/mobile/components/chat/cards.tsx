@@ -7,7 +7,8 @@ import { ChatCard, ChatCardActions, ChatCardHeader, ChatCardLine } from "@/compo
 import { Text } from "@/components/ui/text";
 import { cn } from "@/lib/cn";
 import type { ChatItem } from "@/lib/chat-types";
-import { pageCardSummary, pageRouteFor } from "@/lib/web-card";
+import { viewerTargetForCard } from "@/lib/viewer-target";
+import { pageCardSummary } from "@/lib/web-card";
 import { buildAnswers, missingRequired, toggleChoice, type AnswerMap } from "@/lib/questionnaire";
 import { themeColor } from "@/lib/theme";
 import { useAppColorScheme } from "@/lib/use-theme";
@@ -141,20 +142,22 @@ export function QuestionnaireCard({ item, onAnswer }: { item: Questionnaire; onA
  * resumo (título, "Painel · 2 fontes") e abre a tela nativa ("Abrir painel"); sem `pageId` (gravado antes) vai ao navegador.
  */
 export function WebCardRow({ item, onOpen, onOpenPage }: { item: WebCard; onOpen: (item: WebCard) => void; onOpenPage?: (item: WebCard) => void }) {
-	const native = onOpenPage && pageRouteFor(item) !== null ? onOpenPage : null;
+	const target = viewerTargetForCard(item);
+	const native = onOpenPage && target ? onOpenPage : null;
+	const nativeLabel = target?.kind === "file" ? "Abrir documento" : "Abrir painel";
 	return (
 		<Pressable
 			role="button"
-			accessibilityLabel={native ? `${item.title}. Abrir painel` : `${item.title}. Abrir no navegador`}
+			accessibilityLabel={native ? `${item.title}. ${nativeLabel}` : `${item.title}. Abrir no navegador`}
 			onPress={() => (native ? native(item) : onOpen(item))}
 			className="self-start active:opacity-80"
 		>
 			<ChatCard variant="activity" className="min-h-11 max-w-[min(68ch,100%)] justify-center">
-				<ChatCardLine leading={native ? <LibraryIcon size={16} /> : <ExternalLinkIcon />} trailing={<Text className="text-body font-medium text-info">{native ? "Abrir painel" : "Abrir no navegador"}</Text>}>
+				<ChatCardLine leading={native ? <LibraryIcon size={16} /> : <ExternalLinkIcon />} trailing={<Text className="text-body font-medium text-info">{native ? nativeLabel : "Abrir no navegador"}</Text>}>
 					<Text numberOfLines={1} className="text-sm font-medium">
 						{item.title}
 					</Text>
-					{native ? (
+					{native && target?.kind === "page" ? (
 						<Text variant="caption" numberOfLines={1}>
 							{pageCardSummary(item)}
 						</Text>

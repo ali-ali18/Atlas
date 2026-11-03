@@ -123,3 +123,15 @@ describe("cache do chat: cartão de painel", () => {
 		expect(bad?.items.map((item) => ("pageId" in item ? item.pageId : undefined))).toEqual([undefined, undefined, undefined]);
 	});
 });
+
+describe("cache do chat: cartão de arquivo", () => {
+	const file = (extra: Record<string, unknown> = {}) => ({ id: "f", kind: "web-card", card: "file", title: "a.md", key: "file:f1", ...extra });
+	it("guarda fileId, mime e tamanho (o cartão volta a abrir a folha)", () => {
+		const item: ChatItem = { id: "f", kind: "web-card", card: "file", title: "a.md", key: "file:f1", fileId: "f1", mime: "text/markdown", size: 120 };
+		expect(parseChat(serializeChat([item], NOW), NOW)?.items).toEqual([item]);
+	});
+	it("descarta id, mime e tamanho inválidos, e campos de arquivo em outro cartão", () => {
+		const bad = parseChat(JSON.stringify({ v: 1, savedAt: NOW, items: [file({ fileId: 5, mime: 1, size: "x" }), file({ fileId: "x".repeat(200) }), file({ fileId: "f1", mime: "m".repeat(200), size: -1 }), { ...file({ fileId: "f1" }), card: "chart" }] }), NOW);
+		expect(bad?.items).toEqual([file(), file(), file({ fileId: "f1" }), { ...file(), card: "chart" }]);
+	});
+});
