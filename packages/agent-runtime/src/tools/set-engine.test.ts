@@ -59,6 +59,12 @@ describe("set_engine: exposição", () => {
 });
 
 describe("set_engine: execução", () => {
+	it("recusa engine v3 com mensagem honesta e não altera nada", async () => {
+		const { deps, policies } = fakeStore();
+		await expect(executeSetEngine({ engine: "v3" }, ctx, deps)).rejects.toThrow(/"v3" engine cannot be set yet.*Nothing was changed/);
+		expect(policies["bot-a"]).toEqual({ planMode: true });
+	});
+
 	it("liga o v2 com orçamento, preserva o resto e devolve resumo/cartão sem internals", async () => {
 		const { deps, policies } = fakeStore();
 		const out = await executeSetEngine({ engine: "new", budget_usd: 1, minutes: 30 }, ctx, deps);

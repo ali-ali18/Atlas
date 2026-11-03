@@ -72,6 +72,7 @@ export function parseSetEngineArgs(args: unknown): ParsedEngineArgs {
 	if (raw.engine !== undefined) {
 		if (raw.engine === "new") patch.engine = "v2";
 		else if (raw.engine === "current") patch.engine = "v1";
+		else if (raw.engine === "v3") return { ok: false, error: `The "v3" engine cannot be set yet; only "new" or "current". Nothing was changed. ${ACCEPTED}` };
 		else return { ok: false, error: `Invalid engine. ${ACCEPTED}` };
 	}
 	if (raw.scope !== undefined) {
@@ -166,7 +167,7 @@ export function normalizeEngineSettings(policyJson: unknown): unknown {
  */
 export function engineSettingsError(policyJson: unknown): string | null {
 	const policy = asRecord(policyJson);
-	if (policy.engine !== undefined && policy.engine !== "v1" && policy.engine !== "v2") return 'Invalid engine: expected "v1" or "v2"';
+	if (policy.engine !== undefined && policy.engine !== "v1" && policy.engine !== "v2") return policy.engine === "v3" ? 'Invalid engine: "v3" cannot be saved yet, expected "v1" or "v2"' : 'Invalid engine: expected "v1" or "v2"';
 	if (policy.engineScope !== undefined && policy.engineScope !== "chat" && policy.engineScope !== "all") return 'Invalid engineScope: expected "chat" or "all"';
 	const inRange = (value: unknown, min: number, max: number) => typeof value === "number" && Number.isFinite(value) && value >= min && value <= max;
 	if (policy.longWorkBudgetUsd !== undefined && policy.longWorkBudgetUsd !== null && !inRange(policy.longWorkBudgetUsd, LONG_WORK_MIN_USD, LONG_WORK_MAX_USD)) {

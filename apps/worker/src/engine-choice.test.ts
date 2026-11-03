@@ -10,7 +10,7 @@ import { effectiveCostCapUsd } from "./run-config.js";
 
 const HUMAN_CHAT = { origin: "chat", humanTurn: true };
 
-function setup(over: { policyJson?: unknown; budgetJson?: unknown; origin?: string; isGroupRun?: boolean; hasCheckpoint?: boolean; text?: string; forceV1?: boolean; shortRun?: boolean; longerShortRun?: boolean; globalDefault?: EngineDefault } = {}) {
+function setup(over: { policyJson?: unknown; budgetJson?: unknown; origin?: string; isGroupRun?: boolean; hasCheckpoint?: boolean; text?: string; forceV1?: boolean; shortRun?: boolean; longerShortRun?: boolean; globalDefault?: EngineDefault; accountId?: string; env?: Record<string, string | undefined> } = {}) {
 	const recorded: Array<{ engine: string; profile: string }> = [];
 	const choose = () =>
 		pickRunEngine({
@@ -22,6 +22,8 @@ function setup(over: { policyJson?: unknown; budgetJson?: unknown; origin?: stri
 			shortRun: over.shortRun,
 			longerShortRun: over.longerShortRun,
 			globalDefault: over.globalDefault,
+			accountId: over.accountId,
+			env: over.env,
 			record: async (choice) => {
 				recorded.push(choice);
 				return choice.engine;
@@ -430,4 +432,24 @@ test("teto de passos: a origem só existe quando o dono configurou; acima do lim
 	assert.deepEqual(effectiveStepsCap({ engine: "v2", hardMaxSteps: 300, source: "account" }), { steps: 200 });
 	assert.deepEqual(effectiveStepsCap({ engine: "v1", hardMaxSteps: 300, source: "account" }), { steps: 300, stepsSource: "account" });
 	assert.deepEqual(runCapsOf({ costCapUsd: undefined, wallMs: undefined, sources: {}, stepsCap: { steps: 80, stepsSource: "bot" } }), { steps: 80, stepsSource: "bot" });
+});
+
+test("bot com engine v3 roda no v2 e grava v2 no run (v3 ainda não existe), na allowlist ou não", async () => {
+	for (const env of [{}, { ATLAS_ENGINE_V3_ACCOUNTS: "user-a" }, { ATLAS_ENGINE_V3: "off", ATLAS_ENGINE_V3_ACCOUNTS: "user-a" }]) {
+		const { recorded, choose } = setup({ policyJson: { engine: "v3" }, accountId: "user-a", env });
+		const choice = await choose();
+		assert.equal(choice.engine, "v2", JSON.stringify(env));
+		assert.deepEqual(recorded, [{ engine: "v2", profile: "chat" }], JSON.stringify(env));
+	}
+	const inList = await setup({ policyJson: { engine: "v3" }, accountId: "user-a", env: { ATLAS_ENGINE_V3_ACCOUNTS: "user-a" } }).choose();
+	assert.equal(inList.resolved, "v3");
+	const outList = await setup({ policyJson: { engine: "v3" }, accountId: "user-b", env: { ATLAS_ENGINE_V3_ACCOUNTS: "user-a" } }).choose();
+	assert.equal(outList.resolved, "v2");
+});
+
+test("run com engine v3 gravado (ou checkpoint de v3) retoma no v2 sem regravar", async () => {
+	const { recorded, choose } = setup({ budgetJson: { engine: "v3" }, hasCheckpoint: true, policyJson: { engine: "v3" } });
+	const choice = await choose();
+	assert.equal(choice.engine, "v2");
+	assert.deepEqual(recorded, []);
 });

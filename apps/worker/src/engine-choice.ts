@@ -17,8 +17,10 @@ import {
 	readHelperPolicy,
 	readRunEngine,
 	readRunProfile,
+	resolveEngine,
 	resolveRunProfile,
 	type EngineDefault,
+	type RequestedEngine,
 	type RunEngine,
 	type RunConfigSnapshot,
 	type RunProfile,
@@ -29,8 +31,16 @@ export function engineDefaultFromEnv(env: Record<string, string | undefined> = p
 	return readEngineDefault(env.ATLAS_ENGINE_V2_DEFAULT);
 }
 
+/**
+ * Ponto de entrada do motor v3 (harness v3). Ainda não existe: `runSelectedEngine` usa `runEngineV3 ?? runEngineV2`.
+ * Quando o v3 existir, é só atribuir aqui; o resto (flag, allowlist, gravação do motor) já está pronto.
+ */
+export const runEngineV3: typeof runEngineV2 | undefined = undefined;
+
 export type EngineChoice = {
 	engine: RunEngine;
+	/** Motor que a flag resolveu para o run (`v3` só com a conta na allowlist). `engine` é o motor de fato usado (v2 enquanto o v3 não existe). */
+	resolved?: RequestedEngine;
 	profile: RunProfile;
 	longWorkBudgetUsd?: number;
 	longWorkMinutes?: number;
@@ -91,6 +101,10 @@ export async function pickRunEngine(input: {
 	longerShortRun?: boolean;
 	/** Padrão do deploy (`engineDefaultFromEnv()`); ausente = o padrão novo (`all`). */
 	globalDefault?: EngineDefault;
+	/** Dono do run, para a allowlist do v3 (`ATLAS_ENGINE_V3_ACCOUNTS`). */
+	accountId?: string | null;
+	/** Env do worker (flag do v3); ausente = sem v3. */
+	env?: Record<string, string | undefined>;
 	/** Grava a escolha no run de forma atômica e devolve o motor que ficou valendo (o gravado agora ou o que já estava). */
 	record: (choice: { engine: RunEngine; profile: RunProfile }) => Promise<RunEngine | null>;
 }): Promise<EngineChoice> {
@@ -98,6 +112,9 @@ export async function pickRunEngine(input: {
 	const stored = readRunEngine(input.run.budgetJson) ?? (input.hasCheckpoint ? "v1" : undefined);
 	const engine = !stored && input.forceV1 ? "v1" : chooseRunEngine({ stored, policy, origin: input.run.origin, isGroupRun: input.isGroupRun, globalDefault: input.globalDefault });
 	if (engine === "v1") return { engine, profile: "chat" };
+	// Bot que pediu o v3 e run novo: a flag decide se o v3 vale. Sem o v3 implementado, o run fica no v2 e o v2 é o que se grava.
+	const resolved: RequestedEngine = policy.requestedV3 && !stored ? resolveEngine({ requested: "v3", accountId: input.accountId, env: input.env }) : engine;
+	if (policy.requestedV3 && !stored) console.warn(`engine v3 pedido (resolvido: ${resolved}); v3 ainda não existe, rodando v2`);
 	const profile =
 		readRunProfile(input.run.budgetJson) ?? (input.shortRun ? "chat" : resolveRunProfile({ policy }));
 	if (!readRunEngine(input.run.budgetJson)) {
@@ -113,6 +130,7 @@ export async function pickRunEngine(input: {
 	// `longWorkMinutes` só segue adiante se o dono preencheu: sem isso o trabalho longo não tem teto de tempo.
 	return {
 		engine,
+		...(policy.requestedV3 && !stored ? { resolved } : {}),
 		profile,
 		...(budgetFloor ? { budgetFloor } : {}),
 		longWorkBudgetUsd: policy.longWorkBudgetUsd,
@@ -174,7 +192,8 @@ export function runSelectedEngine(
 	promotion: { canPromote: boolean; onPromoted?: () => void | Promise<void>; capSources?: { cost?: "account" | "server" | "bot"; wall?: "account" | "bot"; steps?: "account" | "bot" | "request" } } = { canPromote: false },
 ): Promise<RunComputerUseResult> {
 	if (choice.engine === "v2") {
-		return runEngineV2(params, {
+		const runV2OrV3 = choice.resolved === "v3" ? (runEngineV3 ?? runEngineV2) : runEngineV2;
+		return runV2OrV3(params, {
 			promotable: promotion.canPromote,
 			onPromoted: promotion.onPromoted,
 			...(promotion.capSources ? { capSources: promotion.capSources } : {}),

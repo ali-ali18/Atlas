@@ -1175,6 +1175,8 @@ async function executeLeasedRun(ctx: {
 		// Brief e lembrete `check` pedem mais fôlego que o chat (no v1 não têm teto de custo): piso de orçamento, sem trabalho longo.
 		longerShortRun: isDetachedBriefRun(run) || isFollowupCheckObjective(run.origin, run.objective),
 		globalDefault: engineDefaultFromEnv(),
+		accountId: run.userId,
+		env: process.env,
 		record: (choice) => recordRunEngine(runId, choice),
 	});
 	// Trabalho longo no v2 com orçamento gravado no bot: o dono do bot vale mais que o teto por execução da conta.

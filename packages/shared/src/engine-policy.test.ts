@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	ENGINE_DEFAULT_SCOPE,
 	chooseRunEngine,
+	resolveEngine,
 	engineV2SupportsRun,
 	readEngineDefault,
 	resolveBotEngineRouting,
@@ -25,6 +26,7 @@ describe("readEnginePolicy", () => {
 			expect(readEnginePolicy(raw)).toEqual({
 				engine: "v2",
 				explicit: undefined,
+				requestedV3: false,
 				scope: ENGINE_DEFAULT_SCOPE,
 				scopeRaw: undefined,
 				workProfile: "auto",
@@ -39,6 +41,7 @@ describe("readEnginePolicy", () => {
 		expect(readEnginePolicy({ engine: "v2", workProfile: "long_work", longWorkBudgetUsd: 1.25, longWorkMinutes: 45 })).toEqual({
 			engine: "v2",
 			explicit: "v2",
+			requestedV3: false,
 			scope: "all",
 			scopeRaw: undefined,
 			workProfile: "long_work",
@@ -56,7 +59,7 @@ describe("readEnginePolicy", () => {
 	});
 
 	it("valor inválido cai no padrão e número fora da faixa é limitado", () => {
-		const policy = readEnginePolicy({ engine: "v3", workProfile: "turbo", longWorkBudgetUsd: "caro", longWorkMinutes: 9999 });
+		const policy = readEnginePolicy({ engine: "v9", workProfile: "turbo", longWorkBudgetUsd: "caro", longWorkMinutes: 9999 });
 		expect(policy.engine).toBe("v2");
 		expect(policy.explicit).toBeUndefined();
 		expect(policy.workProfile).toBe("auto");
@@ -284,5 +287,36 @@ describe("tetos do run gravados no budgetJson (valor e origem)", () => {
 		// Origem inventada ou lixo no JSON não vira texto para o usuário.
 		expect(readRunCaps({ caps: { costUsd: 0.5, costSource: "hacker", wallMs: -1 } })).toEqual({ costUsd: 0.5 });
 		expect(readRunCaps(null)).toEqual({});
+	});
+});
+
+describe("resolveEngine (flag do v3)", () => {
+	const on = { ATLAS_ENGINE_V3_ACCOUNTS: "user-a, user-b" };
+	it("v1 e v2 passam como vieram", () => {
+		expect(resolveEngine({ requested: "v1", accountId: "user-a", env: on })).toBe("v1");
+		expect(resolveEngine({ requested: "v2", accountId: "user-a", env: on })).toBe("v2");
+	});
+	it("v3 vale só com a conta na allowlist", () => {
+		expect(resolveEngine({ requested: "v3", accountId: "user-b", env: on })).toBe("v3");
+		expect(resolveEngine({ requested: "v3", accountId: "user-c", env: on })).toBe("v2");
+		expect(resolveEngine({ requested: "v3", accountId: null, env: on })).toBe("v2");
+	});
+	it("allowlist vazia ou ausente = ninguém", () => {
+		expect(resolveEngine({ requested: "v3", accountId: "user-a", env: { ATLAS_ENGINE_V3_ACCOUNTS: "" } })).toBe("v2");
+		expect(resolveEngine({ requested: "v3", accountId: "user-a", env: {} })).toBe("v2");
+		expect(resolveEngine({ requested: "v3", accountId: "user-a" })).toBe("v2");
+	});
+	it("ATLAS_ENGINE_V3=off desliga mesmo com a conta na allowlist", () => {
+		expect(resolveEngine({ requested: "v3", accountId: "user-a", env: { ...on, ATLAS_ENGINE_V3: "off" } })).toBe("v2");
+		expect(resolveEngine({ requested: "v3", accountId: "user-a", env: { ...on, ATLAS_ENGINE_V3: " OFF " } })).toBe("v2");
+		expect(resolveEngine({ requested: "v3", accountId: "user-a", env: { ...on, ATLAS_ENGINE_V3: "on" } })).toBe("v3");
+	});
+	it("o leitor entende engine v3 (vale como v2) e um run gravado com v3 retoma no v2", () => {
+		const policy = readEnginePolicy({ engine: "v3" });
+		expect(policy.engine).toBe("v2");
+		expect(policy.requestedV3).toBe(true);
+		expect(readEnginePolicy({ engine: "v2" }).requestedV3).toBe(false);
+		expect(readRunEngine({ engine: "v3" })).toBe("v2");
+		expect(chooseRunEngine({ policy, origin: "chat", isGroupRun: false })).toBe("v2");
 	});
 });
