@@ -198,7 +198,7 @@ test("árvore lenta (timeout curto) cai no v1 com uma nota, sem falhar", { skip 
 	const { page, refs } = await open("/yt", { axTimeoutMs: 20 });
 	const snap = await refs.browserSnapshot({});
 	assert.equal(snap.engine, "dom");
-	assert.match(snap.note, /Árvore de acessibilidade indisponível \(demorou mais de 4 s\)/);
+	assert.match(snap.note, /Árvore de acessibilidade indisponível \(demorou mais de 0.02 s\)/);
 	assert.ok(snap.lines.length > 0);
 	await page.close();
 });

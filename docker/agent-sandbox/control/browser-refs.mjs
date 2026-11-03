@@ -9,7 +9,7 @@ import { createFrameRegistry, frameTag, splitRef } from "./frames.mjs";
 import { waitForTextStable } from "./text-stable.mjs";
 import { collectInteractive } from "./snapshot-page.mjs";
 import { SNAPSHOT_MAX_SCAN, buildSnapshot, describeElement, formatElementLine } from "./snapshot.mjs";
-import { AxUnavailableError, axEnabled } from "./ax-snapshot.mjs";
+import { AX_TIMEOUT_MS, AxUnavailableError, axEnabled } from "./ax-snapshot.mjs";
 import { StaleRefError, createAxStore, resolveAxRef } from "./ax-refs.mjs";
 import { isTreeRef } from "./ax-ref-names.mjs";
 import { createAxEngine } from "./browser-ax.mjs";
@@ -171,7 +171,7 @@ export function createRefActions({
 					if (error?.userFacing) throw error;
 					const reason = error instanceof AxUnavailableError ? error.reason : "failed";
 					// Playwright sem o recurso é o caso esperado de versão antiga: cai no v1 sem ruído.
-					if (reason !== "unsupported") note = `Árvore de acessibilidade indisponível (${reason === "timeout" ? "demorou mais de 4 s" : reason}): usando a lista de elementos.`;
+					if (reason !== "unsupported") note = `Árvore de acessibilidade indisponível (${reason === "timeout" ? `demorou mais de ${(axTimeoutMs ?? AX_TIMEOUT_MS) / 1000} s` : reason}): usando a lista de elementos.`;
 				}
 			}
 			axStore.setDom(page);
