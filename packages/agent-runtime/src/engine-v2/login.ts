@@ -3,7 +3,7 @@
  * pendente, o run não abre outro: o modelo recebe a nota "LOGIN STILL REQUIRED" no lugar do pedido. Puro.
  */
 import type { ComputerUseEvent } from "@workspace/shared";
-import { LOGIN_ALREADY_ASKED_NOTE, UNATTENDED_LOGIN_NOTE } from "../computer-use.js";
+import { LOGIN_ALREADY_ASKED_NOTE, UNATTENDED_LOGIN_NOTE } from "../run-messages.js";
 
 type LoginEvent = Extract<ComputerUseEvent, { type: "login" }>;
 

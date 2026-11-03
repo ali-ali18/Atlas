@@ -65,19 +65,12 @@ import {
 	resolveLlmMessagesForModel,
 	toolIdempotencyKey,
 } from "../checkpoint.js";
-import {
-	OFFERED_TOOLS_SUB_INDEX,
-	budgetStopFallbackText,
-	connectorsPrompt,
-	lastUserPlainText,
-	parseArgs,
-	recentAssistantPlainTexts,
-	recentUserPlainTexts,
-	sanitizeAssistantText,
-	unavailableToolMessage,
-	type ComputerUseParams,
-	type RunComputerUseResult,
-} from "../computer-use.js";
+import { connectorsPrompt } from "../connectors-prompt.js";
+import { lastUserPlainText, recentAssistantPlainTexts, recentUserPlainTexts } from "../conversation-text.js";
+import { parseArgs } from "../parse-args.js";
+import { budgetStopFallbackText, unavailableToolMessage } from "../run-messages.js";
+import { OFFERED_TOOLS_SUB_INDEX, type ComputerUseParams, type RunComputerUseResult } from "../run-types.js";
+import { sanitizeAssistantText } from "../sanitize-assistant-text.js";
 import { todayNote } from "../context/today-note.js";
 import { contextBudgetFor } from "../context/budget.js";
 import { namespaceToolCallId, renameProviderItemCallIds } from "../context/transcript.js";

@@ -13,7 +13,7 @@
 import type { ChatTool } from "@workspace/llm";
 import { decideAction, hostAutonomyMeta, type EffectiveAutonomy } from "@workspace/shared";
 import { loadCodeRunnerConfig } from "@workspace/sandbox";
-import { COMPUTER_USE_TOOLS, TOOL_SEARCH_WITH_BUILTINS } from "../computer-use.js";
+import { COMPUTER_USE_TOOLS, TOOL_SEARCH_WITH_BUILTINS } from "../tools/catalog.js";
 import { createNativeDeferral, type NativeDeferral } from "../context/native-deferral.js";
 import { addCompanionGroups, deferredToolsIndex, planNativeTools } from "../context/native-tools.js";
 import { routeContextGroups } from "../context/intent-router.js";

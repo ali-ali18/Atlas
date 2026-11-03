@@ -4,7 +4,8 @@
  * prompt principal e só no run que precisa: o prompt do chat comum não cresce. Texto para o modelo, em inglês.
  */
 import { buildProactiveChatPromptSection, type ChatMessage, type ProactiveSettings } from "@workspace/shared";
-import { USER_PUSH_ROUTINE_NOTE, getBotConfigEventExtraSystemMessage } from "../computer-use.js";
+import { getBotConfigEventExtraSystemMessage } from "../bot-config-event.js";
+import { USER_PUSH_ROUTINE_NOTE } from "../run-messages.js";
 import type { UserPushMode } from "../tools/proactive.js";
 import { alertRunNote, type AlertRunState } from "../tools/report-alert.js";
 
