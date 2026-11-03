@@ -208,6 +208,31 @@ O botão "Editar" do perfil abre `app/(app)/edit/[id].tsx`: topo com voltar, "Ed
 - Cartões de aprovação de comando/segredos/chave de e-mail/GitHub não têm tela no app: a linha "Abrir no navegador" leva ao web, onde se decide.
 - O cache do chat guarda texto de mensagens sem criptografia (como o da home guarda prévias); sai ao sair da conta.
 
+## Painéis (tela nativa)
+
+Os painéis que o bot cria (dashboards, relatórios) abrem numa tela nativa do app em vez do navegador. Para o usuário o nome é sempre "Painel" (nunca "página").
+
+### O que tem
+- **Entrada:** o cartão de painel do chat guarda `pageId`, revisão e número de fontes (ao vivo, no gravado e no cache). Vira o resumo ("Painel · 2 fontes") com "Abrir painel", que navega para `/pages/<id>`. Cartão gravado antes (sem `pageId`, ex.: cache antigo) continua com "Abrir no navegador". A rota só existe; o link pela Biblioteca fica para outra entrega.
+- **Tela:** topo com voltar redondo e título centralizado (`ScreenHeader`), "Atualizado há 2 h" (`refreshedAt`, senão `updatedAt`), puxar para atualizar (a revisão mais nova vence; resposta atrasada e mais antiga não desfaz a nova), carregando, "Tentar de novo" (rede e servidor) e "Este painel não existe mais." (404, que também cobre painel de outro dono), e as fontes no fim (só `http(s)`, abrem no navegador).
+- **Dados:** `GET /v1/pages/:id` (`lib/page-api.ts`). O corpo é dado não confiável: o spec passa por `parsePageSpec`; resposta inválida vira "Não consegui mostrar este painel.", sem estourar.
+- **Componentes** (`components/page/`, um por tipo do spec, desenho recursivo com `React.memo` por nó; tipo desconhecido é ignorado): section, grid, stack, card, divider, heading, text (renderizador de markdown do chat: sem HTML, links só `http(s)`), stat (valor, unidade, variação com seta e tom), progress, bar_list, list, badge, callout, table (o mesmo `TableCard` do chat, com número à direita), tabs (abas roláveis, estado local), timeline (vertical) e kanban (colunas recolhíveis no celular; lado a lado em tablet e paisagem).
+- **Grade:** largura medida da própria grade (`onLayout`), sem container queries. Celular: 1 coluna (grade só de `stat`: 2); tablet em pé: até 2; tablet grande e paisagem: as colunas do spec (`lib/page-layout.ts`).
+- **Números:** `lib/page-format.ts` formata sem `Intl` (pt-BR: `1.234,56`, `R$ 1.234`, `1,2 mil`, `1,5 mi`, `8%`), porque o `Intl` compacto/moeda do Hermes varia entre aparelhos. A moeda de um grupo usa as mesmas casas em todos os valores (como no web).
+- **Cores:** `lib/page-tone.ts` (neutro cinza, positivo verde, aviso âmbar, crítico vermelho, destaque laranja da marca; claro e escuro). A única cor livre do spec é a primeira cor da paleta `custom`, e passa por `normalizeChartHexColor`. Paletas prontas (Oceano, Bosque…) ainda não mudam o destaque no app.
+
+### O que ainda não tem
+- **Gráficos:** o nó `chart` mostra "Gráfico · <título>" com os dados numa tabela simples (até 12 linhas) e, se não couber, "Abrir no navegador" (abre o chat do bot, não o painel). Gráfico nativo é a próxima etapa.
+- **Compartilhar** (link público), **apagar** e **mover de grupo** o painel: só pelo web ou pedindo ao bot no chat.
+- Tabela: variantes `compact`/`striped` não mudam o desenho; a largura das colunas é estimada por caractere.
+- Painel aberto não recebe a atualização ao vivo do bot: puxar para atualizar.
+
+### Segurança
+Sem WebView nem HTML: só componentes nativos. Texto do spec nunca vira estilo nem markdown fora do nó `text`; strings longas têm `numberOfLines`; URLs só `http(s)`. O escopo por dono vem do servidor (404), com teste do 404 no cliente.
+
+### Testes
+`page-api`, `page-format`, `page-tone`, `page-layout`, `page-table`, `page-tabs`, `page-state`, `web-card` e os de `chat-thread`/`chat-live`/`chat-cache` (cartão com `pageId`, cache antigo sem ele). A aparência (grade 2x2, abas, kanban, rolagem da tabela) só se confirma na prévia e no aparelho.
+
 ## Diferenças inevitáveis em relação ao `packages/ui`
 - `Text`: no web o texto é `<p>/<span>`; no RN todo texto precisa de `<Text>`. O `Button` passa a cor do rótulo por `TextClassContext` (como no reusables).
 - **Tamanho dos controles (decisão do dono; vale só no mobile, `packages/ui` e web não mudam):** um pouco acima do web (`Button` `default` 36 / `lg` 40, texto 14; `Input` 36). No mobile: `Button` `default`/`lg` com 44 de altura, pílula (`rounded-full`) e texto 15 semibold (token `text-control`, só do app); `sm` 36 e `xs` 32, com `hitSlop` até 44. `Input`/`InputGroup` com 44, pílula, `px-5` e texto 15. Ícones dentro de botões e campos têm 18; espaço entre botões e campos nas telas de entrada, 12.
