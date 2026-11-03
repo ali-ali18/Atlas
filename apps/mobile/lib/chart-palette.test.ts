@@ -1,9 +1,12 @@
 import { CHART_PALETTES } from "@workspace/shared";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 // Fonte da verdade das cores: o próprio arquivo do web (oklch). O teste converte e compara com as tabelas em hex do app.
 import { CHART_PALETTE_LABELS, PRESET_PALETTES as WEB_PRESETS } from "../../../packages/ui/src/charts/chart-palettes";
-import { colorsForChart, DEFAULT_CHART_COLORS, PRESET_PALETTES, resolveChartColors, resolvePageColors, seriesColor } from "./chart-palette";
-import { contrastRatio } from "./color-math";
+import { colorsForChart, DEFAULT_CHART_COLORS, PRESET_PALETTES, resolveChartColors, resolvePageColors, seriesColor, WARNING_AMBER } from "./chart-palette";
+import { contrastRatio, hexToRgb } from "./color-math";
+import { colorTokens } from "./color-tokens";
 
 /** oklch(L C H) -> #rrggbb (OKLab -> sRGB linear -> gama), o mesmo caminho do navegador. */
 function oklchToHex(css: string): string {
@@ -77,5 +80,40 @@ describe("paletas dos gráficos (porte do web)", () => {
 	});
 	it("a cor da série repete em ciclo", () => {
 		expect(seriesColor(DEFAULT_CHART_COLORS.dark, 0)).toBe(seriesColor(DEFAULT_CHART_COLORS.dark, 6));
+	});
+});
+
+/** Tokens `--nome: oklch(...)` de um bloco (`:root` ou `.dark`) do globals.css do web. */
+function webTokens(block: ":root" | ".dark"): Record<string, string> {
+	const css = readFileSync(join(process.cwd(), "../../packages/ui/src/styles/globals.css"), "utf8");
+	const start = css.indexOf(`\n${block} {`);
+	const body = css.slice(start, css.indexOf("\n}", start));
+	return Object.fromEntries([...body.matchAll(/--([a-z0-9-]+):\s*(oklch\([^)]*\))/g)].map((match) => [match[1]!, match[2]!]));
+}
+
+/** As contas de oklch -> hex arredondam diferente em 1 nível; mais que 2 é cor diferente. */
+function near(actual: string, expected: string, label: string) {
+	const a = hexToRgb(actual);
+	const b = hexToRgb(expected);
+	expect(Math.max(...a.map((channel, index) => Math.abs(channel - b[index]!))), `${label}: ${actual} x ${expected}`).toBeLessThanOrEqual(2);
+}
+
+describe("o app segue o globals.css do web (lido do arquivo)", () => {
+	for (const [scheme, block] of [["light", ":root"], ["dark", ".dark"]] as const) {
+		it(`${scheme}: --chart-1..6, tendência e superfícies`, () => {
+			const web = webTokens(block);
+			DEFAULT_CHART_COLORS[scheme].series.forEach((color, index) => near(color, oklchToHex(web[`chart-${index + 1}`]!), `chart-${index + 1}`));
+			near(DEFAULT_CHART_COLORS[scheme].positive, oklchToHex(web["chart-positive"]!), "chart-positive");
+			near(DEFAULT_CHART_COLORS[scheme].negative, oklchToHex(web["chart-negative"]!), "chart-negative");
+			for (const token of ["background", "foreground", "card", "popover", "muted", "muted-foreground"] as const) {
+				if (web[token]) near(colorTokens[scheme][token], oklchToHex(web[token]!), token);
+			}
+		});
+	}
+	it("o âmbar do tom de aviso é o do tone.ts do web", () => {
+		const source = readFileSync(join(process.cwd(), "../web/components/ai-elements/pages/components/tone.ts"), "utf8");
+		const amber = /warning: "(oklch\([^"]+\))"/.exec(source)?.[1];
+		expect(amber).toBeDefined();
+		near(WARNING_AMBER, oklchToHex(amber!), "warning");
 	});
 });
