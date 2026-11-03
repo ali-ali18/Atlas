@@ -150,7 +150,11 @@ const refActions = createRefActions({
 });
 const { browserSnapshot, browserAct, browserWait, observeAction } = refActions;
 actions.setObserver(observeAction);
+// Muda a cada ação/navegação: a continuação em cache do browser_read não vale depois de agir na página.
+let actionEpoch = 0;
 const { readPage, findText } = createPageReader({
+	peekPage: () => peekPage(),
+	epoch: () => actionEpoch,
 	withPageRetry,
 	registry: refActions.registry,
 	collect: refActions.collect,
@@ -252,8 +256,11 @@ const handleRequest = async (req, res) => {
 	}
 };
 
+const READ_ONLY_POSTS = new Set(["/browser/read", "/browser/find", "/browser/snapshot"]);
+
 const handleControlRequest = async (req, res) => {
 	try {
+		if (req.method === "POST" && !READ_ONLY_POSTS.has(req.url)) actionEpoch += 1;
 		if (req.method === "GET" && req.url === "/idle") {
 			sendJson(res, 200, activity.snapshot());
 			return;

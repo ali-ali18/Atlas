@@ -54,7 +54,11 @@ async function openState(locator) {
 
 const clipText = (text, max) => (text.length > max ? `${text.slice(0, max - 1)}…` : text);
 
-export function createPageReader({ withPageRetry, registry, collect, locateRef, observeAction, clickElement, now = Date.now }) {
+/**
+ * `peekPage`: aba da requisição (a continuação só vale na MESMA aba). `epoch`: contador que o servidor
+ * incrementa a cada ação/navegação; mudou, o texto em cache é de antes da ação.
+ */
+export function createPageReader({ withPageRetry, registry, collect, locateRef, observeAction, clickElement, now = Date.now, peekPage, epoch }) {
 	let cache = null;
 
 	/** Numera o que falta (sem renumerar o que já tem ref) e lê todos os frames. */
@@ -181,7 +185,18 @@ export function createPageReader({ withPageRetry, registry, collect, locateRef, 
 		const asked = Number(args.offset);
 		const limits = { defaultLimit: READ_DEFAULT_LIMIT, maxLimit: READ_MAX_LIMIT, breakOnLine: true };
 		// Continuação da mesma leitura: serve do cache (não reabre acordeão nem relê a página).
-		if (asked > 0 && cache && cache.key === key && now() - cache.at < CACHE_TTL_MS) {
+		// A chave inclui aba + URL + época de ações: outra aba, outra página ou uma ação no meio relê a página.
+		const tab = peekPage?.();
+		const stillSame = () => {
+			if (!cache) return false;
+			if (cache.page !== tab || cache.epoch !== epoch?.()) return false;
+			try {
+				return !tab || cache.url === tab.url();
+			} catch {
+				return false;
+			}
+		};
+		if (asked > 0 && cache && cache.key === key && now() - cache.at < CACHE_TTL_MS && stillSame()) {
 			return { ...cache.meta, ...paginateText(cache.text, { offset: args.offset, limit: args.limit }, limits), cached: true };
 		}
 		return withPageRetry(async (page) => {
@@ -219,7 +234,7 @@ export function createPageReader({ withPageRetry, registry, collect, locateRef, 
 					: {}),
 				...(snap.nodeCapped || capped ? { capped: true } : {}),
 			};
-			cache = { key, at: now(), text: full, meta };
+			cache = { key, at: now(), text: full, meta, page: tab, url: meta.url, epoch: epoch?.() };
 			return { ...meta, ...paginateText(full, { offset: args.offset, limit: args.limit }, limits) };
 		}, { tries: 3 });
 	}
