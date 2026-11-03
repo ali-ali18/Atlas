@@ -29,7 +29,7 @@ const ROWS = [
 
 /**
  * Perfil do bot (tela simples): avatar grande com a estrela do bot principal, nome, "Editar" (em breve), o cartão
- * com Execuções / Rotinas / Computador (telas do app) e Biblioteca (abre o web no navegador por enquanto) e Notificações (em breve).
+ * com Execuções / Rotinas / Biblioteca / Computador (telas do app) e Notificações (em breve).
  */
 export default function ProfileScreen() {
 	const router = useRouter();
@@ -64,7 +64,7 @@ export default function ProfileScreen() {
 					</Button>
 					<View className="w-full overflow-hidden rounded-panel bg-card">
 						{ROWS.map((row, index) => (
-							<Pressable key={row.key} role="button" accessibilityLabel={row.key === "executions" ? `${row.label}. ${runStatusLine(run)}` : row.key === "routines" || row.key === "computer" ? row.label : `${row.label}. Abrir no navegador`} onPress={row.key === "executions" ? () => router.push(`/executions/${encodeURIComponent(id)}` as never) : row.key === "routines" ? () => router.push(`/routines/${encodeURIComponent(id)}` as never) : row.key === "computer" ? () => router.push(`/computer/${encodeURIComponent(id)}` as never) : openWeb} className="min-h-16 flex-row items-center gap-4 px-5 active:bg-muted/60">
+							<Pressable key={row.key} role="button" accessibilityLabel={row.key === "executions" ? `${row.label}. ${runStatusLine(run)}` : row.label} onPress={row.key === "executions" ? () => router.push(`/executions/${encodeURIComponent(id)}` as never) : row.key === "routines" ? () => router.push(`/routines/${encodeURIComponent(id)}` as never) : row.key === "library" ? () => router.push(`/library/${encodeURIComponent(id)}` as never) : row.key === "computer" ? () => router.push(`/computer/${encodeURIComponent(id)}` as never) : openWeb} className="min-h-16 flex-row items-center gap-4 px-5 active:bg-muted/60">
 								{row.icon}
 								<Text className="text-lg">{row.label}</Text>
 								<View className="min-w-0 flex-1 items-end">{row.key === "executions" ? <Text numberOfLines={1} variant="muted" className="text-control">{runStatusLine(run)}</Text> : null}</View>
