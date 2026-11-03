@@ -3,6 +3,7 @@ import { DRAWABLE_SHAPES, SHAPE_IDS } from "@workspace/shared/avatar/geometry/sh
 import { describe, expect, it, vi } from "vitest";
 import { createBot, createErrorText } from "./bot-api";
 import { ChatApiError } from "./chat-api";
+import { AVATAR_SHAPES } from "./bot-edit";
 import { buildNewBotBody, canCreateBot, NEW_BOT_COLORS, NEW_BOT_SHAPES, randomAvatar, seededRandom } from "./new-bot";
 
 const BLUE = "#1084FE";
@@ -31,8 +32,9 @@ describe("sorteio inicial de forma e cor", () => {
 		expect(randomAvatar(() => 0).shape).toBe(DRAWABLE_SHAPES[0]);
 		expect(randomAvatar(() => 0.999999).shape).toBe(DRAWABLE_SHAPES[DRAWABLE_SHAPES.length - 1]);
 	});
-	it("as grades usam todas as formas do motor e toda a paleta", () => {
+	it("as grades usam as formas do motor (as mesmas do editor de avatar e do web) e toda a paleta", () => {
 		expect(NEW_BOT_SHAPES).toEqual([...SHAPE_IDS]);
+		expect(NEW_BOT_SHAPES).toEqual([...AVATAR_SHAPES]);
 		expect(NEW_BOT_COLORS.map((item) => item.id)).toContain("gray");
 		expect(NEW_BOT_COLORS).toHaveLength(AVATAR_COLORS.length);
 	});

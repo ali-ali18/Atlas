@@ -88,7 +88,9 @@ export default function NewBotScreen() {
 						editable={!busy}
 						className="h-14 w-full rounded-full bg-secondary px-6 text-center text-xl text-foreground outline-none"
 					/>
-					<View accessibilityRole="radiogroup" className="mt-4 w-full flex-row flex-wrap">
+					{/* Três linhas à vista (a referência); a lista é a do editor de avatar e do web e rola por dentro. */}
+					<ScrollView nestedScrollEnabled className="mt-4 w-full flex-none" style={{ height: 3 * 60 }} showsVerticalScrollIndicator={false}>
+					<View accessibilityRole="radiogroup" className="w-full flex-row flex-wrap">
 						{NEW_BOT_SHAPES.map((item) => (
 							<View key={item} className="w-1/5 items-center py-0.5">
 								<Pressable role="radio" accessibilityLabel={`Forma ${item}`} accessibilityState={{ checked: item === shape }} onPress={() => setShape(item)} className={cn("size-14 items-center justify-center rounded-2xl border-2", item === shape ? "border-foreground/60" : "border-transparent")}>
@@ -97,6 +99,7 @@ export default function NewBotScreen() {
 							</View>
 						))}
 					</View>
+					</ScrollView>
 					<View accessibilityRole="radiogroup" className="mt-2 w-full flex-row flex-wrap">
 						{NEW_BOT_COLORS.map((item) => {
 							const selected = item.value.toLowerCase() === color.toLowerCase();
