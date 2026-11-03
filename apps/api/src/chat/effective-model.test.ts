@@ -114,3 +114,29 @@ test("Automático: falha ao ler a conta cai no .env", async () => {
 	});
 	assert.deepEqual(choice, { model: envDefault, auto: true });
 });
+
+// App mobile: o pedido só leva `modelAuto` quando a pessoa escolheu "Automático" (antes ia sempre, e o modelo do bot era ignorado).
+test("sem modelAuto nem modelo no pedido, o modelo fixo do bot vence o padrão da conta (o caso do app sem escolha)", async () => {
+	const choice = await resolveRunModelChoice({
+		requested: undefined,
+		modelAuto: undefined,
+		botId: "bot-1",
+		userId: "u",
+		envDefault,
+		getBotChoice: async (botId, userId) => (botId === "bot-1" && userId === "u" ? { model: "bot/m", policyJson: {} } : { model: null, policyJson: null }),
+		getAccountConfig: tiersAccount,
+	});
+	assert.deepEqual(choice, { model: "bot/m", auto: false });
+});
+
+test("modelo explícito do pedido vence o modelo fixo do bot (o app com modelo escolhido, sem modelAuto)", async () => {
+	const choice = await resolveRunModelChoice({
+		requested: "escolhido/m",
+		botId: "bot-1",
+		userId: "u",
+		envDefault,
+		getBotChoice: async () => ({ model: "bot/m", policyJson: {} }),
+		getAccountConfig: tiersAccount,
+	});
+	assert.deepEqual(choice, { model: "escolhido/m", auto: false });
+});

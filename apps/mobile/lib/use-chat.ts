@@ -12,6 +12,7 @@ import { clearBotRun, setBotRun } from "./run-store";
 import { useAtlasSession } from "./atlas-session";
 import { homeStorage } from "./home-storage";
 import type { HomeBot } from "./home-types";
+import { useModelSelector, type ModelSelector } from "./use-model-selector";
 
 const RESUME_MIN_GAP_MS = 1_500;
 /** Um escritor para o app todo: sair da conta o invalida, e gravação em voo se desfaz sozinha. */
@@ -36,6 +37,8 @@ export type ChatHook = ReturnType<typeof deriveView> & {
 	markUnread: () => Promise<boolean>;
 	retry: () => void;
 	dismissError: () => void;
+	/** Seletor de modelo do composer (escolha salva por conversa + catálogo). */
+	modelSelector: ModelSelector;
 };
 
 export function useChat(bot: HomeBot | undefined): ChatHook {
@@ -43,6 +46,10 @@ export function useChat(bot: HomeBot | undefined): ChatHook {
 	// Dependências que mudam a cada render: o controlador (um só) lê sempre as de agora.
 	const latest = React.useRef({ apiFetch, openRunStream, serverUrl, email, signOut });
 	latest.current = { apiFetch, openRunStream, serverUrl, email, signOut };
+	const modelSelector = useModelSelector(bot?.id ?? null, bot?.conversationId ?? null, () => void signOut());
+	// O controlador (um só) lê o seletor de agora na hora do envio.
+	const selectorRef = React.useRef(modelSelector);
+	selectorRef.current = modelSelector;
 
 	const controller = React.useMemo(() => {
 		const api: ChatApi = {
@@ -75,6 +82,9 @@ export function useChat(bot: HomeBot | undefined): ChatHook {
 				};
 			},
 			onUnauthorized: () => void latest.current.signOut(),
+			modelFields: () => selectorRef.current.fields(),
+			onConversationCreated: (id) => selectorRef.current.onConversationCreated(id),
+			onModelRejected: () => selectorRef.current.onModelRejected(),
 		};
 		return new ChatController(deps, { id: bot?.id ?? null, conversationId: bot?.conversationId ?? null });
 		// biome-ignore lint/correctness/useExhaustiveDependencies: um controlador por tela; o bot entra por `update`
@@ -139,5 +149,6 @@ export function useChat(bot: HomeBot | undefined): ChatHook {
 		markUnread: () => controller.markUnread(),
 		retry: () => void controller.retry(),
 		dismissError: () => controller.dismissError(),
+		modelSelector,
 	};
 }
