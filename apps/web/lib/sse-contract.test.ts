@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { parseSseBlock, RUN_EVENT_TYPES, RUN_TERMINAL_EVENTS, runTerminalKey, type ComputerUseEvent } from "@workspace/shared";
-import { dispatchComputerUseEvent, type ComputerUseHandlers } from "./atlas-api";
+import { dispatchComputerUseEvent, isRunTerminalEvent, type ComputerUseHandlers } from "./atlas-api";
 
 /** Handlers que só anotam o que foi chamado; os "terminais" são os que a UI usa para fechar o run. */
 function spy() {
@@ -96,4 +96,19 @@ test("os terminais da lista encerram: 4 por tipo + status budget_exhausted", () 
 		assert.equal(runTerminalKey(events[key]!), key);
 	}
 	assert.equal(runTerminalKey({ type: "status", status: "running" }), null);
+});
+
+test("isRunTerminalEvent (predicado do laço de SSE): 5 terminais encerram, o resto e tipo desconhecido não", () => {
+	assert.equal(isRunTerminalEvent({ type: "done", message: { role: "assistant", content: "" }, model: "m" }), true);
+	assert.equal(isRunTerminalEvent({ type: "paused" }), true);
+	assert.equal(isRunTerminalEvent({ type: "cancelled" }), true);
+	assert.equal(isRunTerminalEvent({ type: "error", error: "x" }), true);
+	assert.equal(isRunTerminalEvent({ type: "status", status: "budget_exhausted" }), true);
+	assert.equal(isRunTerminalEvent({ type: "status", status: "running" }), false);
+	for (const type of RUN_EVENT_TYPES) {
+		if (type === "done" || type === "paused" || type === "cancelled" || type === "error") continue;
+		const event = (type === "status" ? { type, status: "running" } : { type }) as ComputerUseEvent;
+		assert.equal(isRunTerminalEvent(event), false, type);
+	}
+	assert.equal(isRunTerminalEvent({ type: "tipo_do_futuro" } as unknown as ComputerUseEvent), false);
 });
