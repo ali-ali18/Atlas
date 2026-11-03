@@ -7,6 +7,7 @@ import { lastUserPlainText, recentAssistantPlainTexts, recentUserPlainTexts } fr
 import { withAgentPointer } from "../tools/agent-pointer.js";
 import type { ToolContext } from "../tools/registry/types.js";
 import { claimVision, createVisionClaimState } from "../tools/vision-fallback.js";
+import { rankTools, toolSearchText } from "./bridge.js";
 import type { V3Run } from "./state.js";
 
 /**
@@ -54,8 +55,7 @@ export function createToolContextFactory(run: V3Run) {
 		apiConnector: params.apiConnector ?? null,
 		email: params.email ?? undefined,
 		toolResultMaxChars: params.toolResultMaxChars,
-		activateMcpTools: params.mcp ? run.catalog.activateMcpTools : undefined,
-		nativeDeferral: run.catalog.deferral ?? undefined,
+		toolSearch: (query, limit) => toolSearchText(query, rankTools(query, [...run.catalog.entries.values()], run.toolUsage, limit)),
 		abortSignal: signal,
 		getSessionId: () => getSessionId(signal),
 		peekSessionId: params.peekSessionId,

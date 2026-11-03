@@ -72,8 +72,8 @@ async function runV3(script: CompleteChatWithToolsResult[], extra: Partial<Compu
 /** Run de continuação do cartão mostrado pelo run "run0" (a API semeia o run seguinte com `fromRunId`). */
 const continuation = { restoredCheckpoint: { version: 1, messages: [{ role: "user", content: "confirmado" }], transcriptSeed: { fromRunId: "run0", toolName: "page_share", resultContent: "approved", shortContent: "ok" } } } as unknown as Partial<ComputerUseParams>;
 
-/** A tool pode estar adiada: a 1ª chamada só carrega o grupo; a 2ª é a de verdade. */
-const twice = (name: string, args: Record<string, unknown>) => [call("a", name, args), call("b", name, args)];
+/** Tool do manifesto roda direto pelo nome (PR5: nada de "carregou, chame de novo"). */
+const direct = (name: string, args: Record<string, unknown>) => [call("a", name, args)];
 
 beforeEach(() => {
 	vi.clearAllMocks();
@@ -85,7 +85,7 @@ describe("motor v3: ask em tool nativa usa o cartão genérico", () => {
 	const share = { page_id: "p1", action: "create" };
 
 	it("page_share (link público) no chat: cartão de confirmação + run estacionado, nada executado", async () => {
-		const { result, cards, results } = await runV3([...twice("page_share", share), say("x")]);
+		const { result, cards, results } = await runV3([...direct("page_share", share), say("x")]);
 		expect(result.stop).toEqual({ reason: "awaiting_confirmation", detail: "confirm" });
 		expect(executeTool).not.toHaveBeenCalled();
 		expect(cards).toHaveLength(1);
@@ -98,7 +98,7 @@ describe("motor v3: ask em tool nativa usa o cartão genérico", () => {
 
 	it("aprovado: executa exatamente aquela chamada UMA vez; repetir pede de novo", async () => {
 		decisions.set(toolCallKey("page_share", share), { decision: "approved", askingRunId: "run0" });
-		const { result, cards } = await runV3([...twice("page_share", share), call("c", "page_share", share), say("x")], continuation);
+		const { result, cards } = await runV3([...direct("page_share", share), call("c", "page_share", share), say("x")], continuation);
 		expect(executeTool).toHaveBeenCalledTimes(1);
 		expect(executeTool).toHaveBeenCalledWith("page_share", share, expect.anything());
 		expect(cards).toHaveLength(1);
@@ -107,30 +107,30 @@ describe("motor v3: ask em tool nativa usa o cartão genérico", () => {
 
 	it("aprovação de outros args não vale para esta chamada", async () => {
 		decisions.set(toolCallKey("page_share", { page_id: "outro", action: "create" }), { decision: "approved", askingRunId: "run0" });
-		await runV3([...twice("page_share", share), say("x")], continuation);
+		await runV3([...direct("page_share", share), say("x")], continuation);
 		expect(executeTool).not.toHaveBeenCalled();
 	});
 
 	it("recusado: não executa e volta erro honesto ao modelo", async () => {
 		decisions.set(toolCallKey("page_share", share), { decision: "declined", askingRunId: "run0" });
-		const { results } = await runV3([...twice("page_share", share), say("Não criei o link.")], continuation);
+		const { results } = await runV3([...direct("page_share", share), say("Não criei o link.")], continuation);
 		expect(executeTool).not.toHaveBeenCalled();
 		expect(results.filter((event) => event.summary === APPROVAL_DECLINED)).toEqual([expect.objectContaining({ ok: false })]);
 	});
 
 	it("a decisão vale só para o run de continuação do cartão: outro run (ou sem semente) mostra cartão novo", async () => {
 		decisions.set(toolCallKey("page_share", share), { decision: "approved", askingRunId: "run0" });
-		const fresh = await runV3([...twice("page_share", share), say("x")]);
+		const fresh = await runV3([...direct("page_share", share), say("x")]);
 		expect(executeTool).not.toHaveBeenCalled();
 		expect(fresh.cards).toHaveLength(1);
 		const otherCard = { restoredCheckpoint: { version: 1, messages: [{ role: "user", content: "ok" }], transcriptSeed: { fromRunId: "run-velho", resultContent: "x", shortContent: "ok" } } } as unknown as Partial<ComputerUseParams>;
-		await runV3([...twice("page_share", share), say("x")], otherCard);
+		await runV3([...direct("page_share", share), say("x")], otherCard);
 		expect(executeTool).not.toHaveBeenCalled();
 	});
 
 	it("recusa também vale uma vez: na 2ª tentativa o dono vê cartão novo", async () => {
 		decisions.set(toolCallKey("page_share", share), { decision: "declined", askingRunId: "run0" });
-		const { results, cards } = await runV3([...twice("page_share", share), call("c", "page_share", share), say("x")], continuation);
+		const { results, cards } = await runV3([...direct("page_share", share), call("c", "page_share", share), say("x")], continuation);
 		expect(results.some((event) => event.summary === APPROVAL_DECLINED)).toBe(true);
 		expect(cards).toHaveLength(1);
 		expect(executeTool).not.toHaveBeenCalled();
@@ -146,7 +146,7 @@ describe("motor v3: ask em tool nativa usa o cartão genérico", () => {
 		expect(text).not.toContain("hunter2");
 		expect(text).not.toContain("abcdefghijklmnop");
 		expect(text).not.toContain("0123456789abcdefABCDEF");
-		const { cards } = await runV3([...twice("sandbox_download", args), say("x")]);
+		const { cards } = await runV3([...direct("sandbox_download", args), say("x")]);
 		expect(cards[0]!.description).toBe(text);
 		expect(cards[0]!.callKey).toBe(toolCallKey("sandbox_download", args));
 	});
@@ -154,7 +154,7 @@ describe("motor v3: ask em tool nativa usa o cartão genérico", () => {
 	it("args grandes demais para mostrar: recusa com motivo, sem cartão cego", async () => {
 		const big = { url: `https://example.com/${"y".repeat(APPROVAL_MAX_DETAIL_CHARS)}` };
 		expect(approvalDetails(big)).toBeNull();
-		const { cards, results } = await runV3([...twice("sandbox_download", big), say("x")]);
+		const { cards, results } = await runV3([...direct("sandbox_download", big), say("x")]);
 		expect(cards).toHaveLength(0);
 		expect(results.at(-1)!.summary).toMatch(new RegExp(`^${APPROVAL_TOO_LARGE.slice(0, 40)}`));
 	});
@@ -180,17 +180,17 @@ describe("motor v3: ask em tool nativa usa o cartão genérico", () => {
 
 	it("sandbox_download com cookies do navegador (credencial) pede cartão; sem a sessão roda direto", async () => {
 		const url = { url: "https://example.com/a.pdf" };
-		const withCookies = await runV3([...twice("sandbox_download", url), say("x")]);
+		const withCookies = await runV3([...direct("sandbox_download", url), say("x")]);
 		expect(withCookies.cards).toHaveLength(1);
 		expect(withCookies.cards[0]!.title).toBe("Baixar o arquivo usando a sessão do navegador do computador do bot?");
 		expect(executeTool).not.toHaveBeenCalled();
-		const noCookies = await runV3([...twice("sandbox_download", { ...url, use_browser_session: false }), say("Baixei.")]);
+		const noCookies = await runV3([...direct("sandbox_download", { ...url, use_browser_session: false }), say("Baixei.")]);
 		expect(noCookies.cards).toHaveLength(0);
 		expect(executeTool).toHaveBeenCalledTimes(1);
 	});
 
 	it("rotina continua sem cartão: o que precisaria de aprovação é negado com motivo", async () => {
-		const { cards, results, result } = await runV3([...twice("page_share", share), say("Não deu.")], { origin: "routine", humanTurn: false });
+		const { cards, results, result } = await runV3([...direct("page_share", share), say("Não deu.")], { origin: "routine", humanTurn: false });
 		expect(cards).toHaveLength(0);
 		expect(executeTool).not.toHaveBeenCalled();
 		expect(results.at(-1)!.summary).toMatch(/^Not available in this run/);
@@ -199,7 +199,7 @@ describe("motor v3: ask em tool nativa usa o cartão genérico", () => {
 
 	it("lição confirm_always em tool nativa vira cartão", async () => {
 		const query = { query: "preço do dólar" };
-		const { cards, result } = await runV3([...twice("web_search", query), say("x")], {
+		const { cards, result } = await runV3([...direct("web_search", query), say("x")], {
 			preToolRules: [{ id: "l1", scope: "bot", scopeKey: null, rule: { kind: "confirm_always", tool: "web_search" } }],
 		});
 		expect(cards).toHaveLength(1);

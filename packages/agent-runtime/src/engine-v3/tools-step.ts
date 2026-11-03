@@ -15,6 +15,8 @@ import { executeTool } from "../tools/registry/execute.js";
 import { getToolMeta } from "../tools/registry/tool-meta.js";
 import { isSandboxTool } from "../tools/registry/sandbox-tools.js";
 import { dedupeLoginAsk, unattendedLoginOutcome } from "../engine-v2/login.js";
+import { TOOL_CALL_TOOL_NAME, TOOL_SEARCH_TOOL_NAME } from "../tools/tool-bridge.js";
+import { argProblems } from "./bridge.js";
 import { SKIPPED_FOR_APPROVAL, SKIPPED_FOR_PARK, SKIPPED_FOR_USER_MESSAGE, closestToolNames, honestError, invalidArgsMessage, missingRequiredArgs, normalizeToolName, toolSignature, unknownToolMessage } from "./failures.js";
 import { decideCall, deniedMessage, spanPolicyDecision } from "./policy.js";
 import { BLOCKED_REPEATED } from "./repetition.js";
@@ -52,7 +54,44 @@ const targetOf = (args: Record<string, unknown>) => {
 export function createToolsStep(run: V3Run, contextFor: ToolContextFactory) {
 	const params = run.params;
 	const recentLoginAsks = { asked: new Set<string>(), loaded: false };
-	const toolOf = (name: string): ChatTool | undefined => run.tools.find((tool) => tool.function.name === name);
+	// Toda tool do catálogo (núcleo ou manifesto) roda pelo nome: nada é "carregado" no meio do run.
+	const toolOf = (name: string): ChatTool | undefined => run.catalog.entries.get(name)?.tool ?? run.tools.find((tool) => tool.function.name === name);
+	const resolveName = (name: string): string | undefined => (toolOf(name) ? name : toolOf(normalizeToolName(name)) ? normalizeToolName(name) : undefined);
+
+	/**
+	 * `tool_call(name, args)`: troca pela chamada real (mesmo id) antes de tudo, então política, aprovação, journal,
+	 * eventos e cards veem o nome real. Nome ou args que não valem voltam como erro com a assinatura (ou nomes próximos).
+	 */
+	const unwrapBridge = (call: LlmToolCall): { call: LlmToolCall; error?: { name: string; summary: string } } => {
+		if (call.function.name !== TOOL_CALL_TOOL_NAME) return { call };
+		const bridge = toolOf(TOOL_CALL_TOOL_NAME)!;
+		let outer: Record<string, unknown>;
+		try {
+			outer = parseArgs(call.function.arguments);
+		} catch (error) {
+			return { call, error: { name: TOOL_CALL_TOOL_NAME, summary: invalidArgsMessage(bridge, honestError(error)) } };
+		}
+		if (typeof outer.name !== "string" || !outer.name.trim()) return { call, error: { name: TOOL_CALL_TOOL_NAME, summary: invalidArgsMessage(bridge, "missing required name") } };
+		const name = resolveName(outer.name.trim());
+		if (!name || name === TOOL_CALL_TOOL_NAME || name === TOOL_SEARCH_TOOL_NAME) {
+			if (name) return { call, error: { name: TOOL_CALL_TOOL_NAME, summary: `Call ${name} directly, not through tool_call.` } };
+			const hidden = outer.name.trim();
+			if (run.entryOf(hidden) || getToolMeta(hidden)) return { call: { ...call, function: { name: hidden, arguments: JSON.stringify(outer.args ?? {}) } } };
+			return { call, error: { name: TOOL_CALL_TOOL_NAME, summary: unknownToolMessage(hidden, closestToolNames(hidden, [...run.catalog.entries.keys()])) } };
+		}
+		let inner: unknown = outer.args ?? {};
+		if (typeof inner === "string") {
+			try {
+				inner = parseArgs(inner);
+			} catch (error) {
+				return { call, error: { name, summary: invalidArgsMessage(toolOf(name)!, honestError(error)) } };
+			}
+		}
+		if (!inner || typeof inner !== "object" || Array.isArray(inner)) return { call, error: { name, summary: invalidArgsMessage(toolOf(name)!, "args must be a JSON object") } };
+		const problems = argProblems(toolOf(name)!, inner as Record<string, unknown>);
+		if (problems.length > 0) return { call, error: { name, summary: invalidArgsMessage(toolOf(name)!, problems.join("; ")) } };
+		return { call: { ...call, function: { name, arguments: JSON.stringify(inner) } } };
+	};
 
 	const span = async (call: LlmToolCall, sub: number, name: string, ok: boolean, summary: string, decision: "allow" | "confirm" | "blocked", durationMs = 0, extra: Record<string, unknown> = {}) => {
 		await params.onStep?.({
@@ -82,17 +121,14 @@ export function createToolsStep(run: V3Run, contextFor: ToolContextFactory) {
 	};
 
 	/** `batch.parked`: um cartão de aprovação já saiu neste lote; as outras aprovações esperam a resposta do dono. */
-	const processCall = async (call: LlmToolCall, sub: number, batch: { parked: boolean }): Promise<CallOutcome> => {
-		// --- nome: exato, normalizado, adiado (carrega o grupo) ou desconhecido (até 3 próximos) ---
+	const processCall = async (outerCall: LlmToolCall, sub: number, batch: { parked: boolean }): Promise<CallOutcome> => {
+		const bridged = unwrapBridge(outerCall);
+		if (bridged.error) return await refuse(outerCall, sub, bridged.error.name, bridged.error.summary);
+		const call = bridged.call;
+		// --- nome: exato, normalizado, escondido pela política (motivo) ou desconhecido (até 3 próximos) ---
 		let name = call.function.name;
-		if (!toolOf(name) && toolOf(normalizeToolName(name))) name = normalizeToolName(name);
+		name = resolveName(name) ?? name;
 		if (!toolOf(name)) {
-			const deferral = run.catalog.deferral;
-			const deferred = deferral?.isDeferred(name) ? name : deferral?.isDeferred(normalizeToolName(name)) ? normalizeToolName(name) : undefined;
-			if (deferral && deferred) {
-				const { notes } = deferral.loadGroupOf(deferred);
-				return await refuse(call, sub, deferred, `Tool ${deferred} was not loaded; it is loaded now. Call it again.${notes ? `\n${notes}` : ""}`, { decision: "allow" });
-			}
 			// Existe mas a política tirou do catálogo: o modelo recebe o motivo, não "não existe".
 			const hiddenEntry = run.entryOf(name);
 			if (hiddenEntry || getToolMeta(name)) {
@@ -101,8 +137,7 @@ export function createToolsStep(run: V3Run, contextFor: ToolContextFactory) {
 				const hidden = decideCall({ name, args: hiddenArgs, ...(hiddenEntry ? { entry: hiddenEntry } : {}), base: run.policy, autonomy: run.autonomy.get() });
 				if (hidden.decision === "deny" || hidden.decision === "hide") return await refuse(call, sub, name, deniedMessage(hidden.reason), { argsKey: toolArgsKey(name, hiddenArgs) });
 			}
-			const known = [...run.tools.map((tool) => tool.function.name), ...(deferral?.pending() ?? [])];
-			return await refuse(call, sub, name, unknownToolMessage(name, closestToolNames(name, known)));
+			return await refuse(call, sub, name, unknownToolMessage(name, closestToolNames(name, [...run.catalog.entries.keys()])));
 		}
 		const tool = toolOf(name)!;
 		// --- args ---
@@ -161,7 +196,6 @@ export function createToolsStep(run: V3Run, contextFor: ToolContextFactory) {
 		}
 		await params.onStep?.({ decisionIndex: run.step, subIndex: sub + 1, type: "tool", status: "running", idempotencyKey, inputJson: { name, args, ...(journaled ? { attemptId: idempotencyKey, argsHash: hashEffectArgs(args) } : {}) } });
 		run.toolCallCounts.set(name, (run.toolCallCounts.get(name) ?? 0) + 1);
-		if (entry) run.catalog.pinMcpTool(name);
 		const decision = spanPolicyDecision(verdict.decision);
 		let ok = true;
 		let summary = "";
@@ -234,7 +268,9 @@ export function createToolsStep(run: V3Run, contextFor: ToolContextFactory) {
 		return Object.assign({ call, name, ok, summary: withNotes, media }, awaiting ? { awaiting } : {}, login ? { login } : {}, final ? { final } : {}, meta?.endsTurn && ok ? { endsTurn: true } : {});
 	};
 
-	const parallelSafe = (call: LlmToolCall) => {
+	const parallelSafe = (outerCall: LlmToolCall) => {
+		const { call, error } = unwrapBridge(outerCall);
+		if (error) return false;
 		const name = call.function.name;
 		const entry = run.entryOf(name);
 		if (!toolOf(name) || isSandboxTool(name) || name === "update_task_list") return false;

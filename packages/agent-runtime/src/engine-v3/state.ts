@@ -6,7 +6,7 @@ import type { createPreToolRunner } from "../hooks/pre-tool-runner.js";
 import type { SecretSession } from "../secrets/session.js";
 import type { ProviderHealth } from "../tools/provider-health.js";
 import type { ComputerUseParams } from "../run-types.js";
-import type { EngineV2Catalog } from "../engine-v2/catalog.js";
+import type { V3Catalog } from "./catalog.js";
 import type { StepLimit } from "./limits.js";
 import type { Nudges } from "./nudges.js";
 import type { PolicyBase } from "./policy.js";
@@ -34,8 +34,12 @@ export type V3Run = {
 	turnId: string;
 	/** Run cujo cartão este run continua (semente `transcriptSeed.fromRunId`): só aqui vale a decisão do dono sobre aquele cartão. */
 	continuesRunId?: string;
-	catalog: EngineV2Catalog;
+	/** Núcleo + manifesto do run (congelado por conversa). */
+	catalog: V3Catalog;
+	/** Array enviado ao modelo: núcleo + `tool_search`/`tool_call`. */
 	tools: ChatTool[];
+	/** Uso das tools pelo bot (30 dias): desempate do `tool_search`. Vazio quando o catálogo veio congelado. */
+	toolUsage: Readonly<Record<string, number>>;
 	entryOf: (name: string) => McpToolEntry | undefined;
 	hasTool: (name: string) => boolean;
 	conversation: LlmMessage[];

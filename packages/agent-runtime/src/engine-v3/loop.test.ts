@@ -49,9 +49,16 @@ const call = (id: string, name: string, args: Record<string, unknown> | string =
 });
 const tools = (...calls: LlmToolCall[]): CompleteChatWithToolsResult => ({ model: "m", message: { role: "assistant", content: null, tool_calls: calls }, finishReason: "tool_calls" });
 const say = (content: string, finishReason: CompleteChatWithToolsResult["finishReason"] = "stop"): CompleteChatWithToolsResult => ({ model: "m", message: { role: "assistant", content }, finishReason });
+/** Nomes que o manifesto (bloco de contexto) cita: `nome (resumo)` ou `nome, nome`. */
+const manifestNames = (messages: CompleteChatWithToolsParams["messages"]): string[] => {
+	const context = messages.find((message) => message.role === "user" && typeof message.content === "string" && message.content.startsWith("[context]"));
+	if (!context || typeof context.content !== "string") return [];
+	return [...context.content.matchAll(/(?:^- [^:]+: |; |, )([a-z][\w]*)/gm)].map((match) => match[1]!);
+};
 const read = (index: number) => tools(call(`r${index}`, READ, { nome: `cliente ${index}` }));
 
-type Request = { params: CompleteChatWithToolsParams; toolNames: string[]; texts: string[] };
+/** `toolNames` = array enviado; `visible` = array + nomes do manifesto (tudo o que o modelo pode chamar). */
+type Request = { params: CompleteChatWithToolsParams; toolNames: string[]; visible: string[]; texts: string[] };
 type ScriptItem = CompleteChatWithToolsResult | ((request: Request) => CompleteChatWithToolsResult | Promise<CompleteChatWithToolsResult>);
 
 async function runV3(input: {
@@ -100,6 +107,7 @@ async function runV3(input: {
 				const request: Request = {
 					params,
 					toolNames: params.tools.map((tool: ChatTool) => tool.function.name),
+					visible: [...params.tools.map((tool: ChatTool) => tool.function.name), ...manifestNames(params.messages)],
 					texts: params.messages.map((message) => (typeof message.content === "string" ? message.content : JSON.stringify(message.content ?? ""))),
 				};
 				requests.push(request);
@@ -265,9 +273,9 @@ describe("motor v3: recusas entram na rede de repetição", () => {
 describe("motor v3: política decide", () => {
 	it("rotina não vê nem executa escrita de conector; needsHuman some sem humano", async () => {
 		const { requests, results, mcpCall } = await runV3({ origin: "routine", script: [tools(call("w", WRITE, { cliente: "Acme" })), say("Não consegui criar sozinho.")] });
-		expect(requests[0]!.toolNames).toContain(READ);
-		expect(requests[0]!.toolNames).not.toContain(WRITE);
-		expect(requests[0]!.toolNames.filter((name) => getToolMeta(name)?.needsHuman)).toEqual([]);
+		expect(requests[0]!.visible).toContain(READ);
+		expect(requests[0]!.visible).not.toContain(WRITE);
+		expect(requests[0]!.visible.filter((name) => getToolMeta(name)?.needsHuman)).toEqual([]);
 		expect(results[0]).toMatchObject({ name: WRITE, ok: false });
 		expect(results[0]!.summary).toMatch(/^Not available in this run: no human present/);
 		expect(mcpCall).not.toHaveBeenCalled();
@@ -277,8 +285,8 @@ describe("motor v3: política decide", () => {
 		const human = await runV3({ script: [say("ok")] });
 		const synthetic = await runV3({ humanTurn: false, script: [say("ok")] });
 		const needsHuman = (names: string[]) => names.filter((name) => getToolMeta(name)?.needsHuman);
-		expect(needsHuman(synthetic.requests[0]!.toolNames)).toEqual([]);
-		expect(needsHuman(human.requests[0]!.toolNames).length).toBeGreaterThan(0);
+		expect(needsHuman(synthetic.requests[0]!.visible)).toEqual([]);
+		expect(needsHuman(human.requests[0]!.visible).length).toBeGreaterThan(0);
 	});
 
 	it("chat com humano: escrita pede o cartão de confirmação existente e o run estaciona (PARKED)", async () => {
