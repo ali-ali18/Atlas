@@ -180,7 +180,6 @@ export function BotLinkMarkerRow({ link, fallback, bots }: { link: { botId: stri
 			<Text variant="caption" numberOfLines={2} className="text-center text-body">
 				{"Enviou mensagem para "}
 				{bot ? <InlineAvatar bot={bot} /> : null}
-				{bot ? " " : null}
 				<Text className="text-body font-medium text-foreground">{link.botName.trim()}</Text>
 				{link.title.trim() ? `: ${link.title.trim()}` : ""}
 			</Text>

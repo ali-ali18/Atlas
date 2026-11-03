@@ -13,7 +13,7 @@ const AVATAR = 16;
 /** Avatar pequeno do bot, para entrar dentro de um `Text` (o RN aceita `View` inline no meio do texto). */
 export function InlineAvatar({ bot, eyeColor }: { bot: MentionBotRef; eyeColor?: string }) {
 	return (
-		<View style={{ width: AVATAR + 4, height: AVATAR, marginBottom: -3 }} className="justify-center">
+		<View style={{ width: AVATAR + 5, height: AVATAR, marginBottom: -3 }} className="justify-center">
 			<Avatar color={resolveColor(bot.color, bot.id)} shape={resolveShape(bot.shape, bot.id)} size={AVATAR} animated={false} eyeColor={eyeColor} />
 		</View>
 	);
@@ -22,7 +22,7 @@ export function InlineAvatar({ bot, eyeColor }: { bot: MentionBotRef; eyeColor?:
 /** Ícone da habilidade inline (o SVG não entra solto num `Text`; o `View` entra). */
 function InlineSparkles() {
 	return (
-		<View style={{ width: 18, height: 16, marginBottom: -2 }} className="justify-center">
+		<View style={{ width: 19, height: 16, marginBottom: -2 }} className="justify-center">
 			<SparklesIcon size={14} />
 		</View>
 	);
@@ -42,7 +42,6 @@ export function MentionText({ parts, eyeColor }: { parts: readonly MessagePart[]
 				return (
 					<Text key={index} className="text-base font-medium leading-snug" style={{ color: blue }}>
 						{part.type === "bot" ? <InlineAvatar bot={part.bot} eyeColor={eyeColor} /> : <InlineSparkles />}
-						{" "}
 						{part.text}
 					</Text>
 				);
