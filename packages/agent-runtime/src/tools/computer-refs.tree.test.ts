@@ -54,9 +54,9 @@ describe("browser_snapshot em árvore de acessibilidade (motor v2)", () => {
 		await executeComputerRefTool("browser_snapshot", { scope: "aside" }, b.ctx);
 		expect(b.execBrowserSnapshot.mock.calls[0]![1]).toMatchObject({ engine: "dom", scope: "aside" });
 		const c = ctx(axSnapshot);
-		await executeComputerRefTool("browser_snapshot", { ref: "e27", offset: 6000, limit: 4000 }, c.ctx);
+		await executeComputerRefTool("browser_snapshot", { ref: "a27", offset: 6000, limit: 4000 }, c.ctx);
 		const sent = c.execBrowserSnapshot.mock.calls[0]![1] as Record<string, unknown>;
-		expect(sent).toMatchObject({ ref: "e27", offset: 6000, limit: 4000 });
+		expect(sent).toMatchObject({ ref: "a27", offset: 6000, limit: 4000 });
 		expect(sent.engine).toBeUndefined();
 	});
 
@@ -64,6 +64,8 @@ describe("browser_snapshot em árvore de acessibilidade (motor v2)", () => {
 		const { ctx: c } = ctx(axSnapshot);
 		await expect(executeComputerRefTool("browser_snapshot", { view: "grafo" }, c)).rejects.toThrow(/view inválida/);
 		await expect(executeComputerRefTool("browser_snapshot", { ref: "div.x" }, c)).rejects.toThrow(/ref inválido/);
+		await expect(executeComputerRefTool("browser_snapshot", { ref: "x12" }, c)).rejects.toThrow(/ref inválido/);
+		await expect(executeComputerRefTool("browser_snapshot", { ref: "f1a3" }, c)).resolves.toBeDefined();
 	});
 
 	it("o muro de login lê lines[] também no modo árvore (campo de senha)", async () => {
