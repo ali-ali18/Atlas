@@ -22,8 +22,8 @@ export function seededRandom(seed: number): () => number {
 	};
 }
 
-/** Cores sorteáveis ao abrir: as da paleta menos o preto (que só entra por escolha, como no sorteio por id do motor). */
-const DRAW_COLORS = NEW_BOT_COLORS.filter((color) => color.id !== "black");
+/** Cores sorteáveis ao abrir: as da paleta menos o branco (que só entra por escolha, como o preto no sorteio por id do motor). */
+const DRAW_COLORS = NEW_BOT_COLORS.filter((color) => color.id !== "white");
 
 /** Forma e cor iniciais: uma das formas "limpas" do motor (`DRAWABLE_SHAPES`, com dois olhos) e uma cor da paleta. */
 export function randomAvatar(random: () => number): { shape: string; color: string } {

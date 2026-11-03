@@ -18,8 +18,13 @@ export function validateBotName(raw: string): NameCheck {
 
 /** As formas do seletor: a mesma lista e a mesma ordem do web (`SHAPE_IDS`, das mais simples às mais enfeitadas). */
 export const AVATAR_SHAPES: readonly string[] = SHAPE_IDS;
-/** A paleta do web (`AVATAR_COLORS`). */
-export const AVATAR_PALETTE = AVATAR_COLORS;
+/** Branco no lugar do preto: o preto some no fundo escuro do app (decisão do dono). */
+export const AVATAR_WHITE = { id: "white", name: "Branco", value: "#FFFFFF" } as const;
+/**
+ * A paleta do web (`AVATAR_COLORS`), com o branco no lugar do preto. Bot que já é preto continua preto (a cor é um
+ * hex livre no servidor); só não aparece mais para escolher no app.
+ */
+export const AVATAR_PALETTE: readonly { id: string; name: string; value: string }[] = AVATAR_COLORS.map((color) => (color.id === "black" ? AVATAR_WHITE : color));
 
 const HEX = /^#[0-9a-f]{6}$/i;
 
