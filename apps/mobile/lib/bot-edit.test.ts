@@ -22,8 +22,11 @@ describe("nome", () => {
 describe("avatar", () => {
 	it("a lista de formas e a paleta são as do web, na mesma ordem", () => {
 		expect(AVATAR_SHAPES).toEqual([...SHAPE_IDS]);
-		expect(AVATAR_PALETTE).toBe(AVATAR_COLORS);
-		expect(AVATAR_PALETTE).toHaveLength(11);
+		expect(AVATAR_PALETTE).toHaveLength(AVATAR_COLORS.length);
+		// branco no lugar do preto (primeira posição); o resto igual ao web, na mesma ordem
+		expect(AVATAR_PALETTE[0]).toEqual({ id: "white", name: "Branco", value: "#FFFFFF" });
+		expect(AVATAR_PALETTE.map((color) => color.id)).not.toContain("black");
+		expect(AVATAR_PALETTE.slice(1)).toEqual(AVATAR_COLORS.slice(1));
 	});
 	it("forma e cor válidas e inválidas", () => {
 		expect(isValidShape("hex")).toBe(true);

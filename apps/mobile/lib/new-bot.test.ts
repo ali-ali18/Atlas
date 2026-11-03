@@ -13,7 +13,7 @@ describe("sorteio inicial de forma e cor", () => {
 		expect(randomAvatar(seededRandom(42))).toEqual(randomAvatar(seededRandom(42)));
 		expect(randomAvatar(seededRandom(7))).toEqual(randomAvatar(seededRandom(7)));
 	});
-	it("só sorteia ids do motor (forma desenhável, cor da paleta, nunca o preto) em qualquer semente", () => {
+	it("só sorteia ids do motor (forma desenhável, cor da paleta, nunca o preto nem o branco) em qualquer semente", () => {
 		const shapes = new Set<string>();
 		const colors = new Set<string>();
 		for (let seed = 0; seed < 400; seed += 1) {
@@ -21,6 +21,7 @@ describe("sorteio inicial de forma e cor", () => {
 			expect(DRAWABLE_SHAPES as readonly string[]).toContain(shape);
 			expect(AVATAR_COLORS.map((item) => item.value)).toContain(color);
 			expect(color).not.toBe("#000000");
+			expect(color).not.toBe("#FFFFFF");
 			shapes.add(shape);
 			colors.add(color);
 		}
