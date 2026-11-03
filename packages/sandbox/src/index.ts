@@ -39,7 +39,7 @@ export type {
 
 export { runSandboxOperation, assertSandboxExecution, SandboxExecutionAbortedError, SandboxOperationTimeoutError, type SandboxExecutionContext } from "./execution-context.js";
 
-export { workVolumeName, sandboxBinds } from "./docker-manager.js";
+export { workVolumeName, homeVolumeName, sandboxBinds } from "./docker-manager.js";
 export {
 	runShell,
 	waitShell,

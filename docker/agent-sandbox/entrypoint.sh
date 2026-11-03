@@ -39,8 +39,18 @@ trap graceful_shutdown TERM INT
 mkdir -p "$XDG_RUNTIME_DIR"
 chmod 700 "$XDG_RUNTIME_DIR"
 
-# Volume de trabalho do agente (sandbox_shell roda como `atlas`).
-mkdir -p /home/atlas/work && chown atlas:atlas /home/atlas/work 2>/dev/null || true
+# Home do agente (volume nomeado por conversa; na 1ª montagem o Docker copia o home da imagem para ele)
+# e volume de trabalho (sandbox_shell roda como `atlas`).
+mkdir -p /home/atlas/work && chown atlas:atlas /home/atlas /home/atlas/work 2>/dev/null || true
+
+# Programas que o agente instalou (sudo atlas-install): `prepare` deixa ~/.atlas de dono root e é rápido
+# (sem rede); a reinstalação do que o registro lista e o dpkg não tem roda em SEGUNDO PLANO, com limite de
+# 15 min, log em ~/.atlas/install.log e estado em ~/.atlas/reinstall.status (running/done/failed). A VM
+# não espera por ela. O script revalida cada nome do registro: o atlas pode editar o próprio home.
+if [[ -x /usr/local/bin/atlas-install ]]; then
+	/usr/local/bin/atlas-install prepare || echo "[entrypoint] WARNING: atlas-install prepare falhou" >&2
+	(nice -n 10 /usr/local/bin/atlas-install reinstall >/dev/null 2>&1 || true) &
+fi
 
 # Locks herdados (SingletonLock/Socket/Cookie) do volume do perfil são limpos pelo atlas-chrome,
 # já sob a trava de lançamento (nunca aqui: outra VM pode estar com o mesmo perfil de pé).

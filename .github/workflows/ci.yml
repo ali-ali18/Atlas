@@ -63,8 +63,8 @@ jobs:
       - name: Integração do agente (Postgres real, modelo roteirizado, v1 e v2)
         # Reaproveita o service Postgres e o ATLAS_TEST_DB_URL do job; os arquivos *.integration.ts ficam fora do `pnpm test`.
         run: pnpm --filter worker test:integration
-      - name: Testes dos scripts (changelog)
-        run: node --test scripts/changelog.test.mjs
+      - name: Testes dos scripts (changelog) e do atlas-install da VM
+        run: node --test scripts/changelog.test.mjs docker/agent-sandbox/install/atlas-install.test.mjs docker/agent-sandbox/install/atlas-install.commands.test.mjs docker/agent-sandbox/install/image.test.mjs
       - name: Árvore limpa (generated.ts determinístico)
         run: git diff --exit-code
 

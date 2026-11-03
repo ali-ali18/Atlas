@@ -1,0 +1,7 @@
+# O usuário `atlas` (que roda os comandos do agente) pode ser root para UMA coisa: o atlas-install.
+# Nada de apt-get, dpkg, bash ou ALL: o apt-get aceita opções (`-o APT::Update::Pre-Invoke=...`)
+# que viram root livre. O atlas-install valida pacote, caminho e .deb antes de chamar o apt.
+Defaults:atlas env_reset
+Defaults:atlas secure_path="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+Defaults:atlas lecture=never
+atlas ALL=(root) NOPASSWD: /usr/local/bin/atlas-install
