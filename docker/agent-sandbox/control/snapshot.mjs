@@ -46,7 +46,7 @@ export function roleOf(raw) {
 	}
 }
 
-/** aria-label > aria-labelledby > <label> > texto > placeholder > title/alt > name. */
+/** aria-label > aria-labelledby > <label> > texto > alt/title do ícone interno > placeholder > title/alt > name. */
 export function nameOf(raw) {
 	const isTextControl = raw.tag === "input" || raw.tag === "textarea" || raw.tag === "select";
 	const isButtonInput =
@@ -57,6 +57,7 @@ export function nameOf(raw) {
 		raw.label,
 		isTextControl ? "" : raw.text,
 		isButtonInput ? raw.value : "",
+		isTextControl ? "" : raw.iconName,
 		raw.placeholder,
 		raw.title,
 		raw.alt,
