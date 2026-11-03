@@ -9,6 +9,16 @@ import { MAX_TASK_LIST_ITEMS, isTaskListDone, normalizeTaskListInput, type TaskL
 
 export const UPDATE_TASK_LIST_TOOL_NAME = "update_task_list";
 
+/**
+ * O que o usuário espera receber: `document` (arquivo: relatório, estudo, planilha) ou `answer` (a resposta no chat basta).
+ * Declarado pelo MODELO; o runtime não adivinha pelo texto do pedido (regra de `60-agente.md`).
+ */
+export type Deliverable = "document" | "answer";
+
+export function parseDeliverable(value: unknown): Deliverable | undefined {
+	return value === "document" || value === "answer" ? value : undefined;
+}
+
 export const UPDATE_TASK_LIST_TOOL: ChatTool = {
 	type: "function",
 	function: {
@@ -33,6 +43,29 @@ export const UPDATE_TASK_LIST_TOOL: ChatTool = {
 						required: ["content", "status"],
 					},
 				},
+			},
+			required: ["items"],
+		},
+	},
+};
+
+/**
+ * `update_task_list` do motor v2: a mesma tool com o campo opcional `deliverable` (o MODELO declara se o entregável é um documento).
+ * Fica só no v2 porque o prefixo do v1 ("Bom dia") tem teto de tamanho e o v1 não usa o campo.
+ */
+export const UPDATE_TASK_LIST_TOOL_V2: ChatTool = {
+	type: "function",
+	function: {
+		...UPDATE_TASK_LIST_TOOL.function,
+		parameters: {
+			type: "object",
+			properties: {
+				deliverable: {
+					type: "string",
+					enum: ["document", "answer"],
+					description: "Optional, on the first call: \"document\" when the user wants a file (report, study, spreadsheet) or the result is long; \"answer\" when a chat reply is enough (including when they said no file).",
+				},
+				...(UPDATE_TASK_LIST_TOOL.function.parameters as { properties: Record<string, unknown> }).properties,
 			},
 			required: ["items"],
 		},
@@ -71,19 +104,27 @@ export type TaskListStore = {
 };
 
 /** `items` é a lista final para o cartão da thread (vazia = remover o cartão). */
-export function executeUpdateTaskList(args: Record<string, unknown>, ctx: { taskListStore?: TaskListStore }): { summary: string; items: TaskListItem[] } {
+export function executeUpdateTaskList(args: Record<string, unknown>, ctx: { taskListStore?: TaskListStore }): { summary: string; items: TaskListItem[]; deliverable?: Deliverable } {
 	const store = ctx.taskListStore;
 	if (!store) throw new Error("update_task_list is not available in this run.");
 	const items = normalizeTaskListInput(args.items);
+	const deliverable = parseDeliverable(args.deliverable);
+	// Tool honesta: valor inválido FALHA com a lista do que é aceito; nunca vira "sem declaração" em silêncio (nem muda a lista antes).
+	if (args.deliverable !== undefined && args.deliverable !== null && !deliverable) {
+		throw new Error(`Invalid deliverable ${JSON.stringify(args.deliverable).slice(0, 40)}. Accepted values: "document" (the user wants a file or a long report) or "answer" (a chat reply is enough). Call update_task_list again with one of them, or leave the field out. The list was not changed.`);
+	}
+	const declared = deliverable ? { deliverable } : {};
 	if (items.length === 0) {
 		store.set(undefined);
-		return { summary: "Task list cleared.", items: [] };
+		return { summary: "Task list cleared.", items: [], ...declared };
 	}
 	if (isTaskListDone(items)) {
 		store.set(undefined);
-		return { summary: `All ${items.length} steps completed; list closed. Give the user the final result.`, items };
+		return { summary: `All ${items.length} steps completed; list closed. Give the user the final result.`, items, ...declared };
 	}
 	store.set(items);
 	const done = items.filter((item) => item.status === "completed").length;
-	return { summary: `Task list saved: ${done}/${items.length} completed. Continue with the step in progress.`, items };
+	// Só contexto, nunca portão: o modelo declarou um documento, então lembra de criá-lo antes da resposta final.
+	const reminder = deliverable === "document" ? " You declared a document as the deliverable: remember to create it with create_file before the final answer." : "";
+	return { summary: `Task list saved: ${done}/${items.length} completed. Continue with the step in progress.${reminder}`, items, ...declared };
 }

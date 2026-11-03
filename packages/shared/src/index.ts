@@ -245,6 +245,7 @@ export type {
 export {
 	AGENT_RUNTIME_CHECKPOINT_VERSION,
 	RUN_MAX_RECOVERIES,
+	RUN_MAX_STEPS,
 	RUN_RECOVERY_LIMIT_MESSAGE,
 	readRunRecoveries,
 	readRunRecoveredAtStep,

@@ -435,7 +435,9 @@ export function buildRuntimeCheckpoint(input: {
 	activeElapsedMs?: number;
 	loadedTools?: string[];
 	promoted?: boolean;
+	deliverable?: "document" | "answer";
 	wrapUpSent?: boolean;
+	contextWarned?: boolean;
 	budgetBaseMs?: number;
 	toolCache?: AgentRunCheckpoint["toolCache"];
 	transcriptWatermark?: AgentRunCheckpoint["transcriptWatermark"];
@@ -483,7 +485,9 @@ export function buildRuntimeCheckpoint(input: {
 		...(input.modelEscalations?.length ? { modelEscalations: input.modelEscalations } : {}),
 		...(input.loadedTools?.length ? { loadedTools: input.loadedTools.slice(0, 200) } : {}),
 		...(input.promoted ? { promoted: true } : {}),
+		...(input.deliverable ? { deliverable: input.deliverable } : {}),
 		...(input.wrapUpSent ? { wrapUpSent: true } : {}),
+		...(input.contextWarned ? { contextWarned: true } : {}),
 		...(input.budgetBaseMs && input.budgetBaseMs > 0 ? { budgetBaseMs: Math.round(input.budgetBaseMs) } : {}),
 		...(input.toolCache ? { toolCache: input.toolCache } : {}),
 		...(input.transcriptWatermark ? { transcriptWatermark: input.transcriptWatermark } : {}),
@@ -595,7 +599,9 @@ export function parseRuntimeCheckpoint(
 		...(isModelTier(value.modelTier) ? { modelTier: value.modelTier } : {}),
 		...(parseModelEscalations(value.modelEscalations).length ? { modelEscalations: parseModelEscalations(value.modelEscalations) } : {}),
 		...(value.promoted === true ? { promoted: true } : {}),
+		...(value.deliverable === "document" || value.deliverable === "answer" ? { deliverable: value.deliverable } : {}),
 		...(value.wrapUpSent === true ? { wrapUpSent: true } : {}),
+		...(value.contextWarned === true ? { contextWarned: true } : {}),
 		...(typeof value.budgetBaseMs === "number" && Number.isFinite(value.budgetBaseMs) && value.budgetBaseMs > 0 ? { budgetBaseMs: value.budgetBaseMs } : {}),
 		...(Array.isArray(value.loadedTools) ? { loadedTools: value.loadedTools.filter((name): name is string => typeof name === "string").slice(0, 200) } : {}),
 		...(parseToolCacheState(value.toolCache) ? { toolCache: parseToolCacheState(value.toolCache)! } : {}),

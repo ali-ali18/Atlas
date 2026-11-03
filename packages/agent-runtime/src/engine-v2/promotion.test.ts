@@ -10,9 +10,9 @@ import type { ComputerUseEvent } from "@workspace/shared";
 import { SYSTEM_MESSAGES } from "@workspace/shared";
 import type { PersistUserArtifactInput } from "@workspace/db";
 import { runEngineV2, type EngineV2Options } from "./run.js";
-import { DOCUMENT_BUDGET_NOTE, DOCUMENT_DELIVERY_NOTE, DOCUMENT_DONE_INSTRUCTION, documentMissingNote, stopReasonPhrase } from "./delivery.js";
-import { ANNOUNCED_ACTION_NOTE, ENGINE_V2_CORE, ENGINE_V2_PROMOTED_NOTE, ENGINE_V2_UNATTENDED, UNASKED_MIDWORK_NOTE, announcesAction, midWorkQuestion } from "./prompt.js";
-import { RESERVE_GAPS_NOTE, RESERVE_WRITE_NOTE, WRAP_UP_NOTE, deliveryInstruction } from "./supervisor.js";
+import { DOCUMENT_BUDGET_NOTE, DOCUMENT_DONE_INSTRUCTION, DOCUMENT_STOPPED_NOTE, documentMissingNote, stopReasonPhrase } from "./delivery.js";
+import { continuedWorkNote, ENGINE_V2_CORE, ENGINE_V2_PROMOTED_NOTE, ENGINE_V2_UNATTENDED, openItemsNote } from "./prompt.js";
+import { STAGNATION_ACTION_NOTE, WRAP_UP_NOTE, deliveryInstruction } from "./supervisor.js";
 import { budgetStopFallbackText } from "../computer-use.js";
 
 vi.mock("@workspace/db", async (original) => ({
@@ -32,14 +32,15 @@ const call = (name: string, args: Record<string, unknown> = {}): LlmToolCall => 
 const usageOf = (costUsd?: number) => (costUsd === undefined ? {} : { usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15, costUsd } });
 const turn = (calls: LlmToolCall[], costUsd?: number): CompleteChatWithToolsResult => ({ model: "m", message: { role: "assistant", content: null, tool_calls: calls }, finishReason: "tool_calls", ...usageOf(costUsd) });
 const say = (content: string, costUsd?: number): CompleteChatWithToolsResult => ({ model: "m", message: { role: "assistant", content }, finishReason: "stop", ...usageOf(costUsd) });
-const taskList = (items: Array<[string, "pending" | "in_progress" | "completed"]>) => call("update_task_list", { items: items.map(([content, status]) => ({ content, status })) });
+const taskList = (items: Array<[string, "pending" | "in_progress" | "completed"]>, deliverable?: "document" | "answer") =>
+	call("update_task_list", { ...(deliverable ? { deliverable } : {}), items: items.map(([content, status]) => ({ content, status })) });
 const words = (n: number) => Array.from({ length: n }, (_, i) => `palavra${i}`).join(" ");
 
 const COOKIE = "Abra o vídeo https://youtu.be/abc123, faça perguntas ao Gemini sobre ele, compare com Hermes, Dots e Grok Bot e monte um relatório";
 /** Cada passo do modelo "gasta" 2,5 min de relógio ativo: o 4º passo já passaria dos antigos 8 min do chat. */
 const STEP_MS = 150_000;
 
-type Seen = { toolNames: string[]; system: string; lastUser: string; transcript: string };
+type Seen = { toolNames: string[]; system: string; lastUser: string; transcript: string; /** Só o que o RUNTIME escreveu ao modelo: mensagens [auto-context] e notas anexadas a resultados de tool. */ runtimeNotes: string };
 
 async function runChat(input: {
 	messages?: Array<{ role: "user" | "assistant"; content: string }>;
@@ -86,6 +87,10 @@ async function runChat(input: {
 					system: params.messages.filter((m) => m.role === "system").map((m) => (typeof m.content === "string" ? m.content : JSON.stringify(m.content))).join("\n"),
 					lastUser: typeof last?.content === "string" ? last.content : JSON.stringify(last?.content ?? ""),
 					transcript: JSON.stringify(params.messages.map((m) => m.content)),
+					runtimeNotes: params.messages
+						.map((m) => (typeof m.content === "string" ? m.content : JSON.stringify(m.content ?? "")))
+						.flatMap((text, index) => (params.messages[index]!.role === "user" && text.startsWith("[auto-context") ? [text] : text.includes("[Runtime note] ") ? [text.slice(text.indexOf("[Runtime note] "))] : []))
+						.join("\n"),
 				};
 				seen.push(snapshot);
 				const next = script.shift();
@@ -124,7 +129,6 @@ describe("promoção automática chat -> trabalho longo (v2)", () => {
 				},
 				turn([call("notebook_write", { title: "Hermes", excerpt: "agente open source", source: "https://example.com/hermes" })], 2),
 				turn([taskList([["Comparar", "completed"], ["Entregar", "completed"]])], 2),
-				say(`# Relatório\n\n${words(320)}`, 2),
 				turn([call("create_file", { filename: "comparativo.md", content: `# Comparativo\n\n${words(320)}` })], 2),
 				say("Relatório pronto: Hermes, Dots e Grok Bot comparados. Não deu para confirmar o preço do Dots.", 2),
 			],
@@ -239,34 +243,38 @@ describe("perguntar só no começo (v2)", () => {
 	const CLOSE = () => turn([taskList([["Pesquisar", "completed"], ["Entregar", "completed"]])], 0.01);
 	const discards = (run: Awaited<ReturnType<typeof runChat>>) => run.events.filter((event) => event.type === "assistant_discard").map((event) => (event as { reason?: string }).reason);
 
-	it("trabalho longo: resposta que é SÓ uma pergunta resolvível volta ao modelo uma vez, que segue sozinho", async () => {
+	it("trabalho longo: a pergunta solta NÃO é mais barrada nem apagada (portão midWorkQuestion removido em 03/11)", async () => {
 		const run = await runChat({
 			stepMs: 1_000,
 			options: LONG,
 			messages: [{ role: "user", content: "Pesquise o Grok Bot" }],
-			script: [
-				OPEN(), research(0.01), CLOSE(),
-				say("Me diga se o Grok Bot é seu agente?"),
-				(seen) => {
-					expect(seen.lastUser).toContain("You were about to ask the user a question in the middle of the work");
-					return turn([call("memory_search", { query: "grok bot agente" })], 0.01);
-				},
-				say("Assumi que o Grok Bot é um agente externo e comparei. Resultado: ..."),
-			],
+			script: [OPEN(), research(0.01), CLOSE(), say("Me diga se o Grok Bot é seu agente?")],
 		});
-		expect(run.result.text).toContain("Assumi que o Grok Bot");
-		expect(discards(run)).toEqual(["unneeded_question"]);
+		expect(run.result.text).toBe("Me diga se o Grok Bot é seu agente?");
+		expect(discards(run)).toEqual([]);
 	});
 
-	it("chat com lista de tarefas aberta também é barrado", async () => {
+	it("chat com lista de tarefas aberta: UMA nota 'você ainda tem itens abertos' e o texto já transmitido fica", async () => {
 		const run = await runChat({
 			stepMs: 1_000,
 			options: { promotable: false },
 			messages: [{ role: "user", content: "Pesquise o Grok Bot" }],
-			script: [OPEN(), say("Qual fonte você prefere?"), say("Usei a fonte oficial. Resultado: ...")],
+			script: [
+				research(0.01),
+				OPEN(),
+				say("Qual fonte você prefere?"),
+				(seen) => {
+					expect(seen.lastUser).toContain("You still have open items");
+					expect(seen.lastUser).toContain("Pesquisar");
+					expect(seen.transcript).toContain("Qual fonte você prefere?");
+					return turn([taskList([["Pesquisar", "completed"], ["Entregar", "completed"]])], 0.01);
+				},
+				say("Usei a fonte oficial. Resultado: ..."),
+			],
 		});
 		expect(run.result.text).toContain("Usei a fonte oficial");
-		expect(discards(run)).toEqual(["unneeded_question"]);
+		expect(discards(run)).toEqual([]);
+		expect(run.events.some((event) => event.type === "assistant_delta" && event.delta === "Qual fonte você prefere?")).toBe(true);
 	});
 
 	it("chat curto: resposta com ? depois de uma tool NÃO é descartada (oferta que fecha a entrega passa)", async () => {
@@ -284,11 +292,6 @@ describe("perguntar só no começo (v2)", () => {
 		expect(discards(run)).toEqual([]);
 	});
 
-	it("o portão age uma vez só: a segunda pergunta passa", async () => {
-		const run = await runChat({ stepMs: 1_000, options: LONG, messages: [{ role: "user", content: "Pesquise" }], script: [OPEN(), CLOSE(), say("Qual fonte você prefere?"), say("Ainda tenho uma dúvida: qual período?")] });
-		expect(run.result.text).toBe("Ainda tenho uma dúvida: qual período?");
-	});
-
 	it("pergunta de algo irreversível, externo ou dinheiro não é barrada; nem pergunta antes de qualquer trabalho", async () => {
 		const risky = await runChat({ stepMs: 1_000, options: LONG, messages: [{ role: "user", content: "Pesquise" }], script: [OPEN(), CLOSE(), say("Posso enviar o e-mail para o fornecedor agora?")] });
 		expect(risky.result.text).toBe("Posso enviar o e-mail para o fornecedor agora?");
@@ -296,15 +299,6 @@ describe("perguntar só no começo (v2)", () => {
 		expect(start.result.text).toBe("Qual período você quer?");
 	});
 
-	it("midWorkQuestion: só a pergunta, curta e sem termo de risco", () => {
-		expect(midWorkQuestion("Quer que eu detalhe mais algum ponto?")).toBe(true);
-		expect(midWorkQuestion("Qual fonte você prefere? Posso usar a oficial?")).toBe(true);
-		expect(midWorkQuestion("Está R$ 5,10. Quer que eu monitore?")).toBe(false);
-		expect(midWorkQuestion("Posso apagar o arquivo antigo?")).toBe(false);
-		expect(midWorkQuestion("Vou pagar o boleto agora, pode ser?")).toBe(false);
-		expect(midWorkQuestion("Resultado pronto.")).toBe(false);
-		expect(midWorkQuestion(`${words(80)} Quer mais?`)).toBe(false);
-	});
 });
 
 describe("tempo da conta é teto duro; promoção sobrevive à falha de gravação", () => {
@@ -357,14 +351,14 @@ describe("nunca pedir 'continua'", () => {
 		const texts: string[] = [
 			...ENGINE_V2_UNATTENDED,
 			ENGINE_V2_PROMOTED_NOTE,
-			UNASKED_MIDWORK_NOTE,
+			continuedWorkNote(["Pesquisar"]),
+			openItemsNote(["Pesquisar"]),
 			WRAP_UP_NOTE,
-			RESERVE_GAPS_NOTE,
-			RESERVE_WRITE_NOTE,
+			STAGNATION_ACTION_NOTE,
 			DOCUMENT_BUDGET_NOTE,
-			DOCUMENT_DELIVERY_NOTE,
+			DOCUMENT_STOPPED_NOTE,
 			DOCUMENT_DONE_INSTRUCTION,
-			...(["budget_cost", "budget_wall", "budget_steps", "loop_repeat"] as const).map(deliveryInstruction),
+			...(["budget_cost", "budget_wall", "budget_steps", "loop_repeat", "tool_failures"] as const).map((reason) => deliveryInstruction(reason)),
 		];
 		for (const language of ["pt-BR", "en-US", "es-ES"] as const) {
 			texts.push(documentMissingNote(language), SYSTEM_MESSAGES[language].stopFallback("x"));
@@ -521,7 +515,8 @@ describe("promoção decidida pelo modelo: lista de tarefas com 3+ passos (v2)",
 					expect(seen.toolNames).toEqual(expect.arrayContaining(["notebook_write", "update_task_list"]));
 					return say("Resumo pronto.", 0.1);
 				},
-				// Trabalho longo sem lista pode pedir uma rodada a mais antes de entregar.
+				// Trabalho longo sem lista recebe até 3 lembretes antes de entregar.
+				say("Resumo pronto.", 0.1),
 				say("Resumo pronto.", 0.1),
 				say("Resumo pronto.", 0.1),
 			],
@@ -606,6 +601,22 @@ describe("promoção decidida pelo modelo: lista de tarefas com 3+ passos (v2)",
 		}
 	});
 
+	it("run de bot sem humano promove pela lista de 3+ itens quando o worker permite (canPromote); sem permissão, não", async () => {
+		const run = await runChat({
+			stepMs: 5_000,
+			extra: { origin: "bot", humanTurn: false },
+			script: [three, say("Feito.", 0.1), say("Feito.", 0.1), say("Feito.", 0.1), say("Feito.", 0.1)],
+		});
+		expect(run.onPromoted).toHaveBeenCalledTimes(1);
+		const denied = await runChat({
+			stepMs: 5_000,
+			options: { promotable: false, onPromoted: undefined },
+			extra: { origin: "bot", humanTurn: false },
+			script: [three, say("Feito.", 0.1), say("Feito.", 0.1), say("Feito.", 0.1), say("Feito.", 0.1)],
+		});
+		expect(denied.onPromoted).not.toHaveBeenCalled();
+	});
+
 	it("o prazo das operações do computador acompanha o teto do dono (1,25x); sem teto não há prazo (nunca Infinity)", async () => {
 		const deadlines: Array<number | undefined> = [];
 		const manager = { withExecutionContext: (context: { deadlineAtMs?: number }) => (deadlines.push(context.deadlineAtMs), {}) } as never;
@@ -633,58 +644,55 @@ describe("promoção decidida pelo modelo: lista de tarefas com 3+ passos (v2)",
 	});
 });
 
-describe("anunciar sem fazer (v2)", () => {
+describe("anunciar sem fazer (v2): sinal estrutural, sem regex e sem apagar texto", () => {
 	const discards = (run: Awaited<ReturnType<typeof runChat>>) => run.events.filter((event) => event.type === "assistant_discard").map((event) => (event as { reason?: string }).reason);
+	const OPEN_LIST = () => turn([taskList([["Abrir o Gemini", "completed"], ["Pedir o resumo ao Gemini", "in_progress"]])], 0.01);
 
-	it("replay: 'Vou pedir o resumo ao Gemini.' sem tool call volta ao modelo uma vez, que executa a tool", async () => {
+	it("replay: 'Vou pedir o resumo ao Gemini.' com itens abertos volta ao modelo uma vez; NENHUM assistant_discard e a fala continua na conversa", async () => {
 		const run = await runChat({
 			stepMs: 1_000,
 			options: { promotable: false },
 			messages: [{ role: "user", content: "abra o Gemini e peça um resumo desse vídeo" }],
 			script: [
 				research(0.01),
+				OPEN_LIST(),
 				say("Vou pedir o resumo ao Gemini."),
 				(seen) => {
-					expect(seen.lastUser).toContain("announced an action but called no tool");
+					expect(seen.lastUser).toContain("You still have open items");
+					expect(seen.lastUser).toContain("Pedir o resumo ao Gemini");
+					// O modelo continua vendo a própria fala: ela não foi retirada do histórico.
+					expect(seen.transcript).toContain("Vou pedir o resumo ao Gemini.");
 					return turn([call("memory_search", { query: "resumo do vídeo" })], 0.01);
 				},
+				turn([taskList([["Abrir o Gemini", "completed"], ["Pedir o resumo ao Gemini", "completed"]])], 0.01),
 				say("Resumo do vídeo: ... (fonte: Gemini)."),
 			],
 		});
-		expect(discards(run)).toEqual(["announced_action"]);
+		expect(discards(run)).toEqual([]);
+		expect(run.events.filter((event) => event.type === "assistant_delta" && event.delta === "Vou pedir o resumo ao Gemini.")).toHaveLength(1);
 		expect(run.result.text).toContain("Resumo do vídeo");
-		expect(run.seen).toHaveLength(4);
+		expect(run.seen).toHaveLength(6);
 	});
 
-	it("o portão age uma vez só; pergunta, entrega real e promessa de avisar não são barradas; sem trabalho iniciado também não", async () => {
-		const twice = await runChat({ stepMs: 1_000, options: { promotable: false }, messages: [{ role: "user", content: "faça" }], script: [research(0.01), say("Vou abrir a página agora."), say("Agora vou pedir o resumo.")] });
-		expect(twice.result.text).toBe("Agora vou pedir o resumo.");
-		expect(discards(twice)).toEqual(["announced_action"]);
-		const offer = await runChat({ stepMs: 1_000, options: { promotable: false }, messages: [{ role: "user", content: "dólar?" }], script: [research(0.01), say("Está R$ 5,10. Quer que eu monitore?")] });
-		expect(discards(offer)).toEqual([]);
-		const done = await runChat({ stepMs: 1_000, options: { promotable: false }, messages: [{ role: "user", content: "resuma" }], script: [research(0.01), say(`Resumo pronto: ${words(70)}. Vou continuar de olho.`)] });
-		expect(discards(done)).toEqual([]);
-		const notify = await runChat({ stepMs: 1_000, options: { promotable: false }, messages: [{ role: "user", content: "monitora" }], script: [research(0.01), say("Criei o alerta. Vou te avisar quando mudar.")] });
-		expect(discards(notify)).toEqual([]);
-		const early = await runChat({ stepMs: 1_000, messages: [{ role: "user", content: "oi" }], script: [say("Vou te ajudar com isso.")] });
-		expect(discards(early)).toEqual([]);
-	});
-
-	it("announcesAction: promessa curta sem pergunta em pt-BR, inglês e espanhol", () => {
-		for (const text of ["Vou pedir o resumo ao Gemini.", "Agora vou clicar em enviar.", "Deixa eu abrir o painel.", "I'll ask Gemini now.", "Let me open the dashboard.", "Voy a abrir el panel."]) expect(announcesAction(text), text).toBe(true);
-		for (const text of ["", "Quer que eu monitore?", "Vou pedir o resumo ao Gemini?", "Resumo pronto.", "Vou te avisar quando mudar.", `${words(60)} vou pedir`]) expect(announcesAction(text), text).toBe(false);
-	});
-
-	it("announcesAction: respostas finais que parecem promessa mas não são NÃO são barradas; anúncios reais, sim (inclusive com apóstrofo curvo)", () => {
-		for (const text of [
-			"Pronto, o resumo está acima. Let me know if you want changes.",
-			"Não vou conseguir abrir o site, ele bloqueou o acesso.",
-			"Feito! Criei a rotina. Vou rodar toda segunda às 9h.",
-			"Pronto, enviei o e-mail. Vou aguardar a resposta dele.",
-			"I'll need your password to continue.",
-			"Não consegui acessar. Vou precisar que você faça o login.",
-		]) expect(announcesAction(text), text).toBe(false);
-		for (const text of ["I\u2019ll ask Gemini now.", "Vou pedir o resumo ao Gemini.", "Agora vou abrir o painel."]) expect(announcesAction(text), text).toBe(true);
+	it("o texto da promessa NÃO decide nada: qualquer texto sem tool com itens abertos recebe o mesmo lembrete (até 3 por run); sem lista, nada acontece", async () => {
+		for (const text of ["Vou abrir a página agora.", "Pronto, está acima.", "Aqui está."]) {
+			const run = await runChat({ stepMs: 1_000, options: { promotable: false }, messages: [{ role: "user", content: "faça" }], script: [research(0.01), OPEN_LIST(), say(text), turn([taskList([["A", "completed"], ["B", "completed"]])], 0.01), say("Segunda resposta.")] });
+			expect(run.result.text, text).toBe("Segunda resposta.");
+			expect(discards(run), text).toEqual([]);
+		}
+		// No máximo 3 lembretes por run: a 4a resposta sem tool passa.
+		const many = await runChat({ stepMs: 1_000, options: { promotable: false }, messages: [{ role: "user", content: "faça" }], script: [research(0.01), OPEN_LIST(), say("um"), say("dois"), say("três"), say("quatro")] });
+		expect(many.result.text).toBe("quatro");
+		expect(many.seen).toHaveLength(6);
+		// Sem lista no run: promessa solta passa direto (vale só a regra do prompt).
+		const noList = await runChat({ stepMs: 1_000, options: { promotable: false }, messages: [{ role: "user", content: "faça" }], script: [research(0.01), say("Vou abrir a página agora.")] });
+		expect(noList.result.text).toBe("Vou abrir a página agora.");
+		// Lista toda concluída: não há item aberto.
+		const closed = await runChat({ stepMs: 1_000, options: { promotable: false }, messages: [{ role: "user", content: "faça" }], script: [research(0.01), turn([taskList([["A", "completed"], ["B", "completed"]])], 0.01), say("Vou te avisar quando mudar.")] });
+		expect(closed.result.text).toBe("Vou te avisar quando mudar.");
+		// Sem trabalho iniciado, nem com lista herdada: nada.
+		const early = await runChat({ stepMs: 1_000, options: { promotable: false }, messages: [{ role: "user", content: "oi" }], script: [say("Vou te ajudar com isso.")] });
+		expect(early.result.text).toBe("Vou te ajudar com isso.");
 	});
 
 	it("o prompt manda chamar a tool no mesmo passo e não passar a execução ao usuário", () => {
@@ -695,25 +703,70 @@ describe("anunciar sem fazer (v2)", () => {
 		expect(core).not.toMatch(/Time is the budget/);
 		expect(core).toMatch(/Never announce an action/);
 		expect(core).toMatch(/never hand the execution to the user/);
-		expect(ANNOUNCED_ACTION_NOTE).toMatch(/call the tool in this step/);
+		expect(openItemsNote(["x"])).toMatch(/calling the tool in this step/);
 	});
 });
 
-describe("\"continua\" depois de um trabalho com itens abertos (v2)", () => {
+describe("herança por estado depois de um trabalho com itens abertos (v2): só contexto, nunca perfil nem portão", () => {
 	const OPEN_LIST = [{ content: "Abrir o painel", status: "completed" }, { content: "Pedir o resumo ao Gemini", status: "in_progress" }, { content: "Montar o relatório", status: "pending" }] as never;
 	const NOTEBOOK = [{ id: "n1", title: "Painel", excerpt: "Entrei no painel com o login da loja", kind: "finding", author: "coordinator", step: 1 }] as never;
+	const NOTE = /stopped with open items/;
 
-	it("mensagem curta de continuação promove o chat pela lista herdada e semeia o caderno; o caderno anterior volta ao modelo", async () => {
+	it("assunto novo depois de um run com itens abertos: leva a nota, mas não promove, não sofre cobrança, não propaga e não grava 'Não deu para confirmar'", async () => {
+		for (const text of ["continua", "e quanto custa o frete?", "Bom dia"]) {
+			const run = await runChat({
+				stepMs: 5_000,
+				messages: [{ role: "user", content: text }],
+				extra: { priorOpenItems: OPEN_LIST, priorNotebook: NOTEBOOK, continuedWork: true },
+				script: [
+					(seen) => {
+						expect(seen.transcript, text).toMatch(NOTE);
+						expect(seen.transcript, text).toContain("Pedir o resumo ao Gemini");
+						expect(seen.transcript, text).toContain("otherwise ignore them");
+						// A lista antiga é só contexto: o rastreador está vazio, sem cartão e sem portão.
+						expect(seen.transcript, text).not.toContain("Current task list");
+						return say("Bom dia! O frete sai por R$ 20.", 0.1);
+					},
+				],
+			});
+			expect(run.onPromoted, text).not.toHaveBeenCalled();
+			expect(run.seen, text).toHaveLength(1);
+			// Nenhum lembrete, nenhuma pendência no texto e nada para o run seguinte herdar (stop sem items_open).
+			expect(run.result.text, text).toBe("Bom dia! O frete sai por R$ 20.");
+			expect(run.result.stop, text).toEqual({ reason: "answered" });
+			expect(run.events.filter((event) => event.type === "task_list"), text).toHaveLength(0);
+		}
+	});
+
+	it("assunto novo com trabalho iniciado: item herdado e não tocado não recebe o lembrete de itens abertos", async () => {
+		const run = await runChat({
+			stepMs: 1_000,
+			options: { promotable: false },
+			messages: [{ role: "user", content: "e quanto custa o frete?" }],
+			extra: { priorOpenItems: OPEN_LIST, continuedWork: true },
+			script: [research(0.01), say("O frete sai por R$ 20.")],
+		});
+		expect(run.seen).toHaveLength(2);
+		expect(run.result.text).toBe("O frete sai por R$ 20.");
+		expect(run.result.stop).toEqual({ reason: "answered" });
+	});
+
+	it("continuação real: o modelo atualiza a lista mantendo os itens, então promove, recebe o caderno e pode retomar", async () => {
 		const run = await runChat({
 			stepMs: 5_000,
 			messages: [{ role: "user", content: "continua" }],
-			extra: { priorTaskList: OPEN_LIST, priorNotebook: NOTEBOOK },
+			extra: { priorOpenItems: OPEN_LIST, priorNotebook: NOTEBOOK, continuedWork: true },
 			script: [
+				(seen) => {
+					expect(seen.transcript).toMatch(NOTE);
+					return turn([taskList([["Abrir o painel", "completed"], ["Pedir o resumo ao Gemini", "in_progress"], ["Montar o relatório", "pending"]])], 0.1);
+				},
 				turn([call("notebook_read", {})], 0.1),
 				(seen) => {
 					expect(seen.transcript).toContain("Entrei no painel");
 					return say("Feito.", 0.1);
 				},
+				say("Feito.", 0.1),
 				say("Feito.", 0.1),
 				say("Feito.", 0.1),
 			],
@@ -721,12 +774,20 @@ describe("\"continua\" depois de um trabalho com itens abertos (v2)", () => {
 		expect(run.onPromoted).toHaveBeenCalledTimes(1);
 	});
 
-	it("continuação automática (autoContinued) com a instrução do worker também promove pela lista herdada e recebe o caderno", async () => {
+	it("sem o estado (último run entregue), nem 'continua' herda nada: o texto não decide", async () => {
+		const run = await runChat({ stepMs: 5_000, messages: [{ role: "user", content: "continua" }], extra: { priorTaskList: OPEN_LIST, priorNotebook: NOTEBOOK }, script: [say("Ok.")] });
+		expect(run.onPromoted).not.toHaveBeenCalled();
+		expect(run.seen[0]!.transcript).not.toMatch(NOTE);
+	});
+
+	it("continuação automática (autoContinued) é a MESMA tarefa: a lista do pai semeia o rastreador, mas só promove se o modelo a atualizar", async () => {
+		const instruction = "Continue the previous task from where it stopped. Do not repeat steps that are already done.";
 		const run = await runChat({
 			stepMs: 5_000,
-			messages: [{ role: "user", content: "Continue the previous task from where it stopped. Do not repeat steps that are already done." }],
+			messages: [{ role: "user", content: instruction }],
 			extra: { priorTaskList: OPEN_LIST, priorNotebook: NOTEBOOK, autoContinued: true },
 			script: [
+				turn([taskList([["Abrir o painel", "completed"], ["Pedir o resumo ao Gemini", "in_progress"], ["Montar o relatório", "pending"]])], 0.1),
 				turn([call("notebook_read", {})], 0.1),
 				(seen) => {
 					expect(seen.transcript).toContain("Entrei no painel");
@@ -734,17 +795,13 @@ describe("\"continua\" depois de um trabalho com itens abertos (v2)", () => {
 				},
 				say("Feito.", 0.1),
 				say("Feito.", 0.1),
+				say("Feito.", 0.1),
 			],
 		});
 		expect(run.onPromoted).toHaveBeenCalledTimes(1);
-		// Sem o sinal de continuação automática a mesma mensagem longa não promove nem usa o caderno antigo.
-		const plain = await runChat({
-			stepMs: 5_000,
-			messages: [{ role: "user", content: "Continue the previous task from where it stopped. Do not repeat steps that are already done." }],
-			extra: { priorTaskList: OPEN_LIST, priorNotebook: NOTEBOOK },
-			script: [say("Ok.")],
-		});
-		expect(plain.onPromoted).not.toHaveBeenCalled();
+		// A lista herdada sozinha (sem o modelo mantê-la) não promove.
+		const untouched = await runChat({ stepMs: 5_000, messages: [{ role: "user", content: instruction }], extra: { priorTaskList: OPEN_LIST, priorNotebook: NOTEBOOK, autoContinued: true }, script: [say("Ok.")] });
+		expect(untouched.onPromoted).not.toHaveBeenCalled();
 	});
 
 	it("a mesma lista herdada com outra mensagem (ou sem humano) não promove nem usa o caderno antigo", async () => {
@@ -752,5 +809,89 @@ describe("\"continua\" depois de um trabalho com itens abertos (v2)", () => {
 		expect(other.onPromoted).not.toHaveBeenCalled();
 		const bot = await runChat({ stepMs: 5_000, messages: [{ role: "user", content: "continua" }], extra: { humanTurn: false, origin: "bot", priorTaskList: OPEN_LIST }, options: { promotable: false, onPromoted: undefined }, script: [say("Ok.")] });
 		expect(bot.onPromoted).not.toHaveBeenCalled();
+	});
+
+	it("termina com itens abertos DESTE run: o stop leva items_open (o próximo turno recebe a nota); com a lista fechada, não", async () => {
+		const open = await runChat({ stepMs: 1_000, options: { promotable: false }, messages: [{ role: "user", content: "faça" }], script: [research(0.01), turn([taskList([["Abrir o Gemini", "completed"], ["Pedir o resumo ao Gemini", "in_progress"]])], 0.01), say("um"), say("dois"), say("três"), say("quatro")] });
+		expect(open.result.stop).toEqual({ reason: "answered", detail: "items_open" });
+		const closed = await runChat({ stepMs: 1_000, options: { promotable: false }, messages: [{ role: "user", content: "faça" }], script: [research(0.01), turn([taskList([["A", "completed"], ["B", "completed"]])], 0.01), say("Pronto.")] });
+		expect(closed.result.stop).toEqual({ reason: "answered" });
+	});
+});
+
+describe("caso real do Cookie: pedido com 'compare' e 5 cliques iguais (motor sem regex de comportamento)", () => {
+	const PEDIDO = "abra o vídeo, peça o resumo ao Gemini e compare com Hermes, Dots e Grok Bot";
+	const BAD_WORDS = /\b(budget|limit|time)\b/i;
+	const fiveSameClicks = () => Array.from({ length: 6 }, () => turn([call("memory_search", { query: "pular anúncio" })], 0.01));
+
+	it("loop_repeat sem nenhum teto: nenhuma mensagem do runtime ao modelo fala em budget, limit ou time, e 'compare' não vira documento", async () => {
+		const run = await runChat({
+			stepMs: 2_000,
+			messages: [{ role: "user", content: PEDIDO }],
+			script: [
+				threeStepList(0.01),
+				...fiveSameClicks(),
+				(seen) => {
+					// Fechamento da entrega: diz que a abordagem não funcionou, sem falar em teto.
+					expect(seen.lastUser).toMatch(/did not work/);
+					return say("Não consegui pular o anúncio: o botão não respondeu. Posso tentar abrir o vídeo por outro caminho.", 0.01);
+				},
+			],
+		});
+		expect(run.result.stop?.reason).toBe("loop_repeat");
+		expect(run.onPromoted).toHaveBeenCalledTimes(1);
+		// Pedido com "compare" NÃO é tratado como documento: nada de create_file forçado, nenhuma nota de documento.
+		expect(run.persisted).toHaveLength(0);
+		expect(run.seen.every((seen) => !seen.runtimeNotes.includes(DOCUMENT_BUDGET_NOTE) && !seen.runtimeNotes.includes(DOCUMENT_STOPPED_NOTE))).toBe(true);
+		for (const seen of run.seen) expect(seen.runtimeNotes, seen.runtimeNotes).not.toMatch(BAD_WORDS);
+		expect(run.events.some((event) => event.type === "assistant_discard")).toBe(false);
+	});
+
+	it("teto configurado (US$ 0,25 no servidor): a instrução cita o valor e a origem e manda contar ao usuário onde mudar", async () => {
+		const run = await runChat({
+			stepMs: 2_000,
+			messages: [{ role: "user", content: PEDIDO }],
+			extra: { budget: { maxCostUsd: 0.25 } },
+			options: { capSources: { cost: "server" } },
+			script: [research(0.3), (seen) => { expect(seen.lastUser).toContain("US$ 0.25"); expect(seen.lastUser).toMatch(/server configuration/); return say("O teto de gasto do servidor (US$ 0,25) acabou.", 0); }],
+		});
+		expect(run.result.stop).toMatchObject({ reason: "budget_cost" });
+	});
+
+	it("deliverable 'document' declarado pelo modelo escreve o documento mesmo numa parada por repetição, com a nota SEM 'budget'; sem declaração não há fallback", async () => {
+		const declared = await runChat({
+			stepMs: 2_000,
+			messages: [{ role: "user", content: PEDIDO }],
+			script: [
+				turn([taskList([["Abrir", "in_progress"], ["Comparar", "pending"], ["Montar", "pending"]], "document")], 0.01),
+				...fiveSameClicks(),
+				(seen) => { expect(seen.lastUser).toContain(DOCUMENT_STOPPED_NOTE); expect(seen.lastUser).not.toMatch(BAD_WORDS); return turn([call("create_file", { filename: "parcial.md", content: `# Parcial\n\n${words(40)}` })], 0.01); },
+				say("Salvei o que consegui.", 0.01),
+			],
+		});
+		expect(declared.persisted).toHaveLength(1);
+		const undeclared = await runChat({
+			stepMs: 2_000,
+			messages: [{ role: "user", content: PEDIDO }],
+			script: [threeStepList(0.01), ...fiveSameClicks(), say("Parei.", 0.01)],
+		});
+		expect(undeclared.persisted).toHaveLength(0);
+		expect(undeclared.seen.at(-1)!.toolNames).toEqual(undeclared.seen.at(-1)!.toolNames);
+	});
+
+	it("deliverable 'document' declarado NÃO cria portão: a resposta em texto passa e o run só lembra do arquivo no resultado da lista", async () => {
+		const run = await runChat({
+			stepMs: 2_000,
+			options: { profile: "long_work", promotable: false },
+			messages: [{ role: "user", content: "Faça um relatório" }],
+			script: [
+				turn([taskList([["Pesquisar", "in_progress"], ["Entregar", "pending"]], "document")], 0.01),
+				turn([taskList([["Pesquisar", "completed"], ["Entregar", "completed"]], "document")], 0.01),
+				say(`Relatório no chat. ${words(400)}`, 0.01),
+			],
+		});
+		expect(run.result.text).toContain("Relatório no chat.");
+		expect(run.events.some((event) => event.type === "assistant_discard")).toBe(false);
+		expect(run.seen[1]!.transcript).toContain("remember to create it with create_file");
 	});
 });

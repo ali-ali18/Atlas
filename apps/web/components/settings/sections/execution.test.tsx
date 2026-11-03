@@ -65,7 +65,7 @@ test("Execução: herdando, cada dropdown mostra a origem e o valor", () => {
 	const html = render();
 	assert.match(html, /Herdar \(padrão\)/, "paciência");
 	assert.match(html, /Herdar \(sem limite\)/, "tamanho da resposta");
-	assert.match(html, /Herdar \(300 passos\)/);
+	assert.match(html, /Herdar \(200 passos\)/);
 	assert.match(html, /Herdar \(30 min\)/);
 	const fromServer = render({
 		effective: effective({ maxOutputTokens: { value: 8192, source: "env" }, llmTimeouts: { value: LLM_TIMEOUT_PRESET_VALUES.short, source: "env" } }),
@@ -83,7 +83,7 @@ test("Execução: valor do usuário aparece escolhido, sem 'Herdar (valor)'", ()
 	});
 	assert.match(html, />25 passos</);
 	assert.match(html, />Estendido</);
-	assert.doesNotMatch(html, /Herdar \(300 passos\)/);
+	assert.doesNotMatch(html, /Herdar \(200 passos\)/);
 });
 
 test("Execução: switches mostram o padrão herdado; do usuário trazem 'Voltar ao padrão' (só a disciplina)", () => {

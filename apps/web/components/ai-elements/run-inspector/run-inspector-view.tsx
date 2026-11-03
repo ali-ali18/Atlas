@@ -340,6 +340,12 @@ export function RunInspectorView({ inspection, onCopy, copied = false }: { inspe
 					<dd>{inspection.status}</dd>
 				</div>
 			</dl>
+			{inspection.stop ? (
+				<p className="rounded-lg bg-muted px-3 py-2 text-xs" data-run-stop={inspection.stop.reason}>
+					<span className="text-muted-foreground">{t("aiElements.inspector.view.stopReason")}: </span>
+					{inspection.stop.label}
+				</p>
+			) : null}
 			{inspection.context ? <p className="rounded-lg bg-muted px-3 py-2 text-xs">{describeContext(inspection.context, translator)}</p> : null}
 			{inspection.approvals.filter((approval) => approval.plan).map((approval) => (
 				<p className="rounded-lg bg-muted px-3 py-2 text-xs" data-run-plan key={approval.id}>

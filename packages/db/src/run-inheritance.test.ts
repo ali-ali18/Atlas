@@ -6,7 +6,7 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, test } from "node:test";
 import type { RunInputRecord } from "@workspace/shared";
-import { buildQueuedRunData, createFollowUpRun, getConversationInheritance, readRunHumanTurn, readRunInheritance } from "./runs.js";
+import { buildQueuedRunData, createFollowUpRun, getConversationInheritance, lastChatRunStoppedWithOpenWork, readRunHumanTurn, readRunInheritance } from "./runs.js";
 import { FakeTable, installFakes } from "./testing/fake-tables.js";
 
 let runs: FakeTable;
@@ -89,4 +89,17 @@ test("buildQueuedRunData grava o herdado no budgetJson sem perder o resto; sem h
 	assert.deepEqual(data.budgetJson, { maxCostUsd: 1, contextLength: 1000, humanTurn: true, engine: "v2", engineProfile: "long_work" });
 	const plain = buildQueuedRunData({ request: { messages: [{ role: "user", content: "x" }] }, model: "m", userId: "u1", conversationId: "conv-1" });
 	assert.equal(plain.budgetJson, undefined);
+});
+
+test("escopo: o estado 'parou com itens abertos' é do dono; o usuário B não herda o do usuário A (nem com o legado default)", async () => {
+	runs.rows.push({ id: "open", userId: "u1", conversationId: "conv-1", origin: "chat", status: "completed", createdAt: new Date(5000), stopReason: "budget_steps", stopDetail: "delivered:items_open", budgetJson: LONG_WORK_PARENT });
+	assert.equal(await lastChatRunStoppedWithOpenWork("u1", "conv-1"), true);
+	// Outro dono, mesma conversa: nada.
+	assert.equal(await lastChatRunStoppedWithOpenWork("u2", "conv-1"), false);
+	assert.equal(await lastChatRunStoppedWithOpenWork("default", "conv-1"), false);
+	assert.equal(await lastChatRunStoppedWithOpenWork("u1", undefined), false);
+	// O próprio run em andamento é excluído; teto sem itens abertos não conta.
+	assert.equal(await lastChatRunStoppedWithOpenWork("u1", "conv-1", { excludeRunId: "open" }), false);
+	runs.rows.push({ id: "capped", userId: "u1", conversationId: "conv-1", origin: "chat", status: "completed", createdAt: new Date(7000), stopReason: "budget_steps", stopDetail: "delivered", budgetJson: LONG_WORK_PARENT });
+	assert.equal(await lastChatRunStoppedWithOpenWork("u1", "conv-1"), false);
 });

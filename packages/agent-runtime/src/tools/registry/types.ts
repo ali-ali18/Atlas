@@ -205,7 +205,7 @@ export type ToolContext = {
 	/** Regra de lição `confirm_always` (hooks): força o cartão de confirmação mesmo que a autonomia deixasse. */
 	forceConfirm?: boolean;
 	/** Cartão da lista de passos na thread: grava (um por run) e emite o evento. */
-	emitTaskList?: (items: Array<{ content: string; status: "pending" | "in_progress" | "completed" }>) => Promise<void>;
+	emitTaskList?: (items: Array<{ content: string; status: "pending" | "in_progress" | "completed" }>, meta?: { deliverable?: "document" | "answer" }) => Promise<void>;
 	/** V3: portão de entrega; lança com a nota ao modelo enquanto há itens abertos. */
 	deliveryGate?: { check: (event: "create_file") => void };
 	currentStep?: () => number;

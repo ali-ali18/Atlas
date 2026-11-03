@@ -39,3 +39,37 @@ Investigando as paradas no meio, apareceram mais quatro causas além do relógio
 - **Lock da fila (BullMQ):** o lock do job é renovado por `job.extendLock` enquanto o worker vive (`AGENT_RUN_LOCK_MS = 120 s`), então um run longo não é considerado parado; nada precisou mudar. Revisar se a renovação falhar em produção.
 - **Falso positivo do portão "vou fazer X":** texto curto de 1ª pessoa no futuro, sem "?", depois de trabalho iniciado, volta uma vez ao modelo (custa uma chamada). Promessa de avisar/lembrar não é barrada.
 - **Promoção por verbo de ação / 1ª tool de navegador:** mais chats viram trabalho longo (lista de tarefas e caderno); pedidos muito curtos com um verbo solto continuam chat.
+
+## Adendo (03/11/2026): sem regex de comportamento e só as travas que restam
+
+**Contexto.** Pedido real: "abra o vídeo, peça o resumo ao Gemini e compare com Hermes, Dots e Grok Bot". Em ~40 s o bot entregou "a tarefa acabou o limite... é um teto de gasto", mas não havia teto. A cadeia: "compare" casou a regex de documento; os cliques repetidos em "pular anúncio" geraram `loop_repeat`; a entrega de documento (`DOCUMENT_BUDGET_NOTE`) falava em "budget" para qualquer motivo; `ENGINE_V2_PROMOTED_NOTE` ("time is the budget") e `RESERVE_WRITE_NOTE` somaram; e o texto que o bot já tinha dito sumia (`assistant_discard`) antes da nota falsa.
+
+**Decisão do dono.** Decisão de comportamento do agente (parar, promover, entregar, portão) não usa regex sobre texto do usuário ou do modelo, porque é ambíguo: usa sinal estrutural (lista de tarefas, tools chamadas, estado do run, configuração) ou campo declarado pelo modelo numa tool. Regex só para coisa determinística. "Tira todas essas travas descartáveis." Regra em `.agents/rules/60-agente.md`.
+
+**O que mudou.**
+- `deliverable: "document" | "answer"` (declarado pelo modelo na `update_task_list` do v2) substitui `asksForDocument`/`declinesDocument`. Sem declaração não há fallback de documento; declarado, o resultado da lista só lembra de criar o arquivo.
+- Itens abertos na lista (sinal estrutural) substituem `announcesAction` e `midWorkQuestion`: até 3 lembretes "continue ou finalize" por run, sem apagar o texto já transmitido.
+- `looksLikeLongTask` e `isShortContinuation` saem: o run nasce em `chat`; promoção por lista de 3+ passos ou 1a tool de navegador; herança por estado (último run parou com itens abertos).
+- Notas de parada honestas por motivo, com valor e origem do teto (conta, servidor ou bot); `stopReason`/`stopDetail` visíveis na API e no inspetor.
+- Contexto que mantém o trabalho (higiene só na cópia enviada, 6 grupos inteiros, resumo antes do corte duro; `ATLAS_ENGINE_V2_CONTEXT_KEEP=off` desliga).
+
+**Travas que restam no motor v2, cada uma com o motivo:**
+1. **Tetos que o dono configurou** (US$ e tempo da conta, do servidor ou do bot), com aviso a 80% e entrega honesta a 100%: é dinheiro e tempo do dono, escolha dele.
+2. **Limite de 200 passos por execução** (`MAX_STEPS_SAFETY`, igual ao máximo da API): sem tempo nem dinheiro, é o que garante que um laço termina.
+3. **`loop_repeat`** (mesma tool, mesmos argumentos e mesmo resultado 5 vezes, depois de duas notas): repetir idêntico não avança e gasta.
+4. **10 falhas consecutivas de tool sem nenhum sucesso** (nota aos 8; `browser_wait` não conta): o ambiente está quebrado, não é a abordagem de uma tool.
+5. **Retry de resposta vazia ou cortada** (uma vez cada): a resposta não chegou inteira.
+6. **Lembrete de itens abertos** (até 3 por run, só nota, sem apagar texto): evita encerrar com o plano pela metade.
+7. **Timeouts técnicos, fila, rotinas sem humano, cartões de login e confirmação**: proteção de infraestrutura e de ações que só o usuário pode autorizar.
+
+**Removidas:** fases pesquisa/lacunas/escrita e catálogo filtrado por fase (`phaseAllows`/`phaseBlocked`), `PHASE_STRIKES_TO_DELIVER`, bloqueio temporário de tool (`toolBlocked`), aborto por falhas globais 8/11, fim da pesquisa por estagnação ou por 70% dos passos (`RESEARCH_*_RATIO`), rodada de lacunas (`GAP_*`), portão de documento que forçava `create_file`, portão de pergunta no meio do trabalho.
+
+**Alternativas descartadas.** Afinar as regex (mais palavras, exceções) só adia o próximo falso positivo; perguntar ao usuário a cada ambiguidade custa a autonomia que o produto promete; manter as fases "só como aviso" mantém a complexidade sem ganho (a nota ao modelo basta).
+
+**Riscos.** (a) Sem o portão de documento, uma resposta longa sem `deliverable` declarado sai no chat; mitigação: o prompt manda declarar. (b) Run em `auto` nasce em chat: rotina que antes virava `long_work` pelo texto agora depende de `workProfile` do bot. (c) A herança por estado faz uma consulta extra por mensagem digitada. (d) Contexto mantido pode custar mais tokens por passo quando os resultados são grandes (medido: +2,6% no passo 8 do replay YouTube->Gemini); `ATLAS_ENGINE_V2_CONTEXT_KEEP=off` volta ao comportamento anterior. (e) O rótulo do "Motivo da parada" vem do servidor em pt-BR.
+
+## Adendo 2 (03/11/2026): auditoria independente do PR #82
+
+- **Herança por estado só de contexto.** A primeira versão fazia qualquer mensagem digitada, depois de um run com itens abertos, herdar `long_work`, a lista e o portão: um assunto novo ficava contaminado e o ciclo se repetia. Agora a mensagem recebe só uma nota com os itens e o caderno; o modelo decide se continua (recriando a lista, o que então promove) ou ignora. O lembrete de itens abertos só cobra a lista do próprio run, e `stoppedWithOpenWork` exige itens abertos DO run (`items_open` no detalhe da parada). A continuação automática do worker (mesma tarefa) continua herdando a lista do pai.
+- **Origem do teto de passos.** `budgetJson.caps` guarda `steps` e, só quando o teto veio do dono (pedido, bot ou conta), `stepsSource`. O 200 de segurança do v2 não é "o que você configurou"; um teto do dono acima de 200 aparece como 200 efetivo.
+- **Promoção sem humano.** Decisão: rotina e run de bot sem humano PODEM virar trabalho longo no meio do run, por sinal estrutural (lista com 3+ itens, ou 1ª tool de navegador), porque sem isso uma rotina que abre o navegador ficava presa ao orçamento do chat curto. O teto de tempo de run sem humano (`unattendedWallMs`, até 30 min) continua valendo e passa a valer desde o início do run. Fora: verificação curta (alerta, brief, check, proativo) e e-mail/webhook (conteúdo de fora é dado, não ordem). Risco: uma rotina que abre o navegador agora recebe as tools e a nota de trabalho longo; custo limitado pelo teto de tempo e pelos tetos do dono.

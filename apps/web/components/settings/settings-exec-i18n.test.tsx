@@ -35,7 +35,7 @@ test("Execução em inglês: rótulos, notas de origem e opções de herança", 
 	assert.match(html, /for="settings-exec-discipline"[^>]*>Execution discipline</);
 	assert.match(html, /Server default: on/);
 	assert.match(html, /Summarizes near the model&#x27;s limit/);
-	assert.match(html, /Inherit \(300 steps\)/);
+	assert.match(html, /Inherit \(200 steps\)/);
 	assert.match(html, /Inherit \(30 min\)/);
 	assert.match(html, /Inherit \(no limit\)/);
 	assert.match(html, /Start the browser automatically/);
@@ -46,7 +46,7 @@ test("Execução em espanhol: formatos de número e memória", async () => {
 	const es = await tr("es-ES");
 	assert.equal(numberOptions(TOOL_RESULT_SPEC, { value: undefined, source: "default" }, "", es)[0]?.label, "Heredar (20 mil caracteres)");
 	assert.equal(numberOptions(MAX_OUTPUT_SPEC, { value: 8192, source: "user" }, "", es)[0]?.label, "Heredar del servidor");
-	assert.equal(numberOptions(MAX_STEPS_SPEC, { value: undefined, source: "env" }, "", es)[0]?.label, "Heredar (300 pasos)");
+	assert.equal(numberOptions(MAX_STEPS_SPEC, { value: undefined, source: "env" }, "", es)[0]?.label, "Heredar (200 pasos)");
 	assert.equal(numberOptions(MAX_WALL_SPEC, { value: 120, source: "user" }, "", es).at(-1)?.label, "2 h");
 	assert.equal(contextMemoryOptions(es)[1]?.label, "Económico");
 	assert.equal(switchInheritNote({ value: false, source: "default" }, es), "Predeterminado de la cuenta: desactivado");

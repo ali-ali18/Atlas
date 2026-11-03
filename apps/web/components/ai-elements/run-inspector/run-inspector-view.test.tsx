@@ -117,3 +117,12 @@ test("plano e regras: proposto, aprovado ou ajustado aparece; acertos das regras
 	const clean = renderToStaticMarkup(<RunInspectorView inspection={inspection} />);
 	assert.doesNotMatch(clean, /data-run-plan|data-run-hooks/);
 });
+
+test("mostra 'Motivo da parada' em pt-BR simples, só quando há um motivo a mostrar", () => {
+	const stopped: RunInspection = { ...inspection, stop: { reason: "budget_cost", detail: "delivered", label: "Teto de gasto configurado (US$ 0,25 · servidor)" } };
+	const html = renderToStaticMarkup(<RunInspectorView inspection={stopped} />);
+	assert.match(html, /Motivo da parada/);
+	assert.match(html, /Teto de gasto configurado \(US\$ 0,25 · servidor\)/);
+	assert.match(html, /data-run-stop="budget_cost"/);
+	assert.doesNotMatch(renderToStaticMarkup(<RunInspectorView inspection={inspection} />), /Motivo da parada/);
+});

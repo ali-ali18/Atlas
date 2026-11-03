@@ -191,6 +191,7 @@ export const aiElements = {
 	"aiElements.inspector.view.model": "Modelo",
 	"aiElements.inspector.view.steps": "Passos",
 	"aiElements.inspector.view.tools": "Ferramentas",
+	"aiElements.inspector.view.stopReason": "Motivo da parada",
 	"aiElements.inspector.view.withFailures": " ({count} com falha)",
 	"aiElements.inspector.view.inOut": "Entrada / saída",
 	"aiElements.inspector.view.cost": "Custo",

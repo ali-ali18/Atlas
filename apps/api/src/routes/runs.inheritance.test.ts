@@ -110,3 +110,18 @@ test("outro dono recebe 404 e nada é criado", async () => {
 	assert.equal(response.status, 404);
 	assert.equal(runs.rows.length, 1);
 });
+
+test("mensagem DIGITADA depois de um run que parou com itens abertos NÃO herda motor nem perfil (a herança é só de contexto, no worker)", async () => {
+	runs.rows[0]!.stopReason = "budget_steps";
+	runs.rows[0]!.stopDetail = "delivered:items_open";
+	const response = await appFor(OWNER).request("/v1/runs", {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ messages: [{ role: "user", content: "e quanto custa o frete?" }], conversationId: "conv-1", modelAuto: true }),
+	});
+	assert.equal(response.status, 202, await response.clone().text());
+	const created = runs.rows.find((row) => row.id !== "parent")!;
+	const budget = (created.budgetJson ?? {}) as Record<string, unknown>;
+	assert.equal(budget.engine, undefined);
+	assert.equal(budget.engineProfile, undefined);
+});
