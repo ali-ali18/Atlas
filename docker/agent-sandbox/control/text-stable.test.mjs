@@ -145,11 +145,11 @@ const fixtures = await launchFixtureBrowser({ "/foreign": foreignSpinner, "/blin
 after(() => fixtures?.close());
 const skip = fixtures ? false : "Chromium/playwright-core indisponível";
 
-async function open(path = "/stream") {
+async function open(path = "/stream", { ax = false } = {}) {
 	const page = await fixtures.newPage();
 	await page.goto(`${fixtures.base}${path}`);
 	const actions = createBrowserActions({ getPage: async () => page });
-	const refs = createRefActions({ withPageRetry: actions.withPageRetry, clickElement: actions.clickElement, axOn: () => false });
+	const refs = createRefActions({ withPageRetry: actions.withPageRetry, clickElement: actions.clickElement, axOn: () => ax });
 	actions.setObserver(refs.observeAction);
 	return { page, refs };
 }
@@ -175,6 +175,18 @@ test("real: text_stable por scope e por ref olha só o alvo", { skip }, async ()
 	const ref = /\[(e\d+)\]/.exec(snap.lines.find((l) => l.includes('"Ask"')))[1];
 	const byRef = await refs.browserWait({ for: "text_stable", ref, timeoutMs: 15_000 });
 	assert.equal(byRef.met, true, JSON.stringify(byRef));
+});
+
+test("real: text_stable aceita ref aN da árvore de acessibilidade (o agente também aceita)", { skip }, async () => {
+	const { refs, page } = await open("/stream", { ax: true });
+	const snap = await refs.browserSnapshot({});
+	assert.equal(snap.engine, "ax", "precisa do motor v2 para este teste");
+	const line = snap.lines.find((l) => l.includes('"Ask"'));
+	const ref = /\[(a\d+)\]/.exec(line)?.[1];
+	assert.ok(ref, line);
+	const res = await refs.browserWait({ for: "text_stable", ref, timeoutMs: 15_000 });
+	assert.equal(res.met, true, JSON.stringify(res));
+	assert.equal(await page.locator("[data-atlas-wait-target]").count(), 0, "a marca temporária some");
 });
 
 test("real: text_stable com teto curto e texto que cresce devolve met:false e o motivo", { skip }, async () => {

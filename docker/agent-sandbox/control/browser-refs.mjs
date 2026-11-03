@@ -20,7 +20,6 @@ export const WAIT_KINDS = ["text", "ref", "url", "network", "stable", "text_stab
 const MAX_TYPE_LENGTH = 20_000;
 const MAX_VALUE_LENGTH = 300;
 const REF_PATTERN = /^(?:f\d{1,3})?[ea]\d{1,5}$/;
-const DOM_REF_PATTERN = /^(?:f\d{1,3})?e\d{1,5}$/;
 const ACT_TIMEOUT_MS = 10_000;
 const MAX_DELTA = 12;
 export const WAIT_DEFAULT_MS = 8000;
@@ -78,7 +77,7 @@ export function parseWaitArgs(body) {
 	if (kind === "text_stable") {
 		// Alvo opcional: `ref` (de um read/snapshot) ou `scope` (seletor CSS). Sem nenhum, o bloco que mais mudou.
 		const ref = typeof body?.ref === "string" ? body.ref.trim() : "";
-		if (ref && !DOM_REF_PATTERN.test(ref)) throw new Error("ref inválido em text_stable: use um ref do browser_read/browser_snapshot (ex.: e12).");
+		if (ref && !REF_PATTERN.test(ref)) throw new Error("ref inválido em text_stable: use um ref do browser_read/browser_snapshot (ex.: a12 ou e12).");
 		const scope = typeof body?.scope === "string" ? body.scope.trim() : "";
 		if (scope.length > MAX_VALUE_LENGTH) throw new Error(`scope muito longo (máx. ${MAX_VALUE_LENGTH}).`);
 		if (ref) out.ref = ref;
@@ -408,7 +407,22 @@ export function createRefActions({
 				} else if (kind === "ref") {
 					met = await waitForRef(page, value, gone, started + timeoutMs);
 				} else if (kind === "text_stable") {
-					const stable = await waitForTextStable(page, registry, { ref, scope, timeoutMs, now, sleep: pause });
+					// Ref da árvore (aN): o sample mede por seletor, então marca o elemento resolvido por papel+nome.
+					let target = { ref, scope };
+					let unmark;
+					if (ref && isTreeRef(ref)) {
+						const found = await resolveRef(page, ref);
+						if (found.stale || !found.locator) throw new Error(found.stale ?? `Ref ${ref} não encontrado: tire um novo browser_snapshot.`);
+						await found.locator.evaluate((el) => el.setAttribute("data-atlas-wait-target", "1"));
+						unmark = () => found.locator.evaluate((el) => el.removeAttribute("data-atlas-wait-target")).catch(() => undefined);
+						target = { ref: undefined, scope: '[data-atlas-wait-target="1"]' };
+					}
+					let stable;
+					try {
+						stable = await waitForTextStable(page, registry, { ...target, timeoutMs, now, sleep: pause });
+					} finally {
+						await unmark?.();
+					}
 					met = stable.met;
 					if (!met) reason = stable.reason;
 					textInfo = { changed: stable.changed, textLength: stable.textLength, ...(stable.endSignal ? { endSignal: true } : {}) };
