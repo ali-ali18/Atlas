@@ -224,6 +224,11 @@ describe("motor v2: laço", () => {
 		expect(first.toolNames).toContain("mcp_tool_search");
 		expect(first.toolNames).toContain("web_search");
 		expect(first.system).toMatch(/Built-in tools loaded on demand/);
+		// Persistência (prompt do dono, 03/11): vai no núcleo do v2, curta, e o v2 continua menor que o v1 (comparação abaixo).
+		expect(first.system).toMatch(/keep going until the user's task is fully resolved before ending your turn/i);
+		expect(first.system).toMatch(/hand the work back to the user to continue/i);
+		expect(first.system).toMatch(/say what you did and what you could not confirm/i);
+		expect(first.system).not.toMatch(/\b(budget|time is)\b/i);
 
 		// Comparação com o v1 no mesmo pedido: o v2 não pode ficar mais caro na conversa curta.
 		const v1Requests: Request[] = [];
@@ -397,7 +402,7 @@ describe("motor v2: Supervisor no laço", () => {
 });
 
 describe("motor v2: lista de tarefas em trabalho longo", () => {
-	it("responder sem lista ou com itens abertos recebe UMA nota, sem apagar o texto; depois sai e marca no stop", async () => {
+	it("responder sem lista ou com itens abertos recebe até 3 lembretes, sem apagar o texto; depois sai e marca no stop", async () => {
 		const { result, requests, events } = await runV2({
 			messages: [
 				{
@@ -413,6 +418,7 @@ describe("motor v2: lista de tarefas em trabalho longo", () => {
 						["Conferir preços", "pending"],
 					]),
 				]),
+				say("Entrego sem conferir."),
 				say("Entrego mesmo assim."),
 				say("Entrega final."),
 			],
@@ -424,9 +430,9 @@ describe("motor v2: lista de tarefas em trabalho longo", () => {
 		expect(notes.some((text) => text.includes("Task list required"))).toBe(true);
 		// Texto já transmitido não some (regra de 03/11): nenhum assistant_discard.
 		expect(events.filter((event) => event.type === "assistant_discard")).toHaveLength(0);
-		// 1 nota gasta (sem lista): a próxima tentativa de entrega passa, marcada com os itens abertos.
+		// 3 lembretes gastos (sem lista + 2 com itens abertos): a próxima tentativa de entrega passa, marcada com os itens abertos.
 		expect(result.stop).toEqual({ reason: "answered", detail: "tasklist_open" });
-		expect(result.text).toContain("Entrego mesmo assim.");
+		expect(result.text).toContain("Entrega final.");
 		expect(result.text).toContain("Não deu para confirmar: Pesquisar concorrentes");
 		expect(result.text).toContain("Não deu para confirmar: Conferir preços");
 	});
@@ -481,5 +487,26 @@ describe("motor v2: nível de raciocínio", () => {
 	it("sem escolha, nada vai (padrão do modelo)", async () => {
 		const { requests } = await runV2({ messages, script: [say("oi")] });
 		expect(requests.every((request) => !("reasoningEffort" in request.params))).toBe(true);
+	});
+});
+
+describe("motor v2: limite de passos de segurança é o da API (200)", () => {
+	it("um run com maxSteps 150 NÃO é cortado em 100 passos e termina quando o modelo responde", async () => {
+		const steps = 120;
+		const script = [
+			...Array.from({ length: steps }, (_, index) => turn([call(`s${index}`, "memory_search", { query: `fonte distinta ${index}` })])),
+			say("Terminei depois de 120 passos."),
+		];
+		const { result, requests } = await runV2({ messages: [{ role: "user", content: "Pesquise tudo" }], script, params: { maxSteps: 150 } });
+		expect(result.stop).toEqual({ reason: "answered" });
+		expect(result.text).toBe("Terminei depois de 120 passos.");
+		expect(requests).toHaveLength(steps + 1);
+		expect(requests.every((request) => request.params.toolChoice !== "none")).toBe(true);
+	});
+
+	it("o teto de segurança continua valendo: pedir mais que 200 entrega no passo 200", async () => {
+		const script = [...Array.from({ length: 205 }, (_, index) => turn([call(`t${index}`, "memory_search", { query: `outra ${index}` })])), say("Entrega no limite de segurança.")];
+		const { result } = await runV2({ messages: [{ role: "user", content: "Pesquise tudo" }], script, params: { maxSteps: 300 } });
+		expect(result.stop).toMatchObject({ reason: "budget_steps" });
 	});
 });

@@ -28,7 +28,7 @@ import { CREATE_FILE_TOOL } from "../tools/create-file.js";
 import { INSPECT_PRESENTATION_TOOL } from "../tools/inspect-presentation.js";
 import { PAGE_READ_TOOL_NAME, PAGE_TOOLS, PAGE_UPDATE_TOOL_NAME } from "../tools/pages.js";
 import { RUN_CODE_TOOL } from "../tools/run-code.js";
-import { UPDATE_TASK_LIST_TOOL, shouldExposeTaskList } from "../tools/task-list.js";
+import { UPDATE_TASK_LIST_TOOL_V2, shouldExposeTaskList } from "../tools/task-list.js";
 import { ROUTINE_EXCLUDED_TOOLS } from "../tools/routine-excluded.js";
 import { isUnattendedOrigin } from "../autonomy-gate.js";
 import { SANDBOX_TOOL_NAMES } from "../tools/registry/sandbox-tools.js";
@@ -176,7 +176,7 @@ export function buildEngineV2Catalog(input: {
 		add(API_CALL_TOOL);
 	}
 	for (const tool of emailToolsFor(input.email)) add(tool);
-	if (shouldExposeTaskList({ origin: input.origin, isSubagent: false })) add(UPDATE_TASK_LIST_TOOL);
+	if (shouldExposeTaskList({ origin: input.origin, isSubagent: false })) add(UPDATE_TASK_LIST_TOOL_V2);
 	if (input.setEngine && !input.helper) add(SET_ENGINE_TOOL);
 	// Proativo, push avulso e alerta: as mesmas tools e condições do v1 (núcleo, nunca adiadas), fora dos ajudantes.
 	if (!input.helper) {

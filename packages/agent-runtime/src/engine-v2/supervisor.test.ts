@@ -6,6 +6,7 @@ import {
 	STAGNATION_ACTION_NOTE,
 	STAGNATION_STEPS,
 	WAIT_REPEAT_LIMIT,
+	GLOBAL_FAILURE_ABORT_AT,
 	GLOBAL_FAILURE_NOTE_AT,
 	deliveryInstruction,
 	WRAP_UP_NOTE,
@@ -436,16 +437,37 @@ describe("estagnação: só uma nota, sem mudar fase nem tirar tool", () => {
 	});
 });
 
-describe("falhas seguidas de qualquer tool: só nota, nunca encerra (trava removida em 03/11)", () => {
-	it("8 falhas seguidas de tools e alvos diferentes trazem uma nota; 100 falhas não geram abort", () => {
+describe("falhas consecutivas de qualquer tool: nota aos 8, entrega honesta aos 10 sem nenhum sucesso", () => {
+	const fail = (supervisor: ReturnType<typeof createSupervisor>, step: number, name = `tool_${step % 5}`) =>
+		supervisor.recordTool(record({ step, name, argsKey: `a${step}`, resultKey: `e${step}`, ok: false, target: `alvo-${step}`, message: `falhou ${step}` }));
+
+	it("a nota vem aos 8 e o aborto (tool_failures) só aos 10 consecutivos", () => {
 		const supervisor = createSupervisor({ profile: "long_work", budget });
 		const notes: string[] = [];
-		for (let step = 1; step <= 100; step += 1) {
-			const verdict = supervisor.recordTool(record({ step, name: `tool_${step % 5}`, argsKey: `a${step}`, resultKey: `e${step}`, ok: false, target: `alvo-${step}`, message: `falhou ${step}` }));
+		for (let step = 1; step < GLOBAL_FAILURE_ABORT_AT; step += 1) {
+			const verdict = fail(supervisor, step);
 			expect(verdict.abort, `passo ${step}`).toBeUndefined();
 			notes.push(...verdict.notes);
 		}
 		expect(notes.filter((note) => note.includes(`last ${GLOBAL_FAILURE_NOTE_AT} tool calls`))).toHaveLength(1);
+		expect(fail(supervisor, GLOBAL_FAILURE_ABORT_AT).abort).toEqual({ reason: "tool_failures", detail: "consecutive" });
+	});
+
+	it("um sucesso no meio zera a contagem; browser_wait não conta nem a favor nem contra", () => {
+		const supervisor = createSupervisor({ profile: "long_work", budget });
+		for (let step = 1; step <= 9; step += 1) fail(supervisor, step);
+		supervisor.recordTool(record({ step: 10, name: "web_search", argsKey: "ok", resultKey: "ok", ok: true }));
+		for (let step = 11; step <= 19; step += 1) expect(fail(supervisor, step).abort, `passo ${step}`).toBeUndefined();
+		// Esperas bem-sucedidas no meio das falhas não zeram a sequência...
+		const waiting = createSupervisor({ profile: "long_work", budget });
+		for (let step = 1; step <= 9; step += 1) {
+			fail(waiting, step);
+			waiting.recordTool(record({ step: 100 + step, name: "browser_wait", argsKey: `w${step}`, resultKey: `w${step}`, ok: true }));
+		}
+		expect(fail(waiting, 10).abort).toMatchObject({ reason: "tool_failures" });
+		// ...e esperas que falham não somam.
+		const failingWaits = createSupervisor({ profile: "long_work", budget });
+		for (let step = 1; step <= 30; step += 1) expect(failingWaits.recordTool(record({ step, name: "browser_wait", argsKey: `w${step}`, resultKey: `w${step}`, ok: false })).abort).toBeUndefined();
 	});
 });
 

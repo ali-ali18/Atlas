@@ -9,7 +9,7 @@ import type { BotLanguage, TaskListItem } from "@workspace/shared";
 
 export const DROPPED_PREFIX = "DROPPED:";
 /** Quantas vezes o portão devolve nota antes de deixar o modelo sair (e marcar no stop). */
-export const MAX_TASK_GATE_NOTES = 1;
+export const MAX_TASK_GATE_NOTES = 3;
 
 export function isDroppedItem(item: TaskListItem): boolean {
 	return item.status === "completed" && item.content.trim().toUpperCase().startsWith(DROPPED_PREFIX);

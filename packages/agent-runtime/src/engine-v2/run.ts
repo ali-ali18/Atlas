@@ -171,6 +171,8 @@ export type EngineV2Options = {
 };
 
 const CLOSING_CALL_TIMEOUT_MS = 60_000;
+/** Quantas vezes por run uma resposta sem tool, com itens abertos na lista, volta ao modelo com o lembrete. */
+const MAX_OPEN_ITEMS_RETURNS = 3;
 /** Mensagem de runtime que não foi escrita pelo usuário (o modelo não a responde como se fosse dele). */
 const AUTO_CONTEXT = "[auto-context, not written by the user]";
 
@@ -1266,8 +1268,8 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 
 	let finishRetries = 0;
 	let emptyRetries = 0;
-	// Aviso de itens abertos: volta ao modelo no máximo uma vez por run (o texto já transmitido nunca é apagado).
-	let openItemsReturned = false;
+	// Lembrete "continue ou finalize" com itens abertos: no máximo MAX_OPEN_ITEMS_RETURNS por run (o texto já transmitido nunca é apagado).
+	let openItemsReturns = 0;
 	if (!parsed && !helperRole && params.continuedWork === true && params.autoContinued !== true) conversation.push({ role: "user", content: `${AUTO_CONTEXT} ${CONTINUED_WORK_NOTE}` });
 	/** O run já usou navegador ou VM: num chat promovível isso vira trabalho longo no gate seguinte. */
 	let actionToolUsed = false;
@@ -1362,7 +1364,7 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 				// fica na conversa (nunca `assistant_discard`) e a nota volta ao modelo no máximo uma vez por run.
 				const verdict = taskGate.check(currentTaskItems());
 				if (verdict.kind === "note") {
-					openItemsReturned = true;
+					openItemsReturns += 1;
 					conversation.push({ role: "assistant", content: text });
 					conversation.push({ role: "user", content: `${AUTO_CONTEXT} ${verdict.text}` });
 					step += 1;
@@ -1370,8 +1372,8 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 				}
 				// Chat (sem a lista obrigatória do trabalho longo) com itens ABERTOS na lista do run e trabalho já iniciado: sinal estrutural,
 				// nunca regex sobre o texto ("vou pedir..."). Mesmo aviso, uma vez por run, sem apagar o que o usuário leu.
-				if (!openItemsReturned && !helperRole && !longWorkCoordinator && workStarted() && openItems(currentTaskItems()).length > 0) {
-					openItemsReturned = true;
+				if (openItemsReturns < MAX_OPEN_ITEMS_RETURNS && !helperRole && !longWorkCoordinator && workStarted() && openItems(currentTaskItems()).length > 0) {
+					openItemsReturns += 1;
 					conversation.push({ role: "assistant", content: text });
 					conversation.push({ role: "user", content: `${AUTO_CONTEXT} ${openItemsNote(openItems(currentTaskItems()).map((item) => item.content))}` });
 					step += 1;

@@ -267,8 +267,9 @@ describe("perguntar só no começo (v2)", () => {
 					expect(seen.lastUser).toContain("You still have open items");
 					expect(seen.lastUser).toContain("Pesquisar");
 					expect(seen.transcript).toContain("Qual fonte você prefere?");
-					return say("Usei a fonte oficial. Resultado: ...");
+					return turn([taskList([["Pesquisar", "completed"], ["Entregar", "completed"]])], 0.01);
 				},
+				say("Usei a fonte oficial. Resultado: ..."),
 			],
 		});
 		expect(run.result.text).toContain("Usei a fonte oficial");
@@ -514,7 +515,8 @@ describe("promoção decidida pelo modelo: lista de tarefas com 3+ passos (v2)",
 					expect(seen.toolNames).toEqual(expect.arrayContaining(["notebook_write", "update_task_list"]));
 					return say("Resumo pronto.", 0.1);
 				},
-				// Trabalho longo sem lista pode pedir uma rodada a mais antes de entregar.
+				// Trabalho longo sem lista recebe até 3 lembretes antes de entregar.
+				say("Resumo pronto.", 0.1),
 				say("Resumo pronto.", 0.1),
 				say("Resumo pronto.", 0.1),
 			],
@@ -646,24 +648,26 @@ describe("anunciar sem fazer (v2): sinal estrutural, sem regex e sem apagar text
 					expect(seen.transcript).toContain("Vou pedir o resumo ao Gemini.");
 					return turn([call("memory_search", { query: "resumo do vídeo" })], 0.01);
 				},
+				turn([taskList([["Abrir o Gemini", "completed"], ["Pedir o resumo ao Gemini", "completed"]])], 0.01),
 				say("Resumo do vídeo: ... (fonte: Gemini)."),
 			],
 		});
 		expect(discards(run)).toEqual([]);
 		expect(run.events.filter((event) => event.type === "assistant_delta" && event.delta === "Vou pedir o resumo ao Gemini.")).toHaveLength(1);
 		expect(run.result.text).toContain("Resumo do vídeo");
-		expect(run.seen).toHaveLength(5);
+		expect(run.seen).toHaveLength(6);
 	});
 
-	it("o texto da promessa NÃO decide nada: qualquer texto sem tool com itens abertos recebe a mesma nota (uma vez); sem lista, nada acontece", async () => {
+	it("o texto da promessa NÃO decide nada: qualquer texto sem tool com itens abertos recebe o mesmo lembrete (até 3 por run); sem lista, nada acontece", async () => {
 		for (const text of ["Vou abrir a página agora.", "Pronto, está acima.", "Aqui está."]) {
-			const run = await runChat({ stepMs: 1_000, options: { promotable: false }, messages: [{ role: "user", content: "faça" }], script: [research(0.01), OPEN_LIST(), say(text), say("Segunda resposta.")] });
+			const run = await runChat({ stepMs: 1_000, options: { promotable: false }, messages: [{ role: "user", content: "faça" }], script: [research(0.01), OPEN_LIST(), say(text), turn([taskList([["A", "completed"], ["B", "completed"]])], 0.01), say("Segunda resposta.")] });
 			expect(run.result.text, text).toBe("Segunda resposta.");
 			expect(discards(run), text).toEqual([]);
 		}
-		// Uma vez só: a segunda resposta sem tool passa.
-		const twice = await runChat({ stepMs: 1_000, options: { promotable: false }, messages: [{ role: "user", content: "faça" }], script: [research(0.01), OPEN_LIST(), say("Vou abrir a página agora."), say("Agora vou pedir o resumo.")] });
-		expect(twice.result.text).toBe("Agora vou pedir o resumo.");
+		// No máximo 3 lembretes por run: a 4a resposta sem tool passa.
+		const many = await runChat({ stepMs: 1_000, options: { promotable: false }, messages: [{ role: "user", content: "faça" }], script: [research(0.01), OPEN_LIST(), say("um"), say("dois"), say("três"), say("quatro")] });
+		expect(many.result.text).toBe("quatro");
+		expect(many.seen).toHaveLength(6);
 		// Sem lista no run: promessa solta passa direto (vale só a regra do prompt).
 		const noList = await runChat({ stepMs: 1_000, options: { promotable: false }, messages: [{ role: "user", content: "faça" }], script: [research(0.01), say("Vou abrir a página agora.")] });
 		expect(noList.result.text).toBe("Vou abrir a página agora.");
@@ -708,6 +712,7 @@ describe("\"continua\" depois de um trabalho com itens abertos (v2)", () => {
 					},
 					say("Feito.", 0.1),
 					say("Feito.", 0.1),
+					say("Feito.", 0.1),
 				],
 			});
 			expect(run.onPromoted, text).toHaveBeenCalledTimes(1);
@@ -731,6 +736,7 @@ describe("\"continua\" depois de um trabalho com itens abertos (v2)", () => {
 					expect(seen.transcript).toContain("Entrei no painel");
 					return say("Feito.", 0.1);
 				},
+				say("Feito.", 0.1),
 				say("Feito.", 0.1),
 				say("Feito.", 0.1),
 			],

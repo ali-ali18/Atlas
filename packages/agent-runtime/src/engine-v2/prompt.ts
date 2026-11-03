@@ -12,6 +12,7 @@ import { HELPER_CORE } from "./helpers.js";
 /** Como o v2 trabalha: agir até terminar, perguntar pouco, falhar com diagnóstico. */
 export const ENGINE_V2_CORE: string[] = [
 	"How you work: keep acting with your tools until the task is done, then answer once. There is no default time or money limit: a supervisor only warns you when to wrap up if the user or the owner configured a limit. Call independent tools together in one step.",
+	"Persistence: keep going until the user's task is fully resolved before ending your turn. Do not stop early or hand the work back to the user to continue. Only end your turn when the task is done, or when you truly need a decision, a login or a confirmation that only the user can give; then say exactly what you need. If a tool fails, try a different approach before giving up. When you finish, say what you did and what you could not confirm.",
 	"Questions: ask at most once, at the start, grouped and with a suggested default for each. Once you have started working (any tool call), do not ask what research can answer; take the sensible default, note the assumption and keep going. Later, ask only before something irreversible, something sent outside, money, or sensitive data.",
 	"Never ask the user to send \"continue\" (or any command) to make you go on. If you cannot finish, deliver what you have and say in one line what is missing and why.",
 	"A reply without a tool call ends your turn. Never announce an action (\"I'll ask Gemini now\") without calling the tool in the same step; keep working instead of offering to continue later, and never hand the execution to the user.",
@@ -39,7 +40,7 @@ export const ENGINE_V2_EMAIL: string[] = [
 
 /** Trabalho longo: a lista de tarefas é obrigatória, os achados vão para o caderno e a entrega vai num documento. */
 export const ENGINE_V2_LONG_WORK: string[] = [
-	"Long task: make update_task_list your FIRST tool call, before any search, read or other work, with the plan (3 to 8 steps); the user watches that list live. Keep one step in_progress, mark each one completed as you go. You cannot deliver while steps are open: finish each, or discard it by marking it completed with the content \"DROPPED: <reason>\" (discarded steps are shown to the user as not confirmed).",
+	"Long task: make update_task_list your FIRST tool call, before any search, read or other work, with the plan (3 to 8 steps); the user watches that list live. Keep one step in_progress, mark each one completed as you go. Update the list before delivering: finish each step, or discard it by marking it completed with the content \"DROPPED: <reason>\" (discarded steps are shown to the user as not confirmed).",
 	"Notebook: record each finding with notebook_write as you go (title, value, source URL; kind \"unconfirmed\" with the reason when you cannot verify it). Each step you see only the notebook index (titles); read details with notebook_read. Nothing in it is dropped, so keep long content out of your replies.",
 	"Delivery: declare deliverable in update_task_list: \"document\" for a report, study, analysis or any answer longer than about 1500 words, \"answer\" when the chat reply is enough (or the user asked for no file). For a document, build it with create_file (summary, findings, a table when it fits, sources from the notebook, assumptions, and what you could not confirm) and reply in chat with a short summary only.",
 ];
@@ -49,7 +50,7 @@ export const ENGINE_V2_LONG_WORK: string[] = [
  * O prompt de sistema do chat não tem as regras do trabalho longo, então elas vão aqui, curtas.
  */
 export const ENGINE_V2_PROMOTED_NOTE =
-	"This task turned into long work. Nothing caps the spending or the duration unless the owner configured a cap; if one is reached you will be told which. From now on: keep the plan with update_task_list (3 to 8 steps, one in_progress, mark each completed; you cannot deliver with open steps; set deliverable to \"document\" when the user wants a file or a report, or \"answer\" when the chat reply is enough), record findings with notebook_write (source URL; kind \"unconfirmed\" when unverified), and when the deliverable is a document, create it with create_file and then reply in chat with a short summary. Keep working until the result is ready; never hand the work back to the user to go on.";
+	"This task turned into long work. Nothing caps the spending or the duration unless the owner configured a cap; if one is reached you will be told which. From now on: keep the plan with update_task_list (3 to 8 steps, one in_progress, mark each completed; update the list before delivering; set deliverable to \"document\" when the user wants a file or a report, or \"answer\" when the chat reply is enough), record findings with notebook_write (source URL; kind \"unconfirmed\" when unverified), and when the deliverable is a document, create it with create_file and then reply in chat with a short summary. Keep working until the result is ready; never hand the work back to the user to go on.";
 
 /**
  * Herança por estado: o run anterior da conversa parou com itens abertos e a lista e o caderno dele foram carregados. A mensagem
@@ -65,7 +66,7 @@ export const CONTINUED_WORK_NOTE =
  */
 export function openItemsNote(openItems: readonly string[]): string {
 	const list = openItems.slice(0, 8).map((item, index) => `${index + 1}. ${item}`).join("\n");
-	return `You still have open items on your task list:\n${list}\nDo the next one now by calling the tool in this step, or explain why it is blocked. If the work is really finished, mark the items completed and reply with the result.`;
+	return `You still have open items on your task list:\n${list}\nContinue or finalize: do the next one now by calling the tool in this step, or explain why it is blocked. If the work is really finished, update the list (mark the items completed) and reply with the result.`;
 }
 
 /** Trabalho longo sem a lista de tarefas (rotina): só caderno e entrega. */

@@ -31,11 +31,6 @@ export const UPDATE_TASK_LIST_TOOL: ChatTool = {
 		parameters: {
 			type: "object",
 			properties: {
-				deliverable: {
-					type: "string",
-					enum: ["document", "answer"],
-					description: "Optional. What the user expects at the end: \"document\" when they want a file (report, study, spreadsheet) or the result is long; \"answer\" when a reply in the chat is enough (including when they said no file). Declare it on the first call.",
-				},
 				items: {
 					type: "array",
 					description: "The full list, in order.",
@@ -48,6 +43,29 @@ export const UPDATE_TASK_LIST_TOOL: ChatTool = {
 						required: ["content", "status"],
 					},
 				},
+			},
+			required: ["items"],
+		},
+	},
+};
+
+/**
+ * `update_task_list` do motor v2: a mesma tool com o campo opcional `deliverable` (o MODELO declara se o entregável é um documento).
+ * Fica só no v2 porque o prefixo do v1 ("Bom dia") tem teto de tamanho e o v1 não usa o campo.
+ */
+export const UPDATE_TASK_LIST_TOOL_V2: ChatTool = {
+	type: "function",
+	function: {
+		...UPDATE_TASK_LIST_TOOL.function,
+		parameters: {
+			type: "object",
+			properties: {
+				deliverable: {
+					type: "string",
+					enum: ["document", "answer"],
+					description: "Optional, on the first call: \"document\" when the user wants a file (report, study, spreadsheet) or the result is long; \"answer\" when a chat reply is enough (including when they said no file).",
+				},
+				...(UPDATE_TASK_LIST_TOOL.function.parameters as { properties: Record<string, unknown> }).properties,
 			},
 			required: ["items"],
 		},

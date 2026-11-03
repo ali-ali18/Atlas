@@ -7,8 +7,8 @@
  *  1. `gate`: antes de cada chamada ao modelo, deixa seguir, promove o chat, avisa UMA vez a ~80% de um teto que o DONO
  *     configurou (US$ ou tempo) ou manda a última chamada SEM tools quando o teto acaba (ou os passos de segurança).
  *     Estagnação (8 passos sem resultado novo) vira só uma nota "mude de abordagem".
- *  2. `recordTool`: nota ao modelo para falhas seguidas e para repetição idêntica; só a repetição idêntica (5 iguais,
- *     depois de duas notas) encerra o laço. Falha seguida NUNCA encerra nem bloqueia tool.
+ *  2. `recordTool`: nota ao modelo para falhas seguidas e para repetição idêntica. Só encerram: a repetição idêntica (5 iguais,
+ *     depois de duas notas) e 10 falhas CONSECUTIVAS sem nenhum sucesso. Falha de uma tool nunca a bloqueia.
  */
 import type { RunStop } from "@workspace/shared";
 
@@ -48,8 +48,15 @@ export const WAIT_REPEAT_LIMIT = 30;
 const WAIT_TOOLS = /^(sandbox_shell_wait|browser_wait|shell_output|wait_for\w*|sandbox_wait\w*)$/;
 /** Falhas seguidas da MESMA tool (mesmo alvo) que viram uma nota. Só nota: a tool continua disponível. */
 export const FAILURE_NOTE_AFTER = 3;
-/** Falhas seguidas de QUALQUER tool (alvos diferentes inclusive) viram uma nota. Só nota: nunca encerra o run. */
+/** Falhas CONSECUTIVAS de qualquer tool (alvos diferentes inclusive, nenhum sucesso no meio) viram uma nota. */
 export const GLOBAL_FAILURE_NOTE_AT = 8;
+/**
+ * ...e, se continuarem sem nenhum sucesso no meio, encerram com a entrega honesta (`tool_failures`). É a única trava por falha que
+ * sobrou: o ambiente está quebrado, não é a abordagem de uma tool. Esperar (`browser_wait`) não conta para nem contra.
+ */
+export const GLOBAL_FAILURE_ABORT_AT = 10;
+/** Tools de espera: não contam como falha nem como sucesso na sequência de falhas. */
+const FAILURE_NEUTRAL_TOOLS = /^browser_wait$/;
 
 export function budgetForProfile(
 	profile: SupervisorProfile,
@@ -313,9 +320,10 @@ export function createSupervisor(config: {
 				seenResultKeys.add(`${record.name}|${record.resultKey}`);
 				novelResults += 1;
 			}
-			// Falhas seguidas de qualquer tool: só nota (ver `GLOBAL_FAILURE_NOTE_AT`); o run nunca acaba por isso.
-			consecutiveFailures = record.ok ? 0 : consecutiveFailures + 1;
+			// Falhas consecutivas de qualquer tool: nota aos 8; aos 10 sem nenhum sucesso no meio, entrega honesta.
+			if (!FAILURE_NEUTRAL_TOOLS.test(record.name)) consecutiveFailures = record.ok ? 0 : consecutiveFailures + 1;
 			if (consecutiveFailures === GLOBAL_FAILURE_NOTE_AT) notes.push(globalFailureNote(consecutiveFailures));
+			if (consecutiveFailures >= GLOBAL_FAILURE_ABORT_AT) return { notes, abort: { reason: "tool_failures", detail: "consecutive" } };
 			// Falhas seguidas da MESMA tool no mesmo alvo: só nota, a tool segue disponível.
 			if (record.ok) failureStreak.delete(record.name);
 			else {
