@@ -5,6 +5,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { CloseIcon } from "@/components/icons";
 import { Avatar } from "@/components/ui/avatar";
 import { ShapeOption } from "@/components/ui/shape-option";
+import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { Text } from "@/components/ui/text";
 import { useAtlasSession } from "@/lib/atlas-session";
@@ -14,6 +15,8 @@ import { cn } from "@/lib/cn";
 import { useHomeData } from "@/lib/home-data";
 import { canCreateBot, shapeLabel, NEW_BOT_COLORS, NEW_BOT_SHAPES, randomAvatar, seededRandom } from "@/lib/new-bot";
 import { createNewBotSubmitter } from "@/lib/new-bot-submit";
+import { chatChrome } from "@/lib/chat-surface";
+import { chunkRows, COLORS_PER_ROW, GRID_SHAPE_CELL, GRID_SHAPE_SIZE, needsExpanded, SHAPES_PER_ROW, visibleShapes } from "@/lib/shape-ring";
 import { themeColor } from "@/lib/theme";
 import { useAppColorScheme } from "@/lib/use-theme";
 
@@ -32,6 +35,8 @@ export default function NewBotScreen() {
 	const [name, setName] = React.useState("");
 	const [shape, setShape] = React.useState(initial.shape);
 	const [color, setColor] = React.useState(initial.color);
+	// A forma sorteada pode estar depois da 3a linha: a grade já abre expandida para ela aparecer.
+	const [expanded, setExpanded] = React.useState(() => needsExpanded(NEW_BOT_SHAPES, initial.shape));
 	const [busy, setBusy] = React.useState(false);
 	const [error, setError] = React.useState<string | null>(null);
 	const latest = React.useRef({ apiFetch, signOut, addBot, refresh });
@@ -77,13 +82,15 @@ export default function NewBotScreen() {
 		setBusy(false);
 		setError(outcome.error);
 	};
+	// Mesma pele dos controles do chat (o RoundButton do topo): fill e borda do chatChrome.
+	const chrome = chatChrome(scheme);
 	const neutral = themeColor(scheme, "muted-foreground");
 	return (
 		<SafeAreaView className="flex-1 bg-background">
 			<Stack.Screen options={{ gestureEnabled: !busy }} />
 			<KeyboardAvoidingView behavior="padding" className="flex-1">
 				<View className="flex-row items-center gap-3 px-4 pt-1.5">
-					<Pressable role="button" accessibilityLabel="Fechar" accessibilityState={{ disabled: busy }} disabled={busy} onPress={close} className={cn("size-11 items-center justify-center rounded-full bg-secondary active:opacity-70", busy && "opacity-40")}>
+					<Pressable role="button" accessibilityLabel="Fechar" accessibilityState={{ disabled: busy }} disabled={busy} onPress={close} style={{ backgroundColor: chrome.fill, borderColor: chrome.edge }} className={cn("size-11 items-center justify-center rounded-full border active:opacity-70", busy && "opacity-40")}>
 						<CloseIcon size={20} tone="foreground" />
 					</Pressable>
 					<Text className="text-lg font-semibold">Criar novo Bot</Text>
@@ -102,29 +109,40 @@ export default function NewBotScreen() {
 						returnKeyType="done"
 						onSubmitEditing={() => void create()}
 						editable={!busy}
-						className="h-14 w-full rounded-full bg-secondary px-6 text-center text-xl text-foreground outline-none"
+						style={{ backgroundColor: chrome.fill, borderColor: chrome.edge }}
+						className="h-14 w-full rounded-full border px-6 text-center text-xl text-foreground outline-none"
 					/>
-					{/* Três linhas à vista (a referência); a lista é a do editor de avatar e do web e rola por dentro. */}
-					<ScrollView nestedScrollEnabled className="mt-4 w-full flex-none" style={{ height: 3 * 60 }} showsVerticalScrollIndicator={false}>
-					<View accessibilityRole="radiogroup" className="w-full flex-row flex-wrap">
-						{NEW_BOT_SHAPES.map((item, index) => (
-							<View key={item} className="w-1/5 items-center py-0.5">
-								<ShapeOption shape={item} color={neutral} label={shapeLabel(index, NEW_BOT_SHAPES.length)} selected={item === shape} cell={56} size={44} eyeColor={themeColor(scheme, "background")} onPress={() => setShape(item)} />
+					{/* Três linhas à vista (a referência) e "Ver mais" para as demais; a lista é a do editor de avatar e do web. */}
+					<View accessibilityRole="radiogroup" className="mt-3 w-full">
+						{chunkRows(visibleShapes(NEW_BOT_SHAPES, expanded), SHAPES_PER_ROW).map((row, rowIndex) => (
+							<View key={rowIndex} className="w-full flex-row justify-between">
+								{row.map((item, column) =>
+									item === null ? (
+										<View key={`gap-${column}`} style={{ width: GRID_SHAPE_CELL, height: GRID_SHAPE_CELL }} />
+									) : (
+										<ShapeOption key={item} shape={item} color={neutral} label={shapeLabel(NEW_BOT_SHAPES.indexOf(item), NEW_BOT_SHAPES.length)} selected={item === shape} cell={GRID_SHAPE_CELL} size={GRID_SHAPE_SIZE} eyeColor={themeColor(scheme, "background")} surface={themeColor(scheme, "background")} onPress={() => setShape(item)} />
+									),
+								)}
 							</View>
 						))}
 					</View>
-					</ScrollView>
-					<View accessibilityRole="radiogroup" className="mt-2 w-full flex-row flex-wrap">
-						{NEW_BOT_COLORS.map((item) => {
-							const selected = item.value.toLowerCase() === color.toLowerCase();
-							return (
-								<View key={item.id} className="w-1/6 items-center py-1">
-									<Pressable role="radio" accessibilityLabel={`Cor ${item.name}`} accessibilityState={{ checked: selected }} onPress={() => setColor(item.value)} className={cn("size-11 items-center justify-center rounded-full border-2", selected ? "border-foreground" : "border-transparent")}>
-										<View style={{ backgroundColor: item.value, borderColor: themeColor(scheme, "border") }} className="size-8 rounded-full border" />
-									</Pressable>
-								</View>
-							);
-						})}
+					<Button variant="ghost" size="sm" accessibilityState={{ expanded }} accessibilityLabel={expanded ? "Ver menos formas" : "Ver mais formas"} onPress={() => setExpanded((value) => !value)} className="mt-1">
+						<Text>{expanded ? "Ver menos" : "Ver mais"}</Text>
+					</Button>
+					<View accessibilityRole="radiogroup" className="mt-2 w-full">
+						{chunkRows(NEW_BOT_COLORS, COLORS_PER_ROW).map((row, rowIndex) => (
+							<View key={rowIndex} className="w-full flex-row justify-between py-1">
+								{row.map((item, column) => {
+									if (item === null) return <View key={`gap-${column}`} className="size-10" />;
+									const selected = item.value.toLowerCase() === color.toLowerCase();
+									return (
+										<Pressable key={item.id} role="radio" accessibilityLabel={`Cor ${item.name}`} accessibilityState={{ checked: selected }} onPress={() => setColor(item.value)} style={{ borderColor: selected ? chrome.edge : "transparent" }} className="size-10 items-center justify-center rounded-full border-2">
+											<View style={{ backgroundColor: item.value, borderColor: themeColor(scheme, "border") }} className="size-8 rounded-full border" />
+										</Pressable>
+									);
+								})}
+							</View>
+						))}
 					</View>
 				</ScrollView>
 				<View className="gap-2 px-4 pb-3 pt-2">
