@@ -93,7 +93,7 @@ export function parseReadToolArgs(args: Record<string, unknown>): ReadArgs {
 export const SPARSE_READ_MAX_CHARS = 800;
 
 /** Resultado de `browser_read`: cabeçalho com `chars a-b of total` (a chave de releitura usa o começo), texto e dicas. */
-export function formatRead(result: ControlReadResult, requested: ReadArgs = {}): string {
+export function formatRead(result: ControlReadResult, requested: ReadArgs = {}, options: { canSeeImages?: boolean } = {}): string {
 	const offset = result.offset ?? 0;
 	const end = offset + result.text.length;
 	const meta = [`chars ${offset}-${end} of ${result.totalLength}`, `view ${result.view}`];
@@ -121,7 +121,14 @@ export function formatRead(result: ControlReadResult, requested: ReadArgs = {}):
 	if (!result.expanded && offset === 0 && !result.truncated && result.totalLength <= SPARSE_READ_MAX_CHARS) {
 		notes.push("Very little text. If the page is still loading, call browser_wait (for:\"stable\") and read again before concluding it is empty.");
 	}
-	if (result.capped) notes.push("The page was cut at the reading cap and the text may not include what you triggered or expect on screen (a side panel, chat answer, overlay): take a screenshot and read it before asking the user.");
+	if (result.capped) {
+		// Só quem enxerga imagem recebe a saída por screenshot; os demais seguem com busca/escopo.
+		notes.push(
+			options.canSeeImages === false
+				? "The page was cut at the reading cap; use browser_find or scope your question to what you need."
+				: "The page was cut at the reading cap and the text may not include what you triggered or expect on screen (a side panel, chat answer, overlay): take a screenshot and read it before asking the user.",
+		);
+	}
 	if (notes.length > 0) lines.push(notes.join("\n"));
 	return lines.join("\n");
 }
@@ -165,9 +172,10 @@ export async function executeComputerReadTool(
 			const fields = await readLoginFields(ctx.manager, await ctx.getSessionId(), page);
 			const login = checkLoginWall(ctx, { ...page, ...(fields ? { fields } : {}) });
 			return {
-				summary: redactSecrets(`${formatRead(result, parsed)}${login?.note ?? ""}`),
+				summary: redactSecrets(`${formatRead(result, parsed, { canSeeImages: ctx.canSeeImages })}${login?.note ?? ""}`),
 				loginEvent: login?.loginEvent,
-				...(result.capped ? { vision: "capped" as const } : {}),
+				// Só a 1ª página: ao paginar, cada chunk anexaria outra imagem da mesma tela.
+				...(result.capped && (result.offset ?? 0) === 0 ? { vision: "capped" as const } : {}),
 			};
 		}
 		case "browser_find": {

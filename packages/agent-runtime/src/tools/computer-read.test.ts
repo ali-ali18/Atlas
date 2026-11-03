@@ -150,5 +150,8 @@ describe("formatRead: leitura cortada", () => {
 		expect(capped.vision).toBe("capped");
 		const normal = await executeComputerReadTool("browser_read", {}, ctx({ execBrowserRead: vi.fn(async () => read()) }));
 		expect(normal.vision).toBeUndefined();
+		// Paginando (offset > 0) a mesma tela não vira uma imagem por chunk.
+		const paged = await executeComputerReadTool("browser_read", { offset: 8000 }, ctx({ execBrowserRead: vi.fn(async () => read({ capped: true, offset: 8000 })) }));
+		expect(paged.vision).toBeUndefined();
 	});
 });
