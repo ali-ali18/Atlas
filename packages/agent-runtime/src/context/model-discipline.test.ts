@@ -23,7 +23,9 @@ describe("disciplina de execução por família de modelo", () => {
 		for (const model of ["anthropic/claude-sonnet-4.5", "google/gemini-2.5-pro", "deepseek/deepseek-chat"]) {
 			const block = disciplineForModel(model);
 			expect(block.startsWith("Execution discipline:\n")).toBe(true);
-			expect(block).toContain("never end with a promise to check or do it later");
+			expect(block).toContain("A reply without a tool call ends your turn");
+			// Uma linha só: o laço v2 não repete a regra no núcleo.
+			expect(block.match(/ends your turn/g)).toHaveLength(1);
 			expect(block).toContain("Claim only what a tool result in this task shows.");
 		}
 	});
@@ -33,7 +35,7 @@ describe("disciplina de execução por família de modelo", () => {
 		expect(full).toContain("call the tool instead of describing what you would do");
 		expect(full).toContain("Numbers come from tools");
 		expect(full).toContain("valid JSON that matches the schema");
-		expect(full).toContain("Ask at most one question, and only when you are blocked.");
+		expect(full).toContain("Ask only when you are blocked");
 		const claude = disciplineForModel("anthropic/claude-sonnet-4.5");
 		expect(claude).not.toContain("valid JSON");
 		expect(claude).not.toContain("call the tool instead of describing");

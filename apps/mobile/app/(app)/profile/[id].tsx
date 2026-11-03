@@ -2,15 +2,17 @@ import { resolveColor, resolveShape } from "@workspace/shared/avatar/identity";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
 import * as React from "react";
-import { Pressable, ScrollView, Switch, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { ScrollView, View } from "react-native";
 import { PrimaryBadge } from "@/components/home/bot-avatar";
 import { SoonSheet } from "@/components/home/soon-sheet";
-import { RoundButton } from "@/components/chat/chat-top-bar";
-import { ChevronLeftIcon, ChevronRightIcon, ClockIcon, CodeIcon, LibraryIcon, MonitorIcon } from "@/components/icons";
+import { ChevronRightIcon, ClockIcon, CodeIcon, LibraryIcon, MonitorIcon } from "@/components/icons";
 import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
+import { ScreenFrame } from "@/components/ui/screen-frame";
+import { ScreenHeader } from "@/components/ui/screen-header";
+import { SurfaceGroup, SurfaceRow } from "@/components/ui/surface-card";
 import { Text } from "@/components/ui/text";
+import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import { useAtlasSession } from "@/lib/atlas-session";
 import { webChatUrl } from "@/lib/chat-links";
 import { runStatusLine, useBotRun } from "@/lib/run-store";
@@ -46,12 +48,8 @@ export default function ProfileScreen() {
 		if (url) void WebBrowser.openBrowserAsync(url).catch(() => undefined);
 	};
 	return (
-		<SafeAreaView className="flex-1 bg-background">
-			<View className="flex-row items-center justify-between px-4 pt-1.5">
-				<RoundButton label="Voltar" onPress={goBack}>
-					<ChevronLeftIcon />
-				</RoundButton>
-			</View>
+		<ScreenFrame>
+			<ScreenHeader onBack={goBack} />
 			{bot ? (
 				<ScrollView contentContainerClassName="items-center gap-5 px-4 pb-10 pt-4">
 					<View className="size-24 items-center justify-center">
@@ -62,26 +60,23 @@ export default function ProfileScreen() {
 					<Button variant="secondary" onPress={() => router.push(`/edit/${encodeURIComponent(id)}` as never)}>
 						<Text>Editar</Text>
 					</Button>
-					<View className="w-full overflow-hidden rounded-panel bg-card">
-						{ROWS.map((row, index) => (
-							<Pressable key={row.key} role="button" accessibilityLabel={row.key === "executions" ? `${row.label}. ${runStatusLine(run)}` : row.key === "routines" || row.key === "library" ? row.label : `${row.label}. Abrir no navegador`} onPress={row.key === "executions" ? () => router.push(`/executions/${encodeURIComponent(id)}` as never) : row.key === "routines" ? () => router.push(`/routines/${encodeURIComponent(id)}` as never) : row.key === "library" ? () => router.push(`/library/${encodeURIComponent(id)}` as never) : openWeb} className="min-h-16 flex-row items-center gap-4 px-5 active:bg-muted/60">
+					<SurfaceGroup className="w-full">
+						{ROWS.map((row) => (
+							<SurfaceRow key={row.key} label={row.key === "executions" ? `${row.label}. ${runStatusLine(run)}` : row.key === "routines" || row.key === "library" ? row.label : `${row.label}. Abrir no navegador`} onPress={row.key === "executions" ? () => router.push(`/executions/${encodeURIComponent(id)}` as never) : row.key === "routines" ? () => router.push(`/routines/${encodeURIComponent(id)}` as never) : row.key === "library" ? () => router.push(`/library/${encodeURIComponent(id)}` as never) : openWeb} className="min-h-16">
 								{row.icon}
 								<Text className="text-lg">{row.label}</Text>
 								<View className="min-w-0 flex-1 items-end">{row.key === "executions" ? <Text numberOfLines={1} variant="muted" className="text-control">{runStatusLine(run)}</Text> : null}</View>
 								<ChevronRightIcon />
-								{index < ROWS.length - 1 ? <View className="absolute bottom-0 left-0 right-0 h-px bg-border" /> : null}
-							</Pressable>
+							</SurfaceRow>
 						))}
-					</View>
+					</SurfaceGroup>
 					<View className="w-full gap-2">
-						<View className="min-h-16 flex-row items-center justify-between rounded-panel bg-card px-5">
-							<Text className="text-lg">Notificações</Text>
-							<Pressable accessibilityLabel="Notificações (em breve)" onPress={() => setSoon("Notificações")}>
-								<View pointerEvents="none">
-									<Switch value={false} disabled trackColor={{ false: themeColor(scheme, "input"), true: botColors(resolveColor(bot.color, bot.id), { accent: themeColor(scheme, "primary"), foreground: themeColor(scheme, "primary-foreground") }).accent }} />
-								</View>
-							</Pressable>
-						</View>
+						<SurfaceGroup>
+							<SurfaceRow className="min-h-16 justify-between">
+								<Text className="text-lg">Notificações</Text>
+								<ToggleSwitch accessibilityLabel="Notificações (em breve)" value={false} onValueChange={() => setSoon("Notificações")} color={botColors(resolveColor(bot.color, bot.id), { accent: themeColor(scheme, "primary"), foreground: themeColor(scheme, "primary-foreground") }).accent} />
+							</SurfaceRow>
+						</SurfaceGroup>
 						<Text variant="muted" className="px-2 text-control">
 							Receba uma notificação quando este Bot terminar ou estiver aguardando você. Em breve.
 						</Text>
@@ -95,6 +90,6 @@ export default function ProfileScreen() {
 				</View>
 			)}
 			<SoonSheet open={soon !== null} title={soon ?? ""} onClose={() => setSoon(null)} />
-		</SafeAreaView>
+		</ScreenFrame>
 	);
 }

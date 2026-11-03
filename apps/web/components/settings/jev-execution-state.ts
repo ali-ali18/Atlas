@@ -193,8 +193,12 @@ export function timeoutOptions(
 export const timeoutChoice = (timeouts: Resolved<LlmTimeouts>): LlmTimeoutPreset | Inherit =>
 	timeouts.source === "user" ? (timeoutPresetOf(timeouts.value) ?? INHERIT) : INHERIT;
 
-/** Passos: o teto duro do run é 300; sem escolha, vale o do código. */
-export const CODE_DEFAULT_MAX_STEPS = 300;
+/**
+ * Passos: o limite de segurança do run é 200 (o motor v2 nunca passa disso); sem escolha, vale esse. Um valor maior (300, 500)
+ * continua aceito no contrato, mas a lista mostra que o teto efetivo é 200.
+ */
+export const CODE_DEFAULT_MAX_STEPS = 200;
+export const EFFECTIVE_MAX_STEPS = 200;
 export const STEPS_PRESETS: readonly number[] = [100, 200, 300, 500];
 /** Minutos: sem escolha, o run tem 30 min. */
 export const WALL_MINUTES_PRESETS: readonly number[] = [5, 10, 15, 30, 60, 120];
@@ -217,6 +221,8 @@ export type NumberSettingSpec = {
 	format: (value: number, translator?: Translator) => string;
 	/** Valor do código quando ninguém definiu nada. */
 	codeDefault?: number;
+	/** Teto efetivo: valores acima dele são aceitos, mas o que vale é este (a lista avisa). */
+	effectiveMax?: number;
 };
 
 export const MAX_OUTPUT_SPEC: NumberSettingSpec = {
@@ -233,6 +239,7 @@ export const MAX_STEPS_SPEC: NumberSettingSpec = {
 	presets: STEPS_PRESETS,
 	format: formatSteps,
 	codeDefault: CODE_DEFAULT_MAX_STEPS,
+	effectiveMax: EFFECTIVE_MAX_STEPS,
 };
 export const MAX_WALL_SPEC: NumberSettingSpec = {
 	presets: WALL_MINUTES_PRESETS,
@@ -252,7 +259,10 @@ export function numberOptions(
 	translator: Translator = defaultTranslator,
 ): SettingsPickerOption<string>[] {
 	const { t } = translator;
-	const inheritedValue = resolved.value ?? spec.codeDefault;
+	const inheritedRaw = resolved.value ?? spec.codeDefault;
+	const inheritedValue = inheritedRaw !== undefined && spec.effectiveMax !== undefined ? Math.min(inheritedRaw, spec.effectiveMax) : inheritedRaw;
+	const labelOf = (value: number) =>
+		spec.effectiveMax !== undefined && value > spec.effectiveMax ? t("settings.exec.fmtCapped", { value: spec.format(value, translator), max: spec.effectiveMax }) : spec.format(value, translator);
 	const shown = inheritedValue === undefined ? noneLabel : spec.format(inheritedValue, translator);
 	// Com valor do usuário, o herdado não é conhecido aqui: "Herdar" simples.
 	const inherit = resolved.source === "user" ? t("settings.exec.inheritServer") : (inheritLabel(resolved.source, shown, t) ?? t("settings.exec.inherit"));
@@ -260,7 +270,7 @@ export function numberOptions(
 	const values = stored !== undefined && !spec.presets.includes(stored) ? [...spec.presets, stored].sort((a, b) => a - b) : spec.presets;
 	return [
 		{ value: INHERIT, label: inherit },
-		...values.map((value) => ({ value: String(value), label: spec.format(value, translator) })),
+		...values.map((value) => ({ value: String(value), label: labelOf(value) })),
 	];
 }
 

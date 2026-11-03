@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { detectEmailCodeStep, detectExtraLoginStep, detectLoginWall, hasPasswordField, isLoginConfirmationText, loginKey, parseLoginVaultOffer, siteOf } from "./login-wall.js";
+import { detectEmailCodeStep, detectExtraLoginStep, detectLoginHint, detectLoginWall, isKnownLoginUrl, loginHintNote, hasPasswordField, isLoginConfirmationText, loginKey, parseLoginVaultOffer, siteOf } from "./login-wall.js";
 
-describe("detectLoginWall", () => {
+describe("detectLoginWall: só campo de senha visível ou URL de login conhecida pausam", () => {
 	it("campo de senha no snapshot é muro de login", () => {
 		const wall = detectLoginWall({
 			url: "https://www.bling.com.br/login?x=1",
@@ -12,63 +12,121 @@ describe("detectLoginWall", () => {
 			key: "https://www.bling.com.br/login",
 			reason: "password-field",
 		});
+		// Campo de senha vale em qualquer URL (o login às vezes mora em /home).
+		expect(detectLoginWall({ url: "https://erp.test/home", lines: ['[e2] textbox "Senha" (campo de senha: nunca preencha)'] })?.reason).toBe("password-field");
 	});
 
-	it("sessão expirada no texto", () => {
-		expect(
-			detectLoginWall({ url: "https://erp.test/home", text: "Sua sessão expirou. Faça login novamente." })?.reason,
-		).toBe("session-expired");
-	});
-
-	it("URL/título de login + palavras de credencial no texto", () => {
-		expect(
-			detectLoginWall({ url: "https://x.com/entrar", title: "Entrar", text: "Usuário e senha" })?.reason,
-		).toBe("login-page");
-	});
-
-	it("SSO no Linear/home com e-mail e botão de continuar é muro de login", () => {
-		expect(detectLoginWall({
-			url: "https://linear.app/home", title: "Linear",
-			lines: ['[e1] button "Continue with Google"', '[e2] textbox "Email"', '[e3] button "Continue"'],
-		})).toEqual({ site: "linear.app", key: "https://linear.app/home", reason: "login-page" });
-	});
-
-	it("página de login real do Linear (sem textbox nem senha) é muro", () => {
-		// Snapshot real do run cmux814510003lgloh09vpqiy, passo 601.
-		const lines = [
-			'[e1] clickable "Log in to Linear Continue with Google Continue with email Continue with SAML SSO Log in with passkey"',
-			'[e2] button "Continue with Google"',
-			'[e3] button "Continue with email"',
-			'[e4] button "Continue with SAML SSO"',
-			'[e5] button "Log in with passkey"',
-			'[e6] link "Sign up"',
-		];
-		expect(detectLoginWall({ url: "https://linear.app/home", title: "Linear", lines })).toEqual({
-			site: "linear.app",
-			key: "https://linear.app/home",
+	it("host de provedor de identidade pausa sozinho; segmento de login exige também um formulário com campo", () => {
+		expect(detectLoginWall({ url: "https://accounts.google.com/v3/signin/identifier?hl=pt" })).toEqual({
+			site: "accounts.google.com",
+			key: "https://accounts.google.com/v3/signin/identifier",
 			reason: "login-page",
 		});
+		const form = ['[e1] textbox "Usuário"', '[e2] button "Entrar"'];
+		for (const url of ["https://x.com/entrar", "https://app.test/login", "https://app.test/users/sign-in", "https://app.test/login.php", "https://app.test/#/login", "https://x.com/acesso", "https://app.test/sso/start", "https://app.test/oauth2/authorize", "https://app.test/session/new"]) {
+			expect(detectLoginWall({ url, lines: form })?.reason, url).toBe("login-page");
+			// Só o segmento, sem formulário nem senha: não pausa (`/docs/login` é documentação).
+			expect(detectLoginWall({ url, lines: ['[e1] link "Docs"'] }), url).toBeNull();
+		}
+		expect(detectLoginWall({ url: "https://app.test/docs/login" })).toBeNull();
 	});
 
-	it("rótulo 'Log in to <app>' numa página enxuta é muro; numa página cheia não", () => {
-		expect(detectLoginWall({ url: "https://app.test/home", lines: ['[e1] heading "Log in to Acme"', '[e2] link "Help"'] })?.reason).toBe("login-page");
-		const busy = ['[e0] heading "Log in to Acme docs"', ...Array.from({ length: 20 }, (_, i) => `[e${i + 1}] link "Item ${i}"`)];
-		expect(detectLoginWall({ url: "https://app.test/docs", lines: busy })).toBeNull();
+	it("campo de código de uso único pausa como muro de verificação (MFA), em qualquer URL", () => {
+		const otp = ['[e1] textbox "Código" (campo de código de uso único: nunca preencha)'];
+		expect(detectLoginWall({ url: "https://id.test/u/mfa-otp-challenge", lines: otp })?.reason).toBe("verification-code");
+		expect(detectLoginWall({ url: "https://id.test/home", lines: otp })?.reason).toBe("verification-code");
+		expect(detectLoginWall({ url: "https://id.test/u/mfa-otp-challenge", fields: { oneTimeCode: true } })?.reason).toBe("verification-code");
+		// Caminhos de MFA como segmento: com formulário pausa; sem formulário, não.
+		expect(detectLoginWall({ url: "https://id.test/u/mfa-otp-challenge", lines: ['[e1] textbox "Code"'] })?.reason).toBe("login-page");
+		expect(detectLoginWall({ url: "https://id.test/u/mfa-otp-challenge", lines: [] })).toBeNull();
 	});
 
-	it("texto de blog sobre SSO ou botão Google isolado não pausa a página", () => {
-		expect(detectLoginWall({ url: "https://blog.test/article", title: "Google", text: "Continue with Google. Enter your email and continue." })).toBeNull();
-		expect(detectLoginWall({ url: "https://app.test/home", lines: ['[e1] button "Continue with Google"', '[e2] textbox "Busca"'] })).toBeNull();
+	it("campos informados pela leitura (sem linhas) valem: /acesso com senha pausa", () => {
+		expect(detectLoginWall({ url: "https://erp.test/acesso", text: "Entre", fields: { password: true } })?.reason).toBe("password-field");
+		expect(detectLoginWall({ url: "https://erp.test/acesso", text: "Entre", fields: { input: true } })?.reason).toBe("login-page");
+		expect(detectLoginWall({ url: "https://erp.test/acesso", text: "Entre", fields: {} })).toBeNull();
 	});
 
-	it("página normal, ou só 'login' na URL sem credenciais, não é muro", () => {
+	it("sem senha e sem URL de login, nada pausa: sessão expirada, 'please sign in', Linear e 'Continue with Google' viram só dica", () => {
+		const cases: Array<{ url: string; text?: string; lines?: string[]; title?: string }> = [
+			{ url: "https://erp.test/home", text: "Sua sessão expirou. Faça login novamente." },
+			{ url: "https://app.test/home", text: "Please sign in to see more" },
+			{ url: "https://x.com/acesso", title: "Entrar", text: "Usuário e senha" },
+			{
+				url: "https://linear.app/home", title: "Linear",
+				lines: ['[e1] button "Continue with Google"', '[e2] textbox "Email"', '[e3] button "Continue"'],
+			},
+			{
+				// Snapshot real do run cmux814510003lgloh09vpqiy, passo 601.
+				url: "https://linear.app/home", title: "Linear",
+				lines: [
+					'[e1] clickable "Log in to Linear Continue with Google Continue with email Continue with SAML SSO Log in with passkey"',
+					'[e2] button "Continue with Google"', '[e3] button "Continue with email"', '[e4] button "Continue with SAML SSO"', '[e5] button "Log in with passkey"', '[e6] link "Sign up"',
+				],
+			},
+			// Replay YouTube -> Gemini: a página do Gemini oferece "Continue with Google"/"Sign in" e não tem campo de senha.
+			{ url: "https://gemini.google.com/app", title: "Gemini", lines: ['[e1] link "Sign in"', '[e2] button "Continue with Google"', '[e3] textbox "Enter a prompt here"'] },
+		];
+		for (const input of cases) expect(detectLoginWall(input), input.url).toBeNull();
+	});
+
+	it("página normal, ou só 'login' dentro de outro nome no caminho, não é muro", () => {
 		expect(detectLoginWall({ url: "https://bling.com.br/orcamentos.php#add", lines: ['[e1] textbox "Cliente"'] })).toBeNull();
 		expect(detectLoginWall({ url: "https://blog.test/login-tips", title: "Dicas", text: "Texto qualquer" })).toBeNull();
+		expect(detectLoginWall({ url: "https://blog.test/article", title: "Google", text: "Continue with Google. Enter your email and continue." })).toBeNull();
 		expect(detectLoginWall({ url: "about:blank", lines: ["(campo de senha"] })).toBeNull();
 	});
 });
 
+describe("detectLoginHint: sinal fraco, só vira nota", () => {
+	it("sessão expirada e 'please sign in' no texto", () => {
+		expect(detectLoginHint({ url: "https://erp.test/home", text: "Sua sessão expirou. Faça login novamente." })?.reason).toBe("session-expired");
+		expect(detectLoginHint({ url: "https://app.test/home", text: "Please sign in to see more" })?.reason).toBe("session-expired");
+	});
+
+	it("2+ entradas de identidade, SSO com e-mail e 'Log in to <app>' numa página enxuta", () => {
+		expect(detectLoginHint({
+			url: "https://linear.app/home",
+			lines: ['[e1] button "Continue with Google"', '[e2] textbox "Email"', '[e3] button "Continue"'],
+		})?.reason).toBe("sign-in-entries");
+		expect(detectLoginHint({ url: "https://linear.app/home", lines: ['[e2] button "Continue with Google"', '[e3] button "Continue with email"'] })?.reason).toBe("sign-in-entries");
+		expect(detectLoginHint({ url: "https://app.test/home", lines: ['[e1] heading "Log in to Acme"', '[e2] link "Help"'] })?.reason).toBe("sign-in-entries");
+		const busy = ['[e0] heading "Log in to Acme docs"', ...Array.from({ length: 20 }, (_, i) => `[e${i + 1}] link "Item ${i}"`)];
+		expect(detectLoginHint({ url: "https://app.test/docs", lines: busy })).toBeNull();
+	});
+
+	it("botão Google isolado e texto de blog não dão nem dica; título de login com credenciais dá", () => {
+		expect(detectLoginHint({ url: "https://gemini.google.com/app", lines: ['[e1] button "Continue with Google"', '[e2] textbox "Prompt"'] })).toBeNull();
+		expect(detectLoginHint({ url: "https://blog.test/article", title: "Google", text: "Continue with Google. Enter your email and continue." })).toBeNull();
+		// Segmento de login sem formulário: só dica.
+		expect(detectLoginHint({ url: "https://app.test/docs/login", text: "Como configurar o login" })?.reason).toBe("login-url");
+		expect(detectLoginHint({ url: "https://app.test/relogin-tips" })).toBeNull();
+		expect(detectLoginHint({ url: "https://x.com/acesso", title: "Entrar", text: "Usuário e senha" })?.reason).toBe("login-title");
+	});
+
+	it("a nota é curta, em inglês e não pede cartão nem pausa", () => {
+		const note = loginHintNote({ site: "gemini.google.com", reason: "sign-in-entries" });
+		expect(note).toContain("may need a login");
+		expect(note).toContain("tell the user what you need");
+		// Mesma proibição do núcleo do prompt e a oferta do cofre.
+		expect(note).toContain("Never type passwords, one-time codes or other credentials the user did not give you for this");
+		expect(note).toContain("use the vault (login_fill) if available");
+		expect(note).not.toMatch(/MUST|CRITICAL|LOGIN REQUIRED/);
+	});
+});
+
 describe("helpers", () => {
+	it("isKnownLoginUrl compara segmento inteiro", () => {
+		expect(isKnownLoginUrl("https://a.com/login")).toBe(true);
+		expect(isKnownLoginUrl("https://a.com/login-tips")).toBe(true);
+		expect(isKnownLoginUrl("https://a.com/u/mfa-otp-challenge")).toBe(true);
+		expect(isKnownLoginUrl("https://a.com/oauth2/x")).toBe(true);
+		expect(isKnownLoginUrl("https://a.com/authors")).toBe(false);
+		expect(isKnownLoginUrl("https://a.com/relogin")).toBe(false);
+		expect(isKnownLoginUrl("https://a.com/blog/signing")).toBe(false);
+		expect(isKnownLoginUrl("não é url")).toBe(false);
+	});
+
 	it("loginKey ignora query, hash e barra final; siteOf tira www", () => {
 		expect(loginKey("https://a.com/login/?next=/x#y")).toBe("https://a.com/login");
 		expect(loginKey("https://a.com")).toBe("https://a.com/");

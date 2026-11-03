@@ -112,8 +112,9 @@ describe("economia ligada: tarefa de navegador", () => {
 			script: [turn("navigate", { url: "https://loja.exemplo.com.br" }), done],
 		});
 		expect(first).toEqual(expect.arrayContaining(["navigate", "screenshot", "browser_read", "browser_find", "browser_snapshot", "browser_act", "browser_wait", "show_image"]));
-		// V6: as ações por coordenada são do grupo desktop, que só entra sob demanda.
-		for (const desktop of ["click", "type", "key", "scroll", "browser_click", "browser_type", "browser_text", "browser_links"]) expect(first).not.toContain(desktop);
+		// Tarefa de navegador: click/type/key/scroll e browser_tabs vão junto (nada de gastar um passo com "Tool click was not loaded").
+		expect(first).toEqual(expect.arrayContaining(["click", "type", "key", "scroll", "browser_tabs"]));
+		for (const old of ["browser_click", "browser_type", "browser_text", "browser_links"]) expect(first).not.toContain(old);
 		expect(results).toHaveLength(1);
 		expect(results[0]).toMatchObject({ name: "navigate", ok: true });
 		expect(results[0]!.summary).not.toMatch(/not loaded/i);
@@ -123,8 +124,9 @@ describe("economia ligada: tarefa de navegador", () => {
 	it("pedido de app fora do navegador traz o grupo desktop; sem isso a chamada direta carrega e repete", async () => {
 		const withDesktop = await replay({ messages: [{ role: "user", content: "abra o aplicativo desktop e arraste o ícone" }] });
 		expect(withDesktop.first).toEqual(expect.arrayContaining(["click", "type", "key", "scroll"]));
+		// Conversa sem tarefa de navegador: o desktop segue adiado e a chamada direta carrega e pede para repetir.
 		const direct = await replay({
-			messages: [{ role: "user", content: "abra o site loja.exemplo.com.br" }],
+			messages: [{ role: "user", content: "bom dia" }],
 			script: [turn("click", { x: 5, y: 5 }), done],
 		});
 		expect(direct.results[0]!.summary).toMatch(/not loaded/i);
@@ -164,12 +166,15 @@ describe("economia ligada: abas do navegador", () => {
 		return { toolsPerStep, results };
 	};
 
-	it("browser_tabs fica fora do 1º passo (mesmo no navegador) e do índice; só o grupo tabs a traz", async () => {
+	it("browser_tabs vem junto na tarefa de navegador (grupo tabs, escondido do índice); fora dela fica adiada", async () => {
 		expect(NATIVE_TOOL_GROUPS.browser.tools).not.toContain("browser_tabs");
 		expect(Object.entries(NATIVE_TOOL_GROUPS).filter(([, g]) => g.tools.includes("browser_tabs")).map(([n]) => n)).toEqual(["tabs"]);
 		const site = await replay({ messages: [{ role: "user", content: "abra o site loja.exemplo.com.br e clique em Entrar" }] });
-		expect(site.first).not.toContain("browser_tabs");
+		expect(site.first).toContain("browser_tabs");
 		expect(site.system()).not.toContain("browser_tabs");
+		const plain = await replay({ messages: [{ role: "user", content: "bom dia" }] });
+		expect(plain.first).not.toContain("browser_tabs");
+		expect(plain.system()).not.toContain("browser_tabs");
 		// Subagentes de navegador têm a própria aba isolada: não trocam de aba.
 		expect(BROWSER_CHILD_TOOL_NAMES).not.toContain("browser_tabs");
 	});
@@ -192,7 +197,7 @@ describe("economia ligada: abas do navegador", () => {
 			[{ role: "user", content: "abra o site lms.test e clique em Acessar" }], manager,
 			[turn("navigate", { url: "https://lms.test" }), turn("browser_tabs", { action: "list" }, "c2"), done],
 		);
-		expect(toolsPerStep[0]).not.toContain("browser_tabs");
+		expect(toolsPerStep[0]).toContain("browser_tabs");
 		expect(toolsPerStep[1]).toContain("browser_tabs");
 		expect(results.map((r) => r.name)).toEqual(["navigate", "browser_tabs"]);
 		expect(results[0]!.summary).toContain('[A new tab opened: "Aula 1" — https://lms.test/aula. You are now on it.');
@@ -204,7 +209,7 @@ describe("economia ligada: abas do navegador", () => {
 
 	it("sem aviso, browser_tabs segue fora; chamada direta a ela carrega o grupo e pede para repetir", async () => {
 		const manager = { execNavigate: vi.fn(async () => ({ url: "u", title: "t" })), takeTabNotice: vi.fn(() => undefined), execBrowserTabs: vi.fn() };
-		const { toolsPerStep, results } = await flow([{ role: "user", content: "abra o site lms.test" }], manager, [turn("navigate", { url: "https://lms.test" }), turn("browser_tabs", { action: "list" }, "c2"), done]);
+		const { toolsPerStep, results } = await flow([{ role: "user", content: "bom dia" }], manager, [turn("navigate", { url: "https://lms.test" }), turn("browser_tabs", { action: "list" }, "c2"), done]);
 		expect(toolsPerStep[1]).not.toContain("browser_tabs");
 		expect(results[1]!.summary).toMatch(/not loaded/i);
 		expect(manager.execBrowserTabs).not.toHaveBeenCalled();

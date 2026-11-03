@@ -42,7 +42,6 @@ import {
 	SUBAGENT_ORIGIN,
 	TRANSCRIPT_SLOT,
 	createNotebook,
-	isShortContinuation,
 	type NotebookWriter,
 	type RunUsage,
 } from "@workspace/shared";
@@ -82,7 +81,21 @@ import {
 import { todayNote } from "../context/today-note.js";
 import { contextBudgetFor } from "../context/budget.js";
 import { namespaceToolCallId, renameProviderItemCallIds } from "../context/transcript.js";
-import { STUB_LAST_GROUP_MAX_CHARS, applyPromptHygiene } from "../hygiene.js";
+import {
+	COLLAPSE_BATCH_MAX_CHARS,
+	COLLAPSE_BATCH_SIZE,
+	COLLAPSE_PRESSURE_RATIO,
+	DEFAULT_CONTEXT_LENGTH,
+	KEEP_RECENT_SCREENSHOTS,
+	RECENT_TOOL_GROUPS_KEPT,
+	STUB_LAST_GROUP_MAX_CHARS,
+	applyPromptHygiene,
+	estimateMessagesTokens,
+	omitOldScreenshots,
+	trimHistory,
+} from "../hygiene.js";
+import { compactWithSummary, createStreamSummarizer } from "../context/summary-compaction.js";
+import { CONTEXT_WARN_RATIO, CONTEXT_SOFT_RATIO, CONTEXT_HARD_RATIO, CONTEXT_WINDOW_NOTE, contextKeepEnabled } from "./context-keep.js";
 import { toolsJsonCharsOf } from "../tools-json-size.js";
 import { modelStepTelemetry } from "../telemetry/step-telemetry.js";
 import { isUnattendedOrigin } from "../autonomy-gate.js";
@@ -113,30 +126,26 @@ import { buildEngineV2Catalog } from "./catalog.js";
 import { shouldExposeSetEngine } from "../tools/set-engine.js";
 import { buildEngineV2SystemPrompt } from "./prompt.js";
 import { originSystemNotes } from "./origin-notes.js";
-import { MAX_STEPS_SAFETY, type SupervisorProfile, budgetForProfile, createSupervisor, deliveryInstruction } from "./supervisor.js";
-import { ANNOUNCED_ACTION_NOTE, ENGINE_V2_PROMOTED_NOTE, UNASKED_MIDWORK_NOTE, announcesAction, midWorkQuestion } from "./prompt.js";
+import { MAX_STEPS_SAFETY, type CapSource, type StepsSource, type SupervisorProfile, budgetForProfile, capSourcesFor, createSupervisor, deliveryInstruction } from "./supervisor.js";
+import { continuedWorkNote, ENGINE_V2_PROMOTED_NOTE, openItemsNote } from "./prompt.js";
 import { callCostUsd, estimateCostUsd, fallbackPricesFromEnv } from "./cost.js";
 import { dedupeLoginAsk, unattendedLoginOutcome } from "./login.js";
 import { createPreToolRunner } from "../hooks/pre-tool-runner.js";
-import { appendUnconfirmed, createTaskListGate, droppedItems, openItems } from "./task-list.js";
+import { appendUnconfirmed, createTaskListGate, droppedItems, openItems, withOpenItemsMarker } from "./task-list.js";
 import { type DelegateDeps } from "../tools/delegate-task.js";
 import { HELPER_DELIVERY_INSTRUCTION, type HelperChildInput, type HelpersContext } from "./helpers.js";
 import {
-	DOCUMENT_BUDGET_NOTE,
 	DOCUMENT_CLOSING_TIMEOUT_MS,
-	DOCUMENT_DELIVERY_NOTE,
 	DOCUMENT_DONE_INSTRUCTION,
 	DOCUMENT_FALLBACK_STEPS,
 	DOC_MAX_OUTPUT_TOKENS,
-	asksForDocument,
-	countWords,
-	declinesDocument,
 	documentMissingNote,
+	documentStopNote,
 	isFinalDeliverableCall,
-	needsDocumentDelivery,
 	stopReasonPhrase,
 	withNotebookAppendix,
 } from "./delivery.js";
+import { type Deliverable } from "../tools/task-list.js";
 import { noveltyKey, type NotebookToolContext } from "./notebook.js";
 
 export type EngineV2Options = {
@@ -144,6 +153,11 @@ export type EngineV2Options = {
 	/** Ajuste do bot para o trabalho longo (`policyJson.longWorkBudgetUsd` / `longWorkMinutes`). */
 	longWorkBudgetUsd?: number;
 	longWorkMinutes?: number;
+	/**
+	 * De onde veio o teto de US$ e o de tempo que o worker entregou em `params.budget` (conta, servidor ou bot). A instrução de
+	 * entrega conta isso ao usuário. Ausente: conta.
+	 */
+	capSources?: { cost?: CapSource; wall?: CapSource; steps?: StepsSource };
 	/** Piso de TEMPO (minutos) sem ligar o trabalho longo: brief "Seu dia" e lembrete `check`. Só tem efeito junto de um teto de tempo (o worker aplica 30 min nesses runs sem humano; chat humano não tem teto). Não há piso em US$. */
 	budgetFloor?: { minutes: number };
 	/**
@@ -171,6 +185,8 @@ export type EngineV2Options = {
 };
 
 const CLOSING_CALL_TIMEOUT_MS = 60_000;
+/** Quantas vezes por run uma resposta sem tool, com itens abertos na lista, volta ao modelo com o lembrete. */
+const MAX_OPEN_ITEMS_RETURNS = 3;
 /** Mensagem de runtime que não foi escrita pelo usuário (o modelo não a responde como se fosse dele). */
 const AUTO_CONTEXT = "[auto-context, not written by the user]";
 
@@ -184,8 +200,6 @@ type CallOutcome = {
 	args: Record<string, unknown>;
 	/** Bloqueada pelo Supervisor: não conta para travamento. */
 	blocked?: boolean;
-	/** Barrada pela fase da reserva de entrega (conta "strike": insistir leva à entrega). */
-	phaseBlocked?: boolean;
 	/** A chamada não rodou porque o run vai esperar o usuário. */
 	skipped?: boolean;
 };
@@ -235,14 +249,17 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 		: budgetForProfile(options.profile, { ...profileOverrides, floor: options.budgetFloor });
 	// Orçamento que o run passa a ter se for promovido (sem piso: o piso é do brief/check, que nunca promovem).
 	const promotedBudget = promotable ? budgetForProfile("long_work", profileOverrides) : undefined;
+	// Teto de passos: o do dono (conta, bot ou pedido) só é "o que você configurou" se vale de fato; acima do limite de segurança vale o de segurança.
+	const effectiveMaxSteps = Math.min(MAX_STEPS_SAFETY, runLimits.hardMaxSteps, helperRole?.budget.maxSteps ?? MAX_STEPS_SAFETY);
+	const stepsSource = !helperRole && options.capSources?.steps && runLimits.hardMaxSteps <= MAX_STEPS_SAFETY ? options.capSources.steps : undefined;
 	const supervisor = createSupervisor({
 		profile: options.profile,
 		budget,
 		promotable,
 		...(helperRole ? {} : { hardActiveMs: runLimits.maxWallMs }),
-		// Pedido que não é de documento: a fase de escrita mantém browser e sandbox (ex.: "abra o Gemini e peça um resumo").
-		keepActionTools: !asksForDocument([...params.messages].reverse().find((message) => message.role === "user")?.content ?? ""),
-		maxSteps: Math.min(MAX_STEPS_SAFETY, runLimits.hardMaxSteps, helperRole?.budget.maxSteps ?? MAX_STEPS_SAFETY),
+		capSources: capSourcesFor({ budget, paramsCostCapUsd: params.budget?.maxCostUsd, longWorkBudgetUsd: options.longWorkBudgetUsd, wallMs: runLimits.maxWallMs, longWorkMinutes: options.longWorkMinutes, declared: options.capSources }),
+		maxSteps: effectiveMaxSteps,
+		...(stepsSource ? { stepsSource } : {}),
 	});
 	const wall = wallClockAnchors({ maxWallMs: budget.maxActiveMs, now: Date.now(), runStartedAt: params.runStartedAt, restored: parsed });
 	const activeElapsedMs = () => wall.baseMs + (Date.now() - wall.executionStartMs);
@@ -353,17 +370,21 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 
 	// --- lista de tarefas (a mesma do v1: TaskTracker + cartão da doca) ---
 	const taskTracker = createTaskTracker(parsed?.taskState, params.objective ?? lastUserMessage);
+	// O chamador só passa `priorTaskList` aqui na continuação automática (mesma tarefa) e no plano aprovado; numa mensagem digitada
+	// os itens antigos chegam como nota (`priorOpenItems`) e a lista deste run só nasce quando o modelo chama `update_task_list`.
 	if (!parsed?.taskState) taskTracker.setTaskList(parseTaskList(params.priorTaskList));
 	const taskListStore: TaskListStore = { get: () => taskTracker.taskList(), set: (next) => taskTracker.setTaskList(next) };
 	/** Última lista que o modelo enviou (a do tracker some quando tudo conclui; o portão e os descartados precisam dela). */
 	let lastTaskItems: TaskListItem[] | undefined = taskTracker.taskList();
-	/** Maior lista que o MODELO montou neste run (só `update_task_list` chega aqui; lista herdada não conta): 3+ promove o chat. */
-	// "continua" digitado depois de um trabalho com itens abertos: a lista herdada vale como plano para promover o chat
-	// (sem isso "continua" cairia no chat curto e recomeçaria do zero). Outra mensagem com lista herdada nunca promove.
-	const continuation = !helperRole && origin === "chat" && (params.autoContinued === true || (humanTurn && isShortContinuation(lastUserMessage)));
-	const inheritedOpenPlan = continuation ? (taskTracker.taskList() ?? []) : [];
-	let modelPlannedSteps = inheritedOpenPlan.some((item) => item.status !== "completed") ? inheritedOpenPlan.length : 0;
-	const emitTaskListEvent = async (items: Array<{ content: string; status: "pending" | "in_progress" | "completed" }>) => {
+	/** Maior lista ABERTA que o MODELO montou neste run (só `update_task_list` chega aqui; lista herdada não conta): 3+ promove o chat. */
+	let modelPlannedSteps = 0;
+	// Herança por ESTADO (o worker confere se o último run parou com itens abertos), nunca pelo texto digitado. O que se herda é
+	// contexto (nota + caderno); promoção por lista herdada só acontece se o modelo chamar `update_task_list` mantendo os itens.
+	const continuation = !helperRole && origin === "chat" && (params.autoContinued === true || params.continuedWork === true);
+	/** O que o MODELO declarou como entregável na lista de tarefas (`document` | `answer`). Sem declaração: nenhum efeito. */
+	let declaredDeliverable: Deliverable | undefined = parsed?.deliverable;
+	const emitTaskListEvent = async (items: Array<{ content: string; status: "pending" | "in_progress" | "completed" }>, meta?: { deliverable?: Deliverable }) => {
+		if (meta?.deliverable) declaredDeliverable = meta.deliverable;
 		// Lista que o modelo já manda toda concluída (fechando o trabalho, logo antes de responder) não é plano: não promove.
 		if (items.some((item) => item.status !== "completed")) modelPlannedSteps = Math.max(modelPlannedSteps, items.length);
 		lastTaskItems = items.length > 0 ? items : undefined;
@@ -386,13 +407,10 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 		: helperRole
 			? { writer: helperRole.writer }
 			: undefined;
-	/** Passo em que o portão do documento já agiu (no máximo uma vez por run) e se algum arquivo já saiu. */
-	let documentGateFired = false;
+	/** Se algum arquivo já saiu neste run (o fechamento por documento só roda enquanto nenhum saiu). */
 	let fileDelivered = (parsed?.toolCallCounts?.create_file ?? 0) > 0;
 	/** Passos de escrita do documento no estouro: o teto de saída do documento vale também aqui. */
 	let documentFallbackActive = false;
-	/** Texto que o portão do documento retirou do chat: volta se o run terminar sem arquivo. */
-	let gatedText: string | undefined;
 	/** Arquivo em partes em andamento (nome -> conteúdo das partes anteriores): o apêndice confere o arquivo inteiro. */
 	const filePartsSoFar = new Map<string, string>();
 	/** Ajudantes cujo uso já está em `usageTotals` (checkpoint e retomada não contam duas vezes). */
@@ -516,6 +534,8 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 
 	// --- checkpoint ---
 	let checkpointTail: Promise<void> = Promise.resolve();
+	/** O aviso de janela (75%) já foi enviado; vai no checkpoint para a retomada não avisar de novo. */
+	let contextWarned = parsed?.contextWarned === true;
 	const snapshotCheckpoint = (stepIndex: number) =>
 		buildRuntimeCheckpoint({
 			messages: params.messages,
@@ -536,9 +556,11 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 			helperRuns: [...accountedHelpers],
 			activeElapsedMs: activeElapsedMs(),
 			promoted: supervisor.promoted,
+			deliverable: declaredDeliverable,
+			contextWarned,
 			...(() => {
 				const state = supervisor.state();
-				return { wrapUpSent: state.wrapUpSent, budgetBaseMs: state.timeBaseMs };
+				return { wrapUpSent: state.wrapUpSent, stepsNoticeSent: state.stepsNoticeSent, budgetBaseMs: state.timeBaseMs };
 			})(),
 			loadedTools: [...catalog.activeMcpTools(), ...tools.map((tool) => tool.function.name).filter((name) => !isMcpToolName(name))],
 			transcriptWatermark: parsed?.transcriptWatermark ?? params.transcriptWatermark,
@@ -571,6 +593,43 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 		await persistCheckpoint(step);
 	}
 
+	// --- contexto (E1): resumo antes do corte duro ---
+	const contextKeep = contextKeepEnabled();
+	const summarizeContext = createStreamSummarizer({ streamChat, model: () => params.messageTriageModel?.trim() || model, apiKey, signal: params.abortSignal });
+	let summaryRetryAtStep = 0;
+	/**
+	 * Acima do teto do orçamento de contexto, a parte antiga do histórico CANÔNICO vira um resumo do modelo de manutenção (como no v1).
+	 * Falhou ou não encolheu: a higiene da cópia enviada cobre, e só se ainda não couber é que o erro fiel da janela sobe.
+	 */
+	const summarizeIfNeeded = async (budget: ReturnType<typeof contextBudgetFor>, toolsChars: number) => {
+		if (helperRole || step < summaryRetryAtStep) return;
+		// Capturas antigas nunca vão ao modelo (só as 2 últimas): a estimativa as ignora, mas o histórico CANÔNICO que o resumo
+		// recebe e devolve é o `conversation` inteiro (nunca a cópia com as capturas trocadas por texto).
+		const estimate = (list: readonly LlmMessage[]) => estimateMessagesTokens(omitOldScreenshots(list, KEEP_RECENT_SCREENSHOTS), toolsChars);
+		if (estimate(conversation) <= budget.ceilingTokens) return;
+		// Econômico (sem `summarize` no orçamento) usa a mesma estratégia do Padrão: sem isso o histórico canônico crescia sem teto
+		// (a higiene só encolhe a cópia enviada). Escolha mais simples que um corte próprio: uma só rotina, o mesmo resumo do modelo
+		// de manutenção, e o corte da cópia continua como plano B.
+		const result = await compactWithSummary({
+			messages: conversation,
+			budget: budget.summarize ? budget : { ...budget, summarize: true },
+			estimate,
+			trim: trimHistory,
+			summarize: summarizeContext,
+			taskState: taskTracker.snapshot(),
+			objectiveText: params.objective ?? lastUserMessage,
+			languageInstruction: replyLanguage.instruction,
+		});
+		if (result.usage) usageTotals = addUsage(usageTotals, result.usage);
+		if (result.status === "summarized") {
+			conversation = result.messages;
+			contextWarned = false;
+			// Não resume de novo nos próximos passos: o prefixo em cache precisa se firmar.
+			summaryRetryAtStep = step + 3;
+			await onEvent({ type: "context_compacted", before: result.before, after: result.after });
+		} else if (result.status === "failed") summaryRetryAtStep = step + 5;
+	};
+
 	// --- chamada ao modelo ---
 	const closingSignal = (ms = CLOSING_CALL_TIMEOUT_MS) => AbortSignal.any([...(params.abortSignal ? [params.abortSignal] : []), AbortSignal.timeout(ms)]);
 	const mediaMemo = createMediaMemo();
@@ -581,7 +640,7 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 	/** O coordenador vai escrever o documento: portão já agiu, arquivo em partes aberto ou lista toda concluída (passo de entrega). */
 	const writingDocument = () => {
 		const items = currentTaskItems();
-		return longWorkCoordinator && (documentFallbackActive || documentGateFired || filePartsSoFar.size > 0 || (Boolean(items?.length) && openItems(items).length === 0));
+		return longWorkCoordinator && (documentFallbackActive || declaredDeliverable === "document" || filePartsSoFar.size > 0 || (Boolean(items?.length) && openItems(items).length === 0));
 	};
 	let modelMaxOutput: number | null | undefined;
 	const outputTokenCap = async (): Promise<number | undefined> => {
@@ -600,32 +659,55 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 		toolsOverride?: typeof tools,
 		closingTimeoutMs = CLOSING_CALL_TIMEOUT_MS,
 	): Promise<{ content: string; toolCalls: LlmToolCall[]; providerItems?: LlmMessage["providerItems"]; usage: TokenUsage; result: CompleteChatWithToolsResult; telemetry: ReturnType<typeof modelStepTelemetry> }> => {
-		// Reserva da entrega: depois dos 75% as tools mudam de verdade (pesquisa e ajudantes saem), não é só aviso.
-		const allowedNow = toolsOverride ? undefined : supervisor.allowedTools();
-		const callTools = toolsOverride ?? (allowedNow ? tools.filter((tool) => supervisor.phaseAllows(tool.function.name)) : tools);
+		// O catálogo nunca é filtrado por fase: só o fechamento da entrega (`toolsOverride`) usa um conjunto próprio.
+		const callTools = toolsOverride ?? tools;
 		if (callTools.length === 0) toolChoice = "none";
 		await ensureContinue(closing ? params.abortSignal : undefined);
 		await ensureNotPaused();
-		const hygiene = applyPromptHygiene(history, {
+		const toolsChars = toolsJsonCharsOf(callTools);
+		const budget = params.contextBudget ?? contextBudgetFor(params.contextMemory, contextLength);
+		if (contextKeep) await summarizeIfNeeded(budget, toolsChars);
+		const hygiene = applyPromptHygiene(contextKeep ? omitOldScreenshots(conversation, KEEP_RECENT_SCREENSHOTS) : conversation, {
 			language,
 			lastGroupMaxChars: hygieneLastGroupChars,
 			contextLength,
-			toolsJsonChars: toolsJsonCharsOf(callTools),
+			toolsJsonChars: toolsChars,
 			model,
-			contextBudget: params.contextBudget ?? contextBudgetFor(params.contextMemory, contextLength),
+			contextBudget: budget,
 			objectiveText: params.objective ?? lastUserMessage,
 			taskState: () => taskTracker.snapshot(),
+			// Contexto que MANTÉM o trabalho (E1): os 6 últimos grupos de resultados ficam inteiros e os antigos só encolhem sob
+			// pressão real; o corte duro só vem depois do resumo. Desligável com ATLAS_ENGINE_V2_CONTEXT_KEEP=off.
+			...(contextKeep
+				? {
+						keepRecentGroups: RECENT_TOOL_GROUPS_KEPT,
+						collapseBatch: { size: COLLAPSE_BATCH_SIZE, maxPendingChars: COLLAPSE_BATCH_MAX_CHARS },
+						collapseOverTokens: Math.floor(budget.ceilingTokens * COLLAPSE_PRESSURE_RATIO),
+						softRatio: CONTEXT_SOFT_RATIO,
+						hardRatio: CONTEXT_HARD_RATIO,
+					}
+				: {}),
 		});
-		conversation = hygiene.messages;
+		// A higiene vale só para a cópia ENVIADA ao modelo: o histórico canônico fica intacto (sem E1, o comportamento antigo).
+		if (!contextKeep) conversation = hygiene.messages;
+		const sentHistory = hygiene.messages;
+		// Aviso único perto de 75% da janela (o resumo já roda no teto do orçamento; isto avisa o modelo para guardar o que importa).
+		// Vai neste passo como camada volátil (a higiene da cópia enviada pode limpar o resultado em que o aviso fica anexado no histórico).
+		let contextWarnNow = false;
+		if (contextKeep && !contextWarned && estimateMessagesTokens(omitOldScreenshots(conversation, KEEP_RECENT_SCREENSHOTS), toolsChars) >= (contextLength ?? DEFAULT_CONTEXT_LENGTH) * CONTEXT_WARN_RATIO) {
+			contextWarned = true;
+			contextWarnNow = true;
+			if (!appendToLatestToolResult(conversation, CONTEXT_WINDOW_NOTE)) conversation.push({ role: "user", content: `${AUTO_CONTEXT} ${CONTEXT_WINDOW_NOTE}` });
+		}
 		const taskNote = renderTaskListNote(taskTracker.taskList());
 		const nowNote = process.env.ATLAS_NOW_NOTE === "off" ? null : todayNote(new Date(), params.timeZone);
-		const layers = [taskNote, nowNote].filter((layer): layer is string => Boolean(layer));
+		const layers = [taskNote, nowNote, contextWarnNow ? CONTEXT_WINDOW_NOTE : null].filter((layer): layer is string => Boolean(layer));
 		// Índice do caderno: camada fora do histórico (a higiene/compactação nunca o descarta). Títulos vêm de páginas,
 		// então vai como contexto automático de usuário e não como instrução de sistema.
 		const notebookIndex = notebook?.index();
 		const notebookLayer: LlmMessage[] = notebookIndex ? [{ role: "user", content: `${AUTO_CONTEXT} ${notebookIndex}` }] : [];
 		const withLayers: LlmMessage[] =
-			layers.length || notebookLayer.length ? [...conversation, ...layers.map((content) => ({ role: "system" as const, content })), ...notebookLayer] : conversation;
+			layers.length || notebookLayer.length ? [...sentHistory, ...layers.map((content) => ({ role: "system" as const, content })), ...notebookLayer] : sentHistory;
 		const transport = await resolveLlmMessagesForModel(withLayers, params.loadScreenshot, {
 			canSeeUserImages: params.canSeeUserImages,
 			canSeeScreenshots: canSeeImages,
@@ -656,7 +738,7 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 				reasoningMaxTokens: params.reasoningMaxTokens,
 				...(reasoningFor ? { reasoningEffort: reasoningFor } : {}),
 				sessionId: !conversationId ? params.runId : `c${createHash("sha256").update(`${botId ?? ""}:${conversationId}`).digest("hex").slice(0, 31)}`,
-				...(layers.length > 0 || notebookLayer.length > 0 ? { cacheStableIndex: conversation.length - 1 } : {}),
+				...(layers.length > 0 || notebookLayer.length > 0 ? { cacheStableIndex: sentHistory.length - 1 } : {}),
 			},
 			{
 				onDelta: (delta) => {
@@ -912,10 +994,6 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 			}
 			return await emitSynthetic(call, name, unavailableToolMessage(name, Boolean(mcp?.toolset.available.has(name)), tools.some((tool) => tool.function.name === "mcp_tool_search")), args);
 		}
-		const blockedMessage = supervisor.toolBlocked(name, step);
-		if (blockedMessage) return { ...(await emitSynthetic(call, name, blockedMessage, args)), blocked: true };
-		const phaseMessage = supervisor.phaseBlocked(name);
-		if (phaseMessage) return { ...(await emitSynthetic(call, name, phaseMessage, args)), blocked: true, phaseBlocked: true };
 
 		const entry = entryOf(name);
 		const idempotencyKey = toolIdempotencyKey({ runId, decisionIndex: step, toolCallId: call.id, toolName: name });
@@ -999,14 +1077,17 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 			}
 			if (outcome.skillEvent) {
 				cards.push(outcome.skillEvent);
-				// Cartão só informativo (lista, "aprendi", detalhe): o run para, mas não espera decisão.
-				if (outcome.skillEvent.learned !== true && ["listed", "created", "updated", "cleaned", "deleted", "shown"].includes(outcome.skillEvent.action)) awaiting.kind ??= "skill_card";
+				// Cartão só informativo (lista, "aprendi", detalhe, criada/atualizada/apagada): mostra e o run segue.
+				// Só cartão que pede decisão define `awaiting` (confirmação pendente, proposta pendente, questionário, perfil).
 			}
 			if (outcome.skillProposalEvent) {
 				cards.push(outcome.skillProposalEvent);
 				if ((outcome.skillProposalEvent.status ?? "pending") === "pending") awaiting.kind ??= "skill_card";
 			}
-			if (outcome.botProposalEvent) { cards.push(outcome.botProposalEvent); awaiting.kind ??= "skill_card"; }
+			if (outcome.botProposalEvent) {
+				cards.push(outcome.botProposalEvent);
+				if ((outcome.botProposalEvent.status ?? "pending") === "pending") awaiting.kind ??= "skill_card";
+			}
 			if (outcome.routineEvent) cards.push(outcome.routineEvent);
 			if (!pendingCard) preTools.noteSuccess(name, entry);
 			if (outcome.questionnaireEvent) { cards.push(outcome.questionnaireEvent); awaiting.kind ??= "questionnaire"; }
@@ -1060,7 +1141,7 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 	};
 	const parallelSafe = (call: LlmToolCall): boolean => {
 		const name = call.function.name;
-		if (!tools.some((tool) => tool.function.name === name) || supervisor.toolBlocked(name, step) || supervisor.phaseBlocked(name)) return false;
+		if (!tools.some((tool) => tool.function.name === name)) return false;
 		const entry = entryOf(name);
 		if (entry) return entry.readOnly && decideAction(autonomyPolicy, entry.autonomyMeta) === "allow";
 		return getToolRegistration(name)?.readOnly === true && !isSandboxTool(name) && name !== "update_task_list";
@@ -1090,7 +1171,6 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 	/** Escreve os resultados no histórico, aplica o Supervisor e devolve o motivo de aborto por repetição, se houver. */
 	const settleBatch = (outcomes: CallOutcome[]): RunStop | undefined => {
 		let abort: RunStop | undefined;
-		supervisor.recordBatchPhase(outcomes.length > 0 && outcomes.every((outcome) => outcome.phaseBlocked === true));
 		for (const outcome of outcomes) {
 			conversation.push({ role: "tool", tool_call_id: outcome.call.id, content: outcome.summary });
 			const media = pendingMedia.get(outcome.call.id);
@@ -1131,17 +1211,12 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 		return undefined;
 	};
 
-	const finishOk = async (text: string, stop: RunStop, messageId: string): Promise<RunComputerUseResult> => {
-		// O portão do documento retirou uma resposta do chat e nenhum arquivo saiu (create_file falhou, limite de arquivos,
-		// modelo respondeu curto): o usuário não pode ficar com menos do que já tinha, então o texto original volta.
-		if (gatedText && !fileDelivered && countWords(text) < countWords(gatedText)) {
-			if (text) await onEvent({ type: "assistant_discard", id: messageId, reason: "missing_file" });
-			messageId = `${messageId}-restored`;
-			text = gatedText;
-			await onEvent({ type: "assistant_delta", id: messageId, delta: text });
-		}
+	const finishOk = async (text: string, rawStop: RunStop, messageId: string): Promise<RunComputerUseResult> => {
 		// Itens descartados e pendências vão na resposta; o delta mantém o balão ao vivo igual ao gravado.
 		const items = currentTaskItems();
+		// Itens abertos DESTE run, qualquer que seja o motivo da parada: o detalhe `items_open` é o que deixa a mensagem seguinte
+		// receber a nota de continuação (`stoppedWithOpenWork`). Sem itens abertos deste run, parar por teto não herda nada.
+		const stop = withOpenItemsMarker(rawStop, !helperRole && openItems(items).length > 0);
 		const unresolved = stop.detail === "tasklist_open" ? openItems(items).map((item) => item.content) : [];
 		const withNotes = appendUnconfirmed(text, { dropped: droppedItems(items), unresolved, language });
 		if (withNotes !== text) await onEvent({ type: "assistant_delta", id: messageId, delta: withNotes.slice(text.length) });
@@ -1160,10 +1235,9 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 			longWorkCoordinator &&
 			!fileDelivered &&
 			tools.some((tool) => tool.function.name === "create_file") &&
-			!declinesDocument(lastUserMessage) &&
-			(asksForDocument(lastUserMessage) || documentGateFired || filePartsSoFar.size > 0);
+			(declaredDeliverable === "document" || filePartsSoFar.size > 0);
 		if (documentFallback) {
-			conversation.push({ role: "user", content: `${AUTO_CONTEXT} ${DOCUMENT_BUDGET_NOTE}` });
+			conversation.push({ role: "user", content: `${AUTO_CONTEXT} ${documentStopNote(stop.reason)}` });
 			const createFileOnly = tools.filter((tool) => tool.function.name === "create_file");
 			documentFallbackActive = true;
 			try {
@@ -1193,7 +1267,7 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 			if (isControlFlowError(error)) throw error;
 		}
 		if (!text) {
-			text = budgetStopFallbackText(stopReasonPhrase(stop.reason, language), language);
+			text = budgetStopFallbackText(stopReasonPhrase(stop.reason, language, stepsSource ? { ownerSteps: effectiveMaxSteps } : {}), language);
 			await onEvent({ type: "assistant_delta", id: messageId, delta: text });
 		}
 		if (documentFallback && !fileDelivered) {
@@ -1256,7 +1330,7 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 	};
 	if (parsed?.promoted === true) await promoteRun(true);
 	// Depois da promoção (que zera o aviso): a retomada não reenvia a nota de fechamento nem perde a renovação do tempo.
-	supervisor.restore({ wrapUpSent: parsed?.wrapUpSent, timeBaseMs: parsed?.budgetBaseMs });
+	supervisor.restore({ wrapUpSent: parsed?.wrapUpSent, stepsNoticeSent: parsed?.stepsNoticeSent, timeBaseMs: parsed?.budgetBaseMs });
 
 	// Retomada no meio de um lote: as tool calls sem resultado rodam primeiro.
 	const lastAssistant = [...conversation].reverse().find((message) => message.role === "assistant");
@@ -1281,9 +1355,13 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 
 	let finishRetries = 0;
 	let emptyRetries = 0;
-	// Promoção chat -> trabalho longo: o último passo teve tool (trabalho em andamento) e a pergunta solta volta no máximo uma vez.
-	let midWorkQuestionGated = false;
-	let announcedActionGated = false;
+	// Lembrete "continue ou finalize" com itens abertos: no máximo MAX_OPEN_ITEMS_RETURNS por run (o texto já transmitido nunca é apagado).
+	let openItemsReturns = 0;
+	if (!parsed && !helperRole && params.continuedWork === true && params.autoContinued !== true) {
+		// Só contexto: os itens da lista antiga NÃO entram no rastreador (não são cobrados nem viram "Não deu para confirmar").
+		const priorOpen = openItems(parseTaskList(params.priorOpenItems)).map((item) => item.content);
+		if (priorOpen.length > 0) conversation.push({ role: "user", content: `${AUTO_CONTEXT} ${continuedWorkNote(priorOpen)}` });
+	}
 	/** O run já usou navegador ou VM: num chat promovível isso vira trabalho longo no gate seguinte. */
 	let actionToolUsed = false;
 	// Rodadas de tool deste run (mesmo as recusadas contam: o trabalho começou) mais as de execuções anteriores.
@@ -1314,12 +1392,9 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 				return supervisor.gate(
 					{ costUsd: spentUsd(), activeMs: activeElapsedMs(), step },
 					{
-						gaps: notebook ? notebook.snapshot().filter((entry) => entry.kind === "unconfirmed").length : 0,
-						listDone: Boolean(taskItems?.length) && openItems(taskItems).length === 0,
 						// Só conteúdo novo (título + trecho diferentes de entradas anteriores, não vazio) conta como progresso.
 						notebookCount: notebook ? novelEntryCount(notebook.snapshot()) : 0,
 						completedCount: taskItems ? taskItems.filter((item) => item.status === "completed").length : 0,
-						lastStepHadTools,
 						plannedSteps: modelPlannedSteps,
 						actionToolUsed,
 					},
@@ -1376,47 +1451,23 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 					await onEvent({ type: "assistant_delta", id: stepId, delta: EMPTY_REPLY_FALLBACK_TEXT });
 					return await finishOk(EMPTY_REPLY_FALLBACK_TEXT, { reason: "answered", detail: "empty_reply" }, stepId);
 				}
-				// Lista de tarefas obrigatória em trabalho longo: sem itens abertos para entregar.
+				// Lista de tarefas em trabalho longo: sem itens abertos para entregar. É um AVISO: o texto que o modelo já transmitiu
+				// fica na conversa (nunca `assistant_discard`) e a nota volta ao modelo até MAX_TASK_GATE_NOTES vezes por run.
 				const verdict = taskGate.check(currentTaskItems());
 				if (verdict.kind === "note") {
-					await onEvent({ type: "assistant_discard", id: stepId, reason: "items_open" });
+					openItemsReturns += 1;
 					conversation.push({ role: "assistant", content: text });
 					conversation.push({ role: "user", content: `${AUTO_CONTEXT} ${verdict.text}` });
 					step += 1;
 					continue;
 				}
-				// Resultado grande (ou pedido de relatório/estudo/análise) vira documento: uma vez por run.
-				if (
-					longWorkCoordinator &&
-					!documentGateFired &&
-					hasToolInRun("create_file") &&
-					needsDocumentDelivery({ text, request: lastUserMessage, hasFile: fileDelivered })
-				) {
-					documentGateFired = true;
-					gatedText = text;
-					await onEvent({ type: "assistant_discard", id: stepId, reason: "missing_file" });
+				// Chat (sem a lista obrigatória do trabalho longo) com itens ABERTOS na lista do run e trabalho já iniciado: sinal estrutural,
+				// nunca regex sobre o texto ("vou pedir..."). Mesmo aviso, até MAX_OPEN_ITEMS_RETURNS vezes por run, sem apagar o que o usuário leu.
+				// Só conta a lista DESTE run (a que o modelo atualizou ou recriou); item antigo só em nota nunca é cobrado.
+				if (openItemsReturns < MAX_OPEN_ITEMS_RETURNS && !helperRole && !longWorkCoordinator && workStarted() && openItems(currentTaskItems()).length > 0) {
+					openItemsReturns += 1;
 					conversation.push({ role: "assistant", content: text });
-					conversation.push({ role: "user", content: `${AUTO_CONTEXT} ${DOCUMENT_DELIVERY_NOTE}` });
-					step += 1;
-					continue;
-				}
-				// Trabalho longo (ou lista de tarefas aberta), sem falha de tool no último lote e a resposta é SÓ uma pergunta curta sem risco:
-				// ela volta ao modelo uma vez por run. Oferta que fecha uma entrega ("Quer que eu monitore?") e a pergunta de sim/não depois de falha passam.
-				if (!midWorkQuestionGated && !helperRole && workStarted() && !lastBatchFailed && (longWorkCoordinator || openItems(currentTaskItems()).length > 0) && midWorkQuestion(text)) {
-					midWorkQuestionGated = true;
-					await onEvent({ type: "assistant_discard", id: stepId, reason: "unneeded_question" });
-					conversation.push({ role: "assistant", content: text });
-					conversation.push({ role: "user", content: `${AUTO_CONTEXT} ${UNASKED_MIDWORK_NOTE}` });
-					step += 1;
-					continue;
-				}
-				// Texto que só promete uma ação ("Vou pedir o resumo ao Gemini.") sem chamar a tool encerraria o turno com nada feito:
-				// volta ao modelo uma vez por run, com o trabalho já iniciado. Pergunta e resposta final real não são barradas.
-				if (!announcedActionGated && !helperRole && workStarted() && announcesAction(text)) {
-					announcedActionGated = true;
-					await onEvent({ type: "assistant_discard", id: stepId, reason: "announced_action" });
-					conversation.push({ role: "assistant", content: text });
-					conversation.push({ role: "user", content: `${AUTO_CONTEXT} ${ANNOUNCED_ACTION_NOTE}` });
+					conversation.push({ role: "user", content: `${AUTO_CONTEXT} ${openItemsNote(openItems(currentTaskItems()).map((item) => item.content))}` });
 					step += 1;
 					continue;
 				}

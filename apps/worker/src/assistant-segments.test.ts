@@ -82,3 +82,14 @@ test("rascunho revisado é gravado como card recolhido (motivo e hora do 1º del
 	assert.deepEqual(drafts, [{ text: "Pedi pro Bobinho, te aviso.", reason: "items_open", at: 1_010 }]);
 	assert.deepEqual(writes, []);
 });
+
+test("fala de um passo SEM tool que o run devolveu ao modelo (sem assistant_discard) é gravada quando o passo seguinte começa", async () => {
+	const { writes, recorder } = setup();
+	// "Vou pedir o resumo ao Gemini." sem tool: o portão só acrescenta uma nota; o texto fica na conversa.
+	await recorder.observe(delta("s1", "Vou pedir o resumo ao Gemini."));
+	await recorder.observe(delta("s2", "Resumo pronto."));
+	assert.deepEqual(writes.map((w) => w.text), ["Vou pedir o resumo ao Gemini."]);
+	// O passo final (s2) nunca é gravado aqui: o fim do run o grava.
+	await recorder.observe(toolCall());
+	assert.deepEqual(writes.map((w) => w.text), ["Vou pedir o resumo ao Gemini.", "Resumo pronto."]);
+});

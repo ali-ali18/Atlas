@@ -1,6 +1,6 @@
 import * as React from "react";
 import { Keyboard, KeyboardAvoidingView, Pressable, ScrollView } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { ScreenFrame } from "@/components/ui/screen-frame";
 import { cn } from "@/lib/cn";
 
 type ScreenProps = { children: React.ReactNode; className?: string; scroll?: boolean };
@@ -19,7 +19,7 @@ type ScreenProps = { children: React.ReactNode; className?: string; scroll?: boo
 export function Screen({ children, className, scroll = true }: ScreenProps) {
 	const content = cn("flex-grow gap-6 px-6 py-8", className);
 	return (
-		<SafeAreaView className="flex-1 bg-background">
+		<ScreenFrame>
 			<KeyboardAvoidingView behavior="padding" className="flex-1">
 				{scroll ? (
 					<ScrollView
@@ -36,6 +36,6 @@ export function Screen({ children, className, scroll = true }: ScreenProps) {
 					<React.Fragment>{children}</React.Fragment>
 				)}
 			</KeyboardAvoidingView>
-		</SafeAreaView>
+		</ScreenFrame>
 	);
 }

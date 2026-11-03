@@ -322,6 +322,8 @@ export type RunConfigSnapshot = {
 	maxWallMinutes?: number;
 	/** Ausente = sem limite em US$ (padrão). Só existe se a conta ou o operador configuraram. */
 	maxRunCostUsd?: number;
+	/** De onde veio o teto acima: `user` (a conta) ou `env` (o operador do servidor, `ATLAS_MAX_RUN_COST_USD`). Ausente em snapshot antigo. */
+	maxRunCostSource?: "user" | "env";
 	sandboxAutoStart: boolean;
 };
 
@@ -353,8 +355,11 @@ export function toRunConfigSnapshot(effective: EffectiveAccountConfig): RunConfi
 	if (effective.execution.maxSteps.value !== undefined) snapshot.maxSteps = effective.execution.maxSteps.value;
 	if (effective.execution.maxWallMinutes.value !== undefined)
 		snapshot.maxWallMinutes = effective.execution.maxWallMinutes.value;
-	if (effective.execution.maxRunCostUsd.value !== undefined)
+	if (effective.execution.maxRunCostUsd.value !== undefined) {
 		snapshot.maxRunCostUsd = effective.execution.maxRunCostUsd.value;
+		const source = effective.execution.maxRunCostUsd.source;
+		if (source === "user" || source === "env") snapshot.maxRunCostSource = source;
+	}
 	return snapshot;
 }
 

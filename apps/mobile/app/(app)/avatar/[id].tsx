@@ -2,18 +2,17 @@ import { identityFor } from "@workspace/shared/avatar/identity";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import * as React from "react";
 import { Pressable, ScrollView, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
-import { RoundButton } from "@/components/chat/chat-top-bar";
 import { DoneButton } from "@/components/bot/done-button";
 import { SoonSheet } from "@/components/home/soon-sheet";
-import { ChevronLeftIcon } from "@/components/icons";
 import { Avatar } from "@/components/ui/avatar";
+import { ScreenFrame } from "@/components/ui/screen-frame";
+import { ScreenHeader } from "@/components/ui/screen-header";
+import { SurfaceCard, SurfaceDivider } from "@/components/ui/surface-card";
 import { Text } from "@/components/ui/text";
 import { getDraft, updateDraft } from "@/lib/bot-draft";
 import { AVATAR_PALETTE, AVATAR_SHAPES, defaultAvatar } from "@/lib/bot-edit";
 import { cn } from "@/lib/cn";
-import { themeColor } from "@/lib/theme";
-import { useAppColorScheme } from "@/lib/use-theme";
+import { useSurfaces } from "@/lib/use-surfaces";
 
 const TABS = [
 	{ key: "shape", label: "Forma" },
@@ -28,7 +27,7 @@ const TABS = [
  */
 export default function AvatarEditorScreen() {
 	const router = useRouter();
-	const scheme = useAppColorScheme();
+	const surfaces = useSurfaces();
 	const { id } = useLocalSearchParams<{ id: string }>();
 	const start = getDraft(id);
 	const [shape, setShape] = React.useState(start?.shape ?? identityFor(id).shape);
@@ -46,14 +45,8 @@ export default function AvatarEditorScreen() {
 		setColor(fallback.color);
 	};
 	return (
-		<SafeAreaView className="flex-1 bg-background">
-			<View className="flex-row items-center justify-between px-4 pt-1.5">
-				<RoundButton label="Voltar" onPress={goBack}>
-					<ChevronLeftIcon />
-				</RoundButton>
-				<Text className="text-lg font-semibold">Avatar</Text>
-				<DoneButton enabled={changed} onPress={apply} />
-			</View>
+		<ScreenFrame>
+			<ScreenHeader title="Avatar" onBack={goBack} right={<DoneButton enabled={changed} onPress={apply} />} />
 			<ScrollView contentContainerClassName="items-center px-4 pb-12 pt-4">
 				<View accessibilityRole="tablist" className="flex-row items-center gap-1">
 					{TABS.map((tab) => (
@@ -65,11 +58,11 @@ export default function AvatarEditorScreen() {
 				<View className="h-48 w-full items-center justify-center">
 					<Avatar color={color} shape={shape} size={170} animated={false} />
 				</View>
-				<View className="w-full overflow-hidden rounded-panel bg-card">
+				<SurfaceCard className="w-full overflow-hidden">
 					<View className="flex-row flex-wrap justify-center gap-x-1 gap-y-2 px-2 pb-4 pt-5">
 						{AVATAR_SHAPES.map((item) => (
 							<Pressable key={item} role="radio" accessibilityLabel={`Forma ${item}`} accessibilityState={{ checked: item === shape }} onPress={() => setShape(item)} className={cn("size-16 items-center justify-center rounded-full border-2", item === shape ? "border-foreground/50" : "border-transparent")}>
-								<Avatar color={color} shape={item} size={56} animated={false} eyeColor={themeColor(scheme, "card")} />
+								<Avatar color={color} shape={item} size={56} animated={false} eyeColor={surfaces.surface} />
 							</Pressable>
 						))}
 					</View>
@@ -78,19 +71,18 @@ export default function AvatarEditorScreen() {
 								const selected = item.value.toLowerCase() === color.toLowerCase();
 								return (
 									<Pressable key={item.id} role="radio" accessibilityLabel={`Cor ${item.name}`} accessibilityState={{ checked: selected }} onPress={() => setColor(item.value)} className={cn("size-10 items-center justify-center rounded-full border-2", selected ? "border-foreground/50" : "border-transparent")}>
-										<View style={{ backgroundColor: item.value, borderColor: themeColor(scheme, "border") }} className="size-8 rounded-full border" />
+										<View style={{ backgroundColor: item.value, borderColor: surfaces.chromeEdge }} className="size-8 rounded-full border" />
 									</Pressable>
 								);
 							})}
 					</View>
-					<View className="border-t border-border">
-						<Pressable role="button" accessibilityLabel="Restaurar o padrão" onPress={restore} className="min-h-14 justify-center px-5 active:bg-muted/60">
-							<Text className="text-lg text-info">Restaurar o padrão</Text>
-						</Pressable>
-					</View>
-				</View>
+					<SurfaceDivider />
+					<Pressable role="button" accessibilityLabel="Restaurar o padrão" onPress={restore} className="min-h-14 justify-center px-5 active:bg-foreground/10">
+						<Text className="text-lg text-info">Restaurar o padrão</Text>
+					</Pressable>
+				</SurfaceCard>
 			</ScrollView>
 			<SoonSheet open={soon !== null} title={soon ?? ""} onClose={() => setSoon(null)} />
-		</SafeAreaView>
+		</ScreenFrame>
 	);
 }

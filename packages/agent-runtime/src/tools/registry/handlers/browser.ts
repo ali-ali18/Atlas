@@ -3,7 +3,7 @@ import { captureModelScreenshot, parseScreenshotArgs, modelPointToScreen } from 
 import type { ToolContext, ToolResult } from "../types.js";
 import { NATIVE_COMPUTER_TOOL_NAME, translateNativeComputerAction } from "../../computer-native.js";
 
-import { checkLoginWall, executeComputerRefTool } from "../../computer-refs.js";
+import { checkLoginWall, executeComputerRefTool, readLoginFields } from "../../computer-refs.js";
 import { executeComputerReadTool } from "../../computer-read.js";
 import { COMPUTER_TABS_TOOL_NAME, executeComputerTabsTool } from "../../computer-tabs.js";
 import { formatBrowserText, formatScrollPosition, describeTypedText, formatReady, formatSettle, parseBrowserTextArgs } from "../../computer.js";
@@ -110,9 +110,11 @@ async function handleBrowserText(args: Record<string, unknown>, ctx: ToolContext
 		await ctx.getSessionId(),
 		page,
 	);
+	const loginPage = { url: result.url, title: result.title, text: result.text };
+	const fields = await readLoginFields(ctx.manager, await ctx.getSessionId(), loginPage);
 	const login = checkLoginWall(
 		{ runId: ctx.runId, loginAsked: ctx.loginAsked ?? new Set<string>() },
-		{ url: result.url, title: result.title, text: result.text },
+		{ ...loginPage, ...(fields ? { fields } : {}) },
 	);
 	return {
 		summary: `${formatBrowserText(result)}${login?.note ?? ""}`,

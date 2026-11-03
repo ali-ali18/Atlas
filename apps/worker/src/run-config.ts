@@ -23,6 +23,9 @@ import {
 	type ConfigEnv,
 	type ContextMemory,
 	type ModelTiers,
+	type RunCaps,
+	type RunStepsSource,
+	RUN_MAX_STEPS,
 	type RunConfigSnapshot,
 } from "@workspace/shared";
 
@@ -104,6 +107,70 @@ export function effectiveCostCapUsd(
 ): number | undefined {
 	const caps = [requestOrBotCap, snapshot.maxRunCostUsd].filter((cap): cap is number => typeof cap === "number" && Number.isFinite(cap) && cap > 0);
 	return caps.length ? Math.min(...caps) : undefined;
+}
+
+/**
+ * De onde veio cada teto que o runtime recebe, para o bot contar ao usuário onde mudar: o do pedido/bot só é a origem quando é o
+ * menor (senão vale a conta ou o servidor, conforme o snapshot); o de tempo vem do bot (minutos do trabalho longo ou política) ou da conta.
+ */
+export function capSourcesOf(input: {
+	requestOrBotCap: number | undefined;
+	snapshot: Pick<RunConfigSnapshot, "maxRunCostUsd" | "maxRunCostSource" | "maxWallMinutes">;
+	botWallMs?: number;
+	wallFixedByBotOrRequest: boolean;
+}): { cost?: "account" | "server" | "bot"; wall?: "account" | "bot" } {
+	const out: { cost?: "account" | "server" | "bot"; wall?: "account" | "bot" } = {};
+	const accountCap = input.snapshot.maxRunCostUsd;
+	if (input.requestOrBotCap !== undefined && input.requestOrBotCap > 0 && (accountCap === undefined || input.requestOrBotCap <= accountCap)) out.cost = "bot";
+	else if (accountCap !== undefined) out.cost = input.snapshot.maxRunCostSource === "env" ? "server" : "account";
+	if (input.botWallMs !== undefined || input.wallFixedByBotOrRequest) out.wall = "bot";
+	else if (input.snapshot.maxWallMinutes !== undefined) out.wall = "account";
+	return out;
+}
+
+/**
+ * De onde veio o teto de passos que está valendo (pedido > bot > conta, a mesma ordem de `resolveBudget`). Sem nenhum dos três,
+ * vale o limite de segurança do código e a origem é `undefined`: o motivo da parada NÃO o chama de "o que você configurou".
+ */
+export function stepsSourceOf(input: { request?: number; bot?: number; account?: number }): RunStepsSource | undefined {
+	if (input.request !== undefined) return "request";
+	if (input.bot !== undefined) return "bot";
+	if (input.account !== undefined) return "account";
+	return undefined;
+}
+
+/**
+ * Teto de passos efetivo para gravar no run: no v2 nunca passa do limite de segurança (200), então um teto do dono acima disso
+ * aparece como 200 e SEM origem (é o de segurança que vale); no v1 vale o configurado.
+ */
+export function effectiveStepsCap(input: { engine: "v1" | "v2"; hardMaxSteps: number; source: RunStepsSource | undefined }): { steps: number; stepsSource?: RunStepsSource } {
+	if (input.engine !== "v2") return { steps: input.hardMaxSteps, ...(input.source ? { stepsSource: input.source } : {}) };
+	if (input.hardMaxSteps > RUN_MAX_STEPS) return { steps: RUN_MAX_STEPS };
+	return { steps: input.hardMaxSteps, ...(input.source ? { stepsSource: input.source } : {}) };
+}
+
+/**
+ * Tetos que valem no run, com valor e origem, para gravar no `budgetJson` e o inspetor mostrar "Teto de gasto configurado
+ * (US$ 0,25 · servidor)". Junta o teto do worker (`costCapUsd`/`wallMs`) com o gasto e o tempo máximos do bot no trabalho longo.
+ */
+export function runCapsOf(input: {
+	costCapUsd: number | undefined;
+	wallMs: number | undefined;
+	sources: { cost?: "account" | "server" | "bot"; wall?: "account" | "bot" };
+	/** `longWorkBudgetUsd` / `longWorkMinutes` do bot, só quando o run é (ou pode virar) trabalho longo. */
+	botLongWork?: { costUsd?: number; minutes?: number };
+	/** Teto de passos efetivo (ver `effectiveStepsCap`). */
+	stepsCap?: { steps: number; stepsSource?: RunStepsSource };
+}): RunCaps {
+	const out: RunCaps = input.stepsCap ? { steps: input.stepsCap.steps, ...(input.stepsCap.stepsSource ? { stepsSource: input.stepsCap.stepsSource } : {}) } : {};
+	const botCost = input.botLongWork?.costUsd;
+	if (botCost !== undefined && botCost > 0 && (input.costCapUsd === undefined || botCost < input.costCapUsd)) Object.assign(out, { costUsd: botCost, costSource: "bot" as const });
+	else if (input.costCapUsd !== undefined && input.costCapUsd > 0) Object.assign(out, { costUsd: input.costCapUsd, ...(input.sources.cost ? { costSource: input.sources.cost } : {}) });
+	const botWall = input.botLongWork?.minutes !== undefined ? input.botLongWork.minutes * 60_000 : undefined;
+	const accountWall = input.wallMs !== undefined && input.wallMs > 0 ? input.wallMs : undefined;
+	if (botWall !== undefined && botWall > 0 && (accountWall === undefined || botWall < accountWall)) Object.assign(out, { wallMs: botWall, wallSource: "bot" as const });
+	else if (accountWall !== undefined) Object.assign(out, { wallMs: accountWall, ...(input.sources.wall ? { wallSource: input.sources.wall } : {}) });
+	return out;
 }
 
 /** Orçamento entregue ao runtime (`runComputerUse({ budget })`): o resolvido do run mais o teto de custo efetivo. */

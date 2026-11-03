@@ -72,6 +72,7 @@ export function describeElement(raw) {
 	const isValueRole =
 		role === "textbox" || role === "searchbox" || role === "combobox" || role === "spinbutton" || role === "slider";
 	if (raw.secret) element.secret = true;
+	if (raw.oneTimeCode) element.oneTimeCode = true;
 	if (isValueRole && !raw.secret && typeof raw.value === "string") element.value = raw.value;
 	if (raw.checked !== undefined) element.checked = raw.checked;
 	if (raw.disabled) element.disabled = true;
@@ -97,6 +98,7 @@ export function formatElementLine(element) {
 	const parts = [`[${element.ref}] ${element.role}`];
 	if (element.name) parts.push(q(element.name));
 	if (element.secret) parts.push("(campo de senha: nunca preencha)");
+	if (element.oneTimeCode) parts.push("(campo de código de uso único: nunca preencha)");
 	if (element.value !== undefined && element.value !== "") parts.push(`value=${q(element.value)}`);
 	if (element.options) {
 		const more = element.moreOptions ? `|+${element.moreOptions}` : "";

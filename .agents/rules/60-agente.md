@@ -18,6 +18,13 @@ alwaysApply: false
 - Regra nova no prompt vem com um teste de string ou replay que a protege.
 - Nada de proibições absolutas que contradizem capacidades (ex.: "GitHub nunca tem intervalo"). Descreva quando usar cada opção.
 
+## Decisão de comportamento: sem regex
+- **Decisão de comportamento do agente (parar, promover, entregar, portão) não usa regex sobre texto do usuário ou do modelo.** Usa **sinal estrutural** (lista de tarefas, tools chamadas, estado do run, configuração) ou **campo declarado pelo modelo numa tool** (ex.: `deliverable: "document" | "answer"` na `update_task_list`). Regex só para coisa determinística (validar nome de pacote, id, formato).
+- Motivo: texto é ambíguo. "compare" virou "pedido de documento", "vou pedir..." virou "promessa", "continua" virou "continuação" e o bot parou com uma nota falsa de teto de gasto (decisão do dono, 03/11).
+- Texto que o modelo **já transmitiu** ao usuário não some: portão que quer o modelo continuando mantém o texto e só acrescenta a nota para o modelo (nenhum `assistant_discard` num portão). Descarte só para texto vazio ou cortado.
+- Nota de parada diz o motivo REAL: só fala em teto (gasto, tempo) se um teto que o dono configurou disparou, com valor e origem (conta, servidor ou bot). Passos de segurança, repetição e falhas dizem o que de fato houve.
+- Trava descartável (fase que filtra tools, bloqueio temporário de tool, aborto por estagnação) não entra: nota ao modelo basta. Só ficam as travas que protegem o dono ou impedem laço infinito (ver ADR 0003).
+
 ## Configuração agent-first
 - O usuário configura conversando: o agente cria rotina, gatilho ou conector via tool, e a UI mostra um resumo em frase ("Uma vez · 03/10 às 10:00", "A cada 50 min"). Formulário só como fallback recolhido. Não exponha modos internos (polling, secrets, cron cru) na UI.
 - Perfil do bot só muda no onboarding ou com pedido explícito. Preferência do usuário vai para `memory`.

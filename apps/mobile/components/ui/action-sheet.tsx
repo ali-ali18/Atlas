@@ -1,7 +1,8 @@
 import * as React from "react";
-import { Pressable, View } from "react-native";
+import { Pressable } from "react-native";
 import { ChevronLeftIcon, ChevronRightIcon } from "@/components/icons";
 import { DraggableSheet } from "@/components/ui/draggable-sheet";
+import { SurfaceGroup, SurfaceRow } from "@/components/ui/surface-card";
 import { Text } from "@/components/ui/text";
 import { canGoBack, currentPage, goBack, openSubmenu, submenuPage, type SheetPage, type SheetStack } from "@/lib/action-sheet-nav";
 
@@ -18,28 +19,20 @@ export type SheetAction = {
 
 export type SheetGroup = SheetAction[];
 
-/** Cartão arredondado com linhas (ícone à esquerda) e um divisor fino de ponta a ponta entre elas. */
+/** Grupo de linhas (ícone à esquerda): o `SurfaceGroup` padrão, com divisor de ponta a ponta entre elas. */
 function ActionCard({ actions, onOpen }: { actions: SheetGroup; onOpen: (action: SheetAction) => void }) {
 	return (
-		<View className="overflow-hidden rounded-card bg-muted">
-			{actions.map((action, index) => (
-				<React.Fragment key={action.key}>
-					{index > 0 ? <View className="h-px bg-border" /> : null}
-					<Pressable
-						role="button"
-						accessibilityLabel={action.label}
-						onPress={() => (action.submenu ? onOpen(action) : action.onPress?.())}
-						className="min-h-14 flex-row items-center gap-4 px-5 active:bg-foreground/10"
-					>
-						{action.icon}
-						<Text numberOfLines={1} className={`flex-1 text-control ${action.tone === "destructive" ? "text-destructive" : ""}`}>
-							{action.label}
-						</Text>
-						{action.submenu ? <ChevronRightIcon /> : null}
-					</Pressable>
-				</React.Fragment>
+		<SurfaceGroup>
+			{actions.map((action) => (
+				<SurfaceRow key={action.key} label={action.label} onPress={() => (action.submenu ? onOpen(action) : action.onPress?.())}>
+					{action.icon}
+					<Text numberOfLines={1} className={`flex-1 text-control ${action.tone === "destructive" ? "text-destructive" : ""}`}>
+						{action.label}
+					</Text>
+					{action.submenu ? <ChevronRightIcon /> : null}
+				</SurfaceRow>
 			))}
-		</View>
+		</SurfaceGroup>
 	);
 }
 

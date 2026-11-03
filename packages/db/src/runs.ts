@@ -19,7 +19,7 @@ import type {
 	RunInputStatus,
 	RunUsage,
 } from "@workspace/shared";
-import { stoppedWithOpenWork, sanitizeStopDetail, readRunEngine, readRunProfile, withRunEngine, withRunPromotion, type RunEngine, type RunProfile } from "@workspace/shared";
+import { RUN_MAX_STEPS, stoppedWithOpenWork, sanitizeStopDetail, readRunEngine, readRunProfile, withRunEngine, withRunPromotion, withRunCaps, type RunCaps, type RunEngine, type RunProfile } from "@workspace/shared";
 import type { RunStop } from "@workspace/shared";
 import { parseReasoningEffort, withReplyContext, type ReasoningEffort, type ReplyQuote } from "@workspace/shared";
 import { AGENT_RUNTIME_CHECKPOINT_VERSION, RUN_MAX_RECOVERIES, RUN_RECOVERY_LIMIT_MESSAGE, nextRunRecoveryState, buildMessageSource, LIVE_RUN_INPUT_MODES, isCardConfirmToken, isPersistedMessageOrigin, isTaskListDone, parseTaskList, normalizeRunInputMode, openItems, parseTaskLedger, parseToolCacheState, parseToolResultStatus, redactSecrets, splitReplySegments } from "@workspace/shared";
@@ -88,6 +88,8 @@ function mapRun(row: {
 	cancelRequested: boolean;
 	budgetJson?: unknown;
 	usageJson?: unknown;
+	stopReason?: string | null;
+	stopDetail?: string | null;
 	createdAt: Date;
 	updatedAt: Date;
 	startedAt: Date | null;
@@ -110,6 +112,8 @@ function mapRun(row: {
 		cancelRequested: row.cancelRequested,
 		budgetJson: (row.budgetJson as unknown) ?? null,
 		usageJson: (row.usageJson as unknown) ?? null,
+		stopReason: row.stopReason ?? null,
+		stopDetail: row.stopDetail ?? null,
 		createdAt: row.createdAt.toISOString(),
 		updatedAt: row.updatedAt.toISOString(),
 		startedAt: toIso(row.startedAt),
@@ -138,6 +142,8 @@ export const AGENT_RUN_SELECT = {
 	cancelRequested: true,
 	budgetJson: true,
 	usageJson: true,
+	stopReason: true,
+	stopDetail: true,
 	createdAt: true,
 	updatedAt: true,
 	startedAt: true,
@@ -266,6 +272,21 @@ export async function recordRunPromotion(runId: string, userId: string): Promise
 	return updated > 0;
 }
 
+/**
+ * Grava no `budgetJson` os tetos que valem para o run (valor e origem), para o motivo da parada dizer "Teto de gasto configurado
+ * (US$ 0,25 · servidor)". Merge atômico (jsonb), escopado pelo dono; melhor esforço (o chamador ignora a falha).
+ */
+export async function recordRunCaps(runId: string, userId: string, caps: RunCaps): Promise<boolean> {
+	const patch = withRunCaps(null, caps);
+	if (!("caps" in patch)) return false;
+	const json = JSON.stringify(patch);
+	const updated = await prisma.$executeRaw`
+		UPDATE "agent_runs"
+		SET "budgetJson" = COALESCE("budgetJson", '{}'::jsonb) || ${json}::jsonb
+		WHERE "id" = ${runId} AND "userId" = ${userId}`;
+	return updated > 0;
+}
+
 /** Lê a janela gravada na criação; fallback 128k (nunca explode). */
 export function readRunContextLength(
 	run: { budgetJson?: unknown },
@@ -327,8 +348,8 @@ export function buildQueuedRunData(input: {
 	const { request, model, userId, conversationId } = input;
 	const maxSteps =
 		typeof request.maxSteps === "number" && Number.isFinite(request.maxSteps)
-			? Math.max(1, Math.min(100, Math.floor(request.maxSteps)))
-			: 100;
+			? Math.max(1, Math.min(RUN_MAX_STEPS, Math.floor(request.maxSteps)))
+			: RUN_MAX_STEPS;
 
 	const checkpoint: AgentRunCheckpoint = {
 		version: AGENT_RUNTIME_CHECKPOINT_VERSION,
@@ -389,21 +410,6 @@ export async function getConversationInheritance(userId: string, conversationId:
 }
 
 /**
- * Herança para uma mensagem digitada curta de continuação ("continua"): só se o último run de chat da conversa parou com
- * trabalho aberto (ver `stoppedWithOpenWork`); senão nada, e o run decide o perfil pelo texto como sempre.
- */
-export async function getContinuationInheritance(userId: string, conversationId: string | undefined | null): Promise<RunInheritance> {
-	if (!conversationId || !userId.trim() || userId === "default") return { humanTurn: false };
-	const last = await prisma.agentRun.findFirst({
-		where: { userId, conversationId, origin: "chat" },
-		orderBy: { createdAt: "desc" },
-		select: { budgetJson: true, stopReason: true, stopDetail: true },
-	});
-	if (!last || !stoppedWithOpenWork({ reason: last.stopReason, detail: last.stopDetail })) return { humanTurn: false };
-	return readRunInheritance(last);
-}
-
-/**
  * Caderno do trabalho anterior da conversa, para semear uma continuação. Só se o ÚLTIMO run de chat da conversa parou com
  * trabalho aberto (`stoppedWithOpenWork`): senão o caderno é de um trabalho já entregue e não deve contaminar um pedido novo.
  * Lê só `checkpointJson->'notebook'` (não o checkpoint inteiro). Mesmo escopo de dono; sem caderno = null.
@@ -421,6 +427,21 @@ export async function getConversationNotebook(userId: string, conversationId: st
 		LIMIT 1
 	`;
 	return notebookForContinuation(rows[0]);
+}
+
+/**
+ * O último run de chat da conversa (fora `excludeRunId`) parou com itens abertos da lista dele? Sinal de ESTADO que só
+ * leva CONTEXTO ao run seguinte (nota com os itens e o caderno); perfil e portão da lista nunca são herdados por uma mensagem
+ * digitada. Escopado pelo dono.
+ */
+export async function lastChatRunStoppedWithOpenWork(userId: string, conversationId: string | undefined | null, options?: { excludeRunId?: string }): Promise<boolean> {
+	if (!conversationId || !userId.trim() || userId === "default") return false;
+	const last = await prisma.agentRun.findFirst({
+		where: { userId: { in: ownerIds(userId) }, conversationId, origin: "chat", ...(options?.excludeRunId ? { id: { not: options.excludeRunId } } : {}) },
+		orderBy: { createdAt: "desc" },
+		select: { stopReason: true, stopDetail: true },
+	});
+	return Boolean(last) && stoppedWithOpenWork({ reason: last!.stopReason, detail: last!.stopDetail });
 }
 
 /** Regra pura de `getConversationNotebook` (testável sem banco): o caderno do último run só serve se ele parou com trabalho aberto. */
@@ -446,8 +467,6 @@ export async function createAgentRun(input: {
 	onMergedIntoActiveRun?: (runId: string) => void | Promise<void>;
 	/** Resposta de questionário/cartão dentro de um trabalho do dono: herda turno humano, motor e perfil do último run de chat da conversa. */
 	inheritFromConversation?: boolean;
-	/** Mensagem digitada curta de continuação ("continua"): herda perfil e motor do último run só se ele parou com trabalho aberto. */
-	inheritWhenContinuation?: boolean;
 }): Promise<AgentRun> {
 	const { request, model } = input;
 	const userId = input.userId?.trim();
@@ -482,11 +501,7 @@ export async function createAgentRun(input: {
 				request: withReplyContextOnRequest(fileCards.length ? { ...request, attachments: await imageAttachmentsOf(request.attachments ?? [], userId) } : request, replyTo),
 				model, userId, conversationId, contextLength: input.contextLength, modelAuto: input.modelAuto, humanTurn: input.humanTurn,
 				fileArtifactIds: fileCards.map((card) => card.artifactId),
-				...(input.inheritFromConversation
-					? { inherited: await getConversationInheritance(userId, conversationId) }
-					: input.inheritWhenContinuation
-						? { inherited: await getContinuationInheritance(userId, conversationId) }
-						: {}),
+				...(input.inheritFromConversation ? { inherited: await getConversationInheritance(userId, conversationId) } : {}),
 			}),
 		});
 		if (conversationId && origin !== "routine" && request.silent !== true) {

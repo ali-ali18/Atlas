@@ -80,7 +80,7 @@ test("maxSteps, conteúdo e quantidade de mensagens inválidos não criam runs",
 	const create = stubMethod(prisma.agentRun, "create", async () => { throw new Error("não deve criar run"); });
 	t.after(() => mock.restoreAll());
 	for (const path of ["/v1/runs", "/v1/chat/computer"]) {
-		for (const maxSteps of [0, 501, 1.5, "1"]) assert.equal((await post(appFor(A), path, { messages: [{ role: "user", content: "oi" }], maxSteps })).status, 400);
+		for (const maxSteps of [0, 201, 501, 1.5, "1"]) assert.equal((await post(appFor(A), path, { messages: [{ role: "user", content: "oi" }], maxSteps })).status, 400);
 		assert.equal((await post(appFor(A), path, { messages: [{ role: "user", content: "x".repeat(65537) }] })).status, 400);
 		assert.equal((await post(appFor(A), path, { messages: Array(201).fill({ role: "user", content: "oi" }) })).status, 400);
 	}

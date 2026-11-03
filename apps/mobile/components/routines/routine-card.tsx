@@ -1,22 +1,20 @@
 import type { RoutineRecord } from "@workspace/shared";
 import * as React from "react";
-import { Pressable, View } from "react-native";
+import { Pressable } from "react-native";
+import { SurfaceCard } from "@/components/ui/surface-card";
 import { Text } from "@/components/ui/text";
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
-import { routineSurface } from "@/lib/chat-surface";
 import { routineSummary } from "@/lib/routine-summary";
-import { useAppColorScheme } from "@/lib/use-theme";
 
 /**
  * Cartão de uma rotina, como no Grok: nome, a frase de quando roda ("Uma vez · 03/10 às 10:00"), o selo "Criada pelo
  * bot" e o interruptor de pausar/retomar. Tocar no cartão abre os detalhes; o interruptor só pausa/retoma.
  */
 export function RoutineCard({ routine, accent, busy = false, onOpen, onToggle }: { routine: RoutineRecord; accent: string; busy?: boolean; onOpen: (routine: RoutineRecord) => void; onToggle: (routine: RoutineRecord, enabled: boolean) => void }) {
-	const surface = routineSurface(useAppColorScheme());
 	const summary = routineSummary(routine);
 	// O interruptor fica FORA do botão do cartão: dentro dele o VoiceOver do iOS esconde os filhos e o interruptor some.
 	return (
-		<View className="flex-row items-center gap-3 px-5 py-4" style={{ borderWidth: 1, borderColor: surface.edge, backgroundColor: surface.card, borderRadius: 21 }}>
+		<SurfaceCard className="flex-row items-center gap-3 px-5 py-4">
 			<Pressable role="button" accessibilityLabel={`${routine.name}. ${summary}`} onPress={() => onOpen(routine)} className="min-w-0 flex-1 gap-0.5 active:opacity-80">
 				<Text numberOfLines={2} className={`text-base ${routine.enabled ? "" : "text-muted-foreground"}`}>
 					{routine.name}
@@ -30,7 +28,7 @@ export function RoutineCard({ routine, accent, busy = false, onOpen, onToggle }:
 					</Text>
 				) : null}
 			</Pressable>
-			<ToggleSwitch accessibilityLabel={`Ativa: ${routine.name}`} value={routine.enabled} disabled={busy} onValueChange={(value) => onToggle(routine, value)} color={accent} offColor={surface.off} />
-		</View>
+			<ToggleSwitch accessibilityLabel={`Ativa: ${routine.name}`} value={routine.enabled} disabled={busy} onValueChange={(value) => onToggle(routine, value)} color={accent} />
+		</SurfaceCard>
 	);
 }

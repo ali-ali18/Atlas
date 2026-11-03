@@ -2,6 +2,9 @@ import * as React from "react";
 import { TextInput, View } from "react-native";
 import Animated, { Easing, useAnimatedStyle, useReducedMotion, useSharedValue, withRepeat, withSequence, withTiming } from "react-native-reanimated";
 import { cn } from "@/lib/cn";
+import { colorTokens } from "@/lib/color-tokens";
+import { useSurfaces } from "@/lib/use-surfaces";
+import { useAppColorScheme } from "@/lib/use-theme";
 import { Text } from "@/components/ui/text";
 
 // Mesmos nomes e partes do InputOTP do shadcn/ui (InputOTP, InputOTPGroup, InputOTPSlot, InputOTPSeparator), que o
@@ -91,15 +94,12 @@ function FakeCaret() {
 export function InputOTPSlot({ index, className }: { index: number; className?: string }) {
 	const slot = React.useContext(SlotsContext)[index];
 	const invalid = React.useContext(InvalidContext);
+	const surfaces = useSurfaces();
+	const scheme = useAppColorScheme();
+	const tokens = colorTokens[scheme];
+	const edge = invalid ? tokens.destructive : slot?.isActive ? tokens.ring : surfaces.chromeEdge;
 	return (
-		<View
-			className={cn(
-				"h-14 w-10 items-center justify-center rounded-2xl border border-transparent bg-input/50",
-				invalid && "border-destructive",
-				slot?.isActive && !invalid && "border-ring bg-input/70",
-				className,
-			)}
-		>
+		<View style={{ backgroundColor: surfaces.chromeFill, borderColor: edge }} className={cn("h-14 w-10 items-center justify-center rounded-2xl border", className)}>
 			{slot?.char ? <Text className="text-xl font-semibold">{slot.char}</Text> : null}
 			{slot?.hasFakeCaret ? <FakeCaret /> : null}
 		</View>
