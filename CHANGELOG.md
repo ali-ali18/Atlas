@@ -5,6 +5,7 @@ Todas as mudanças relevantes do Atlas. Formato [Keep a Changelog](https://keepa
 ## [Não lançado]
 
 ### Adicionado
+- **agent:** freios puros do motor v3 (harness v3, PR4), em módulos próprios e testados por tabela: limites (`limits.ts`: 40 passos por execução sem humano, sem limite de passos no chat salvo o teto do dono, 200 de segurança; US$ e tempo só se o dono configurou), os 4 empurrões estruturais com teto por tipo e global de 3 (`nudges.ts`: resposta cortada, vazia, tool malformada e lista aberta do próprio modelo; nunca por leitura do texto), a rede contra repetição (`repetition.ts`: 3ª igual = nota, 5ª não executa, 2 bloqueios = passo final; ping-pong, mesmo erro, isenção de tools de espera até 30 e o gancho da guarda pós-compactação) e as falhas honestas (`failures.ts`: nome normalizado e até 3 próximos, assinatura curta do schema no erro de argumento, 3 tentativas de transporte e depois a cadeia de fallback configurada).
 - **worker:** o worker entende o motor `v3` (harness v3) antes de o v3 existir: bot com `engine: "v3"` roda no v2, com uma linha de log, e o run grava o motor de fato usado; run gravado como `v3` retoma no v2. O v3 só vale com `ATLAS_ENGINE_V3` diferente de `off` e a conta em `ATLAS_ENGINE_V3_ACCOUNTS` (e, por ora, mesmo assim cai no v2). `set_engine` e a rota do bot ainda recusam gravar `v3`, com mensagem clara. Variáveis documentadas no `.env.example` do worker.
 
 ### Corrigido
