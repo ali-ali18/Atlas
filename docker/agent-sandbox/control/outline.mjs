@@ -8,6 +8,7 @@ export const READ_MAX_LIMIT = 20_000;
 export const FIND_MAX_MATCHES = 20;
 export const FIND_CONTEXT = 70;
 export const QUERY_MAX = 200;
+const REGEX_TEXT_MAX = 2000;
 
 /**
  * `frames`: [{ prefix, label, crossOrigin?, main?, items }] (principal primeiro).
@@ -164,13 +165,18 @@ export function findEntries(entries, { query, regex = false, max = FIND_MAX_MATC
 	let test;
 	if (regex) {
 		let re;
+		// Quantificador sobre grupo que já tem quantificador, ex.: (a+)+ ou (.*)*: backtracking exponencial trava o control server.
+		if (/\((?:[^()\\]|\\.)*[+*](?:[^()\\]|\\.)*\)\s*[+*{]/.test(q)) {
+			throw new Error("regex arriscada (quantificador repetido dentro de grupo): simplifique ou use busca por texto simples (regex:false).");
+		}
 		try {
 			re = new RegExp(q, "i");
 		} catch {
 			throw new Error("regex inválida em query.");
 		}
 		test = (text) => {
-			const m = re.exec(text);
+			// Linha enorme só entra com o começo (limita o custo de uma regex lenta).
+			const m = re.exec(text.length > REGEX_TEXT_MAX ? text.slice(0, REGEX_TEXT_MAX) : text);
 			return m ? { index: m.index, length: m[0].length } : null;
 		};
 	} else {
