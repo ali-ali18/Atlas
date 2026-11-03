@@ -25,7 +25,7 @@ const msgs: ChatItem[] = [
 
 describe("cache do chat", () => {
 	it("a chave leva servidor, e-mail (sem caixa) e conversa", () => {
-		expect(chatCacheKey("https://a.test", "Dono@Ex.com", "c1")).toBe("atlas.chat.v1:https://a.test|dono@ex.com|c1");
+		expect(chatCacheKey("https://a.test", "Dono@Ex.com", "c1")).toBe("atlas.chat.v2:https://a.test|dono@ex.com|c1");
 		expect(chatCacheKey("https://a.test", "a@b.c", "c1")).not.toBe(chatCacheKey("https://a.test", "a@b.c", "c2"));
 		expect(chatCacheKey("https://a.test", "a@b.c", "c1")).not.toBe(chatCacheKey("https://a.test", "x@b.c", "c1"));
 	});
@@ -52,7 +52,7 @@ describe("cache do chat", () => {
 		expect(parsed.items.at(-1)?.id).toBe("m99");
 		const withExtra = JSON.parse(serializeChat(msgs, NOW));
 		expect(Object.keys(withExtra.items[0]).sort()).toEqual(["createdAt", "id", "kind", "text"]);
-		const raw = JSON.stringify({ v: 1, savedAt: NOW, items: [{ id: "1", kind: "user", text: "x", token: "segredo", cookie: "c" }] });
+		const raw = JSON.stringify({ v: 2, savedAt: NOW, items: [{ id: "1", kind: "user", text: "x", token: "segredo", cookie: "c" }] });
 		expect(JSON.stringify(parseChat(raw, NOW))).not.toContain("segredo");
 	});
 	it("o valor fica bem abaixo do limite do armazenamento", () => {
@@ -66,7 +66,7 @@ describe("cache do chat", () => {
 		expect(parseChat("não é json", NOW)).toBeNull();
 		expect(parseChat(JSON.stringify({ v: 99, savedAt: NOW, items: [] }), NOW)).toBeNull();
 		expect(parseChat(serializeChat(msgs, NOW), NOW + CHAT_CACHE_MAX_AGE_MS + 1)).toBeNull();
-		expect(parseChat(JSON.stringify({ v: 1, savedAt: NOW, items: [{ id: 3 }, null, { id: "a", kind: "nope" }] }), NOW)?.items).toEqual([]);
+		expect(parseChat(JSON.stringify({ v: 2, savedAt: NOW, items: [{ id: 3 }, null, { id: "a", kind: "nope" }] }), NOW)?.items).toEqual([]);
 	});
 	it("armazenamento que falha não derruba a tela", async () => {
 		const broken: CacheStorage = { getItem: async () => Promise.reject(new Error("x")), setItem: async () => Promise.reject(new Error("x")), removeItem: async () => undefined, getAllKeys: async () => Promise.reject(new Error("x")) };
@@ -75,7 +75,7 @@ describe("cache do chat", () => {
 		expect(await clearChatCache(broken)).toBe(false);
 	});
 	it("clearChatCache apaga o chat de todas as contas e versões, e só ele", async () => {
-		const storage = memoryStorage({ "atlas.chat.v1:s|a|c1": "1", "atlas.chat.v0:s|b|c2": "2", "atlas.home.v2:s|a": "3", outro: "4" });
+		const storage = memoryStorage({ "atlas.chat.v2:s|a|c1": "1", "atlas.chat.v0:s|b|c2": "2", "atlas.home.v2:s|a": "3", outro: "4" });
 		expect(await clearChatCache(storage)).toBe(true);
 		expect([...storage.data.keys()].sort()).toEqual(["atlas.home.v2:s|a", "outro"]);
 	});

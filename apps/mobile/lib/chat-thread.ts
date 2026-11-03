@@ -1,8 +1,8 @@
 // Fio da conversa: do que o servidor grava (`SessionMessage`) ao que a tela desenha, e a junção do gravado com o
 // que só existe ao vivo (balão do usuário ainda não gravado, fala em andamento, cartões do run). Porta enxuta do
 // `use-atlas-chat.ts` / `thread-merge.ts` / `thread-live.ts` do web: o gravado manda, o ao vivo preenche o resto.
-import { BOT_LINK_ROLE, formatSourceMarker, isCardConfirmToken, type MessageSource, parseBotLinkCard, parseConversationCard, type PersistedConversationCard, type SessionMessage } from "@workspace/shared";
-import type { ChatItem, Reaction, TaskItem } from "./chat-types";
+import { BOT_LINK_ROLE, formatSourceMarker, isCardConfirmToken, type MessageSource, parseBotLinkCard, parseBotMessageContent, parseConversationCard, type PersistedConversationCard, type SessionMessage } from "@workspace/shared";
+import type { BotTag, ChatItem, Reaction, TaskItem } from "./chat-types";
 import { parseReplyTo } from "./reply-quote";
 
 const CARD_ROLES = new Set([
@@ -111,6 +111,18 @@ export function sessionMessageToItem(message: SessionMessage): ChatItem | null {
 	if (role === BOT_LINK_ROLE) {
 		const link = parseBotLinkCard(message.content);
 		return link ? { id: message.id, kind: "marker", createdAt, text: `Enviou mensagem para ${link.botName}${link.title ? `: ${link.title}` : ""}` } : null;
+	}
+	// Fala trocada entre bots (origem `bot`): não é do usuário. Fica marcada para o fio virar "N mensagens com X".
+	if (message.origin === "bot" && (role === "user" || role === "assistant")) {
+		const framed = role === "user" ? parseBotMessageContent(message.content) : null;
+		if (role === "assistant" && !message.content.trim()) return null;
+		const bot: BotTag = {
+			kind: role === "assistant" ? "answer" : (framed?.kind ?? "request"),
+			...(message.fromBotId ? { fromBotId: message.fromBotId } : {}),
+			...(message.fromBotName ? { fromBotName: message.fromBotName } : {}),
+			...(message.botMessageId ? { botMessageId: message.botMessageId } : {}),
+		};
+		return { id: message.id, kind: role, text: framed?.text ?? message.content, createdAt, bot };
 	}
 	const reactions = validReactions(message.reactions);
 	// `replyTo` é do contrato novo do servidor (pode faltar em servidor antigo): lido sem confiar no formato.
