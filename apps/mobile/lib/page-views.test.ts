@@ -101,6 +101,9 @@ describe("veredito na tabela", () => {
 		expect(verdictTone("Reprovado")).toBe("critical");
 		expect(verdictTone("Atrasado")).toBe("critical");
 		expect(verdictTone("Maria Silva")).toBeNull();
+		// palavras neutras: sem julgamento
+		for (const text of ["Sim", "Não", "Ativo", "Inativo", "OK"]) expect(verdictTone(text), text).toBeNull();
+		expect(verdictTone("Não feita")).toBe("critical");
 		expect(verdictTone("")).toBeNull();
 	});
 	it("só coluna curta, com poucos valores e ao menos um veredito conhecido é de status", () => {
@@ -110,6 +113,9 @@ describe("veredito na tabela", () => {
 		expect(isStatusColumn(["Confirmado", "Um texto bem longo que não é veredito nenhum"])).toBe(false);
 		expect(isStatusColumn(["Confirmado", 3])).toBe(false);
 		expect(isStatusColumn([])).toBe(false);
+		// pergunta neutra: Sim/Não não vira coluna de status
+		expect(isStatusColumn(["Sim", "Não", "Sim"])).toBe(false);
+		expect(isStatusColumn(["Ativo", "Inativo"])).toBe(false);
 		expect(isStatusColumn(["a", "b", "c", "d", "e", "f", "g", "Parcial"])).toBe(false);
 	});
 });
@@ -128,6 +134,10 @@ const table: PageNodePropsMap["table"] = {
 };
 
 describe("tabela", () => {
+	it("coluna Sim/Não não é pintada, Confirmado/Parcial é", () => {
+		const view = tableView({ columns: [{ key: "q", label: "Possui filhos?" }, { key: "v", label: "Veredito" }], rows: [{ q: "Sim", v: "Confirmado" }, { q: "Não", v: "Parcial" }] });
+		expect(view.rows.map((row) => row.map((cell) => cell.tone))).toEqual([[null, "positive"], [null, "warning"]]);
+	});
 	const view = tableView(table);
 	it("células formatadas: número à direita com as mesmas casas, vazio como '—'", () => {
 		expect(view.rows.map((row) => row.map((cell) => cell.text))).toEqual([

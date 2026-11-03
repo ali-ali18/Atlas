@@ -96,10 +96,14 @@ export function calloutView(props: PageNodePropsMap["callout"]): CalloutView {
 
 // ---------- Tabela ----------
 
-const POSITIVE_WORDS = /^(confirmad[oa]s?|ok|conclu[ií]d[oa]s?|pag[oa]s?|aprovad[oa]s?|atendid[oa]s?|feit[oa]s?|resolvid[oa]s?|ativ[oa]s?|entregue|sim)$/i;
+const POSITIVE_WORDS = /^(confirmad[oa]s?|conclu[ií]d[oa]s?|pag[oa]s?|aprovad[oa]s?|atendid[oa]s?|feit[oa]s?|resolvid[oa]s?|entregue)$/i;
 const WARNING_WORDS = /^(parcial|parcialmente|pendente|pendentes|em andamento|em an[aá]lise|aten[cç][aã]o|aguardando|a verificar|incompleto|incompleta)$/i;
-const CRITICAL_WORDS = /^(reprovad[oa]s?|falh(ou|a)|erro|atrasad[oa]s?|vencid[oa]s?|cancelad[oa]s?|negad[oa]s?|recusad[oa]s?|cr[ií]tico|cr[ií]tica|n[aã]o|inativ[oa]s?|n[aã]o feit[oa]s?)$/i;
+const CRITICAL_WORDS = /^(reprovad[oa]s?|falh(ou|a)|erro|atrasad[oa]s?|vencid[oa]s?|cancelad[oa]s?|negad[oa]s?|recusad[oa]s?|cr[ií]tico|cr[ií]tica|n[aã]o feit[oa]s?)$/i;
 
+/**
+ * Só vocabulário de veredito explícito: "Sim", "Não", "Ativo" e "OK" ficam sem cor (numa pergunta neutra, "Possui filhos? Sim/Não",
+ * verde e vermelho dariam julgamento onde não há).
+ */
 /** Tom de um veredito curto ("Confirmado" verde, "Parcial" âmbar, "Reprovado" vermelho); texto fora do vocabulário = sem tom. */
 export function verdictTone(text: string): PageTone | null {
 	const value = text.trim();
