@@ -160,6 +160,8 @@ export type SupervisorGateContext = {
 	lastStepHadTools?: boolean;
 	/** Passos da lista de tarefas que o MODELO montou neste run (lista herdada de run anterior não conta): 3+ promove o chat. */
 	plannedSteps?: number;
+	/** O run já chamou uma tool de navegador ou VM (agir em site/app não é conversa curta): promove o chat. */
+	actionToolUsed?: boolean;
 };
 
 /** O que o supervisor guarda no checkpoint para a retomada não reenviar a nota nem perder a renovação do tempo. */
@@ -302,8 +304,9 @@ export function createSupervisor(config: {
 			}
 			const { cost, time } = fractions(usage);
 			// Chat promovível vira trabalho longo (uma vez, sem parar nem perguntar) quando o modelo monta uma lista com
-			// 3+ passos: decisão dele, não de regex nem de tempo (a promoção por 80% do tempo saiu junto com o orçamento de tempo).
-			if (config.promotable === true && !promoted && profile === "chat" && (context.plannedSteps ?? 0) >= PROMOTE_PLAN_STEPS) return { action: "promote" };
+			// 3+ passos (decisão dele, não de regex nem de tempo) ou na 1ª tool de navegador/VM: agir em site é trabalho longo.
+			// A promoção por 80% do tempo saiu junto com o orçamento de tempo.
+			if (config.promotable === true && !promoted && profile === "chat" && ((context.plannedSteps ?? 0) >= PROMOTE_PLAN_STEPS || context.actionToolUsed === true)) return { action: "promote" };
 			// Teto duro do dono: a renovação por mensagem nova não o estica (tempo total ativo do run).
 			if (config.hardActiveMs && config.hardActiveMs > 0 && usage.activeMs >= config.hardActiveMs) {
 				return { action: "deliver", stop: { reason: "budget_wall", detail: "delivered" }, instruction: deliveryInstruction("budget_wall") };

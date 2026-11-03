@@ -1267,6 +1267,8 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 	// Promoção chat -> trabalho longo: o último passo teve tool (trabalho em andamento) e a pergunta solta volta no máximo uma vez.
 	let midWorkQuestionGated = false;
 	let announcedActionGated = false;
+	/** O run já usou navegador ou VM: num chat promovível isso vira trabalho longo no gate seguinte. */
+	let actionToolUsed = false;
 	// Rodadas de tool deste run (mesmo as recusadas contam: o trabalho começou) mais as de execuções anteriores.
 	let toolRounds = 0;
 	const workStarted = () => toolRounds > 0 || [...toolCallCounts.values()].some((count) => count > 0);
@@ -1301,6 +1303,7 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 						completedCount: taskItems ? taskItems.filter((item) => item.status === "completed").length : 0,
 						lastStepHadTools,
 						plannedSteps: modelPlannedSteps,
+						actionToolUsed,
 					},
 				);
 			};
@@ -1407,6 +1410,7 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 			conversation.push({ role: "assistant", content: text.length > 0 ? text : null, tool_calls: toolCalls, ...(providerItems ? { providerItems } : {}) });
 			const outcomes = await runBatch(toolCalls);
 			lastStepHadTools = true;
+			if (toolCalls.some((toolCall) => /^(browser|sandbox)_/.test(toolCall.function.name))) actionToolUsed = true;
 			lastBatchFailed = outcomes.some((outcome) => !outcome.ok && !outcome.skipped);
 			toolRounds += 1;
 			abortStop = settleBatch(outcomes);

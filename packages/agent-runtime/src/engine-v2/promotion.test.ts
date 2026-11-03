@@ -508,6 +508,31 @@ describe("promoção decidida pelo modelo: lista de tarefas com 3+ passos (v2)",
 		expect(run.result.stop).toEqual({ reason: "answered" });
 	});
 
+	it("a 1ª tool de navegador num chat promovível vira trabalho longo no gate seguinte (agir em site não é conversa curta)", async () => {
+		const run = await runChat({
+			stepMs: 5_000,
+			messages: [{ role: "user", content: "abra o Gemini e peça um resumo desse vídeo" }],
+			script: [
+				(seen) => {
+					expect(seen.transcript).not.toContain("This task turned into long work");
+					return turn([call("browser_snapshot")], 0.1);
+				},
+				(seen) => {
+					expect(seen.toolNames).toEqual(expect.arrayContaining(["notebook_write", "update_task_list"]));
+					return say("Resumo pronto.", 0.1);
+				},
+				// Trabalho longo sem lista pode pedir uma rodada a mais antes de entregar.
+				say("Resumo pronto.", 0.1),
+				say("Resumo pronto.", 0.1),
+			],
+			extra: { manager: { snapshot: async () => ({}) } as never },
+		});
+		expect(run.onPromoted).toHaveBeenCalledTimes(1);
+		// Sem navegador no run (ex.: pergunta curta) nada promove.
+		const quiet = await runChat({ stepMs: 5_000, messages: [{ role: "user", content: "Bom dia" }], script: [say("Bom dia!")] });
+		expect(quiet.onPromoted).not.toHaveBeenCalled();
+	});
+
 	it("2 passos não promovem", async () => {
 		const run = await runChat({
 			stepMs: 5_000,

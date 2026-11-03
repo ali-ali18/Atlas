@@ -252,6 +252,23 @@ describe("perfil do run", () => {
 		expect(looksLikeLongTask("Research the market for specialty coffee and prepare a report with sources")).toBe(true);
 	});
 
+	it("pedido de ação em site ou app (2+ verbos de ação, ou 1 verbo com URL) é trabalho longo", () => {
+		for (const text of [
+			"abra o Gemini e peça um resumo desse vídeo",
+			"entra no gemini e pede pra resumir https://youtu.be/abc123",
+			"vai lá no site da loja, loga e me diz o status do pedido 1234",
+			"acesse o painel do bling, exporte as vendas de outubro",
+			"baixe a nota fiscal em https://example.com/nf/123 para mim agora",
+			"go to the dashboard, click export and send me the file",
+		]) expect(looksLikeLongTask(text), text).toBe(true);
+	});
+
+	it("conversa curta ou pergunta com um verbo solto continua chat", () => {
+		for (const text of ["oi", "bom dia", "obrigado", "vai chover amanhã em São Paulo?", "me envie um resumo do que combinamos ontem", "o preço ficou entre 10 e 20 reais, certo?"]) {
+			expect(looksLikeLongTask(text), text).toBe(false);
+		}
+	});
+
 	it("pedido de várias etapas encadeadas é trabalho longo (caso real do Cookie)", () => {
 		const cookie = "Abra o vídeo https://youtu.be/abc123, faça perguntas ao Gemini sobre ele, compare com Hermes, Dots e Grok Bot e monte um relatório";
 		expect(looksLikeLongTask(cookie)).toBe(true);

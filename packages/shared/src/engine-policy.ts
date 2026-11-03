@@ -208,8 +208,24 @@ export function looksLikeLongTask(text: string): boolean {
 	// Pedido de várias etapas encadeadas ("abra..., faça perguntas..., compare... e monte"): 3+ verbos de ação diferentes,
 	// em pedido de tamanho razoável e com conectores de sequência (vírgulas, "e", "depois"). Pedido casual curto fica em chat.
 	if (plain.length >= CHAINED_MIN_CHARS && distinctActionVerbs(plain) >= 3 && sequenceConnectors(plain) >= 2) return true;
+	// Pedido de ação em site ou app ("abra o Gemini e peça um resumo", "vai no site da loja, loga e me diz o status"):
+	// 2+ verbos de ação diferentes, ou 1 verbo com URL. Várias etapas no navegador não cabem no modo chat curto.
+	const actions = distinctBrowserActionVerbs(plain);
+	if (actions >= 2 || (actions >= 1 && URL_IN_TEXT.test(plain))) return true;
 	// Pedido longo com verbo de trabalho (várias linhas de instrução) também é tarefa.
 	return plain.length >= 200 && verb.test(plain);
+}
+
+/** Verbos de agir em site/app (pt e en), no imperativo ou infinitivo. "entre"/"vai" só com destino, por serem comuns em outros usos. */
+const BROWSER_ACTION_STEMS: ReadonlyArray<RegExp> = [
+	/\b(acess\w+|access)\b/, /\b(entra|entrar|entre)\s+(?:no|na|nos|nas|em|num|numa|nesse|nessa|neste|nesta|ai|la)\b/, /\b(vai|va|ir)\s+(?:la|ate|pro|pra|para|no|na)\b/,
+	/\b(export\w+)\b/, /\b(baix\w+|download)\b/, /\b(peca|pede|pedir)\b/, /\b(envie|enviar|send)\b/, /\b(preench\w+|fill)\b/, /\b(cliqu\w+|click)\b/,
+	/\b(loga|logue|logar|login|log in|sign in)\b/, /\b(abra|abrir|open)\b/, /\b(navegue|navegar|go to)\b/,
+];
+const URL_IN_TEXT = /\bhttps?:\/\/\S+|\bwww\.\S+/;
+
+function distinctBrowserActionVerbs(plain: string): number {
+	return BROWSER_ACTION_STEMS.reduce((count, stem) => count + (stem.test(plain) ? 1 : 0), 0);
 }
 
 /** Verbo de procurar/pesquisar/levantar (pt e en), sem exigir substantivo de entregável. */
