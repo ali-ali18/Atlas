@@ -2,11 +2,11 @@ import type { HomeBot, SectionRef } from "@/lib/home-types";
 import { useRouter } from "expo-router";
 import * as React from "react";
 import { KeyboardAvoidingView, RefreshControl, ScrollView, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
 import { HomeHeader } from "@/components/home/home-header";
 import { PinnedGrid } from "@/components/home/pinned-grid";
 import { SearchFooter } from "@/components/home/search-footer";
 import { SectionBlock } from "@/components/home/section-block";
+import { ScreenFrame } from "@/components/ui/screen-frame";
 import { HomeBotMenu } from "@/components/home/home-bot-menu";
 import { SoonSheet } from "@/components/home/soon-sheet";
 import { Button } from "@/components/ui/button";
@@ -101,7 +101,7 @@ export default function HomeScreen() {
 	}
 
 	return (
-		<SafeAreaView className="flex-1 bg-background">
+		<ScreenFrame>
 			<KeyboardAvoidingView behavior="padding" className="flex-1">
 				<HomeHeader user={{ name, email, image }} onNew={() => setSoon("novo")} onSignOut={() => void signOut()} onChangeServer={() => void changeServer()} />
 				<ScrollView
@@ -117,6 +117,6 @@ export default function HomeScreen() {
 			</KeyboardAvoidingView>
 			<HomeBotMenu bot={menuBot} onClose={() => setMenuBot(null)} />
 			<SoonSheet open={soon !== null} title={soon === "apps" ? "Apps" : "Novo chat"} onClose={() => setSoon(null)} />
-		</SafeAreaView>
+		</ScreenFrame>
 	);
 }
