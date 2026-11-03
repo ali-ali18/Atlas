@@ -6,7 +6,10 @@ import { parseChatCompletionRequest } from "./parse.js";
 test("limites de mensagens, conteúdo e maxSteps da entrada compat", () => {
 	const message = { role: "user", content: "olá" };
 	assert.ok(parseChatCompletionRequest({ messages: [message], maxSteps: 100 }));
+	// O teto da API é o de segurança do motor (200): 200 passa, 201 não.
+	assert.ok(parseChatCompletionRequest({ messages: [message], maxSteps: 200 }));
+	assert.equal(parseChatCompletionRequest({ messages: [message], maxSteps: 201 }), null);
 	assert.equal(parseChatCompletionRequest({ messages: Array(API_INPUT_LIMITS.messages + 1).fill(message) }), null);
 	assert.equal(parseChatCompletionRequest({ messages: [{ ...message, content: "x".repeat(API_INPUT_LIMITS.contentChars + 1) }] }), null);
-	for (const maxSteps of [0, -1, 501, 1.5, "10", null]) assert.equal(parseChatCompletionRequest({ messages: [message], maxSteps }), null);
+	for (const maxSteps of [0, -1, 201, 501, 1.5, "10", null]) assert.equal(parseChatCompletionRequest({ messages: [message], maxSteps }), null);
 });

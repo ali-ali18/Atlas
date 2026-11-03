@@ -41,7 +41,7 @@ export const ENGINE_V2_EMAIL: string[] = [
 export const ENGINE_V2_LONG_WORK: string[] = [
 	"Long task: make update_task_list your FIRST tool call, before any search, read or other work, with the plan (3 to 8 steps); the user watches that list live. Keep one step in_progress, mark each one completed as you go. You cannot deliver while steps are open: finish each, or discard it by marking it completed with the content \"DROPPED: <reason>\" (discarded steps are shown to the user as not confirmed).",
 	"Notebook: record each finding with notebook_write as you go (title, value, source URL; kind \"unconfirmed\" with the reason when you cannot verify it). Each step you see only the notebook index (titles); read details with notebook_read. Nothing in it is dropped, so keep long content out of your replies.",
-	"Delivery: for a report, study, analysis or any answer longer than about 1500 words, build the document with create_file (summary, findings, a table when it fits, sources from the notebook, assumptions, and what you could not confirm) and reply in chat with a short summary only.",
+	"Delivery: declare deliverable in update_task_list: \"document\" for a report, study, analysis or any answer longer than about 1500 words, \"answer\" when the chat reply is enough (or the user asked for no file). For a document, build it with create_file (summary, findings, a table when it fits, sources from the notebook, assumptions, and what you could not confirm) and reply in chat with a short summary only.",
 ];
 
 /**
@@ -49,59 +49,30 @@ export const ENGINE_V2_LONG_WORK: string[] = [
  * O prompt de sistema do chat não tem as regras do trabalho longo, então elas vão aqui, curtas.
  */
 export const ENGINE_V2_PROMOTED_NOTE =
-	"This task turned into long work. There is no money limit; time is the budget (a supervisor tells you when to wrap up). From now on: keep the plan with update_task_list (3 to 8 steps, one in_progress, mark each completed; you cannot deliver with open steps), record findings with notebook_write (source URL; kind \"unconfirmed\" when unverified), and for a report, study or analysis deliver the document with create_file, then reply in chat with a short summary. Keep working until the result is ready; never hand the work back to the user to go on.";
-
-/** Pergunta que o modelo ia fazer no meio do trabalho: volta uma vez para ele decidir sozinho. */
-export const UNASKED_MIDWORK_NOTE =
-	"You were about to ask the user a question in the middle of the work. Do not: research the answer, or take the sensible default and record it as an assumption, and keep going. Ask only if the next step is irreversible, sends something outside, spends money or needs sensitive data. Deliver the result, not a question.";
-
-/** Texto que prometia uma ação e encerrava o turno sem chamar a tool: volta uma vez para o modelo executar. */
-export const ANNOUNCED_ACTION_NOTE =
-	"Your reply announced an action but called no tool, so the turn would end with nothing done. Do it now: call the tool in this step. If the work is really finished, reply with the result instead of a promise.";
-
-/** Verbos de ação (lista fechada): só promessa de AGIR com tool conta; "vou precisar", "vou aguardar" ou "let me know" não. */
-const ANNOUNCE_VERBS =
-	"abrir|pedir|clicar|acessar|entrar|digitar|enviar|buscar|pesquisar|baixar|ler|rodar|executar|criar|preencher|conferir|verificar|tentar|fazer|gerar|mandar|perguntar|navegar|" +
-	"open|ask|click|access|enter|type|send|search|download|read|run|execute|create|fill|check|verify|try|do|make|generate|navigate|look|log|submit|visit|go|" +
-	"abrir|pedir|clicar|acceder|entrar|escribir|enviar|buscar|descargar|leer|ejecutar|crear|rellenar|verificar|intentar|hacer|preguntar";
-/** Promessa em 1ª pessoa no futuro + verbo de ação ("vou pedir", "agora vou abrir", "I'll ask", "let me open", "voy a abrir"), sem negação. */
-const FUTURE_PROMISE = new RegExp(`(?<!\\b(?:nao|nunca|not|no)\\s)\\b(?:vou|irei|ja vou|agora vou|deixa eu|deixe-me|deixe me|i'?ll|i will|i am going to|i'?m going to|let me|voy a|ahora voy a)\\s+(?:${ANNOUNCE_VERBS})\\b`);
-/** Agendamento ("Criei a rotina. Vou rodar toda segunda") e promessa de avisar/lembrar depois são entrega legítima, não ação pendente. */
-const SCHEDULE_OR_NOTIFY = /\b(?:vou|irei|i'?ll|i will|voy a)\s+(?:rodar|executar|run|check)\s+(?:toda|todo|todas|todos|every|each)\b|\blet me know\b|\b(?:vou|irei|i'?ll|i will|voy a)\s+(?:te\s+|lhe\s+|you\s+)?(?:avisar|lembrar|notificar|informar|remind|notify)\b/;
-const ANNOUNCE_MAX_WORDS = 50;
+	"This task turned into long work. Nothing caps the spending or the duration unless the owner configured a cap; if one is reached you will be told which. From now on: keep the plan with update_task_list (3 to 8 steps, one in_progress, mark each completed; you cannot deliver with open steps; set deliverable to \"document\" when the user wants a file or a report, or \"answer\" when the chat reply is enough), record findings with notebook_write (source URL; kind \"unconfirmed\" when unverified), and when the deliverable is a document, create it with create_file and then reply in chat with a short summary. Keep working until the result is ready; never hand the work back to the user to go on.";
 
 /**
- * A resposta final é só um anúncio de ação ("Vou pedir o resumo ao Gemini."): curta, sem pergunta, com promessa no futuro
- * em 1ª pessoa seguida de verbo de ação de uma lista fechada. Puro; o laço ainda exige trabalho já iniciado e dispara
- * no máximo uma vez por run.
+ * Herança por estado: o run anterior da conversa parou com itens abertos e a lista e o caderno dele foram carregados. A mensagem
+ * pode ser qualquer texto, então quem decide se continua o trabalho ou abre outro assunto é o modelo, pelo contexto.
  */
-export function announcesAction(text: string): boolean {
-	const plain = text.trim();
-	if (!plain || plain.includes("?")) return false;
-	if ((plain.match(/\S+/g) ?? []).length > ANNOUNCE_MAX_WORDS) return false;
-	const normalized = plain.replace(/[\u2019\u2018]/g, "'").normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
-	return FUTURE_PROMISE.test(normalized) && !SCHEDULE_OR_NOTIFY.test(normalized);
-}
-
-/** Termos de risco que mantêm a pergunta (irreversível, saída externa, dinheiro, dado sensível). */
-const RISKY_QUESTION = /\b(apag\w+|delet\w+|exclu\w+|remov\w+|envi(?:ar|o|e|ei)\b|mand(?:ar|o|e|ei)\b|public\w+|post(?:ar|ei)?\b|pag(?:ar|o|ue|amento)\b|compr\w+|cobr\w+|transfer\w+|senha\w*|token|chave|cartao|cpf|cnpj|dados? (?:sensiv|pessoa|bancar)\w*|delete|remove|send|publish|pay|purchase|buy|charge|password|secret|credential\w*|card number|irrevers\w+|confirm\w*|autoriz\w+|authori[sz]e)\b/;
+export const CONTINUED_WORK_NOTE =
+	"The previous task in this conversation stopped with open items; its task list and notebook are loaded. Read the user's new message in that context: if it continues that work, carry on with the open items; if it is a new subject, answer the new subject and leave the old items alone.";
 
 /**
- * A resposta final é SÓ uma pergunta (nenhuma frase de resultado ou entrega), curta e sem termo de risco? "Está R$ 5,10.
- * Quer que eu monitore?" tem resultado e passa. Puro; o laço ainda exige trabalho longo/lista aberta, sem falha de tool, uma vez por run.
+ * Resposta sem tool call com itens ABERTOS na lista do run e trabalho já iniciado: o texto fica na conversa (o usuário já o
+ * viu) e esta nota volta ao modelo uma vez por run. Sinal estrutural (lista e tools), nunca regex sobre o texto
+ * (decisão do dono, 03/11).
  */
-export function midWorkQuestion(text: string): boolean {
-	const plain = text.trim();
-	if (!plain || !plain.endsWith("?")) return false;
-	if ((plain.match(/\S+/g) ?? []).length > 60) return false;
-	const sentences = plain.split(/(?<=[.!?…])\s+/).filter(Boolean);
-	if (!sentences.every((sentence) => sentence.trimEnd().endsWith("?"))) return false;
-	return !RISKY_QUESTION.test(plain.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase());
+export function openItemsNote(openItems: readonly string[]): string {
+	const list = openItems.slice(0, 8).map((item, index) => `${index + 1}. ${item}`).join("\n");
+	return `You still have open items on your task list:\n${list}\nDo the next one now by calling the tool in this step, or explain why it is blocked. If the work is really finished, mark the items completed and reply with the result.`;
 }
 
 /** Trabalho longo sem a lista de tarefas (rotina): só caderno e entrega. */
 function longWorkLines(taskList: boolean): string[] {
-	return taskList ? ENGINE_V2_LONG_WORK : ENGINE_V2_LONG_WORK.slice(1);
+	if (taskList) return ENGINE_V2_LONG_WORK;
+	// Sem a lista não há onde declarar o entregável: a instrução de entrega não cita a tool.
+	return [ENGINE_V2_LONG_WORK[1]!, "Delivery: when the instruction asks for a report or study, build the document with create_file and reply in chat with a short summary only; otherwise reply in chat."];
 }
 
 /** Só com `delegate` no catálogo: quando delegar. */

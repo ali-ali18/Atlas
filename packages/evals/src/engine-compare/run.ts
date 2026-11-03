@@ -55,7 +55,7 @@ export async function runEngineComparison(options: CompareOptions = {}): Promise
 		for (const task of tasks) {
 			for (const engine of ["v1", "v2"] as EngineKind[]) {
 				const v2Options: EngineV2Options = {
-					profile: resolveRunProfile({ policy, text: task.user }),
+					profile: task.longWork ? "long_work" : resolveRunProfile({ policy }),
 					longWorkBudgetUsd: policy.longWorkBudgetUsd,
 					longWorkMinutes: policy.longWorkMinutes,
 					...(options.live?.helperModel ? { helpers: { model: options.live.helperModel } } : {}),

@@ -174,6 +174,8 @@ export {
 	getConversationTaskLedger,
 	getConversationTaskList,
 	getConversationNotebook,
+	recordRunCaps,
+	lastChatRunStoppedWithOpenWork,
 	getContinuationInheritance,
 	notebookForContinuation,
 	getConversationTranscript,

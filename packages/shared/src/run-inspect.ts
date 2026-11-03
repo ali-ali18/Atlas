@@ -6,6 +6,8 @@
 
 import { lessonRef, parseLessonFeedback, type InspectHooksPayload, type InspectLessonsPayload, type LessonFeedbackOutcome } from "./lessons.js";
 import { PLAN_OUTCOME_ADJUSTED, PLAN_OUTCOME_APPROVED } from "./plan.js";
+import { readRunCaps } from "./engine-policy.js";
+import { describeRunStop } from "./run-stop-reason.js";
 
 export const INSPECT_CATEGORIES = ["system", "tools", "history", "toolResults", "notes", "turn"] as const;
 export type InspectCategory = (typeof INSPECT_CATEGORIES)[number];
@@ -123,6 +125,8 @@ export type RunInspection = {
 	model: string;
 	origin: string;
 	error?: string;
+	/** Por que o run terminou, em pt-BR simples (ex.: "Teto de gasto configurado (US$ 0,25 · servidor)"). Ausente em resposta normal. */
+	stop?: { reason: string; detail?: string; label: string };
 	fullRequestEnabled: boolean;
 	context?: InspectContextPayload["transcript"];
 	lessons?: InspectLessons;
@@ -257,7 +261,7 @@ function parseApproval(row: InspectRawApproval): InspectApproval | null {
  * Tolerante: passos antigos (sem `inspect`) aparecem só com a telemetria que tiverem.
  */
 export function buildRunInspection(input: {
-	run: { id: string; status: string; model: string; origin: string; error?: string | null };
+	run: { id: string; status: string; model: string; origin: string; error?: string | null; stopReason?: string | null; stopDetail?: string | null; budgetJson?: unknown };
 	steps: readonly InspectRawStep[];
 	events: readonly InspectRawEvent[];
 	approvals: readonly InspectRawApproval[];
@@ -430,6 +434,10 @@ export function buildRunInspection(input: {
 		model: input.run.model,
 		origin: input.run.origin,
 		...(input.run.error ? { error: clip(scrub(input.run.error), INSPECT_SUMMARY_MAX) } : {}),
+		...(() => {
+			const label = describeRunStop({ reason: input.run.stopReason, detail: input.run.stopDetail }, readRunCaps(input.run.budgetJson));
+			return label && input.run.stopReason ? { stop: { reason: input.run.stopReason, ...(input.run.stopDetail ? { detail: input.run.stopDetail } : {}), label } } : {};
+		})(),
 		fullRequestEnabled: input.fullRequestEnabled ?? steps.some((item) => item.hasRequest),
 		...(context ? { context } : {}),
 		...(lessonIds.length > 0 || used.length > 0 || lessonReview

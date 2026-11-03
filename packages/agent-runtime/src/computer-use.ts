@@ -1893,6 +1893,8 @@ async function runComputerUseCore(params: {
 	priorNotebook?: unknown;
 	/** Este run é uma continuação automática (o worker agendou depois de uma parada com trabalho aberto): herda lista e caderno. */
 	autoContinued?: boolean;
+	/** O último run da conversa parou com trabalho aberto e esta mensagem foi digitada: herda lista e caderno (estado, não o texto). */
+	continuedWork?: boolean;
 	/** Pedidos deste bot a outros bots ainda sem resposta (`send_to_bot`), já escopados por dono. */
 	openBotRequests?: OpenBotRequest[];
 	/** Subagente: notas do filho ficam num armazém do delegate_task, que as anexa ao relatório. */

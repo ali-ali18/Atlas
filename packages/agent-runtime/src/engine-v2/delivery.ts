@@ -7,35 +7,9 @@
  */
 import { FILE_MAX_CONTENT_CHARS, type BotLanguage, type NotebookEntry } from "@workspace/shared";
 
-/** Resposta acima disto (palavras) vira documento. */
-export const DOC_WORDS_THRESHOLD = 1_500;
 /** Teto de saída nos passos que escrevem o arquivo (o v2 não usa o limite de 4.096 tokens do v1). */
 export const DOC_MAX_OUTPUT_TOKENS = 16_000;
-/** Uma resposta curta que cita relatório (ex.: "o relatório ficou pronto") não vira documento, mesmo com caderno. */
-const REPORT_MIN_WORDS = 300;
-
-export function countWords(text: string): number {
-	return (text.match(/\S+/g) ?? []).length;
-}
-
 const norm = (text: string) => text.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
-
-/** O pedido do usuário é de um entregável em documento (relatório, estudo, análise...). */
-export function asksForDocument(request: string): boolean {
-	return /\b(relatorio|estudo|analise|parecer|dossie|laudo|pesquisa de mercado|comparativo|levantamento|report|study|analysis|white ?paper|dossier|informe|analisis)\b/.test(norm(request));
-}
-
-/** O usuário pediu a resposta no chat ("responde aqui", "sem PDF", "não precisa de arquivo"): nunca vira arquivo. */
-export function declinesDocument(request: string): boolean {
-	return /\b(aqui no chat|aqui mesmo|responde aqui|responda aqui|no proprio chat|no chat mesmo|sem (arquivo|pdf|docx|word|documento|anexo)|nao (precisa|quero|preciso)( de| do)?( um| o)? ?(arquivo|pdf|docx|word|documento|anexo)|here in (the )?chat|in the chat|reply here|answer here|no (file|pdf|document)|without (a )?(file|pdf|document)|(don't|do not|dont) (need|want) (a |the )?(file|pdf|document)|sin (archivo|pdf|documento)|aqui en el chat)\b/.test(norm(request));
-}
-
-export function needsDocumentDelivery(input: { text: string; request: string; hasFile: boolean }): boolean {
-	if (input.hasFile || declinesDocument(input.request)) return false;
-	const words = countWords(input.text);
-	if (words > DOC_WORDS_THRESHOLD) return true;
-	return asksForDocument(input.request) && words >= REPORT_MIN_WORDS;
-}
 
 /** A nota de "não confirmado" no fim do documento é curta: poucas linhas, cada uma enxuta; o resto vira "… e mais N". */
 export const UNCONFIRMED_NOTE_MAX_LINES = 6;
@@ -60,9 +34,18 @@ export function isFinalDeliverableCall(args: Record<string, unknown>): boolean {
 	return DELIVERABLE_EXTENSIONS.has(ext) || DELIVERABLE_EXTENSIONS.has(format);
 }
 
-/** Orçamento acabou e o documento ainda não existe: a única tool liberada é create_file. */
+/** Teto configurado pelo dono acabou e o documento ainda não existe: a única tool liberada é create_file. */
 export const DOCUMENT_BUDGET_NOTE =
-	"Budget notice: the budget is used up and the document was not created yet. The only tool available now is create_file. Call it now with the deliverable from what is in the notebook and your findings (pdf or docx; in parts if large): short summary, findings, assumptions, sources. If the file is large, send it in parts with the same filename and the last part with more=false. Keep what you could not confirm to one short closing note at the end, not item by item in the body.";
+	"Budget notice: the cap the owner configured was reached and the document was not created yet. The only tool available now is create_file. Call it now with the deliverable from what is in the notebook and your findings (pdf or docx; in parts if large): short summary, findings, assumptions, sources. If the file is large, send it in parts with the same filename and the last part with more=false. Keep what you could not confirm to one short closing note at the end, not item by item in the body.";
+
+/** O run termina por outro motivo (repetição, falhas seguidas) e o documento ainda não existe: sem falar em teto, que não houve. */
+export const DOCUMENT_STOPPED_NOTE =
+	"The approach you were using did not work and the run is ending before the document was created. The only tool available now is create_file. Call it now with the deliverable from what is in the notebook and your findings (pdf or docx; in parts if large): short summary, findings, assumptions, sources, and one short closing note of what you could not do and why. If the file is large, send it in parts with the same filename and the last part with more=false.";
+
+/** Nota de escrita do documento na parada: a de teto só com teto de verdade (`budget_*`). */
+export function documentStopNote(reason: string): string {
+	return reason.startsWith("budget_") ? DOCUMENT_BUDGET_NOTE : DOCUMENT_STOPPED_NOTE;
+}
 
 /** Depois que o arquivo saiu no estouro: fechamento curto no chat, sem tools. */
 export const DOCUMENT_DONE_INSTRUCTION =
@@ -76,10 +59,6 @@ const MISSING_DOCUMENT: Partial<Record<BotLanguage, string>> & { default: string
 export function documentMissingNote(language: BotLanguage): string {
 	return MISSING_DOCUMENT[language] ?? MISSING_DOCUMENT.default;
 }
-
-/** Nota ao modelo (inglês) quando a resposta deveria ser um documento. */
-export const DOCUMENT_DELIVERY_NOTE =
-	"Delivery as a document: this result is long or was asked as a report. Do not answer in chat. Call create_file now (pdf or docx; large files in parts) with: a short summary, the findings, a table when the data fits one, and the assumptions. Keep what you could not confirm to one short closing note at the end (a few lines); do not scatter \"not confirmed\" remarks through the body item by item. Use notebook_read for details you need; the sources and the unconfirmed items from the notebook are added to the file for you. After the file is created, reply in chat with a short summary only.";
 
 const LABELS: Record<"sources" | "unconfirmed", Partial<Record<BotLanguage, string>> & { default: string }> = {
 	sources: { "pt-BR": "Fontes", "es-ES": "Fuentes", default: "Sources" },

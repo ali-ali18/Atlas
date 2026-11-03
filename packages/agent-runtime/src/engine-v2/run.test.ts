@@ -204,9 +204,8 @@ describe("motor v2: laço", () => {
 		expect(requests.length).toBeGreaterThan(24);
 		// Nenhuma chamada foi feita sem tools por trava, e nenhuma tool foi tirada no meio do trabalho.
 		expect(requests.every((request) => request.params.toolChoice !== "none")).toBe(true);
-		// Durante toda a pesquisa a tool seguiu oferecida; só depois da lista concluída (gatilho de progresso) o passo é de escrita.
-		expect(requests.slice(2, 32).every((request) => request.toolNames.includes("current_time"))).toBe(true);
-		expect(requests.at(-1)!.toolNames).not.toContain("current_time");
+		// O catálogo nunca é filtrado por fase (trava removida em 03/11): a tool segue oferecida até a última chamada.
+		expect(requests.slice(2).every((request) => request.toolNames.includes("current_time"))).toBe(true);
 		expect(events.some((event) => event.type === "assistant_discard")).toBe(false);
 		expect(result.hitWall).toBe(false);
 	});
@@ -305,7 +304,7 @@ describe("motor v2: laço", () => {
 });
 
 describe("motor v2: Supervisor no laço", () => {
-	it("com gasto máximo, avisa uma vez a 75% (pesquisa termina) e, ao estourar, faz a última chamada SEM tools e entrega", async () => {
+	it("com gasto máximo, avisa uma vez a 80% (aviso honesto de teto) e, ao estourar, faz a última chamada SEM tools e entrega", async () => {
 		const { result, requests } = await runV2({
 			messages: [{ role: "user", content: "Confira a hora em Tóquio e em Seul" }],
 			script: [
@@ -317,7 +316,7 @@ describe("motor v2: Supervisor no laço", () => {
 			options: { profile: "long_work", longWorkBudgetUsd: 0.1 },
 		});
 		// Custo: 0.045 + 0.045 = 0.09 (90%) -> nota no 3º passo; +0.03 = 0.12 (>= 100%) -> entrega sem tools.
-		const noted = requests.map((request) => toolMessages(request).filter((text) => text.includes("Research is over")).length);
+		const noted = requests.map((request) => toolMessages(request).filter((text) => text.includes("Cap notice")).length);
 		expect(noted).toEqual([0, 0, 1, 1]);
 		expect(requests).toHaveLength(4);
 		expect(requests[3]!.params.toolChoice).toBe("none");
@@ -381,7 +380,7 @@ describe("motor v2: Supervisor no laço", () => {
 		expect(toolResults.filter((r) => r.name === "current_time")).toHaveLength(5);
 	});
 
-	it("falhas seguidas da mesma tool: nota e bloqueio temporário, sem matar o run", async () => {
+	it("falhas seguidas da mesma tool: só nota; a tool NÃO é bloqueada e o run não morre", async () => {
 		const bad = (id: string) => turn([call(id, "current_time", { timezone: "Nao/Existe" })]);
 		const { result, toolResults, requests } = await runV2({
 			messages: [{ role: "user", content: "oi" }],
@@ -390,14 +389,15 @@ describe("motor v2: Supervisor no laço", () => {
 		expect(result.stop).toEqual({ reason: "answered" });
 		const failed = toolResults.filter((r) => r.name === "current_time");
 		expect(failed.map((r) => r.ok)).toEqual([false, false, false, false]);
-		// A 4ª chamada já encontrou a tool bloqueada (não executou).
-		expect(failed[3]!.summary).toMatch(/temporarily unavailable/);
+		// A 4ª chamada executou de verdade (nada de bloqueio temporário).
+		expect(failed[3]!.summary).not.toMatch(/temporarily unavailable/);
+		expect(failed[3]!.summary).toMatch(/Invalid timezone/);
 		expect(requests.flatMap((request) => toolMessages(request)).some((text) => text.includes("Tool notice"))).toBe(true);
 	});
 });
 
 describe("motor v2: lista de tarefas em trabalho longo", () => {
-	it("responder sem lista ou com itens abertos recebe nota; depois de 2 notas sai e marca no stop", async () => {
+	it("responder sem lista ou com itens abertos recebe UMA nota, sem apagar o texto; depois sai e marca no stop", async () => {
 		const { result, requests, events } = await runV2({
 			messages: [
 				{
@@ -413,7 +413,6 @@ describe("motor v2: lista de tarefas em trabalho longo", () => {
 						["Conferir preços", "pending"],
 					]),
 				]),
-				say("Entrego sem conferir."),
 				say("Entrego mesmo assim."),
 				say("Entrega final."),
 			],
@@ -423,9 +422,9 @@ describe("motor v2: lista de tarefas em trabalho longo", () => {
 			.flatMap((request) => request.params.messages.filter((m) => m.role === "user").map((m) => String(typeof m.content === "string" ? m.content : "")))
 			.filter((text) => text.includes("Task list"));
 		expect(notes.some((text) => text.includes("Task list required"))).toBe(true);
-		expect(notes.some((text) => text.includes("Task list still has open items"))).toBe(true);
-		expect(events.filter((event) => event.type === "assistant_discard")).toHaveLength(2);
-		// 2 notas gastas (sem lista + itens abertos): a 3ª tentativa de entrega passa.
+		// Texto já transmitido não some (regra de 03/11): nenhum assistant_discard.
+		expect(events.filter((event) => event.type === "assistant_discard")).toHaveLength(0);
+		// 1 nota gasta (sem lista): a próxima tentativa de entrega passa, marcada com os itens abertos.
 		expect(result.stop).toEqual({ reason: "answered", detail: "tasklist_open" });
 		expect(result.text).toContain("Entrego mesmo assim.");
 		expect(result.text).toContain("Não deu para confirmar: Pesquisar concorrentes");

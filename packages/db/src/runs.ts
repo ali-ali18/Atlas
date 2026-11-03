@@ -19,7 +19,7 @@ import type {
 	RunInputStatus,
 	RunUsage,
 } from "@workspace/shared";
-import { stoppedWithOpenWork, sanitizeStopDetail, readRunEngine, readRunProfile, withRunEngine, withRunPromotion, type RunEngine, type RunProfile } from "@workspace/shared";
+import { RUN_MAX_STEPS, stoppedWithOpenWork, sanitizeStopDetail, readRunEngine, readRunProfile, withRunEngine, withRunPromotion, withRunCaps, type RunCaps, type RunEngine, type RunProfile } from "@workspace/shared";
 import type { RunStop } from "@workspace/shared";
 import { parseReasoningEffort, withReplyContext, type ReasoningEffort, type ReplyQuote } from "@workspace/shared";
 import { AGENT_RUNTIME_CHECKPOINT_VERSION, RUN_MAX_RECOVERIES, RUN_RECOVERY_LIMIT_MESSAGE, nextRunRecoveryState, buildMessageSource, LIVE_RUN_INPUT_MODES, isCardConfirmToken, isPersistedMessageOrigin, isTaskListDone, parseTaskList, normalizeRunInputMode, openItems, parseTaskLedger, parseToolCacheState, parseToolResultStatus, redactSecrets, splitReplySegments } from "@workspace/shared";
@@ -88,6 +88,8 @@ function mapRun(row: {
 	cancelRequested: boolean;
 	budgetJson?: unknown;
 	usageJson?: unknown;
+	stopReason?: string | null;
+	stopDetail?: string | null;
 	createdAt: Date;
 	updatedAt: Date;
 	startedAt: Date | null;
@@ -110,6 +112,8 @@ function mapRun(row: {
 		cancelRequested: row.cancelRequested,
 		budgetJson: (row.budgetJson as unknown) ?? null,
 		usageJson: (row.usageJson as unknown) ?? null,
+		stopReason: row.stopReason ?? null,
+		stopDetail: row.stopDetail ?? null,
 		createdAt: row.createdAt.toISOString(),
 		updatedAt: row.updatedAt.toISOString(),
 		startedAt: toIso(row.startedAt),
@@ -138,6 +142,8 @@ export const AGENT_RUN_SELECT = {
 	cancelRequested: true,
 	budgetJson: true,
 	usageJson: true,
+	stopReason: true,
+	stopDetail: true,
 	createdAt: true,
 	updatedAt: true,
 	startedAt: true,
@@ -266,6 +272,21 @@ export async function recordRunPromotion(runId: string, userId: string): Promise
 	return updated > 0;
 }
 
+/**
+ * Grava no `budgetJson` os tetos que valem para o run (valor e origem), para o motivo da parada dizer "Teto de gasto configurado
+ * (US$ 0,25 · servidor)". Merge atômico (jsonb), escopado pelo dono; melhor esforço (o chamador ignora a falha).
+ */
+export async function recordRunCaps(runId: string, userId: string, caps: RunCaps): Promise<boolean> {
+	const patch = withRunCaps(null, caps);
+	if (!("caps" in patch)) return false;
+	const json = JSON.stringify(patch);
+	const updated = await prisma.$executeRaw`
+		UPDATE "agent_runs"
+		SET "budgetJson" = COALESCE("budgetJson", '{}'::jsonb) || ${json}::jsonb
+		WHERE "id" = ${runId} AND "userId" = ${userId}`;
+	return updated > 0;
+}
+
 /** Lê a janela gravada na criação; fallback 128k (nunca explode). */
 export function readRunContextLength(
 	run: { budgetJson?: unknown },
@@ -327,8 +348,8 @@ export function buildQueuedRunData(input: {
 	const { request, model, userId, conversationId } = input;
 	const maxSteps =
 		typeof request.maxSteps === "number" && Number.isFinite(request.maxSteps)
-			? Math.max(1, Math.min(100, Math.floor(request.maxSteps)))
-			: 100;
+			? Math.max(1, Math.min(RUN_MAX_STEPS, Math.floor(request.maxSteps)))
+			: RUN_MAX_STEPS;
 
 	const checkpoint: AgentRunCheckpoint = {
 		version: AGENT_RUNTIME_CHECKPOINT_VERSION,
@@ -423,6 +444,20 @@ export async function getConversationNotebook(userId: string, conversationId: st
 	return notebookForContinuation(rows[0]);
 }
 
+/**
+ * O último run de chat da conversa (fora `excludeRunId`) parou com trabalho aberto? Sinal de ESTADO que decide se a
+ * mensagem digitada agora continua aquele trabalho (herda perfil, lista e caderno), qualquer que seja o texto. Escopado pelo dono.
+ */
+export async function lastChatRunStoppedWithOpenWork(userId: string, conversationId: string | undefined | null, options?: { excludeRunId?: string }): Promise<boolean> {
+	if (!conversationId || !userId.trim() || userId === "default") return false;
+	const last = await prisma.agentRun.findFirst({
+		where: { userId: { in: ownerIds(userId) }, conversationId, origin: "chat", ...(options?.excludeRunId ? { id: { not: options.excludeRunId } } : {}) },
+		orderBy: { createdAt: "desc" },
+		select: { stopReason: true, stopDetail: true },
+	});
+	return Boolean(last) && stoppedWithOpenWork({ reason: last!.stopReason, detail: last!.stopDetail });
+}
+
 /** Regra pura de `getConversationNotebook` (testável sem banco): o caderno do último run só serve se ele parou com trabalho aberto. */
 export function notebookForContinuation(last: { stopReason?: string | null; stopDetail?: string | null; notebook?: unknown } | undefined): unknown[] | null {
 	if (!last || !stoppedWithOpenWork({ reason: last.stopReason, detail: last.stopDetail })) return null;
@@ -446,7 +481,7 @@ export async function createAgentRun(input: {
 	onMergedIntoActiveRun?: (runId: string) => void | Promise<void>;
 	/** Resposta de questionário/cartão dentro de um trabalho do dono: herda turno humano, motor e perfil do último run de chat da conversa. */
 	inheritFromConversation?: boolean;
-	/** Mensagem digitada curta de continuação ("continua"): herda perfil e motor do último run só se ele parou com trabalho aberto. */
+	/** Mensagem digitada pelo dono: herda perfil e motor do último run SE ele parou com trabalho aberto (estado, não o texto; o modelo decide se é continuação). */
 	inheritWhenContinuation?: boolean;
 }): Promise<AgentRun> {
 	const { request, model } = input;

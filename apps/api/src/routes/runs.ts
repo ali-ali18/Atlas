@@ -46,7 +46,7 @@ import {
 	resolveUserImagesCard,
 } from "@workspace/db";
 import { noteBrowserLanguage } from "@workspace/db";
-import { isShortContinuation, pickLanguageFromAcceptLanguage } from "@workspace/shared";
+import { pickLanguageFromAcceptLanguage } from "@workspace/shared";
 import { parseReasoningEffort, parseReplyToMessageId } from "@workspace/shared";
 import { demoteSteerInputToQueue, getOwnedConversation, markPendingLoginCode, markPendingLoginUseVault, promoteQueuedInputToSteer } from "@workspace/db";
 import { scopeFor, type AuthEnv } from "../middleware/auth.js";
@@ -107,7 +107,7 @@ function parseCreateBody(
 		return { error: "messages não pode ser vazio" };
 	}
 
-	if (!validMaxSteps(body.maxSteps)) return { error: "maxSteps must be an integer from 1 to 100" };
+	if (!validMaxSteps(body.maxSteps)) return { error: `maxSteps must be an integer from 1 to ${API_INPUT_LIMITS.maxSteps}` };
 	if (body.reasoningEffort != null && parseReasoningEffort(body.reasoningEffort) === undefined) return { error: "reasoningEffort must be one of: off, low, medium, high" };
 	if (body.objective !== undefined && (typeof body.objective !== "string" || body.objective.length > API_INPUT_LIMITS.contentChars)) return { error: "Invalid objective" };
 	const replyToMessageId = parseReplyToMessageId(body.replyToMessageId);
@@ -460,8 +460,9 @@ export function createRunRoutes(
 				humanTurn: isHumanTypedTurn(request, followUpFromConfirm),
 				// Clique de cartão: é resposta humana dentro do trabalho do dono (herda turno humano, motor e perfil do último run).
 				inheritFromConversation: request.origin === "chat" && !isHumanTypedTurn(request, followUpFromConfirm),
-				// "continua" digitado depois de um run que parou com trabalho aberto: herda o perfil em vez de recomeçar do zero.
-				inheritWhenContinuation: isHumanTypedTurn(request, followUpFromConfirm) && isShortContinuation([...request.messages].reverse().find((message) => message.role === "user")?.content ?? ""),
+				// Mensagem digitada depois de um run que parou com trabalho aberto: herda o perfil em vez de recomeçar do zero,
+				// seja qual for o texto (o db confere o estado do último run; o modelo decide se é continuação ou assunto novo).
+				inheritWhenContinuation: isHumanTypedTurn(request, followUpFromConfirm),
 				contextLength: peekModelContextLength(model),
 				onMergedIntoActiveRun: (runId) => notifyRunSignal(publish, runId, "input"),
 			});

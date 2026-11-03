@@ -118,3 +118,18 @@ describe("buildRunInspection: lições", () => {
 		expect(out.approvals.map((approval) => approval.plan)).toEqual([{ steps: 2, state: "adjusted" }, { steps: 1, state: "approved" }, { steps: 1, state: "cancelled" }]);
 	});
 });
+
+describe("buildRunInspection: motivo da parada", () => {
+	const build = (extra: Record<string, unknown>) => buildRunInspection({ run: { ...run, ...extra }, approvals: [], events: [], steps: [] });
+
+	it("teto de gasto configurado mostra valor e origem gravados no budgetJson", () => {
+		const out = build({ stopReason: "budget_cost", stopDetail: "delivered", budgetJson: { engine: "v2", caps: { costUsd: 0.25, costSource: "server" } } });
+		expect(out.stop).toEqual({ reason: "budget_cost", detail: "delivered", label: "Teto de gasto configurado (US$ 0,25 · servidor)" });
+	});
+
+	it("laço por repetição não fala em teto; resposta normal não mostra motivo", () => {
+		expect(build({ stopReason: "loop_repeat", stopDetail: "after_note:items_open" }).stop?.label).toMatch(/abordagem não funcionou/);
+		expect(build({ stopReason: "answered" }).stop).toBeUndefined();
+		expect(build({}).stop).toBeUndefined();
+	});
+});

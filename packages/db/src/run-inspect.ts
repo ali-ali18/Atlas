@@ -7,7 +7,7 @@ export const INSPECT_MAX_EVENTS = 100;
 export const INSPECT_MAX_APPROVALS = 100;
 
 export type RunInspectionData = {
-	run: { id: string; status: string; model: string; origin: string; error: string | null };
+	run: { id: string; status: string; model: string; origin: string; error: string | null; stopReason: string | null; stopDetail: string | null; budgetJson: unknown };
 	steps: InspectRawStep[];
 	events: InspectRawEvent[];
 	approvals: InspectRawApproval[];
@@ -30,7 +30,7 @@ export async function getRunInspectionData(runId: string, userId: string): Promi
 			: Promise.resolve([] as Array<{ id: string; content: string }>),
 	]);
 	return {
-		run: { id: run.id, status: run.status, model: run.model, origin: run.origin, error: run.error },
+		run: { id: run.id, status: run.status, model: run.model, origin: run.origin, error: run.error, stopReason: run.stopReason, stopDetail: run.stopDetail, budgetJson: run.budgetJson },
 		steps: steps.map((row) => ({
 			index: row.index,
 			decisionIndex: row.decisionIndex,

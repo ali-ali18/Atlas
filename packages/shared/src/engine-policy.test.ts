@@ -6,8 +6,8 @@ import {
 	readEngineDefault,
 	resolveBotEngineRouting,
 	type EngineDefault,
-	looksLikeLongTask,
-	isShortContinuation,
+	readRunCaps,
+	withRunCaps,
 	readEnginePolicy,
 	readRunEngine,
 	readRunProfile,
@@ -241,72 +241,11 @@ describe("tabela de decisão: origem × motor do bot × escopo × padrão global
 	});
 });
 
-describe("perfil do run", () => {
-	it("conversa curta não é tarefa", () => {
-		for (const text of ["Bom dia", "oi, tudo bem?", "qual o dólar hoje?", "obrigado!"]) {
-			expect(looksLikeLongTask(text), text).toBe(false);
-		}
-	});
-
-	it("pesquisa e relatório são trabalho longo", () => {
-		expect(looksLikeLongTask("Faça uma pesquisa de mercado sobre o setor de café especial no Brasil e monte um relatório")).toBe(true);
-		expect(looksLikeLongTask("Research the market for specialty coffee and prepare a report with sources")).toBe(true);
-	});
-
-	it("pedido de ação em site ou app (2+ verbos de ação, ou 1 verbo com URL) é trabalho longo", () => {
-		for (const text of [
-			"abra o Gemini e peça um resumo desse vídeo",
-			"entra no gemini e pede pra resumir https://youtu.be/abc123",
-			"vai lá no site da loja, loga e me diz o status do pedido 1234",
-			"acesse o painel do bling, exporte as vendas de outubro",
-			"baixe a nota fiscal em https://example.com/nf/123 para mim agora",
-			"go to the dashboard, click export and send me the file",
-		]) expect(looksLikeLongTask(text), text).toBe(true);
-	});
-
-	it("raízes soltas e pedidos sem alvo digital não viram trabalho longo", () => {
-		for (const text of [
-			"pode me enviar o acesso do wifi do escritório?",
-			"qual o link para acessar o painel? vou abrir agora",
-			"o que significa open source? e como baixar?",
-			"vai na padaria e pede um pão",
-			"me ajuda a baixar o preço e enviar pro cliente",
-			"como faço para exportar o relatorio e enviar ao financeiro?",
-		]) expect(looksLikeLongTask(text), text).toBe(false);
-	});
-
-	it("conversa curta ou pergunta com um verbo solto continua chat", () => {
-		for (const text of ["oi", "bom dia", "obrigado", "vai chover amanhã em São Paulo?", "me envie um resumo do que combinamos ontem", "o preço ficou entre 10 e 20 reais, certo?"]) {
-			expect(looksLikeLongTask(text), text).toBe(false);
-		}
-	});
-
-	it("pedido de várias etapas encadeadas é trabalho longo (caso real do Cookie)", () => {
-		const cookie = "Abra o vídeo https://youtu.be/abc123, faça perguntas ao Gemini sobre ele, compare com Hermes, Dots e Grok Bot e monte um relatório";
-		expect(looksLikeLongTask(cookie)).toBe(true);
-		// Sem a palavra "relatório": 3+ verbos de ação diferentes encadeados bastam.
-		expect(looksLikeLongTask("Assista esse vídeo inteiro, resuma os pontos principais e compare com o que a gente já usa hoje no time")).toBe(true);
-		expect(looksLikeLongTask("Watch the whole video, summarize the main points and compare it with Hermes, Dots and Grok Bot today")).toBe(true);
-		expect(resolveRunProfile({ policy: readEnginePolicy({}), text: cookie })).toBe("long_work");
-	});
-
-	it("conversa e pergunta curta continuam chat", () => {
-		for (const text of ["Bom dia", "Abra o link que te mandei e me diga o que é", "Resuma esse texto em duas linhas, por favor", "qual a diferença entre React e Vue?", "me diga se o Grok Bot é seu agente", "Pode abrir o link que eu mandei, resumir o texto e comparar com o outro?", "abra, leia e resuma isso aqui"]) {
-			expect(looksLikeLongTask(text), text).toBe(false);
-		}
-	});
-
-	it("conjunto de pedidos rotulados: mede acerto, falsos positivos e falsos negativos e falha se algum rótulo errar", async () => {
-		const { LONG_TASK_REQUESTS } = await import("./fixtures/long-task-requests.js");
-		const misses = LONG_TASK_REQUESTS.map((item) => ({ ...item, got: looksLikeLongTask(item.text) ? "long" : "short" })).filter((item) => item.got !== item.label);
-		const falsePositives = misses.filter((item) => item.got === "long");
-		const falseNegatives = misses.filter((item) => item.got === "short");
-		const total = LONG_TASK_REQUESTS.length;
-		console.info(`[looksLikeLongTask] acertos ${total - misses.length}/${total} · falsos positivos ${falsePositives.length} · falsos negativos ${falseNegatives.length}`);
-		for (const miss of misses) console.info(`  erro (${miss.label} -> ${miss.got}): ${miss.text}`);
-		expect(total).toBeGreaterThanOrEqual(60);
-		expect(falsePositives).toEqual([]);
-		expect(falseNegatives).toEqual([]);
+describe("perfil do run (sem regex sobre o texto do pedido, decisão do dono de 03/11)", () => {
+	it("o motor não exporta mais detectores de texto (looksLikeLongTask, isShortContinuation)", async () => {
+		const module = (await import("./engine-policy.js")) as Record<string, unknown>;
+		expect("looksLikeLongTask" in module).toBe(false);
+		expect("isShortContinuation" in module).toBe(false);
 	});
 
 	it("promoção automática grava long_work e a origem no budgetJson, preservando o resto", () => {
@@ -319,29 +258,24 @@ describe("perfil do run", () => {
 		expect(readRunPromotedFrom(null)).toBeUndefined();
 	});
 
-	it("a política do bot força o perfil; auto decide pelo pedido", () => {
-		const text = "Levante os concorrentes e monte um comparativo com preços";
-		expect(resolveRunProfile({ policy: readEnginePolicy({ workProfile: "chat" }), text })).toBe("chat");
-		expect(resolveRunProfile({ policy: readEnginePolicy({ workProfile: "long_work" }), text: "oi" })).toBe("long_work");
-		expect(resolveRunProfile({ policy: readEnginePolicy({}), text })).toBe("long_work");
-		expect(resolveRunProfile({ policy: readEnginePolicy({}), text: "Bom dia" })).toBe("chat");
-	});
-
-	it("e-mail recebido e webhook não escolhem o perfil caro pelo texto; o dono ainda pode forçá-lo", () => {
-		const text = "Levante os concorrentes e monte um comparativo com preços";
-		expect(resolveRunProfile({ policy: readEnginePolicy({}), text, origin: "email" })).toBe("chat");
-		expect(resolveRunProfile({ policy: readEnginePolicy({}), text, origin: "webhook" })).toBe("chat");
-		expect(resolveRunProfile({ policy: readEnginePolicy({ workProfile: "long_work" }), text: "oi", origin: "webhook" })).toBe("long_work");
-		expect(resolveRunProfile({ policy: readEnginePolicy({ workProfile: "long_work" }), text: "oi", origin: "email" })).toBe("long_work");
+	it("a política do bot força o perfil; em auto o run nasce em chat, qualquer que seja o pedido", () => {
+		expect(resolveRunProfile({ policy: readEnginePolicy({ workProfile: "chat" }) })).toBe("chat");
+		expect(resolveRunProfile({ policy: readEnginePolicy({ workProfile: "long_work" }) })).toBe("long_work");
+		// Pedido de relatório, de pesquisa em várias fontes ou "Bom dia": nenhum muda o perfil de partida.
+		expect(resolveRunProfile({ policy: readEnginePolicy({}) })).toBe("chat");
 	});
 });
 
-describe("isShortContinuation", () => {
-	it("mensagem curta que só manda seguir", () => {
-		for (const text of ["continua", "Continue", "pode seguir", "segue", "segue em frente", "ok, continua", "vai em frente!", "continua de onde parou", "go on", "keep going", "pode continuar por favor", "segue", "seguir", "manda ver", "prossiga"]) expect(isShortContinuation(text), text).toBe(true);
-	});
-
-	it("pedido novo, pergunta ou texto longo não é continuação", () => {
-		for (const text of ["", "oi", "continua a pesquisa sobre o preço do lítio em várias lojas e monte um relatório", "o que você acha de continuar?", "seguro de carro", "Bom dia", "segundo", "segura", "segurança"]) expect(isShortContinuation(text), text).toBe(false);
+describe("tetos do run gravados no budgetJson (valor e origem)", () => {
+	it("withRunCaps/readRunCaps: guardam só tetos positivos e finitos, com origem válida, preservando o resto", () => {
+		const budget = withRunCaps({ humanTurn: true }, { costUsd: 0.25, costSource: "server", wallMs: 20 * 60_000, wallSource: "bot" });
+		expect(budget).toEqual({ humanTurn: true, caps: { costUsd: 0.25, costSource: "server", wallMs: 1_200_000, wallSource: "bot" } });
+		expect(readRunCaps(budget)).toEqual({ costUsd: 0.25, costSource: "server", wallMs: 1_200_000, wallSource: "bot" });
+		// Sem teto: nada é gravado.
+		expect(withRunCaps({ a: 1 }, {})).toEqual({ a: 1 });
+		expect(withRunCaps(null, { costUsd: 0, wallMs: Number.NaN })).toEqual({});
+		// Origem inventada ou lixo no JSON não vira texto para o usuário.
+		expect(readRunCaps({ caps: { costUsd: 0.5, costSource: "hacker", wallMs: -1 } })).toEqual({ costUsd: 0.5 });
+		expect(readRunCaps(null)).toEqual({});
 	});
 });

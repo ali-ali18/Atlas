@@ -80,7 +80,6 @@ export async function pickRunEngine(input: {
 	isGroupRun: boolean;
 	/** O run já tem checkpoint (retomada): sem motor gravado ele nasceu no v1, antes desta fase. */
 	hasCheckpoint: boolean;
-	lastUserText: string;
 	/** Gancho para um recurso novo do v1 que o v2 ainda não cobre: o run novo fica no v1 (hoje o worker não o usa). O motor já gravado vence. */
 	forceV1?: boolean;
 	/**
@@ -100,7 +99,7 @@ export async function pickRunEngine(input: {
 	const engine = !stored && input.forceV1 ? "v1" : chooseRunEngine({ stored, policy, origin: input.run.origin, isGroupRun: input.isGroupRun, globalDefault: input.globalDefault });
 	if (engine === "v1") return { engine, profile: "chat" };
 	const profile =
-		readRunProfile(input.run.budgetJson) ?? (input.shortRun ? "chat" : resolveRunProfile({ policy, text: input.lastUserText, origin: input.run.origin }));
+		readRunProfile(input.run.budgetJson) ?? (input.shortRun ? "chat" : resolveRunProfile({ policy }));
 	if (!readRunEngine(input.run.budgetJson)) {
 		// Sem a escolha gravada a retomada poderia trocar de motor: se não gravou, o run fica no v1.
 		const recorded = await input.record({ engine, profile }).catch((error) => {
@@ -165,12 +164,13 @@ export function earlyWallMs(budgetWallMs: number, unattended: boolean): number {
 export function runSelectedEngine(
 	choice: EngineChoice,
 	params: ComputerUseParams,
-	promotion: { canPromote: boolean; onPromoted?: () => void | Promise<void> } = { canPromote: false },
+	promotion: { canPromote: boolean; onPromoted?: () => void | Promise<void>; capSources?: { cost?: "account" | "server" | "bot"; wall?: "account" | "bot" } } = { canPromote: false },
 ): Promise<RunComputerUseResult> {
 	if (choice.engine === "v2") {
 		return runEngineV2(params, {
 			promotable: promotion.canPromote,
 			onPromoted: promotion.onPromoted,
+			...(promotion.capSources ? { capSources: promotion.capSources } : {}),
 			profile: choice.profile,
 			longWorkBudgetUsd: choice.longWorkBudgetUsd,
 			longWorkMinutes: choice.longWorkMinutes,

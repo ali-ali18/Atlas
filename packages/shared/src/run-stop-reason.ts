@@ -178,3 +178,62 @@ export function inferStopReasonFromLegacy(input: { status: string; error?: strin
 	if (/sem progresso|nenhum arquivo/.test(error)) return "no_progress";
 	return input.status === "failed" ? "error" : "other";
 }
+
+const SOURCE_LABEL: Record<"account" | "server" | "bot", string> = { account: "conta", server: "servidor", bot: "bot" };
+
+function formatUsdPtBr(value: number): string {
+	return `US$ ${value.toFixed(2).replace(".", ",")}`;
+}
+
+function formatDurationPtBr(ms: number): string {
+	const minutes = Math.max(1, Math.round(ms / 60_000));
+	return minutes >= 120 && minutes % 60 === 0 ? `${minutes / 60} h` : `${minutes} min`;
+}
+
+/**
+ * "Motivo da parada" em pt-BR simples, para o inspetor de run. Só diz "teto" quando um teto que o dono configurou disparou
+ * (com valor e origem, se gravados); repetição e falhas dizem que a abordagem não funcionou. `undefined` = nada a mostrar
+ * (resposta normal ou motivo desconhecido).
+ */
+export function describeRunStop(
+	stop: { reason?: string | null; detail?: string | null },
+	caps: { costUsd?: number; costSource?: "account" | "server" | "bot"; wallMs?: number; wallSource?: "account" | "server" | "bot" } = {},
+): string | undefined {
+	const withOpen = (text: string) => (stop.detail?.includes("items_open") ? `${text}; ficaram itens em aberto` : text);
+	switch (stop.reason) {
+		case "budget_cost": {
+			const where = caps.costUsd !== undefined ? ` (${formatUsdPtBr(caps.costUsd)}${caps.costSource ? ` · ${SOURCE_LABEL[caps.costSource]}` : ""})` : "";
+			return `Teto de gasto configurado${where}`;
+		}
+		case "budget_wall": {
+			const where = caps.wallMs !== undefined ? ` (${formatDurationPtBr(caps.wallMs)}${caps.wallSource ? ` · ${SOURCE_LABEL[caps.wallSource]}` : ""})` : "";
+			return `Teto de tempo configurado${where}`;
+		}
+		case "budget_steps":
+			return "Limite de passos de segurança de uma execução";
+		case "budget_tokens":
+		case "budget_context":
+			return "O contexto do modelo ficou cheio";
+		case "loop_repeat":
+		case "loop_stall_guard":
+			return withOpen("O bot repetiu a mesma ação sem avançar: a abordagem não funcionou");
+		case "tool_failures":
+			return withOpen("As ferramentas falharam várias vezes seguidas: a abordagem não funcionou");
+		case "truncated":
+			return "A resposta foi cortada pelo limite de saída do modelo";
+		case "no_progress":
+			return "Sem progresso detectado";
+		case "awaiting_confirmation":
+			return "Esperando uma resposta ou confirmação sua";
+		case "paused_login":
+			return "Pausado esperando o seu login";
+		case "cancelled":
+			return "Cancelado";
+		case "retries_exhausted":
+		case "crash_recoveries":
+		case "error":
+			return "Erro técnico durante a execução";
+		default:
+			return undefined;
+	}
+}
