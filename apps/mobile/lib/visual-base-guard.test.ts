@@ -20,14 +20,23 @@ const TOKEN_FILES = new Set(["lib/surfaces.ts", "lib/color-tokens.ts"]);
  * - splash e mascote: o splash nativo é escuro e fixo nos dois temas (`app.json`), e o branco do mascote é marca;
  * - ícones e avatar: cores de desenho (olhos, estrela, formas), não de pele de tela;
  * - bot-avatar: laranja do selo do bot principal (cor de marca, igual ao web);
- * - bubble-tone: tons do balão do usuário na cor do bot (cálculo de cor do bot, não da pele).
+ * - bubble-tone: tons do balão do usuário na cor do bot (cálculo de cor do bot, não da pele);
+ * - Computador (tela, WebView, página do viewer e rota): a imagem da VM é preta e a tela é sempre escura nos dois temas
+ *   (padrão do Grok), então branco/cinza/preto fixos são de desenho, não da pele; a página do viewer é HTML/CSS embutido;
+ * - chart-palette: paletas de séries dos gráficos do Painel (cores de dado, iguais às do web);
+ * - icons: o "G" do Google (4 cores de marca) e os ícones do Computador (branco/cinza fixos sobre a tela preta).
  */
 const BASELINE: Record<string, number> = {
 	"components/home/bot-avatar.tsx": 4,
-	"components/icons.tsx": 8,
+	"app/(app)/computer/[id].tsx": 2,
+	"components/computer/computer-view.tsx": 10,
+	"components/computer/viewer-webview.tsx": 3,
+	"components/icons.tsx": 11,
 	"components/splash-screen.tsx": 2,
 	"components/ui/avatar.tsx": 2,
 	"lib/bubble-tone.ts": 4,
+	"lib/chart-palette.ts": 91,
+	"lib/viewer-page.ts": 3,
 	"lib/theme.ts": 1,
 };
 
