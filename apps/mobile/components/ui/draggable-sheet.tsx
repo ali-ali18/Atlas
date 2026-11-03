@@ -3,6 +3,7 @@ import { type AccessibilityActionEvent, Modal, PanResponder, Pressable, ScrollVi
 import Animated, { Easing, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ThemedModalRoot } from "@/components/home/themed-modal";
+import { useSurfaces } from "@/lib/use-surfaces";
 import { dragHeight, restHeight, settleSheet, type SheetRest } from "@/lib/sheet-drag";
 
 /** Folga entre o topo da gaveta expandida e a barra de status. */
@@ -32,6 +33,7 @@ type Props = {
  */
 export function DraggableSheet({ visible, onClose, onRequestClose, header, children }: Props) {
 	const insets = useSafeAreaInsets();
+	const surfaces = useSurfaces();
 	const { height: screenHeight } = useWindowDimensions();
 	const reducedMotion = useReducedMotion();
 	const expandedHeight = Math.max(0, screenHeight - insets.top - TOP_GAP);
@@ -155,7 +157,7 @@ export function DraggableSheet({ visible, onClose, onRequestClose, header, child
 				<Pressable accessibilityLabel="Fechar" onPress={onClose} className="absolute inset-0 bg-black/50" />
 				<View pointerEvents="box-none" className="flex-1 justify-end">
 					<Animated.View style={[{ opacity: shown ? 1 : 0 }, sheetStyle]}>
-						<View className="flex-1 overflow-hidden rounded-t-panel bg-popover">
+						<View style={{ backgroundColor: surfaces.sheet }} className="flex-1 overflow-hidden rounded-t-panel">
 							<View {...pan.panHandlers} onLayout={(event) => setZoneHeight(event.nativeEvent.layout.height)}>
 								<View
 									accessible

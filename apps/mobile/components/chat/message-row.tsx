@@ -11,7 +11,7 @@ import { BotProfileCard, BotProposalCard } from "./bot-cards";
 import { ConfirmCard, MarkerRow, QuestionnaireCard, WebCardRow } from "./cards";
 import { MarkdownBlocks, TableCard } from "./markdown-text";
 import { useAppColorScheme } from "@/lib/use-theme";
-import { chatSurface } from "@/lib/chat-surface";
+import { surfaceColors } from "@/lib/surfaces";
 import { parseMarkdown, splitSegments } from "@/lib/markdown";
 import { ReplyPill } from "./reply-pill";
 import { TaskSummary } from "./task-dock";
@@ -87,7 +87,7 @@ function BotBubble({ text, position, reactions, replyTo, onLongPress }: { text: 
 				segment.kind === "table" ? (
 					<TableCard key={`table-${index}`} block={segment.block} scheme={scheme} onLongPress={onLongPress} />
 				) : (
-					<Pressable key={`bubble-${index}`} onLongPress={onLongPress} accessibilityHint="Segure para ver as ações da mensagem" style={[{ backgroundColor: chatSurface(scheme, "bubble") }, cornersNextToTable(bubbleCorners("left", position), "left", index > 0, index < segments.length - 1)]} className="px-3.5 py-3.5">
+					<Pressable key={`bubble-${index}`} onLongPress={onLongPress} accessibilityHint="Segure para ver as ações da mensagem" style={[{ backgroundColor: surfaceColors(scheme).bubble }, cornersNextToTable(bubbleCorners("left", position), "left", index > 0, index < segments.length - 1)]} className="px-3.5 py-3.5">
 						<MarkdownBlocks blocks={segment.blocks} />
 					</Pressable>
 				),

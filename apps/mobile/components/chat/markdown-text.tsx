@@ -4,7 +4,9 @@ import { Platform, ScrollView, Text as RNText, View } from "react-native";
 import Animated, { useAnimatedScrollHandler, useAnimatedStyle, useSharedValue } from "react-native-reanimated";
 import { SendIcon } from "@/components/icons";
 import { Text } from "@/components/ui/text";
-import { chatCardEdge, chatSurface } from "@/lib/chat-surface";
+import { SurfaceCard } from "@/components/ui/surface-card";
+import { surfaceColors } from "@/lib/surfaces";
+import { useSurfaces } from "@/lib/use-surfaces";
 import { cn } from "@/lib/cn";
 import { parseMarkdown, tableColumnWidths, type Block, type Inline } from "@/lib/markdown";
 import { themeColor } from "@/lib/theme";
@@ -96,8 +98,9 @@ function Inlines({ nodes, scheme, plainCode = false }: { nodes: readonly Inline[
  * Tabela como no Grok: um cartão único (a tabela inteira é o balão, sem balão por fora), rola para o lado com a
  * barrinha de rolagem no canto. Larguras explícitas por coluna (`tableColumnWidths`): no Android um ScrollView
  * horizontal sem tamanho definido esticava as linhas até a altura da tela (cartão gigante e vazio).
+ * `aligns`: alinhamento por coluna (o painel alinha número à direita); sem ele, tudo à esquerda como no chat.
  */
-export function TableCard({ block, scheme, onLongPress }: { block: Extract<Block, { type: "table" }>; scheme: "light" | "dark"; onLongPress?: () => void }) {
+export function TableCard({ block, scheme, onLongPress, aligns }: { block: Extract<Block, { type: "table" }>; scheme: "light" | "dark"; onLongPress?: () => void; aligns?: readonly ("left" | "right" | "center")[] }) {
 	const press = useTouchLongPress(onLongPress);
 	const widths = tableColumnWidths(block.header, block.rows);
 	const total = widths.reduce((sum, width) => sum + width, 0);
@@ -108,13 +111,11 @@ export function TableCard({ block, scheme, onLongPress }: { block: Extract<Block
 	const onScroll = useAnimatedScrollHandler((event) => {
 		offset.value = event.contentOffset.x;
 	});
-	// Cores medidas no app do Grok (tema escuro): borda do cartão #313131 e divisor das linhas #2a2a2a, mais claros que o
-	// token `border` (#222223, quase invisível sobre o cartão). No claro vale o token.
-	const edge = chatCardEdge(scheme);
-	const divider = scheme === "dark" ? "#2a2a2a" : themeColor(scheme, "border");
+	// Cartão e divisor são os padrão do app (lib/surfaces.ts), os mesmos do perfil e das rotinas.
+	const { divider } = surfaceColors(scheme);
 	const overflow = viewport > 0 && total > viewport;
 	return (
-		<View className="self-stretch overflow-hidden" style={{ borderWidth: 1, borderColor: edge, backgroundColor: chatSurface(scheme, "card"), borderRadius: 21 }} {...press}>
+		<SurfaceCard className="self-stretch overflow-hidden" {...press}>
 			<Animated.ScrollView
 				horizontal
 				nestedScrollEnabled
@@ -130,7 +131,7 @@ export function TableCard({ block, scheme, onLongPress }: { block: Extract<Block
 						<View key={`row-${rowIndex}`} style={{ flexDirection: "row", borderTopWidth: rowIndex > 0 ? 1 : 0, borderTopColor: divider }}>
 							{row.map((cell, column) => (
 								<View key={`cell-${column}`} style={{ width: widths[column], paddingHorizontal: 18.5, paddingVertical: 11.5 }}>
-									<Text className={cn("text-base leading-snug", rowIndex === 0 && "font-semibold")}>
+									<Text className={cn("text-base leading-snug", rowIndex === 0 && "font-semibold")} style={aligns?.[column] && aligns[column] !== "left" ? { textAlign: aligns[column] } : undefined}>
 										<Inlines nodes={cell} scheme={scheme} plainCode />
 									</Text>
 								</View>
@@ -140,18 +141,19 @@ export function TableCard({ block, scheme, onLongPress }: { block: Extract<Block
 				</View>
 			</Animated.ScrollView>
 			{overflow ? <ScrollThumb viewport={viewport} content={total} offset={offset} /> : null}
-		</View>
+		</SurfaceCard>
 	);
 }
 
 /** Barrinha de rolagem do cartão: trilho 29x4 dp no canto de baixo à direita (16 da borda, 3 do fundo), polegar na posição da rolagem. */
 function ScrollThumb({ viewport, content, offset }: { viewport: number; content: number; offset: { value: number } }) {
+	const surfaces = useSurfaces();
 	const thumb = Math.max(12, Math.round(TRACK_WIDTH * (viewport / content)));
 	const range = Math.max(1, content - viewport);
 	const thumbStyle = useAnimatedStyle(() => ({ transform: [{ translateX: (TRACK_WIDTH - thumb) * Math.min(1, Math.max(0, offset.value / range)) }] }));
 	return (
-		<View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{ position: "absolute", right: 16, bottom: 3, width: TRACK_WIDTH, height: 4, borderRadius: 2, backgroundColor: "#343436" }}>
-			<Animated.View style={[{ position: "absolute", left: 0, width: thumb, height: 4, borderRadius: 2, backgroundColor: "#4a494e" }, thumbStyle]} />
+		<View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{ position: "absolute", right: 16, bottom: 3, width: TRACK_WIDTH, height: 4, borderRadius: 2, backgroundColor: surfaces.divider }}>
+			<Animated.View style={[{ position: "absolute", left: 0, width: thumb, height: 4, borderRadius: 2, backgroundColor: surfaces.chromeEdge }, thumbStyle]} />
 		</View>
 	);
 }

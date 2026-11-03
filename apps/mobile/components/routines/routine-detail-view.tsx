@@ -1,14 +1,14 @@
 import type { RoutineRecord } from "@workspace/shared";
 import * as React from "react";
-import { Pressable, ScrollView, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { Pressable, ScrollView } from "react-native";
 import { ChevronRightIcon } from "@/components/icons";
+import { ScreenFrame } from "@/components/ui/screen-frame";
 import { ScreenHeader } from "@/components/ui/screen-header";
+import { SurfaceCard } from "@/components/ui/surface-card";
 import { Text } from "@/components/ui/text";
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
-import { routineSurface } from "@/lib/chat-surface";
 import { routineSummary } from "@/lib/routine-summary";
-import { useAppColorScheme } from "@/lib/use-theme";
+import { useSurfaces } from "@/lib/use-surfaces";
 
 export type RoutineDetailViewProps = {
 	routine: RoutineRecord;
@@ -29,10 +29,9 @@ export type RoutineDetailViewProps = {
  * execuções e Editar rotina. "Próxima execução" não aparece: o servidor ainda não calcula esse dado.
  */
 export function RoutineDetailView({ routine, accent, busy = false, error = null, onBack, onToggle, onOpenHistory, onEdit }: RoutineDetailViewProps) {
-	const surface = routineSurface(useAppColorScheme());
-	const card = { borderWidth: 1, borderColor: surface.edge, backgroundColor: surface.card, borderRadius: 21 } as const;
+	const surfaces = useSurfaces();
 	return (
-		<SafeAreaView className="flex-1" style={{ backgroundColor: surface.screen }}>
+		<ScreenFrame>
 			<ScreenHeader title={routine.name} onBack={onBack} />
 			<ScrollView contentContainerClassName="gap-3 px-4 pb-10 pt-4">
 				{error ? (
@@ -40,34 +39,38 @@ export function RoutineDetailView({ routine, accent, busy = false, error = null,
 						{error}
 					</Text>
 				) : null}
-				<View className="flex-row items-center justify-between px-5 py-4" style={card}>
+				<SurfaceCard className="flex-row items-center justify-between px-5 py-4">
 					<Text className="text-lg">Ativa</Text>
-					<ToggleSwitch accessibilityLabel="Ativa" value={routine.enabled} disabled={busy} onValueChange={onToggle} color={accent} offColor={surface.off} />
-				</View>
+					<ToggleSwitch accessibilityLabel="Ativa" value={routine.enabled} disabled={busy} onValueChange={onToggle} color={accent} />
+				</SurfaceCard>
 				<Text variant="muted" className="mt-2 px-2 text-base">
 					Instrução
 				</Text>
-				<View className="px-5 py-4" style={card}>
+				<SurfaceCard className="px-5 py-4">
 					<Text selectable className="text-base leading-snug">
 						{routine.prompt}
 					</Text>
-				</View>
+				</SurfaceCard>
 				<Text variant="muted" className="mt-2 px-2 text-base">
 					Agendamento
 				</Text>
-				<View className="px-5 py-4" style={card}>
+				<SurfaceCard className="px-5 py-4">
 					<Text className="text-base">{routineSummary(routine)}</Text>
-				</View>
-				<Pressable role="button" accessibilityLabel="Histórico de execuções" onPress={onOpenHistory} className="mt-2 flex-row items-center justify-between px-5 py-4 active:opacity-80" style={card}>
-					<Text className="text-lg">Histórico de execuções</Text>
-					<ChevronRightIcon size={22} />
+				</SurfaceCard>
+				<Pressable role="button" accessibilityLabel="Histórico de execuções" onPress={onOpenHistory} className="mt-2 active:opacity-80">
+					<SurfaceCard className="flex-row items-center justify-between px-5 py-4">
+						<Text className="text-lg">Histórico de execuções</Text>
+						<ChevronRightIcon size={22} />
+					</SurfaceCard>
 				</Pressable>
-				<Pressable role="button" accessibilityLabel="Editar rotina" onPress={onEdit} className="px-5 py-4 active:opacity-80" style={card}>
-					<Text className="text-lg" style={{ color: surface.link }}>
-						Editar rotina
-					</Text>
+				<Pressable role="button" accessibilityLabel="Editar rotina" onPress={onEdit} className="active:opacity-80">
+					<SurfaceCard className="px-5 py-4">
+						<Text className="text-lg" style={{ color: surfaces.link }}>
+							Editar rotina
+						</Text>
+					</SurfaceCard>
 				</Pressable>
 			</ScrollView>
-		</SafeAreaView>
+		</ScreenFrame>
 	);
 }

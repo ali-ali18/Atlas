@@ -1,14 +1,12 @@
 import type { RoutineGroupRecord, RoutineRecord } from "@workspace/shared";
 import * as React from "react";
 import { ScrollView, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "@/components/ui/button";
+import { ScreenFrame } from "@/components/ui/screen-frame";
 import { ScreenHeader } from "@/components/ui/screen-header";
 import { Spinner } from "@/components/ui/spinner";
 import { Text } from "@/components/ui/text";
-import { routineSurface } from "@/lib/chat-surface";
 import { groupRoutines } from "@/lib/routine-summary";
-import { useAppColorScheme } from "@/lib/use-theme";
 import { RoutineCard } from "./routine-card";
 import { RoutineGroup } from "./routine-group";
 
@@ -37,7 +35,6 @@ const NO_BUSY: ReadonlySet<string> = new Set();
  * pausar/retomar. Só desenho e estados (carregando, erro, vazio); os dados e as ações vêm de quem chama.
  */
 export function RoutinesView({ routines, groups, accent, loading = false, error = null, busyIds = NO_BUSY, onBack, onOpen, onToggle, onRetry, onAskBot }: RoutinesViewProps) {
-	const surface = routineSurface(useAppColorScheme());
 	const entries = React.useMemo(() => groupRoutines(routines, groups), [routines, groups]);
 	let body: React.ReactNode;
 	if (loading && routines.length === 0) {
@@ -92,9 +89,9 @@ export function RoutinesView({ routines, groups, accent, loading = false, error 
 		);
 	}
 	return (
-		<SafeAreaView className="flex-1" style={{ backgroundColor: surface.screen }}>
+		<ScreenFrame>
 			<ScreenHeader title="Rotinas" onBack={onBack} />
 			<ScrollView contentContainerClassName="gap-3 px-4 pb-10 pt-6">{body}</ScrollView>
-		</SafeAreaView>
+		</ScreenFrame>
 	);
 }
