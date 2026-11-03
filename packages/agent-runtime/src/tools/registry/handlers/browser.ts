@@ -11,6 +11,7 @@ import { formatBrowserClick, formatBrowserType } from "../../computer-changes.js
 
 import type { ToolFamily } from "../registry.js";
 import { executeTool } from "../execute.js";
+import { attachVisionFallback, clickVision } from "../../vision-fallback.js";
 
 async function handleScreenshot(args: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult> {
 	const shot = await captureModelScreenshot(
@@ -84,9 +85,7 @@ async function handleBrowserClick(args: Record<string, unknown>, ctx: ToolContex
 		await ctx.getSessionId(),
 		{ selector, text },
 	);
-	return {
-		summary: formatBrowserClick(result),
-	};
+	return attachVisionFallback({ summary: formatBrowserClick(result), ...clickVision(result) }, ctx);
 }
 
 async function handleBrowserType(args: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult> {
@@ -133,12 +132,13 @@ async function handleBrowserLinks(args: Record<string, unknown>, ctx: ToolContex
 }
 
 async function handleBrowserSnapshotGroup(name: string, args: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult> {
-	return executeComputerRefTool(name, args, {
+	const outcome = await executeComputerRefTool(name, args, {
 		manager: ctx.manager,
 		getSessionId: ctx.getSessionId,
 		runId: ctx.runId,
 		loginAsked: ctx.loginAsked ?? new Set<string>(),
 	});
+	return attachVisionFallback(outcome, ctx);
 }
 
 async function handleComputerTabs(args: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult> {
@@ -146,12 +146,14 @@ async function handleComputerTabs(args: Record<string, unknown>, ctx: ToolContex
 }
 
 async function handleBrowserReadGroup(name: string, args: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult> {
-	return executeComputerReadTool(name, args, {
+	const outcome = await executeComputerReadTool(name, args, {
 		manager: ctx.manager,
 		getSessionId: ctx.getSessionId,
 		runId: ctx.runId,
 		loginAsked: ctx.loginAsked ?? new Set<string>(),
+		canSeeImages: ctx.canSeeImages,
 	});
+	return attachVisionFallback(outcome, ctx);
 }
 
 async function handleNativeComputer(args: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult> {

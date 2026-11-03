@@ -353,6 +353,7 @@ export const P_TAIL: string[] = [
 export const CONTEXT_GROUPS = [
 	"browser",
 	"tabs",
+	"video",
 	"shell",
 	"desktop",
 	"web",

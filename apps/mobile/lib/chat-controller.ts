@@ -7,6 +7,7 @@ import type { RunModelFields } from "./model-choice";
 import { proposalErrorText, type BotProfileResult, type BotProposalResult, type ResolveDecision } from "./card-api";
 import { ChatApiError, isModelRejection, ModelUnavailableError, isNetworkError, isUnauthorized, sendErrorText, type CreateRunInput, type CreateRunResult } from "./chat-api";
 import { homeBotFromProposal, withProposalResolution, type CardResolution } from "./bot-cards";
+import { groupBotItems } from "./bot-thread";
 import { applyRunEvent, createLiveState, startLiveRun, type LiveState } from "./chat-live";
 import { followRun, type FollowOptions, type OpenStream } from "./chat-stream";
 import { initialSync, syncLine, syncReducer, type SyncAction, type SyncState } from "./chat-sync";
@@ -702,7 +703,8 @@ export function deriveView(snapshot: ChatSnapshot): ChatView {
 	const runTasks = dockedTaskList(merged, running, snapshot.live.runId);
 	const lastTasks = [...merged].reverse().find((item): item is Extract<ChatItem, { kind: "task-list" }> => item.kind === "task-list" && item.items.length > 0) ?? null;
 	return {
-		items: withSourceMarkers(merged),
+		// Fala entre bots não é balão do usuário: vira a linha "N mensagens com X".
+		items: withSourceMarkers(groupBotItems(merged)),
 		runTasks,
 		lastTasks,
 		line: syncLine(snapshot.sync),

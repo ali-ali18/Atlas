@@ -82,7 +82,8 @@ async function runChat(input: {
 			},
 			streamChat: async (params, handlers) => {
 				vi.setSystemTime(Date.now() + (input.stepMs ?? STEP_MS));
-				const last = [...params.messages].reverse().find((m) => m.role === "user");
+				// A camada volátil "Run state" vai no fim da cópia enviada: o teste olha a última mensagem de usuário da CONVERSA.
+				const last = [...params.messages].reverse().find((m) => m.role === "user" && !(typeof m.content === "string" && m.content.includes("Run state (automatic")));
 				const snapshot: Seen = {
 					toolNames: params.tools.map((tool) => tool.function.name),
 					system: params.messages.filter((m) => m.role === "system").map((m) => (typeof m.content === "string" ? m.content : JSON.stringify(m.content))).join("\n"),

@@ -2,10 +2,12 @@
 // Mesma ideia do cache da home: a chave leva servidor + e-mail + conversa (trocar de conta nunca mostra o fio da
 // outra), só vai para o disco o que a tela desenha, e `clearChatCache` apaga tudo ao sair.
 import type { CacheStorage } from "./home-cache";
-import type { ChatItem, ConfirmStatus, ProposalStatus, QuestionnaireStatus, TaskItem } from "./chat-types";
+import type { BotTag, ChatItem, ConfirmStatus, ProposalStatus, QuestionnaireStatus, TaskItem } from "./chat-types";
 
-// v2: cartões de proposta de bot passaram a ser nativos; o v1 guardava a linha "Abrir no navegador" e é descartado.
-export const CHAT_CACHE_VERSION = 2;
+// v2: cartões de proposta de bot passaram a ser nativos (o v1 guardava a linha "Abrir no navegador"). v3: a fala trocada entre bots
+// ganhou a marca `bot` (vira o marcador "N mensagens com X"); o cache antigo é descartado em vez de adivinhar pelo texto.
+
+export const CHAT_CACHE_VERSION = 3;
 const ALL_VERSIONS_PREFIX = "atlas.chat.";
 const PREFIX = `${ALL_VERSIONS_PREFIX}v${CHAT_CACHE_VERSION}:`;
 export const CHAT_CACHE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
@@ -29,6 +31,7 @@ const QUESTIONNAIRE: readonly QuestionnaireStatus[] = ["pending", "submitted", "
 const TASK: readonly TaskItem["status"][] = ["pending", "in_progress", "completed"];
 const PROPOSAL: readonly ProposalStatus[] = ["pending", "approved", "rejected"];
 const PROFILE_FIELDS = ["name", "snippet", "description", "openRouterModel"] as const;
+const BOT_KINDS: readonly BotTag["kind"][] = ["request", "reply", "answer"];
 const WEB_CARDS = ["chart", "page", "file", "routine", "login", "images", "proposal", "approval"] as const;
 
 function pickTasks(value: unknown): TaskItem[] | null {
@@ -41,15 +44,30 @@ function pickTasks(value: unknown): TaskItem[] | null {
 	return out;
 }
 
+/** Origem "outro bot" da fala: sem ela (cache antigo) a fala volta como balão comum e a rede corrige por cima. */
+function pickBotTag(value: unknown): BotTag | null {
+	if (!isRecord(value) || !BOT_KINDS.includes(value.kind as BotTag["kind"])) return null;
+	return {
+		kind: value.kind as BotTag["kind"],
+		...(isString(value.fromBotId) ? { fromBotId: value.fromBotId.slice(0, 100) } : {}),
+		...(isString(value.fromBotName) ? { fromBotName: value.fromBotName.slice(0, 100) } : {}),
+		...(isString(value.botMessageId) ? { botMessageId: value.botMessageId.slice(0, 100) } : {}),
+	};
+}
+
 /** Reconstrói campo a campo: qualquer chave a mais no disco não passa, e item estranho vira `null`. */
 export function pickItem(value: unknown): ChatItem | null {
 	if (!isRecord(value) || !isString(value.id) || !isString(value.kind)) return null;
 	const base = { id: value.id, ...(isString(value.createdAt) ? { createdAt: value.createdAt } : {}) };
 	switch (value.kind) {
-		case "user":
-			return isString(value.text) ? { ...base, kind: "user", text: value.text.slice(0, MAX_TEXT) } : null;
-		case "assistant":
-			return isString(value.text) ? { ...base, kind: "assistant", text: value.text.slice(0, MAX_TEXT), ...(isString(value.runId) ? { runId: value.runId } : {}) } : null;
+		case "user": {
+			const bot = pickBotTag(value.bot);
+			return isString(value.text) ? { ...base, kind: "user", text: value.text.slice(0, MAX_TEXT), ...(bot ? { bot } : {}) } : null;
+		}
+		case "assistant": {
+			const bot = pickBotTag(value.bot);
+			return isString(value.text) ? { ...base, kind: "assistant", text: value.text.slice(0, MAX_TEXT), ...(isString(value.runId) ? { runId: value.runId } : {}), ...(bot ? { bot } : {}) } : null;
+		}
 		case "marker":
 			return isString(value.text) ? { ...base, kind: "marker", text: value.text.slice(0, 200) } : null;
 		case "task-list": {

@@ -42,6 +42,7 @@ import {
 	Pencil as LucidePencil,
 	Pin as LucidePin,
 	PinOff as LucidePinOff,
+	Lock as LucideLock,
 	FolderInput as LucideFolderInput,
 	FolderOutput as LucideFolderOutput,
 	Plus as LucidePlus,
@@ -406,4 +407,9 @@ export function UserPlusIcon({ size = 16, tone = "muted-foreground" }: LineIconP
 /** Lucide `UserRoundCog` (o cartão de perfil do bot). */
 export function UserCogIcon({ size = 16, tone = "muted-foreground" }: LineIconProps) {
 	return <LucideUserRoundCog size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `Lock` (pílula "Somente leitura"). */
+export function LockIcon({ size = 14, tone = "muted-foreground" }: LineIconProps) {
+	return <LucideLock size={size} color={useStroke(tone)} strokeWidth={2} />;
 }

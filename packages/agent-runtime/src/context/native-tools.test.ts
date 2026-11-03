@@ -232,7 +232,7 @@ describe("navegador leva click, type, key, scroll e abas junto", () => {
 
 	it("grupo browser pré-carregado traz o desktop e as abas no mesmo passo (nenhum 'Tool X was not loaded')", () => {
 		const groups = addCompanionGroups(new Set<ContextGroup>(["browser"]));
-		expect([...groups].sort()).toEqual(["browser", "desktop", "tabs"]);
+		expect([...groups].sort()).toEqual(["browser", "desktop", "tabs", "video"]);
 		const plan = planNativeTools(all, groups);
 		expect(names(plan.preloaded)).toEqual(expect.arrayContaining(["navigate", "browser_act", ...CORE]));
 		for (const name of CORE) expect(plan.deferred.has(name)).toBe(false);

@@ -137,3 +137,21 @@ describe("descrições das tools de leitura", () => {
 		expect(findTool!.function.description).toContain("browser_read");
 	});
 });
+
+describe("formatRead: leitura cortada", () => {
+	it("a nota de capped manda tirar screenshot, não usar browser_find", () => {
+		const out = formatRead(read({ capped: true }), parseReadToolArgs({}));
+		expect(out).toContain("take a screenshot and read it before asking the user");
+		expect(out).not.toContain("browser_find");
+	});
+
+	it("executor pede visão só quando a leitura veio cortada", async () => {
+		const capped = await executeComputerReadTool("browser_read", {}, ctx({ execBrowserRead: vi.fn(async () => read({ capped: true })) }));
+		expect(capped.vision).toBe("capped");
+		const normal = await executeComputerReadTool("browser_read", {}, ctx({ execBrowserRead: vi.fn(async () => read()) }));
+		expect(normal.vision).toBeUndefined();
+		// Paginando (offset > 0) a mesma tela não vira uma imagem por chunk.
+		const paged = await executeComputerReadTool("browser_read", { offset: 8000 }, ctx({ execBrowserRead: vi.fn(async () => read({ capped: true, offset: 8000 })) }));
+		expect(paged.vision).toBeUndefined();
+	});
+});
