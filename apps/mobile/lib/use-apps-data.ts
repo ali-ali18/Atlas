@@ -28,6 +28,7 @@ const EMPTY: AppsData = { status: "loading", error: null, entries: [], connectio
 
 /** Limite de cada pedido: uma parte lenta (Composio, catálogo remoto de bots) não prende a tela girando. */
 export const APPS_REQUEST_TIMEOUT_MS = 15_000;
+const timeoutError = () => new Error("Tempo esgotado.");
 
 /**
  * Tudo o que a tela de aplicativos e o detalhe leem, em três partes independentes que aparecem conforme chegam:
@@ -53,7 +54,7 @@ export function useAppsData(): AppsData & { reload: () => Promise<void> } {
 	const reload = React.useCallback(async () => {
 		const mine = ++generation.current;
 		const { apiFetch: fetcher } = latest.current;
-		const timed = <T,>(promise: Promise<T>) => withTimeout(promise, APPS_REQUEST_TIMEOUT_MS);
+		const timed = <T,>(promise: Promise<T>) => withTimeout(promise, APPS_REQUEST_TIMEOUT_MS, timeoutError);
 		const current = () => mounted.current && mine === generation.current;
 		const merge = (patch: Partial<AppsData>) => {
 			if (current()) setData((previous) => ({ ...previous, ...patch }));
@@ -151,7 +152,7 @@ export function useComposioList(options: { enabled: boolean; query: string; cate
 			return;
 		}
 		setState({ status: "loading" });
-		withTimeout(fetchComposioToolkits(latest.current.apiFetch, { search: query, category, limit: PAGE }), APPS_REQUEST_TIMEOUT_MS).then(
+		withTimeout(fetchComposioToolkits(latest.current.apiFetch, { search: query, category, limit: PAGE }), APPS_REQUEST_TIMEOUT_MS, timeoutError).then(
 			(page) => {
 				if (mine !== generation.current) return;
 				cursor.current = page.nextCursor;
@@ -172,7 +173,7 @@ export function useComposioList(options: { enabled: boolean; query: string; cate
 		if (!next) return;
 		cursor.current = null;
 		setState((current) => (current.status === "ready" ? { ...current, loadingMore: true } : current));
-		withTimeout(fetchComposioToolkits(latest.current.apiFetch, { search: query, category, cursor: next, limit: PAGE }), APPS_REQUEST_TIMEOUT_MS).then(
+		withTimeout(fetchComposioToolkits(latest.current.apiFetch, { search: query, category, cursor: next, limit: PAGE }), APPS_REQUEST_TIMEOUT_MS, timeoutError).then(
 			(page) => {
 				if (mine !== generation.current) return;
 				cursor.current = page.nextCursor;
