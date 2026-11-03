@@ -97,14 +97,17 @@ export default function EditBotScreen() {
 		<ScreenFrame>
 			<ScreenHeader title="Editar Bot" onBack={goBack} right={<DoneButton enabled={canSave} busy={saving} onPress={() => void save()} />} />
 			<ScrollView keyboardShouldPersistTaps="handled" contentContainerClassName="px-4 pb-12 pt-4">
-				<Pressable role="button" accessibilityLabel="Editar avatar" onPress={openAvatar} className="size-32 items-center justify-center self-center">
-					<Avatar color={draft.color} shape={draft.shape} size={150} animated={false} />
+				<View className="size-32 items-center justify-center self-center">
+					<Pressable role="button" accessibilityLabel="Editar avatar" onPress={openAvatar} className="size-32 items-center justify-center">
+						<Avatar color={draft.color} shape={draft.shape} size={150} animated={false} />
+					</Pressable>
+					{/* Irmão do botão do avatar (não filho): botão dentro de botão é inválido no web. */}
 					<View className="absolute bottom-1 right-1">
-						<ChromeButton size="md" label="Editar avatar" onPress={openAvatar}>
+						<ChromeButton size="md" label="Trocar avatar" onPress={openAvatar}>
 							<PencilIcon size={20} />
 						</ChromeButton>
 					</View>
-				</Pressable>
+				</View>
 				<SectionLabel>Nome</SectionLabel>
 				<ChromeInput accessibilityLabel="Nome do bot" value={draft.name} onChangeText={(name) => updateDraft(id, { name })} maxLength={120} autoCapitalize="words" invalid={!nameCheck.ok} />
 				{!nameCheck.ok ? (
