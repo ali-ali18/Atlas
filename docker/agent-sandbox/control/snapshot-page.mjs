@@ -65,6 +65,20 @@ export function collectInteractive(options) {
 		const wrapping = el.closest && el.closest("label");
 		return wrapping ? wrapping.textContent || "" : "";
 	};
+	// Botão só-ícone: o nome mora no <img alt> ou no <title> do <svg> de dentro (accname por conteúdo).
+	// Só herda o que é do PRÓPRIO controle: nada de um descendente que é outro controle (card clicável com botão "Excluir").
+	const INNER_CONTROL = 'button, a, input, select, textarea, summary, [role="button"], [role="link"], [role="menuitem"], [role="tab"], [role="checkbox"], [role="switch"]';
+	const iconNameOf = (el) => {
+		const parts = [];
+		for (const node of el.querySelectorAll("img[alt], svg title, [aria-label]")) {
+			const inner = node.closest(INNER_CONTROL);
+			if (inner && inner !== el && el.contains(inner)) continue;
+			const value = node.tagName.toLowerCase() === "title" ? node.textContent : node.getAttribute(node.hasAttribute("alt") ? "alt" : "aria-label");
+			if (value && value.trim()) parts.push(value);
+			if (parts.length >= 3) break;
+		}
+		return parts.join(" ");
+	};
 	const landmarkOf = (el) => {
 		const host = el.closest("form, nav, header, footer, aside, main, dialog, [role=dialog], [role=navigation], [role=main]");
 		if (!host) return "";
@@ -110,6 +124,7 @@ export function collectInteractive(options) {
 			labelledBy: clip(textById(el.getAttribute("aria-labelledby")), 100),
 			label: clip(labelOf(el), 100),
 			text: clip(el.innerText || el.textContent || "", 100),
+			iconName: clip(iconNameOf(el), 100),
 			placeholder: clip(el.getAttribute("placeholder"), 80),
 			title: clip(el.getAttribute("title"), 80),
 			alt: clip(el.getAttribute("alt"), 80),

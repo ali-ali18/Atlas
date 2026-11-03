@@ -410,7 +410,7 @@ export function createRefActions({
 					const stable = await waitForTextStable(page, registry, { ref, scope, timeoutMs, now, sleep: pause });
 					met = stable.met;
 					if (!met) reason = stable.reason;
-					textInfo = { changed: stable.changed, textLength: stable.textLength };
+					textInfo = { changed: stable.changed, textLength: stable.textLength, ...(stable.endSignal ? { endSignal: true } : {}) };
 				} else {
 					const effect = await stabilize(page, { capMs: timeoutMs });
 					met = effect.settled;

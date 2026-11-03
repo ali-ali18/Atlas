@@ -9,7 +9,8 @@ import { toTreeRef } from "./ax-ref-names.mjs";
 
 
 export const NAME_MAX = 200;
-export const TEXT_MAX = 300;
+// Texto corrido (resposta do chat num painel com rolagem) não pode perder o fim: a página do snapshot já limita o custo por chamada.
+export const TEXT_MAX = 4000;
 export const RUN_MIN_COMPOUND = 5;
 export const RUN_MIN_LEAF = 10;
 export const RUN_KEEP = 2;
@@ -150,7 +151,8 @@ function mergeTexts(list, parentName = "") {
 		if (same(item.text, parentName)) return;
 		if (same(item.text, list[index - 1]?.name) || same(item.text, list[index + 1]?.name)) return;
 		const last = out[out.length - 1];
-		if (last && last.role === "text") last.text = clip(`${last.text} ${item.text}`, TEXT_MAX);
+		// Passou do teto: abre outro bloco em vez de cortar (o fim da resposta não some).
+		if (last && last.role === "text" && last.text.length + item.text.length < TEXT_MAX) last.text = `${last.text} ${item.text}`;
 		else out.push({ ...item });
 	});
 	return out;
@@ -198,6 +200,11 @@ export function pruneNode(node) {
 	const out = base(node, node.role);
 	out.name = name;
 	out.children = children;
+	// Botão só-ícone cujo nome vem da imagem de dentro: o nome sobe para o botão.
+	if (interactive && !name && children.length === 1 && children[0].role === "img" && children[0].name) {
+		out.name = children[0].name;
+		out.children = [];
+	}
 	if (isValueRole(node.role) && node.text) out.value = node.text;
 	return [out];
 }

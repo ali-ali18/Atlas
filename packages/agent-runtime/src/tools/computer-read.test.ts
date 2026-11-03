@@ -7,6 +7,7 @@ import {
 	formatRead,
 	parseReadToolArgs,
 } from "./computer-read.js";
+import { COMPUTER_REF_TOOLS } from "./computer-refs.js";
 
 const read = (over: Partial<ControlReadResult> = {}): ControlReadResult => ({
 	url: "https://lms.test/course",
@@ -138,6 +139,17 @@ describe("descrições das tools de leitura", () => {
 	});
 });
 
+const COMPUTER_REF_TOOLS_TEXT = JSON.stringify(COMPUTER_REF_TOOLS);
+
+describe("descrição de browser_read", () => {
+	it("resposta longa de chat: ler com browser_read paginado; o snapshot é para achar o que clicar", () => {
+		const desc = JSON.stringify(COMPUTER_READ_TOOLS.find((tool) => JSON.stringify(tool).includes('"browser_read"')));
+		expect(desc).toContain("long chat answer (paginate with offset)");
+		// A descrição do snapshot já manda texto longo para o browser_read.
+		expect(COMPUTER_REF_TOOLS_TEXT).toContain("Do NOT use it for long text (browser_read)");
+	});
+});
+
 describe("formatRead: leitura cortada", () => {
 	it("a nota de capped manda tirar screenshot, não usar browser_find", () => {
 		const out = formatRead(read({ capped: true }), parseReadToolArgs({}));
@@ -150,8 +162,23 @@ describe("formatRead: leitura cortada", () => {
 		expect(capped.vision).toBe("capped");
 		const normal = await executeComputerReadTool("browser_read", {}, ctx({ execBrowserRead: vi.fn(async () => read()) }));
 		expect(normal.vision).toBeUndefined();
-		// Paginando (offset > 0) a mesma tela não vira uma imagem por chunk.
-		const paged = await executeComputerReadTool("browser_read", { offset: 8000 }, ctx({ execBrowserRead: vi.fn(async () => read({ capped: true, offset: 8000 })) }));
+		// Ainda há texto a paginar: lê em texto primeiro, sem imagem por chunk.
+		const paged = await executeComputerReadTool("browser_read", {}, ctx({ execBrowserRead: vi.fn(async () => read({ capped: true, truncated: true, nextOffset: 8000 })) }));
 		expect(paged.vision).toBeUndefined();
+		expect(paged.summary).toContain("keep reading with the offset above");
+		expect(paged.summary).not.toContain("take a screenshot");
+		// Última página do texto cortado: só então a imagem entra.
+		const last = await executeComputerReadTool("browser_read", { offset: 8000 }, ctx({ execBrowserRead: vi.fn(async () => read({ capped: true, offset: 8000 })) }));
+		expect(last.vision).toBe("capped");
+	});
+
+	it("browser_find sem resultado dá a dica do ícone e pede visão; com resultado não", async () => {
+		const found = (matches: ControlFindResult["matches"]) => ({ url: "https://yt.test", title: "YT", query: "Perguntar", total: matches.length, matches, frames: 1, collapsed: 0 }) as ControlFindResult;
+		const none = await executeComputerReadTool("browser_find", { query: "Perguntar" }, ctx({ execBrowserFind: vi.fn(async () => found([])) }));
+		expect(none.vision).toBe("not-found");
+		expect(none.summary).toContain("browser_screenshot with marks=true");
+		expect(none.summary).toContain("icon");
+		const some = await executeComputerReadTool("browser_find", { query: "Perguntar" }, ctx({ execBrowserFind: vi.fn(async () => found([{ text: "Perguntar", ref: "e2", role: "button" }] as never)) }));
+		expect(some.vision).toBeUndefined();
 	});
 });
