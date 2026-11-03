@@ -4,6 +4,9 @@ Todas as mudanças relevantes do Atlas. Formato [Keep a Changelog](https://keepa
 
 ## [Não lançado]
 
+### Corrigido
+- **agent:** quem tem muitos conectores voltou a conseguir criar bot pelo chat: a busca de ferramentas achava algo parecido num conector (ex.: Figma, GitHub) e devolvia só isso, escondendo `propose_bot`. Grupo nativo pequeno (até 2 tools) que casa por palavra distintiva agora carrega junto. O índice e o resultado da carga lembram o modelo de não citar nome de ferramenta ao usuário.
+
 ### Alterado
 - **api, web:** o onboarding do bot recém-criado agora é disparado pelo servidor em `POST /v1/bots` (ADR 0004), num ponto só para web e celular. O web deixou de criar o run `[bot-created]` e de guardar o prompt. Só bot comum (grupo não); `onboarding:false` no corpo desliga. Repetição ou web antigo não duplicam: um onboarding por conversa, e `POST /v1/runs` devolve o existente. Instalação do catálogo e aprovação de proposta continuam sem onboarding. Falha ao enfileirar não derruba a criação (201).
 - **api:** o onboarding do servidor passa pelas mesmas checagens do `POST /v1/runs`: modelo e chave do provedor (sem elas nenhum run nasce), `contextLength` e máscara de segredos do cofre na descrição do bot. O prompt leva o idioma do bot (ou do navegador, no modo auto). O guarda contra onboarding duplicado só vale para pedido silencioso e run de onboarding real, ignora maiúsculas e responde `enqueued` conforme o job.
