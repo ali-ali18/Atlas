@@ -12,7 +12,7 @@ const { requireUser } = await import("../middleware/auth.js");
 
 const FAKE_KEY = "om_FAKE_KEY_NOT_REAL_12345";
 
-type Box = { id: string; botId: string; userId: string; provider: string; address: string; allowedSenders: string[]; dailySendLimit: number; enabled: boolean; createdAt: Date; secretsEnc: string | null; providerInboxId: string; webhookSecretHash: string };
+type Box = { id: string; botId: string; userId: string; provider: string; address: string; allowedSenders: string[]; dailySendLimit: number; enabled: boolean; autoReply: boolean; createdAt: Date; secretsEnc: string | null; providerInboxId: string; webhookSecretHash: string };
 
 type FakeDomain = { id: string; domain: string; status: "pending" | "verified"; records: { type: "TXT" | "MX"; name: string; value: string; priority: number | null; valid: boolean }[]; verified: boolean };
 
@@ -65,7 +65,7 @@ function appFor(userId: string, state: { keys: Map<string, string>; boxes: Box[]
 					if (domain && !state.domains?.some((d) => d.verified && d.domain === domain)) throw new EmailServiceError("invalid_domain", "Escolha um domínio verificado da sua conta.");
 					if (!state.keys.has(u)) throw new EmailServiceError("not_configured", "Cadastre a chave do OpenMail em Configurações para ativar o e-mail do bot.");
 					if (state.boxes.some((b) => b.botId === botId)) throw new EmailServiceError("already_enabled", "Este bot já tem um endereço de e-mail.");
-					const box: Box = { id: `m_${botId}`, botId, userId: u, provider: "openmail", address: `${botId}@${domain ?? "openmail.sh"}`, allowedSenders: [], dailySendLimit: 20, enabled: true, createdAt: new Date(), secretsEnc: "v1:segredo", providerInboxId: "inb", webhookSecretHash: "hash" };
+					const box: Box = { id: `m_${botId}`, botId, userId: u, provider: "openmail", address: `${botId}@${domain ?? "openmail.sh"}`, allowedSenders: [], dailySendLimit: 20, enabled: true, autoReply: false, createdAt: new Date(), secretsEnc: "v1:segredo", providerInboxId: "inb", webhookSecretHash: "hash" };
 					state.boxes.push(box);
 					return box as never;
 				},
@@ -133,6 +133,9 @@ test("isolamento por dono: outro usuário não vê, não edita, não remove nem 
 	assert.equal((await intruder.request("/v1/bots/bot_1/email")).status, 404);
 	assert.equal((await intruder.request("/v1/bots/bot_1/email", json({}))).status, 404);
 	assert.equal((await intruder.request("/v1/bots/bot_1/email", send("PATCH", { allowedSenders: ["x@y.com"] }))).status, 404);
+	// B não liga "responder sozinho" na caixa do A, e o A continua com o padrão (exige aprovação).
+	assert.equal((await intruder.request("/v1/bots/bot_1/email", send("PATCH", { autoReply: true }))).status, 404);
+	assert.equal(state.boxes[0]!.autoReply, false);
 	assert.equal((await intruder.request("/v1/bots/bot_1/email", { method: "DELETE" })).status, 404);
 	assert.equal((await intruder.request("/v1/bots/bot_1/email/messages")).status, 404);
 	assert.equal(state.boxes.length, 1);
@@ -154,6 +157,21 @@ test("editar permitidos e limite valida e normaliza; desativar remove", async ()
 	const del = await app.request("/v1/bots/bot_1/email", { method: "DELETE" });
 	assert.equal(del.status, 200);
 	assert.equal(state.boxes.length, 0);
+});
+
+test("responder e-mails sozinho: padrão desligado, o dono liga e desliga, valor não booleano é recusado", async () => {
+	const state = { keys: new Map([["user_a", FAKE_KEY]]), boxes: [] as Box[], bots: new Map([["bot_1", "user_a"]]) };
+	const app = appFor("user_a", state);
+	const created = await app.request("/v1/bots/bot_1/email", json({}));
+	assert.equal(((await created.json()) as { mailbox: { autoReply: boolean } }).mailbox.autoReply, false);
+	const on = await app.request("/v1/bots/bot_1/email", send("PATCH", { autoReply: true }));
+	assert.equal(on.status, 200);
+	assert.equal(state.boxes[0]!.autoReply, true);
+	assert.equal(((await on.json()) as { mailbox: { autoReply: boolean } }).mailbox.autoReply, true);
+	assert.equal((await app.request("/v1/bots/bot_1/email", send("PATCH", { autoReply: "sim" }))).status, 400);
+	assert.equal(state.boxes[0]!.autoReply, true);
+	await app.request("/v1/bots/bot_1/email", send("PATCH", { autoReply: false }));
+	assert.equal(state.boxes[0]!.autoReply, false);
 });
 
 test("a entrada de e-mail é pública (sem sessão) e o resto de /v1/email continua exigindo sessão", async () => {

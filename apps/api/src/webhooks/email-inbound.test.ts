@@ -20,7 +20,7 @@ function mailbox(over: Record<string, unknown> = {}) {
 	return {
 		id: "mbx_1", botId: "bot_1", userId: "user_a", provider: "openmail", address: "bot@openmail.sh", providerInboxId: "inb_1",
 		secretsEnc: sealSecrets({ webhookSecret: SECRET }), webhookSecretHash: hash, allowedSenders: ["ana@empresa.com"],
-		dailySendLimit: 20, enabled: true, createdAt: new Date(), ...over,
+		dailySendLimit: 20, enabled: true, autoReply: false, createdAt: new Date(), ...over,
 	} as unknown as Mailbox & { id: string };
 }
 

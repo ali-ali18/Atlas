@@ -28,7 +28,7 @@ const done = (content: string): CompleteChatWithToolsResult => ({ model: "fixtur
 
 const mailbox: BotMailboxRecord = {
 	id: "mbx_1", botId: "bot-a", userId: "owner-a", provider: "openmail", address: "bot@openmail.sh", providerInboxId: "inb_1",
-	secretsEnc: null, webhookSecretHash: "h", allowedSenders: ["ana@empresa.com"], dailySendLimit: 20, enabled: true, createdAt: new Date(),
+	secretsEnc: null, webhookSecretHash: "h", allowedSenders: ["ana@empresa.com"], dailySendLimit: 20, enabled: true, autoReply: false, createdAt: new Date(),
 };
 
 function emailContext(level: "balanced" | "autonomous"): EmailRunContext & { delivered: unknown[] } {
@@ -103,6 +103,22 @@ describe("tools de e-mail no run", () => {
 		expect(card).toMatchObject({ type: "confirm", title: "Enviar este e-mail?" });
 		expect(saved.intents[0]).toMatchObject({ payload: { action: "email-send", emailSend: { to: "ana@empresa.com", threadId: "thr_1" } } });
 		expect(saved.cards).toHaveLength(1);
+	});
+
+	it("run de e-mail no Autônomo sem a liberação do dono: não envia, deixa o cartão (v1)", async () => {
+		saved.cards.length = 0;
+		const email = emailContext("autonomous");
+		const result = await run({ text: "E-mail recebido\nThread: thr_1", origin: "email", steps: [call("email_reply", { thread_id: "thr_1", body: "R$ 10" }), done("Aguardando o dono")], email, autonomy: "autonomous" });
+		expect(email.delivered).toHaveLength(0);
+		expect(result.events.some((event) => event.type === "confirm")).toBe(true);
+		expect(saved.cards).toHaveLength(1);
+	});
+
+	it("run de e-mail no Autônomo com a liberação do dono envia sem cartão (v1)", async () => {
+		const email = { ...emailContext("autonomous"), mailbox: { ...mailbox, autoReply: true } } as EmailRunContext & { delivered: unknown[] };
+		const result = await run({ text: "E-mail recebido\nThread: thr_1", origin: "email", steps: [call("email_reply", { thread_id: "thr_1", body: "R$ 10" }), done("Respondi")], email, autonomy: "autonomous" });
+		expect(email.delivered).toHaveLength(1);
+		expect(result.events.some((event) => event.type === "confirm")).toBe(false);
 	});
 
 	it("Autônomo (política de envio do dono) envia para quem está na lista sem cartão", async () => {

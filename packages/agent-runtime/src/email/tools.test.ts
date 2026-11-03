@@ -16,7 +16,7 @@ const ALWAYS: EffectiveAutonomy = { level: "always_ask", exceptions: [] };
 function mailbox(over: Partial<BotMailboxRecord> = {}): BotMailboxRecord {
 	return {
 		id: "mbx_1", botId: "bot_1", userId: "user_a", provider: "openmail", address: "bot@openmail.sh", providerInboxId: "inb_1",
-		secretsEnc: null, webhookSecretHash: "h", allowedSenders: ["ana@empresa.com"], dailySendLimit: 20, enabled: true, createdAt: new Date(), ...over,
+		secretsEnc: null, webhookSecretHash: "h", allowedSenders: ["ana@empresa.com"], dailySendLimit: 20, enabled: true, autoReply: false, createdAt: new Date(), ...over,
 	};
 }
 
@@ -69,8 +69,8 @@ describe("envio e autonomia", () => {
 		expect(out.summary).toContain("Nada foi enviado");
 	});
 
-	it("Autônomo envia direto para quem está na lista, com chave de idempotência", async () => {
-		const { ctx, deps, service, cards } = setup(AUTONOMOUS);
+	it("Autônomo envia direto para quem está na lista, com chave de idempotência (com a liberação do dono)", async () => {
+		const { ctx, deps, service, cards } = setup(AUTONOMOUS, { box: mailbox({ autoReply: true }) });
 		const out = await executeEmailTool("email_reply", { thread_id: "thr_1", body: "ok" }, ctx, deps);
 		expect(service.deliver).toHaveBeenCalledTimes(1);
 		expect(JSON.parse(out.summary)).toMatchObject({ sent: true, to: "ana@empresa.com" });
@@ -95,9 +95,40 @@ describe("envio e autonomia", () => {
 		const chat = setup(AUTONOMOUS);
 		await executeEmailTool("email_send", { to: "ana@empresa.com", subject: "a", body: "b" }, { ...chat.ctx, origin: "chat" }, chat.deps);
 		expect(chat.service.deliver).toHaveBeenCalledTimes(1);
-		const reply = setup(AUTONOMOUS);
+		const reply = setup(AUTONOMOUS, { box: mailbox({ autoReply: true }) });
 		await executeEmailTool("email_reply", { thread_id: "thr_1", body: "ok" }, { ...reply.ctx, origin: "email" }, reply.deps);
 		expect(reply.service.deliver).toHaveBeenCalledTimes(1);
+	});
+
+	it("e-mail recebido sem a liberação do dono: email_reply não envia nem no Autônomo, deixa o cartão de aprovação na conversa", async () => {
+		const { ctx, deps, service, cards, intents } = setup(AUTONOMOUS);
+		const out = await executeEmailTool("email_reply", { thread_id: "thr_1", body: "R$ 10" }, ctx, deps);
+		expect(service.deliver).not.toHaveBeenCalled();
+		expect(out.confirmEvent).toMatchObject({ type: "confirm", title: "Enviar este e-mail?" });
+		expect(out.summary).toContain("Nada foi enviado");
+		expect(cards).toHaveLength(1);
+		expect(intents[0]).toMatchObject({ conversationId: "conv_1", payload: { action: "email-send", emailSend: { threadId: "thr_1", body: "R$ 10" } } });
+	});
+
+	it("com a liberação do dono, email_reply em run de e-mail segue a autonomia (Autônomo envia, Equilibrado pergunta)", async () => {
+		const auto = setup(AUTONOMOUS, { box: mailbox({ autoReply: true }) });
+		await executeEmailTool("email_reply", { thread_id: "thr_1", body: "ok" }, auto.ctx, auto.deps);
+		expect(auto.service.deliver).toHaveBeenCalledTimes(1);
+		const balanced = setup(BALANCED, { box: mailbox({ autoReply: true }) });
+		expect((await executeEmailTool("email_reply", { thread_id: "thr_1", body: "ok" }, balanced.ctx, balanced.deps)).confirmEvent).toBeDefined();
+		expect(balanced.service.deliver).not.toHaveBeenCalled();
+	});
+
+	it("chat com humano não muda: email_reply no Autônomo envia mesmo sem a liberação", async () => {
+		const { ctx, deps, service } = setup(AUTONOMOUS);
+		await executeEmailTool("email_reply", { thread_id: "thr_1", body: "ok" }, { ...ctx, origin: "chat" }, deps);
+		expect(service.deliver).toHaveBeenCalledTimes(1);
+	});
+
+	it("decideEmailSend: aprovação do dono exigida vira 'ask' mas não desfaz bloqueio", () => {
+		expect(decideEmailSend(AUTONOMOUS, "email_reply", { newRecipient: false }, { ownerApprovalRequired: true })).toBe("ask");
+		expect(decideEmailSend({ level: "autonomous", exceptions: [{ tool: "email_reply", mode: "blocked" }] }, "email_reply", { newRecipient: false }, { ownerApprovalRequired: true })).toBe("block");
+		expect(decideEmailSend(AUTONOMOUS, "email_reply", { newRecipient: false })).toBe("allow");
 	});
 
 	it("Sempre perguntar pergunta até para quem está na lista; exceção 'bloqueado' bloqueia", async () => {

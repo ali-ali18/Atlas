@@ -1416,6 +1416,8 @@ model BotMailbox {
   allowedSenders    String[] @default([])
   dailySendLimit    Int      @default(20)
   enabled           Boolean  @default(true)
+  /// Dono liberou o bot a responder e-mails recebidos sem aprovação (email_reply em run de e-mail). Padrão: pede aprovação.
+  autoReply         Boolean  @default(false)
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
   messages          EmailMessage[]

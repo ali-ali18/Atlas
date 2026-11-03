@@ -13,7 +13,7 @@ const FAKE_KEY = "om_FAKE_KEY_NOT_REAL_12345";
 function mailbox(over: Partial<BotMailboxRecord> = {}): BotMailboxRecord {
 	return {
 		id: "mbx_1", botId: "bot_1", userId: "user_a", provider: "openmail", address: "bot@openmail.sh", providerInboxId: "inb_1",
-		secretsEnc: null, webhookSecretHash: "h", allowedSenders: ["ana@empresa.com"], dailySendLimit: 2, enabled: true, createdAt: new Date(), ...over,
+		secretsEnc: null, webhookSecretHash: "h", allowedSenders: ["ana@empresa.com"], dailySendLimit: 2, enabled: true, autoReply: false, createdAt: new Date(), ...over,
 	};
 }
 
