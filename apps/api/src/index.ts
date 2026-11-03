@@ -215,7 +215,7 @@ app.route("/", createRunRoutes(config));
 app.route("/", createEventRoutes());
 app.route("/", createBotPendingRoutes(config));
 app.route("/", createAvatarRoutes());
-app.route("/", createBotRoutes());
+app.route("/", createBotRoutes({ onboarding: { queue: agentRunQueue, envDefault: config.openRouterModel, openRouterApiKey: config.openRouterApiKey } }));
 app.route("/", createGroupRoutes());
 app.route("/", createConversationRoutes());
 app.route("/", createReactionRoutes());

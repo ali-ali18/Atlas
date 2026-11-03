@@ -15,6 +15,8 @@ import {
 	DELEGATE_MODEL_MAX_CHARS,
 	parseModelRef,
 	isValidTimeZone,
+	pickLanguageFromAcceptLanguage,
+	resolveReplyLanguage,
 	parseClockMinutes,
 	PROACTIVE_MAX_PER_DAY_MAX,
 	PROACTIVE_MAX_PER_DAY_MIN,
@@ -24,6 +26,8 @@ import { GroupError, createBot, deleteBot, listBotExchange, listBots, updateBot,
 import { scopeFor, type AuthEnv } from "../middleware/auth.js";
 import { validateProviderModel, type ModelValidation } from "../providers/model-catalog.js";
 import { isKnownModelId } from "./models.js";
+import { startBotOnboarding } from "../chat/bot-onboarding.js";
+import type { RunQueue } from "./run-queue.js";
 
 function parseMemberIds(value: unknown): string[] | undefined {
 	if (!Array.isArray(value)) return undefined;
@@ -81,6 +85,11 @@ function parseCreateBot(body: unknown): CreateBotInput | null {
 	if (members) input.memberIds = members;
 
 	return input;
+}
+
+/** `onboarding:false` no corpo desliga o onboarding; qualquer outra coisa mantém o padrão (ligado). */
+export function wantsOnboarding(body: unknown): boolean {
+	return !(typeof body === "object" && body !== null && (body as { onboarding?: unknown }).onboarding === false);
 }
 
 function parseUpdateBot(body: unknown): UpdateBotInput | null {
@@ -229,8 +238,14 @@ async function checkSubagentModel(
 }
 
 export function createBotRoutes(
-	deps: { isKnownModel?: (id: string) => Promise<boolean | null>; validateModel?: (userId: string, model: string) => Promise<ModelValidation> } = {},
+	deps: {
+		isKnownModel?: (id: string) => Promise<boolean | null>;
+		validateModel?: (userId: string, model: string) => Promise<ModelValidation>;
+		/** Fila de runs e modelo padrão do ambiente para o onboarding do bot novo; sem fila, não há onboarding. */
+		onboarding?: { queue: RunQueue | null; envDefault: string; openRouterApiKey?: string; start?: typeof startBotOnboarding };
+	} = {},
 ) {
+	const startOnboarding = deps.onboarding?.start ?? startBotOnboarding;
 	const isKnownModel = deps.isKnownModel ?? isKnownModelId;
 	const validateModel = deps.validateModel ?? validateProviderModel;
 	const app = new Hono<AuthEnv>();
@@ -291,6 +306,12 @@ export function createBotRoutes(
 			// Grupo (memberIds): só bots do próprio dono, de 2 a 8.
 			if (input.memberIds && input.memberIds.length > 0) input.memberIds = await validateGroupMemberIds(userId, input.memberIds);
 			const bot = await createBot(input, userId);
+			// Onboarding no servidor: só bot comum (grupo não), e `onboarding:false` desliga. Falha aqui nunca derruba o 201.
+			if (wantsOnboarding(json) && !(input.memberIds && input.memberIds.length > 0) && deps.onboarding) {
+				// Idioma: o do bot; no modo auto, o do navegador (o evento é JSON em inglês e não diz o idioma do usuário).
+				const language = resolveReplyLanguage({ setting: bot.language, accountLocale: pickLanguageFromAcceptLanguage(c.req.header("accept-language")), hasUserMessage: false }).language;
+				await startOnboarding({ bot, userId, queue: deps.onboarding.queue, envDefault: deps.onboarding.envDefault, openRouterApiKey: deps.onboarding.openRouterApiKey, language }).catch(() => undefined);
+			}
 			return c.json({ ...bot, ...(validation.warning ? { warnings: [validation.warning] } : {}) }, 201);
 		} catch (error) {
 			if (error instanceof GroupError) return c.json({ error: error.message }, error.code === "not_found" ? 404 : 400);

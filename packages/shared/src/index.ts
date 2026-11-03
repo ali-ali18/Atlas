@@ -591,6 +591,14 @@ export {
 	type QuestionnairePurpose,
 } from "./questionnaire.js";
 export {
+	BOT_CREATED_OBJECTIVE_MARKER,
+	botCreatedClientKey,
+	buildBotCreatedMessages,
+	buildBotCreatedObjective,
+	buildBotCreatedSystem,
+	isBotCreatedObjective,
+} from "./bot-onboarding.js";
+export {
 	ACCOUNT_LABEL_MAX_CHARS,
 	connectorAccountName,
 	normalizeAccountLabel,
