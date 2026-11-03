@@ -5,6 +5,7 @@ import type { AgentRunCheckpoint, ComputerUseEvent, LessonRule } from "@workspac
 import type { PersistUserArtifactInput } from "@workspace/db";
 import type { DelegateDeps } from "../tools/delegate-task.js";
 import { noveltyKey } from "./notebook.js";
+import { DELEGATE_V2_TOOL } from "./helpers.js";
 import { runEngineV2, type EngineV2Options } from "./run.js";
 
 vi.mock("@workspace/db", async (original) => ({
@@ -269,6 +270,14 @@ async function runV2Reads(input: { secret: string }) {
 	});
 	return run;
 }
+
+describe("motor v2: texto do delegate ao modelo não promete orçamento que pode não existir", () => {
+	it("a descrição só fala em teto se o dono configurou, nunca em 'budget'", () => {
+		const text = DELEGATE_V2_TOOL.function.description ?? "";
+		expect(text).not.toMatch(/\bbudget\b/i);
+		expect(text).toMatch(/if the owner configured a spending or time cap/);
+	});
+});
 
 describe("motor v2: ajudantes", () => {
 	it("5 ajudantes em paralelo (no máximo 4 ao mesmo tempo), orçamento repartido com soma ≤ pai, uso somado ao pai e 5 entradas no caderno", async () => {

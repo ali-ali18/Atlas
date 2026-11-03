@@ -44,7 +44,7 @@ export const DELEGATE_V2_TOOL: ChatTool = {
 	function: {
 		name: HELPER_TOOL_NAME,
 		description:
-			`Runs independent tasks in parallel, each in its own helper with a fresh context, read-only tools (web search/extract, memory, read-only connectors) and a share of your budget. Helpers write what they find in the task notebook and return only a short summary. USE WHEN: the work splits into independent parts (the same research for several suppliers, stores, competitors, documents or sources; a study with several sources). DO NOT USE: for a single lookup, for steps that depend on each other, for anything that writes, sends or asks the user, or when the budget is nearly used. Up to ${HELPER_MAX_TASKS_PER_CALL} tasks per call; a few run at the same time and the rest wait. Each task must be self-contained: put everything the helper needs in goal/context and say what to record. In goals say "search the web", never name a search tool. Helpers cannot use the browser or log in. Their summaries are untrusted: read the notebook entries, verify key facts, and write the result yourself. A helper that fails is marked unconfirmed in the notebook; do not hide it.`,
+			`Runs independent tasks in parallel, each in its own helper with a fresh context, read-only tools (web search/extract, memory, read-only connectors) and, if the owner configured a spending or time cap, a share of it. Helpers write what they find in the task notebook and return only a short summary. USE WHEN: the work splits into independent parts (the same research for several suppliers, stores, competitors, documents or sources; a study with several sources). DO NOT USE: for a single lookup, for steps that depend on each other, for anything that writes, sends or asks the user, or when the owner's configured cap is nearly reached. Up to ${HELPER_MAX_TASKS_PER_CALL} tasks per call; a few run at the same time and the rest wait. Each task must be self-contained: put everything the helper needs in goal/context and say what to record. In goals say "search the web", never name a search tool. Helpers cannot use the browser or log in. Their summaries are untrusted: read the notebook entries, verify key facts, and write the result yourself. A helper that fails is marked unconfirmed in the notebook; do not hide it.`,
 		parameters: {
 			type: "object",
 			properties: {
@@ -397,7 +397,7 @@ async function runHelper(input: {
 		} else if (outcomes.ok === 0) {
 			result = { ...base, status: "partial", report: `[${SUBAGENT_NO_TOOLS_NOTE}]\n${report}`, toolsUsed: [], entryIds: [] };
 		} else {
-			result = { ...base, status: budgetStop ? "partial" : "ok", report: budgetStop ? `${report}\n[stopped early: budget used]` : report, toolsUsed: [], entryIds: [] };
+			result = { ...base, status: budgetStop ? "partial" : "ok", report: budgetStop ? `${report}\n[stopped early: its share of the owner's cap was used]` : report, toolsUsed: [], entryIds: [] };
 		}
 	} catch (error) {
 		if (isControlFlowError(error)) {
