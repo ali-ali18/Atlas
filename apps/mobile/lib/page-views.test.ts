@@ -10,6 +10,7 @@ import {
 	listView,
 	mergedRowHeights,
 	pinFirstColumn,
+	tableLayout,
 	progressView,
 	setRowHeight,
 	SECTION_GAP,
@@ -170,8 +171,33 @@ describe("tabela", () => {
 	it("a primeira coluna fica fixa só se há mais colunas e a tabela passa da tela", () => {
 		expect(pinFirstColumn([200, 100, 100], 300)).toBe(true);
 		expect(pinFirstColumn([100, 100], 300)).toBe(false);
+		expect(pinFirstColumn([200, 200], 300)).toBe(false);
 		expect(pinFirstColumn([500], 300)).toBe(false);
 		expect(pinFirstColumn([200, 200], 0)).toBe(false);
+	});
+	it("2 colunas que cabem: sem rolagem, sem fixa; rótulo flexível e número com a largura do conteúdo", () => {
+		// O caso do dono: "Item" (texto longo, 240) e "Valor" (R$ 176,50, 100) numa tela de 330: o rótulo encolhe e quebra.
+		const layout = tableLayout([240, 100], ["left", "right"], 330);
+		expect(layout).toMatchObject({ kind: "fit", flex: [true, false], widths: [240, 100] });
+	});
+	it("2 colunas que NÃO cabem: rola, mas sem coluna fixa", () => {
+		expect(tableLayout([240, 240], ["left", "left"], 190)).toMatchObject({ kind: "scroll", pinned: false, scrollWidth: 480, scrollViewport: 190 });
+	});
+	it("6 colunas largas: primeira fixa (limitada a 45%) e o resto rola com a largura inteira do conteúdo", () => {
+		const layout = tableLayout([200, 100, 100, 100, 100, 100], ["left", "right", "right", "right", "right", "right"], 330);
+		expect(layout).toMatchObject({ kind: "scroll", pinned: true, scrollWidth: 500, scrollViewport: 330 - 148 });
+		if (layout.kind === "scroll") expect(layout.widths[0]).toBe(148);
+	});
+	it("rótulos encolhidos + números cabem: 'cabe', sem rolagem de poucos pontos", () => {
+		expect(tableLayout([240, 80, 80], ["left", "right", "right"], 330).kind).toBe("fit");
+		expect(tableLayout([240, 100, 100, 100], ["left", "right", "right", "right"], 330).kind).toBe("scroll");
+	});
+	it("ainda não medida (0) desenha como cabe; tudo numérico mantém uma coluna flexível", () => {
+		expect(tableLayout([100, 100], ["right", "right"], 0)).toMatchObject({ kind: "fit", flex: [true, false] });
+	});
+	it("texto da célula nunca é reformatado: string com número e parênteses vai como veio", () => {
+		const view = tableView({ columns: [{ key: "k", label: "Item" }, { key: "v", label: "Valor", format: "currency" }], rows: [{ k: "Ganho/perda", v: "-11,30 (-6,40%)" }, { k: "Zero", v: "0 (-6,40%)" }, { k: "Preço", v: 17.65 }] });
+		expect(view.rows.map((row) => row[1]!.text)).toEqual(["-11,30 (-6,40%)", "0 (-6,40%)", "R$ 17,65"]);
 	});
 	it("altura de linha: cada lado guarda a natural e a mínima é a maior das duas (e encolhe de volta)", () => {
 		let left: readonly number[] = [];
