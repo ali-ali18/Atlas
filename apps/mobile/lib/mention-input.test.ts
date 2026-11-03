@@ -150,9 +150,11 @@ describe("/compact na lista do /", () => {
 	it("sem comandos na fonte (grupo), o / não ganha nada", () => {
 		expect(triggerState("/", 1, { bots, skills })?.candidates.map((c) => c.id)).toEqual(["s1", "s2"]);
 	});
-	it("escolher o comando tira o gatilho, não cria marcador e devolve o comando (mesmo com o limite de habilidades batido)", () => {
+	it("escolher o comando põe `/compact ` no campo (sem marcador), com o cursor depois, mesmo com o limite de habilidades batido", () => {
 		const state = triggerState("/comp", 5, { bots, skills, commands })!;
-		expect(applyPick("/comp", 5, state, 0, { skillsFull: true })).toEqual({ text: "", caret: 0, marker: null, command: "compact" });
+		expect(applyPick("/comp", 5, state, 0, { skillsFull: true })).toEqual({ text: "/compact ", caret: 9, marker: null, command: "compact" });
+		const mid = triggerState("/co", 3, { bots, skills, commands })!;
+		expect(applyPick("/co resumo da semana", 3, mid, 0)?.text).toBe("/compact resumo da semana");
 	});
 	it("escolher uma habilidade continua virando marcador", () => {
 		const state = triggerState("/", 1, { bots, skills, commands })!;

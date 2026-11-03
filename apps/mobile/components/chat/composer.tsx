@@ -204,11 +204,12 @@ export function Composer({ initialText, botName, color, foreground, running, onS
 		const next = applyPick(text, caret ?? text.length, state, index, { skillsFull: skillLimit });
 		if (!next) return;
 		animate();
-		// Comando: não vira marcador nem texto. Dispara e limpa o campo (como o web).
+		// Comando: entra no campo como `/compact ` (sem marcador, como no web). Enviar roda a compactação, com o foco que a
+		// pessoa escrever depois (`parseCompactCommand` no envio).
 		if (next.command) {
-			if (running) return;
-			onCompact?.();
-			clearField();
+			setText(next.text);
+			forceCaret(next.caret, markers.length);
+			inputRef.current?.focus();
 			return;
 		}
 		const nextMarkers = next.marker ? addMarker(markers, next.marker) : markers;

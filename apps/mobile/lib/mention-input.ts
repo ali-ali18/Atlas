@@ -83,10 +83,15 @@ export function applyPick(
 	state: TriggerState,
 	index: number,
 	options: { skillsFull?: boolean } = {},
-): { text: string; caret: number; marker: Marker | null; /** Comando escolhido (não vira marcador nem texto: quem chamou o executa). */ command?: "compact" } | null {
+): { text: string; caret: number; marker: Marker | null; /** Comando escolhido: entra no campo como `/compact ` (não vira marcador) e roda ao enviar. */ command?: "compact" } | null {
 	const candidate = state.candidates[index];
 	if (!candidate) return null;
-	if (state.trigger === "/" && (candidate as SkillCandidate).kind === "command") return { ...removeTrigger(text, caret, state.start), marker: null, command: "compact" };
+	if (state.trigger === "/" && (candidate as SkillCandidate).kind === "command") {
+		// O comando entra no campo (no lugar do gatilho), como no web: a pessoa ainda pode escrever o foco e envia.
+		const base = removeTrigger(text, caret, state.start);
+		const token = `/${COMPACT_COMMAND} `;
+		return { text: token + base.text, caret: token.length, marker: null, command: "compact" };
+	}
 	if (state.trigger === "/" && options.skillsFull) return null;
 	const marker: Marker =
 		state.trigger === "@"
