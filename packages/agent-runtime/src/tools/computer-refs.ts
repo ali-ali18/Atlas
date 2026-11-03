@@ -132,8 +132,8 @@ export function checkLoginWall(
 		return {
 			note:
 				`\nLOGIN STILL REQUIRED on ${wall.site}: the user was already asked once for this page. ` +
-				"Do NOT ask again and never type credentials. Tell the user the login did not take effect " +
-				"(or the session expired) and stop working on this site.",
+				"Do not ask again and never type credentials. Tell the user what you need (the login did not take effect, or the session expired) " +
+				"and continue with what you can do without it.",
 		};
 	}
 	ctx.loginAsked.add(wall.key);

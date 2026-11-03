@@ -360,7 +360,10 @@ describe("F12/B5 - muro de login: card, pausa e retomada", () => {
 		const checked = checkLoginWall({ runId: "r", loginAsked: asked }, { url: "https://www.bling.com.br/login", title: "Entrar", lines: loginSnapshot.lines });
 		expect(checked?.loginEvent).toBeUndefined();
 		expect(checked?.note).toContain("LOGIN STILL REQUIRED");
-		expect(checked?.note).toContain("Do NOT ask again");
+		expect(checked?.note).toContain("Do not ask again");
+		// Sem "pare neste site": diz o que precisa e segue com o que dá para fazer.
+		expect(checked?.note).toContain("continue with what you can do without it");
+		expect(checked?.note).not.toMatch(/stop working on this site/);
 	});
 
 	it("o modelo nunca recebe a senha: o resultado marca o campo e não traz valor", async () => {
