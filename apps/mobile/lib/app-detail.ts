@@ -17,8 +17,8 @@ export type AppDetail = {
 	account: string;
 	/** Id que o "Autorizar" (reauth) usa; só conectores nativos e próprios. */
 	reauthId: string | null;
-	/** Id que o "Desconectar" usa; `null` = não há o que desconectar. */
-	disconnectId: string | null;
+	/** Ids que o "Desconectar" remove (o Composio pode ter mais de uma conta do mesmo app: saem todas); vazio = nada a desconectar. */
+	disconnectIds: string[];
 	/** Aviso simples quando o botão fica desabilitado por algo fora do alcance da pessoa. */
 	note: string | null;
 };
@@ -35,16 +35,17 @@ export function nativeDetail(entry: NativeConnector): AppDetail {
 		apiKey: action === "connect" && needsApiKey(entry) ? entry.apiKey : null,
 		account: "",
 		reauthId: action === "authorize" ? entry.connectionId : null,
-		disconnectId: entry.connectionId,
+		disconnectIds: entry.connectionId ? [entry.connectionId] : [],
 		note: action === "unavailable" ? "Este aplicativo ainda não está disponível neste servidor." : action === "soon" ? "Este aplicativo chega em breve." : null,
 	};
 }
 
 export type ComposioInfo = { slug: string; name: string; description: string; logo: string | null };
 
-export function composioDetail(info: ComposioInfo, connections: readonly ComposioConnection[], configured: boolean): AppDetail {
-	const connection = connections.find((item) => item.toolkit === info.slug) ?? null;
-	const action: AppAction = connection ? composioAction({ connected: true }) : configured ? "connect" : "unavailable";
+/** `failed`: não deu para ler as conexões do Composio; sem saber se já está conectado, não oferece conectar (evita conta duplicada). */
+export function composioDetail(info: ComposioInfo, connections: readonly ComposioConnection[], configured: boolean, failed = false): AppDetail {
+	const own = connections.filter((item) => item.toolkit === info.slug);
+	const action: AppAction = own.length > 0 ? composioAction({ connected: true }) : configured && !failed ? "connect" : "unavailable";
 	return {
 		ref: { kind: "composio", id: info.slug },
 		name: info.name,
@@ -55,8 +56,8 @@ export function composioDetail(info: ComposioInfo, connections: readonly Composi
 		apiKey: null,
 		account: "",
 		reauthId: null,
-		disconnectId: connection?.id ?? null,
-		note: action === "unavailable" ? "Ative os apps nas Configurações do site." : null,
+		disconnectIds: own.map((item) => item.id),
+		note: action === "unavailable" ? (failed ? "Não consegui carregar os apps agora. Tente de novo em instantes." : "Ative os apps nas Configurações do site.") : null,
 	};
 }
 
@@ -72,7 +73,7 @@ export function customDetail(connection: McpConnection): AppDetail {
 		apiKey: null,
 		account: connection.accountLabel,
 		reauthId: action === "authorize" ? connection.id : null,
-		disconnectId: connection.id,
+		disconnectIds: [connection.id],
 		note: null,
 	};
 }

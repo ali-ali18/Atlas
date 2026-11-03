@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { browserUrl, parseComposioCategories, parseComposioConfigured, parseComposioConnections, parseComposioPage, parseConnectResult, parseMcpCatalog, parseMcpConnections, pickBrowserUrl, safeLogoUrl } from "./apps-parse";
+import { allowsHttp, browserUrl, parseComposioCategories, parseComposioConfigured, parseComposioConnections, parseComposioPage, parseConnectResult, parseMcpCatalog, parseMcpConnections, pickBrowserUrl, safeLogoUrl } from "./apps-parse";
 
 const entry = { id: "github", name: "GitHub", description: "Repos", longDescription: "Repos e issues", category: "productivity", icon: "/connectors/github.svg", authType: "oauth", availability: "available", skills: [{ key: "a", title: "Ler issues", description: "x" }, { key: "b" }], oauthReady: true, connectionId: "c1", status: "connected", accountCount: 2 };
 
@@ -54,8 +54,16 @@ describe("Composio", () => {
 });
 
 describe("endereço do navegador e resultado da conexão", () => {
-	it("só http(s)", () => {
+	it("só https; http apenas com servidor http (desenvolvimento)", () => {
 		expect(browserUrl("https://a.com/x")).toBe("https://a.com/x");
+		expect(browserUrl("http://a.com/x")).toBeNull();
+		expect(browserUrl("http://a.com/x", true)).toBe("http://a.com/x");
+		expect(browserUrl("javascript:x", true)).toBeNull();
+		expect(allowsHttp("http://192.168.0.2:3001")).toBe(true);
+		expect(allowsHttp("https://api.exemplo.com")).toBe(false);
+		expect(allowsHttp(null)).toBe(false);
+		expect(pickBrowserUrl({ authorizeUrl: "http://l/a" }, true)).toBe("http://l/a");
+		expect(parseConnectResult({ authorizeUrl: "http://l/a", connection: { id: "1" } })).toBeNull();
 		expect(browserUrl("intent://x")).toBeNull();
 		expect(browserUrl("")).toBeNull();
 		expect(browserUrl(5)).toBeNull();

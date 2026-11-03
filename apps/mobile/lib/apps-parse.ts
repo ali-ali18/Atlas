@@ -159,27 +159,32 @@ export function parseComposioConnections(body: unknown): ComposioConnection[] | 
 	return out;
 }
 
-/** Só endereços http(s) abrem no navegador; qualquer outro esquema (javascript:, intent:) é descartado. */
-export function browserUrl(raw: unknown): string | null {
+/** O servidor configurado é http (desenvolvimento local)? Só então o login pode abrir um endereço http. */
+export function allowsHttp(serverUrl: string | null): boolean {
+	return !!serverUrl && /^http:\/\//i.test(serverUrl.trim());
+}
+
+/** Só https abre no navegador (http só com servidor http, em desenvolvimento); qualquer outro esquema (javascript:, intent:) é descartado. */
+export function browserUrl(raw: unknown, allowHttp = false): string | null {
 	const value = text(raw);
 	if (!value) return null;
 	try {
 		const url = new URL(value);
-		return url.protocol === "https:" || url.protocol === "http:" ? url.href : null;
+		return url.protocol === "https:" || (allowHttp && url.protocol === "http:") ? url.href : null;
 	} catch {
 		return null;
 	}
 }
 
 /** O endereço a abrir: `handoffUrl` (novo, quando o servidor já manda), senão `authorizeUrl` (MCP) ou `redirectUrl` (Composio). */
-export function pickBrowserUrl(body: Record<string, unknown>): string | null {
-	return browserUrl(body.handoffUrl) ?? browserUrl(body.authorizeUrl) ?? browserUrl(body.redirectUrl);
+export function pickBrowserUrl(body: Record<string, unknown>, allowHttp = false): string | null {
+	return browserUrl(body.handoffUrl, allowHttp) ?? browserUrl(body.authorizeUrl, allowHttp) ?? browserUrl(body.redirectUrl, allowHttp);
 }
 
 /** Resposta de `POST /v1/mcp/connections` (e `/reauth`) ou `POST /v1/composio/connect`. */
-export function parseConnectResult(body: unknown): ConnectResult | null {
+export function parseConnectResult(body: unknown, allowHttp = false): ConnectResult | null {
 	if (!isRecord(body)) return null;
-	const url = pickBrowserUrl(body);
+	const url = pickBrowserUrl(body, allowHttp);
 	if (url) return { kind: "browser", url, connectionId: isRecord(body.connection) ? text(body.connection.id) || null : null };
 	// Sem endereço, só vale como conectado se o servidor disse isso; "pendente" sem link não tem como continuar.
 	if ((isRecord(body.connection) && body.connection.status === "connected") || body.enabled === true) return { kind: "connected" };

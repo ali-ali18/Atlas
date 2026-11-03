@@ -6,7 +6,7 @@ import { AppDetailView, type AppDetailLoad } from "@/components/apps/app-detail-
 import { type AppDetail, composioDetail, customDetail, isComposioConnected, isConnectionConnected, isNativeConnected, nativeDetail } from "@/lib/app-detail";
 import { appsErrorText, connectComposio, connectNative, disconnectComposio, disconnectNative, fetchComposioConnections, fetchMcpConnections, reauthNative } from "@/lib/apps-api";
 import { parseAppRef } from "@/lib/apps";
-import { browserUrl, type ConnectResult } from "@/lib/apps-parse";
+import { allowsHttp, browserUrl, type ConnectResult } from "@/lib/apps-parse";
 import { useAtlasSession } from "@/lib/atlas-session";
 import { isUnauthorized } from "@/lib/chat-api";
 import type { AppStateSource } from "@/lib/browser-return";
@@ -32,7 +32,7 @@ export default function AppDetailScreen() {
 	const params = useLocalSearchParams<{ id: string; name?: string; description?: string; logo?: string }>();
 	const ref = React.useMemo(() => parseAppRef(String(params.id ?? "")), [params.id]);
 	const data = useAppsData();
-	const { apiFetch, signOut } = useAtlasSession();
+	const { apiFetch, signOut, serverUrl } = useAtlasSession();
 	const [apiKey, setApiKey] = React.useState("");
 	const [busy, setBusy] = React.useState<"connect" | "disconnect" | null>(null);
 	const [waiting, setWaiting] = React.useState(false);
@@ -42,12 +42,20 @@ export default function AppDetailScreen() {
 	const latest = React.useRef({ apiFetch, signOut });
 	latest.current = { apiFetch, signOut };
 	const mounted = React.useRef(true);
+	// Trava síncrona: dois toques rápidos antes do re-render não podem iniciar duas conexões/desconexões.
+	const working = React.useRef(false);
+	const cancel = React.useRef({ aborted: false });
 	React.useEffect(() => {
 		mounted.current = true;
+		const signal = { aborted: false };
+		cancel.current = signal;
 		return () => {
 			mounted.current = false;
+			// Sair da tela cancela o polling: o fluxo antigo não pode fechar o navegador de um fluxo novo.
+			signal.aborted = true;
 		};
 	}, []);
+	const allowHttp = allowsHttp(serverUrl);
 	const { reload } = data;
 	React.useEffect(() => {
 		void reload();
@@ -66,8 +74,8 @@ export default function AppDetailScreen() {
 			const connection = data.connections.find((item) => item.id === ref.id);
 			return connection ? customDetail(connection) : null;
 		}
-		return composioDetail({ slug: ref.id, name: name || ref.id, description: description ?? "", logo: logo ?? null }, data.composioConnections, data.composioConfigured);
-	}, [ref, data.status, data.entries, data.connections, data.composioConnections, data.composioConfigured, name, description, logo]);
+		return composioDetail({ slug: ref.id, name: name || ref.id, description: description ?? "", logo: logo ?? null }, data.composioConnections, data.composioConfigured, data.composioFailed);
+	}, [ref, data.status, data.entries, data.connections, data.composioConnections, data.composioConfigured, data.composioFailed, name, description, logo]);
 
 	let load: AppDetailLoad;
 	if (!ref) load = { status: "missing" };
@@ -92,13 +100,14 @@ export default function AppDetailScreen() {
 
 	const start = async (target: AppDetail): Promise<ConnectResult> => {
 		const fetcher = latest.current.apiFetch;
-		if (target.ref.kind === "composio") return connectComposio(fetcher, target.ref.id);
-		if (target.reauthId) return reauthNative(fetcher, target.reauthId);
-		return connectNative(fetcher, target.ref.id, target.apiKey ? apiKey : undefined);
+		if (target.ref.kind === "composio") return connectComposio(fetcher, target.ref.id, allowHttp);
+		if (target.reauthId) return reauthNative(fetcher, target.reauthId, allowHttp);
+		return connectNative(fetcher, target.ref.id, target.apiKey ? apiKey : undefined, allowHttp);
 	};
 
 	const connect = async () => {
-		if (!detail || busy) return;
+		if (!detail || working.current) return;
+		working.current = true;
 		setBusy("connect");
 		setError(null);
 		setNotice(null);
@@ -111,9 +120,12 @@ export default function AppDetailScreen() {
 					appState: APP_STATE,
 					dismiss: () => void WebBrowser.dismissBrowser(),
 					check: () => checkConnected(detail),
+					isFatal: isUnauthorized,
+					signal: cancel.current,
 					now: Date.now,
 					sleep,
 				});
+				if (outcome === "cancelled") return;
 				if (mounted.current && outcome === "timeout") setNotice("Não consegui confirmar a conexão. Se você terminou o login, volte e confira em “Seus aplicativos”.");
 			}
 			if (mounted.current) setApiKey("");
@@ -121,6 +133,7 @@ export default function AppDetailScreen() {
 		} catch (reason) {
 			fail(reason, "connect");
 		} finally {
+			working.current = false;
 			if (mounted.current) {
 				setWaiting(false);
 				setBusy(null);
@@ -129,18 +142,24 @@ export default function AppDetailScreen() {
 	};
 
 	const disconnect = async () => {
-		if (!detail?.disconnectId || busy) return;
+		if (!detail || detail.disconnectIds.length === 0 || working.current) return;
+		working.current = true;
 		setConfirming(false);
 		setBusy("disconnect");
 		setError(null);
 		setNotice(null);
 		try {
-			if (detail.ref.kind === "composio") await disconnectComposio(latest.current.apiFetch, detail.disconnectId);
-			else await disconnectNative(latest.current.apiFetch, detail.disconnectId);
+			// Mais de uma conta do mesmo app (Composio): saem todas, senão o app continuaria "Conectado".
+			for (const id of detail.disconnectIds) {
+				if (detail.ref.kind === "composio") await disconnectComposio(latest.current.apiFetch, id);
+				else await disconnectNative(latest.current.apiFetch, id);
+			}
 			await reload();
 		} catch (reason) {
 			fail(reason, "disconnect");
+			await reload();
 		} finally {
+			working.current = false;
 			if (mounted.current) setBusy(null);
 		}
 	};

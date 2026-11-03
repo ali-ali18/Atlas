@@ -8,7 +8,7 @@ const conn = (over: Partial<McpConnection> = {}): McpConnection => ({ id: "c1", 
 describe("nativeDetail", () => {
 	it("conector de chave pede a chave (label do catálogo) antes de conectar", () => {
 		const detail = nativeDetail(entry());
-		expect(detail).toMatchObject({ action: "connect", description: "longa", apiKey: { label: "Chave de API Firecrawl", helpUrl: "https://h" }, disconnectId: null });
+		expect(detail).toMatchObject({ action: "connect", description: "longa", apiKey: { label: "Chave de API Firecrawl", helpUrl: "https://h" }, disconnectIds: [] });
 	});
 	it("OAuth pronto não pede chave, mesmo com apiKey no catálogo (GitHub)", () => {
 		expect(nativeDetail(entry({ authType: "oauth", oauthReady: true })).apiKey).toBeNull();
@@ -17,10 +17,15 @@ describe("nativeDetail", () => {
 		expect(nativeDetail(entry({ authType: "oauth", oauthReady: false })).apiKey).not.toBeNull();
 	});
 	it("conectado: sem campo de chave, com id para desconectar", () => {
-		expect(nativeDetail(entry({ status: "connected", connectionId: "c1" }))).toMatchObject({ action: "connected", apiKey: null, disconnectId: "c1", reauthId: null });
+		expect(nativeDetail(entry({ status: "connected", connectionId: "c1" }))).toMatchObject({ action: "connected", apiKey: null, disconnectIds: ["c1"], reauthId: null });
 	});
-	it("pendente/erro: Autorizar usa o reauth da conexão existente", () => {
-		expect(nativeDetail(entry({ status: "error", connectionId: "c1" }))).toMatchObject({ action: "authorize", reauthId: "c1", apiKey: null });
+	it("conector de chave com conexão em erro/pendente: mostra o campo de chave e Conectar (nada de reauth), com Desconectar", () => {
+		for (const status of ["error", "pending_auth"] as const) {
+			expect(nativeDetail(entry({ status, connectionId: "c1" }))).toMatchObject({ action: "connect", reauthId: null, apiKey: { label: "Chave de API Firecrawl" }, disconnectIds: ["c1"] });
+		}
+	});
+	it("OAuth pronto com conexão em erro/pendente: Autorizar usa o reauth da conexão existente", () => {
+		expect(nativeDetail(entry({ authType: "oauth", oauthReady: true, status: "error", connectionId: "c1" }))).toMatchObject({ action: "authorize", reauthId: "c1", apiKey: null });
 	});
 	it("em breve e indisponível trazem aviso simples, sem termos internos", () => {
 		expect(nativeDetail(entry({ comingSoon: true })).note).toBe("Este aplicativo chega em breve.");
@@ -33,9 +38,16 @@ describe("nativeDetail", () => {
 describe("composioDetail", () => {
 	const info = { slug: "asana", name: "Asana", description: "Tarefas", logo: null };
 	it("conectar, conectado (com id) e desligado", () => {
-		expect(composioDetail(info, [], true)).toMatchObject({ action: "connect", disconnectId: null });
-		expect(composioDetail(info, [{ id: "k", toolkit: "asana", toolkitName: "Asana", noAuth: false }], true)).toMatchObject({ action: "connected", disconnectId: "k" });
+		expect(composioDetail(info, [], true)).toMatchObject({ action: "connect", disconnectIds: [] });
+		expect(composioDetail(info, [{ id: "k", toolkit: "asana", toolkitName: "Asana", noAuth: false }], true)).toMatchObject({ action: "connected", disconnectIds: ["k"] });
 		expect(composioDetail(info, [], false)).toMatchObject({ action: "unavailable", note: "Ative os apps nas Configurações do site." });
+	});
+	it("duas contas do mesmo app: Desconectar remove as duas", () => {
+		const conns = [{ id: "k1", toolkit: "asana", toolkitName: "Asana", noAuth: false }, { id: "k2", toolkit: "asana", toolkitName: "Asana", noAuth: false }, { id: "k3", toolkit: "outro", toolkitName: "Outro", noAuth: false }];
+		expect(composioDetail(info, conns, true).disconnectIds).toEqual(["k1", "k2"]);
+	});
+	it("falha ao ler as conexões: não oferece Conectar (evita conta duplicada), com aviso de erro", () => {
+		expect(composioDetail(info, [], true, true)).toMatchObject({ action: "unavailable", note: "Não consegui carregar os apps agora. Tente de novo em instantes." });
 	});
 	it("já conectado continua desconectável mesmo com Composio desligado agora", () => {
 		expect(composioDetail(info, [{ id: "k", toolkit: "asana", toolkitName: "Asana", noAuth: false }], false).action).toBe("connected");

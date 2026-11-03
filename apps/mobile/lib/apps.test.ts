@@ -16,6 +16,13 @@ describe("estado do botão", () => {
 		expect(nativeAction(native({ id: "a", comingSoon: true, status: "connected", connectionId: "1" }))).toBe("soon");
 		expect(nativeAction(native({ id: "a", oauthReady: false }))).toBe("unavailable");
 	});
+	it("conector de chave com conexão em erro/pendente volta a Conectar (cola a chave de novo); OAuth continua Autorizar", () => {
+		const key = { id: "a", authType: "api_key" as const, oauthReady: false, apiKey: { label: "k", helpUrl: "" }, connectionId: "1" };
+		expect(nativeAction(native({ ...key, status: "error" }))).toBe("connect");
+		expect(nativeAction(native({ ...key, status: "pending_auth" }))).toBe("connect");
+		expect(nativeAction(native({ ...key, status: "connected" }))).toBe("connected");
+		expect(nativeAction(native({ id: "g", authType: "oauth", oauthReady: true, apiKey: { label: "PAT", helpUrl: "" }, status: "error", connectionId: "1" }))).toBe("authorize");
+	});
 	it("status pendente sem conexão conhecida volta a conectar; OAuth sem env mas com chave ainda conecta", () => {
 		expect(nativeAction(native({ id: "a", status: "pending_auth" }))).toBe("connect");
 		expect(nativeAction(native({ id: "a", oauthReady: false, apiKey: { label: "k", helpUrl: "" } }))).toBe("connect");
@@ -71,11 +78,31 @@ describe("buildAppsRows", () => {
 	it("sem busca: conectados, destaque, categorias, apps e bots, nessa ordem, sem repetir conectado", () => {
 		const rows = buildAppsRows(base());
 		expect(headers(rows)).toEqual(["Conectados", "Em destaque", "Google", "Pesquisa web", "Produtividade", "Apps", "Bots"]);
-		expect(appKeys(rows)).toEqual(["native:github", "custom:x1", "composio:slack_x", "f:firecrawl", "n:gmail", "n:firecrawl", "n:notion", "c:asana"]);
+		expect(appKeys(rows)).toEqual(["native:github", "custom:x1", "composio:slack_x", "f:firecrawl", "n:gmail", "n:firecrawl", "n:notion", "c:asana", "c:trello"]);
 		expect(rows.some((row) => row.kind === "more" && row.target === "composio")).toBe(true);
 	});
-	it("Composio: o conectado e o que já é nativo ficam de fora de Apps", () => {
-		expect(appKeys(buildAppsRows(base())).filter((key) => key.startsWith("c:"))).toEqual(["c:asana"]);
+	it("Composio: o conectado (pelas conexões do dono, não pelo item velho) e o que já é nativo ficam de fora de Apps", () => {
+		expect(appKeys(buildAppsRows(base())).filter((key) => key.startsWith("c:"))).toEqual(["c:asana", "c:trello"]);
+		// Recém-conectado: a lista ainda diz connected:false, mas a conexão existe => só em Conectados.
+		const fresh = buildAppsRows(base({ composioConnections: [{ id: "k9", toolkit: "asana", toolkitName: "Asana", noAuth: false }] }));
+		expect(appKeys(fresh)).toContain("composio:asana");
+		expect(appKeys(fresh)).not.toContain("c:asana");
+		// Desconectado: o item velho dizia connected:true, mas sem conexão ele volta a poder ser conectado.
+		const gone = buildAppsRows(base({ composioConnections: [] }));
+		expect(appKeys(gone)).toContain("c:trello");
+	});
+	it("'Ver mais' continua quando a página inteira foi filtrada mas há mais páginas", () => {
+		const rows = buildAppsRows(base({ composio: { status: "ready", items: [toolkit("so-nativo", { nativeCatalogId: "github" })], hasMore: true, loadingMore: false } }));
+		expect(appKeys(rows).filter((key) => key.startsWith("c:"))).toEqual([]);
+		expect(rows.some((row) => row.kind === "more" && row.target === "composio")).toBe(true);
+		const none = buildAppsRows(base({ composio: { status: "ready", items: [], hasMore: false, loadingMore: false } }));
+		expect(headers(none)).not.toContain("Apps");
+	});
+	it("conexão do Composio com o mesmo id de um nativo NÃO conectado aparece em Conectados; com o nativo conectado, só o nativo", () => {
+		const shows = connectedItems({ entries: [native({ id: "github" })], connections: [], composioConnections: [{ id: "1", toolkit: "github", toolkitName: "GitHub", noAuth: false }] });
+		expect(shows.map((item) => item.key)).toEqual(["composio:github"]);
+		const dedup = connectedItems({ entries: [native({ id: "github", status: "connected", connectionId: "c" })], connections: [], composioConnections: [{ id: "1", toolkit: "github", toolkitName: "GitHub", noAuth: false }] });
+		expect(dedup.map((item) => item.key)).toEqual(["native:github"]);
 	});
 	it("chip de categoria nativa mostra só ela (e só os conectados dela)", () => {
 		const rows = buildAppsRows(base({ chip: "n:search" }));
@@ -99,7 +126,7 @@ describe("buildAppsRows", () => {
 	it("categoria do Composio mostra só os apps", () => {
 		const rows = buildAppsRows(base({ chip: "c:crm" }));
 		expect(headers(rows)).toEqual(["Conectados", "Apps"]);
-		expect(appKeys(rows)).toEqual(["composio:slack_x", "c:asana"]);
+		expect(appKeys(rows)).toEqual(["composio:slack_x", "c:asana", "c:trello"]);
 	});
 	it("busca filtra nativos, conectados e bots no cliente, sem destaque nem categorias", () => {
 		const rows = buildAppsRows(base({ query: "GIT", composio: { status: "ready", items: [], hasMore: false, loadingMore: false }, bots: [bot("b1", { name: "Gitbot" }), bot("b2")] }));
@@ -127,8 +154,8 @@ describe("buildAppsRows", () => {
 		expect(more).toMatchObject({ loading: true });
 	});
 	it("não repete o app do Composio que é nativo nas conexões", () => {
-		const items = connectedItems({ entries: [native({ id: "github" })], connections: [], composioConnections: [{ id: "1", toolkit: "github", toolkitName: "GitHub", noAuth: false }, { id: "2", toolkit: "x", toolkitName: "X", noAuth: false }, { id: "3", toolkit: "x", toolkitName: "X", noAuth: false }], composioLogos: new Map([["x", "https://l/x.png"]]) });
-		expect(items.map((item) => [item.key, item.icon])).toEqual([["composio:x", "https://l/x.png"]]);
+		const items = connectedItems({ entries: [native({ id: "github", status: "connected", connectionId: "c" })], connections: [], composioConnections: [{ id: "1", toolkit: "github", toolkitName: "GitHub", noAuth: false }, { id: "2", toolkit: "x", toolkitName: "X", noAuth: false }, { id: "3", toolkit: "x", toolkitName: "X", noAuth: false }], composioLogos: new Map([["x", "https://l/x.png"]]) });
+		expect(items.map((item) => [item.key, item.icon])).toEqual([["native:github", null], ["composio:x", "https://l/x.png"]]);
 	});
 });
 

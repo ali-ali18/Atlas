@@ -18,14 +18,9 @@ export async function fetchMcpConnections(apiFetch: ApiFetch): Promise<McpConnec
 	return connections;
 }
 
-/** O Composio está ativo para este dono? `409` (sem chave) e qualquer falha de leitura dão `false`; só 401 sobe. */
+/** O Composio está ativo para este dono? Falha de leitura (500, rede) SOBE: não é o mesmo que "não configurado". */
 export async function fetchComposioConfigured(apiFetch: ApiFetch): Promise<boolean> {
-	try {
-		return parseComposioConfigured(await json<unknown>(apiFetch, "/v1/composio/status"));
-	} catch (error) {
-		if (isUnauthorized(error)) throw error;
-		return false;
-	}
+	return parseComposioConfigured(await json<unknown>(apiFetch, "/v1/composio/status"));
 }
 
 export type ComposioQuery = { search?: string; cursor?: string | null; category?: string | null; limit?: number };
@@ -59,15 +54,15 @@ export async function fetchComposioConnections(apiFetch: ApiFetch): Promise<Comp
 }
 
 /** `POST /v1/mcp/connections`: OAuth devolve o endereço do login; chave conecta na hora. `client: "mobile"` faz o servidor mandar o retorno de volta ao app. */
-export async function connectNative(apiFetch: ApiFetch, catalogId: string, apiKey?: string): Promise<ConnectResult> {
+export async function connectNative(apiFetch: ApiFetch, catalogId: string, apiKey?: string, allowHttp = false): Promise<ConnectResult> {
 	const body = { catalogId, client: "mobile", ...(apiKey?.trim() ? { apiKey: apiKey.trim() } : {}) };
-	const result = parseConnectResult(await json<unknown>(apiFetch, "/v1/mcp/connections", { method: "POST", body: JSON.stringify(body) }));
+	const result = parseConnectResult(await json<unknown>(apiFetch, "/v1/mcp/connections", { method: "POST", body: JSON.stringify(body) }), allowHttp);
 	if (!result) throw unexpected();
 	return result;
 }
 
-export async function reauthNative(apiFetch: ApiFetch, connectionId: string): Promise<ConnectResult> {
-	const result = parseConnectResult(await json<unknown>(apiFetch, `/v1/mcp/connections/${encodeURIComponent(connectionId)}/reauth`, { method: "POST", body: JSON.stringify({ client: "mobile" }) }));
+export async function reauthNative(apiFetch: ApiFetch, connectionId: string, allowHttp = false): Promise<ConnectResult> {
+	const result = parseConnectResult(await json<unknown>(apiFetch, `/v1/mcp/connections/${encodeURIComponent(connectionId)}/reauth`, { method: "POST", body: JSON.stringify({ client: "mobile" }) }), allowHttp);
 	if (!result) throw unexpected();
 	return result;
 }
@@ -76,8 +71,8 @@ export async function disconnectNative(apiFetch: ApiFetch, connectionId: string)
 	await request(apiFetch, `/v1/mcp/connections/${encodeURIComponent(connectionId)}`);
 }
 
-export async function connectComposio(apiFetch: ApiFetch, toolkit: string): Promise<ConnectResult> {
-	const result = parseConnectResult(await json<unknown>(apiFetch, "/v1/composio/connect", { method: "POST", body: JSON.stringify({ toolkit, client: "mobile" }) }));
+export async function connectComposio(apiFetch: ApiFetch, toolkit: string, allowHttp = false): Promise<ConnectResult> {
+	const result = parseConnectResult(await json<unknown>(apiFetch, "/v1/composio/connect", { method: "POST", body: JSON.stringify({ toolkit, client: "mobile" }) }), allowHttp);
 	if (!result) throw unexpected();
 	return result;
 }

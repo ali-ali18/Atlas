@@ -70,7 +70,7 @@ export function AppDetailView(props: AppDetailViewProps) {
 	} else {
 		const { detail } = load;
 		const keyMissing = detail.apiKey !== null && !canSubmitKey(apiKey);
-		const canDisconnect = detail.disconnectId !== null && (detail.action === "connected" || detail.action === "authorize");
+		const canDisconnect = detail.disconnectIds.length > 0;
 		body = (
 			<ScrollView className="flex-1" contentContainerClassName="gap-6 px-5 pb-8 pt-4" keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
 				<View className="items-center gap-3">

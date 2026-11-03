@@ -19,8 +19,9 @@ export function needsApiKey(entry: NativeConnector): boolean {
 export function nativeAction(entry: NativeConnector): AppAction {
 	if (entry.comingSoon) return "soon";
 	if (entry.status === "connected") return "connected";
-	// Conexão que ficou pendente ou deu erro: o caminho é entrar de novo (reauth), não criar outra.
-	if ((entry.status === "pending_auth" || entry.status === "error") && entry.connectionId) return "authorize";
+	// Conexão pendente ou com erro: entrar de novo (reauth). Conector de chave não tem login: ali o caminho é colar a chave
+	// de novo ("Conectar"; o servidor atualiza a conexão existente em vez de criar outra).
+	if ((entry.status === "pending_auth" || entry.status === "error") && entry.connectionId && !needsApiKey(entry)) return "authorize";
 	if (entry.authType === "oauth" && !entry.oauthReady && !entry.apiKey) return "unavailable";
 	return "connect";
 }
@@ -118,8 +119,9 @@ export function nativeItem(entry: NativeConnector): AppItem {
 	return { key: `native:${entry.id}`, ref: { kind: "native", id: entry.id }, name: entry.name, description: entry.description, icon: entry.icon, action: nativeAction(entry) };
 }
 
-export function composioItem(toolkit: ComposioToolkit): AppItem {
-	return { key: `composio:${toolkit.slug}`, ref: { kind: "composio", id: toolkit.slug }, name: toolkit.name, description: toolkit.description, icon: toolkit.logo, action: composioAction(toolkit) };
+/** `connected` vem das conexões do dono (sempre frescas), não do item da lista, que pode estar velho. */
+export function composioItem(toolkit: ComposioToolkit, connected = false): AppItem {
+	return { key: `composio:${toolkit.slug}`, ref: { kind: "composio", id: toolkit.slug }, name: toolkit.name, description: toolkit.description, icon: toolkit.logo, action: composioAction({ connected }) };
 }
 
 /** Os conectados: nativos com conexão ativa, conectores próprios ativos e apps do Composio (com o logo da lista, se ela o trouxe). */
@@ -129,7 +131,8 @@ export function connectedItems(input: { entries: readonly NativeConnector[]; con
 		if (connection.catalogId !== null || connection.status !== "connected") continue;
 		items.push({ key: `custom:${connection.id}`, ref: { kind: "custom", id: connection.id }, name: connection.name, description: connection.accountLabel, icon: null, action: "connected" });
 	}
-	const nativeSlugs = new Set(input.entries.map((entry) => entry.id));
+	// Já aparece como nativo só se o nativo está conectado; senão a conexão do Composio é a única linha dele.
+	const nativeSlugs = new Set(input.entries.filter((entry) => entry.status === "connected").map((entry) => entry.id));
 	const seen = new Set<string>();
 	for (const connection of input.composioConnections) {
 		// Um app do Composio que também é nativo (ex.: GitHub) já aparece como o nativo; duas contas do mesmo app, uma linha.
@@ -218,9 +221,11 @@ export function buildAppsRows(input: SectionsInput): AppsRow[] {
 			rows.push({ kind: "header", key: "h:composio", label });
 			rows.push({ kind: "note", key: "note:error", text: "Não consegui carregar os apps agora.", retry: true });
 		} else if (state.status === "ready") {
-			// Já conectados vão para "Conectados"; os que também são nativos aparecem como nativos.
-			const shown = state.items.filter((item) => item.nativeCatalogId === null && !item.connected);
-			if (shown.length > 0) {
+			// Conectados (pelas conexões do dono) vão para "Conectados"; os que também são nativos aparecem como nativos.
+			const connectedSlugs = new Set(input.composioConnections.map((connection) => connection.toolkit));
+			const shown = state.items.filter((item) => item.nativeCatalogId === null && !connectedSlugs.has(item.slug));
+			// Página toda filtrada mas com mais páginas: o "Ver mais" continua (senão a lista ficaria sem saída).
+			if (shown.length > 0 || state.hasMore) {
 				rows.push({ kind: "header", key: "h:composio", label });
 				for (const item of shown) rows.push({ kind: "app", key: `c:${item.slug}`, item: composioItem(item) });
 				if (state.hasMore) rows.push({ kind: "more", key: "more:composio", label: "Ver mais", loading: state.loadingMore, target: "composio" });

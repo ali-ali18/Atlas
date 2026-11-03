@@ -13,13 +13,15 @@ export type AppsData = {
 	entries: NativeConnector[];
 	connections: McpConnection[];
 	composioConfigured: boolean;
+	/** Não deu para ler o estado do Composio (status ou conexões): erro, não "desligado" nem lista vazia. */
+	composioFailed: boolean;
 	composioConnections: ComposioConnection[];
 	composioCategories: ComposioCategory[];
 	/** `null` = o catálogo de bots não carregou (a seção some, sem erro). */
 	bots: CatalogBot[] | null;
 };
 
-const EMPTY: AppsData = { status: "loading", error: null, entries: [], connections: [], composioConfigured: false, composioConnections: [], composioCategories: [], bots: null };
+const EMPTY: AppsData = { status: "loading", error: null, entries: [], connections: [], composioConfigured: false, composioFailed: false, composioConnections: [], composioCategories: [], bots: null };
 
 /**
  * Tudo o que a tela de aplicativos e o detalhe leem: catálogo nativo, conexões, estado do Composio e bots. O catálogo
@@ -38,27 +40,52 @@ export function useAppsData(): AppsData & { reload: () => Promise<void> } {
 		};
 	}, []);
 
+	// Releituras podem se cruzar (abrir + foco): só a mais recente grava, a resposta velha é descartada.
+	const generation = React.useRef(0);
 	const reload = React.useCallback(async () => {
+		const mine = ++generation.current;
 		const { apiFetch: fetcher } = latest.current;
+		const soft = <T,>(promise: Promise<T>, fallback: T): Promise<T> =>
+			promise.catch((reason) => {
+				if (isUnauthorized(reason)) throw reason;
+				return fallback;
+			});
 		try {
-			const [entries, connections, composioConfigured, bots] = await Promise.all([
+			const [entries, connections, composioStatus, bots] = await Promise.all([
 				fetchMcpCatalog(fetcher),
-				fetchMcpConnections(fetcher).catch((reason) => {
-					if (isUnauthorized(reason)) throw reason;
-					return [] as McpConnection[];
-				}),
-				fetchComposioConfigured(fetcher),
-				fetchCatalog(fetcher).catch((reason) => {
-					if (isUnauthorized(reason)) throw reason;
-					return null;
-				}),
+				soft(fetchMcpConnections(fetcher), [] as McpConnection[]),
+				fetchComposioConfigured(fetcher).then(
+					(configured) => ({ configured, failed: false }),
+					(reason) => {
+						if (isUnauthorized(reason)) throw reason;
+						return { configured: false, failed: true };
+					},
+				),
+				soft(fetchCatalog(fetcher), null),
 			]);
-			const [composioConnections, composioCategories] = composioConfigured
-				? await Promise.all([fetchComposioConnections(fetcher).catch(() => [] as ComposioConnection[]), fetchComposioCategories(fetcher)])
-				: [[] as ComposioConnection[], [] as ComposioCategory[]];
-			if (mounted.current) setData({ status: "ready", error: null, entries, connections, composioConfigured, composioConnections, composioCategories, bots });
+			let composioConnections: ComposioConnection[] = [];
+			let composioCategories: ComposioCategory[] = [];
+			let composioFailed = composioStatus.failed;
+			if (composioStatus.configured) {
+				// Sem saber o que já está conectado, melhor mostrar erro do que oferecer "Conectar" em dobro.
+				const [connectionsResult, categories] = await Promise.all([
+					fetchComposioConnections(fetcher).then(
+						(list) => list as ComposioConnection[] | null,
+						(reason) => {
+							if (isUnauthorized(reason)) throw reason;
+							return null;
+						},
+					),
+					fetchComposioCategories(fetcher),
+				]);
+				if (connectionsResult) composioConnections = connectionsResult;
+				else composioFailed = true;
+				composioCategories = categories;
+			}
+			if (mounted.current && mine === generation.current) setData({ status: "ready", error: null, entries, connections, composioConfigured: composioStatus.configured, composioFailed, composioConnections, composioCategories, bots });
 		} catch (reason) {
 			if (isUnauthorized(reason)) void latest.current.signOut();
+			if (mine !== generation.current) return;
 			// Já havia dados: a falha de uma releitura não derruba a tela.
 			if (mounted.current) setData((current) => (current.status === "ready" ? current : { ...EMPTY, status: "error", error: appsErrorText(reason, "list") }));
 		}
@@ -80,7 +107,7 @@ const PAGE = 20;
 
 /**
  * Lista de apps do Composio (paginada): recomeça quando a busca ou a categoria mudam. Sem Composio ativo (ou 409 do
- * servidor) fica `off`. `reset` relê do começo (depois de conectar, para o "Conectado" certo).
+ * servidor) fica `off`. O "Conectado" não vem desta lista (pode estar velha): `buildAppsRows` usa as conexões do dono.
  */
 export function useComposioList(options: { enabled: boolean; query: string; category: string | null }): { state: ComposioState; loadMore: () => void; retry: () => void; logos: ReadonlyMap<string, string | null> } {
 	const { apiFetch, signOut } = useAtlasSession();
@@ -129,8 +156,9 @@ export function useComposioList(options: { enabled: boolean; query: string; cate
 				setState((current) => (current.status === "ready" ? { status: "ready", items: mergeToolkits(current.items, page.items), hasMore: page.nextCursor !== null, loadingMore: false } : current));
 				setLogos((current) => withLogos(current, page.items));
 			},
-			() => {
+			(reason) => {
 				if (mine !== generation.current) return;
+				if (isUnauthorized(reason)) void latest.current.signOut();
 				// Falhou a página seguinte: mantém o que já há e deixa tentar de novo.
 				cursor.current = next;
 				setState((current) => (current.status === "ready" ? { ...current, loadingMore: false } : current));
