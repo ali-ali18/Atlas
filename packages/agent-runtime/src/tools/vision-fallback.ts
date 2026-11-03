@@ -15,9 +15,9 @@ const NOTES: Record<VisionReason, string> = {
 	"not-found":
 		"[Vision fallback: nothing in the page text matched, so a screenshot of the screen is attached. The control may be an icon without text or inside a \"…\" menu: look for it in the image and act by its mark ref (screenshot with marks=true: 12 = e12).]",
 	capped:
-		"[Vision fallback: the read was cut at its cap, so a screenshot of the screen is attached. If what you triggered or expect (a side panel, chat answer, overlay) is not in the text above, read it from the screenshot before asking the user. A screenshot with marks=true shows ref numbers to click by (12 = e12).]",
+		"[Vision fallback: the read was cut at its cap, so a screenshot of the screen is attached. If what you triggered or expect (a side panel, chat answer, overlay) is not in the text above, read it from the screenshot before asking the user. A screenshot with marks=true shows ref numbers to click by (12 = ref e12: a DOM ref that works in browser_act, unlike a snapshot's aN refs, which are not drawn).]",
 	"silent-click":
-		"[Vision fallback: the click reported no new text, so a screenshot of the screen is attached. If the panel or answer you expected is visible there, read it from the image; if it is still loading, call browser_wait with for=text_stable. A screenshot with marks=true shows ref numbers to click by (12 = e12).]",
+		"[Vision fallback: the click reported no new text, so a screenshot of the screen is attached. If the panel or answer you expected is visible there, read it from the image; if it is still loading, call browser_wait with for=text_stable. A screenshot with marks=true shows ref numbers to click by (12 = ref e12: a DOM ref that works in browser_act, unlike a snapshot's aN refs, which are not drawn).]",
 };
 
 export type VisionClaimState = { lastStep: number; notFoundUsed: boolean };

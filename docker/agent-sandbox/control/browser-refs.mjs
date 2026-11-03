@@ -30,7 +30,7 @@ const STALE_HINT = "Tire um novo browser_snapshot e use o ref novo.";
 export function parseActArgs(body) {
 	const ref = typeof body?.ref === "string" ? body.ref.trim() : "";
 	if (!REF_PATTERN.test(ref)) {
-		throw new Error(`ref inválido "${ref}": use um ref do browser_snapshot (ex.: e12).`);
+		throw new Error(`ref inválido "${ref}": use um ref do browser_snapshot (ex.: a12 ou e12).`);
 	}
 	const action = body?.action;
 	if (!ACT_ACTIONS.includes(action)) {
@@ -160,7 +160,7 @@ export function createRefActions({
 		const selectorScope = typeof scope === "string" && scope.trim() ? scope.trim() : undefined;
 		const wantAx = !selectorScope && engine !== "dom" && axOn();
 		if (ref !== undefined && ref !== null && ref !== "" && !REF_PATTERN.test(String(ref).trim())) {
-			throw new Error(`ref inválido "${ref}": use um ref do browser_snapshot (ex.: e12).`);
+			throw new Error(`ref inválido "${ref}": use um ref do browser_snapshot (ex.: a12 ou e12).`);
 		}
 		return withPageRetry((page) => runExclusive(page, async () => {
 			let note;
