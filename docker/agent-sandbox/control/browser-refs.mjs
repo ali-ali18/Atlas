@@ -361,7 +361,7 @@ export function createRefActions({
 				ref: args.ref,
 				action: args.action,
 				...(resolved ? { note: resolved } : {}),
-				...(click ? { rung: click.rung, tried: click.tried, ...(click.dismissed ? { dismissed: click.dismissed } : {}) } : {}),
+				...(click ? { rung: click.rung, tried: click.tried, ...(click.dismissed ? { dismissed: click.dismissed } : {}), ...(click.contextLost ? { contextLost: true } : {}) } : {}),
 				...(pointer ? { pointer } : {}),
 				...effect,
 				...(field ? { field } : {}),

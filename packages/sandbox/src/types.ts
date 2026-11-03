@@ -78,6 +78,8 @@ export type ControlActionEffect = {
 	tried?: string[];
 	/** Clique: um banner de consentimento foi recusado/fechado (nunca aceito). */
 	dismissed?: "consent";
+	/** O contexto da página caiu durante o clique sem a URL mudar: o clique pode não ter valido. */
+	contextLost?: boolean;
 	/** Clique: o alvo foi trocado pelo ancestral interativo, ex. `<a "Title">`. */
 	retargeted?: string;
 };

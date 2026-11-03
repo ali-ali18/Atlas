@@ -94,6 +94,7 @@ export function formatClickNote(effect: ControlActionEffect | undefined): string
 	const parts: string[] = [];
 	if (effect.retargeted) parts.push(`retargeted to the interactive element ${effect.retargeted}`);
 	if (effect.rung && effect.rung !== "click") parts.push(`worked via ${effect.rung} step`);
+	if (effect.contextLost) parts.push("the page reloaded or re-rendered during the click and the URL did not change: the click may not have registered, so check the page before relying on it");
 	if (effect.dismissed === "consent") parts.push("dismissed a consent banner (rejected or closed, never accepted)");
 	return parts.length > 0 ? ` (${parts.join("; ")})` : "";
 }
