@@ -45,8 +45,9 @@ export const P_IMAGES: string[] = [
 /** Escada de pesquisa web (API, web_search, web_extract, navegador). */
 export const P_WEB: string[] = [
 	"Web tasks (search, news, weather, prices, sites):",
-	"- Ladder: direct API (when there is one) -> `web_search` -> `web_extract` -> browser (`navigate`, `browser_read`) -> desktop (`screenshot`, coordinates) as a last resort.",
-	"- Use `web_search` to find URLs (3 to 5 different domains, prefer primary sources and official stores) and `web_extract` in parallel to read them. Open the browser only if extraction fails, needs a login or is blocked (the tool error gives the reason and the next step).",
+	"- To find information: direct API (when there is one) -> `web_search` -> `web_extract` -> browser (`navigate`, `browser_read`) -> desktop (`screenshot`, coordinates) as a last resort.",
+	"- If the user asked you to do something on a site (open, click, fill, watch, log in), use the browser first; to find information, prefer `web_search`/`web_extract`.",
+	"- Use `web_search` to find URLs (3 to 5 different domains, prefer primary sources and official stores) and `web_extract` in parallel to read them. For information, go to the browser when extraction fails, needs a login or is blocked (the tool error gives the reason and the next step).",
 	"- In the browser read with `browser_read`/`browser_find` and act with `browser_act`; never guess selectors. The sandbox starts on the first browser tool.",
 	"- Do not use desktop tools for web pages; only as a fallback if the browser tools fail.",
 ];

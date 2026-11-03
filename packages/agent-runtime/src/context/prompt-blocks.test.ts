@@ -5,6 +5,7 @@ import {
 	assembleSystemPrompt,
 	groupProcedureText,
 	P_ASK,
+	P_WEB,
 	P_SKILLS,
 	legacySystemPrompt,
 	skillIndexPrompt,
@@ -18,9 +19,9 @@ const all = new Set<ContextGroup>(CONTEXT_GROUPS);
 describe("prompt em blocos (L5)", () => {
 	it("o prompt legado (todos os blocos, ordem original) é é o prompt legado com a regra de skills em inglês e o vocabulário V6 do navegador e a política única de agir primeiro (com leitura por intenção), sem identidade nem idioma no núcleo e sem as frases cobertas pela disciplina do modelo (hash fixa o texto)", () => {
 		const legacy = legacySystemPrompt();
-		expect(legacy.length).toBe(25_561);
+		expect(legacy.length).toBe(25_754);
 		expect(createHash("sha256").update(legacy).digest("hex")).toBe(
-			"845f41a5666c7cd16418fd584841c0a45d68b06d773fd2719e3a4ca88463d407",
+			"4f9f0ebaf5a4c3c08c03c15dd44c37b90e8e8a13b57de9189a5befe49bd9b657",
 		);
 		expect(SYSTEM_PROMPT).toBe(legacy);
 	});
@@ -203,5 +204,14 @@ describe("prompt em blocos (L5)", () => {
 		expect(prompt).toMatch(/Primária, Monocromática, Oceano, Pôr do sol, Bosque, Vívida/);
 		expect(prompt).toMatch(/Primary, Monochrome, Ocean, Sunset, Grove, Vivid/);
 		expect(prompt).toMatch(/never list the options the tool accepts/);
+	});
+});
+
+describe("P_WEB: escada de preferência", () => {
+	const text = P_WEB.join("\n");
+
+	it("pedido de fazer algo num site usa o navegador primeiro; achar informação prefere busca e extração", () => {
+		expect(text).toContain("If the user asked you to do something on a site (open, click, fill, watch, log in), use the browser first; to find information, prefer `web_search`/`web_extract`.");
+		expect(text).not.toContain("Open the browser only if extraction fails");
 	});
 });
