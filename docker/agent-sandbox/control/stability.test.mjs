@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import net from "node:net";
 import { after } from "node:test";
 import { launchFixtureBrowser } from "./test-browser.mjs";
-import { installProbeInPage, readProbeInPage, stabilizePage, waitUntilContentReady, waitUntilQuiet, waitUntilSettled } from "./stability.mjs";
+import { installProbeInPage, readProbeInPage, waitForNetworkQuiet, stabilizePage, waitUntilContentReady, waitUntilQuiet, waitUntilSettled } from "./stability.mjs";
 
 function clock() {
 	let t = 0;
@@ -156,6 +156,40 @@ test("real: XHR.send que lança e requisição eterna não prendem o contador de
 		await new Promise((resolve) => setTimeout(resolve, 2800));
 		const late = await page.evaluate(readProbeInPage, false);
 		assert.equal(late.inflight, 0, "long-poll com mais de 2,5 s deixa de segurar a estabilidade");
+	} finally {
+		await page.close();
+		for (const socket of sockets) socket.destroy();
+		await new Promise((resolve) => hang.close(resolve));
+	}
+});
+
+test("real: rede quieta termina rápido mesmo com polling/websocket que nunca deixa networkidle", { skip: probeFixtures ? false : "Chromium indisponível" }, async () => {
+	const page = await probeFixtures.newPage();
+	try {
+		await page.goto(`${probeFixtures.base}/`);
+		// Polling a cada 300 ms, o tempo todo: networkidle (500 ms sem requisição) nunca chegaria.
+		await page.evaluate(() => { setInterval(() => fetch("/poll").catch(() => {}), 300); });
+		const started = Date.now();
+		// Janela curta (250 ms) entre eventos de rede: o polling de 300 ms deixa lacunas.
+		const res = await waitForNetworkQuiet(page, { timeoutMs: 10_000, quietMs: 250 });
+		assert.equal(res.quiet, true);
+		assert.ok(Date.now() - started < 3000, `demorou ${Date.now() - started} ms`);
+	} finally {
+		await page.close();
+	}
+});
+
+test("real: rede com requisição em voo recente NÃO é quieta e cai no teto com motivo", { skip: probeFixtures ? false : "Chromium indisponível" }, async () => {
+	const sockets = [];
+	const hang = net.createServer((socket) => sockets.push(socket));
+	await new Promise((resolve) => hang.listen(0, "127.0.0.1", resolve));
+	const page = await probeFixtures.newPage();
+	try {
+		await page.goto(`${probeFixtures.base}/`);
+		await page.evaluate(installProbeInPage);
+		await page.evaluate((url) => { fetch(url, { mode: "no-cors" }).catch(() => {}); }, `http://127.0.0.1:${hang.address().port}/x`);
+		const res = await waitForNetworkQuiet(page, { timeoutMs: 1200 });
+		assert.equal(res.quiet, false);
 	} finally {
 		await page.close();
 		for (const socket of sockets) socket.destroy();

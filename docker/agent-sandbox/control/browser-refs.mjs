@@ -2,7 +2,7 @@
 // entra por `withPageRetry` (injetado), então tudo roda com uma página falsa
 // nos testes.
 import { explainFillError } from "./target.mjs";
-import { installProbeInPage, settleAfterAction } from "./stability.mjs";
+import { installProbeInPage, settleAfterAction, waitForNetworkQuiet } from "./stability.mjs";
 import { diffPageDigest, readDigest, summarizeChanges } from "./page-digest.mjs";
 import { safePointer } from "./pointer.mjs";
 import { createFrameRegistry, frameTag, splitRef } from "./frames.mjs";
@@ -402,8 +402,9 @@ export function createRefActions({
 					await page.waitForURL((url) => url.href.includes(value), { timeout: timeoutMs });
 					met = true;
 				} else if (kind === "network") {
-					await page.waitForLoadState("networkidle", { timeout: timeoutMs });
-					met = true;
+					const net = await waitForNetworkQuiet(page, { timeoutMs, now, sleep: pause });
+					met = net.quiet;
+					if (!met) reason = `a rede não ficou quieta em ${timeoutMs} ms (há requisições em andamento)`;
 				} else if (kind === "ref") {
 					met = await waitForRef(page, value, gone, started + timeoutMs);
 				} else if (kind === "text_stable") {

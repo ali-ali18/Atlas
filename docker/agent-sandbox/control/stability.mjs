@@ -194,7 +194,7 @@ export function installProbeInPage() {
 		window.__atlasProbe.armed = performance.now();
 		return;
 	}
-	const probe = { last: performance.now(), mark: performance.now(), armed: performance.now(), inflight: 0, pending: new Map(), seq: 0 };
+	const probe = { last: performance.now(), mark: performance.now(), armed: performance.now(), inflight: 0, pending: new Map(), seq: 0, lastNet: performance.now() };
 	window.__atlasProbe = probe;
 	new MutationObserver((records) => {
 		// A marcação `data-atlas-ref` é nossa: não conta como mudança da página.
@@ -207,6 +207,7 @@ export function installProbeInPage() {
 	const begin = () => {
 		probe.seq += 1;
 		probe.pending.set(probe.seq, performance.now());
+		probe.lastNet = performance.now();
 		probe.inflight = probe.pending.size;
 		return probe.seq;
 	};
@@ -214,6 +215,7 @@ export function installProbeInPage() {
 		probe.pending.delete(id);
 		probe.inflight = probe.pending.size;
 		probe.last = performance.now();
+		probe.lastNet = performance.now();
 	};
 	const nativeFetch = window.fetch;
 	if (typeof nativeFetch === "function") {
@@ -264,6 +266,7 @@ export function readProbeInPage(mark) {
 	for (const startedAt of probe.pending?.values?.() ?? []) if (now - startedAt < 2500) inflight += 1;
 	return {
 		idle: now - Math.max(probe.last, probe.mark),
+		netIdle: now - (probe.lastNet ?? 0),
 		inflight,
 		busy,
 		// Algo mexeu (DOM ou rede) desde que a ação começou?
@@ -363,4 +366,27 @@ export async function settleAfterAction(
 		settled,
 		waitMs: now() - start,
 	};
+}
+
+// Rede quieta (browser_wait for=network): nenhum fetch/XHR recente em voo e nenhum início/fim há `quietMs`.
+// Não usa `networkidle` do Playwright (SPA com polling/websocket nunca fica ocioso e esperava o teto todo)
+// e ignora mutações do DOM (carrossel, relógio).
+export const NET_QUIET_MS = 500;
+
+export async function waitForNetworkQuiet(page, { timeoutMs, quietMs = NET_QUIET_MS, now = Date.now, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) } = {}) {
+	const start = now();
+	await page.evaluate(installProbeInPage).catch(() => {});
+	for (;;) {
+		let sample = null;
+		try {
+			sample = await page.evaluate(readProbeInPage, false);
+		} catch {
+			// navegando: tenta de novo
+		}
+		if (sample && !sample.fresh && sample.inflight === 0 && sample.netIdle >= quietMs) return { quiet: true, waitedMs: now() - start };
+		if (sample?.fresh) await page.evaluate(installProbeInPage).catch(() => {});
+		const elapsed = now() - start;
+		if (elapsed >= timeoutMs) return { quiet: false, waitedMs: elapsed };
+		await sleep(Math.min(100, timeoutMs - elapsed));
+	}
 }
