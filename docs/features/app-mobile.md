@@ -137,7 +137,7 @@ Tudo em `apps/mobile/lib` com teste (vitest): `home-list.ts` (agrupamento, orden
 
 ### Telas
 - `app/(app)/chat/[id].tsx`: o chat do bot (o `id` da rota é o id do bot; a conversa vem de `bot.conversationId`, guardado agora no cache da home).
-- `app/(app)/profile/[id].tsx`: perfil simples (avatar grande com a estrela do principal, nome, "Editar" (ver "Editar bot e avatar"), Execuções (estado do run e passos, ver abaixo) / Rotinas / Biblioteca / Computador abrindo o web, Notificações em breve).
+- `app/(app)/profile/[id].tsx`: perfil simples (avatar grande com a estrela do principal, nome, "Editar" (ver "Editar bot e avatar"), Execuções (estado do run e passos, ver abaixo) / Rotinas / Biblioteca (telas nativas, ver "Biblioteca") / Computador abrindo o web, Notificações em breve).
 - Topo flutuante sobre as mensagens (voltar, pílula com o avatar vivo e o nome, "…"), balão escuro do bot com markdown, balão do usuário igual ao do web (`muted`, à direita), composer em pílula ("+", "Perguntar a <bot>", microfone, botão na cor do bot que vira enviar com texto e parar durante o run), menu "…" (Ver perfil; Buscar no chat e Compartilhar como modelo em breve). Controles de 44 e texto 15. Os avatares do resto da tela ficam estáticos.
 
 ### Endpoints (todos por `lib/api-fetch.ts`, os mesmos do web)
@@ -308,3 +308,14 @@ Perfil do bot → **Rotinas** abre a lista nativa (`routines/[id]`): rotinas sol
 - **Criar e editar é conversando:** "Pedir uma rotina ao bot" e "Editar rotina" abrem o chat com o campo já preenchido ("Quero mudar a rotina …: "). O app não edita gatilho (cron, webhook, GitHub, e-mail) nem mostra segredo.
 - **Fora por enquanto:** "Próxima execução" (o servidor não calcula), Testar (executar agora), excluir e ações de grupo.
 - **Visual:** cores medidas no app do Grok (`routineSurface`: tela `#1e1e1e`, cartão `#2c2c2e`, contorno `#373739`); interruptor próprio (`components/ui/toggle-switch.tsx`, trilho 56x34 na cor do bot).
+
+## Biblioteca
+
+Perfil do bot → **Biblioteca** abre a lista nativa (`library/[id]`, `id` = bot): documentos e painéis do bot numa lista só, mais novos primeiro, agrupada por período ("Hoje", "Esta semana" e um grupo por mês, "Outubro", com o ano quando não é o corrente). Cada grupo é um cartão (raio 21) com o rótulo cinza fora dele; a linha tem ícone do tipo num quadrado de 40, título em uma linha truncada e subtítulo ("Painel · 2h", "Documento · 1 d", "Planilha · 3 d"). O separador começa no texto e vai até a borda direita do cartão.
+
+- **O que lista:** documentos (`GET /v1/bots/:botId/artifacts?limit&cursor`, 30 por vez, "Ver mais" com o `nextCursor`) e painéis (`GET /v1/bots/:botId/pages?limit=200`, de uma vez; sem data de criação no servidor, vale `updatedAt`). Nenhum endpoint novo. O servidor filtra por dono (bot de outro dono dá 404); o app só manda o id do bot.
+- **Lógica pura (com testes):** `lib/library-items.ts` (`libraryItemKind` por mime, com a extensão só quando o mime é genérico; `mergeLibraryItems`), `lib/library-groups.ts` (`groupLibraryItems` e `formatLibraryAge`, com `now` injetado e dia do calendário local) e `lib/library-api.ts` (resposta inválida vira erro, rede vira "Sem conexão com o seu servidor"). Estado em `lib/use-library.ts`; se só uma das duas listas falha, a outra aparece e o erro vira um aviso.
+- **Estados:** carregando (Spinner), erro com "Tentar de novo", vazio ("Nada na Biblioteca ainda. Peça ao bot para criar um documento ou um painel.").
+- **Tocar numa linha abre o chat do bot no navegador (`webChatUrl`), não o arquivo.** `GET /v1/files/:id` e o painel exigem o cookie da sessão, que o app manda no cabeçalho e o navegador do sistema não tem; não inventamos esquema de autenticação para isso.
+- **Ainda não:** links com favicon e imagens enviadas (o servidor não tem listagem global nem de imagens e links), miniaturas (o ícone é o do tipo), rotinas na Biblioteca (têm tela própria), busca e visualizador nativo (abrir o documento ou o painel dentro do app).
+- **Só se confirma no aparelho:** a prévia foi gerada no Chromium (web); fonte, sombra e toque (`active:opacity`) no Android e no iOS podem diferir.
