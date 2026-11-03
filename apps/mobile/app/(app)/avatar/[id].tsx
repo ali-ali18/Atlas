@@ -13,6 +13,7 @@ import { Text } from "@/components/ui/text";
 import { getDraft, updateDraft } from "@/lib/bot-draft";
 import { AVATAR_PALETTE, AVATAR_SHAPES, defaultAvatar } from "@/lib/bot-edit";
 import { shapeLabel } from "@/lib/new-bot";
+import { EDITOR_SHAPE_CELL, EDITOR_SHAPE_SIZE } from "@/lib/shape-ring";
 import { chatChrome } from "@/lib/chat-surface";
 import { cn } from "@/lib/cn";
 import { themeColor } from "@/lib/theme";
@@ -71,7 +72,7 @@ export default function AvatarEditorScreen() {
 				<View className="w-full overflow-hidden rounded-panel bg-card">
 					<View className="flex-row flex-wrap justify-center gap-x-1 gap-y-2 px-2 pb-4 pt-5">
 						{AVATAR_SHAPES.map((item, index) => (
-							<ShapeOption key={item} shape={item} color={color} label={shapeLabel(index, AVATAR_SHAPES.length)} selected={item === shape} cell={64} size={56} eyeColor={themeColor(scheme, "card")} onPress={() => setShape(item)} />
+							<ShapeOption key={item} shape={item} color={color} label={shapeLabel(index, AVATAR_SHAPES.length)} selected={item === shape} cell={EDITOR_SHAPE_CELL} size={EDITOR_SHAPE_SIZE} eyeColor={themeColor(scheme, "card")} onPress={() => setShape(item)} />
 						))}
 					</View>
 					<View className="flex-row flex-wrap justify-center gap-x-3 gap-y-3 px-4 pb-5 pt-1">
