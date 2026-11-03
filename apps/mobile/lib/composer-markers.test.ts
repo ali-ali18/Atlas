@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addMarker, backspaceRemovesMarker, composeMessage, hasContent, markerToken, removeMarker, splitLeadingMarkers, type Marker } from "./composer-markers";
+import { addMarker, adoptLeadingMarkers, composeMessage, fieldMaxLength, fieldOffset, fieldValue, MESSAGE_MAX, readFieldChange, SENTINEL, skillsFull, hasContent, markerToken, removeMarker, splitLeadingMarkers, type Marker } from "./composer-markers";
 
 const cookie: Marker = { kind: "bot", id: "b1", name: "Cookie" };
 const ana: Marker = { kind: "bot", id: "b2", name: "Ana Maria" };
@@ -35,14 +35,69 @@ describe("addMarker e removeMarker", () => {
 	});
 });
 
-describe("backspaceRemovesMarker", () => {
-	it("só com o cursor no começo e algum marcador", () => {
-		expect(backspaceRemovesMarker({ start: 0, end: 0 }, 2)).toBe(true);
-		expect(backspaceRemovesMarker({ start: 0, end: 0 }, 0)).toBe(false);
-		expect(backspaceRemovesMarker({ start: 3, end: 3 }, 2)).toBe(false);
+describe("sentinela do campo", () => {
+	it("só há sentinela com marcadores", () => {
+		expect(fieldValue(0, "oi")).toBe("oi");
+		expect(fieldValue(2, "oi")).toBe(`${SENTINEL}oi`);
+		expect(fieldValue(1, "")).toBe(SENTINEL);
+		expect(fieldOffset(0)).toBe(0);
+		expect(fieldOffset(3)).toBe(1);
 	});
-	it("com trecho selecionado o backspace apaga o trecho, não o marcador", () => {
-		expect(backspaceRemovesMarker({ start: 0, end: 4 }, 2)).toBe(false);
+	it("o sentinela sumiu (backspace no começo): apaga o último marcador e o texto fica", () => {
+		expect(readFieldChange("oi", 2)).toEqual({ text: "oi", removeLast: true });
+		expect(readFieldChange("", 1)).toEqual({ text: "", removeLast: true });
+	});
+	it("digitar com o sentinela no lugar não apaga marcador", () => {
+		expect(readFieldChange(`${SENTINEL}oi!`, 2)).toEqual({ text: "oi!", removeLast: false });
+		// texto digitado antes do sentinela: o sentinela só mudou de lugar.
+		expect(readFieldChange(`a${SENTINEL}oi`, 1)).toEqual({ text: "aoi", removeLast: false });
+	});
+	it("sem marcador nunca apaga nada e tira sentinela colado", () => {
+		expect(readFieldChange("oi", 0)).toEqual({ text: "oi", removeLast: false });
+		expect(readFieldChange(`o${SENTINEL}i`, 0).text).toBe("oi");
+	});
+});
+
+describe("fieldMaxLength", () => {
+	it("sem marcador vale o limite todo", () => {
+		expect(fieldMaxLength([])).toBe(MESSAGE_MAX);
+	});
+	it("desconta os tokens e o espaço depois deles", () => {
+		// "@Cookie " = 8
+		expect(fieldMaxLength([cookie])).toBe(MESSAGE_MAX - 8);
+		expect(composeMessage([cookie, resumo], "x".repeat(fieldMaxLength([cookie, resumo]))).length).toBe(MESSAGE_MAX);
+	});
+	it("nunca negativo", () => {
+		expect(fieldMaxLength([cookie], 3)).toBe(0);
+	});
+});
+
+describe("skillsFull", () => {
+	const s = (n: string): Marker => ({ kind: "skill", id: n, name: n });
+	it("conta chips e /slug escritos no texto", () => {
+		expect(skillsFull([s("a"), s("b")], "")).toBe(false);
+		expect(skillsFull([s("a"), s("b"), s("c")], "")).toBe(true);
+		expect(skillsFull([s("a")], "use /b e /c agora")).toBe(true);
+	});
+	it("bot não conta", () => {
+		expect(skillsFull([cookie, cookie, cookie], "")).toBe(false);
+	});
+});
+
+describe("adoptLeadingMarkers", () => {
+	const skills = [{ id: "s1", name: "resumo-do-dia" }];
+	it("rascunho com /slug vira chip e o que veio depois fica", () => {
+		const out = adoptLeadingMarkers([], "/resumo-do-dia e mais isto", [], skills);
+		expect(out.markers).toEqual([resumo]);
+		expect(out.text).toBe("e mais isto");
+		expect(out.consumed).toBe("/resumo-do-dia ".length);
+	});
+	it("soma aos marcadores que já existem e não repete", () => {
+		expect(adoptLeadingMarkers([cookie], "/resumo-do-dia", [], skills).markers).toEqual([cookie, resumo]);
+		expect(adoptLeadingMarkers([resumo], "/resumo-do-dia x", [], skills).markers).toEqual([resumo]);
+	});
+	it("sem habilidade conhecida nada muda", () => {
+		expect(adoptLeadingMarkers([], "/outra x", [], skills)).toEqual({ markers: [], text: "/outra x", consumed: 0 });
 	});
 });
 

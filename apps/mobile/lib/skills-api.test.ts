@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { isUnauthorized } from "./chat-api";
 import { fetchSkills, parseSkills } from "./skills-api";
 
 const mine = {
@@ -25,12 +26,21 @@ describe("parseSkills", () => {
 });
 
 describe("fetchSkills", () => {
-	const reply = (body: unknown, ok = true) => ({ ok, status: ok ? 200 : 500, statusText: "x", json: async () => body }) as Response;
-	it("uma lista que falha não derruba a outra", async () => {
-		const out = await fetchSkills(async (path) => (path === "/v1/skills" ? reply(null, false) : reply(builtin)));
-		expect(out.map((s) => s.name)).toEqual(["resumo", "agenda"]);
+	const reply = (body: unknown, status = 200) => ({ ok: status < 400, status, statusText: "x", json: async () => body }) as Response;
+	it("uma lista que falha não derruba a outra, mas o resultado vem incompleto", async () => {
+		const out = await fetchSkills(async (path) => (path === "/v1/skills" ? reply(null, 500) : reply(builtin)));
+		expect(out.skills.map((s) => s.name)).toEqual(["resumo", "agenda"]);
+		expect(out.complete).toBe(false);
+	});
+	it("as duas boas: completo", async () => {
+		const out = await fetchSkills(async (path) => (path === "/v1/skills" ? reply(mine) : reply(builtin)));
+		expect(out.complete).toBe(true);
 	});
 	it("as duas falhando lança", async () => {
-		await expect(fetchSkills(async () => reply(null, false))).rejects.toThrow();
+		await expect(fetchSkills(async () => reply(null, 500))).rejects.toThrow();
+	});
+	it("401 em qualquer uma sobe como sessão recusada, mesmo com a outra boa", async () => {
+		const error = await fetchSkills(async (path) => (path === "/v1/skills" ? reply(null, 401) : reply(builtin))).catch((e) => e);
+		expect(isUnauthorized(error)).toBe(true);
 	});
 });

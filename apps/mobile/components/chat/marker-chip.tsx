@@ -8,7 +8,7 @@ import { chatChrome } from "@/lib/chat-surface";
 import { markerToken, type Marker } from "@/lib/composer-markers";
 import { useAppColorScheme } from "@/lib/use-theme";
 
-export const MARKER_HEIGHT = 30;
+export const MARKER_HEIGHT = 24;
 
 /**
  * Marcador `@bot` ou `/habilidade` dentro do campo: pílula com o avatar pequeno do bot (ou o ícone da habilidade) e o
@@ -24,17 +24,17 @@ export function MarkerChip({ marker, onRemove }: { marker: Marker; onRemove: (ma
 			accessibilityLabel={`Remover ${token}`}
 			onPress={() => onRemove(marker)}
 			style={{ height: MARKER_HEIGHT, backgroundColor: chrome.control }}
-			className="max-w-full flex-row items-center gap-1.5 rounded-full pl-2 pr-2 active:opacity-70"
+			className={`max-w-full flex-row items-center gap-1 rounded-full pr-2 active:opacity-70 ${marker.kind === "bot" ? "pl-1" : "pl-2"}`}
 		>
 			{marker.kind === "bot" ? (
-				<Avatar color={resolveColor(marker.color, marker.id)} shape={resolveShape(marker.shape, marker.id)} size={20} animated={false} eyeColor={chrome.control} />
+				<Avatar color={resolveColor(marker.color, marker.id)} shape={resolveShape(marker.shape, marker.id)} size={18} animated={false} eyeColor={chrome.control} />
 			) : (
-				<SparklesIcon size={14} />
+				<SparklesIcon size={12} />
 			)}
 			<Text numberOfLines={1} className="shrink text-body font-medium">
 				{token}
 			</Text>
-			<CloseIcon size={12} />
+			<CloseIcon size={10} />
 		</Pressable>
 	);
 }

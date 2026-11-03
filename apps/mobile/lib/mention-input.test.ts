@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { HomeBot } from "./home-types";
-import { mentionableBots, removeTrigger, triggerState } from "./mention-input";
+import { applyPick, mentionableBots, removeTrigger, triggerState } from "./mention-input";
 
 const bots = [
 	{ id: "b1", name: "Cookie" },
@@ -43,6 +43,60 @@ describe("triggerState", () => {
 	it("vale o gatilho mais perto do cursor", () => {
 		expect(triggerState("@Cookie /re", 11, { bots, skills })?.trigger).toBe("/");
 		expect(triggerState("/resumo @a", 10, { bots, skills })?.trigger).toBe("@");
+	});
+});
+
+describe("fechar o @", () => {
+	it("espaço logo depois do arroba fecha ('custa @ 5')", () => {
+		expect(triggerState("custa @ 5", 9, { bots, skills })).toBeNull();
+		expect(triggerState("custa @ ", 8, { bots, skills })).toBeNull();
+	});
+	it("usa o cursor, não o fim do texto", () => {
+		// cursor logo depois do @ no começo; o resto do texto vem depois.
+		expect(triggerState("@ e mais coisa", 1, { bots, skills })?.query).toBe("");
+		expect(triggerState("@co e mais coisa", 3, { bots, skills })?.query).toBe("co");
+	});
+});
+
+describe("applyPick", () => {
+	const at = (text: string, caret: number) => triggerState(text, caret, { bots, skills })!;
+	it("gatilho no começo vira chip e tira o gatilho", () => {
+		const out = applyPick("@co", 3, at("@co", 3), 0)!;
+		expect(out.marker).toMatchObject({ kind: "bot", id: "b1", name: "Cookie" });
+		expect(out.text).toBe("");
+	});
+	it("com chips antes e o gatilho no começo do texto livre também vira chip, e o resto fica", () => {
+		const out = applyPick("@ana e depois", 4, at("@ana e depois", 4), 0)!;
+		expect(out.marker?.kind).toBe("bot");
+		expect(out.text).toBe("e depois");
+	});
+	it("no meio da frase insere @Nome como texto no cursor e preserva a frase", () => {
+		const text = "pergunte ao @mar sobre isso";
+		const state = at(text, 16);
+		const out = applyPick(text, 16, state, 0)!;
+		expect(out.marker).toBeNull();
+		expect(out.text).toBe("pergunte ao @Ana Maria sobre isso");
+		expect(out.caret).toBe("pergunte ao @Ana Maria ".length);
+	});
+	it("no fim da frase acrescenta o espaço", () => {
+		const out = applyPick("fale com @cook", 14, at("fale com @cook", 14), 0)!;
+		expect(out.text).toBe("fale com @Cookie ");
+		expect(out.caret).toBe(out.text.length);
+	});
+	it("habilidade no meio da frase entra como /slug no texto", () => {
+		const text = "faça o /res agora";
+		const out = applyPick(text, 11, at(text, 11), 0)!;
+		expect(out.marker).toBeNull();
+		expect(out.text).toBe("faça o /resumo-do-dia agora");
+	});
+	it("habilidade com o limite batido não insere nada (o gatilho fica)", () => {
+		expect(applyPick("/re", 3, at("/re", 3), 0, { skillsFull: true })).toBeNull();
+	});
+	it("bot continua valendo com o limite de habilidades batido", () => {
+		expect(applyPick("@co", 3, at("@co", 3), 0, { skillsFull: true })?.marker?.kind).toBe("bot");
+	});
+	it("índice fora da lista não faz nada", () => {
+		expect(applyPick("@", 1, at("@", 1), 9)).toBeNull();
 	});
 });
 

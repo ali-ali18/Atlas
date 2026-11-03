@@ -2,6 +2,7 @@
 // (`apps/web/lib/mention-input.ts`, via `@workspace/shared`). Escolher o item tira o gatilho do texto: quem fica no
 // campo é o marcador (ver `composer-markers.ts`), não o texto cru.
 import { activeTriggerQuery, filterMentionCandidates, filterSkillCandidates, type ComposerTrigger } from "@workspace/shared";
+import type { Marker } from "./composer-markers";
 import type { HomeBot } from "./home-types";
 
 export type BotCandidate = { id: string; name: string; color?: string; shape?: string };
@@ -26,7 +27,8 @@ export function triggerState(
 	if (slash && sources.skills && (!at || slash.start > at.start)) {
 		return { trigger: "/", start: slash.start, query: slash.query, candidates: filterSkillCandidates(sources.skills, slash.query) };
 	}
-	if (at) {
+	// "custa @ 5": espaço logo depois do gatilho = a pessoa só escreveu um arroba, não uma menção.
+	if (at && !/^\s/.test(at.query)) {
 		const candidates = filterMentionCandidates(sources.bots, at.query);
 		if (candidates.length === 0 && /\s/.test(at.query.trim())) return null;
 		// Sem nenhum bot a oferecer e sem consulta, o "@" é só um arroba: não abre uma caixa vazia.
@@ -45,7 +47,11 @@ export function removeTrigger(text: string, caret: number, start: number): { tex
 	let after = text.slice(caret);
 	if (/\s$/.test(before) && /^\s/.test(after)) after = after.replace(/^[ \t]/, "");
 	// O gatilho era a única coisa na linha de cima: não deixa o espaço de antes grudado no começo do campo.
-	if (before.trim() === "") before = "";
+	if (before.trim() === "") {
+		before = "";
+		// O espaço que separava o gatilho do resto não fica de abertura do campo.
+		after = after.replace(/^[ \t]/, "");
+	}
 	return { text: before + after, caret: before.length };
 }
 
@@ -58,3 +64,32 @@ export function mentionableBots(bots: readonly HomeBot[], current: HomeBot | und
 }
 
 export type { ComposerTrigger };
+
+/**
+ * O que escolher na lista faz. O marcador (chip) só nasce quando o gatilho está no começo do texto livre; no meio da
+ * frase entra `@Nome ` / `/slug ` como texto na posição do cursor (como o `applyMention` do web), e a frase fica como estava.
+ * `null`: nada a inserir (habilidade escolhida com o limite batido); o gatilho segue no texto.
+ */
+export function applyPick(
+	text: string,
+	caret: number,
+	state: TriggerState,
+	index: number,
+	options: { skillsFull?: boolean } = {},
+): { text: string; caret: number; marker: Marker | null } | null {
+	const candidate = state.candidates[index];
+	if (!candidate) return null;
+	if (state.trigger === "/" && options.skillsFull) return null;
+	const marker: Marker =
+		state.trigger === "@"
+			? { kind: "bot", id: candidate.id, name: candidate.name.trim(), color: (candidate as BotCandidate).color, shape: (candidate as BotCandidate).shape }
+			: { kind: "skill", id: candidate.id, name: candidate.name.trim() };
+	if (text.slice(0, state.start).trim() === "") {
+		const next = removeTrigger(text, caret, state.start);
+		return { ...next, marker };
+	}
+	const before = text.slice(0, state.start);
+	const after = text.slice(caret);
+	const inserted = `${state.trigger}${candidate.name.trim()}${after.startsWith(" ") ? "" : " "}`;
+	return { text: `${before}${inserted}${after}`, caret: before.length + inserted.length + (after.startsWith(" ") ? 1 : 0), marker: null };
+}

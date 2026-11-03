@@ -1,7 +1,7 @@
 // Habilidades que o `/` oferece: os mesmos endpoints do web (`useAddMenuSkills` em `chat-add-menu.tsx`): as do usuário
 // (`GET /v1/skills`, só ativas e ligadas) e as de fábrica (`GET /v1/skills/builtin`). Sempre por `apiFetch`; o servidor
 // só devolve as do dono da sessão.
-import { ChatApiError } from "./chat-api";
+import { ChatApiError, isUnauthorized } from "./chat-api";
 import type { ApiFetch } from "./home-sync";
 
 export type ComposerSkill = { id: string; /** Slug: o que `/habilidade` carrega. */ name: string; description: string };
@@ -33,9 +33,17 @@ async function read(apiFetch: ApiFetch, path: string): Promise<unknown> {
 	return response.json();
 }
 
-/** As duas listas; uma que falha não derruba a outra (como no web), as duas falhando lança. */
-export async function fetchSkills(apiFetch: ApiFetch): Promise<ComposerSkill[]> {
+/**
+ * As duas listas. Sessão recusada (401) em qualquer uma sobe o erro (quem chamou encerra a sessão). Uma lista que falha
+ * não derruba a outra (como no web), mas o resultado volta com `complete: false` para não ser guardado como definitivo; as
+ * duas falhando lança.
+ */
+export async function fetchSkills(apiFetch: ApiFetch): Promise<{ skills: ComposerSkill[]; complete: boolean }> {
 	const [mine, builtin] = await Promise.allSettled([read(apiFetch, "/v1/skills"), read(apiFetch, "/v1/skills/builtin")]);
+	for (const result of [mine, builtin]) if (result.status === "rejected" && isUnauthorized(result.reason)) throw result.reason;
 	if (mine.status === "rejected" && builtin.status === "rejected") throw mine.reason;
-	return parseSkills(mine.status === "fulfilled" ? mine.value : null, builtin.status === "fulfilled" ? builtin.value : null);
+	return {
+		skills: parseSkills(mine.status === "fulfilled" ? mine.value : null, builtin.status === "fulfilled" ? builtin.value : null),
+		complete: mine.status === "fulfilled" && builtin.status === "fulfilled",
+	};
 }

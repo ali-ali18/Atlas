@@ -19,9 +19,29 @@ const AVATAR = 28;
  * "chrome" do chat (preenchimento e contorno do campo), com o avatar do bot ou o ícone da habilidade. Escolher
  * (`onPick`) vira um marcador no campo.
  */
-export function MentionPopup({ state, loading, onPick }: { state: TriggerState; loading?: boolean; onPick: (state: TriggerState, index: number) => void }) {
+export function MentionPopup({
+	state,
+	loading,
+	failed,
+	limitReached,
+	onRetry,
+	onPick,
+	onPressChange,
+}: {
+	state: TriggerState;
+	loading?: boolean;
+	/** As habilidades não carregaram: mostra o erro e "Tentar de novo". */
+	failed?: boolean;
+	/** Já há 3 habilidades na mensagem: as do `/` ficam desabilitadas, com a explicação no topo. */
+	limitReached?: boolean;
+	onRetry?: () => void;
+	onPick: (state: TriggerState, index: number) => void;
+	/** Dedo na lista (o campo perde o foco no web antes do toque terminar: o composer não fecha a lista nesse meio-tempo). */
+	onPressChange?: (pressing: boolean) => void;
+}) {
 	const chrome = chatChrome(useAppColorScheme());
 	const empty = state.candidates.length === 0;
+	const locked = state.trigger === "/" && limitReached === true;
 	return (
 		<View
 			role="list"
@@ -29,13 +49,29 @@ export function MentionPopup({ state, loading, onPick }: { state: TriggerState; 
 			style={{ position: "absolute", left: 0, right: 0, bottom: "100%", marginBottom: 8, borderRadius: 24, borderColor: chrome.edge, backgroundColor: chrome.fill, maxHeight: ROW_HEIGHT * MAX_ROWS + 8 }}
 			className="overflow-hidden border p-1"
 		>
+			{locked ? (
+				<Text variant="muted" className="px-3 py-2 text-body">
+					Até 3 habilidades por mensagem
+				</Text>
+			) : null}
 			{empty ? (
-				<View className="min-h-11 flex-row items-center gap-2 px-3">
-					{loading ? <Spinner label="Carregando habilidades" /> : null}
-					<Text variant="muted" className="text-body">
-						{loading ? "Carregando habilidades…" : state.trigger === "@" ? "Nenhum bot" : "Nenhuma habilidade"}
-					</Text>
-				</View>
+				failed && state.trigger === "/" ? (
+					<View className="min-h-11 flex-row items-center justify-between gap-2 px-3">
+						<Text variant="muted" className="min-w-0 shrink text-body">
+							Não consegui carregar as habilidades
+						</Text>
+						<Pressable role="button" accessibilityLabel="Tentar de novo" onPress={onRetry} style={{ backgroundColor: chrome.control }} className="min-h-9 justify-center rounded-full px-3 active:opacity-70">
+							<Text className="text-body font-medium">Tentar de novo</Text>
+						</Pressable>
+					</View>
+				) : (
+					<View className="min-h-11 flex-row items-center gap-2 px-3">
+						{loading ? <Spinner label="Carregando habilidades" /> : null}
+						<Text variant="muted" className="text-body">
+							{loading ? "Carregando habilidades…" : state.trigger === "@" ? "Nenhum bot" : "Nenhuma habilidade"}
+						</Text>
+					</View>
+				)
 			) : (
 				<ScrollView keyboardShouldPersistTaps="always" showsVerticalScrollIndicator={false}>
 					{state.candidates.map((candidate: BotCandidate | SkillCandidate, index) => (
@@ -43,8 +79,12 @@ export function MentionPopup({ state, loading, onPick }: { state: TriggerState; 
 							key={candidate.id}
 							role="button"
 							accessibilityLabel={state.trigger === "@" ? candidate.name : `Habilidade ${candidate.name}`}
+							accessibilityState={{ disabled: locked }}
+							disabled={locked}
+							onPressIn={() => onPressChange?.(true)}
+							onPressOut={() => onPressChange?.(false)}
 							onPress={() => onPick(state, index)}
-							style={{ minHeight: ROW_HEIGHT }}
+							style={{ minHeight: ROW_HEIGHT, opacity: locked ? 0.4 : 1 }}
 							className="flex-row items-center gap-3 rounded-2xl px-3 py-1.5 active:bg-foreground/10"
 						>
 							{state.trigger === "@" ? (
