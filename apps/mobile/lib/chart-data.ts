@@ -488,3 +488,33 @@ export function pieSliceAt(values: readonly number[], dx: number, dy: number, st
 	}
 	return values.length - 1;
 }
+
+const TYPE_NAME: Record<ChartSpec["type"], string> = { line: "linha", area: "área", composed: "combinado", bar: "barras", pie: "rosca", radar: "radar", funnel: "funil", gauge: "medidor" };
+
+/**
+ * Descrição do gráfico para o leitor de tela, que não enxerga o Skia: título, tipo, quantos pontos, o período (ou as
+ * categorias) e, por série, o menor e o maior valor ("Receita: R$ 12.000 a R$ 24.800"). Texto curto, sem decorar.
+ */
+export function chartA11yLabel(spec: ChartSpec): string {
+	const count = spec.data.length;
+	const noun = spec.type === "radar" ? "eixos" : spec.type === "funnel" ? "etapas" : spec.type === "pie" ? "fatias" : spec.type === "gauge" ? "valor" : "pontos";
+	const title = spec.title ? `${spec.title}. ` : "";
+	const labels = chartXLabels(spec);
+	const first = spec.data[0]?.[spec.x];
+	const last = spec.data[count - 1]?.[spec.x];
+	const range = count > 1 && first != null && last != null ? `, de ${labels.axis(first)} a ${labels.axis(last)}` : "";
+	const format = chartValueFormatter(spec);
+	const series = spec.series
+		.map((item) => {
+			const values = spec.data.map((point) => point[item.key]).filter((value): value is number => typeof value === "number");
+			if (values.length === 0) return null;
+			const min = Math.min(...values);
+			const max = Math.max(...values);
+			return min === max ? `${item.label}: ${format(min)}` : `${item.label}: ${format(min)} a ${format(max)}`;
+		})
+		.filter((text): text is string => text !== null);
+	return `${title}Gráfico de ${TYPE_NAME[spec.type]}, ${count} ${noun}${range}. ${series.join("; ")}.`;
+}
+
+/** Desenhos que têm leitura própria por item (rosca, funil e medidor): o contêiner não pode agrupar e esconder os filhos. */
+export const CHART_OWN_A11Y: ReadonlySet<ChartDrawing> = new Set<ChartDrawing>(["pie", "funnel", "gauge"]);

@@ -5,6 +5,8 @@ import {
 	BAR_MAX_HEIGHT,
 	barLayout,
 	buildBarRows,
+	CHART_OWN_A11Y,
+	chartA11yLabel,
 	buildChartRows,
 	buildForecast,
 	chartExtent,
@@ -338,5 +340,19 @@ describe("layout das barras", () => {
 		expect(barLayout({ labels: labels(10), seriesCount: 2, orientation: "horizontal", plotWidth: 300 }).height).toBe(10 * 42 + 36);
 		expect(barLayout({ labels: ["A", "B", "C"], seriesCount: 1, plotWidth: 300 }).horizontal).toBe(false);
 		expect(barLayout({ labels: ["A", "B"], seriesCount: 1, orientation: "vertical", plotWidth: 300 }).horizontal).toBe(false);
+	});
+});
+
+describe("descrição para leitor de tela", () => {
+	it("linha: título, tipo, nº de pontos, período e mín–máx da série", () => {
+		const label = chartA11yLabel(spec({ type: "line", title: "Receita mensal", x: "mes", series: [{ key: "r", label: "Receita" }], data: [{ mes: "2025-01-01", r: 12000 }, { mes: "2025-02-01", r: 24800 }], unit: "BRL" }));
+		expect(label).toBe("Receita mensal. Gráfico de linha, 2 pontos, de jan/25 a fev/25. Receita: R$ 12.000 a R$ 24.800.");
+	});
+	it("várias séries, série constante, barras sem título e radar", () => {
+		expect(chartA11yLabel(spec({ type: "bar", x: "r", series: [{ key: "a", label: "A" }, { key: "b", label: "B" }], data: [{ r: "Sul", a: 3, b: 5 }, { r: "Norte", a: 3, b: 1 }] }))).toBe("Gráfico de barras, 2 pontos, de Sul a Norte. A: 3; B: 1 a 5.");
+		expect(chartA11yLabel(spec({ type: "radar", x: "e", series: ["a"], data: [{ e: "X", a: 1 }, { e: "Y", a: 2 }, { e: "Z", a: 3 }] }))).toContain("3 eixos");
+	});
+	it("só rosca, funil e medidor têm leitura por item", () => {
+		expect([...CHART_OWN_A11Y].sort()).toEqual(["funnel", "gauge", "pie"]);
 	});
 });

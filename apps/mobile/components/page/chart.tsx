@@ -1,7 +1,7 @@
 import * as React from "react";
 import { View } from "react-native";
 import { Text } from "@/components/ui/text";
-import { CHART_DRAWING_OF, describeReference } from "@/lib/chart-data";
+import { CHART_DRAWING_OF, CHART_OWN_A11Y, chartA11yLabel, describeReference } from "@/lib/chart-data";
 import { colorsForChart } from "@/lib/chart-palette";
 import { hexAlpha } from "@/lib/color-math";
 import { chartTheme } from "./charts/chart-env";
@@ -30,7 +30,7 @@ export function ChartNode({ node }: { node: Of<"chart"> }) {
 					{spec.title ?? ""}
 				</Text>
 			</View>
-			<View className="px-2" onLayout={(event) => setWidth(Math.floor(event.nativeEvent.layout.width))}>
+			<View className="px-2" accessible={!CHART_OWN_A11Y.has(drawing)} accessibilityRole={CHART_OWN_A11Y.has(drawing) ? undefined : "image"} accessibilityLabel={CHART_OWN_A11Y.has(drawing) ? undefined : chartA11yLabel(spec)} onLayout={(event) => setWidth(Math.floor(event.nativeEvent.layout.width))}>
 				{width > 0 ? <Drawing spec={spec} theme={theme} width={width} /> : null}
 				{reference ? (
 					<View className="mt-1 flex-row items-center gap-1.5 px-1">

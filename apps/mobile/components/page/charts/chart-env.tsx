@@ -75,7 +75,7 @@ export function useAxisScales() {
 export function AxisOverlay({ marks, gutter, color, width, rowLabels = false }: { marks: AxisMarks; gutter: number; color: string; width: number; rowLabels?: boolean }) {
 	const slot = 64;
 	return (
-		<View pointerEvents="none" className="absolute inset-0">
+		<View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants" className="absolute inset-0">
 			{marks.y.map((mark) => (
 				<Text key={`y${mark.text}${mark.at}`} className="absolute text-caption" numberOfLines={rowLabels ? 2 : 1} style={{ left: 0, width: gutter - 6, textAlign: "right", color, top: mark.at - (rowLabels ? 14 : 8), ...(rowLabels ? { height: 28 } : null) }}>
 					{mark.text}
