@@ -36,14 +36,45 @@ export type DocumentContent =
 
 const filePath = (id: string) => `/v1/files/${encodeURIComponent(id)}`;
 
-/** Baixa os bytes, recusando acima de `limit` (pelo `Content-Length` antes de ler e pelo tamanho real depois). */
+/** Lê o corpo até `limit`: em pedaços, quando o motor de rede entrega `body` em stream (corta e cancela ao passar); senão, tudo de uma vez. */
+async function readCapped(response: Response, limit: number): Promise<Uint8Array> {
+	const reader = response.body?.getReader?.();
+	if (!reader) {
+		const bytes = new Uint8Array(await response.arrayBuffer());
+		if (bytes.byteLength > limit) throw new FileTooLargeError(limit, bytes.byteLength);
+		return bytes;
+	}
+	const chunks: Uint8Array[] = [];
+	let total = 0;
+	for (;;) {
+		const { done, value } = await reader.read();
+		if (done) break;
+		total += value.byteLength;
+		if (total > limit) {
+			await reader.cancel().catch(() => undefined);
+			throw new FileTooLargeError(limit);
+		}
+		chunks.push(value);
+	}
+	const bytes = new Uint8Array(total);
+	let offset = 0;
+	for (const chunk of chunks) {
+		bytes.set(chunk, offset);
+		offset += chunk.byteLength;
+	}
+	return bytes;
+}
+
+/**
+ * Baixa os bytes, recusando acima de `limit`: pelo `Content-Length` antes de ler e, sem ele, lendo em stream e cortando
+ * ao passar do teto (o `fetch` global do RN não expõe `body`; aí cai no `arrayBuffer`, e o servidor é o do próprio dono).
+ */
 export async function downloadFile(apiFetch: ApiFetch, id: string, limit: number): Promise<{ bytes: Uint8Array; mime: string }> {
 	const response = await apiFetch(filePath(id));
 	if (!response.ok) throw new ChatApiError(response.statusText || `HTTP ${response.status}`, response.status);
 	const declared = Number(response.headers.get("content-length"));
 	if (Number.isFinite(declared) && declared > limit) throw new FileTooLargeError(limit, declared);
-	const bytes = new Uint8Array(await response.arrayBuffer());
-	if (bytes.byteLength > limit) throw new FileTooLargeError(limit, bytes.byteLength);
+	const bytes = await readCapped(response, limit);
 	return { bytes, mime: response.headers.get("content-type") ?? "" };
 }
 

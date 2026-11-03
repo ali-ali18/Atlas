@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { ChatApiError } from "./chat-api";
 import { MAX_IMAGE_BYTES, MAX_VIEW_BYTES } from "./document-view";
-import { downloadForShare, fetchDocument, fileErrorRetryable, fileErrorText, FileTooLargeError } from "./file-api";
+import { downloadFile, downloadForShare, fetchDocument, fileErrorRetryable, fileErrorText, FileTooLargeError } from "./file-api";
 
 const reply = (body: BodyInit, headers: Record<string, string> = {}, status = 200) => new Response(body, { status, headers });
 
@@ -55,6 +55,30 @@ describe("fetchDocument", () => {
 		expect(fileErrorText(new ChatApiError("x", 401))).toBe("Sua sessão expirou. Entre de novo.");
 		expect(fileErrorText(new ChatApiError("x", 500))).toBe("Não consegui abrir este documento agora.");
 		expect(fileErrorRetryable(new ChatApiError("x", 500))).toBe(true);
+	});
+});
+
+describe("leitura em stream sem Content-Length", () => {
+	const streamed = (chunks: Uint8Array[], onCancel: () => void) => {
+		let index = 0;
+		const body = new ReadableStream<Uint8Array>({
+			pull(controller) {
+				if (index < chunks.length) controller.enqueue(chunks[index++]!);
+				else controller.close();
+			},
+			cancel: onCancel,
+		});
+		return new Response(body, { status: 200 });
+	};
+	it("junta os pedaços quando cabe", async () => {
+		const file = await downloadFile(async () => streamed([new Uint8Array([1, 2]), new Uint8Array([3])], () => undefined), "f", 10);
+		expect([...file.bytes]).toEqual([1, 2, 3]);
+	});
+	it("corta e cancela ao passar do teto, sem ler o resto", async () => {
+		const cancel = vi.fn();
+		const error = await downloadFile(async () => streamed([new Uint8Array(6), new Uint8Array(6), new Uint8Array(6)], cancel), "f", 10).catch((e: unknown) => e);
+		expect(error).toBeInstanceOf(FileTooLargeError);
+		expect(cancel).toHaveBeenCalled();
 	});
 });
 
