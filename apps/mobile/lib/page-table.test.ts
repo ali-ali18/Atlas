@@ -1,6 +1,20 @@
 import { describe, expect, it } from "vitest";
 import { inlineText } from "./markdown";
-import { columnAlign, pageTableBlock } from "./page-table";
+import { columnAlign, pageTableBlock, visibleRows } from "./page-table";
+
+describe("corte de tabelas grandes", () => {
+	const rows = Array.from({ length: 100 }, (_, i) => i);
+	it("acima de 30 linhas mostra 30 e conta as escondidas; expandido mostra tudo", () => {
+		expect(visibleRows(rows, false)).toMatchObject({ hidden: 70 });
+		expect(visibleRows(rows, false).rows).toHaveLength(30);
+		expect(visibleRows(rows, true)).toEqual({ rows, hidden: 0 });
+	});
+	it("até o limite não corta (30 exatas e menos)", () => {
+		expect(visibleRows(rows.slice(0, 30), false).hidden).toBe(0);
+		expect(visibleRows([], false)).toEqual({ rows: [], hidden: 0 });
+		expect(visibleRows(rows, false, 10).rows).toHaveLength(10);
+	});
+});
 
 const columns = [
 	{ key: "id", label: "Pedido" },
