@@ -55,6 +55,7 @@ import {
 	parseQuestionnaireAnsweredContent,
 	type RoutineNotifyMode,
 	GITHUB_SECURITY_REVIEW_TEMPLATE,
+	DAILY_BRIEF_TEMPLATE,
 	type RoutineAlertConfig,
 	allLanguageInstructions,
 	formatLimitDuration,
@@ -1162,7 +1163,7 @@ export const COMPUTER_USE_TOOLS: ChatTool[] = [
 					},
 					template: {
 						type: "string",
-						enum: [GITHUB_SECURITY_REVIEW_TEMPLATE],
+						enum: [GITHUB_SECURITY_REVIEW_TEMPLATE, DAILY_BRIEF_TEMPLATE],
 						description:
 							"Optional prompt template. github_security_review = periodic security review of a GitHub repo with a 0-10 score; requires repo. Replaces detail (detail becomes an optional extra focus). daily_brief = the morning brief \"Seu dia\" (agenda, e-mails that need the user, priorities) delivered as a chat message and a push, no panel; detail is optional extra focus.",
 					},
