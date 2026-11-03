@@ -142,6 +142,16 @@ describe("gate: aviso e entrega", () => {
 		expect(gate.action === "deliver" && gate.stop.reason).toBe("budget_steps");
 	});
 
+	it("teto de passos do DONO: a instrução diz o valor e onde mudar; o de segurança mantém o texto de segurança", () => {
+		const owner = createSupervisor({ profile: "long_work", budget, maxSteps: 40, stepsSource: "bot" }).gate(usage(0.01, 1000, 40));
+		expect(owner.action === "deliver" && owner.instruction).toMatch(/step limit the owner configured for this run \(40 steps, set in this bot's settings/);
+		const account = createSupervisor({ profile: "long_work", budget, maxSteps: 60, stepsSource: "account" }).gate(usage(0.01, 1000, 60));
+		expect(account.action === "deliver" && account.instruction).toMatch(/the account settings/);
+		const safety = createSupervisor({ profile: "long_work", budget }).gate(usage(0.01, 1000, MAX_STEPS_SAFETY));
+		expect(safety.action === "deliver" && safety.instruction).toMatch(/safety step limit for a single run \(200 steps\)/);
+		expect(safety.action === "deliver" && safety.instruction).not.toMatch(/owner configured/);
+	});
+
 	it("custo desconhecido (0) não dispara nada; o tempo continua valendo", () => {
 		const supervisor = createSupervisor({ profile: "chat", budget });
 		expect(supervisor.gate(usage(0, 1000)).action).toBe("call");

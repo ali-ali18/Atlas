@@ -139,7 +139,14 @@ const STOP_PHRASES: Record<string, Partial<Record<BotLanguage, string>> & { defa
 const STOP_PHRASE_FALLBACK: Partial<Record<BotLanguage, string>> & { default: string } = { "pt-BR": "não consegui avançar mais", "es-ES": "no pude avanzar más", default: "I could not make more progress" };
 
 /** Motivo da parada em palavras simples, para o fechamento de último recurso (nunca convida o usuário a mandar "continua"). */
-export function stopReasonPhrase(reason: string, language: BotLanguage): string {
+export function stopReasonPhrase(reason: string, language: BotLanguage, opts: { ownerSteps?: number } = {}): string {
+	// Teto de passos que o dono configurou: não é "limite de segurança".
+	if (reason === "budget_steps" && opts.ownerSteps !== undefined) {
+		const n = opts.ownerSteps;
+		if (language === "pt-BR") return `o limite de passos que você configurou (${n}) foi atingido`;
+		if (language === "es-ES") return `se alcanzó el límite de pasos que configuraste (${n})`;
+		return `the step limit you configured (${n}) was reached`;
+	}
 	const phrases = STOP_PHRASES[reason] ?? STOP_PHRASE_FALLBACK;
 	return phrases[language] ?? phrases.default;
 }

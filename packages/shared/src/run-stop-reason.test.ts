@@ -148,6 +148,11 @@ describe("describeRunStop (Motivo da parada, em pt-BR simples)", () => {
 
 	it("limite de passos é de segurança; resposta normal e motivo desconhecido não mostram nada", () => {
 		expect(describeRunStop({ reason: "budget_steps" })).toBe("Limite de passos de segurança de uma execução");
+		// Teto do dono (conta, bot ou pedido): diz valor e origem. O de segurança mostra o valor real e não vira "que você configurou".
+		expect(describeRunStop({ reason: "budget_steps" }, { steps: 80, stepsSource: "bot" })).toBe("Limite de passos que você configurou (80, em bot)");
+		expect(describeRunStop({ reason: "budget_steps" }, { steps: 120, stepsSource: "account" })).toBe("Limite de passos que você configurou (120, em conta)");
+		expect(describeRunStop({ reason: "budget_steps" }, { steps: 50, stepsSource: "request" })).toBe("Limite de passos que você configurou (50, em pedido)");
+		expect(describeRunStop({ reason: "budget_steps" }, { steps: 200 })).toBe("Limite de passos de segurança de uma execução (200)");
 		expect(describeRunStop({ reason: "answered" })).toBeUndefined();
 		expect(describeRunStop({ reason: "algo_novo" })).toBeUndefined();
 		expect(describeRunStop({})).toBeUndefined();

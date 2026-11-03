@@ -126,7 +126,7 @@ import { buildEngineV2Catalog } from "./catalog.js";
 import { shouldExposeSetEngine } from "../tools/set-engine.js";
 import { buildEngineV2SystemPrompt } from "./prompt.js";
 import { originSystemNotes } from "./origin-notes.js";
-import { MAX_STEPS_SAFETY, type CapSource, type SupervisorProfile, budgetForProfile, capSourcesFor, createSupervisor, deliveryInstruction } from "./supervisor.js";
+import { MAX_STEPS_SAFETY, type CapSource, type StepsSource, type SupervisorProfile, budgetForProfile, capSourcesFor, createSupervisor, deliveryInstruction } from "./supervisor.js";
 import { continuedWorkNote, ENGINE_V2_PROMOTED_NOTE, openItemsNote } from "./prompt.js";
 import { callCostUsd, estimateCostUsd, fallbackPricesFromEnv } from "./cost.js";
 import { dedupeLoginAsk, unattendedLoginOutcome } from "./login.js";
@@ -157,7 +157,7 @@ export type EngineV2Options = {
 	 * De onde veio o teto de US$ e o de tempo que o worker entregou em `params.budget` (conta, servidor ou bot). A instrução de
 	 * entrega conta isso ao usuário. Ausente: conta.
 	 */
-	capSources?: { cost?: CapSource; wall?: CapSource };
+	capSources?: { cost?: CapSource; wall?: CapSource; steps?: StepsSource };
 	/** Piso de TEMPO (minutos) sem ligar o trabalho longo: brief "Seu dia" e lembrete `check`. Só tem efeito junto de um teto de tempo (o worker aplica 30 min nesses runs sem humano; chat humano não tem teto). Não há piso em US$. */
 	budgetFloor?: { minutes: number };
 	/**
@@ -249,13 +249,17 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 		: budgetForProfile(options.profile, { ...profileOverrides, floor: options.budgetFloor });
 	// Orçamento que o run passa a ter se for promovido (sem piso: o piso é do brief/check, que nunca promovem).
 	const promotedBudget = promotable ? budgetForProfile("long_work", profileOverrides) : undefined;
+	// Teto de passos: o do dono (conta, bot ou pedido) só é "o que você configurou" se vale de fato; acima do limite de segurança vale o de segurança.
+	const effectiveMaxSteps = Math.min(MAX_STEPS_SAFETY, runLimits.hardMaxSteps, helperRole?.budget.maxSteps ?? MAX_STEPS_SAFETY);
+	const stepsSource = !helperRole && options.capSources?.steps && runLimits.hardMaxSteps <= MAX_STEPS_SAFETY ? options.capSources.steps : undefined;
 	const supervisor = createSupervisor({
 		profile: options.profile,
 		budget,
 		promotable,
 		...(helperRole ? {} : { hardActiveMs: runLimits.maxWallMs }),
 		capSources: capSourcesFor({ budget, paramsCostCapUsd: params.budget?.maxCostUsd, longWorkBudgetUsd: options.longWorkBudgetUsd, wallMs: runLimits.maxWallMs, longWorkMinutes: options.longWorkMinutes, declared: options.capSources }),
-		maxSteps: Math.min(MAX_STEPS_SAFETY, runLimits.hardMaxSteps, helperRole?.budget.maxSteps ?? MAX_STEPS_SAFETY),
+		maxSteps: effectiveMaxSteps,
+		...(stepsSource ? { stepsSource } : {}),
 	});
 	const wall = wallClockAnchors({ maxWallMs: budget.maxActiveMs, now: Date.now(), runStartedAt: params.runStartedAt, restored: parsed });
 	const activeElapsedMs = () => wall.baseMs + (Date.now() - wall.executionStartMs);
@@ -1255,7 +1259,7 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 			if (isControlFlowError(error)) throw error;
 		}
 		if (!text) {
-			text = budgetStopFallbackText(stopReasonPhrase(stop.reason, language), language);
+			text = budgetStopFallbackText(stopReasonPhrase(stop.reason, language, stepsSource ? { ownerSteps: effectiveMaxSteps } : {}), language);
 			await onEvent({ type: "assistant_delta", id: messageId, delta: text });
 		}
 		if (documentFallback && !fileDelivered) {

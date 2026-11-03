@@ -133,21 +133,28 @@ export async function pickRunEngine(input: {
  * questionário/cartão) NÃO há teto de tempo (decisão do dono, 02/11); só o tempo máximo do bot (`longWorkMinutes`) vale, se o dono
  * o preencheu. O chat que ainda está no perfil `chat` pode virar trabalho longo no meio do run (`canPromote`) e leva o mesmo teto.
  */
+/** Origens sem humano cujo run pode virar trabalho longo no meio (as demais, como e-mail e webhook, nunca). */
+export const UNATTENDED_PROMOTABLE_ORIGINS: ReadonlySet<string> = new Set(["routine", "bot"]);
+
 export function longWorkOwnerLimits(
 	choice: Pick<EngineChoice, "engine" | "profile" | "longWorkMinutes">,
-	context: { origin: string; humanTurn: boolean },
+	context: { origin: string; humanTurn: boolean; /** Verificação curta (alerta, brief, check, proativo): nunca vira trabalho longo. */ shortRun?: boolean },
 ): {
 	/** Tempo máximo (ms) do bot, que substitui o da conta; `undefined` = segue o da conta. */
 	wallMs?: number;
-	/** Run de chat com humano no perfil `chat` do v2: promovível a trabalho longo no meio do run. */
+	/** Run no perfil `chat` do v2 que pode virar trabalho longo no meio do run (chat com humano, rotina ou bot sem humano). */
 	canPromote: boolean;
 } {
 	const v2Chat = choice.engine === "v2" && context.origin === "chat" && context.humanTurn;
 	const owner = v2Chat && choice.profile === "long_work";
-	const canPromote = v2Chat && choice.profile === "chat";
+	// Rotina e run de bot sem humano também promovem, pelos mesmos sinais estruturais (lista com 3+ itens ou 1ª tool de navegador):
+	// sem isso uma rotina que abre o navegador ficava presa ao orçamento de chat curto (ADR 0003, adendo de 03/11). E-mail e webhook
+	// não promovem (texto de fora é dado, não ordem) e verificação curta nunca promove. O teto de tempo sem humano continua valendo.
+	const unattended = choice.engine === "v2" && !context.humanTurn && !context.shortRun && UNATTENDED_PROMOTABLE_ORIGINS.has(context.origin);
+	const canPromote = (v2Chat || unattended) && choice.profile === "chat";
 	return {
 		canPromote,
-		...((owner || canPromote) && choice.longWorkMinutes !== undefined ? { wallMs: Math.round(choice.longWorkMinutes * 60_000) } : {}),
+		...((owner || (canPromote && v2Chat)) && choice.longWorkMinutes !== undefined ? { wallMs: Math.round(choice.longWorkMinutes * 60_000) } : {}),
 	};
 }
 
@@ -164,7 +171,7 @@ export function earlyWallMs(budgetWallMs: number, unattended: boolean): number {
 export function runSelectedEngine(
 	choice: EngineChoice,
 	params: ComputerUseParams,
-	promotion: { canPromote: boolean; onPromoted?: () => void | Promise<void>; capSources?: { cost?: "account" | "server" | "bot"; wall?: "account" | "bot" } } = { canPromote: false },
+	promotion: { canPromote: boolean; onPromoted?: () => void | Promise<void>; capSources?: { cost?: "account" | "server" | "bot"; wall?: "account" | "bot"; steps?: "account" | "bot" | "request" } } = { canPromote: false },
 ): Promise<RunComputerUseResult> {
 	if (choice.engine === "v2") {
 		return runEngineV2(params, {
@@ -198,15 +205,20 @@ export function resolveRunLimits(input: {
 	 * se o dono programou, também é teto duro (chat e promoção nunca passam dele): ver `snapshot.maxWallMinutes`.
 	 */
 	wallFixed: boolean;
+	/** Verificação curta (alerta, brief, check, proativo, evento de configuração): nunca promove. */
+	shortRun?: boolean;
 }): { costCapUsd: number | undefined; wallMs?: number; canPromote: boolean } {
-	const owner = longWorkOwnerLimits(input.choice, { origin: input.origin, humanTurn: input.humanTurn });
+	const owner = longWorkOwnerLimits(input.choice, { origin: input.origin, humanTurn: input.humanTurn, shortRun: input.shortRun });
 	// Só teto configurado: pedido/bot e conta (o menor). Sem nenhum, sem limite em US$.
 	const costCapUsd = effectiveCostCapUsd(input.requestOrBotCap, input.snapshot);
 	// Tempo: o que o dono fixou (pedido, bot ou conta) vence; depois o tempo máximo do bot no chat humano; run sem humano
 	// mantém o limite de antes (`unattendedWallMs`); chat humano sem nada configurado não tem teto de tempo.
 	const ownerFixedWall = input.wallFixed || input.snapshot.maxWallMinutes !== undefined;
 	const humanChat = input.origin === "chat" && input.humanTurn;
-	const wallMs = ownerFixedWall ? undefined : owner.wallMs ?? (humanChat ? undefined : unattendedWallMs(input.choice));
+	// Run sem humano que pode promover: vale desde o começo o teto de tempo do trabalho longo sem humano (no máximo 30 min),
+	// senão a promoção herdaria o teto curto do chat.
+	const unattendedChoice = owner.canPromote && !humanChat ? { ...input.choice, profile: "long_work" as const } : input.choice;
+	const wallMs = ownerFixedWall ? undefined : owner.wallMs ?? (humanChat ? undefined : unattendedWallMs(unattendedChoice));
 	return {
 		costCapUsd,
 		canPromote: owner.canPromote,

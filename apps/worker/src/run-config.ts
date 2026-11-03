@@ -24,6 +24,8 @@ import {
 	type ContextMemory,
 	type ModelTiers,
 	type RunCaps,
+	type RunStepsSource,
+	RUN_MAX_STEPS,
 	type RunConfigSnapshot,
 } from "@workspace/shared";
 
@@ -127,6 +129,27 @@ export function capSourcesOf(input: {
 }
 
 /**
+ * De onde veio o teto de passos que está valendo (pedido > bot > conta, a mesma ordem de `resolveBudget`). Sem nenhum dos três,
+ * vale o limite de segurança do código e a origem é `undefined`: o motivo da parada NÃO o chama de "o que você configurou".
+ */
+export function stepsSourceOf(input: { request?: number; bot?: number; account?: number }): RunStepsSource | undefined {
+	if (input.request !== undefined) return "request";
+	if (input.bot !== undefined) return "bot";
+	if (input.account !== undefined) return "account";
+	return undefined;
+}
+
+/**
+ * Teto de passos efetivo para gravar no run: no v2 nunca passa do limite de segurança (200), então um teto do dono acima disso
+ * aparece como 200 e SEM origem (é o de segurança que vale); no v1 vale o configurado.
+ */
+export function effectiveStepsCap(input: { engine: "v1" | "v2"; hardMaxSteps: number; source: RunStepsSource | undefined }): { steps: number; stepsSource?: RunStepsSource } {
+	if (input.engine !== "v2") return { steps: input.hardMaxSteps, ...(input.source ? { stepsSource: input.source } : {}) };
+	if (input.hardMaxSteps > RUN_MAX_STEPS) return { steps: RUN_MAX_STEPS };
+	return { steps: input.hardMaxSteps, ...(input.source ? { stepsSource: input.source } : {}) };
+}
+
+/**
  * Tetos que valem no run, com valor e origem, para gravar no `budgetJson` e o inspetor mostrar "Teto de gasto configurado
  * (US$ 0,25 · servidor)". Junta o teto do worker (`costCapUsd`/`wallMs`) com o gasto e o tempo máximos do bot no trabalho longo.
  */
@@ -136,8 +159,10 @@ export function runCapsOf(input: {
 	sources: { cost?: "account" | "server" | "bot"; wall?: "account" | "bot" };
 	/** `longWorkBudgetUsd` / `longWorkMinutes` do bot, só quando o run é (ou pode virar) trabalho longo. */
 	botLongWork?: { costUsd?: number; minutes?: number };
+	/** Teto de passos efetivo (ver `effectiveStepsCap`). */
+	stepsCap?: { steps: number; stepsSource?: RunStepsSource };
 }): RunCaps {
-	const out: RunCaps = {};
+	const out: RunCaps = input.stepsCap ? { steps: input.stepsCap.steps, ...(input.stepsCap.stepsSource ? { stepsSource: input.stepsCap.stepsSource } : {}) } : {};
 	const botCost = input.botLongWork?.costUsd;
 	if (botCost !== undefined && botCost > 0 && (input.costCapUsd === undefined || botCost < input.costCapUsd)) Object.assign(out, { costUsd: botCost, costSource: "bot" as const });
 	else if (input.costCapUsd !== undefined && input.costCapUsd > 0) Object.assign(out, { costUsd: input.costCapUsd, ...(input.sources.cost ? { costSource: input.sources.cost } : {}) });

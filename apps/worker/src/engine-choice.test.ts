@@ -325,9 +325,21 @@ test("sem teto em US$ nem de tempo por padrão no chat do dono; o tempo do bot s
 	assert.deepEqual(longWorkOwnerLimits({ engine: "v1", profile: "chat" }, HUMAN_CHAT), { canPromote: false });
 	const wide = await setup({ policyJson: { engine: "v2", engineScope: "all" }, text: "Bom dia" }).choose();
 	// Sem humano no chat: nada de promoção, e o limite de tempo de antes continua (chat curto: 8 min; rotina não perde o freio).
-	for (const [origin, human] of [["chat", false], ["routine", true], ["bot", false], ["webhook", false], ["email", false], ["proactive", false]] as const) {
+	for (const [origin, human] of [["chat", false], ["routine", true], ["webhook", false], ["email", false], ["proactive", false]] as const) {
 		assert.deepEqual(limits(wide, { origin, humanTurn: human }), { costCapUsd: undefined, wallMs: 8 * 60_000, canPromote: false }, `${origin}/${human}`);
 	}
+	// Rotina e run de bot sem humano PODEM promover (lista de 3+ itens ou 1ª tool de navegador): o teto de tempo sem humano segue
+	// valendo (30 min, o do trabalho longo sem humano) desde o começo, para a promoção não herdar o teto curto do chat.
+	for (const origin of ["routine", "bot"] as const) {
+		assert.deepEqual(limits(wide, { origin, humanTurn: false }), { costCapUsd: undefined, wallMs: 30 * 60_000, canPromote: true }, origin);
+		// Os minutos do bot (pensados para o chat do dono) não estendem o run sem humano além de 30.
+		const timed = await setup({ policyJson: { engine: "v2", engineScope: "all", longWorkMinutes: 90 }, text: "Bom dia" }).choose();
+		assert.equal(limits(timed, { origin, humanTurn: false }).wallMs, 30 * 60_000, origin);
+		// Verificação curta (alerta, brief, check, proativo) nunca promove.
+		assert.equal(limits(wide, { origin, humanTurn: false, shortRun: true }).canPromote, false, `${origin}/curta`);
+	}
+	// Tempo fixado pelo dono continua vencendo.
+	assert.equal(limits(wide, { origin: "routine", humanTurn: false, wallFixed: true }).wallMs, undefined);
 	// O que o dono fixou (pedido, bot ou conta) vale mais que o limite padrão da rotina.
 	assert.equal(limits(wide, { origin: "routine", humanTurn: false, wallFixed: true }).wallMs, undefined);
 	assert.equal(limits(wide, { origin: "routine", humanTurn: false, snapshot: { maxRunCostUsd: undefined, maxWallMinutes: 5 } }).wallMs, undefined);
@@ -403,4 +415,19 @@ test("o tempo máximo programado na conta é teto duro: o chat e a promoção n�
 		const without = resolveRunLimits({ choice, origin: "chat", humanTurn: true, requestOrBotCap: undefined, snapshot: { maxRunCostUsd: undefined }, wallFixed: false });
 		assert.equal(without.wallMs, 60 * 60_000);
 	}
+});
+
+test("teto de passos: a origem só existe quando o dono configurou; acima do limite de segurança do v2 vale o de segurança (200), sem origem", async () => {
+	const { stepsSourceOf, effectiveStepsCap, runCapsOf } = await import("./run-config.js");
+	assert.equal(stepsSourceOf({}), undefined);
+	assert.equal(stepsSourceOf({ account: 150 }), "account");
+	assert.equal(stepsSourceOf({ account: 150, bot: 80 }), "bot");
+	assert.equal(stepsSourceOf({ account: 150, bot: 80, request: 30 }), "request");
+	assert.deepEqual(effectiveStepsCap({ engine: "v2", hardMaxSteps: 80, source: "bot" }), { steps: 80, stepsSource: "bot" });
+	// Sem configuração: o padrão do código (300) é cortado em 200 e não é "o que você configurou".
+	assert.deepEqual(effectiveStepsCap({ engine: "v2", hardMaxSteps: 300, source: undefined }), { steps: 200 });
+	// O dono configurou 300: o teto efetivo é 200 e a origem some (é o de segurança que vale).
+	assert.deepEqual(effectiveStepsCap({ engine: "v2", hardMaxSteps: 300, source: "account" }), { steps: 200 });
+	assert.deepEqual(effectiveStepsCap({ engine: "v1", hardMaxSteps: 300, source: "account" }), { steps: 300, stepsSource: "account" });
+	assert.deepEqual(runCapsOf({ costCapUsd: undefined, wallMs: undefined, sources: {}, stepsCap: { steps: 80, stepsSource: "bot" } }), { steps: 80, stepsSource: "bot" });
 });

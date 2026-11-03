@@ -601,6 +601,22 @@ describe("promoção decidida pelo modelo: lista de tarefas com 3+ passos (v2)",
 		}
 	});
 
+	it("run de bot sem humano promove pela lista de 3+ itens quando o worker permite (canPromote); sem permissão, não", async () => {
+		const run = await runChat({
+			stepMs: 5_000,
+			extra: { origin: "bot", humanTurn: false },
+			script: [three, say("Feito.", 0.1), say("Feito.", 0.1), say("Feito.", 0.1), say("Feito.", 0.1)],
+		});
+		expect(run.onPromoted).toHaveBeenCalledTimes(1);
+		const denied = await runChat({
+			stepMs: 5_000,
+			options: { promotable: false, onPromoted: undefined },
+			extra: { origin: "bot", humanTurn: false },
+			script: [three, say("Feito.", 0.1), say("Feito.", 0.1), say("Feito.", 0.1), say("Feito.", 0.1)],
+		});
+		expect(denied.onPromoted).not.toHaveBeenCalled();
+	});
+
 	it("o prazo das operações do computador acompanha o teto do dono (1,25x); sem teto não há prazo (nunca Infinity)", async () => {
 		const deadlines: Array<number | undefined> = [];
 		const manager = { withExecutionContext: (context: { deadlineAtMs?: number }) => (deadlines.push(context.deadlineAtMs), {}) } as never;

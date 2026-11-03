@@ -179,7 +179,7 @@ export function inferStopReasonFromLegacy(input: { status: string; error?: strin
 	return input.status === "failed" ? "error" : "other";
 }
 
-const SOURCE_LABEL: Record<"account" | "server" | "bot", string> = { account: "conta", server: "servidor", bot: "bot" };
+const SOURCE_LABEL: Record<"account" | "server" | "bot" | "request", string> = { account: "conta", server: "servidor", bot: "bot", request: "pedido" };
 
 function formatUsdPtBr(value: number): string {
 	return `US$ ${value.toFixed(2).replace(".", ",")}`;
@@ -197,7 +197,7 @@ function formatDurationPtBr(ms: number): string {
  */
 export function describeRunStop(
 	stop: { reason?: string | null; detail?: string | null },
-	caps: { costUsd?: number; costSource?: "account" | "server" | "bot"; wallMs?: number; wallSource?: "account" | "server" | "bot" } = {},
+	caps: { costUsd?: number; costSource?: "account" | "server" | "bot"; wallMs?: number; wallSource?: "account" | "server" | "bot"; steps?: number; stepsSource?: "account" | "bot" | "request" } = {},
 ): string | undefined {
 	const withOpen = (text: string) => (stop.detail?.includes("items_open") ? `${text}; ficaram itens em aberto` : text);
 	switch (stop.reason) {
@@ -210,7 +210,9 @@ export function describeRunStop(
 			return `Teto de tempo configurado${where}`;
 		}
 		case "budget_steps":
-			return "Limite de passos de segurança de uma execução";
+			// Só é "o que você configurou" quando o teto de passos efetivo veio do dono; o de segurança é outra coisa (e mostra o valor real).
+			if (caps.steps !== undefined && caps.stepsSource) return `Limite de passos que você configurou (${caps.steps}, em ${SOURCE_LABEL[caps.stepsSource]})`;
+			return `Limite de passos de segurança de uma execução${caps.steps !== undefined ? ` (${caps.steps})` : ""}`;
 		case "budget_tokens":
 		case "budget_context":
 			return "O contexto do modelo ficou cheio";
