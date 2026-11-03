@@ -1,6 +1,7 @@
 import * as React from "react";
 import {
 	ArrowUp as LucideArrowUp,
+	ArrowDown as LucideArrowDown,
 	AtSign as LucideAtSign,
 	AudioLines as LucideAudioLines,
 	ChevronDown as LucideChevronDown,
@@ -52,6 +53,7 @@ import {
 	Square as LucideSquare,
 	Star as LucideStar,
 	TextCursorInput as LucideTextCursorInput,
+	Trash2 as LucideTrash2,
 	UserRoundCog as LucideUserRoundCog,
 	UserRoundPlus as LucideUserRoundPlus,
 	X as LucideX,
@@ -223,6 +225,11 @@ export function SlidersIcon({ size = 18, tone = "foreground" }: LineIconProps) {
 	return <LucideSlidersHorizontal size={size} color={useStroke(tone)} strokeWidth={2} />;
 }
 
+/** Lucide `Trash2` (excluir). */
+export function Trash2Icon({ size = 20, tone = "destructive" }: LineIconProps) {
+	return <LucideTrash2 size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
 /** Lucide `ChevronsUpDown` (seletor). */
 export function ChevronUpDownIcon({ size = 18, tone = "muted-foreground" }: LineIconProps) {
 	return <LucideChevronsUpDown size={size} color={useStroke(tone)} strokeWidth={2} />;
@@ -249,6 +256,11 @@ export function StarFilledIcon({ size = 14, color = "#ffffff" }: IconProps & { c
 /** Lucide `ArrowUp` (enviar). */
 export function ArrowUpIcon({ size = 20, color = "#ffffff" }: IconProps & { color?: string }) {
 	return <LucideArrowUp size={size} color={color} strokeWidth={2} />;
+}
+
+/** Lucide `ArrowDown`. */
+export function ArrowDownIcon({ size = 20, tone = "foreground" }: LineIconProps) {
+	return <LucideArrowDown size={size} color={useStroke(tone)} strokeWidth={2} />;
 }
 
 /** Lucide `Square` preenchido (parar), como o `SquareIcon className="fill-current"` do web. */

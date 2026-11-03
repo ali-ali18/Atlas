@@ -329,6 +329,7 @@ Sem custo de infraestrutura nem tokens na etapa 0. EAS Update e Build (etapa 2) 
 - `pnpm exec turbo typecheck`.
 - `pnpm --filter @workspace/mobile export:web` e abrir `apps/mobile/dist` (prévias em 390x844, tema escuro e claro).
 - No aparelho: `pnpm --filter @workspace/mobile start` e abrir no Expo Go (celular e computador na mesma rede).
+- Prévia da home sem servidor (só desenvolvimento): `EXPO_PUBLIC_PREVIEW_HOME=1 pnpm --filter @workspace/mobile exec expo start --web` abre a home com dado de mentira (`lib/preview-home.ts`; exige `__DEV__`).
 
 ## Link do viewer da VM para a WebView (API)
 
@@ -347,6 +348,10 @@ A WebView do app não compartilha cookie com o navegador, e o proxy HTTP do noVN
 ## Menu ao segurar uma conversa na home
 
 Segurar a linha (ou o bot fixado) abre a mesma gaveta (`ActionSheet`) do menu da mensagem: **Marcar como não lida** (só se estiver lida), **Fixar/Desafixar**, **Mover para** (subpágina com as seções e "Tirar da seção") e **Ver perfil**. Salva pelo mesmo `PATCH /v1/bots/:id` do web (`pinned`, `pinOrder`, `sectionId`); a lista muda na hora e volta atrás se o servidor recusar. Fora por enquanto: **Ocultar** (no web é só estado da tela, sem persistência) e **Compartilhar como modelo** (não existe no app).
+
+## Menu ao segurar o título de uma seção na home
+
+Segurar o cabeçalho de uma seção (não vale para "Sem sessão") abre a mesma gaveta (`ActionSheet`): **Renomear** (campo inline no título), **Mover para cima** / **Mover para baixo** (somem na primeira e na última seção), **Excluir** (confirmação; os bots voltam para "Sem sessão", como no web/API). Toque curto no título continua recolhendo/expandindo. Endpoints: `PATCH` e `DELETE /v1/sections/:id` (reordenar troca `order` com o vizinho, igual ao web).
 
 ## Rotinas
 

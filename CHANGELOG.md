@@ -4,6 +4,9 @@ Todas as mudanças relevantes do Atlas. Formato [Keep a Changelog](https://keepa
 
 ## [Não lançado]
 
+### Adicionado
+- **mobile:** menu ao segurar o título de uma seção na home (Renomear, Mover para cima/baixo, Excluir), com a mesma gaveta (`ActionSheet`) do menu da conversa; toque curto continua recolhendo/expandindo. Usa `PATCH`/`DELETE /v1/sections/:id`; ao excluir, os bots voltam para "Sem sessão". Ver `docs/features/app-mobile.md`.
+
 ### Alterado
 - **ui (mobile):** pele única no app. Fundo de tela, cartão, contorno, divisor e chrome (botões redondos, pílula do bot, campos, composer) vêm de `lib/surfaces.ts`, aplicados por `ScreenFrame`, `SurfaceCard`/`SurfaceGroup`, `ChromeButton`/`ChromePill`/`ChromeInput` e um único `ToggleSwitch` (o de Notificações no Perfil deixa de ser o `Switch` do RN). Rotinas, Execuções e Perfil passam ao fundo do chat; cartões e folhas ficam iguais em todas as telas. Regra em `35-componentes.md` e guarda `visual-base-guard.test.ts` (hex fora dos tokens, `Switch` do RN).
 - **agent:** o bot não tem mais orçamento de **tempo** por padrão (decisão do dono, 02/11; ADR 0003). Chat e trabalho longo antes tinham 8 e 60 min com aviso a 80% e entrega forçada; o motor anterior tinha 30 min de parede e soft de 24 passos. Agora o run termina quando o modelo responde sem tool ou quando você para. Só valem os tetos que o dono configura (US$ da conta ou do bot, tempo da conta, gasto e minutos do bot, agora opcionais na engrenagem e no `set_engine`: vazio ou 0 = sem limite) e as redes contra laço (200 passos, repetição, falhas seguidas, estagnação, botão de parar). Rotina, alerta, proativo, brief e bot→bot mantêm o limite de antes. A promoção do chat a trabalho longo por tempo saiu (fica a pela lista de 3+ passos).

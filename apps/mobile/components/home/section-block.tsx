@@ -2,8 +2,9 @@ import type { HomeBot } from "@/lib/home-types";
 import * as React from "react";
 import { Pressable, View } from "react-native";
 import { ChevronDownIcon, SendIcon } from "@/components/icons";
+import { Input } from "@/components/ui/input";
 import { Text } from "@/components/ui/text";
-import { formatListDate, type HomeSection } from "@/lib/home-list";
+import { formatListDate, NO_SECTION_KEY, type HomeSection } from "@/lib/home-list";
 import { BotAvatar } from "./bot-avatar";
 
 const ROW_BODY = 48;
@@ -34,7 +35,7 @@ export function ConversationRow({ bot, bots, now, onOpen, onMenu }: { bot: HomeB
 	);
 }
 
-/** Seção recolhível ("Codding ⌄") com as conversas dentro. Recolhida por toque no título. */
+/** Seção recolhível ("Codding ⌄") com as conversas dentro. Recolhida por toque no título; segurar abre o menu de edição. */
 export function SectionBlock({
 	section,
 	bots,
@@ -43,7 +44,11 @@ export function SectionBlock({
 	onToggle,
 	onOpen,
 	onMenu,
+	onSectionMenu,
 	showEmpty,
+	renaming,
+	onCommitRename,
+	onCancelRename,
 }: {
 	section: HomeSection;
 	bots: readonly HomeBot[];
@@ -52,18 +57,54 @@ export function SectionBlock({
 	onToggle: () => void;
 	onOpen: (bot: HomeBot) => void;
 	onMenu: (bot: HomeBot) => void;
+	/** Só para seções reais (não "Sem sessão"). */
+	onSectionMenu?: (section: HomeSection) => void;
 	showEmpty: boolean;
+	renaming?: boolean;
+	onCommitRename?: (name: string) => void;
+	onCancelRename?: () => void;
 }) {
+	const editable = section.key !== NO_SECTION_KEY && Boolean(onSectionMenu);
+	const draftName = React.useRef(section.title);
 	return (
 		<View>
-			<Pressable role="button" accessibilityState={{ expanded: open }} accessibilityLabel={section.title} onPress={onToggle} className="min-h-11 flex-row items-center gap-1.5 self-start px-5 active:opacity-70">
-				<Text numberOfLines={1} className="shrink text-control text-muted-foreground">
-					{section.title}
-				</Text>
-				<View style={{ transform: [{ rotate: open ? "0deg" : "-90deg" }] }}>
-					<ChevronDownIcon size={20} />
+			{renaming ? (
+				<View className="min-h-11 justify-center px-5 py-1">
+					<Input
+						autoFocus
+						defaultValue={section.title}
+						returnKeyType="done"
+						onChangeText={(text) => {
+							draftName.current = text;
+						}}
+						onSubmitEditing={() => onCommitRename?.(draftName.current)}
+						onBlur={() => {
+							if (draftName.current.trim() === section.title.trim()) onCancelRename?.();
+							else onCommitRename?.(draftName.current);
+						}}
+						className="h-11 px-4"
+						accessibilityLabel="Nome da seção"
+					/>
 				</View>
-			</Pressable>
+			) : (
+				<Pressable
+					role="button"
+					accessibilityState={{ expanded: open }}
+					accessibilityLabel={section.title}
+					accessibilityHint={editable ? "Toque para recolher ou expandir. Segure para editar a seção." : undefined}
+					onPress={onToggle}
+					onLongPress={editable ? () => onSectionMenu?.(section) : undefined}
+					delayLongPress={400}
+					className="min-h-11 flex-row items-center gap-1.5 self-start px-5 active:opacity-70"
+				>
+					<Text numberOfLines={1} className="shrink text-control text-muted-foreground">
+						{section.title}
+					</Text>
+					<View style={{ transform: [{ rotate: open ? "0deg" : "-90deg" }] }}>
+						<ChevronDownIcon size={20} />
+					</View>
+				</Pressable>
+			)}
 			{open
 				? section.bots.length > 0
 					? section.bots.map((bot) => <ConversationRow key={bot.id} bot={bot} bots={bots} now={now} onOpen={onOpen} onMenu={onMenu} />)

@@ -8,10 +8,12 @@ import { SearchFooter } from "@/components/home/search-footer";
 import { SectionBlock } from "@/components/home/section-block";
 import { ScreenFrame } from "@/components/ui/screen-frame";
 import { HomeBotMenu } from "@/components/home/home-bot-menu";
+import { HomeSectionMenu, commitSectionRename, type SectionMenuTarget } from "@/components/home/home-section-menu";
 import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
 import { useAtlasSession } from "@/lib/atlas-session";
 import { useHomeData } from "@/lib/home-data";
+import { NO_SECTION_KEY } from "@/lib/home-list";
 import { staleNotice } from "@/lib/home-copy";
 import { buildHome, buildSearchIndex } from "@/lib/home-list";
 import { themeColor } from "@/lib/theme";
@@ -27,11 +29,13 @@ const NO_SECTIONS: readonly SectionRef[] = [];
 export default function HomeScreen() {
 	const router = useRouter();
 	const scheme = useAppColorScheme();
-	const { name, email, image, signOut, changeServer } = useAtlasSession();
-	const { snapshot, refreshing, error, refresh } = useHomeData();
+	const { name, email, image, signOut, changeServer, apiFetch } = useAtlasSession();
+	const { snapshot, refreshing, error, refresh, applySectionUpdate } = useHomeData();
 	const [query, setQuery] = React.useState("");
 	const [collapsed, setCollapsed] = React.useState<Record<string, boolean>>({});
 	const [menuBot, setMenuBot] = React.useState<HomeBot | null>(null);
+	const [menuSection, setMenuSection] = React.useState<SectionMenuTarget | null>(null);
+	const [renamingSectionId, setRenamingSectionId] = React.useState<string | null>(null);
 	// "agora" muda com cada atualização: a data da linha ("agora", "14:05") acompanha.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: snapshot renova o relógio de propósito
 	const now = React.useMemo(() => new Date(), [snapshot]);
@@ -89,6 +93,18 @@ export default function HomeScreen() {
 						onToggle={() => setCollapsed((previous) => ({ ...previous, [section.key]: !previous[section.key] }))}
 						onOpen={open}
 						onMenu={setMenuBot}
+						onSectionMenu={
+							section.key === NO_SECTION_KEY
+								? undefined
+								: (target) => setMenuSection({ id: target.key, name: target.title })
+						}
+						renaming={renamingSectionId === section.key}
+						onCommitRename={(name) => {
+							setRenamingSectionId(null);
+							if (section.key === NO_SECTION_KEY) return;
+							commitSectionRename(apiFetch, { applySectionUpdate, refresh }, section.key, section.title, name);
+						}}
+						onCancelRename={() => setRenamingSectionId(null)}
 						showEmpty={!searching}
 					/>
 				))}
@@ -112,6 +128,11 @@ export default function HomeScreen() {
 				<SearchFooter query={query} onChange={setQuery} onGrid={() => router.push("/catalog" as never)} />
 			</KeyboardAvoidingView>
 			<HomeBotMenu bot={menuBot} onClose={() => setMenuBot(null)} />
+			<HomeSectionMenu
+				section={menuSection}
+				onClose={() => setMenuSection(null)}
+				onStartRename={(target) => setRenamingSectionId(target.id)}
+			/>
 		</ScreenFrame>
 	);
 }
