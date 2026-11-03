@@ -1,5 +1,7 @@
 import type { ToolEffect, ToolMetaFields } from "./types.js";
 
+const READ_HTTP_METHODS = new Set(["GET", "HEAD"]);
+
 /**
  * Metadado por tool (desenho do harness v3, seção 3/7): `effect`, `poll`, `endsTurn`. Tabela única em vez de
  * campo espalhado por 16 arquivos de handlers: o registro a aplica em cada tool de nome fixo e o teste
@@ -10,8 +12,12 @@ import type { ToolEffect, ToolMetaFields } from "./types.js";
  * - Navegador e VM são do próprio bot (`write_internal`): clique, digitação e shell não saem da VM por si.
  *   O que toca segredo é `login_fill`/`secret_request` (`credential`).
  * - `propose_*` só gera cartão de aprovação: `write_internal` (a escrita real acontece depois, na decisão).
- * - `api_call` é `write_external` porque o método só se sabe pelos args; leitura via conector MCP é decidida
- *   por `mcpToolEffect`.
+ * - `effect` é o pior caso; `effectForArgs` o refina por chamada (`resolveToolEffect`): `api_call` só lê, `sandbox_download`
+ *   só é `credential` com a sessão do navegador. Tool de conector MCP é decidida por `mcpToolEffect`.
+ * - `propose_routine`/`routine_group` criam webhook no GitHub do dono (`ensureGithubRepoHook`): `write_external`.
+ *   `decide_bot_pending` aprova ação de outro bot: `write_external` (igual a `NATIVE_WRITE_TOOLS` do pre-tool).
+ * - `endsTurn` = encerra o turno quando devolve cartão pendente (computer-use.ts, `stopFor*`).
+ * - `needsHuman` = muda as próprias permissões (hoje com o portão `humanTurn`).
  */
 export const TOOL_META: Readonly<Record<string, ToolMetaFields>> = {
 	// Navegador (VM)
@@ -38,7 +44,8 @@ export const TOOL_META: Readonly<Record<string, ToolMetaFields>> = {
 	sandbox_shell_wait: { effect: "read", poll: true },
 	sandbox_read: { effect: "read" },
 	sandbox_list: { effect: "read" },
-	sandbox_download: { effect: "read" },
+	// Pior caso: baixa URL arbitrária enviando por padrão os cookies do Chrome da VM; sem a sessão é só escrita na VM.
+	sandbox_download: { effect: "credential", effectForArgs: (args) => (args.use_browser_session === false ? "write_internal" : "credential") },
 	sandbox_release: { effect: "write_internal" },
 	video_transcript: { effect: "read" },
 
@@ -50,7 +57,7 @@ export const TOOL_META: Readonly<Record<string, ToolMetaFields>> = {
 	attachment_read: { effect: "read" },
 	attachment_list: { effect: "read" },
 	attachment_to_computer: { effect: "write_internal" },
-	generate_image: { effect: "write_internal" },
+	generate_image: { effect: "write_internal", endsTurn: true },
 	show_image: { effect: "read" },
 	create_file: { effect: "write_internal" },
 	inspect_presentation: { effect: "read" },
@@ -72,17 +79,17 @@ export const TOOL_META: Readonly<Record<string, ToolMetaFields>> = {
 	// Cofre
 	secret_list: { effect: "read" },
 	routine_webhook_info: { effect: "read" },
-	secret_request: { effect: "credential" },
-	login_fill: { effect: "credential" },
+	secret_request: { effect: "credential", endsTurn: true },
+	login_fill: { effect: "credential", endsTurn: true },
 
 	// Skills
 	skill_read: { effect: "read" },
-	list_skills: { effect: "read" },
-	show_skill: { effect: "read" },
-	propose_skill: { effect: "write_internal" },
-	delete_skill: { effect: "write_internal" },
-	propose_skill_change: { effect: "write_internal" },
-	propose_skill_delete: { effect: "write_internal" },
+	list_skills: { effect: "read", endsTurn: true },
+	show_skill: { effect: "read", endsTurn: true },
+	propose_skill: { effect: "write_internal", endsTurn: true },
+	delete_skill: { effect: "write_internal", endsTurn: true },
+	propose_skill_change: { effect: "write_internal", endsTurn: true },
+	propose_skill_delete: { effect: "write_internal", endsTurn: true },
 
 	// E-mail do bot
 	email_list: { effect: "read" },
@@ -100,32 +107,37 @@ export const TOOL_META: Readonly<Record<string, ToolMetaFields>> = {
 	notify_user: { effect: "send" },
 
 	// Conectores
-	propose_connector: { effect: "write_internal" },
-	propose_api_connection: { effect: "write_internal" },
-	propose_custom_mcp: { effect: "write_internal" },
+	propose_connector: { effect: "write_internal", endsTurn: true },
+	propose_api_connection: { effect: "write_internal", endsTurn: true },
+	propose_custom_mcp: { effect: "write_internal", endsTurn: true },
 	api_search: { effect: "read" },
-	api_call: { effect: "write_external" },
+	// Hoje o runtime só aceita operação GET/HEAD (api-connector/runtime.ts) e os args não trazem método: sem
+	// `method`, é leitura. Se um dia houver escrita, ela traz o método e cai em write_external.
+	api_call: {
+		effect: "write_external",
+		effectForArgs: (args) => (typeof args.method === "string" && !READ_HTTP_METHODS.has(args.method.trim().toUpperCase()) ? "write_external" : "read"),
+	},
 	mcp_tool_search: { effect: "read" },
-	set_connector_tool_marks: { effect: "write_internal" },
+	set_connector_tool_marks: { effect: "write_internal", needsHuman: true },
 	github_list_repos: { effect: "read" },
 	github_compare: { effect: "read" },
 
 	// Rotinas
 	list_routines: { effect: "read" },
-	routine_group: { effect: "write_internal" },
+	routine_group: { effect: "write_external" },
 	routine_control: { effect: "write_internal" },
-	propose_routine: { effect: "write_internal" },
+	propose_routine: { effect: "write_external" },
 	report_alert: { effect: "write_internal", endsTurn: true },
 	find_page_value: { effect: "read" },
 
 	// Bots e configuração
-	propose_bot: { effect: "write_internal" },
-	propose_profile_update: { effect: "write_internal" },
+	propose_bot: { effect: "write_internal", endsTurn: true },
+	propose_profile_update: { effect: "write_internal", endsTurn: true },
 	send_to_bot: { effect: "write_external" },
-	decide_bot_pending: { effect: "write_internal" },
+	decide_bot_pending: { effect: "write_external" },
 	set_primary_bot: { effect: "write_internal" },
-	set_autonomy: { effect: "write_internal" },
-	set_engine: { effect: "write_internal" },
+	set_autonomy: { effect: "write_internal", needsHuman: true },
+	set_engine: { effect: "write_internal", needsHuman: true },
 	set_reasoning_effort: { effect: "write_internal" },
 	delegate_task: { effect: "write_internal" },
 	propose_questionnaire: { effect: "write_internal", endsTurn: true },
@@ -170,6 +182,12 @@ export const TOOL_META: Readonly<Record<string, ToolMetaFields>> = {
 	preview_start: { effect: "write_internal" },
 	preview_stop: { effect: "write_internal" },
 };
+
+/** Efeito desta chamada: `effectForArgs` quando existe, senão o `effect` estático (pior caso). MCP/desconhecido: `undefined`. */
+export function resolveToolEffect(name: string, args: Record<string, unknown>): ToolEffect | undefined {
+	const meta = getToolMeta(name);
+	return meta ? (meta.effectForArgs?.(args) ?? meta.effect) : undefined;
+}
 
 /** Metadado da tool de nome fixo; `undefined` para MCP e nome desconhecido (ver `mcpToolEffect`). */
 export function getToolMeta(name: string): ToolMetaFields | undefined {

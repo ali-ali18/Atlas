@@ -269,8 +269,16 @@ export type ToolMetaFields = {
 	effect: ToolEffect;
 	/** Espera ou status de job: chamadas repetidas são esperadas e ficam isentas da rede de repetição. */
 	poll?: boolean;
-	/** Depois do lote desta tool o turno termina (veredito de alerta, pergunta ao humano). */
+	/**
+	 * O turno termina quando a tool devolve um cartão pendente (pergunta, aprovação, login, veredito de alerta):
+	 * o laço de hoje para o run até o humano decidir. Vale para a tool que costuma devolver o cartão, mesmo que
+	 * uma chamada específica (ex.: decisão já tomada) não o devolva.
+	 */
 	endsTurn?: boolean;
+	/** A tool muda as próprias permissões ou depende de decisão humana: sem humano presente a política a esconde. */
+	needsHuman?: true;
+	/** Efeito conforme os args desta chamada; `effect` fica como o pior caso. Use `resolveToolEffect`. */
+	effectForArgs?: (args: Record<string, unknown>) => ToolEffect;
 };
 
 export type ToolRegistration = Partial<ToolMetaFields> & {
