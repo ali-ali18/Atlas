@@ -1,17 +1,17 @@
 import { DashPathEffect, Group, LinearGradient, Line as SkLine, Rect, rect, vec } from "@shopify/react-native-skia";
 import * as React from "react";
 import { View } from "react-native";
-import { useAnimatedReaction, useDerivedValue } from "react-native-reanimated";
-import { scheduleOnRN } from "react-native-worklets";
+import { useDerivedValue } from "react-native-reanimated";
 import { Area, Bar, CartesianChart, Line, StackedArea, useChartPressState } from "victory-native";
 import { buildChartRows, chartExtent, chartValueFormatter, labelBudget, niceScale, pickTickValues, pressContent, SERIES_KEYS, type SeriesKey, xLabelSlot } from "@/lib/chart-data";
 import { seriesColor } from "@/lib/chart-palette";
 import { hexAlpha } from "@/lib/color-math";
 import type { ChartTheme } from "./chart-env";
-import { type AxisMarks, AxisOverlay, PressCard, useAxisScales, useEntrance } from "./chart-env";
+import { type AxisMarks, AxisOverlay, PRESS_CONFIG, PressLayer, useAxisScales, useEntrance, usePressTap } from "./chart-env";
 import type { ChartPlotProps } from "./chart-types";
 
 const HEIGHT = 240;
+const FRAME = { lineWidth: 0 } as const;
 const PRESS_INIT = { x: 0, y: { s0: 0, s1: 0, s2: 0, s3: 0, s4: 0, s5: 0, f: 0 } };
 
 type Kind = "bar" | "line" | "area";
@@ -29,13 +29,7 @@ export function CartesianPlot({ spec, theme, width }: ChartPlotProps) {
 	const axes = useAxisScales();
 	const entrance = useEntrance();
 	const { state } = useChartPressState(PRESS_INIT);
-	const [pressed, setPressed] = React.useState<number | null>(null);
-	useAnimatedReaction(
-		() => (state.isActive.value ? state.matchedIndex.value : -1),
-		(index, previous) => {
-			if (index !== previous) scheduleOnRN(setPressed, index < 0 ? null : index);
-		},
-	);
+	const tap = usePressTap(state);
 	const extent = React.useMemo(() => chartExtent(spec, model.rows), [spec, model.rows]);
 	const scale = React.useMemo(() => niceScale(extent.min, extent.max, 4), [extent]);
 	const axisFormat = React.useMemo(() => chartValueFormatter(spec, { axis: true, max: Math.max(Math.abs(scale.max), Math.abs(scale.min)) }), [spec, scale]);
@@ -51,27 +45,34 @@ export function CartesianPlot({ spec, theme, width }: ChartPlotProps) {
 	}, [model, width, gutter, pad]);
 	const marks: AxisMarks | null = axes.scales && axes.bounds ? { bounds: axes.bounds, y: scale.ticks.map((tick) => ({ text: axisFormat(tick), at: axes.scales!.y(tick) })), x: xTicks.map((x) => ({ text: model.labelOf(x), at: axes.scales!.x(x) })) } : null;
 	const stackedArea = spec.type === "area" && spec.stacked === true;
-	const content = pressed === null ? null : pressContent(spec, theme.colors, model, pressed);
+	const contentFor = React.useCallback((index: number) => pressContent(spec, theme.colors, model, index), [spec, theme.colors, model]);
+	// Props objeto do victory memoizadas: com objeto novo a cada render o gráfico inteiro recalcularia escalas e eixos.
+	const domain = React.useMemo(() => ({ y: [scale.min, scale.max] as [number, number] }), [scale]);
+	const domainPadding = React.useMemo(() => ({ left: pad, right: pad, top: 4 }), [pad]);
+	const padding = React.useMemo(() => ({ left: gutter, right: 12, top: 8, bottom: 26 }), [gutter]);
+	const yAxis = React.useMemo(() => [{ tickValues: scale.ticks, lineColor: theme.grid, lineWidth: 1, labelPosition: "inset" as const }], [scale, theme.grid]);
 	const dash = <DashPathEffect intervals={[5, 5]} />;
 	const clipBounds = useDerivedValue(() => rect(0, 0, Math.max(1, width * entrance.value), HEIGHT + 20));
 	const indicatorOpacity = useDerivedValue(() => (state.isActive.value ? 1 : 0));
 	return (
 		<View style={{ height: HEIGHT }}>
 			{marks ? <AxisOverlay marks={marks} gutter={gutter} color={theme.label} width={width} /> : null}
-			{content ? <PressCard scheme={theme.scheme} title={content.title} rows={content.rows} /> : null}
+			<PressLayer state={state} mode="matched" scheme={theme.scheme} contentFor={contentFor} />
 			<CartesianChart
 				data={model.rows}
 				xKey="x"
 				yKeys={yKeys}
-				domain={{ y: [scale.min, scale.max] }}
-				domainPadding={{ left: pad, right: pad, top: 4 }}
-				padding={{ left: gutter, right: 12, top: 8, bottom: 26 }}
+				domain={domain}
+				domainPadding={domainPadding}
+				padding={padding}
 				onScaleChange={axes.onScaleChange}
 				onChartBoundsChange={axes.onChartBoundsChange}
-				yAxis={[{ tickValues: scale.ticks, lineColor: theme.grid, lineWidth: 1, labelPosition: "inset" }]}
-				frame={{ lineWidth: 0 }}
+				yAxis={yAxis}
+				frame={FRAME}
 				chartPressState={state}
-				chartPressConfig={{ pan: { activateAfterLongPress: 100 } }}
+				chartPressConfig={PRESS_CONFIG}
+				actionsRef={tap.actionsRef as never}
+				customGestures={tap.customGestures as never}
 			>
 				{({ points, chartBounds, yScale }) => {
 					const layers = (["area", "bar", "line"] as const).flatMap((layer) => spec.series.flatMap((item, index) => (kindOf(spec.type, item.kind, index) === layer ? [{ index, layer }] : [])));

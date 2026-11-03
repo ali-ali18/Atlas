@@ -1,14 +1,14 @@
 import { Group, rect } from "@shopify/react-native-skia";
 import * as React from "react";
 import { View } from "react-native";
-import { useAnimatedReaction, useDerivedValue } from "react-native-reanimated";
-import { scheduleOnRN } from "react-native-worklets";
+import { useDerivedValue } from "react-native-reanimated";
 import { Bar, BarGroup, CartesianChart, HorizontalBar, HorizontalBarGroup, HorizontalStackedBar, StackedBar, useChartPressState } from "victory-native";
 import { barLayout, buildBarRows, chartValueFormatter, niceScale, pickTickValues, pressRows, SERIES_KEYS } from "@/lib/chart-data";
 import { seriesColor } from "@/lib/chart-palette";
-import { type AxisMarks, AxisOverlay, PressCard, useAxisScales, useEntrance } from "./chart-env";
+import { type AxisMarks, AxisOverlay, PRESS_CONFIG, PressLayer, useAxisScales, useEntrance, usePressTap } from "./chart-env";
 import type { ChartPlotProps } from "./chart-types";
 
+const FRAME = { lineWidth: 0 } as const;
 const PRESS_INIT = { x: 0, y: { s0: 0, s1: 0, s2: 0, s3: 0, s4: 0, s5: 0 } };
 
 /**
@@ -20,13 +20,7 @@ export function BarPlot({ spec, theme, width }: ChartPlotProps) {
 	const axes = useAxisScales();
 	const entrance = useEntrance();
 	const { state } = useChartPressState(PRESS_INIT);
-	const [pressed, setPressed] = React.useState<number | null>(null);
-	useAnimatedReaction(
-		() => (state.isActive.value ? Math.round(state.x.value.value) : -1),
-		(index, previous) => {
-			if (index !== previous) scheduleOnRN(setPressed, index < 0 ? null : index);
-		},
-	);
+	const tap = usePressTap(state);
 	const layout = React.useMemo(() => barLayout({ labels: model.labels, seriesCount: spec.series.length, orientation: spec.orientation, plotWidth: width - 90 }), [model.labels, spec.series.length, spec.orientation, width]);
 	const horizontal = layout.horizontal;
 	const stacked = spec.stacked === true && spec.series.length > 1;
@@ -48,29 +42,42 @@ export function BarPlot({ spec, theme, width }: ChartPlotProps) {
 			: null;
 	// Meia faixa de cada categoria de cada lado: a primeira e a última barra ficam inteiras dentro do gráfico.
 	const padAlong = Math.max(10, ((horizontal ? height - 34 : width - gutter - 12) / (2 * model.rows.length)));
-	const pressedRow = pressed === null ? null : model.rows[pressed];
+	const contentFor = React.useCallback(
+		(index: number) => {
+			const row = model.rows[index];
+			return row ? { title: model.titles[index]!, rows: pressRows(spec, theme.colors, spec.series.map((_, column) => row[SERIES_KEYS[column]!])) } : null;
+		},
+		[model, spec, theme.colors],
+	);
+	const domain = React.useMemo(() => ({ y: [scale.min, scale.max] as [number, number] }), [scale]);
+	const domainPadding = React.useMemo(() => (horizontal ? { top: padAlong, bottom: padAlong, right: 8 } : { left: padAlong, right: padAlong, top: 4 }), [horizontal, padAlong]);
+	const padding = React.useMemo(() => ({ left: gutter, right: horizontal ? 24 : 12, top: 8, bottom: 26 }), [gutter, horizontal]);
+	const xAxis = React.useMemo(() => ({ tickValues: horizontal ? scale.ticks : rowTicks, lineWidth: horizontal ? 1 : 0, lineColor: theme.grid }), [horizontal, scale, rowTicks, theme.grid]);
+	const yAxis = React.useMemo(() => [{ tickValues: horizontal ? rowTicks : scale.ticks, lineColor: theme.grid, lineWidth: horizontal ? 0 : 1 }], [horizontal, scale, rowTicks, theme.grid]);
 	const clip = useDerivedValue(() => (horizontal ? rect(0, 0, Math.max(1, width * entrance.value), height + 20) : rect(0, (height + 20) * (1 - entrance.value), width + 20, (height + 20) * entrance.value + 1)));
 	const rounded = { topLeft: 3, topRight: 3 } as const;
 	const roundedH = { topRight: 3, bottomRight: 3 } as const;
 	return (
 		<View style={{ height }}>
 			{marks ? <AxisOverlay marks={marks} gutter={gutter} color={theme.label} width={width} rowLabels={horizontal} /> : null}
-			{pressedRow ? <PressCard scheme={theme.scheme} title={model.titles[pressed!]!} rows={pressRows(spec, theme.colors, spec.series.map((_, index) => pressedRow[SERIES_KEYS[index]!]))} /> : null}
+			<PressLayer state={state} mode="x" scheme={theme.scheme} contentFor={contentFor} />
 			<CartesianChart
 				data={model.rows}
 				xKey="x"
 				yKeys={keys}
 				orientation={horizontal ? "horizontal" : "vertical"}
-				domain={{ y: [scale.min, scale.max] }}
-				domainPadding={horizontal ? { top: padAlong, bottom: padAlong, right: 8 } : { left: padAlong, right: padAlong, top: 4 }}
-				padding={{ left: gutter, right: horizontal ? 24 : 12, top: 8, bottom: 26 }}
+				domain={domain}
+				domainPadding={domainPadding}
+				padding={padding}
 				onScaleChange={axes.onScaleChange}
 				onChartBoundsChange={axes.onChartBoundsChange}
-				xAxis={{ tickValues: horizontal ? scale.ticks : rowTicks, lineWidth: horizontal ? 1 : 0, lineColor: theme.grid }}
-				yAxis={[{ tickValues: horizontal ? rowTicks : scale.ticks, lineColor: theme.grid, lineWidth: horizontal ? 0 : 1 }]}
-				frame={{ lineWidth: 0 }}
+				xAxis={xAxis}
+				yAxis={yAxis}
+				frame={FRAME}
 				chartPressState={state}
-				chartPressConfig={{ pan: { activateAfterLongPress: 100 } }}
+				chartPressConfig={PRESS_CONFIG}
+				actionsRef={tap.actionsRef as never}
+				customGestures={tap.customGestures as never}
 			>
 				{({ points, chartBounds }) => {
 					const colorsOf = spec.series.map((_, index) => seriesColor(theme.colors, index));

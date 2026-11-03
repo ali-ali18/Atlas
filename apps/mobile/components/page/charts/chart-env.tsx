@@ -1,6 +1,8 @@
 import * as React from "react";
 import { View } from "react-native";
-import { Easing, useReducedMotion, useSharedValue, withTiming, type SharedValue } from "react-native-reanimated";
+import { Gesture } from "react-native-gesture-handler";
+import { Easing, useAnimatedReaction, useReducedMotion, useSharedValue, withTiming, type SharedValue } from "react-native-reanimated";
+import { scheduleOnRN } from "react-native-worklets";
 import { Text } from "@/components/ui/text";
 import type { ChartColors } from "@/lib/chart-palette";
 import { colorTokens, type ColorScheme } from "@/lib/color-tokens";
@@ -89,4 +91,62 @@ export function AxisOverlay({ marks, gutter, color, width, rowLabels = false }: 
 			})}
 		</View>
 	);
+}
+
+type PressState = { isActive: SharedValue<boolean>; matchedIndex: SharedValue<number>; x: { value: { value: unknown } } };
+type Touchable = { handleTouch: (state: never, x: number, y: number) => void };
+
+/** Quanto tempo o valor tocado fica na tela depois de um toque rápido. */
+export const TAP_HOLD_MS = 2500;
+
+/** Pressão do victory: tocar e segurar (100 ms) arrasta o valor sem brigar com a rolagem vertical. */
+export const PRESS_CONFIG = { pan: { activateAfterLongPress: 100 } } as const;
+
+/**
+ * Toque rápido mostra o valor: o victory só ativa por segurar, então um `Gesture.Tap` chama o mesmo `handleTouch` do
+ * victory (acha o ponto mais próximo pela escala) e esconde sozinho depois de `TAP_HOLD_MS`. Segurar e arrastar segue
+ * valendo pela pressão do próprio victory (o Tap perde a corrida se o dedo anda).
+ */
+export function usePressTap(state: PressState) {
+	const actionsRef = useSharedValue<Touchable | null>(null);
+	const timer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+	const hideLater = React.useCallback(() => {
+		if (timer.current) clearTimeout(timer.current);
+		timer.current = setTimeout(() => {
+			state.isActive.value = false;
+		}, TAP_HOLD_MS);
+	}, [state]);
+	React.useEffect(() => () => void (timer.current && clearTimeout(timer.current)), []);
+	const customGestures = React.useMemo(
+		() =>
+			Gesture.Race(
+				Gesture.Tap()
+					.maxDuration(250)
+					.onEnd((event, success) => {
+						"worklet";
+						if (!success) return;
+						state.isActive.value = true;
+						actionsRef.value?.handleTouch(state as never, event.x, event.y);
+						scheduleOnRN(hideLater);
+					}),
+			),
+		[state, actionsRef, hideLater],
+	);
+	return { actionsRef, customGestures };
+}
+
+/**
+ * Cartão de valor ao tocar, num filho próprio: o índice tocado muda várias vezes por segundo ao arrastar e só este
+ * componente re-renderiza (o gráfico, que é pesado, não). `mode`: `matched` = índice do victory; `x` = valor de X arredondado (barras).
+ */
+export function PressLayer({ state, mode, scheme, contentFor }: { state: PressState; mode: "matched" | "x"; scheme: ColorScheme; contentFor: (index: number) => { title: string; rows: ReadonlyArray<{ color: string; label: string; value: string }> } | null }) {
+	const [pressed, setPressed] = React.useState<number | null>(null);
+	useAnimatedReaction(
+		() => (state.isActive.value ? (mode === "x" ? Math.round(Number(state.x.value.value)) : state.matchedIndex.value) : -1),
+		(index, previous) => {
+			if (index !== previous) scheduleOnRN(setPressed, index < 0 ? null : index);
+		},
+	);
+	const content = pressed === null ? null : contentFor(pressed);
+	return content ? <PressCard scheme={scheme} title={content.title} rows={content.rows} /> : null;
 }
