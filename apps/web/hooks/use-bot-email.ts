@@ -76,7 +76,7 @@ export function useBotEmail(botId: string, active: boolean) {
 		busy,
 		refresh,
 		enable: (domain?: string) => act(() => enableBotEmail(botId, domain), activeT("errors.enableAddress")),
-		patch: (patch: { allowedSenders?: string[]; dailySendLimit?: number; enabled?: boolean }) =>
+		patch: (patch: { allowedSenders?: string[]; dailySendLimit?: number; enabled?: boolean; autoReply?: boolean }) =>
 			act(() => updateBotEmail(botId, patch), activeT("errors.saveRetry")),
 		remove: () => act(() => disableBotEmail(botId), activeT("errors.removeAddress")),
 	};

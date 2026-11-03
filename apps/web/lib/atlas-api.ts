@@ -2829,7 +2829,7 @@ export async function verifyEmailDomain(id: string): Promise<EmailDomainDto> {
 export async function removeEmailDomain(id: string): Promise<void> {
 	await atlasFetch(`/v1/email/domains/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
-export function updateBotEmail(botId: string, patch: { allowedSenders?: string[]; dailySendLimit?: number; enabled?: boolean }): Promise<BotEmailPayload> {
+export function updateBotEmail(botId: string, patch: { allowedSenders?: string[]; dailySendLimit?: number; enabled?: boolean; autoReply?: boolean }): Promise<BotEmailPayload> {
 	return atlasFetch(`/v1/bots/${encodeURIComponent(botId)}/email`, { method: "PATCH", body: JSON.stringify(patch) });
 }
 export function disableBotEmail(botId: string): Promise<BotEmailPayload> {
