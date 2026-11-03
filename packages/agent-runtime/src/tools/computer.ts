@@ -118,6 +118,7 @@ export function hasPageChanges(changes: ControlPageChanges | undefined): boolean
 			changes.states?.length ||
 			changes.dialogsOpened?.length ||
 			changes.dialogsClosed?.length ||
+			changes.tree?.length ||
 			changes.title,
 	);
 }

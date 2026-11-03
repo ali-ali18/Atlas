@@ -1016,3 +1016,4 @@ export { bubbleRadius, groupPositionAt, type GroupPosition } from "./bubble-radi
 export * from "./agent-activity.js";
 export * from "./avatar-activity.js";
 export * from "./avatar-governor.js";
+export * from "./vtt.js";

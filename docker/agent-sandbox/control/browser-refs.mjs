@@ -6,14 +6,20 @@ import { installProbeInPage, settleAfterAction } from "./stability.mjs";
 import { diffPageDigest, readDigest, summarizeChanges } from "./page-digest.mjs";
 import { safePointer } from "./pointer.mjs";
 import { createFrameRegistry, frameTag, splitRef } from "./frames.mjs";
+import { waitForTextStable } from "./text-stable.mjs";
 import { collectInteractive } from "./snapshot-page.mjs";
 import { SNAPSHOT_MAX_SCAN, buildSnapshot, describeElement, formatElementLine } from "./snapshot.mjs";
+import { AxUnavailableError, axEnabled } from "./ax-snapshot.mjs";
+import { StaleRefError, createAxStore, resolveAxRef } from "./ax-refs.mjs";
+import { isTreeRef } from "./ax-ref-names.mjs";
+import { createAxEngine } from "./browser-ax.mjs";
 
 export const ACT_ACTIONS = ["click", "type", "select", "check", "uncheck", "hover", "press", "clear"];
-export const WAIT_KINDS = ["text", "ref", "url", "network", "stable"];
+export const WAIT_KINDS = ["text", "ref", "url", "network", "stable", "text_stable"];
 const MAX_TYPE_LENGTH = 20_000;
 const MAX_VALUE_LENGTH = 300;
-const REF_PATTERN = /^(?:f\d{1,3})?e\d{1,5}$/;
+const REF_PATTERN = /^(?:f\d{1,3})?[ea]\d{1,5}$/;
+const DOM_REF_PATTERN = /^(?:f\d{1,3})?e\d{1,5}$/;
 const ACT_TIMEOUT_MS = 10_000;
 const MAX_DELTA = 12;
 export const WAIT_DEFAULT_MS = 8000;
@@ -64,8 +70,20 @@ export function parseWaitArgs(body) {
 	}
 	if (value.length > MAX_VALUE_LENGTH) throw new Error(`value muito longo (máx. ${MAX_VALUE_LENGTH}).`);
 	const asked = Number(body?.timeoutMs);
-	const timeoutMs = Number.isFinite(asked) && asked > 0 ? Math.min(WAIT_MAX_MS, Math.floor(asked)) : WAIT_DEFAULT_MS;
-	return { kind, value: value.trim(), timeoutMs, gone: Boolean(body?.gone) };
+	// text_stable espera resposta de chat/IA: o padrão já é o teto.
+	const fallback = kind === "text_stable" ? WAIT_MAX_MS : WAIT_DEFAULT_MS;
+	const timeoutMs = Number.isFinite(asked) && asked > 0 ? Math.min(WAIT_MAX_MS, Math.floor(asked)) : fallback;
+	const out = { kind, value: value.trim(), timeoutMs, gone: Boolean(body?.gone) };
+	if (kind === "text_stable") {
+		// Alvo opcional: `ref` (de um read/snapshot) ou `scope` (seletor CSS). Sem nenhum, o bloco que mais mudou.
+		const ref = typeof body?.ref === "string" ? body.ref.trim() : "";
+		if (ref && !DOM_REF_PATTERN.test(ref)) throw new Error("ref inválido em text_stable: use um ref do browser_read/browser_snapshot (ex.: e12).");
+		const scope = typeof body?.scope === "string" ? body.scope.trim() : "";
+		if (scope.length > MAX_VALUE_LENGTH) throw new Error(`scope muito longo (máx. ${MAX_VALUE_LENGTH}).`);
+		if (ref) out.ref = ref;
+		else if (scope) out.scope = scope;
+	}
+	return out;
 }
 
 function refSelector(ref) {
@@ -79,6 +97,9 @@ export function createRefActions({
 	sleep,
 	clickElement,
 	registry = createFrameRegistry(),
+	axStore = createAxStore(),
+	axOn = axEnabled,
+	axTimeoutMs,
 }) {
 	const pause = sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
 
@@ -127,22 +148,64 @@ export function createRefActions({
 		}
 	}
 
-	async function browserSnapshot({ scope, offset, limit, area } = {}) {
+	// Motor v2: a árvore de acessibilidade lê `scrollOf` daqui (uma fonte só).
+	const axEngine = createAxEngine({ store: axStore, scrollOf: (page) => scrollOf(page), timeoutMs: axTimeoutMs });
+
+	/**
+	 * `engine`: "dom" força o snapshot v1; sem ele, a árvore de acessibilidade (flag
+	 * ATLAS_AX_SNAPSHOT, ligada por padrão) e, se ela falhar ou estourar 4 s, o v1 com uma nota.
+	 * `scope` (seletor CSS) é coisa do v1.
+	 */
+	async function browserSnapshot({ scope, offset, limit, area, engine, ref } = {}) {
 		const selectorScope = typeof scope === "string" && scope.trim() ? scope.trim() : undefined;
+		const wantAx = !selectorScope && engine !== "dom" && axOn();
+		if (ref !== undefined && ref !== null && ref !== "" && !REF_PATTERN.test(String(ref).trim())) {
+			throw new Error(`ref inválido "${ref}": use um ref do browser_snapshot (ex.: e12).`);
+		}
 		return withPageRetry(async (page) => {
+			let note;
+			if (wantAx) {
+				try {
+					return await axEngine.snapshot(page, { area, ref, offset, limit });
+				} catch (error) {
+					if (error?.userFacing) throw error;
+					const reason = error instanceof AxUnavailableError ? error.reason : "failed";
+					// Playwright sem o recurso é o caso esperado de versão antiga: cai no v1 sem ruído.
+					if (reason !== "unsupported") note = `Árvore de acessibilidade indisponível (${reason === "timeout" ? "demorou mais de 4 s" : reason}): usando a lista de elementos.`;
+				}
+			}
+			axStore.setDom(page);
 			const raws = await collect(page, {
 				scope: selectorScope,
 				mode: "full",
 				area: area === "page" ? "page" : "viewport",
 			});
-			return buildSnapshot({
-				url: page.url(),
-				title: await page.title(),
-				raws,
-				page: { offset, limit },
-				scroll: await scrollOf(page),
-			});
+			return {
+				...buildSnapshot({
+					url: page.url(),
+					title: await page.title(),
+					raws,
+					page: { offset, limit },
+					scroll: await scrollOf(page),
+				}),
+				engine: "dom",
+				...(note ? { note } : {}),
+			};
 		}, { tries: 3 });
+	}
+
+	/**
+	 * Ref da ação/espera pelo FORMATO: `aN` é da árvore de acessibilidade (resolve a ref
+	 * vencida por papel+nome), `eN` é do DOM (`data-atlas-ref`). O estado da aba não decide.
+	 */
+	async function resolveRef(page, ref) {
+		if (!isTreeRef(ref)) return { locator: await locateRef(page, ref), engine: "dom" };
+		try {
+			return { ...(await resolveAxRef(page, axStore.tableFor(page), ref)), engine: "ax" };
+		} catch (error) {
+			if (error instanceof StaleRefError) return { stale: error.message };
+			throw error;
+		}
 	}
 
 	async function locateRef(page, ref) {
@@ -225,10 +288,12 @@ export function createRefActions({
 	 * espera adaptativa e refs novos (numerados agora ou que reapareceram).
 	 * Nunca falha por causa da observação: sem digest, só o efeito.
 	 */
-	async function observeAction(page, perform, { urlBefore = page.url() } = {}) {
+	async function observeAction(page, perform, { urlBefore = page.url(), ax = false } = {}) {
 		await page.evaluate(installProbeInPage).catch(() => {});
 		const before = await readDigest(page, registry);
 		const result = await perform();
+		// A página pode ter mudado sem trocar a URL: o texto em cache da paginação não vale mais.
+		axStore.clearRendered(page);
 		const effect = await stabilize(page, { urlBefore });
 		const after = before ? await readDigest(page, registry) : null;
 		const diff = diffPageDigest(before, after);
@@ -236,7 +301,11 @@ export function createRefActions({
 		const reloaded = diff ? diff.reloaded : Boolean(effect.navigated);
 		let fresh = [];
 		let newTotal = 0;
-		if (!reloaded) {
+		let tree;
+		if (ax) {
+			// Árvore de acessibilidade: o diff por ref traz os elementos novos já com ref; só roda se o digest viu mudança.
+			if (!reloaded && changes && Object.keys(changes).length > 0) tree = await axEngine.changesAfter(page);
+		} else if (!reloaded) {
 			const raws = await collect(page, { mode: "incremental", area: "viewport", maxScan: MAX_DELTA * 3 });
 			fresh = raws.slice(0, MAX_DELTA);
 			// Elementos já numerados que voltaram a aparecer (acordeão reaberto).
@@ -253,7 +322,7 @@ export function createRefActions({
 			result,
 			effect,
 			diff,
-			...(changes && Object.keys(changes).length > 0 ? { changes } : {}),
+			...(changes && Object.keys(changes).length > 0 || tree?.length ? { changes: { ...(changes ?? {}), ...(tree?.length ? { tree } : {}) } } : {}),
 			...(diff && diff.errors.length > 0 ? { errors: diff.errors } : {}),
 			newElements: elements.map(formatElementLine),
 			newTotal,
@@ -263,8 +332,11 @@ export function createRefActions({
 	async function browserAct(body) {
 		const args = parseActArgs(body);
 		return withPageRetry(async (page) => {
-			const locator = await locateRef(page, args.ref);
+			const found = await resolveRef(page, args.ref);
+			if (found.stale) throw new Error(found.stale);
+			const { locator, resolved } = found;
 			if (!locator) throw new Error(`Ref ${args.ref} não encontrado: a página mudou ou o ref é de um snapshot antigo. ${STALE_HINT}`);
+			const useAx = found.engine === "ax" && axStore.engineOf(page) === "ax";
 			try {
 				await locator.scrollIntoViewIfNeeded({ timeout: 3000 });
 			} catch {
@@ -279,7 +351,7 @@ export function createRefActions({
 			}
 			const pointer = await safePointer(() => locator);
 			const urlBefore = page.url();
-			const observed = await observeAction(page, () => perform(page, locator, args), { urlBefore });
+			const observed = await observeAction(page, () => perform(page, locator, args), { urlBefore, ax: useAx });
 			const { effect, result: performed } = observed;
 			const readsField = ["type", "clear", "select", "check", "uncheck"].includes(args.action);
 			const field = readsField && !effect.navigated ? await readField(locator) : undefined;
@@ -288,6 +360,7 @@ export function createRefActions({
 				ok: true,
 				ref: args.ref,
 				action: args.action,
+				...(resolved ? { note: resolved } : {}),
 				...(click ? { rung: click.rung, tried: click.tried, ...(click.dismissed ? { dismissed: click.dismissed } : {}) } : {}),
 				...(pointer ? { pointer } : {}),
 				...effect,
@@ -302,7 +375,7 @@ export function createRefActions({
 
 	async function waitForRef(page, ref, gone, deadline) {
 		for (;;) {
-			const locator = await locateRef(page, ref);
+			const locator = (await resolveRef(page, ref)).locator;
 			const visible = locator ? await locator.isVisible().catch(() => false) : false;
 			if (gone ? !visible : visible) return true;
 			if (now() >= deadline) return false;
@@ -311,11 +384,12 @@ export function createRefActions({
 	}
 
 	async function browserWait(body) {
-		const { kind, value, timeoutMs, gone } = parseWaitArgs(body);
+		const { kind, value, timeoutMs, gone, ref, scope } = parseWaitArgs(body);
 		return withPageRetry(async (page) => {
 			const started = now();
 			let met = false;
 			let reason = "";
+			let textInfo;
 			try {
 				if (kind === "text") {
 					await page.waitForFunction(
@@ -332,6 +406,11 @@ export function createRefActions({
 					met = true;
 				} else if (kind === "ref") {
 					met = await waitForRef(page, value, gone, started + timeoutMs);
+				} else if (kind === "text_stable") {
+					const stable = await waitForTextStable(page, registry, { ref, scope, timeoutMs, now, sleep: pause });
+					met = stable.met;
+					if (!met) reason = stable.reason;
+					textInfo = { changed: stable.changed, textLength: stable.textLength };
 				} else {
 					const effect = await stabilize(page, { capMs: timeoutMs });
 					met = effect.settled;
@@ -347,10 +426,11 @@ export function createRefActions({
 				waitedMs: now() - started,
 				url: page.url(),
 				title: await page.title().catch(() => ""),
+				...(textInfo ?? {}),
 				...(met ? {} : { reason }),
 			};
 		}, { tries: 2 });
 	}
 
-	return { browserSnapshot, browserAct, browserWait, observeAction, collect, locateRef, registry };
+	return { browserSnapshot, browserAct, browserWait, observeAction, collect, locateRef, registry, axStore };
 }

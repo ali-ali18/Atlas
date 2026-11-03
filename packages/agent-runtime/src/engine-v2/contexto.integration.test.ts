@@ -532,3 +532,106 @@ describe("integração E2/E3: navegador completo, login só estrutural, cartão 
 		}
 	});
 });
+
+describe("integração motor v2: ler e agir pela árvore de acessibilidade (página estilo YouTube)", () => {
+	const toolResults = (events: ComputerUseEvent[]) => events.flatMap((event) => (event.type === "tool_result" ? [{ name: event.name, ok: event.ok, summary: event.summary }] : []));
+	// O chunk 1 que o sandbox devolve: o painel lateral com a resposta e o botão, mais os primeiros comentários; o resto vira rodapé.
+	const TREE = [
+		"navigation",
+		'  link "Início" [e3] [href=/]',
+		"main",
+		'  heading "Como funciona um motor v2" [level=1]',
+		'  textbox "Pesquisar" [e8]',
+		'  article',
+		'    Autor 0 comentário número 0 do vídeo',
+		'    button "Responder" [e30]',
+		'complementary "Resposta"',
+		"  Resposta pronta: a árvore de acessibilidade resolve isso.",
+		'  button "Copiar resposta" [e44]',
+		"[fora da janela: 1899 blocos; area=page mostra a página toda]",
+		"+1899 article fora da janela em main: browser_snapshot ref=e2",
+	].join("\n");
+	const snapshot = {
+		url: "https://video.test/watch",
+		title: "Como funciona um motor v2",
+		engine: "ax" as const,
+		tree: TREE,
+		treeLength: TREE.length,
+		area: "viewport" as const,
+		total: 4,
+		offset: 0,
+		limit: 6000,
+		nextOffset: null,
+		lines: ['[e8] textbox "Pesquisar"', '[e30] button "Responder"', '[e44] button "Copiar resposta"'],
+	};
+
+	it("snapshot -> clique pela ref do painel -> diff da árvore: o modelo vê o painel no 1º chunk e age sem reler a página", async () => {
+		const execBrowserSnapshot = vi.fn(async () => snapshot);
+		const execBrowserAct = vi.fn(async (_s: string, input: { ref: string; action: string }) => ({
+			ok: true,
+			action: input.action,
+			ref: input.ref,
+			url: "https://video.test/watch",
+			waitMs: 120,
+			settled: true,
+			changes: { added: "copiado para a área de transferência", tree: ['+ paragraph: "copiado para a área de transferência"', '~ button "Copiar resposta" [e44] [disabled]'] },
+			newElements: [],
+			newTotal: 0,
+		}));
+		const run = await runBrowser({
+			messages: [{ role: "user", content: "copie a resposta do painel ao lado do vídeo" }],
+			manager: { execNavigate: async (_s: string, url: string) => ({ url, title: "Vídeo", ready: true }), execBrowserSnapshot, execBrowserAct },
+			script: [
+				turn([call("mcp_tool_search", { query: "browser" })]),
+				turn([call("navigate", { url: "https://video.test/watch" })]),
+				turn([call("browser_snapshot", {})]),
+				turn([call("browser_act", { ref: "e44", action: "click" })]),
+				say("Copiei a resposta do painel: a árvore de acessibilidade resolve isso."),
+			],
+		});
+		expect(run.result.stop).toEqual({ reason: "answered" });
+		const results = toolResults(run.events);
+		expect(results.map((item) => [item.name, item.ok])).toEqual([["mcp_tool_search", true], ["navigate", true], ["browser_snapshot", true], ["browser_act", true]]);
+		// O motor padrão é a árvore: nenhum engine/view pedido, só o snapshot da janela.
+		expect(execBrowserSnapshot.mock.calls[0]![1]).not.toHaveProperty("engine");
+		const snap = results[2]!.summary;
+		expect(snap).toContain("Resposta pronta: a árvore de acessibilidade resolve isso.");
+		expect(snap).toContain('button "Copiar resposta" [e44]');
+		expect(snap).toContain("browser_snapshot ref=e2");
+		expect(snap.length).toBeLessThan(2000);
+		expect(execBrowserAct).toHaveBeenCalledWith("session-1", expect.objectContaining({ ref: "e44", action: "click" }));
+		const act = results[3]!.summary;
+		expect(act).toContain("Page tree changes");
+		expect(act).not.toContain("Verification warning");
+		// O passo seguinte ao snapshot já carrega a árvore no contexto do modelo.
+		expect(run.steps.at(-1)!.text).toContain('button "Copiar resposta" [e44]');
+	});
+
+	it("ref ambígua depois do re-render: o sandbox falha rápido, o modelo tira um snapshot novo e conclui", async () => {
+		let stale = true;
+		const execBrowserAct = vi.fn(async (_s: string, input: { ref: string; action: string }) => {
+			if (stale) {
+				stale = false;
+				throw new Error('Ref e30 venceu e há 2 button "Responder" na página (era a 1ª de 2). Candidatas: 1 perto de "Autor 0"; 2 perto de "Autor 1". Tire um novo browser_snapshot e use a ref certa.');
+			}
+			return { ok: true, action: input.action, ref: input.ref, url: "https://video.test/watch", waitMs: 80, settled: true, changes: { tree: ['+ article "Resposta de Ana"'] }, newElements: [], newTotal: 0 };
+		});
+		const run = await runBrowser({
+			messages: [{ role: "user", content: "responda ao primeiro comentário" }],
+			manager: { execNavigate: async (_s: string, url: string) => ({ url, title: "Vídeo", ready: true }), execBrowserSnapshot: async () => snapshot, execBrowserAct },
+			script: [
+				turn([call("mcp_tool_search", { query: "browser" })]),
+				turn([call("navigate", { url: "https://video.test/watch" })]),
+				turn([call("browser_snapshot", {})]),
+				turn([call("browser_act", { ref: "e30", action: "click" })]),
+				turn([call("browser_snapshot", {})]),
+				turn([call("browser_act", { ref: "e30", action: "click" })]),
+				say("Abri a resposta ao primeiro comentário."),
+			],
+		});
+		const acts = toolResults(run.events).filter((item) => item.name === "browser_act");
+		expect(acts.map((item) => item.ok)).toEqual([false, true]);
+		expect(acts[0]!.summary).toContain("há 2 button");
+		expect(run.result.stop).toEqual({ reason: "answered" });
+	});
+});

@@ -127,13 +127,20 @@ describe("F12/B - snapshot e ação por ref (replay do caso Bling)", () => {
 		expect(refTools).toHaveLength(3);
 		for (const tool of refTools) expect(tool.function.description).toMatch(/USE/);
 		for (const tool of refTools) expect(tool.function.description).toMatch(/Do NOT|do NOT/);
-		expect(SYSTEM_PROMPT).toContain("Act with `browser_act` by `ref` (or visible `text` for a click); `browser_snapshot` before forms.");
+		expect(SYSTEM_PROMPT).toContain("Prefer `browser_snapshot` (accessibility tree with refs) to see and act; `browser_read` for long text");
 		expect(SYSTEM_PROMPT).toContain("Never guess selectors or coordinates.");
 	});
 
 	it("prompt: formulários e navegação por snapshot/act, screenshot só para verificar", () => {
 		expect(SYSTEM_PROMPT).toContain("`browser_wait` only for slow loads.");
-		expect(SYSTEM_PROMPT).toContain("Use `screenshot` only for visual checks (canvas, charts); only the 2 latest stay in context.");
+		expect(SYSTEM_PROMPT).toContain(
+			"If a read does not contain what you just triggered or expect on screen (a side panel, chat answer, overlay), take a screenshot and read it before asking the user",
+		);
+		expect(SYSTEM_PROMPT).not.toContain("only for visual checks");
+		expect(SYSTEM_PROMPT).toContain("After asking a chat or AI panel, wait for text_stable before reading");
+		const shot = COMPUTER_USE_TOOLS.find((t) => t.function.name === "screenshot");
+		expect(shot?.function.description).toContain("for what a read missed (side panel, chat answer, overlay)");
+				expect(shot?.function.description).toContain("to click by ref");
 	});
 
 	it("não oferece as tools sem sandbox", async () => {
@@ -184,6 +191,27 @@ describe("F12/B - snapshot e ação por ref (replay do caso Bling)", () => {
 		expect(toolResults[2]?.summary).toContain("browser_snapshot");
 		expect(toolResults[3]?.summary).toMatch(/não concluiu.*Timeout 8000ms/);
 		expect(execBrowserAct).toHaveBeenCalledTimes(1);
+	});
+
+	it("browser_wait text_stable repassa ref/scope, valida o ref e orienta quando o texto não mexeu", async () => {
+		const execBrowserWait = vi.fn(async (_s: string, p: { for: string }) => ({
+			ok: true, met: true, for: p.for, waitedMs: 3500, url: "u", title: "t", changed: p.for === "text_stable" && execBrowserWait.mock.calls.length < 3, textLength: 120,
+		}));
+		const { toolResults } = await runWith({ execBrowserWait }, [
+			step([{ id: "1", name: "browser_wait", args: { for: "text_stable", scope: "#answer" } }]),
+			step([{ id: "2", name: "browser_wait", args: { for: "text_stable", ref: "f1e4" } }]),
+			step([{ id: "3", name: "browser_wait", args: { for: "text_stable" } }]),
+			step([{ id: "4", name: "browser_wait", args: { for: "text_stable", ref: "div" } }]),
+			text("ok"),
+		]);
+		expect(toolResults.map((r) => r.ok)).toEqual([true, true, true, false]);
+		expect(execBrowserWait.mock.calls[0]?.[1]).toMatchObject({ for: "text_stable", scope: "#answer" });
+		expect(execBrowserWait.mock.calls[1]?.[1]).toMatchObject({ for: "text_stable", ref: "f1e4" });
+		expect(execBrowserWait.mock.calls[1]?.[1]).not.toHaveProperty("scope");
+		expect(toolResults[0]?.summary).toContain("stopped changing");
+		expect(toolResults[2]?.summary).toContain("did not change while waiting");
+		expect(toolResults[3]?.summary).toMatch(/ref inválido/);
+		expect(execBrowserWait).toHaveBeenCalledTimes(3);
 	});
 
 	it("ref com prefixo de frame (f2e7) chega ao sandbox; prefixo malformado é recusado", async () => {
@@ -372,5 +400,175 @@ describe("F12/B5 - muro de login: card, pausa e retomada", () => {
 		const { toolResults } = await runLogin([step([{ id: "s1", name: "browser_snapshot", args: {} }])]);
 		expect(toolResults[0]?.summary).toContain("nunca preencha");
 		expect(toolResults[0]?.summary).not.toContain("value=");
+	});
+});
+
+// Fallback de visão: leitura cortada ou clique sem texto novo anexam um screenshot (no máximo um por passo).
+describe("fallback de visão da leitura", () => {
+	const readResult = (over: Record<string, unknown> = {}) => ({
+		url: "https://video.test/watch", title: "Video", view: "outline", text: "# Video\nComments", offset: 0, limit: 8000,
+		totalLength: 20, truncated: false, nextOffset: null, frames: 1, collapsed: 0, ...over,
+	});
+	const actResult = (changes?: Record<string, unknown>) => ({
+		ok: true, ref: "e1", action: "click", url: "https://video.test/watch", navigated: false, settled: true, newElements: [], newTotal: 0, ...(changes ? { changes } : {}),
+	});
+
+	async function run(manager: Record<string, unknown>, queue: CompleteChatWithToolsResult[]) {
+		const persisted: string[] = [];
+		const summaries: Array<{ name: string; summary: string }> = [];
+		const offered: string[][] = [];
+		await runComputerUse({
+			manager: {
+				execScreen: async () => ({ width: 1280, height: 720 }),
+				execScreenshot: async () => Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 0]),
+				execBrowserSnapshot: async () => ({ url: "https://video.test/watch", title: "Video", total: 1, offset: 0, limit: 100, nextOffset: null, lines: ['[e1] button "Perguntar"'] }),
+				...manager,
+			} as unknown as SandboxManager,
+			getSessionId: async () => "session-v",
+			model: "test-model",
+			apiKey: "test",
+			messages: [{ role: "user", content: "clique em Perguntar e resuma" }],
+			runId: "run-vision",
+			maxSteps: 20,
+			persistScreenshot: async (b64) => {
+				persisted.push(b64);
+				return `art-${persisted.length}`;
+			},
+			onEvent: (event) => {
+				if (event.type === "tool_result") summaries.push({ name: event.name, summary: event.summary });
+			},
+			streamChat: async (request) => {
+				offered.push((request.tools ?? []).map((tool) => tool.function.name));
+				return queue.shift() ?? text("ok");
+			},
+		});
+		return { persisted, summaries, offered };
+	}
+
+	it("browser_read cortado (capped) anexa 1 screenshot e sugere ler a imagem; leitura normal não anexa", async () => {
+		const capped = await run({ execBrowserRead: vi.fn(async () => readResult({ capped: true })) }, [
+			step([{ id: "1", name: "browser_read", args: {} }]),
+			text("ok"),
+		]);
+		expect(capped.persisted).toHaveLength(1);
+		const note = capped.summaries[0]?.summary ?? "";
+		expect(note).toContain("Vision fallback");
+		expect(note).toContain("take a screenshot and read it before asking the user");
+		expect(note).not.toContain("use browser_find");
+
+		const normal = await run({ execBrowserRead: vi.fn(async () => readResult()) }, [
+			step([{ id: "1", name: "browser_read", args: {} }]),
+			text("ok"),
+		]);
+		expect(normal.persisted).toHaveLength(0);
+		expect(normal.summaries[0]?.summary).not.toContain("Vision fallback");
+	});
+
+	it("clique sem texto novo anexa screenshot; com texto novo, navegação ou diálogo, não", async () => {
+		const outcomes: Record<string, unknown>[] = [actResult({}), actResult({ added: "RESPOSTA DO PAINEL" }), actResult({ dialogsOpened: ["Chat"] }), { ...actResult(), navigated: true }];
+		for (const [index, outcome] of outcomes.entries()) {
+			const res = await run({ execBrowserAct: vi.fn(async () => outcome) }, [
+				step([{ id: "1", name: "browser_act", args: { ref: "e1", action: "click" } }]),
+				text("ok"),
+			]);
+			expect(res.persisted).toHaveLength(index === 0 ? 1 : 0);
+		}
+	});
+
+	it("no máximo 1 screenshot automático por passo, mesmo com várias leituras cortadas", async () => {
+		const res = await run({ execBrowserRead: vi.fn(async () => readResult({ capped: true })) }, [
+			step([
+				{ id: "1", name: "browser_read", args: {} },
+				{ id: "2", name: "browser_read", args: { view: "text" } },
+			]),
+			step([{ id: "3", name: "browser_read", args: {} }]),
+			text("ok"),
+		]);
+		// 1 no passo com duas leituras + 1 no passo seguinte.
+		expect(res.persisted).toHaveLength(2);
+	});
+
+	it("modelo sem visão não recebe o screenshot", async () => {
+		const persisted: string[] = [];
+		await runComputerUse({
+			manager: { execBrowserRead: async () => readResult({ capped: true }), execBrowserSnapshot: async () => ({ url: "https://video.test/watch", title: "Video", lines: [] }), execScreen: async () => ({ width: 1280, height: 720 }), execScreenshot: async () => Buffer.from([0xff, 0xd8]) } as unknown as SandboxManager,
+			getSessionId: async () => "s",
+			model: "test-model",
+			apiKey: "test",
+			canSeeUserImages: false,
+			messages: [{ role: "user", content: "leia" }],
+			runId: "run-novision",
+			maxSteps: 5,
+			persistScreenshot: async (b64) => {
+				persisted.push(b64);
+				return "a";
+			},
+			onEvent: () => undefined,
+			streamChat: (() => {
+				const queue = [step([{ id: "1", name: "browser_read", args: {} }]), text("ok")];
+				return async () => queue.shift() ?? text("ok");
+			})(),
+		});
+		expect(persisted).toHaveLength(0);
+	});
+
+	it("página com campo de senha, código de uso único ou login: o screenshot automático não anexa", async () => {
+		const cases: Array<{ url: string; lines: string[]; attaches: boolean }> = [
+			{ url: "https://video.test/watch", lines: ['[e1] textbox "Senha" (campo de senha: nunca preencha)'], attaches: false },
+			{ url: "https://video.test/watch", lines: ['[e1] textbox "Código" (campo de código de uso único)'], attaches: false },
+			{ url: "https://accounts.example.com/login", lines: ['[e1] textbox "E-mail"'], attaches: false },
+			// Campo de e-mail numa página comum não é parede de login: segue anexando.
+			{ url: "https://video.test/watch", lines: ['[e1] textbox "E-mail"'], attaches: true },
+		];
+		for (const [index, item] of cases.entries()) {
+			const res = await run(
+				{ execBrowserRead: vi.fn(async () => readResult({ capped: true })), execBrowserSnapshot: async () => ({ url: item.url, title: "Entrar", total: 1, offset: 0, limit: 100, nextOffset: null, lines: item.lines }) },
+				[step([{ id: "1", name: "browser_read", args: {} }]), text("ok")],
+			);
+			expect(res.persisted, `caso ${index}`).toHaveLength(item.attaches ? 1 : 0);
+		}
+	});
+
+	it("clique silencioso em campo sensível (pointer.sensitive) ou com resultado de segredo não anexa a tela", async () => {
+		const outcomes = [{ ...actResult({}), pointer: { x: 1, y: 1, sensitive: true } }, { ...actResult({}), field: { secret: true } }, actResult({})];
+		for (const [index, outcome] of outcomes.entries()) {
+			const res = await run({ execBrowserAct: vi.fn(async () => outcome) }, [
+				step([{ id: "1", name: "browser_act", args: { ref: "e1", action: "click" } }]),
+				text("ok"),
+			]);
+			expect(res.persisted, `caso ${index}`).toHaveLength(index === 2 ? 1 : 0);
+		}
+	});
+
+	it("sem como conferir a tela (snapshot falha), não anexa: privacidade antes da conveniência", async () => {
+		const res = await run(
+			{ execBrowserRead: vi.fn(async () => readResult({ capped: true })), execBrowserSnapshot: async () => { throw new Error("sem tela"); } },
+			[step([{ id: "1", name: "browser_read", args: {} }]), text("ok")],
+		);
+		expect(res.persisted).toHaveLength(0);
+	});
+
+	it("leitura cortada paginada: só a 1ª página anexa a imagem", async () => {
+		const res = await run({ execBrowserRead: vi.fn(async (_s: string, input: { offset?: number }) => readResult({ capped: true, offset: input.offset ?? 0 })) }, [
+			step([{ id: "1", name: "browser_read", args: {} }]),
+			step([{ id: "2", name: "browser_read", args: { offset: 8000 } }]),
+			text("ok"),
+		]);
+		expect(res.persisted).toHaveLength(1);
+	});
+
+	it("replay: a leitura não traz o termo; o passo seguinte é um screenshot, não um pedido para copiar o texto", async () => {
+		const calls: string[] = [];
+		const res = await run({ execBrowserRead: vi.fn(async () => readResult({ text: "# Video\nComments only" })) }, [
+			step([{ id: "1", name: "browser_read", args: {} }]),
+			step([{ id: "2", name: "screenshot", args: {} }]),
+			text("O painel resume o vídeo: ..."),
+		]);
+		for (const entry of res.summaries) calls.push(entry.name);
+		expect(calls).toEqual(["browser_read", "screenshot"]);
+		expect(res.persisted).toHaveLength(1);
+		expect(res.offered[1]).toContain("screenshot");
+		expect(SYSTEM_PROMPT).toContain("take a screenshot and read it before asking the user");
+		expect(SYSTEM_PROMPT).not.toMatch(/copy the text|copie o texto/i);
 	});
 });

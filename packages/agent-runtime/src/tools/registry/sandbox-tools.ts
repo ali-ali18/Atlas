@@ -5,6 +5,7 @@ import { COMPUTER_TABS_TOOL_NAME } from "../computer-tabs.js";
 import { NATIVE_COMPUTER_TOOL_NAME } from "../computer-native.js";
 import { SANDBOX_RELEASE_TOOL_NAME } from "../sandbox-release.js";
 import { SANDBOX_SHELL_TOOL_NAMES } from "../sandbox-shell.js";
+import { VIDEO_TRANSCRIPT_TOOL_NAME } from "../video-transcript.js";
 
 /** Tools que usam a VM do run (navegador e shell): ganham aviso de aba e prazo de sandbox. */
 export const SANDBOX_TOOL_NAMES = new Set([
@@ -20,6 +21,7 @@ export const SANDBOX_TOOL_NAMES = new Set([
 	COMPUTER_TABS_TOOL_NAME,
 	...SANDBOX_SHELL_TOOL_NAMES,
 	SANDBOX_RELEASE_TOOL_NAME,
+	VIDEO_TRANSCRIPT_TOOL_NAME,
 	NATIVE_COMPUTER_TOOL_NAME,
 ]);
 

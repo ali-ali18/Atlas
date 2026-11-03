@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { createBrowserActions } from "./browser-actions.mjs";
 import { createRefActions } from "./browser-refs.mjs";
 import { createPageReader, parseReadArgs } from "./reader.mjs";
+import { READ_MAX_NODES, READ_MAX_ITEMS } from "./read-page.mjs";
 import { launchFixtureBrowser } from "./test-browser.mjs";
 
 test("parseReadArgs: view, expand all/refs e validação dos refs", () => {
@@ -51,7 +52,18 @@ const wform = `<body><h1>Order</h1>
 <form><button type="button" id="f" aria-expanded="false" aria-controls="fh">Filters</button><div id="fh" hidden>Filter help text</div></form>
 <script>document.getElementById('f').onclick=(e)=>{e.preventDefault();e.target.setAttribute('aria-expanded','true');document.getElementById('fh').hidden=false}</script></body>`;
 
-const fixtures = await launchFixtureBrowser({ "/wform": wform, "/lms": lms, "/host": host, "/inner": inner("Inner"), "/inner2": inner("Cross"), "/long": long, "/huge": huge });
+// Feed estilo YouTube: 15 mil comentários em #primary vêm ANTES (no documento) do painel lateral visível.
+const feed = `<body style="margin:0"><div id="primary" style="width:600px"><h1>Video title</h1><button id="ask">Ask</button><div id="comments"></div></div>
+<aside id="secondary" style="position:fixed;right:0;top:0;width:260px"><h2>Assistant</h2><p>RESPOSTA DO PAINEL: o video fala de testes.</p></aside>
+<script>document.getElementById('comments').innerHTML = Array.from({ length: 15000 }, (_, i) => '<p>Comment '+i+' about nothing in particular</p>').join('');</script></body>`;
+
+// 40 mil nós sem conteúdo (espaço e oculto) antes do texto: o limite antigo de nós estourava aqui.
+const blank = `<body><div id="x"></div><script>document.getElementById('x').innerHTML = Array.from({ length: 20000 }, () => '<span> </span><i hidden>x</i>').join('');</script><p>FINAL VISIVEL</p></body>`;
+
+// 80 mil linhas separadas por quebra de linha (160 mil nós de texto): cada nó pode ser contado só uma vez no teto.
+const giant = `<body style="margin:0"><div id="r"></div><script>document.getElementById('r').innerHTML=Array.from({length:80000},(_, i)=>'<div>Line '+i+' of text</div>').join("\\n")</script></body>`;
+
+const fixtures = await launchFixtureBrowser({ "/feed": feed, "/blank": blank, "/wform": wform, "/lms": lms, "/host": host, "/inner": inner("Inner"), "/inner2": inner("Cross"), "/long": long, "/huge": huge, "/giant": giant });
 after(() => fixtures?.close());
 const skip = fixtures ? false : "Chromium/playwright-core indisponível";
 
@@ -64,7 +76,7 @@ async function open(path) {
 		for (const frame of page.frames()) await frame.waitForLoadState("domcontentloaded").catch(() => {});
 	}
 	const actions = createBrowserActions({ getPage: async () => page });
-	const refs = createRefActions({ withPageRetry: actions.withPageRetry, clickElement: actions.clickElement });
+	const refs = createRefActions({ withPageRetry: actions.withPageRetry, clickElement: actions.clickElement, axOn: () => false });
 	actions.setObserver(refs.observeAction);
 	const reader = createPageReader({
 		withPageRetry: actions.withPageRetry,
@@ -211,4 +223,76 @@ test("real: limite máximo de 20000 e teto de páginas gigantes (nunca despeja m
 	assert.equal(res.capped, true);
 	assert.ok(res.totalLength <= 400_000);
 	assert.ok(res.nextOffset > 0);
+});
+
+test("real: 15 mil comentários antes do painel lateral: read traz o painel no 1º chunk e marca capped", { skip }, async () => {
+	const { reader } = await open("/feed");
+	const res = await reader.readPage({});
+	const at = res.text.indexOf("RESPOSTA DO PAINEL");
+	assert.ok(at >= 0 && at < 8000, `painel no 1º chunk (pos ${at}):\n${res.text.slice(0, 600)}`);
+	assert.equal(res.capped, true);
+	// O que está na tela vem antes do resto, e o resto é rotulado.
+	assert.match(res.text, /\[on screen\]/);
+	assert.match(res.text, /\[rest of page\]/);
+	assert.ok(res.text.indexOf("Video title") < res.text.indexOf("[rest of page]"));
+});
+
+test("real: find acha o texto do painel lateral mesmo com a página gigante antes dele", { skip }, async () => {
+	const { reader } = await open("/feed");
+	const res = await reader.findText({ query: "RESPOSTA DO PAINEL" });
+	assert.equal(res.total, 1, JSON.stringify(res));
+});
+
+test("real: texto vazio e nó oculto não gastam o orçamento de leitura", { skip }, async () => {
+	const { reader } = await open("/blank");
+	const res = await reader.readPage({});
+	assert.match(res.text, /FINAL VISIVEL/);
+	assert.equal(res.capped, undefined);
+});
+
+test("real: página de 80 mil linhas: a leitura passa muito da primeira tela (cada nó conta uma vez no teto)", { skip }, async () => {
+	const { reader } = await open("/giant");
+	const started = Date.now();
+	const res = await reader.readPage({ view: "text", limit: 20_000 });
+	const took = Date.now() - started;
+	// Antes: a passada da tela e a do resto contavam o mesmo nó fora da tela e o teto estourava com ~39 itens.
+	assert.ok(res.totalLength > 100_000, `só ${res.totalLength} caracteres lidos`);
+	assert.match(res.text, /Line 0 of text/);
+	assert.match(res.text, /Line 300 of text/, "texto abaixo da dobra");
+	assert.ok(took < 6000, `leitura levou ${took} ms`);
+});
+
+test("reader: o teto de nós é GLOBAL entre frames, não um teto por frame", async () => {
+	const budgets = [];
+	const frame = (nodes) => ({
+		frameElement: async () => {
+			throw new Error("sem elemento");
+		},
+		evaluate: async (_fn, opts) => {
+			budgets.push({ maxNodes: opts.maxNodes, maxItems: opts.maxItems });
+			return { items: [{ t: "p", text: "x" }], truncated: false, nodes };
+		},
+	});
+	const entries = [
+		{ prefix: "", label: "", main: true, crossOrigin: false, frame: frame(100_000) },
+		{ prefix: "f1", label: "a", main: false, crossOrigin: false, frame: frame(40_000) },
+		{ prefix: "f2", label: "b", main: false, crossOrigin: false, frame: frame(10_000) },
+		{ prefix: "f3", label: "c", main: false, crossOrigin: false, frame: frame(5_000) },
+	];
+	const reader = createPageReader({
+		withPageRetry: async (fn) => fn({ url: () => "https://example.test/", title: async () => "t" }),
+		registry: { list: () => entries, frameOf: () => null },
+		collect: async () => [],
+		locateRef: async () => null,
+		observeAction: async () => null,
+		clickElement: async () => null,
+	});
+	const res = await reader.readPage({ view: "text" });
+	assert.deepEqual(
+		budgets.map((b) => b.maxNodes),
+		[READ_MAX_NODES, READ_MAX_NODES - 100_000, READ_MAX_NODES - 140_000],
+		"cada frame recebe só o que sobrou do orçamento; o 4º nem é lido",
+	);
+	assert.equal(budgets[1].maxItems, READ_MAX_ITEMS - 1);
+	assert.equal(res.capped, true, "frame que ficou sem orçamento marca a leitura como cortada");
 });
