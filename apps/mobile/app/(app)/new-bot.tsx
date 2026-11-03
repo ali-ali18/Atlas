@@ -4,6 +4,7 @@ import { BackHandler, KeyboardAvoidingView, Pressable, ScrollView, TextInput, Vi
 import { SafeAreaView } from "react-native-safe-area-context";
 import { CloseIcon } from "@/components/icons";
 import { Avatar } from "@/components/ui/avatar";
+import { ShapeOption } from "@/components/ui/shape-option";
 import { Spinner } from "@/components/ui/spinner";
 import { Text } from "@/components/ui/text";
 import { useAtlasSession } from "@/lib/atlas-session";
@@ -108,9 +109,7 @@ export default function NewBotScreen() {
 					<View accessibilityRole="radiogroup" className="w-full flex-row flex-wrap">
 						{NEW_BOT_SHAPES.map((item, index) => (
 							<View key={item} className="w-1/5 items-center py-0.5">
-								<Pressable role="radio" accessibilityLabel={shapeLabel(index, NEW_BOT_SHAPES.length)} accessibilityState={{ checked: item === shape }} onPress={() => setShape(item)} className={cn("size-14 items-center justify-center rounded-2xl border-2", item === shape ? "border-foreground/60" : "border-transparent")}>
-									<Avatar color={neutral} shape={item} size={44} animated={false} eyeColor={themeColor(scheme, "background")} />
-								</Pressable>
+								<ShapeOption shape={item} color={neutral} label={shapeLabel(index, NEW_BOT_SHAPES.length)} selected={item === shape} cell={56} size={44} eyeColor={themeColor(scheme, "background")} onPress={() => setShape(item)} />
 							</View>
 						))}
 					</View>
