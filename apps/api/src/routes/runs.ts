@@ -13,6 +13,7 @@ import {
 	parseQuestionnaireAnswerBody,
 	questionnaireAnswerClientKey,
 	buildRunInspection,
+	isBotCreatedObjective,
 	scrubString,
 	type ComputerUseEvent,
 	type CreateAgentRunRequest,
@@ -63,6 +64,7 @@ import { peekModelContextLength } from "./models.js";
 import { resolveRunModel, resolveRunModelChoice } from "../chat/effective-model.js";
 import { createReactionOnlyDeps, maybeReactOnly, type ReactionOnlyDeps } from "../chat/reaction-only.js";
 import { validateProviderModel } from "../providers/model-catalog.js";
+import { findBotCreatedRun } from "../chat/bot-onboarding.js";
 
 
 
@@ -373,6 +375,14 @@ export function createRunRoutes(
 		catch (error) {
 			if (error instanceof ResourceOwnershipError) return c.json({ error: "Resource not found" }, 404);
 			throw error;
+		}
+		// Onboarding de bot novo é do servidor (`POST /v1/bots`): o web antigo ainda pede o seu, e um segundo run não nasce.
+		if (isBotCreatedObjective(request.objective) && request.botId && request.conversationId) {
+			const existing = await findBotCreatedRun(scopeFor(c.get("session")).userId, request.conversationId);
+			if (existing) {
+				const body: CreateAgentRunResponse = { runId: existing.id, status: existing.status as CreateAgentRunResponse["status"], enqueued: true };
+				return c.json(body, 200);
+			}
 		}
 		try { const owner = scopeFor(c.get("session")).userId; await resolveUserImagesCard(request.attachments ?? [], owner); await resolveUserFileCards(request.attachments ?? [], owner); }
 		catch { return c.json({ error: "anexo inválido" }, 400); }
