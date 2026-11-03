@@ -1,14 +1,22 @@
 // Grade de formas e cores do "Criar novo Bot" e do editor de avatar: o contorno da forma escolhida, o tamanho da célula
 // que o comporta inteiro e a montagem das linhas. Puro (testado em shape-ring.test.ts).
 
-/** O contorno da forma escolhida é a silhueta dela, um pouco maior, com folga (escala em torno do centro da caixa do motor). */
-export const RING_SCALE = 1.15;
-/** Espessura do traço, em pt na tela. */
+/** O contorno da forma escolhida segue a silhueta a uma distância fixa: respiro e traço, em pt na tela. */
+export const RING_GAP_PT = 2;
 export const RING_STROKE_PT = 2;
 
-/** Caixa do motor (viewBox 0 0 250 250). O contorno a 1,15x sai dela: o desenho ganha esta margem de cada lado, em unidades do motor. */
+/** Caixa do motor (viewBox 0 0 250 250). O contorno passa da silhueta: o desenho ganha esta margem de cada lado, em unidades do motor. */
 export const ENGINE_BOX = 250;
 export const RING_PAD_UNITS = 30;
+
+/**
+ * Larguras de traço, em unidades do motor, para um avatar de `size` pt. O traço é centrado no caminho, então metade
+ * dele fica fora da silhueta: `outer` vai até a borda de fora do contorno, `gap` só até o fim do respiro.
+ */
+export function ringStrokes(size: number): { outer: number; gap: number } {
+	const unitsPerPt = ENGINE_BOX / size;
+	return { outer: 2 * (RING_GAP_PT + RING_STROKE_PT) * unitsPerPt, gap: 2 * RING_GAP_PT * unitsPerPt };
+}
 
 /** Lado, em pt, da caixa onde o contorno é desenhado para um avatar de `size` pt: o contorno inteiro cabe, sem recorte. */
 export const ringBoxSize = (size: number): number => (size * (ENGINE_BOX + 2 * RING_PAD_UNITS)) / ENGINE_BOX;

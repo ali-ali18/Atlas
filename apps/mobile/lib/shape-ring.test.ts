@@ -3,25 +3,33 @@ import { projectFrame } from "@workspace/shared/avatar/render/project";
 import { stillFrame } from "@workspace/shared/avatar/render/still";
 import { describe, expect, it } from "vitest";
 import { AVATAR_SHAPES } from "./bot-edit";
-import { chunkRows, COLLAPSED_SHAPES, EDITOR_SHAPE_CELL, EDITOR_SHAPE_SIZE, ENGINE_BOX, GRID_SHAPE_CELL, GRID_SHAPE_SIZE, minCellFor, needsExpanded, RING_PAD_UNITS, RING_SCALE, RING_STROKE_PT, ringBoxSize, SHAPES_PER_ROW, visibleShapes } from "./shape-ring";
+import { chunkRows, COLLAPSED_SHAPES, EDITOR_SHAPE_CELL, EDITOR_SHAPE_SIZE, ENGINE_BOX, GRID_SHAPE_CELL, GRID_SHAPE_SIZE, minCellFor, needsExpanded, RING_GAP_PT, RING_PAD_UNITS, RING_STROKE_PT, ringBoxSize, ringStrokes, SHAPES_PER_ROW, visibleShapes } from "./shape-ring";
 
 describe("a célula comporta o contorno inteiro", () => {
-	it("a célula é maior que a forma x escala do contorno, com folga", () => {
+	it("a célula é maior que a forma mais o contorno dos dois lados, com folga", () => {
 		for (const [cell, size] of [[GRID_SHAPE_CELL, GRID_SHAPE_SIZE], [EDITOR_SHAPE_CELL, EDITOR_SHAPE_SIZE]] as const) {
-			expect(cell).toBeGreaterThanOrEqual(size * RING_SCALE + 2);
+			expect(cell).toBeGreaterThanOrEqual(size + 2 * (RING_GAP_PT + RING_STROKE_PT) + 2);
 			expect(cell).toBeGreaterThanOrEqual(ringBoxSize(size));
 			expect(cell).toBe(minCellFor(size));
 		}
 	});
 	it("a caixa onde o contorno é desenhado cobre a forma mais larga de qualquer uma das formas (nada é recortado)", () => {
 		for (const size of [GRID_SHAPE_SIZE, EDITOR_SHAPE_SIZE]) {
-			const halfStroke = (RING_STROKE_PT * ENGINE_BOX) / size / 2;
+			const halfOuter = ringStrokes(size).outer / 2;
 			for (const shape of SHAPE_IDS) {
 				// maior distância de um ponto do desenho ao centro da caixa do motor (números do caminho, em pares x y)
 				const numbers = (projectFrame(stillFrame(shape, "neutral")).body.match(/-?\d+(?:\.\d+)?/g) ?? []).map(Number);
 				const reach = Math.max(...numbers.map((value) => Math.abs(value - ENGINE_BOX / 2)));
-				expect(reach * RING_SCALE + halfStroke, `${shape} @${size}`).toBeLessThanOrEqual(ENGINE_BOX / 2 + RING_PAD_UNITS);
+				expect(reach + halfOuter, `${shape} @${size}`).toBeLessThanOrEqual(ENGINE_BOX / 2 + RING_PAD_UNITS);
 			}
+		}
+	});
+	it("o respiro e o traço têm 2 pt cada na tela, em qualquer tamanho de avatar", () => {
+		for (const size of [GRID_SHAPE_SIZE, EDITOR_SHAPE_SIZE]) {
+			const { outer, gap } = ringStrokes(size);
+			const pt = (units: number) => (units * size) / ENGINE_BOX;
+			expect(pt(gap / 2)).toBeCloseTo(2);
+			expect(pt((outer - gap) / 2)).toBeCloseTo(2);
 		}
 	});
 	it("5 por linha cabem na menor tela (320 pt)", () => {

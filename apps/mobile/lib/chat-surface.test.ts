@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("./theme", () => ({ themeColor: (scheme: string, token: string) => `${scheme}:${token}` }));
 
 import { chatCardEdge, chatCardSkin, chatSurface } from "./chat-surface";
-import { RING_SCALE } from "./shape-ring";
+import { RING_GAP_PT, RING_STROKE_PT } from "./shape-ring";
 
 describe("pele do cartão do chat (tabela e propostas)", () => {
 	it("no escuro é o cartão do Grok: fundo #1f1f1f, borda #313131, raio 21", () => {
@@ -18,8 +18,8 @@ describe("pele do cartão do chat (tabela e propostas)", () => {
 });
 
 describe("contorno da forma escolhida", () => {
-	it("é maior que a forma, com folga", () => {
-		expect(RING_SCALE).toBeGreaterThan(1.1);
-		expect(RING_SCALE).toBeLessThan(1.5);
+	it("fica rente à forma: respiro e traço finos", () => {
+		expect(RING_GAP_PT).toBeGreaterThan(0);
+		expect(RING_GAP_PT + RING_STROKE_PT).toBeLessThanOrEqual(5);
 	});
 });

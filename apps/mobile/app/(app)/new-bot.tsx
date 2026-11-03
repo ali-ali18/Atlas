@@ -120,7 +120,7 @@ export default function NewBotScreen() {
 									item === null ? (
 										<View key={`gap-${column}`} style={{ width: GRID_SHAPE_CELL, height: GRID_SHAPE_CELL }} />
 									) : (
-										<ShapeOption key={item} shape={item} color={neutral} label={shapeLabel(NEW_BOT_SHAPES.indexOf(item), NEW_BOT_SHAPES.length)} selected={item === shape} cell={GRID_SHAPE_CELL} size={GRID_SHAPE_SIZE} eyeColor={themeColor(scheme, "background")} onPress={() => setShape(item)} />
+										<ShapeOption key={item} shape={item} color={neutral} label={shapeLabel(NEW_BOT_SHAPES.indexOf(item), NEW_BOT_SHAPES.length)} selected={item === shape} cell={GRID_SHAPE_CELL} size={GRID_SHAPE_SIZE} eyeColor={themeColor(scheme, "background")} surface={themeColor(scheme, "background")} onPress={() => setShape(item)} />
 									),
 								)}
 							</View>
