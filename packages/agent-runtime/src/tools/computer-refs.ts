@@ -41,7 +41,7 @@ export const COMPUTER_REF_TOOLS: ChatTool[] = [
 		function: {
 			name: "browser_snapshot",
 			description:
-				"See the page as an accessibility tree: roles, names, states, a ref (e12) per actionable element. USE to see and act, after a navigation or a stale ref. Do NOT use it for long text (browser_read) or after every action (browser_act already reports what changed). Window first; area=page for all; ref=eN expands '+N similares'; offset=nextOffset pages on; view=list: flat list. If the page needs a sign-in, the runtime shows a login card and pauses; never ask for credentials in text.",
+				"See the page as an accessibility tree: roles, names, states, a ref (a12) per actionable element. USE to see and act, after a navigation or a stale ref. Do NOT use it for long text (browser_read) or after every action (browser_act already reports what changed). Window first; area=page for all; ref=aN expands '+N similares'; offset=nextOffset pages on; view=list: flat list. If the page needs a sign-in, the runtime shows a login card and pauses; never ask for credentials in text.",
 			parameters: {
 				type: "object",
 				properties: {
@@ -64,7 +64,7 @@ export const COMPUTER_REF_TOOLS: ChatTool[] = [
 			parameters: {
 				type: "object",
 				properties: {
-					ref: { type: "string", description: "e12, or f1e12 inside a frame" },
+					ref: { type: "string", description: "a12, e12 or f1a12 (in a frame)" },
 					text: { type: "string", description: "click: visible text or accessible name" },
 					selector: { type: "string", description: "click/type: specific CSS selector" },
 					action: {
@@ -319,8 +319,8 @@ export async function executeComputerRefTool(
 			const view = args.view === undefined ? undefined : String(args.view);
 			if (view !== undefined && view !== "tree" && view !== "list") throw new Error('view inválida: use "tree" ou "list"');
 			const ref = typeof args.ref === "string" && args.ref.trim() ? args.ref.trim() : undefined;
-			if (ref !== undefined && !/^(?:f\d{1,3})?e\d{1,5}$/.test(ref)) {
-				throw new Error("ref inválido: use um ref do browser_snapshot (ex.: e12 ou f1e12)");
+			if (ref !== undefined && !/^(?:f\d{1,3})?[ea]\d{1,5}$/.test(ref)) {
+				throw new Error("ref inválido: use um ref do browser_snapshot (ex.: a12, e12 ou f1a12)");
 			}
 			// scope (seletor CSS) e view=list são do snapshot em lista; sem eles o servidor usa a árvore.
 			const snapshot = await ctx.manager.execBrowserSnapshot(await ctx.getSessionId(), {
@@ -345,8 +345,8 @@ export async function executeComputerRefTool(
 			const ref = String(args.ref ?? "").trim();
 			// V6: sem ref -> clique por texto/seletor, digitação no foco, rolagem.
 			if (!ref) return executeTargetlessAct(args, ctx);
-			if (!/^(?:f\d{1,3})?e\d{1,5}$/.test(ref)) {
-				throw new Error("ref inválido: use um ref do browser_snapshot (ex.: e12 ou f1e12)");
+			if (!/^(?:f\d{1,3})?[ea]\d{1,5}$/.test(ref)) {
+				throw new Error("ref inválido: use um ref do browser_snapshot (ex.: a12, e12 ou f1a12)");
 			}
 			const action = String(args.action ?? "");
 			if (!ACT_ACTIONS.includes(action as ControlActAction)) {
@@ -378,8 +378,8 @@ export async function executeComputerRefTool(
 				throw new Error("for inválido: use text, ref, url, network, stable ou text_stable");
 			}
 			const targetRef = typeof args.ref === "string" ? args.ref.trim() : "";
-			if (targetRef && !/^(?:f\d{1,3})?e\d{1,5}$/.test(targetRef)) {
-				throw new Error("ref inválido: use um ref do browser_read ou browser_snapshot (ex.: e12 ou f1e12)");
+			if (targetRef && !/^(?:f\d{1,3})?[ea]\d{1,5}$/.test(targetRef)) {
+				throw new Error("ref inválido: use um ref do browser_read ou browser_snapshot (ex.: a12, e12 ou f1a12)");
 			}
 			const targetScope = typeof args.scope === "string" ? args.scope.trim().slice(0, 300) : "";
 			const value = args.value === undefined ? undefined : String(args.value);

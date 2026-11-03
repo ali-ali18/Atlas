@@ -7,6 +7,7 @@
 // candidatas, sem adivinhar. A ref é opaca: o prefixo de frame pode mudar.
 
 import { isInteractive } from "./ax-prune.mjs";
+import { toAriaRef } from "./ax-ref-names.mjs";
 
 export const MAX_TABLE = 20_000;
 const MAX_CANDIDATES = 5;
@@ -61,20 +62,34 @@ export function createAxStore() {
 	return {
 		get: (page) => states.get(page),
 		engineOf: (page) => states.get(page)?.engine,
-		/** Snapshot AX novo: a tabela antiga continua valendo para refs que o modelo ainda lembra (mescla). */
-		setAx(page, { table, flat, viewport, via }) {
+		/**
+		 * Snapshot AX novo. Na mesma URL a tabela antiga continua valendo para refs que o modelo
+		 * ainda lembra (mescla); ao navegar ela zera, para uma ref velha não casar por papel+nome
+		 * com outro elemento da página nova. O cache de paginação nunca sobrevive: o chamador o regrava.
+		 */
+		setAx(page, { table, flat, viewport, via, url }) {
 			const previous = states.get(page);
-			const merged = previous?.engine === "ax" ? new Map(previous.table) : new Map();
+			const sameDocument = previous?.engine === "ax" && previous.url === url;
+			const merged = sameDocument ? new Map(previous.table) : new Map();
 			for (const [ref, entry] of table) merged.set(ref, entry);
 			while (merged.size > MAX_TABLE) merged.delete(merged.keys().next().value);
-			states.set(page, { engine: "ax", table: merged, flat, viewport, via, rendered: previous?.rendered ?? null });
+			states.set(page, { engine: "ax", table: merged, flat, viewport, via, url, rendered: null });
 		},
-		/** Snapshot v1/read/find: as refs agora são as do DOM (`data-atlas-ref`). */
+		/** Snapshot v1/read/find: o DOM tem as refs `eN`; as da árvore (`aN`) seguem resolvendo pela última tabela. */
 		setDom(page) {
-			// Guarda a tabela AX: ref que o DOM não conhece ainda pode ser de uma árvore que o modelo viu antes de um read/find.
 			const previous = states.get(page);
-			const prevAx = previous?.engine === "ax" ? { table: previous.table } : previous?.prevAx;
+			const prevAx = previous?.engine === "ax" ? { table: previous.table, url: previous.url } : previous?.prevAx;
 			states.set(page, { engine: "dom", ...(prevAx ? { prevAx } : {}) });
+		},
+		/** Tabela das refs da árvore vigente nesta URL; navegou, a antiga não vale. */
+		tableFor(page) {
+			const state = states.get(page);
+			const source = state?.engine === "ax" ? state : state?.prevAx;
+			return source && source.url === page.url() ? source.table : undefined;
+		},
+		clearRendered(page) {
+			const state = states.get(page);
+			if (state) state.rendered = null;
 		},
 		setRendered(page, rendered) {
 			const state = states.get(page);
@@ -113,7 +128,7 @@ async function candidateNotes(matches) {
  * Lança StaleRefError (mensagem pt-BR acionável) quando não dá para agir sem adivinhar.
  */
 export async function resolveAxRef(page, table, ref) {
-	const direct = page.locator(`aria-ref=${ref}`);
+	const direct = page.locator(`aria-ref=${toAriaRef(ref)}`);
 	let count = 0;
 	try {
 		count = await direct.count();

@@ -11,13 +11,15 @@ import { collectInteractive } from "./snapshot-page.mjs";
 import { SNAPSHOT_MAX_SCAN, buildSnapshot, describeElement, formatElementLine } from "./snapshot.mjs";
 import { AxUnavailableError, axEnabled } from "./ax-snapshot.mjs";
 import { StaleRefError, createAxStore, resolveAxRef } from "./ax-refs.mjs";
+import { isTreeRef } from "./ax-ref-names.mjs";
 import { createAxEngine } from "./browser-ax.mjs";
 
 export const ACT_ACTIONS = ["click", "type", "select", "check", "uncheck", "hover", "press", "clear"];
 export const WAIT_KINDS = ["text", "ref", "url", "network", "stable", "text_stable"];
 const MAX_TYPE_LENGTH = 20_000;
 const MAX_VALUE_LENGTH = 300;
-const REF_PATTERN = /^(?:f\d{1,3})?e\d{1,5}$/;
+const REF_PATTERN = /^(?:f\d{1,3})?[ea]\d{1,5}$/;
+const DOM_REF_PATTERN = /^(?:f\d{1,3})?e\d{1,5}$/;
 const ACT_TIMEOUT_MS = 10_000;
 const MAX_DELTA = 12;
 export const WAIT_DEFAULT_MS = 8000;
@@ -75,7 +77,7 @@ export function parseWaitArgs(body) {
 	if (kind === "text_stable") {
 		// Alvo opcional: `ref` (de um read/snapshot) ou `scope` (seletor CSS). Sem nenhum, o bloco que mais mudou.
 		const ref = typeof body?.ref === "string" ? body.ref.trim() : "";
-		if (ref && !REF_PATTERN.test(ref)) throw new Error("ref inválido em text_stable: use um ref do browser_read/browser_snapshot (ex.: e12).");
+		if (ref && !DOM_REF_PATTERN.test(ref)) throw new Error("ref inválido em text_stable: use um ref do browser_read/browser_snapshot (ex.: e12).");
 		const scope = typeof body?.scope === "string" ? body.scope.trim() : "";
 		if (scope.length > MAX_VALUE_LENGTH) throw new Error(`scope muito longo (máx. ${MAX_VALUE_LENGTH}).`);
 		if (ref) out.ref = ref;
@@ -193,25 +195,17 @@ export function createRefActions({
 	}
 
 	/**
-	 * Ref da ação/espera, pelo motor do último snapshot da aba: AX resolve a ref
-	 * vencida (papel+nome); DOM usa data-atlas-ref. Ref que o DOM não conhece cai
-	 * na última árvore AX (o modelo pode ter lido/achado algo depois do snapshot).
+	 * Ref da ação/espera pelo FORMATO: `aN` é da árvore de acessibilidade (resolve a ref
+	 * vencida por papel+nome), `eN` é do DOM (`data-atlas-ref`). O estado da aba não decide.
 	 */
 	async function resolveRef(page, ref) {
-		const state = axStore.get(page);
-		const ax = async (table) => {
-			try {
-				return { ...(await resolveAxRef(page, table, ref)), engine: "ax" };
-			} catch (error) {
-				if (error instanceof StaleRefError) return { stale: error.message };
-				throw error;
-			}
-		};
-		if (state?.engine === "ax") return ax(state.table);
-		const locator = await locateRef(page, ref);
-		if (locator || !state?.prevAx) return { locator, engine: "dom" };
-		const viaTree = await ax(state.prevAx.table);
-		return viaTree.stale ? { engine: "dom" } : viaTree;
+		if (!isTreeRef(ref)) return { locator: await locateRef(page, ref), engine: "dom" };
+		try {
+			return { ...(await resolveAxRef(page, axStore.tableFor(page), ref)), engine: "ax" };
+		} catch (error) {
+			if (error instanceof StaleRefError) return { stale: error.message };
+			throw error;
+		}
 	}
 
 	async function locateRef(page, ref) {
@@ -298,6 +292,8 @@ export function createRefActions({
 		await page.evaluate(installProbeInPage).catch(() => {});
 		const before = await readDigest(page, registry);
 		const result = await perform();
+		// A página pode ter mudado sem trocar a URL: o texto em cache da paginação não vale mais.
+		axStore.clearRendered(page);
 		const effect = await stabilize(page, { urlBefore });
 		const after = before ? await readDigest(page, registry) : null;
 		const diff = diffPageDigest(before, after);

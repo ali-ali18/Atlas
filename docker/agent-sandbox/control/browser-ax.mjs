@@ -12,6 +12,7 @@ import {
 	collapseRuns, footerFor, paginateLines, parseAxYaml, probeTargets, pruneNode, pruneNodes, referencedRefs, renderAx, selectViewport,
 } from "./ax-prune.mjs";
 import { buildRefTable } from "./ax-refs.mjs";
+import { toAriaRef } from "./ax-ref-names.mjs";
 import { diffAxTrees, flattenForDiff } from "./ax-diff.mjs";
 import { formatElementLine } from "./snapshot.mjs";
 
@@ -62,7 +63,7 @@ export async function probeRefs(page, refs, { timeoutMs = PROBE_TIMEOUT_MS } = {
 	const worker = async () => {
 		for (let ref = queue.shift(); ref; ref = queue.shift()) {
 			try {
-				const out = await page.locator(`aria-ref=${ref}`).first().evaluate(probeElement, undefined, { timeout: timeoutMs });
+				const out = await page.locator(`aria-ref=${toAriaRef(ref)}`).first().evaluate(probeElement, undefined, { timeout: timeoutMs });
 				if (!out.failed) results.set(ref, out);
 			} catch {
 				// elemento sumiu ou frame navegando: sem sonda, o nó segue como está (campo de valor perde o valor, ver abaixo)
@@ -182,7 +183,7 @@ export function createAxEngine({ store, scrollOf, timeoutMs }) {
 		const treeLines = [...lines, ...footer];
 
 		const table = buildRefTable(parsed.byRef);
-		store.setAx(page, { table, flat: flattenForDiff(parsed.byRef), viewport, via });
+		store.setAx(page, { table, flat: flattenForDiff(parsed.byRef), viewport, via, url });
 		const meta = {
 			engine: "ax",
 			url,
@@ -220,7 +221,7 @@ export function createAxEngine({ store, scrollOf, timeoutMs }) {
 			const parsed = parseAxYaml(yaml);
 			const after = flattenForDiff(parsed.byRef);
 			const lines = diffAxTrees(state.flat, after);
-			store.setAx(page, { table: buildRefTable(parsed.byRef), flat: after, viewport: state.viewport, via: state.via });
+			store.setAx(page, { table: buildRefTable(parsed.byRef), flat: after, viewport: state.viewport, via: state.via, url: page.url() });
 			return lines;
 		} catch {
 			return undefined;

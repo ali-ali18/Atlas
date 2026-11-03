@@ -31,35 +31,35 @@ const render = (yaml, opts = {}) => renderAx(pruneNodes(parseAxYaml(yaml).roots)
 test("parse: nome com aspas escapadas, url, atributos e caixa", () => {
 	const { byRef, count } = parseAxYaml(SAMPLE);
 	assert.equal(count, 20);
-	const link = byRef.get("e5");
+	const link = byRef.get("a5");
 	assert.equal(link.name, 'link "aspas" e: dois');
 	assert.equal(link.url, "/a?x=1&y=2");
 	assert.deepEqual(link.box, [72, 42, 123, 17]);
 	assert.equal(link.pointer, true);
-	assert.deepEqual(byRef.get("e9").attrs, ["checked"]);
-	assert.equal(byRef.get("e6").text, "dois");
+	assert.deepEqual(byRef.get("a9").attrs, ["checked"]);
+	assert.equal(byRef.get("a6").text, "dois");
 });
 
 test("poda: generic some, texto vizinho junta, nome repetido cai, vazio e img sem nome somem", () => {
 	const out = render(SAMPLE);
-	assert.match(out, /^clickable "Clique aqui" \[e2\]/);
-	assert.match(out, /link "link \\"aspas\\" e: dois" \[e5\] \[href=\/a\?x=1&y=2\]/);
-	assert.match(out, /checkbox "Lembrar" \[e9\] \[checked\]/);
+	assert.match(out, /^clickable "Clique aqui" \[a2\]/);
+	assert.match(out, /link "link \\"aspas\\" e: dois" \[a5\] \[href=\/a\?x=1&y=2\]/);
+	assert.match(out, /checkbox "Lembrar" \[a9\] \[checked\]/);
 	assert.doesNotMatch(out, /^ *Lembrar$/m, "o texto igual ao nome do checkbox não repete");
 	assert.match(out, /Texto longo com quebra/);
-	assert.match(out, /button "Off" \[e11\] \[disabled\]/);
-	assert.doesNotMatch(out, /e30|e31/);
+	assert.match(out, /button "Off" \[a11\] \[disabled\]/);
+	assert.doesNotMatch(out, /a30|a31/);
 	assert.doesNotMatch(out, /generic/);
 });
 
 test("valor de campo some por padrão; só sai com a ref aprovada; senha vira aviso", () => {
 	const nodes = pruneNodes(parseAxYaml(SAMPLE).roots);
 	assert.doesNotMatch(renderAx(nodes).join("\n"), /segredo/);
-	assert.match(renderAx(nodes, { values: new Map([["e21", "ok"]]) }).join("\n"), /textbox "Senha" \[e21\]: "segredo"/);
-	const secret = renderAx(nodes, { values: new Map([["e21", "secret"]]) }).join("\n");
+	assert.match(renderAx(nodes, { values: new Map([["a21", "ok"]]) }).join("\n"), /textbox "Senha" \[a21\]: "segredo"/);
+	const secret = renderAx(nodes, { values: new Map([["a21", "secret"]]) }).join("\n");
 	assert.doesNotMatch(secret, /segredo/);
 	assert.match(secret, /campo de senha: nunca preencha/);
-	assert.match(renderAx(nodes, { values: new Map([["e21", "otp"]]) }).join("\n"), /código de uso único/);
+	assert.match(renderAx(nodes, { values: new Map([["a21", "otp"]]) }).join("\n"), /código de uso único/);
 });
 
 test("nomes passam de 200 e são cortados", () => {
@@ -79,7 +79,7 @@ test("irmãos repetidos: mantém 2 e escreve o resto com intervalo e o contêine
 	const lines = renderAx(nodes, { showRefs: referencedRefs(nodes) });
 	const text = lines.join("\n");
 	assert.equal((text.match(/^ {2}article/gm) ?? []).length, 2);
-	assert.match(text, /… \+38 article similares \(e16\.\.e129\) — browser_snapshot ref=e1/);
+	assert.match(text, /… \+38 article similares \(a16\.\.a129\) — browser_snapshot ref=a1/);
 	assert.ok(text.length < 600, String(text.length));
 });
 
@@ -105,7 +105,7 @@ test("viewport: só o que cruza a janela, com rodapé do que ficou fora", () => 
 	assert.doesNotMatch(text, /comentário 20/);
 	const footer = footerFor(sel.dropped, sel.omitted);
 	assert.match(footer[0], /fora da janela/);
-	assert.match(footer[1], /\+\d+ article fora da janela em main: browser_snapshot ref=e1/);
+	assert.match(footer[1], /\+\d+ article fora da janela em main: browser_snapshot ref=a1/);
 });
 
 test("iframe: a caixa dos filhos soma a do iframe em cadeia", () => {
@@ -115,11 +115,11 @@ test("iframe: a caixa dos filhos soma a do iframe em cadeia", () => {
     - iframe [ref=f1e3] [box=0,100,100,50]:
       - button "fundo" [ref=f2e2] [box=5,5,10,10]`;
 	const { byRef } = parseAxYaml(yaml);
-	assert.deepEqual(byRef.get("f1e2").abs, [110, 320, 50, 20]);
-	assert.deepEqual(byRef.get("f2e2").abs, [105, 405, 10, 10]);
+	assert.deepEqual(byRef.get("f1a2").abs, [110, 320, 50, 20]);
+	assert.deepEqual(byRef.get("f2a2").abs, [105, 405, 10, 10]);
 	const sel = selectViewport(pruneNodes(parseAxYaml(yaml).roots), { width: 900, height: 400 });
 	const text = renderAx(sel.nodes).join("\n");
-	assert.match(text, /button "dentro" \[f1e2\]/);
+	assert.match(text, /button "dentro" \[f1a2\]/);
 	assert.doesNotMatch(text, /fundo/, "o iframe de dentro passa de 400 px");
 });
 
@@ -142,14 +142,14 @@ test("emittedNodes lista só nós reais; paginação corta em fim de linha e con
 
 test("sonda: alvos são interativos, nomeados, origem do texto e todo campo de valor", () => {
 	const targets = probeTargets(pruneNodes(parseAxYaml(SAMPLE).roots));
-	assert.ok(targets.fields.has("e21"));
-	assert.ok(targets.refs.has("e10") && targets.refs.has("e19"), "texto do parágrafo aponta para o elemento de origem");
-	assert.equal(targets.refs.has("e21"), false);
+	assert.ok(targets.fields.has("a21"));
+	assert.ok(targets.refs.has("a10") && targets.refs.has("a19"), "texto do parágrafo aponta para o elemento de origem");
+	assert.equal(targets.refs.has("a21"), false);
 });
 
 test("texto de elemento oculto pela sonda some junto (acordeão fechado)", () => {
 	const yaml = `- main [ref=e1]:\n  - generic [ref=e2]:\n    - text: conteúdo do acordeão\n  - button "Abrir" [ref=e3]`;
 	const nodes = pruneNodes(parseAxYaml(yaml).roots);
 	assert.match(renderAx(nodes).join("\n"), /conteúdo do acordeão/);
-	assert.doesNotMatch(renderAx(nodes, { hidden: new Set(["e2"]) }).join("\n"), /acordeão/);
+	assert.doesNotMatch(renderAx(nodes, { hidden: new Set(["a2"]) }).join("\n"), /acordeão/);
 });
