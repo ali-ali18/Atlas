@@ -40,7 +40,7 @@ const Divider = () => <View className="ml-4 h-px bg-border" />;
  * escolher), "Usar o modelo sugerido" (só com o nome de exibição), nome editável e "Instalar" em largura total.
  * Instalado com avisos, a tela fica no resultado ("Bot instalado" + avisos + "Abrir conversa").
  */
-export function CatalogDetailView({ load, modelName, alreadyInstalled, busy, error, done, onInstall, onOpenChat, onBack, onRetry }: { load: DetailLoad; modelName: string | null; alreadyInstalled: boolean; busy: boolean; error: string | null; done: DetailDone | null; onInstall: (input: InstallInput) => void; onOpenChat: () => void; onBack: () => void; onRetry: () => void }) {
+export function CatalogDetailView({ load, modelName, alreadyInstalled, busy, error, done, locked = false, onInstall, onOpenChat, onBack, onRetry }: { load: DetailLoad; modelName: string | null; alreadyInstalled: boolean; busy: boolean; error: string | null; done: DetailDone | null; locked?: boolean; onInstall: (input: InstallInput) => void; onOpenChat: () => void; onBack: () => void; onRetry: () => void }) {
 	const scheme = useAppColorScheme();
 	const detail = load.status === "ready" ? load.detail : null;
 	const [name, setName] = React.useState("");
@@ -65,7 +65,7 @@ export function CatalogDetailView({ load, modelName, alreadyInstalled, busy, err
 
 	const toggleRoutine = (index: number) => setPicked((current) => (current.includes(index) ? current.filter((item) => item !== index) : [...current, index]));
 	const input: InstallInput = { name, useSuggestedModel: useModel && modelName !== null, routines: picked };
-	const valid = buildInstallBody(input).ok;
+	const valid = buildInstallBody(input).ok && !locked;
 	const off = themeColor(scheme, "ring");
 
 	let body: React.ReactNode;
@@ -97,8 +97,8 @@ export function CatalogDetailView({ load, modelName, alreadyInstalled, busy, err
 					{done.name || load.detail.name} já está na sua lista.
 				</Text>
 				<View accessibilityRole="alert" className="w-full gap-2 rounded-2xl bg-warning/10 p-4">
-					{done.warnings.map((warning) => (
-						<Text key={warning} className="text-control text-warning">
+					{done.warnings.map((warning, index) => (
+						<Text key={`${index}:${warning}`} className="text-control text-warning">
 							{warning}
 						</Text>
 					))}
@@ -139,7 +139,9 @@ export function CatalogDetailView({ load, modelName, alreadyInstalled, busy, err
 									<Text numberOfLines={1} className="text-base font-medium">
 										{skill.name}
 									</Text>
-									{skill.blocked ? (
+									{skill.unavailable ? (
+										<Text className="text-control text-warning">Não consegui carregar esta habilidade agora. Tento instalá-la mesmo assim.</Text>
+									) : skill.blocked ? (
 										<Text className="text-control text-warning">Não será instalada.</Text>
 									) : skill.description ? (
 										<Text numberOfLines={2} variant="muted" className="text-control">

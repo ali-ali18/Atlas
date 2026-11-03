@@ -1,10 +1,15 @@
 // Catálogo de bots prontos (o marketplace do web, só a parte de bots): parse das respostas de `GET /v1/catalog` e
 // `GET /v1/catalog/bots/:slug`, categorias, filtro, busca e as linhas da lista. Funções puras, testadas em catalog.test.ts.
 // O conteúdo do catálogo é dado não confiável: o que não tem o formato esperado é descartado, nunca desenhado.
+import { skillLabel } from "./bot-cards";
 import { BOT_PROPOSAL_DEFAULT_COLOR, BOT_PROPOSAL_DEFAULT_SHAPE, isBotProposalShape, resolveBotProposalColor } from "@workspace/shared";
 
 export type CatalogBot = { slug: string; name: string; description: string; author: string; category: string; tags: string[]; skills: string[]; color: string; shape: string };
-export type CatalogSkill = { slug: string; name: string; description: string; blocked: boolean };
+/**
+ * `blocked`: a varredura de segurança barrou a habilidade (o install a pula). `unavailable`: o servidor não conseguiu ler a
+ * habilidade ao montar o detalhe (ele a devolve como `blocked` sem versão); o install tenta de novo, então não é bloqueio.
+ */
+export type CatalogSkill = { slug: string; name: string; description: string; blocked: boolean; unavailable: boolean };
 /** `index` é a posição da rotina na lista do servidor: é ela que vai em `routines` no install (descartar uma inválida não pode deslocar as outras). */
 export type CatalogRoutine = { index: number; name: string; prompt: string; cron: string };
 export type CatalogDetail = {
@@ -67,7 +72,10 @@ export function parseCatalogDetail(body: unknown): CatalogDetail | null {
 		if (!isRecord(raw)) continue;
 		const skillSlug = text(raw.slug);
 		if (!skillSlug) continue;
-		skills.push({ slug: skillSlug, name: text(raw.name) || skillSlug, description: text(raw.description), blocked: raw.blocked === true });
+		const blocked = raw.blocked === true;
+		const named = text(raw.name);
+		// Sem nome (ou o nome é o próprio slug, o que o servidor manda quando não leu a habilidade): o slug legível.
+		skills.push({ slug: skillSlug, name: named && named !== skillSlug ? named : skillLabel(skillSlug), description: text(raw.description), blocked, unavailable: blocked && text(raw.version) === "" });
 	}
 	const routines: CatalogRoutine[] = [];
 	(Array.isArray(bot.starterRoutines) ? bot.starterRoutines : []).forEach((raw: unknown, index: number) => {

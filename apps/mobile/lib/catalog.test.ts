@@ -27,12 +27,12 @@ describe("parse do detalhe", () => {
 	const detail = {
 		entry: entry("x"),
 		bot: { slug: "x", name: "Resumo", description: "Faz resumos", color: "#1084FE", shape: "blob", suggestedModel: "anthropic/claude-x", starterRoutines: [{ name: "Diário", prompt: "Resuma", cron: "0 9 * * *" }, { name: "", prompt: "p", cron: "0 9 * * *" }, { name: "Semanal", prompt: "Resuma a semana", cron: "0 9 * * 1" }] },
-		skills: [{ slug: "daily-report", name: "Relatório", description: "d", blocked: false }, { slug: "ruim", blocked: true }, { nope: 1 }],
+		skills: [{ slug: "daily-report", name: "Relatório", description: "d", version: "1.0.0", blocked: false }, { slug: "ruim", version: "1.0.0", blocked: true }, { slug: "web-search", name: "web-search", description: "", version: "", tools: [], blocked: true }, { nope: 1 }],
 	};
 	it("mantém o índice original da rotina quando uma inválida é descartada", () => {
 		const parsed = parseCatalogDetail(detail)!;
 		expect(parsed.routines.map((routine) => [routine.index, routine.name])).toEqual([[0, "Diário"], [2, "Semanal"]]);
-		expect(parsed.skills.map((skill) => [skill.slug, skill.name, skill.blocked])).toEqual([["daily-report", "Relatório", false], ["ruim", "ruim", true]]);
+		expect(parsed.skills.map((skill) => [skill.slug, skill.name, skill.blocked, skill.unavailable])).toEqual([["daily-report", "Relatório", false, false], ["ruim", "Ruim", true, false], ["web-search", "Web search", true, true]]);
 		expect(parsed.suggestedModel).toBe("anthropic/claude-x");
 	});
 	it("resposta parcial: sem habilidades, rotinas nem modelo", () => {

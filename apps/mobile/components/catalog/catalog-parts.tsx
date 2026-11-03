@@ -69,7 +69,7 @@ export function CatalogRowView({ bot, installed, onOpen }: { bot: CatalogBot; in
 					<Text>Instalado</Text>
 				</Button>
 			) : (
-				<Button size="sm" variant="secondary" accessibilityLabel={`Instalar ${bot.name}`} onPress={onOpen}>
+				<Button size="sm" variant="secondary" accessibilityLabel={`Ver ${bot.name} para instalar`} onPress={onOpen}>
 					<Text>Instalar</Text>
 				</Button>
 			)}
