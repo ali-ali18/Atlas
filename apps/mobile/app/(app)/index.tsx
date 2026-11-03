@@ -9,6 +9,7 @@ import { SectionBlock } from "@/components/home/section-block";
 import { ScreenFrame } from "@/components/ui/screen-frame";
 import { HomeBotMenu } from "@/components/home/home-bot-menu";
 import { HomeSectionMenu, commitSectionRename, type SectionMenuTarget } from "@/components/home/home-section-menu";
+import { SectionRenameSheet } from "@/components/home/section-rename-sheet";
 import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
 import { useAtlasSession } from "@/lib/atlas-session";
@@ -35,7 +36,7 @@ export default function HomeScreen() {
 	const [collapsed, setCollapsed] = React.useState<Record<string, boolean>>({});
 	const [menuBot, setMenuBot] = React.useState<HomeBot | null>(null);
 	const [menuSection, setMenuSection] = React.useState<SectionMenuTarget | null>(null);
-	const [renamingSectionId, setRenamingSectionId] = React.useState<string | null>(null);
+	const [renamingSection, setRenamingSection] = React.useState<SectionMenuTarget | null>(null);
 	// "agora" muda com cada atualização: a data da linha ("agora", "14:05") acompanha.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: snapshot renova o relógio de propósito
 	const now = React.useMemo(() => new Date(), [snapshot]);
@@ -98,13 +99,6 @@ export default function HomeScreen() {
 								? undefined
 								: (target) => setMenuSection({ id: target.key, name: target.title })
 						}
-						renaming={renamingSectionId === section.key}
-						onCommitRename={(name) => {
-							setRenamingSectionId(null);
-							if (section.key === NO_SECTION_KEY) return;
-							commitSectionRename(apiFetch, { applySectionUpdate, refresh }, section.key, section.title, name);
-						}}
-						onCancelRename={() => setRenamingSectionId(null)}
 						showEmpty={!searching}
 					/>
 				))}
@@ -131,7 +125,16 @@ export default function HomeScreen() {
 			<HomeSectionMenu
 				section={menuSection}
 				onClose={() => setMenuSection(null)}
-				onStartRename={(target) => setRenamingSectionId(target.id)}
+				onStartRename={setRenamingSection}
+			/>
+			<SectionRenameSheet
+				section={renamingSection}
+				onClose={() => setRenamingSection(null)}
+				onSave={(name) => {
+					const target = renamingSection;
+					setRenamingSection(null);
+					if (target) commitSectionRename(apiFetch, { applySectionUpdate, refresh }, target.id, target.name, name);
+				}}
 			/>
 		</ScreenFrame>
 	);
