@@ -44,13 +44,17 @@ function Notice({ icon, title, hint, action }: { icon: React.ReactNode; title: s
 	);
 }
 
-function ImageBody({ uri, label }: { uri: string; label: string }) {
+/** Imagem; se não decodificar (arquivo corrompido, formato que o aparelho não abre), cai no aviso "não dá para ver" com compartilhar. */
+function ImageBody({ uri, label, fallback }: { uri: string; label: string; fallback: React.ReactNode }) {
 	const [ratio, setRatio] = React.useState(4 / 3);
+	const [failed, setFailed] = React.useState(false);
+	if (failed) return <>{fallback}</>;
 	return (
 		<Image
 			source={{ uri }}
 			accessibilityLabel={label}
 			resizeMode="contain"
+			onError={() => setFailed(true)}
 			onLoad={(event) => {
 				const { width, height } = event.nativeEvent.source;
 				if (width > 0 && height > 0) setRatio(width / height);
@@ -96,13 +100,14 @@ export function DocumentBody({ state, target, onRetry, onShare, sharing }: { sta
 			<Text>{sharing ? "Preparando…" : "Compartilhar"}</Text>
 		</Button>
 	);
+	const unsupported = <Notice icon={<KindIcon kind={unsupportedIconKind(target.mime ?? "", target.filename)} />} title="Ainda não dá para ver este tipo de arquivo aqui" hint="Você pode compartilhar o arquivo e abrir em outro app." action={shareButton} />;
 	switch (content.type) {
 		case "unsupported":
-			return <Notice icon={<KindIcon kind={unsupportedIconKind(target.mime ?? "", target.filename)} />} title="Ainda não dá para ver este tipo de arquivo aqui" hint="Você pode compartilhar o arquivo e abrir em outro app." action={shareButton} />;
+			return unsupported;
 		case "too-large":
 			return <Notice icon={<FileTextIcon size={32} tone="muted-foreground" />} title="Documento grande demais para abrir aqui" hint="Compartilhe o arquivo para abrir em outro app." action={shareButton} />;
 		case "image":
-			return <ImageBody uri={content.uri} label={target.filename} />;
+			return <ImageBody uri={content.uri} label={target.filename} fallback={unsupported} />;
 		case "text":
 			break;
 	}
