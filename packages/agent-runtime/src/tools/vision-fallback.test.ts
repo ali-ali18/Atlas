@@ -46,6 +46,15 @@ describe("attachVisionFallback", () => {
 		return { ctx: { manager: manager as never, getSessionId: async () => "s", canSeeImages: true, claimVisionFallback: vi.fn(claim) }, manager };
 	};
 
+	it("not-found: anexa o print com a nota do ícone, mas nunca em tela de login", async () => {
+		const { ctx } = make();
+		const out = await attachVisionFallback({ summary: "sem resultado", vision: "not-found" }, ctx);
+		expect(out.image).toMatch(/^data:image\//);
+		expect(out.summary).toContain("icon without text");
+		const login = make({ execBrowserSnapshot: snapshot(['[e1] textbox "Senha" (campo de senha: nunca preencha)']) });
+		expect((await attachVisionFallback({ summary: "x", vision: "not-found" }, login.ctx)).image).toBeUndefined();
+	});
+
 	it("anexa a imagem e a nota quando tudo permite", async () => {
 		const { ctx } = make();
 		const out = await attachVisionFallback({ summary: "feito", vision: "capped" }, ctx);
