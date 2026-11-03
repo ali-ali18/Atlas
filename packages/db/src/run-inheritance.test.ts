@@ -103,3 +103,7 @@ test("escopo: o estado 'parou com itens abertos' é do dono; o usuário B não h
 	runs.rows.push({ id: "capped", userId: "u1", conversationId: "conv-1", origin: "chat", status: "completed", createdAt: new Date(7000), stopReason: "budget_steps", stopDetail: "delivered", budgetJson: LONG_WORK_PARENT });
 	assert.equal(await lastChatRunStoppedWithOpenWork("u1", "conv-1"), false);
 });
+
+test("run do motor v3 passa o motor cru adiante (o worker decide de novo pela flag)", () => {
+	assert.deepEqual(readRunInheritance({ budgetJson: { engine: "v3", engineProfile: "chat", humanTurn: true } }), { humanTurn: true, engine: "v3", profile: "chat" });
+});

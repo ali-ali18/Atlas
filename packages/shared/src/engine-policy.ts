@@ -6,8 +6,9 @@
 
 export type RunEngine = "v1" | "v2";
 /**
- * Motor que o bot pede (`policyJson.engine`). `v3` (harness v3) só é ENTENDIDO pelo leitor: ninguém o grava ainda
- * (set_engine e a rota recusam) e, enquanto o v3 não existe, o worker roda o v2. `RunEngine` segue sendo o motor de fato usado.
+ * Motor que o bot pede (`policyJson.engine`). `v3` (harness v3) só vale com a flag do deploy e a conta na allowlist
+ * (`resolveEngine`); set_engine e a rota ainda não o gravam no bot. No run, o worker grava `engine: "v3"` no `budgetJson`
+ * (`readStoredRunEngine`); para o resto do código o run é do motor novo (`RunEngine` = `v2`).
  */
 export type RequestedEngine = RunEngine | "v3";
 export type RunProfile = "chat" | "long_work";
@@ -154,6 +155,15 @@ export function readRunEngine(budgetJson: unknown): RunEngine | undefined {
 	return engine === "v1" ? "v1" : engine === "v2" || engine === "v3" ? "v2" : undefined;
 }
 
+/**
+ * Motor gravado cru no `budgetJson` (com `v3`): só o worker usa, para a retomada de um run que nasceu no v3 voltar ao v3
+ * enquanto a flag deixar (senão, como em `readRunEngine`, segue no v2).
+ */
+export function readStoredRunEngine(budgetJson: unknown): RequestedEngine | undefined {
+	const engine = asRecord(budgetJson).engine;
+	return engine === "v1" || engine === "v2" || engine === "v3" ? engine : undefined;
+}
+
 /** Perfil gravado no `budgetJson` do run (retomada mantém o perfil do começo). */
 export function readRunProfile(budgetJson: unknown): RunProfile | undefined {
 	const profile = asRecord(budgetJson).engineProfile;
@@ -161,7 +171,7 @@ export function readRunProfile(budgetJson: unknown): RunProfile | undefined {
 }
 
 /** `budgetJson` com a escolha do motor e do perfil gravada, preservando o resto (humanTurn, contextLength...). */
-export function withRunEngine(budgetJson: unknown, choice: { engine: RunEngine; profile?: RunProfile }): Record<string, unknown> {
+export function withRunEngine(budgetJson: unknown, choice: { engine: RequestedEngine; profile?: RunProfile }): Record<string, unknown> {
 	return { ...asRecord(budgetJson), engine: choice.engine, ...(choice.profile ? { engineProfile: choice.profile } : {}) };
 }
 
