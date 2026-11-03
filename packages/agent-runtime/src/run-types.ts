@@ -138,6 +138,10 @@ export type ComputerUseParams = {
 	runId?: string;
 	/** Origem do AgentRun (chat | routine | subagent | …). */
 	origin?: string;
+	/** Origem do run pai quando `origin` é `subagent` (a política em sombra herda a do pai). */
+	parentOrigin?: string;
+	/** `humanTurn` do run pai quando `origin` é `subagent` (a política em sombra herda). */
+	parentHumanTurn?: boolean;
 	/**
 	 * A mensagem que abriu o run foi DIGITADA pelo dono no chat (gravada pela API, lida pelo worker). Run `chat`
 	 * sintético (worker de grupo, proativo, questionário, retomada) vem sem ela: ausente = falso.

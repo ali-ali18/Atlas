@@ -17,7 +17,8 @@ const READ_HTTP_METHODS = new Set(["GET", "HEAD"]);
  * - `propose_routine`/`routine_group` criam webhook no GitHub do dono (`ensureGithubRepoHook`): `write_external`.
  *   `decide_bot_pending` aprova ação de outro bot: `write_external` (igual a `NATIVE_WRITE_TOOLS` do pre-tool).
  * - `endsTurn` = encerra o turno quando devolve cartão pendente (computer-use.ts, `stopFor*`).
- * - `needsHuman` = muda as próprias permissões (hoje com o portão `humanTurn`).
+ * - `needsHuman` = muda as próprias permissões (hoje com o portão `humanTurn`) ou só existe com humano hoje: questionário, `sandbox_release`,
+ *   skills, `delegate*` e `propose_bot` (espelha os filtros por origem do catálogo v1/v2).
  */
 export const TOOL_META: Readonly<Record<string, ToolMetaFields>> = {
 	// Navegador (VM)
@@ -45,8 +46,8 @@ export const TOOL_META: Readonly<Record<string, ToolMetaFields>> = {
 	sandbox_read: { effect: "read" },
 	sandbox_list: { effect: "read" },
 	// Pior caso: baixa URL arbitrária enviando por padrão os cookies do Chrome da VM; sem a sessão é só escrita na VM.
-	sandbox_download: { effect: "credential", effectForArgs: (args) => (args.use_browser_session === false ? "write_internal" : "credential") },
-	sandbox_release: { effect: "write_internal" },
+	sandbox_download: { effect: "credential", catalogEffect: "write_internal", effectForArgs: (args) => (args.use_browser_session === false ? "write_internal" : "credential") },
+	sandbox_release: { effect: "write_internal", needsHuman: true },
 	video_transcript: { effect: "read" },
 
 	// Web
@@ -86,10 +87,10 @@ export const TOOL_META: Readonly<Record<string, ToolMetaFields>> = {
 	skill_read: { effect: "read" },
 	list_skills: { effect: "read", endsTurn: true },
 	show_skill: { effect: "read", endsTurn: true },
-	propose_skill: { effect: "write_internal", endsTurn: true },
-	delete_skill: { effect: "write_internal", endsTurn: true },
-	propose_skill_change: { effect: "write_internal", endsTurn: true },
-	propose_skill_delete: { effect: "write_internal", endsTurn: true },
+	propose_skill: { effect: "write_internal", needsHuman: true, endsTurn: true },
+	delete_skill: { effect: "write_internal", needsHuman: true, endsTurn: true },
+	propose_skill_change: { effect: "write_internal", needsHuman: true, endsTurn: true },
+	propose_skill_delete: { effect: "write_internal", needsHuman: true, endsTurn: true },
 
 	// E-mail do bot
 	email_list: { effect: "read" },
@@ -104,7 +105,8 @@ export const TOOL_META: Readonly<Record<string, ToolMetaFields>> = {
 	cancel_followup: { effect: "write_internal" },
 	reschedule_followup: { effect: "write_internal" },
 	suggest_routine: { effect: "write_internal" },
-	notify_user: { effect: "send" },
+	// O destino é o próprio dono (push/aviso no app dele), não um terceiro: `write_internal` deixa a rotina avisar o dono.
+	notify_user: { effect: "write_internal" },
 
 	// Conectores
 	propose_connector: { effect: "write_internal", endsTurn: true },
@@ -115,6 +117,7 @@ export const TOOL_META: Readonly<Record<string, ToolMetaFields>> = {
 	// `method`, é leitura. Se um dia houver escrita, ela traz o método e cai em write_external.
 	api_call: {
 		effect: "write_external",
+		catalogEffect: "read",
 		effectForArgs: (args) => (typeof args.method === "string" && !READ_HTTP_METHODS.has(args.method.trim().toUpperCase()) ? "write_external" : "read"),
 	},
 	mcp_tool_search: { effect: "read" },
@@ -131,7 +134,7 @@ export const TOOL_META: Readonly<Record<string, ToolMetaFields>> = {
 	find_page_value: { effect: "read" },
 
 	// Bots e configuração
-	propose_bot: { effect: "write_internal", endsTurn: true },
+	propose_bot: { effect: "write_internal", needsHuman: true, endsTurn: true },
 	propose_profile_update: { effect: "write_internal", endsTurn: true },
 	send_to_bot: { effect: "write_external" },
 	decide_bot_pending: { effect: "write_external" },
@@ -139,8 +142,8 @@ export const TOOL_META: Readonly<Record<string, ToolMetaFields>> = {
 	set_autonomy: { effect: "write_internal", needsHuman: true },
 	set_engine: { effect: "write_internal", needsHuman: true },
 	set_reasoning_effort: { effect: "write_internal" },
-	delegate_task: { effect: "write_internal" },
-	propose_questionnaire: { effect: "write_internal", endsTurn: true },
+	delegate_task: { effect: "write_internal", needsHuman: true },
+	propose_questionnaire: { effect: "write_internal", needsHuman: true, endsTurn: true },
 
 	// Planejamento
 	research_note: { effect: "write_internal" },
@@ -158,7 +161,7 @@ export const TOOL_META: Readonly<Record<string, ToolMetaFields>> = {
 	// Trabalho longo (motor v2)
 	notebook_write: { effect: "write_internal" },
 	notebook_read: { effect: "read" },
-	delegate: { effect: "write_internal" },
+	delegate: { effect: "write_internal", needsHuman: true },
 
 	// Sessão de código (resolvedor `devSessionResolver`)
 	dev_session_start: { effect: "write_internal" },

@@ -44,7 +44,7 @@ describe("metadado das tools (effect, poll, endsTurn)", () => {
 	it("valores críticos: envio é send, leitura é read, publicação e segredo têm efeito próprio", () => {
 		expect(getToolMeta("email_send")?.effect).toBe("send");
 		expect(getToolMeta("email_reply")?.effect).toBe("send");
-		expect(getToolMeta("notify_user")?.effect).toBe("send");
+		expect(getToolMeta("notify_user")?.effect).toBe("write_internal"); // destino é o próprio dono
 		expect(getToolMeta("page_share")?.effect).toBe("public_link");
 		expect(getToolMeta("login_fill")?.effect).toBe("credential");
 		expect(getToolMeta("secret_request")?.effect).toBe("credential");
@@ -99,7 +99,20 @@ describe("metadado das tools (effect, poll, endsTurn)", () => {
 
 	it("needsHuman: tools que mudam as próprias permissões", () => {
 		const needs = Object.entries(TOOL_META).filter(([, meta]) => meta.needsHuman).map(([name]) => name).sort();
-		expect(needs).toEqual(["set_autonomy", "set_connector_tool_marks", "set_engine"]);
+		expect(needs).toEqual([
+			"delegate",
+			"delegate_task",
+			"delete_skill",
+			"propose_bot",
+			"propose_questionnaire",
+			"propose_skill",
+			"propose_skill_change",
+			"propose_skill_delete",
+			"sandbox_release",
+			"set_autonomy",
+			"set_connector_tool_marks",
+			"set_engine",
+		]);
 	});
 
 	it("nada classificado como write no autonomy de sandbox-shell é read aqui", () => {

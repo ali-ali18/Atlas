@@ -126,6 +126,7 @@ import { MAX_STEPS_SAFETY, type CapSource, type StepsSource, type SupervisorProf
 import { continuedWorkNote, ENGINE_V2_PROMOTED_NOTE, openItemsNote } from "./prompt.js";
 import { callCostUsd, estimateCostUsd, fallbackPricesFromEnv } from "./cost.js";
 import { dedupeLoginAsk, unattendedLoginOutcome } from "./login.js";
+import { shadowExecute } from "../policy/shadow.js";
 import { createPreToolRunner } from "../hooks/pre-tool-runner.js";
 import { appendUnconfirmed, createTaskListGate, droppedItems, openItems, withOpenItemsMarker } from "./task-list.js";
 import { type DelegateDeps } from "../tools/delegate-task.js";
@@ -297,6 +298,8 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 		!isBotConfigEventObjective(params.objective ?? "") &&
 		!isBotConfigEventObjective(lastUserMessage) &&
 		!parseQuestionnaireAnsweredContent(lastUserMessage);
+	// Para a política em sombra: subagente herda o `humanTurn` do pai.
+	const policyHumanTurn = origin === "subagent" ? params.parentHumanTurn === true : humanTurn;
 	const botProfile = botId && !helperRole ? await (params.loadBotProfile ?? getBotProfile)(botId, params.userId).catch(() => null) : null;
 	// Perfil do bot só muda no chat (onboarding ou pedido explícito): rotina e bot→bot nunca expõem a tool.
 	const allowProfileUpdate =
@@ -334,6 +337,8 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 	const imageIds = params.userImageArtifactIds ?? parsed?.userImageArtifactIds ?? [];
 	const catalog = buildEngineV2Catalog({
 		origin,
+		...(params.parentOrigin ? { policyParentOrigin: params.parentOrigin } : {}),
+		policyHumanTurn: policyHumanTurn,
 		userId,
 		sandboxEnabled,
 		autonomy: autonomyPolicy,
@@ -800,6 +805,8 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 				userId,
 				runId: child.runId,
 				origin: SUBAGENT_ORIGIN,
+				parentOrigin: origin,
+				parentHumanTurn: humanTurn,
 				objective: child.objective,
 				mcp,
 				jev: params.jev,
@@ -1049,6 +1056,19 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 		try {
 			await ensureContinue();
 			const preTool = preTools.run(name, args, entry);
+			// Política v3 em sombra: só registra divergência; a decisão abaixo continua a do v2.
+			shadowExecute({
+				name,
+				args,
+				...(entry ? { entry } : {}),
+				origin,
+				...(params.parentOrigin ? { parentOrigin: params.parentOrigin } : {}),
+				humanTurn: policyHumanTurn,
+				autonomy: autonomyPolicy,
+				planPending: preTools.planState.pending,
+				forceConfirm: preTool.forceConfirm,
+				current: preTool.error ? "deny" : currentExecutionDecision(name, entry, preTool.forceConfirm),
+			});
 			if (preTool.error) {
 				policyDecision = "blocked";
 				throw new Error(preTool.error);
@@ -1152,6 +1172,15 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 		// Imagens só entram no contexto depois do resultado da tool (a ordem das mensagens é a das chamadas).
 		pendingMedia.set(call.id, imageArtifactId ? [{ type: "screenshot_ref", artifactId: imageArtifactId }] : visionArtifactIds.length > 0 && canSeeImages ? visionArtifactIds.map((artifactId): LlmContentPart => ({ type: "screenshot_ref", artifactId })) : []);
 		return { call, name, ok, summary, args };
+	};
+	/** O que o v2 faz hoje com a chamada (só para a sombra da política): conector segue `decideAction`; nativa roda. */
+	const currentExecutionDecision = (name: string, entry: ReturnType<typeof entryOf>, forceConfirm: boolean): "allow" | "ask" | "deny" => {
+		if (!entry) return "allow";
+		const decision = decideAction(autonomyPolicy, entry.autonomyMeta);
+		if (decision === "block") return "deny";
+		const asked = decision === "ask" || forceConfirm;
+		if (!asked) return "allow";
+		return isUnattendedOrigin(origin) ? "deny" : "ask";
 	};
 	const parallelSafe = (call: LlmToolCall): boolean => {
 		const name = call.function.name;

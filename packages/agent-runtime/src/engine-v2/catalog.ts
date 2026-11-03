@@ -36,7 +36,7 @@ import { SANDBOX_TOOL_NAMES } from "../tools/registry/sandbox-tools.js";
 import { VIDEO_TRANSCRIPT_TOOL_NAME, videoTranscriptBlocked } from "../tools/video-transcript.js";
 import { SANDBOX_SHELL_TOOL_NAMES, sandboxShellAllowedForOrigin, sandboxShellBlocked, type SandboxShellToolName } from "../tools/sandbox-shell.js";
 import { SANDBOX_RELEASE_TOOL_NAME } from "../tools/sandbox-release.js";
-import { MCP_MAX_EXPOSED_TOOLS, MCP_MAX_TOOLS_JSON_CHARS } from "../mcp/registry.js";
+import { MCP_MAX_EXPOSED_TOOLS, MCP_MAX_TOOLS_JSON_CHARS, type McpToolEntry } from "../mcp/registry.js";
 import { planMcpActivation } from "../mcp/activation.js";
 import type { McpRuntime } from "../mcp/runtime.js";
 import { skillDeleteBlocked, skillWriteBlocked } from "../tools/skills.js";
@@ -48,6 +48,7 @@ import { SET_ENGINE_TOOL } from "../tools/set-engine.js";
 import { notifyUserPushTool, proactiveToolsFor, type UserPushMode } from "../tools/proactive.js";
 import { REPORT_ALERT_TOOL } from "../tools/report-alert.js";
 import { SEND_TO_BOT_TOOL, shouldExposeSendToBot } from "../tools/bot-messaging.js";
+import { shadowCatalog } from "../policy/shadow.js";
 import { DECIDE_BOT_PENDING_TOOL, shouldExposeDecideBotPending } from "../tools/bot-pending.js";
 
 const SKILL_WRITE_TOOL_NAMES: ReadonlySet<string> = new Set(["propose_skill", "delete_skill"]);
@@ -117,6 +118,10 @@ export function buildEngineV2Catalog(input: {
 	userPush?: UserPushMode;
 	/** Rotina de alerta (`params.alertRun`): `report_alert` entra e é o fim da verificação. */
 	alertRun?: boolean;
+	/** Origem do pai quando este run é um subagente (só a política em sombra lê). */
+	policyParentOrigin?: string;
+	/** `humanTurn` real do run (do pai, em subagente); só a política em sombra lê. Padrão: false. */
+	policyHumanTurn?: boolean;
 	/** Conversa entre bots (chat do dono e bot→bot): quantos bots o dono tem e se "decidir pelos outros bots" está ligado. */
 	botMessaging?: { botCount: number; decideForOtherBots: boolean };
 }): EngineV2Catalog {
@@ -223,14 +228,24 @@ export function buildEngineV2Catalog(input: {
 	const plan = planNativeTools(native, preloaded);
 
 	const mcp = input.mcp;
+	const shadowMcp: Array<{ name: string; entry: McpToolEntry; visible: boolean }> = [];
 	const mcpTools = (mcp?.toolset.tools ?? []).filter((tool) => {
 		const entry = mcp?.toolset.entries.get(tool.function.name);
 		if (!entry || !allow(tool.function.name)) return false;
 		const decision = decideAction(input.autonomy, entry.autonomyMeta);
-		if (decision === "block") return false;
 		// Sem humano para aprovar (rotina, webhook, e-mail, bot): conector só leitura, em qualquer autonomia.
-		if (isReadOnlyConnectorOrigin(input.origin) && !entry.readOnly) return false;
-		return !isUnattendedOrigin(input.origin) || decision === "allow";
+		const visible = decision !== "block" && !(isReadOnlyConnectorOrigin(input.origin) && !entry.readOnly) && (!isUnattendedOrigin(input.origin) || decision === "allow");
+		shadowMcp.push({ name: tool.function.name, entry, visible });
+		return visible;
+	});
+	// Sombra da política v3: só registra divergência, não muda o que o modelo vê.
+	shadowCatalog({
+		origin: input.origin,
+		...(input.policyParentOrigin ? { parentOrigin: input.policyParentOrigin } : {}),
+		humanTurn: input.policyHumanTurn === true,
+		autonomy: input.autonomy,
+		nativeExposed: native.map((tool) => tool.function.name),
+		mcp: shadowMcp,
 	});
 	const wantsSearch = allow("mcp_tool_search") && (plan.deferred.size > 0 || Boolean(mcp?.toolset.deferred));
 	const tools = orderEconomyTools({ plan, searchTool: wantsSearch ? TOOL_SEARCH_WITH_BUILTINS : null, connectorTools: mcpTools });
