@@ -64,6 +64,16 @@ export function clampIndex(index: number, total: number): number {
 	return Math.min(Math.max(Math.round(index), 0), total - 1);
 }
 
+/**
+ * A lista de imagens mudou com o visualizador aberto: o índice segue a imagem que a pessoa estava vendo (pela chave); se
+ * ela sumiu, fica no mais próximo da posição antiga. Sem imagens, 0.
+ */
+export function revalidateIndex(images: readonly { key: string }[], currentKey: string | undefined, previousIndex: number): number {
+	if (images.length === 0) return 0;
+	const at = currentKey === undefined ? -1 : images.findIndex((image) => image.key === currentKey);
+	return at >= 0 ? at : clampIndex(previousIndex, images.length);
+}
+
 /** Página atual de um pager horizontal pela posição da rolagem. */
 export function indexFromOffset(offsetX: number, pageWidth: number, total: number): number {
 	if (!(pageWidth > 0)) return 0;

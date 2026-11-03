@@ -4,11 +4,11 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ThemedModalRoot } from "@/components/home/themed-modal";
 import { ChatImageView } from "@/components/chat/chat-image";
 import { CloseIcon, DotsIcon, DownloadIcon, ForwardIcon, ShareIcon } from "@/components/icons";
-import { ActionSheet, type SheetGroup } from "@/components/ui/action-sheet";
+import { DropdownMenu, type DropdownAction } from "@/components/ui/dropdown-menu";
 import { ChromeButton } from "@/components/ui/chrome-button";
 import { Text } from "@/components/ui/text";
 import { IMAGE_NOTICE } from "@/lib/image-actions";
-import { clampIndex, fitImage, indexFromOffset, type ViewerImage } from "@/lib/image-viewer";
+import { clampIndex, fitImage, indexFromOffset, revalidateIndex, type ViewerImage } from "@/lib/image-viewer";
 import { SchemeOverrideContext } from "@/lib/use-theme";
 import { useSurfaces } from "@/lib/use-surfaces";
 import type { ImageViewerActions } from "./use-image-actions";
@@ -47,12 +47,12 @@ function ViewerBody({ images, startIndex, onClose, actions }: Omit<Props, "visib
 	const { width } = useWindowDimensions();
 	const [index, setIndex] = React.useState(startIndex);
 	const [pagerHeight, setPagerHeight] = React.useState(0);
-	const [menu, setMenu] = React.useState(false);
 	const [notice, setNotice] = React.useState<string | null>(null);
 	const pager = React.useRef<FlatList<ViewerImage>>(null);
 	const thumbs = React.useRef<FlatList<ViewerImage>>(null);
 	const noticeTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 	const current = images[index];
+	const working = React.useRef(false);
 
 	const showNotice = React.useCallback((text: string | null, sticky = false) => {
 		if (noticeTimer.current) clearTimeout(noticeTimer.current);
@@ -68,11 +68,26 @@ function ViewerBody({ images, startIndex, onClose, actions }: Omit<Props, "visib
 
 	// A miniatura da imagem atual fica sempre visível (centralizada quando dá).
 	React.useEffect(() => {
-		thumbs.current?.scrollToIndex({ index, viewPosition: 0.5, animated: true });
+		try {
+			thumbs.current?.scrollToIndex({ index, viewPosition: 0.5, animated: true });
+		} catch {
+			// Lista ainda sem medida: a próxima troca de índice tenta de novo.
+		}
 	}, [index]);
 
+	// Durante um `goTo` o pager passa por todas as páginas do caminho; o `onScroll` desse trecho é ignorado, senão o
+	// destaque das miniaturas pisca.
+	const programmatic = React.useRef(false);
+	const programmaticTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+	React.useEffect(
+		() => () => {
+			if (programmaticTimer.current) clearTimeout(programmaticTimer.current);
+		},
+		[],
+	);
 	const onScroll = React.useCallback(
 		(event: NativeSyntheticEvent<NativeScrollEvent>) => {
+			if (programmatic.current) return;
 			setIndex(indexFromOffset(event.nativeEvent.contentOffset.x, width, images.length));
 		},
 		[width, images.length],
@@ -80,28 +95,60 @@ function ViewerBody({ images, startIndex, onClose, actions }: Omit<Props, "visib
 	const goTo = React.useCallback(
 		(target: number) => {
 			setIndex(target);
+			programmatic.current = true;
+			if (programmaticTimer.current) clearTimeout(programmaticTimer.current);
+			programmaticTimer.current = setTimeout(() => {
+				programmatic.current = false;
+			}, 500);
 			pager.current?.scrollToOffset({ offset: target * width, animated: true });
 		},
 		[width],
 	);
 
+	// Girou a tela (largura nova): reposiciona o pager na imagem atual, sem animação.
+	React.useEffect(() => {
+		pager.current?.scrollToOffset({ offset: index * width, animated: false });
+		// eslint-disable-next-line react-hooks/exhaustive-deps -- só a largura reposiciona; o índice vem do gesto.
+	}, [width]);
+
+	// A lista mudou com o visualizador aberto: o índice segue a imagem que estava na tela (ou o mais próximo).
+	const currentKey = React.useRef<string | undefined>(images[startIndex]?.key);
+	const previousImages = React.useRef(images);
+	React.useEffect(() => {
+		if (previousImages.current === images) return;
+		previousImages.current = images;
+		const next = revalidateIndex(images, currentKey.current, index);
+		if (next !== index) {
+			setIndex(next);
+			pager.current?.scrollToOffset({ offset: next * width, animated: false });
+		}
+	}, [images, index, width]);
+	// Depois da revalidação (a ordem dos efeitos importa): guarda a imagem em que o índice caiu.
+	React.useEffect(() => {
+		currentKey.current = images[index]?.key ?? currentKey.current;
+	}, [images, index]);
+
 	const run = React.useCallback(
 		(action: (image: ViewerImage) => Promise<string | null>, busy?: string) => {
 			const image = images[index];
-			if (!image) return;
-			setMenu(false);
+			// Toque duplo em Salvar/Compartilhar/Encaminhar: a segunda chamada é ignorada até a primeira terminar.
+			if (!image || working.current) return;
+			working.current = true;
 			if (busy) showNotice(busy, true);
-			void action(image).then((text) => showNotice(text));
+			action(image)
+				.then((text) => showNotice(text))
+				.catch(() => showNotice(IMAGE_NOTICE.prepareFailed))
+				.finally(() => {
+					working.current = false;
+				});
 		},
 		[images, index, showNotice],
 	);
-	const groups = React.useMemo<SheetGroup[]>(
+	const menuActions = React.useMemo<DropdownAction[]>(
 		() => [
-			[
-				{ key: "forward", label: "Encaminhar", icon: <ForwardIcon />, onPress: () => run(actions.forward) },
-				{ key: "share", label: "Compartilhar", icon: <ShareIcon size={20} tone="foreground" />, onPress: () => run(actions.share) },
-				{ key: "save", label: "Salvar", icon: <DownloadIcon />, onPress: () => run(actions.save, IMAGE_NOTICE.saving) },
-			],
+			{ key: "forward", label: "Encaminhar", icon: <ForwardIcon />, onPress: () => run(actions.forward) },
+			{ key: "share", label: "Compartilhar", icon: <ShareIcon size={20} tone="foreground" />, onPress: () => run(actions.share) },
+			{ key: "save", label: "Salvar", icon: <DownloadIcon />, onPress: () => run(actions.save, IMAGE_NOTICE.saving) },
 		],
 		[actions, run],
 	);
@@ -116,9 +163,15 @@ function ViewerBody({ images, startIndex, onClose, actions }: Omit<Props, "visib
 				<ChromeButton label="Fechar" onPress={onClose}>
 					<CloseIcon size={20} tone="foreground" />
 				</ChromeButton>
-				<ChromeButton label="Mais opções" onPress={() => setMenu(true)}>
-					<DotsIcon size={22} tone="foreground" />
-				</ChromeButton>
+				<DropdownMenu
+					label="Opções da imagem"
+					actions={menuActions}
+					trigger={(open) => (
+						<ChromeButton label="Mais opções" onPress={open}>
+							<DotsIcon size={22} tone="foreground" />
+						</ChromeButton>
+					)}
+				/>
 			</View>
 
 			<View className="flex-1" onLayout={onPagerLayout}>
@@ -163,7 +216,7 @@ function ViewerBody({ images, startIndex, onClose, actions }: Omit<Props, "visib
 					horizontal
 					showsHorizontalScrollIndicator={false}
 					style={{ flexGrow: 0 }}
-					contentContainerStyle={{ paddingHorizontal: SIDE, gap: THUMB_GAP, alignItems: "center" }}
+					contentContainerStyle={{ flexGrow: 1, justifyContent: "center", paddingHorizontal: SIDE, gap: THUMB_GAP, alignItems: "center" }}
 					getItemLayout={(_, at) => ({ length: THUMB, offset: (THUMB + THUMB_GAP) * at, index: at })}
 					initialScrollIndex={startIndex}
 					onScrollToIndexFailed={() => undefined}
@@ -193,7 +246,6 @@ function ViewerBody({ images, startIndex, onClose, actions }: Omit<Props, "visib
 				</View>
 			) : null}
 
-			<ActionSheet visible={menu} onClose={() => setMenu(false)} groups={groups} />
 		</View>
 	);
 }

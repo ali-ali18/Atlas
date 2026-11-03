@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ChatImage, ChatItem } from "./chat-types";
-import { clampIndex, collectViewerImages, fitImage, imageApiPath, imageCaption, imageFileName, imageGridColumns, indexFromOffset, isSafeImageUri, localImageUri, shortCaption, singleImageAspect, viewerStartIndex } from "./image-viewer";
+import { revalidateIndex, clampIndex, collectViewerImages, fitImage, imageApiPath, imageCaption, imageFileName, imageGridColumns, indexFromOffset, isSafeImageUri, localImageUri, shortCaption, singleImageAspect, viewerStartIndex } from "./image-viewer";
 
 const img = (artifactId: string, extra: Partial<ChatImage> = {}): ChatImage => ({ artifactId, mime: "image/png", width: 100, height: 50, ...extra });
 const card = (id: string, origin: "user" | "assistant", images: ChatImage[], caption?: string): ChatItem => ({ id, kind: "images", origin, images, ...(caption ? { caption } : {}) });
@@ -148,5 +148,20 @@ describe("grade do chat", () => {
 		expect(singleImageAspect(100, 3000)).toBe(0.6);
 		expect(singleImageAspect(400, 300)).toBeCloseTo(1.333, 2);
 		expect(singleImageAspect(0, 0)).toBe(1);
+	});
+});
+
+describe("revalidateIndex", () => {
+	const list = (...keys: string[]) => keys.map((key) => ({ key }));
+	it("segue a imagem atual quando a lista muda de posição", () => {
+		expect(revalidateIndex(list("x", "a", "b"), "b", 1)).toBe(2);
+	});
+	it("imagem que sumiu cai no mais próximo da posição antiga", () => {
+		expect(revalidateIndex(list("a", "b"), "gone", 5)).toBe(1);
+		expect(revalidateIndex(list("a", "b", "c"), "gone", 1)).toBe(1);
+	});
+	it("sem chave ou sem imagens", () => {
+		expect(revalidateIndex(list("a", "b"), undefined, 1)).toBe(1);
+		expect(revalidateIndex([], "a", 3)).toBe(0);
 	});
 });
