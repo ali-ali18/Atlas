@@ -39,4 +39,10 @@ describe("persona do bot (bloco único de identidade, estilo e idioma)", () => {
 		expect(block).not.toMatch(/Always reply|American English|Portuguese|Spanish/);
 		expect(block).toContain("- Style:");
 	});
+
+	it("o estilo não proíbe contar o que vai fazer (não contradiz o prompt de persistência)", () => {
+		const block = buildPersonaBlock({ name: "Ada", language: "pt-BR" });
+		expect(block).not.toMatch(/narrating|what you are about to do/);
+		expect(block).toContain("No filler, no restating the request.");
+	});
 });

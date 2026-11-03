@@ -12,6 +12,7 @@ import type { PersistUserArtifactInput } from "@workspace/db";
 import { runEngineV2, type EngineV2Options } from "./run.js";
 import { DOCUMENT_BUDGET_NOTE, DOCUMENT_DONE_INSTRUCTION, DOCUMENT_STOPPED_NOTE, documentMissingNote, stopReasonPhrase } from "./delivery.js";
 import { CONTINUED_WORK_NOTE, ENGINE_V2_CORE, ENGINE_V2_PROMOTED_NOTE, ENGINE_V2_UNATTENDED, openItemsNote } from "./prompt.js";
+import { disciplineForModel } from "../context/model-discipline.js";
 import { STAGNATION_ACTION_NOTE, WRAP_UP_NOTE, deliveryInstruction } from "./supervisor.js";
 import { budgetStopFallbackText } from "../computer-use.js";
 
@@ -681,12 +682,16 @@ describe("anunciar sem fazer (v2): sinal estrutural, sem regex e sem apagar text
 
 	it("o prompt manda chamar a tool no mesmo passo e não passar a execução ao usuário", () => {
 		const core = ENGINE_V2_CORE.join("\n");
-		expect(core).toMatch(/reply without a tool call ends your turn/i);
+		// A regra "resposta sem tool encerra o turno" mora numa linha só, na disciplina do modelo (não repete no núcleo).
+		expect(core).not.toMatch(/reply without a tool call/i);
+		expect(disciplineForModel("anthropic/claude-sonnet-4.5")).toMatch(/reply without a tool call ends your turn/i);
 		// Sem teto padrão de tempo ou dinheiro: o prompt não promete um "orçamento de tempo" que não existe.
 		expect(core).toMatch(/no default time or money limit/);
 		expect(core).not.toMatch(/Time is the budget/);
-		expect(core).toMatch(/Never announce an action/);
-		expect(core).toMatch(/never hand the execution to the user/);
+		expect(core).toMatch(/Do not stop early or hand the work back to the user/);
+		// Sem tom agressivo nem "pergunte uma vez só no início" (contradiz a persistência).
+		expect(core).not.toMatch(/\b(MUST|CRITICAL|IMPORTANT)\b/);
+		expect(core).not.toMatch(/at most once, at the start/);
 		expect(openItemsNote(["x"])).toMatch(/calling the tool in this step/);
 	});
 });
