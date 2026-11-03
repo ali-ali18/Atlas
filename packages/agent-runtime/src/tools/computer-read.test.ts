@@ -7,6 +7,7 @@ import {
 	formatRead,
 	parseReadToolArgs,
 } from "./computer-read.js";
+import { COMPUTER_REF_TOOLS } from "./computer-refs.js";
 
 const read = (over: Partial<ControlReadResult> = {}): ControlReadResult => ({
 	url: "https://lms.test/course",
@@ -135,6 +136,17 @@ describe("descrições das tools de leitura", () => {
 		expect(readTool!.function.description).toContain("the action result says it");
 		expect(readTool!.function.description).toContain("untrusted");
 		expect(findTool!.function.description).toContain("browser_read");
+	});
+});
+
+const COMPUTER_REF_TOOLS_TEXT = JSON.stringify(COMPUTER_REF_TOOLS);
+
+describe("descrição de browser_read", () => {
+	it("resposta longa de chat: ler com browser_read paginado; o snapshot é para achar o que clicar", () => {
+		const desc = JSON.stringify(COMPUTER_READ_TOOLS.find((tool) => JSON.stringify(tool).includes('"browser_read"')));
+		expect(desc).toContain("long chat answer (paginate with offset)");
+		// A descrição do snapshot já manda texto longo para o browser_read.
+		expect(COMPUTER_REF_TOOLS_TEXT).toContain("Do NOT use it for long text (browser_read)");
 	});
 });
 
