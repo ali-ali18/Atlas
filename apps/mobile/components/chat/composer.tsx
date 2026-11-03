@@ -3,9 +3,13 @@ import { LayoutAnimation, Platform, Pressable, TextInput, useWindowDimensions, V
 import { useReducedMotion } from "react-native-reanimated";
 
 import type { ReplyQuote } from "@/lib/chat-types";
+import { MarkerChip } from "./marker-chip";
+import { MentionPopup } from "./mention-popup";
 import { ReplyChip } from "./reply-chip";
 import { ArrowUpIcon, MicIcon, PlusIcon, StopIcon, WaveformIcon } from "@/components/icons";
 import { Text } from "@/components/ui/text";
+import { addMarker, backspaceRemovesMarker, composeMessage, hasContent, removeMarker, splitLeadingMarkers, type Marker } from "@/lib/composer-markers";
+import { removeTrigger, triggerState, type BotCandidate, type SkillCandidate } from "@/lib/mention-input";
 import { pillAccessibilityLabel, type ModelPill } from "@/lib/model-pill";
 import { chatChrome } from "@/lib/chat-surface";
 import { themeColor } from "@/lib/theme";
@@ -20,6 +24,7 @@ const INSET = 7.5;
 /** No retângulo (texto em várias linhas) os botões descolam da borda e do canto arredondado. */
 const STACKED_INSET = 10;
 const PILL_RADIUS = 28;
+const NO_BOTS: readonly BotCandidate[] = [];
 const STACKED_RADIUS = 24;
 
 type ComposerProps = {
@@ -45,6 +50,15 @@ type ComposerProps = {
 	/** Mensagem que a próxima fala responde: vira o chip dentro do campo, com X para cancelar. */
 	replyTo?: ReplyQuote | null;
 	onCancelReply?: () => void;
+	/** Bots que o `@` oferece (os outros bots, ou os membros do grupo). Vazio: o `@` fica como texto. */
+	mentionBots?: readonly BotCandidate[];
+	/** Habilidades que o `/` oferece; `null` desliga o `/` (grupo). Carregam quando o `/` é digitado (`onSlash`). */
+	skills?: readonly SkillCandidate[] | null;
+	skillsLoading?: boolean;
+	/** A primeira vez que o `/` abre: hora de ler as habilidades. */
+	onSlash?: () => void;
+	/** Marcadores que o campo já abre (ex.: a prévia). */
+	initialMarkers?: readonly Marker[];
 };
 
 /**
@@ -56,13 +70,34 @@ type ComposerProps = {
  * Estrutura e borda como no `chat-composer` do web: uma View só, com `border border-border` e `bg-input`, colada na
  * pílula (sem respiro nem wrapper), com o raio total direto nela, nos dois formatos (pílula e retângulo).
  */
-export function Composer({ initialText, botName, color, foreground, running, onSend, onStop, onSoon, onModel, modelPill, holdWriting, onWriting, replyTo, onCancelReply }: ComposerProps) {
+export function Composer({ initialText, botName, color, foreground, running, onSend, onStop, onSoon, onModel, modelPill, holdWriting, onWriting, replyTo, onCancelReply, mentionBots = NO_BOTS, skills = null, skillsLoading, onSlash, initialMarkers }: ComposerProps) {
 	// `color` é o destaque do bot (`botAccent`): o primeiro plano é o que vem dele, sempre branco.
 	const onColor = foreground;
 	const scheme = useAppColorScheme();
 	const chrome = chatChrome(scheme);
-	const [text, setText] = React.useState(initialText ?? "");
-	const hasText = text.trim().length > 0;
+	// Marcadores (`@bot`, `/habilidade`) vivem fora do TextInput (ele não aceita componente no texto): chips antes do campo,
+	// dentro da caixa. Um rascunho que já chega com `@Nome` ou `/slug` no começo vira chip.
+	const start = React.useMemo(() => {
+		const split = splitLeadingMarkers(initialText ?? "", mentionBots, skills ?? []);
+		return { markers: [...(initialMarkers ?? []), ...split.markers], text: split.rest };
+		// biome-ignore lint/correctness/useExhaustiveDependencies: só o estado inicial
+	}, []);
+	const [markers, setMarkers] = React.useState<Marker[]>(start.markers);
+	const [text, setText] = React.useState(start.text);
+	const [selection, setSelection] = React.useState({ start: text.length, end: text.length });
+	// Depois de escolher na lista, o cursor volta para onde o gatilho estava (a prop `selection` só vale nesse instante).
+	const [forcedSelection, setForcedSelection] = React.useState<{ start: number; end: number } | undefined>(undefined);
+	const trigger = React.useMemo(
+		() => triggerState(text, selection.start === selection.end ? selection.start : text.length, { bots: mentionBots, skills }),
+		[text, selection, mentionBots, skills],
+	);
+	const slashOpen = trigger?.trigger === "/";
+	React.useEffect(() => {
+		if (slashOpen) onSlash?.();
+		// biome-ignore lint/correctness/useExhaustiveDependencies: só quando o `/` abre
+	}, [slashOpen]);
+	const filled = hasContent(markers, text);
+	const hasText = filled;
 	const inputRef = React.useRef<React.ComponentRef<typeof TextInput>>(null);
 	const replyId = replyTo?.id;
 	// Tocou em "Responder": o teclado abre no campo, pronto para digitar.
@@ -98,15 +133,35 @@ export function Composer({ initialText, botName, color, foreground, running, onS
 	const mode = hasText ? "send" : running ? "stop" : "voice";
 	const press = () => {
 		if (mode === "send") {
-			onSend(text);
+			onSend(composeMessage(markers, text));
 			setText("");
+			setMarkers([]);
 			setStacked(false);
 			baseline.current = null;
 		} else if (mode === "stop") onStop();
 		else onSoon("voz");
 	};
+	// Escolheu na lista: o gatilho sai do texto e entra o marcador; o foco e o cursor ficam no campo.
+	const pick = (state: NonNullable<typeof trigger>, index: number) => {
+		const candidate = state.candidates[index];
+		if (!candidate) return;
+		const next = removeTrigger(text, selection.start === selection.end ? selection.start : text.length, state.start);
+		const marker: Marker = state.trigger === "@" ? { kind: "bot", id: candidate.id, name: candidate.name, color: (candidate as BotCandidate).color, shape: (candidate as BotCandidate).shape } : { kind: "skill", id: candidate.id, name: candidate.name };
+		animate();
+		setMarkers((current) => addMarker(current, marker));
+		setText(next.text);
+		setForcedSelection({ start: next.caret, end: next.caret });
+		setSelection({ start: next.caret, end: next.caret });
+		inputRef.current?.focus();
+	};
+	const removeChip = (marker: Marker) => {
+		animate();
+		setMarkers((current) => removeMarker(current, marker));
+		inputRef.current?.focus();
+	};
 	return (
 		<View className="mb-2 gap-2" style={{ marginHorizontal: 19.5 }}>
+			{trigger ? <MentionPopup state={trigger} loading={skillsLoading} onPick={pick} /> : null}
 			<View className="overflow-hidden border" style={{ borderRadius: open || replyTo ? STACKED_RADIUS : PILL_RADIUS, borderColor: chrome.edge, backgroundColor: chrome.fill }}>
 				{replyTo && onCancelReply ? <ReplyChip quote={replyTo} onCancel={onCancelReply} /> : null}
 				{/*
@@ -115,6 +170,13 @@ export function Composer({ initialText, botName, color, foreground, running, onS
 				  ocupa a largura toda e reserva uma faixa embaixo para a linha de botões ("+" à esquerda, microfone e botão
 				  da cor do bot à direita), como nas referências do dono.
 				*/}
+				{markers.length > 0 ? (
+					<View className="flex-row flex-wrap gap-1.5 px-3 pt-3">
+						{markers.map((marker) => (
+							<MarkerChip key={`${marker.kind}:${marker.id}`} marker={marker} onRemove={removeChip} />
+						))}
+					</View>
+				) : null}
 				<View style={{ paddingBottom: open ? BUTTON + STACKED_INSET * 2 : 0 }}>
 					<TextInput
 						ref={inputRef}
@@ -131,7 +193,7 @@ export function Composer({ initialText, botName, color, foreground, running, onS
 							setFocused(false);
 						}}
 						onChangeText={(value) => {
-							if ((value.length > 0) !== hasText) animate();
+							if (hasContent(markers, value) !== hasText) animate();
 							setText(value);
 							if (value.length === 0) {
 								setStacked(false);
@@ -147,13 +209,25 @@ export function Composer({ initialText, botName, color, foreground, running, onS
 							// Na prévia web o campo não cresce sozinho (no celular, sim): a altura vem da medida.
 							if (Platform.OS === "web") setWebHeight(height);
 						}}
+						selection={forcedSelection}
+						onSelectionChange={(event) => {
+							setSelection(event.nativeEvent.selection);
+							setForcedSelection(undefined);
+						}}
+						// Backspace com o cursor no começo apaga o último marcador inteiro (como num chip de e-mail).
+						onKeyPress={(event) => {
+							if (event.nativeEvent.key === "Backspace" && backspaceRemovesMarker(selection, markers.length)) {
+								animate();
+								setMarkers((current) => current.slice(0, -1));
+							}
+						}}
 						multiline
 						maxLength={20_000}
 						textAlignVertical={open ? "top" : "center"}
 						style={{
 							fontSize: 16,
 							lineHeight: LINE_HEIGHT,
-							paddingTop: (MIN_HEIGHT - LINE_HEIGHT) / 2,
+							paddingTop: markers.length > 0 ? 8 : (MIN_HEIGHT - LINE_HEIGHT) / 2,
 							paddingBottom: open ? 4 : (MIN_HEIGHT - LINE_HEIGHT) / 2,
 							paddingLeft: open ? 16 : INSET + BUTTON + 8,
 							paddingRight: open ? 16 : INSET + rightWidth + 8,

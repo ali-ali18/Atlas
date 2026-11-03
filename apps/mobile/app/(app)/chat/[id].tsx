@@ -30,6 +30,8 @@ import type { ChatItem, ReplyQuote } from "@/lib/chat-types";
 import { containsTable } from "@/lib/markdown";
 import { replyQuoteFor } from "@/lib/reply-quote";
 import { useChat } from "@/lib/use-chat";
+import { mentionableBots } from "@/lib/mention-input";
+import { useComposerSkills } from "@/lib/use-composer-skills";
 import { useHomeData } from "@/lib/home-data";
 
 /** Rolou para cima além disto (px do fim): aparece o botão de voltar ao fim. */
@@ -67,6 +69,9 @@ export default function ChatScreen() {
 	const { serverUrl } = useAtlasSession();
 	const bot = snapshot?.bots.find((item) => item.id === id);
 	const chat = useChat(bot);
+	// `@` oferece os outros bots (no grupo, os membros) e `/` as habilidades (só no 1:1, como no web).
+	const mentionBots = React.useMemo(() => mentionableBots(snapshot?.bots ?? [], bot), [snapshot?.bots, bot]);
+	const composerSkills = useComposerSkills();
 	const listRef = React.useRef<FlatList<ChatItem>>(null);
 	const [farFromEnd, setFarFromEnd] = React.useState(false);
 	const [menu, setMenu] = React.useState(false);
@@ -195,7 +200,7 @@ export default function ChatScreen() {
 							<ChevronDownIcon size={22} tone="foreground" />
 						</Pressable>
 					) : null}
-					<Composer initialText={typeof draft === "string" ? draft : undefined} botName={bot.name} color={color} foreground={foreground} running={chat.running} onSend={(text) => {
+					<Composer mentionBots={mentionBots} skills={bot.memberIds.length > 0 ? null : composerSkills.skills} skillsLoading={composerSkills.loading} onSlash={composerSkills.load} initialText={typeof draft === "string" ? draft : undefined} botName={bot.name} color={color} foreground={foreground} running={chat.running} onSend={(text) => {
 							chat.send(text, replyTo ?? undefined);
 							setReplyTo(null);
 						}} onStop={chat.stop} onSoon={(what) => setSoon(what)} onModel={() => setModelOpen(true)} modelPill={modelPill} holdWriting={modelOpen} onWriting={chat.modelSelector.loadCatalog} replyTo={replyTo} onCancelReply={() => setReplyTo(null)} />

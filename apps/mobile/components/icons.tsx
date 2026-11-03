@@ -33,6 +33,7 @@ import {
 	Reply as LucideReply,
 	Search as LucideSearch,
 	SlidersHorizontal as LucideSlidersHorizontal,
+	Sparkles as LucideSparkles,
 	Send as LucideSend,
 	Share as LucideShare,
 	Square as LucideSquare,
@@ -259,6 +260,11 @@ export function MailOpenIcon({ size = 20, tone = "foreground" }: LineIconProps) 
 /** Lucide `Reply` (menu da mensagem: Responder). */
 export function ReplyIcon({ size = 20, tone = "foreground" }: LineIconProps) {
 	return <LucideReply size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `Sparkles` (a habilidade: o mesmo ícone do web nos chips e na lista do `/`). */
+export function SparklesIcon({ size = 16, tone = "muted-foreground" }: LineIconProps) {
+	return <LucideSparkles size={size} color={useStroke(tone)} strokeWidth={2} />;
 }
 
 /** Lucide `X`. */
