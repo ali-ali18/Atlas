@@ -108,24 +108,47 @@ describe("casos obrigatorios", () => {
 		expect(decide(setAutonomy, ctxFor("chat", "autonomous"))).toBe("allow");
 	});
 
-	it("api_call GET em rotina = allow; escrita (metodo nao-GET) = hide", () => {
+	it("api_call: aparece no catalogo da rotina; GET roda, POST e negado com motivo na execucao", () => {
+		const routine = ctxFor("routine", "balanced");
+		// catalogo (sem args): efeito mais permissivo, a tool aparece
+		expect(decide(nativePolicyTool("api_call")!, routine)).toBe("allow");
 		const get = nativePolicyTool("api_call", { method: "GET" })!;
 		expect(get.effect).toBe("read");
-		expect(decide(get, ctxFor("routine", "balanced"))).toBe("allow");
-		expect(decide(nativePolicyTool("api_call", {})!, ctxFor("routine", "balanced"))).toBe("allow");
-		const post = nativePolicyTool("api_call", { method: "POST" })!;
-		expect(decide(post, ctxFor("routine", "balanced"))).toBe("hide");
-		// no catalogo (sem args) vale o pior caso
-		expect(decide(nativePolicyTool("api_call")!, ctxFor("routine", "balanced"))).toBe("hide");
+		expect(decide(get, { ...routine, stage: "execute" })).toBe("allow");
+		expect(decide(nativePolicyTool("api_call", {})!, { ...routine, stage: "execute" })).toBe("allow");
+		const post = explainDecision(nativePolicyTool("api_call", { method: "POST" })!, { ...routine, stage: "execute" });
+		expect(post.decision).toBe("deny");
+		expect(post.reason).toMatch(/only GET\/HEAD/);
+		// o mesmo POST, avaliado como montagem de catalogo, esconderia (nao e usado assim)
+		expect(decide(nativePolicyTool("api_call", { method: "POST" })!, routine)).toBe("hide");
 	});
 
-	it("sandbox_download com cookies em rotina = hide; sem a sessao do navegador = allow", () => {
+	it("sandbox_download: aparece em rotina; com cookies e negado com dica acionavel, sem a sessao roda", () => {
+		const routine = ctxFor("routine", "autonomous");
+		expect(decide(nativePolicyTool("sandbox_download")!, routine)).toBe("allow");
 		const withCookies = nativePolicyTool("sandbox_download", { url: "https://x.test/a" })!;
 		expect(withCookies.effect).toBe("credential");
-		expect(decide(withCookies, ctxFor("routine", "autonomous"))).toBe("hide");
+		const denied = explainDecision(withCookies, { ...routine, stage: "execute" });
+		expect(denied.decision).toBe("deny");
+		expect(denied.reason).toMatch(/set use_browser_session false/);
 		const plain = nativePolicyTool("sandbox_download", { url: "https://x.test/a", use_browser_session: false })!;
-		expect(decide(plain, ctxFor("routine", "autonomous"))).toBe("allow");
+		expect(decide(plain, { ...routine, stage: "execute" })).toBe("allow");
 		expect(decide(withCookies, ctxFor("chat", "autonomous"))).toBe("ask");
+	});
+
+	it("rotina pode notificar o dono (notify_user e write_internal, nao envio a terceiro)", () => {
+		const notify = nativePolicyTool("notify_user")!;
+		expect(notify.effect).toBe("write_internal");
+		for (const origin of ["routine", "proactive"]) expect(decide(notify, ctxFor(origin, "balanced"))).toBe("allow");
+	});
+
+	it("tools que so existem com humano hoje somem sem humano e seguem no chat", () => {
+		for (const name of ["propose_questionnaire", "sandbox_release", "propose_skill", "propose_skill_change", "propose_skill_delete", "delete_skill", "delegate", "delegate_task", "propose_bot"]) {
+			const t = nativePolicyTool(name)!;
+			expect(t.needsHuman, name).toBe(true);
+			for (const origin of ["routine", "webhook", "proactive", "email", "bot"]) expect(decide(t, ctxFor(origin, "autonomous")), `${name}/${origin}`).toBe("hide");
+			expect(decide(t, ctxFor("chat", "balanced")), name).toBe("allow");
+		}
 	});
 
 	it("prepare_for_owner e a unica escrita sem humano (ponto de extensao: a tool ainda nao existe)", () => {

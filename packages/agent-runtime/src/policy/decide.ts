@@ -16,7 +16,7 @@ export type PolicyDecision = "allow" | "ask" | "deny" | "hide";
 
 export type PolicyTool = {
 	name: string;
-	/** Efeito desta chamada (`resolveToolEffect`) ou o pior caso na montagem do catálogo (`getToolMeta().effect`). */
+	/** Efeito desta chamada (`resolveToolEffect`) ou, na montagem do catálogo, o mais permissivo possível (`nativePolicyTool(name)`). */
 	effect: ToolEffect;
 	/** Conector MCP dono da tool (para `connectorReadOnly`). */
 	connectorId?: string;
@@ -48,6 +48,8 @@ export type PolicyContext = {
 	/** Há um plano esperando aprovação: escrita pede cartão até o dono decidir. */
 	planPending?: boolean;
 	userRules?: PolicyUserRules;
+	/** `catalog` (padrão): `hide` tira a tool do modelo. `execute`: a tool já foi chamada, então o que seria `hide` vira `deny` com o motivo. */
+	stage?: "catalog" | "execute";
 };
 
 export type PolicyResult = { decision: PolicyDecision; reason: string };
@@ -76,7 +78,20 @@ export function humanPresentFor(origin: string, parentOrigin?: string): boolean 
 	return originHasHuman(resolvePolicyOrigin({ origin, parentOrigin }));
 }
 
+/** Dica acionável (para o modelo) quando uma chamada com estes args é negada sem humano. */
+const NO_HUMAN_HINTS: Readonly<Record<string, string>> = {
+	sandbox_download: "set use_browser_session false (the browser session cookies are not sent without a human present)",
+	api_call: "only GET/HEAD requests are allowed without a human present",
+};
+
 export function explainDecision(tool: PolicyTool, ctx: PolicyContext): PolicyResult {
+	const raw = explainStatic(tool, ctx);
+	if (ctx.stage !== "execute" || raw.decision !== "hide") return raw;
+	const hint = NO_HUMAN_HINTS[tool.name];
+	return { decision: "deny", reason: hint && raw.reason.startsWith("no human present") ? `${raw.reason}: ${hint}` : raw.reason };
+}
+
+function explainStatic(tool: PolicyTool, ctx: PolicyContext): PolicyResult {
 	const result = (decision: PolicyDecision, reason: string): PolicyResult => ({ decision, reason });
 	const rules = ctx.userRules;
 

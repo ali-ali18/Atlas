@@ -279,6 +279,8 @@ export type ToolMetaFields = {
 	needsHuman?: true;
 	/** Efeito conforme os args desta chamada; `effect` fica como o pior caso. Use `resolveToolEffect`. */
 	effectForArgs?: (args: Record<string, unknown>) => ToolEffect;
+	/** Com `effectForArgs`: o efeito mais permissivo possível, usado só na montagem do catálogo (a decisão real é na execução, com os args). */
+	catalogEffect?: ToolEffect;
 };
 
 export type ToolRegistration = Partial<ToolMetaFields> & {

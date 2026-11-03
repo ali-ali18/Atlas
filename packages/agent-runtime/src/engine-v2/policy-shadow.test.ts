@@ -130,7 +130,7 @@ describe("política v3 em sombra no v2", () => {
 		const catalog = divergences.find((d) => d.stage === "catalog" && d.tool === WRITE);
 		expect(catalog).toMatchObject({ event: "policy_shadow_divergence", origin: "subagent", current: "visible", next: "hidden" });
 		const exec = divergences.find((d) => d.stage === "execute" && d.tool === WRITE);
-		expect(exec).toMatchObject({ origin: "subagent", current: "allow", next: "hide" });
+		expect(exec).toMatchObject({ origin: "subagent", current: "allow", next: "deny" });
 		// log curto: nunca leva args
 		expect(JSON.stringify(divergences)).not.toContain("Acme");
 		expect(Object.keys(exec!).sort()).toEqual(["current", "event", "next", "origin", "reason", "stage", "tool"]);

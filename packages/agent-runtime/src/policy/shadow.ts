@@ -135,9 +135,8 @@ export function shadowExecute(input: {
 		if (!tool) return;
 		const mode = input.entry ? autonomyExceptionMode(input.autonomy, input.entry.autonomyMeta) : undefined;
 		const userRules = { ...(mode ? { mode } : {}), ...(input.forceConfirm ? { confirmAlways: true } : {}) };
-		const verdict = explainDecision(tool, { ...baseContext(input), userRules });
-		// `hide` na execução = a tool nem deveria existir; o v2 a barra com erro (`deny`): é a mesma decisão.
-		if (verdict.decision === input.current || (verdict.decision === "hide" && input.current === "deny")) return;
+		const verdict = explainDecision(tool, { ...baseContext(input), userRules, stage: "execute" });
+		if (verdict.decision === input.current) return;
 		report({ event: "policy_shadow_divergence", stage: "execute", tool: input.name, origin: input.origin, current: input.current, next: verdict.decision, reason: verdict.reason });
 	} catch {
 		// a sombra nunca altera o run
