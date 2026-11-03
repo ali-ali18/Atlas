@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildCatalog, describeModel, findOption, parseBotInfo, parseModels, parseTierModelIds, visibleOthers, type BotModelInfo } from "./model-catalog";
+import { buildCatalog, describeModel, findOption, parseBotInfo, parseModels, parseTierModelIds, sourceLabel, visibleOthers, type BotModelInfo } from "./model-catalog";
 
 const bot = (model: string | null, tiers = false): BotModelInfo => ({ known: true, model, tiers });
 
@@ -90,15 +90,26 @@ describe("descrição de uma linha", () => {
 	});
 });
 
-describe("descrição de modelos de outros provedores", () => {
-	it("plano ChatGPT e chave própria dizem de onde vêm", () => {
-		expect(describeModel("chatgpt/luna", { contextLength: 128_000 })).toMatch(/^Plano ChatGPT · .*128k de contexto$/);
-		expect(describeModel("anthropic-direct/claude-sonnet-5.5", {})).toContain("via Anthropic");
+describe("origem de modelos de outros provedores", () => {
+	it("plano ChatGPT e chave própria viram selo (nome curto), e o catálogo geral não tem selo", () => {
+		expect(sourceLabel("chatgpt/luna")).toBe("ChatGPT");
+		expect(sourceLabel("anthropic-direct/claude-sonnet-5.5")).toBe("Anthropic");
+		expect(sourceLabel("opencode-go/kimi-k2")).toBe("OpenCode Go");
+		expect(sourceLabel("anthropic/claude-sonnet-5.5")).toBeNull();
+		expect(sourceLabel("sem-barra")).toBeNull();
+	});
+	it("a descrição fica só com as capacidades (cabe numa linha) e o selo vai à parte", () => {
+		const models = parseModels({ models: [{ id: "chatgpt/luna", name: "GPT-5 Luna", contextLength: 400_000, inputModalities: ["text", "image"] }, { id: "openai/gpt-5.1", name: "OpenAI: GPT-5.1", contextLength: 400_000 }] })!;
+		const catalog = buildCatalog({ models, tierIds: [], bot: bot(null) });
+		const luna = findOption(catalog, "chatgpt/luna")!;
+		expect(luna.source).toBe("ChatGPT");
+		expect(luna.description).not.toContain("ChatGPT");
+		expect(findOption(catalog, "openai/gpt-5.1")!.source).toBeNull();
 	});
 });
 
 describe("visibleOthers: só os primeiros até 'Ver tudo (n)'", () => {
-	const many = Array.from({ length: 120 }, (_, i) => ({ id: `v/m${i}`, name: `M${i}`, description: "", efforts: [], info: {} }));
+	const many = Array.from({ length: 120 }, (_, i) => ({ id: `v/m${i}`, name: `M${i}`, description: "", source: null, efforts: [], info: {} }));
 	it("corta em 50 e diz quantos ficaram de fora", () => {
 		const { shown, hidden } = visibleOthers(many, false);
 		expect(shown).toHaveLength(50);

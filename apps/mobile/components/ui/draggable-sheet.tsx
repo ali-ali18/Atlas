@@ -3,6 +3,7 @@ import { type AccessibilityActionEvent, Modal, PanResponder, Pressable, type Ref
 import Animated, { Easing, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ThemedModalRoot } from "@/components/home/themed-modal";
+import { useKeyboardHeight } from "@/lib/use-keyboard-visible";
 import { dragHeight, normalizeRest, restHeight, settleSheet, type SheetRest, tapRest } from "@/lib/sheet-drag";
 
 /** Folga entre o topo da gaveta expandida e a barra de status. */
@@ -31,6 +32,8 @@ type Props = {
 	bodyPadding?: number;
 	/** Puxar para atualizar no corpo (a folha de conteúdo usa; o menu não). */
 	refreshControl?: React.ReactElement<RefreshControlProps>;
+	/** Faixa fixa logo abaixo do cabeçalho (ex.: campo de busca): não arrasta nem rola com o corpo. */
+	fixed?: React.ReactNode;
 	children: React.ReactNode;
 };
 
@@ -40,18 +43,20 @@ type Props = {
  * inicial (distância ou arremesso) fecha. Toque no fundo escuro fecha. O corpo é um `ScrollView`.
  * O gesto é do `PanResponder` do RN só na alça e no cabeçalho; a decisão (onde assenta) é pura, em `lib/sheet-drag.ts`.
  */
-export function DraggableSheet({ visible, onClose, onRequestClose, header, fullHeight = false, backgroundColor, bodyPadding = 16, refreshControl, children }: Props) {
+export function DraggableSheet({ visible, onClose, onRequestClose, header, fixed, fullHeight = false, backgroundColor, bodyPadding = 16, refreshControl, children }: Props) {
 	const insets = useSafeAreaInsets();
 	const { height: screenHeight } = useWindowDimensions();
 	const reducedMotion = useReducedMotion();
-	const expandedHeight = Math.max(0, screenHeight - insets.top - (fullHeight ? TOP_GAP_FULL : TOP_GAP));
+	// Com o teclado aberto a gaveta sobe junto: a altura útil é a tela menos o teclado.
+	const keyboard = useKeyboardHeight();
+	const expandedHeight = Math.max(0, screenHeight - insets.top - (fullHeight ? TOP_GAP_FULL : TOP_GAP) - keyboard);
 	const [zoneHeight, setZoneHeight] = React.useState(0);
 	const [contentHeight, setContentHeight] = React.useState(0);
 	const [rest, setRest] = React.useState<SheetRest>("collapsed");
 	const measured = zoneHeight > 0 && contentHeight > 0;
 	// Antes de medir (ou se o Android nunca medir) a gaveta já aparece com esta altura: nunca fica invisível esperando `onLayout`.
 	// `fullHeight`: a altura inicial já é a máxima, então só existem "aberta" e "fechada" (arrastar para baixo fecha).
-	const fallbackHeight = fullHeight ? expandedHeight : Math.round(screenHeight * COLLAPSED_MAX);
+	const fallbackHeight = fullHeight ? expandedHeight : Math.min(Math.round(screenHeight * COLLAPSED_MAX), expandedHeight || Infinity);
 	const collapsedHeight = fullHeight ? expandedHeight : measured ? Math.min(zoneHeight + contentHeight, fallbackHeight) : fallbackHeight;
 	const [grace, setGrace] = React.useState(false);
 	const height = useSharedValue(0);
@@ -169,10 +174,11 @@ export function DraggableSheet({ visible, onClose, onRequestClose, header, fullH
 		<Modal visible={visible} transparent animationType="fade" onRequestClose={onRequestClose ?? onClose} statusBarTranslucent>
 			<ThemedModalRoot>
 				<Pressable accessibilityLabel="Fechar" onPress={onClose} className="absolute inset-0 bg-black/50" />
-				<View pointerEvents="box-none" className="flex-1 justify-end">
+				<View pointerEvents="box-none" className="flex-1 justify-end" style={{ paddingBottom: keyboard }}>
 					<Animated.View style={[{ opacity: shown ? 1 : 0 }, sheetStyle]}>
 						<View className="flex-1 overflow-hidden rounded-t-panel bg-popover" style={backgroundColor ? { backgroundColor } : undefined}>
-							<View {...pan.panHandlers} onLayout={(event) => setZoneHeight(event.nativeEvent.layout.height)}>
+							<View onLayout={(event) => setZoneHeight(event.nativeEvent.layout.height)}>
+							<View {...pan.panHandlers}>
 								<View
 									accessible
 									accessibilityRole="adjustable"
@@ -188,6 +194,8 @@ export function DraggableSheet({ visible, onClose, onRequestClose, header, fullH
 									<View className="h-1 w-10 rounded-full bg-muted-foreground/40" />
 								</View>
 								{header ? <View className="pb-2" style={{ paddingHorizontal: bodyPadding }}>{header}</View> : null}
+							</View>
+							{fixed ? <View className="px-4 pb-2">{fixed}</View> : null}
 							</View>
 							<ScrollView
 								refreshControl={refreshControl}
