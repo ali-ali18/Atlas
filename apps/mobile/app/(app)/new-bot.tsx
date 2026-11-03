@@ -14,6 +14,7 @@ import { cn } from "@/lib/cn";
 import { useHomeData } from "@/lib/home-data";
 import { canCreateBot, shapeLabel, NEW_BOT_COLORS, NEW_BOT_SHAPES, randomAvatar, seededRandom } from "@/lib/new-bot";
 import { createNewBotSubmitter } from "@/lib/new-bot-submit";
+import { chatChrome } from "@/lib/chat-surface";
 import { themeColor } from "@/lib/theme";
 import { useAppColorScheme } from "@/lib/use-theme";
 
@@ -77,13 +78,15 @@ export default function NewBotScreen() {
 		setBusy(false);
 		setError(outcome.error);
 	};
+	// Mesma pele dos controles do chat (o RoundButton do topo): fill e borda do chatChrome.
+	const chrome = chatChrome(scheme);
 	const neutral = themeColor(scheme, "muted-foreground");
 	return (
 		<SafeAreaView className="flex-1 bg-background">
 			<Stack.Screen options={{ gestureEnabled: !busy }} />
 			<KeyboardAvoidingView behavior="padding" className="flex-1">
 				<View className="flex-row items-center gap-3 px-4 pt-1.5">
-					<Pressable role="button" accessibilityLabel="Fechar" accessibilityState={{ disabled: busy }} disabled={busy} onPress={close} className={cn("size-11 items-center justify-center rounded-full bg-secondary active:opacity-70", busy && "opacity-40")}>
+					<Pressable role="button" accessibilityLabel="Fechar" accessibilityState={{ disabled: busy }} disabled={busy} onPress={close} style={{ backgroundColor: chrome.fill, borderColor: chrome.edge }} className={cn("size-11 items-center justify-center rounded-full border active:opacity-70", busy && "opacity-40")}>
 						<CloseIcon size={20} tone="foreground" />
 					</Pressable>
 					<Text className="text-lg font-semibold">Criar novo Bot</Text>
@@ -102,7 +105,8 @@ export default function NewBotScreen() {
 						returnKeyType="done"
 						onSubmitEditing={() => void create()}
 						editable={!busy}
-						className="h-14 w-full rounded-full bg-secondary px-6 text-center text-xl text-foreground outline-none"
+						style={{ backgroundColor: chrome.fill, borderColor: chrome.edge }}
+						className="h-14 w-full rounded-full border px-6 text-center text-xl text-foreground outline-none"
 					/>
 					{/* Três linhas à vista (a referência); a lista é a do editor de avatar e do web e rola por dentro. */}
 					<ScrollView nestedScrollEnabled className="mt-4 w-full flex-none" style={{ height: 3 * 60 }} showsVerticalScrollIndicator={false}>
@@ -119,7 +123,7 @@ export default function NewBotScreen() {
 							const selected = item.value.toLowerCase() === color.toLowerCase();
 							return (
 								<View key={item.id} className="w-1/6 items-center py-1">
-									<Pressable role="radio" accessibilityLabel={`Cor ${item.name}`} accessibilityState={{ checked: selected }} onPress={() => setColor(item.value)} className={cn("size-11 items-center justify-center rounded-full border-2", selected ? "border-foreground" : "border-transparent")}>
+									<Pressable role="radio" accessibilityLabel={`Cor ${item.name}`} accessibilityState={{ checked: selected }} onPress={() => setColor(item.value)} style={{ borderColor: selected ? chrome.edge : "transparent" }} className="size-11 items-center justify-center rounded-full border-2">
 										<View style={{ backgroundColor: item.value, borderColor: themeColor(scheme, "border") }} className="size-8 rounded-full border" />
 									</Pressable>
 								</View>

@@ -13,6 +13,7 @@ import { Text } from "@/components/ui/text";
 import { getDraft, updateDraft } from "@/lib/bot-draft";
 import { AVATAR_PALETTE, AVATAR_SHAPES, defaultAvatar } from "@/lib/bot-edit";
 import { shapeLabel } from "@/lib/new-bot";
+import { chatChrome } from "@/lib/chat-surface";
 import { cn } from "@/lib/cn";
 import { themeColor } from "@/lib/theme";
 import { useAppColorScheme } from "@/lib/use-theme";
@@ -77,7 +78,7 @@ export default function AvatarEditorScreen() {
 							{AVATAR_PALETTE.map((item) => {
 								const selected = item.value.toLowerCase() === color.toLowerCase();
 								return (
-									<Pressable key={item.id} role="radio" accessibilityLabel={`Cor ${item.name}`} accessibilityState={{ checked: selected }} onPress={() => setColor(item.value)} className={cn("size-10 items-center justify-center rounded-full border-2", selected ? "border-foreground/50" : "border-transparent")}>
+									<Pressable key={item.id} role="radio" accessibilityLabel={`Cor ${item.name}`} accessibilityState={{ checked: selected }} onPress={() => setColor(item.value)} style={{ borderColor: selected ? chatChrome(scheme).edge : "transparent" }} className="size-10 items-center justify-center rounded-full border-2">
 										<View style={{ backgroundColor: item.value, borderColor: themeColor(scheme, "border") }} className="size-8 rounded-full border" />
 									</Pressable>
 								);

@@ -6,7 +6,7 @@ import { Pressable, StyleSheet, View } from "react-native";
 import Svg, { G, Path } from "react-native-svg";
 import { Avatar } from "@/components/ui/avatar";
 import { RING_SCALE, RING_STROKE_PT } from "@/lib/shape-ring";
-import { themeColor } from "@/lib/theme";
+import { chatChrome } from "@/lib/chat-surface";
 import { useAppColorScheme } from "@/lib/use-theme";
 
 /** Lado da caixa do motor (o `viewBox` é 0 0 250 250): o ring cresce em torno do centro dela. */
@@ -26,7 +26,7 @@ export function ShapeRing({ shape, size }: { shape: string; size: number }) {
 		<View pointerEvents="none" style={StyleSheet.absoluteFill} className="items-center justify-center">
 			<Svg width={size} height={size} viewBox={AVATAR_VIEWBOX}>
 				<G transform={`translate(${CENTER} ${CENTER}) scale(${RING_SCALE}) translate(${-CENTER} ${-CENTER}) ${transform}`}>
-					<Path d={body} fill="none" stroke={themeColor(scheme, "foreground")} strokeOpacity={0.75} strokeWidth={strokeWidth} strokeLinejoin="round" />
+					<Path d={body} fill="none" stroke={chatChrome(scheme).edge} strokeWidth={strokeWidth} strokeLinejoin="round" />
 				</G>
 			</Svg>
 		</View>
