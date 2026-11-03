@@ -1,6 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { stabilizePage, waitUntilContentReady, waitUntilQuiet, waitUntilSettled } from "./stability.mjs";
+import net from "node:net";
+import { after } from "node:test";
+import { launchFixtureBrowser } from "./test-browser.mjs";
+import { installProbeInPage, readProbeInPage, stabilizePage, waitUntilContentReady, waitUntilQuiet, waitUntilSettled } from "./stability.mjs";
 
 function clock() {
 	let t = 0;
@@ -131,3 +134,31 @@ test("espera: documento novo (probe fresh/null) vira navigated", async () => {
 	assert.equal(b.state, "navigated");
 });
 
+
+const probeFixtures = await launchFixtureBrowser({ "/": "<html><body>probe</body></html>" });
+after(() => probeFixtures?.close());
+
+test("real: XHR.send que lança e requisição eterna não prendem o contador de requisições", { skip: probeFixtures ? false : "Chromium indisponível" }, async () => {
+	// Servidor que aceita a conexão e nunca responde (long-poll).
+	const sockets = [];
+	const hang = net.createServer((socket) => sockets.push(socket));
+	await new Promise((resolve) => hang.listen(0, "127.0.0.1", resolve));
+	const page = await probeFixtures.newPage();
+	try {
+		await page.goto(`${probeFixtures.base}/`);
+		await page.evaluate(installProbeInPage);
+		await page.evaluate((url) => {
+			try { new XMLHttpRequest().send(); } catch { /* send antes de open lança */ }
+			fetch(url, { mode: "no-cors" }).catch(() => {});
+		}, `http://127.0.0.1:${hang.address().port}/poll`);
+		const early = await page.evaluate(readProbeInPage, false);
+		assert.ok(early.inflight <= 1, `só o fetch recente conta (${early.inflight})`);
+		await new Promise((resolve) => setTimeout(resolve, 2800));
+		const late = await page.evaluate(readProbeInPage, false);
+		assert.equal(late.inflight, 0, "long-poll com mais de 2,5 s deixa de segurar a estabilidade");
+	} finally {
+		await page.close();
+		for (const socket of sockets) socket.destroy();
+		await new Promise((resolve) => hang.close(resolve));
+	}
+});

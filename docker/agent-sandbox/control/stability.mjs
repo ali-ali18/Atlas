@@ -194,7 +194,7 @@ export function installProbeInPage() {
 		window.__atlasProbe.armed = performance.now();
 		return;
 	}
-	const probe = { last: performance.now(), mark: performance.now(), armed: performance.now(), inflight: 0 };
+	const probe = { last: performance.now(), mark: performance.now(), armed: performance.now(), inflight: 0, pending: new Map(), seq: 0 };
 	window.__atlasProbe = probe;
 	new MutationObserver((records) => {
 		// A marcação `data-atlas-ref` é nossa: não conta como mudança da página.
@@ -202,27 +202,41 @@ export function installProbeInPage() {
 			probe.last = performance.now();
 		}
 	}).observe(document.documentElement, { subtree: true, childList: true, attributes: true, characterData: true });
-	const done = () => {
-		probe.inflight = Math.max(0, probe.inflight - 1);
+	// Cada requisição guarda a hora de início; `done` é idempotente por id, então abort, erro,
+	// timeout ou `send` que lança nunca deixam o contador preso.
+	const begin = () => {
+		probe.seq += 1;
+		probe.pending.set(probe.seq, performance.now());
+		probe.inflight = probe.pending.size;
+		return probe.seq;
+	};
+	const finish = (id) => {
+		probe.pending.delete(id);
+		probe.inflight = probe.pending.size;
 		probe.last = performance.now();
 	};
 	const nativeFetch = window.fetch;
 	if (typeof nativeFetch === "function") {
 		window.fetch = function patchedFetch(...args) {
-			probe.inflight += 1;
+			const id = begin();
 			try {
-				return nativeFetch.apply(this, args).finally(done);
+				return nativeFetch.apply(this, args).finally(() => finish(id));
 			} catch (error) {
-				done();
+				finish(id);
 				throw error;
 			}
 		};
 	}
 	const nativeSend = XMLHttpRequest.prototype.send;
 	XMLHttpRequest.prototype.send = function patchedSend(...args) {
-		probe.inflight += 1;
-		this.addEventListener("loadend", done, { once: true });
-		return nativeSend.apply(this, args);
+		const id = begin();
+		this.addEventListener("loadend", () => finish(id), { once: true });
+		try {
+			return nativeSend.apply(this, args);
+		} catch (error) {
+			finish(id);
+			throw error;
+		}
 	};
 }
 
@@ -245,9 +259,12 @@ export function readProbeInPage(mark) {
 			break;
 		}
 	}
+	// Só conta o que começou há menos de 2,5 s: long-poll/stream de minutos não trava toda ação por 3 s.
+	let inflight = 0;
+	for (const startedAt of probe.pending?.values?.() ?? []) if (now - startedAt < 2500) inflight += 1;
 	return {
 		idle: now - Math.max(probe.last, probe.mark),
-		inflight: probe.inflight,
+		inflight,
 		busy,
 		// Algo mexeu (DOM ou rede) desde que a ação começou?
 		active: probe.last > probe.armed || probe.inflight > 0,
