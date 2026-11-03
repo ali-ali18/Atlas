@@ -418,7 +418,12 @@ describe("fallback de visão da leitura", () => {
 		const summaries: Array<{ name: string; summary: string }> = [];
 		const offered: string[][] = [];
 		await runComputerUse({
-			manager: { execScreen: async () => ({ width: 1280, height: 720 }), execScreenshot: async () => Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 0]), ...manager } as unknown as SandboxManager,
+			manager: {
+				execScreen: async () => ({ width: 1280, height: 720 }),
+				execScreenshot: async () => Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 0]),
+				execBrowserSnapshot: async () => ({ url: "https://video.test/watch", title: "Video", total: 1, offset: 0, limit: 100, nextOffset: null, lines: ['[e1] button "Perguntar"'] }),
+				...manager,
+			} as unknown as SandboxManager,
 			getSessionId: async () => "session-v",
 			model: "test-model",
 			apiKey: "test",
@@ -460,7 +465,7 @@ describe("fallback de visão da leitura", () => {
 	});
 
 	it("clique sem texto novo anexa screenshot; com texto novo, navegação ou diálogo, não", async () => {
-		const outcomes: Record<string, unknown>[] = [actResult(), actResult({ added: "RESPOSTA DO PAINEL" }), actResult({ dialogsOpened: ["Chat"] }), { ...actResult(), navigated: true }];
+		const outcomes: Record<string, unknown>[] = [actResult({}), actResult({ added: "RESPOSTA DO PAINEL" }), actResult({ dialogsOpened: ["Chat"] }), { ...actResult(), navigated: true }];
 		for (const [index, outcome] of outcomes.entries()) {
 			const res = await run({ execBrowserAct: vi.fn(async () => outcome) }, [
 				step([{ id: "1", name: "browser_act", args: { ref: "e1", action: "click" } }]),
@@ -486,7 +491,7 @@ describe("fallback de visão da leitura", () => {
 	it("modelo sem visão não recebe o screenshot", async () => {
 		const persisted: string[] = [];
 		await runComputerUse({
-			manager: { execBrowserRead: async () => readResult({ capped: true }), execScreen: async () => ({ width: 1280, height: 720 }), execScreenshot: async () => Buffer.from([0xff, 0xd8]) } as unknown as SandboxManager,
+			manager: { execBrowserRead: async () => readResult({ capped: true }), execBrowserSnapshot: async () => ({ url: "https://video.test/watch", title: "Video", lines: [] }), execScreen: async () => ({ width: 1280, height: 720 }), execScreenshot: async () => Buffer.from([0xff, 0xd8]) } as unknown as SandboxManager,
 			getSessionId: async () => "s",
 			model: "test-model",
 			apiKey: "test",
@@ -505,6 +510,51 @@ describe("fallback de visão da leitura", () => {
 			})(),
 		});
 		expect(persisted).toHaveLength(0);
+	});
+
+	it("página com campo de senha, código de uso único ou login: o screenshot automático não anexa", async () => {
+		const cases: Array<{ url: string; lines: string[]; attaches: boolean }> = [
+			{ url: "https://video.test/watch", lines: ['[e1] textbox "Senha" (campo de senha: nunca preencha)'], attaches: false },
+			{ url: "https://video.test/watch", lines: ['[e1] textbox "Código" (campo de código de uso único)'], attaches: false },
+			{ url: "https://accounts.example.com/login", lines: ['[e1] textbox "E-mail"'], attaches: false },
+			// Campo de e-mail numa página comum não é parede de login: segue anexando.
+			{ url: "https://video.test/watch", lines: ['[e1] textbox "E-mail"'], attaches: true },
+		];
+		for (const [index, item] of cases.entries()) {
+			const res = await run(
+				{ execBrowserRead: vi.fn(async () => readResult({ capped: true })), execBrowserSnapshot: async () => ({ url: item.url, title: "Entrar", total: 1, offset: 0, limit: 100, nextOffset: null, lines: item.lines }) },
+				[step([{ id: "1", name: "browser_read", args: {} }]), text("ok")],
+			);
+			expect(res.persisted, `caso ${index}`).toHaveLength(item.attaches ? 1 : 0);
+		}
+	});
+
+	it("clique silencioso em campo sensível (pointer.sensitive) ou com resultado de segredo não anexa a tela", async () => {
+		const outcomes = [{ ...actResult({}), pointer: { x: 1, y: 1, sensitive: true } }, { ...actResult({}), field: { secret: true } }, actResult({})];
+		for (const [index, outcome] of outcomes.entries()) {
+			const res = await run({ execBrowserAct: vi.fn(async () => outcome) }, [
+				step([{ id: "1", name: "browser_act", args: { ref: "e1", action: "click" } }]),
+				text("ok"),
+			]);
+			expect(res.persisted, `caso ${index}`).toHaveLength(index === 2 ? 1 : 0);
+		}
+	});
+
+	it("sem como conferir a tela (snapshot falha), não anexa: privacidade antes da conveniência", async () => {
+		const res = await run(
+			{ execBrowserRead: vi.fn(async () => readResult({ capped: true })), execBrowserSnapshot: async () => { throw new Error("sem tela"); } },
+			[step([{ id: "1", name: "browser_read", args: {} }]), text("ok")],
+		);
+		expect(res.persisted).toHaveLength(0);
+	});
+
+	it("leitura cortada paginada: só a 1ª página anexa a imagem", async () => {
+		const res = await run({ execBrowserRead: vi.fn(async (_s: string, input: { offset?: number }) => readResult({ capped: true, offset: input.offset ?? 0 })) }, [
+			step([{ id: "1", name: "browser_read", args: {} }]),
+			step([{ id: "2", name: "browser_read", args: { offset: 8000 } }]),
+			text("ok"),
+		]);
+		expect(res.persisted).toHaveLength(1);
 	});
 
 	it("replay: a leitura não traz o termo; o passo seguinte é um screenshot, não um pedido para copiar o texto", async () => {

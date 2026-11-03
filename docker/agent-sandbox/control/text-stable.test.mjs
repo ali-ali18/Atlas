@@ -16,7 +16,23 @@ test("waitUntilTextStable: conclui depois de quietMs sem mudança do texto", asy
 	const sample = async () => ({ found: true, changed: true, idleMs: Math.max(0, clock.now() - 2000), len: 40 });
 	const res = await waitUntilTextStable({ sample, capMs: 20_000, ...clock });
 	assert.equal(res.met, true);
-	assert.ok(res.waitedMs >= 3500 && res.waitedMs <= 3800, `waitedMs=${res.waitedMs}`);
+	// 2000 (último movimento) + 1500 de silêncio + 1000 de confirmação.
+	assert.ok(res.waitedMs >= 4500 && res.waitedMs <= 4800, `waitedMs=${res.waitedMs}`);
+});
+
+test("waitUntilTextStable: pausa de 2 s no meio do streaming não encerra a espera", async () => {
+	const clock = fakeClock();
+	// Cresce até 1000 ms, pausa até 3000 ms, cresce de novo até 4000 ms e para.
+	const lastChange = () => {
+		const t = clock.now();
+		if (t >= 4000) return 4000;
+		if (t >= 3000) return t;
+		return Math.min(t, 1000);
+	};
+	const sample = async () => ({ found: true, changed: true, idleMs: clock.now() - lastChange(), len: 40 });
+	const res = await waitUntilTextStable({ sample, capMs: 30_000, ...clock });
+	assert.equal(res.met, true);
+	assert.ok(res.waitedMs >= 4000 + 2500 && res.waitedMs <= 4000 + 2800, `waitedMs=${res.waitedMs}`);
 });
 
 test("waitUntilTextStable: nada mudou -> dá o tempo de graça antes de concluir", async () => {
@@ -63,13 +79,31 @@ const iv = setInterval(() => { n += 1; txt.textContent += ' word' + n; if (n >= 
 let c = 0; setInterval(() => { c += 1; document.getElementById('t').textContent = String(c * 7919); document.getElementById('clock').textContent = String(10000 + (c % 9000)).slice(0, 5); }, 40);
 </script></body>`;
 
-const fixtures = await launchFixtureBrowser({ "/stream": stream });
+// 15 mil comentários (8 mil ocultos no começo) antes de um painel lateral que streama com uma pausa de 2 s
+// no meio. Um bloco OCULTO também muda sem parar: não pode contar. Fim do stream em ~3,2 s.
+const feedStream = `<body style="margin:0"><div hidden id="hid"></div><div style="display:none" id="hid2"></div><div id="comments"></div>
+<aside style="position:fixed;right:0;top:0;width:260px;background:#eee"><p id="ans">Resposta:</p></aside>
+<script>
+document.getElementById('hid2').innerHTML = Array.from({ length: 8000 }, (_, i) => '<p>oculto '+i+'</p>').join('');
+document.getElementById('comments').innerHTML = Array.from({ length: 15000 }, (_, i) => '<p>Comment '+i+' about nothing</p>').join('');
+let h = 0; setInterval(() => { h += 1; document.getElementById('hid').textContent += ' x'.repeat(h % 7 + 1); }, 60);
+const words = ['um','dois','tres','quatro','cinco','seis','sete','oito','nove','FIM'];
+let n = 0;
+function next() {
+  if (n >= words.length) return;
+  document.getElementById('ans').textContent += ' ' + words[n++];
+  setTimeout(next, n === 5 ? 2000 : 200);
+}
+setTimeout(next, 100);
+</script></body>`;
+
+const fixtures = await launchFixtureBrowser({ "/stream": stream, "/feedstream": feedStream });
 after(() => fixtures?.close());
 const skip = fixtures ? false : "Chromium/playwright-core indisponível";
 
-async function open() {
+async function open(path = "/stream") {
 	const page = await fixtures.newPage();
-	await page.goto(`${fixtures.base}/stream`);
+	await page.goto(`${fixtures.base}${path}`);
 	const actions = createBrowserActions({ getPage: async () => page });
 	const refs = createRefActions({ withPageRetry: actions.withPageRetry, clickElement: actions.clickElement, axOn: () => false });
 	actions.setObserver(refs.observeAction);
@@ -105,4 +139,19 @@ test("real: text_stable com teto curto e texto que cresce devolve met:false e o 
 	assert.equal(res.met, false);
 	assert.match(res.reason, /continuou mudando|não ocorreu/);
 	assert.ok(res.waitedMs < 1500);
+});
+
+test("real: painel que streama atrás de 15 mil comentários, com pausa de 2 s: a espera só acaba no fim", { skip }, async () => {
+	const { refs, page } = await open("/feedstream");
+	const started = Date.now();
+	const res = await refs.browserWait({ for: "text_stable", timeoutMs: 20_000 });
+	const took = Date.now() - started;
+	const text = await page.locator("#ans").innerText();
+	assert.equal(res.met, true, JSON.stringify(res));
+	assert.equal(res.changed, true, "o streaming do painel foi visto (não é só o prazo de graça)");
+	// O painel acabou de receber a última palavra: nada foi cortado pela pausa nem pelo bloco oculto que muda sempre.
+	assert.match(text, /FIM$/);
+	// 1 s + pausa de 2 s + 1,2 s de streaming + 2,5 s de silêncio/confirmação; folga para a carga da página.
+	assert.ok(took >= 5500, `terminou cedo demais (${took} ms)`);
+	assert.ok(took < 12_000, `demorou demais (${took} ms)`);
 });

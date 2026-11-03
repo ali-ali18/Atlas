@@ -11,7 +11,7 @@ import { formatBrowserClick, formatBrowserType } from "../../computer-changes.js
 
 import type { ToolFamily } from "../registry.js";
 import { executeTool } from "../execute.js";
-import { attachVisionFallback, isSilentClick } from "../../vision-fallback.js";
+import { attachVisionFallback, clickVision } from "../../vision-fallback.js";
 
 async function handleScreenshot(args: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult> {
 	const shot = await captureModelScreenshot(
@@ -85,7 +85,7 @@ async function handleBrowserClick(args: Record<string, unknown>, ctx: ToolContex
 		await ctx.getSessionId(),
 		{ selector, text },
 	);
-	return attachVisionFallback({ summary: formatBrowserClick(result), ...(isSilentClick(result) ? { vision: "silent-click" as const } : {}) }, ctx);
+	return attachVisionFallback({ summary: formatBrowserClick(result), ...clickVision(result) }, ctx);
 }
 
 async function handleBrowserType(args: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult> {
@@ -151,6 +151,7 @@ async function handleBrowserReadGroup(name: string, args: Record<string, unknown
 		getSessionId: ctx.getSessionId,
 		runId: ctx.runId,
 		loginAsked: ctx.loginAsked ?? new Set<string>(),
+		canSeeImages: ctx.canSeeImages,
 	});
 	return attachVisionFallback(outcome, ctx);
 }

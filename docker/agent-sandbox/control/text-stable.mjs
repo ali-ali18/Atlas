@@ -10,6 +10,9 @@
 import { splitRef } from "./frames.mjs";
 
 export const TEXT_QUIET_MS = 1500;
+// Texto que já cresceu: depois do silêncio de TEXT_QUIET_MS ainda se confirma por mais esta
+// janela. Uma pausa de streaming (o modelo "pensando") maior que 1,5 s não encerra a espera.
+export const TEXT_CONFIRM_MS = 1000;
 // Sem ref/scope e sem nada mudando: dá tempo para a resposta começar antes de concluir "estável".
 export const TEXT_NO_CHANGE_GRACE_MS = 3000;
 export const TEXT_POLL_MS = 250;
@@ -29,12 +32,18 @@ export function sampleTextInPage(opts) {
 	const state = window.__atlasTS || (window.__atlasTS = { start: performance.now(), blocks: new Map(), ids: new WeakMap(), n: 0, targets: new Map() });
 	const now = performance.now();
 
+	const ignoredCache = new Map();
 	const ignored = (el) => {
-		try {
-			return Boolean(el.closest(IGNORE));
-		} catch {
-			return false;
+		let hit = ignoredCache.get(el);
+		if (hit === undefined) {
+			try {
+				hit = Boolean(el.closest(IGNORE));
+			} catch {
+				hit = false;
+			}
+			ignoredCache.set(el, hit);
 		}
+		return hit;
 	};
 	const textOf = (root) => {
 		let out = "";
@@ -69,7 +78,14 @@ export function sampleTextInPage(opts) {
 		return { found: true, idleMs: now - entry.last, len: text.length, changed: entry.last > state.start + 1 };
 	}
 
-	// Auto: bloco (ancestral não-inline) cujo texto mais variou de tamanho.
+	// Auto: bloco (ancestral não-inline) cujo texto mais variou de tamanho. Mede só o que
+	// está renderizado (oculto não conta) e dá prioridade ao que está na tela e a
+	// dialog/aside, como a leitura: uma resposta que chega num painel lateral, atrás de
+	// 15 mil comentários, é vista. O resto da página vem depois, com teto próprio.
+	const MAX_VISITED = 150000;
+	const vw = window.innerWidth || document.documentElement.clientWidth || 0;
+	const vh = window.innerHeight || document.documentElement.clientHeight || 0;
+	const rectInView = (r) => r.width > 0 && r.height > 0 && r.bottom > 0 && r.right > 0 && r.top < vh && r.left < vw;
 	const displayOf = new Map();
 	const blockOf = (parent) => {
 		let block = parent;
@@ -84,17 +100,60 @@ export function sampleTextInPage(opts) {
 		}
 		return block || parent;
 	};
-	const texts = new Map();
-	const walker = document.createTreeWalker(document.body || document.documentElement, NodeFilter.SHOW_TEXT);
-	let seen = 0;
-	for (let node = walker.nextNode(); node && seen < MAX_TEXT_NODES; node = walker.nextNode()) {
-		if (!/\S/.test(node.nodeValue || "")) continue;
-		seen += 1;
-		const parent = node.parentElement;
-		if (!parent || SKIP.has(parent.tagName) || ignored(parent)) continue;
-		const block = blockOf(parent);
-		texts.set(block, `${texts.get(block) ?? ""} ${node.nodeValue}`);
+	const texts = new Map(); // bloco -> { text, front } | null (oculto/ignorado)
+	const seenText = new WeakSet(); // nós lidos pela passada de painéis
+	let usedFront = 0;
+	let usedRest = 0;
+	let restFull = false;
+	let visited = 0;
+	const scan = (root, forceFront) => {
+		const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+		for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+			if (!forceFront && seenText.has(node)) continue;
+			visited += 1;
+			if (visited > MAX_VISITED) return;
+			if (forceFront) seenText.add(node);
+			if (!/\S/.test(node.nodeValue || "")) continue;
+			const parent = node.parentElement;
+			if (!parent || SKIP.has(parent.tagName) || ignored(parent)) continue;
+			if (restFull && !forceFront) {
+				const pr = parent.getBoundingClientRect();
+				if (pr.width > 0 && pr.height > 0 && !rectInView(pr)) continue;
+			}
+			const block = blockOf(parent);
+			let entry = texts.get(block);
+			if (entry === undefined) {
+				const shown = typeof block.checkVisibility !== "function" || block.checkVisibility({ visibilityProperty: true });
+				const r = shown ? block.getBoundingClientRect() : null;
+				if (!r || r.width <= 0 || r.height <= 0) {
+					texts.set(block, null);
+					continue;
+				}
+				entry = { text: "", front: forceFront || rectInView(r) };
+				texts.set(block, entry);
+			}
+			if (!entry) continue;
+			if (entry.front) {
+				if (usedFront >= MAX_TEXT_NODES) continue;
+				usedFront += 1;
+			} else {
+				if (usedRest >= MAX_TEXT_NODES) {
+					restFull = true;
+					continue;
+				}
+				usedRest += 1;
+			}
+			entry.text += ` ${node.nodeValue}`;
+		}
+	};
+	const PRIORITY = 'dialog[open],aside,[role="complementary"],[role="dialog"],[role="alertdialog"],[aria-modal="true"]';
+	for (const el of document.querySelectorAll(PRIORITY)) {
+		if (typeof el.checkVisibility === "function" && !el.checkVisibility({ visibilityProperty: true })) continue;
+		if (rectInView(el.getBoundingClientRect())) scan(el, true);
 	}
+	scan(document.body || document.documentElement, false);
+	for (const [block, entry] of [...texts]) if (!entry) texts.delete(block);
+	for (const [block, entry] of texts) texts.set(block, entry.text);
 	let best = null;
 	for (const [block, raw] of texts) {
 		const text = raw.replace(/\s+/g, " ").trim();
@@ -127,6 +186,7 @@ export function sampleTextInPage(opts) {
 export async function waitUntilTextStable({
 	sample,
 	quietMs = TEXT_QUIET_MS,
+	confirmMs = TEXT_CONFIRM_MS,
 	graceMs = TEXT_NO_CHANGE_GRACE_MS,
 	capMs,
 	pollMs = TEXT_POLL_MS,
@@ -140,10 +200,10 @@ export async function waitUntilTextStable({
 		const elapsed = now() - start;
 		if (s) last = s;
 		if (s?.found) {
-			// Texto que já mexeu: basta ficar quieto por quietMs. Nada mexeu ainda: dá tempo
+			// Texto que já mexeu: precisa de quietMs de silêncio + confirmMs de confirmação. Nada mexeu ainda: dá tempo
 			// (graceMs) para a resposta começar antes de concluir que ela está pronta.
 			const quietFor = s.changed ? s.idleMs : elapsed;
-			const need = s.changed ? quietMs : Math.max(quietMs, graceMs);
+			const need = s.changed ? quietMs + confirmMs : Math.max(quietMs, graceMs);
 			if (quietFor >= need) return { met: true, waitedMs: elapsed, changed: Boolean(s.changed), textLength: s.len ?? 0 };
 		}
 		if (elapsed >= capMs) {

@@ -102,12 +102,18 @@ export function readPageInPage(options) {
 	function walk(node, depth) {
 		if (done.has(node)) return true;
 		if (truncated || stop || exhausted()) return false;
-		nodes += 1;
 		if (node.nodeType === 3) {
+			// Espaço puro só separa palavras: não gasta o teto nem entra em `done`.
+			if (!/\S/.test(node.nodeValue || "")) {
+				buf += " ";
+				return true;
+			}
+			nodes += 1;
 			buf += ` ${node.nodeValue}`;
 			done.add(node);
 			return true;
 		}
+		nodes += 1;
 		if (node.nodeType !== 1 || depth > MAX_DEPTH) return true;
 		const el = node;
 		const tag = el.tagName.toUpperCase();
@@ -115,15 +121,20 @@ export function readPageInPage(options) {
 			done.add(el);
 			return true;
 		}
+		// Passada B: o que está fora da viewport fica para a passada C. Antes do estilo
+		// (caixa existe => não é display:none/contents) e SEM contar o nó: a passada C
+		// o conta uma vez só, senão a página gigante gasta o teto em dobro.
+		if (pass === "B") {
+			const r = el.getBoundingClientRect();
+			if (r.width > 0 && r.height > 0 && !inView(r)) {
+				nodes -= 1;
+				return false;
+			}
+		}
 		const style = getComputedStyle(el);
 		if (hiddenEl(el, style)) {
 			done.add(el);
 			return true;
-		}
-		// Passada B: o que está fora da viewport fica para a passada C.
-		if (pass === "B" && style.display !== "contents") {
-			const r = el.getBoundingClientRect();
-			if (r.width > 0 && r.height > 0 && !inView(r)) return false;
 		}
 
 		if (tag === "IFRAME" || tag === "FRAME") {

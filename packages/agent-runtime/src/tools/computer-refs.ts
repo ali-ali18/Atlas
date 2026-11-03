@@ -23,7 +23,7 @@ import { redactSecrets } from "../mcp/sanitize.js";
 import { formatClickNote, verifyActEffect } from "./computer.js";
 import { UNTRUSTED_PAGE_NOTE, formatActionOutcome } from "./computer-changes.js";
 import { executeTargetlessAct } from "./browser-act.js";
-import { isSilentClick, type VisionReason } from "./vision-fallback.js";
+import { clickVision, type VisionReason } from "./vision-fallback.js";
 
 export { UNTRUSTED_PAGE_NOTE };
 
@@ -109,6 +109,8 @@ export type ComputerToolContext = {
 	runId?: string;
 	/** URLs (origem+caminho) em que já pedi login neste run. Persistida no checkpoint. */
 	loginAsked: Set<string>;
+	/** O modelo do run enxerga imagens (ausente = enxerga). */
+	canSeeImages?: boolean;
 };
 
 export type ComputerToolOutcome = {
@@ -367,7 +369,7 @@ export async function executeComputerRefTool(
 			});
 			return {
 				summary: redactSecrets(formatAct(result, value)),
-				...(action === "click" && isSilentClick(result) ? { vision: "silent-click" as const } : {}),
+				...(action === "click" ? clickVision(result) : {}),
 			};
 		}
 		case "browser_wait": {
