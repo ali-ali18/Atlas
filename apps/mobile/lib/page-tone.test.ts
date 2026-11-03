@@ -1,11 +1,14 @@
 import { PAGE_TONES } from "@workspace/shared";
 import { describe, expect, it } from "vitest";
-import { calloutTone, paletteAccent, toneColors } from "./page-tone";
+import { PRESET_PALETTES, WARNING_AMBER } from "./chart-palette";
+import { mixHex } from "./color-math";
+import { calloutTone, toneBase, toneColors } from "./page-tone";
+import { colorTokens } from "./color-tokens";
 
 const HEX = /^#[0-9a-f]{6}$/i;
 const HEX_ALPHA = /^#[0-9a-f]{8}$/i;
 
-describe("cores dos tons do painel", () => {
+describe("cores dos tons do painel (porte do tone.ts do web)", () => {
 	it("todo tom tem cor nos dois esquemas, sempre em hex válido", () => {
 		for (const scheme of ["dark", "light"] as const) {
 			for (const tone of PAGE_TONES) {
@@ -17,32 +20,31 @@ describe("cores dos tons do painel", () => {
 			}
 		}
 	});
-	it("escuro: âmbar de aviso, verde de positivo, vermelho de crítico, laranja da marca, cinza neutro", () => {
-		expect(toneColors("dark", "warning").text).toBe("#f7c243");
-		expect(toneColors("dark", "positive").text).toBe("#52db9c");
-		expect(toneColors("dark", "critical").text).toBe("#ff6467");
-		expect(toneColors("dark", "accent").text).toBe("#fb923c");
-		expect(toneColors("dark", "neutral").text).toBe("#9f9fa9");
+	it("a cor base de cada tom vem dos tokens: destaque = chart-1, positivo/crítico = tendência, aviso = âmbar, neutro = cinza", () => {
+		expect(toneBase("dark", "accent", undefined)).toBe("#65a7fa");
+		expect(toneBase("light", "accent", undefined)).toBe("#276ed2");
+		expect(toneBase("dark", "positive", undefined)).toBe("#00d492");
+		expect(toneBase("dark", "critical", undefined)).toBe("#ff6467");
+		expect(toneBase("dark", "warning", undefined)).toBe(WARNING_AMBER);
+		expect(toneBase("light", "warning", undefined)).toBe(WARNING_AMBER);
+		expect(toneBase("dark", "neutral", undefined)).toBe(colorTokens.dark["muted-foreground"]);
 	});
-	it("claro: texto escuro o bastante para ler sobre branco", () => {
-		expect(toneColors("light", "warning").text).toBe("#915200");
-		expect(toneColors("light", "positive").text).toBe("#006a42");
-		expect(toneColors("light", "accent").text).toBe("#c2410c");
+	it("texto = base 72% misturada ao texto padrão; fundo 12% e borda 40% da base", () => {
+		const warning = toneColors("dark", "warning");
+		expect(warning.text).toBe(mixHex(WARNING_AMBER, colorTokens.dark.foreground, 0.72));
+		expect(warning.fill).toBe(WARNING_AMBER);
+		expect(warning.soft).toBe(`${WARNING_AMBER}1f`);
+		expect(warning.edge).toBe(`${WARNING_AMBER}66`);
 	});
 	it("sem tom = neutro; os tons não se confundem", () => {
 		expect(toneColors("dark", undefined)).toEqual(toneColors("dark", "neutral"));
-		const texts = PAGE_TONES.map((tone) => toneColors("dark", tone).text);
-		expect(new Set(texts).size).toBe(PAGE_TONES.length);
+		expect(new Set(PAGE_TONES.map((tone) => toneColors("dark", tone).fill)).size).toBe(PAGE_TONES.length);
 	});
-	it("o destaque segue a primeira cor da paleta custom, só se for hex válido", () => {
-		expect(paletteAccent({ colors: ["#ABC", "#112233"] })).toBe("#aabbcc");
-		expect(paletteAccent({ colors: ["red"] })).toBeNull();
-		expect(paletteAccent({ colors: ["url(javascript:alert(1))"] })).toBeNull();
-		expect(paletteAccent("ocean")).toBeNull();
-		expect(paletteAccent(undefined)).toBeNull();
-		expect(toneColors("dark", "accent", "#aabbcc").fill).toBe("#aabbcc");
-		// a cor da paleta só vale para o tom de destaque
-		expect(toneColors("dark", "critical", "#aabbcc").text).toBe("#ff6467");
+	it("o destaque segue a paleta do painel (pronta ou própria); os outros tons só a tendência dela", () => {
+		expect(toneBase("dark", "accent", "grove")).toBe(PRESET_PALETTES.grove.dark.series[0]);
+		expect(toneBase("light", "accent", { colors: ["#2563eb"] })).toBe("#2563eb");
+		expect(toneBase("dark", "warning", { colors: ["#2563eb"] })).toBe(WARNING_AMBER);
+		expect(toneBase("dark", "critical", "grove")).toBe(PRESET_PALETTES.grove.dark.negative);
 	});
 	it("aviso (callout) mapeia para o tom certo", () => {
 		expect(calloutTone("info")).toBe("accent");

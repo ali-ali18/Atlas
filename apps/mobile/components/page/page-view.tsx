@@ -1,7 +1,6 @@
 import type { PageNode, PageSpec } from "@workspace/shared";
 import * as React from "react";
 import { View } from "react-native";
-import { paletteAccent } from "@/lib/page-tone";
 import { useAppColorScheme } from "@/lib/use-theme";
 import { BarListNode, ProgressNode } from "./bars";
 import { ChartNode } from "./chart";
@@ -64,18 +63,22 @@ export const PageNodeView = React.memo(function PageNodeView({ node }: { node: P
 			return <TextNode node={node} />;
 		case "heading":
 			return <HeadingNode node={node} />;
-		default:
+		default: {
+			// Compilador: todo tipo do shared tem um `case` acima (o teste de `page-nodes` cobra o mesmo em tempo de execução).
+			// Em tempo de execução um servidor mais novo pode mandar tipo que este app não conhece: some, o resto do painel fica.
+			const unknown: never = node;
+			void unknown;
 			return null;
+		}
 	}
 });
 
-export function PageView({ spec, onOpenWeb }: { spec: PageSpec; onOpenWeb?: () => void }) {
+export function PageView({ spec }: { spec: PageSpec }) {
 	const scheme = useAppColorScheme();
-	const accent = React.useMemo(() => paletteAccent(spec.palette), [spec.palette]);
-	const theme = React.useMemo(() => ({ scheme, accent, onOpenWeb }), [scheme, accent, onOpenWeb]);
+	const theme = React.useMemo(() => ({ scheme, palette: spec.palette }), [scheme, spec.palette]);
 	return (
 		<PageThemeContext.Provider value={theme}>
-			<View className="min-w-0 gap-4">
+			<View className="min-w-0">
 				<PageNodeView node={spec.root} />
 			</View>
 		</PageThemeContext.Provider>
