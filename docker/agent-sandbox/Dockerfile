@@ -59,9 +59,16 @@ RUN curl -fsSL -o /tmp/code.deb \
 
 # yt-dlp: legendas de vídeo para a tool video_transcript (script Python único; o python3 já está na
 # imagem). Fica em /usr/local/bin, de root: o `atlas` executa, mas não troca o binário.
-RUN curl -fsSL -o /usr/local/bin/yt-dlp \
-	https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp \
-	&& chmod 0755 /usr/local/bin/yt-dlp \
+# Tag fixa (build reproduzível) + SHA2-256SUMS publicado na MESMA tag, conferido com `sha256sum -c`.
+# Para atualizar: troque YT_DLP_VERSION por outra tag de https://github.com/yt-dlp/yt-dlp/releases.
+# (A tag 2025.10.22 foi escolhida sem rede no momento da edição: se o build falhar no download, confirme a tag.)
+ARG YT_DLP_VERSION=2025.10.22
+RUN cd /tmp \
+	&& curl -fsSL -o yt-dlp "https://github.com/yt-dlp/yt-dlp/releases/download/${YT_DLP_VERSION}/yt-dlp" \
+	&& curl -fsSL -o SHA2-256SUMS "https://github.com/yt-dlp/yt-dlp/releases/download/${YT_DLP_VERSION}/SHA2-256SUMS" \
+	&& sha256sum --ignore-missing -c SHA2-256SUMS \
+	&& install -m 0755 -o root -g root yt-dlp /usr/local/bin/yt-dlp \
+	&& rm -f yt-dlp SHA2-256SUMS \
 	&& /usr/local/bin/yt-dlp --version
 
 # Wallpaper (Unsplash) + dock (Plank): Chrome / Files / Settings / Editor / Terminal.

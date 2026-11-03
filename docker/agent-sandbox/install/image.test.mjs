@@ -105,9 +105,16 @@ test("tela: o fator de escala da screenshot do modelo bate com a largura da tela
 	assert.equal((width * percent) / 100, maxWidth);
 });
 
-test("Dockerfile: yt-dlp (video_transcript) instalado de root em /usr/local/bin e conferido no build", () => {
-	assert.match(dockerfile, /RUN curl -fsSL -o \/usr\/local\/bin\/yt-dlp \\\n\thttps:\/\/github\.com\/yt-dlp\/yt-dlp\/releases\/latest\/download\/yt-dlp/);
-	assert.match(dockerfile, /chmod 0755 \/usr\/local\/bin\/yt-dlp/);
+test("Dockerfile: yt-dlp (video_transcript) em tag fixa, com checksum, de root em /usr/local/bin", () => {
+	const version = dockerfile.match(/^ARG YT_DLP_VERSION=(\d{4}\.\d{2}\.\d{2})$/m);
+	assert.ok(version, "tag fixa AAAA.MM.DD em ARG YT_DLP_VERSION");
+	assert.doesNotMatch(dockerfile, /yt-dlp\/releases\/latest/);
+	assert.match(dockerfile, /releases\/download\/\$\{YT_DLP_VERSION\}\/yt-dlp"/);
+	assert.match(dockerfile, /releases\/download\/\$\{YT_DLP_VERSION\}\/SHA2-256SUMS"/);
+	assert.match(dockerfile, /sha256sum --ignore-missing -c SHA2-256SUMS/);
+	assert.match(dockerfile, /install -m 0755 -o root -g root yt-dlp \/usr\/local\/bin\/yt-dlp/);
 	assert.match(dockerfile, /\/usr\/local\/bin\/yt-dlp --version/);
 	assert.doesNotMatch(dockerfile, /chown[^\n]*atlas[^\n]*yt-dlp/);
+	// a conferência vem antes de instalar o binário
+	assert.ok(dockerfile.indexOf("sha256sum --ignore-missing") < dockerfile.indexOf("install -m 0755 -o root"));
 });
