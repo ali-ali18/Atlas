@@ -41,14 +41,14 @@ export const COMPUTER_REF_TOOLS: ChatTool[] = [
 		function: {
 			name: "browser_snapshot",
 			description:
-				"See the page as an accessibility tree: roles, names, states and a ref (e12) per actionable element. USE it to see and act, after a navigation or when a ref went stale. Do NOT use it for long text (browser_read). Window first; area=page for all; ref=eN expands a '+N similares' block; offset=nextOffset pages on; view=list for the flat list. A sign-in page pauses the run with a login card; never ask for credentials.",
+				"See the page as an accessibility tree: roles, names, states, a ref (e12) per actionable element. USE to see and act, after a navigation or a stale ref. Do NOT use it for long text (browser_read) or after every action (browser_act already reports what changed). Window first; area=page for all; ref=eN expands '+N similares'; offset=nextOffset pages on; view=list: flat list. If the page needs a sign-in, the runtime shows a login card and pauses; never ask for credentials in text.",
 			parameters: {
 				type: "object",
 				properties: {
-					area: { type: "string", enum: ["viewport", "page"], description: "viewport (default) or page" },
+					area: { type: "string", enum: ["viewport", "page"] },
 					view: { type: "string", enum: ["tree", "list"] },
 					ref: { type: "string" },
-					scope: { type: "string", description: "CSS container (list view)" },
+					scope: { type: "string", description: "CSS container (list)" },
 					offset: { type: "number", description: "nextOffset" },
 					limit: { type: "number", description: "Tree: chars (default 6000). List: max 80" },
 				},
