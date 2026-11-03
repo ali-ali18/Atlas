@@ -25,9 +25,9 @@ export type ChatItem =
 	| (Base & { kind: "confirm"; confirmId: string; title: string; description?: string; confirmLabel?: string; cancelLabel?: string; status: ConfirmStatus })
 	| (Base & { kind: "questionnaire"; questionnaireId: string; title: string; description?: string; items: QuestionnaireCardItem[]; status: QuestionnaireStatus; answers?: Record<string, string | string[]> })
 	/** Proposta de novo agente (`propose_bot`). `applying`/`error` são do aparelho: a chamada em voo e a última falha. */
-	| (Base & { kind: "bot-proposal"; proposalId: string; status: ProposalStatus; name: string; description: string; color: string; shape: string; model: string | null; skills: string[]; firstTask: string | null; botId?: string; applying?: boolean; error?: string })
+	| (Base & { kind: "bot-proposal"; proposalId: string; status: ProposalStatus; name: string; description: string; color: string; shape: string; model: string | null; skills: string[]; firstTask: string | null; botId?: string; applying?: boolean; error?: string; locked?: boolean })
 	/** Proposta de perfil do bot (`propose_profile_update`, usada no onboarding). */
-	| (Base & { kind: "bot-profile"; proposalId: string; botId: string; status: ProposalStatus; fields: BotProfileCardField[]; before: BotProfileCardSnapshot; after: BotProfileCardPatch; applying?: boolean; error?: string })
+	| (Base & { kind: "bot-profile"; proposalId: string; botId: string; status: ProposalStatus; fields: BotProfileCardField[]; before: BotProfileCardSnapshot; after: BotProfileCardPatch; applying?: boolean; error?: string; locked?: boolean })
 	/** Cartão que ainda não tem tela nativa (gráfico, painel, arquivo, rotina…): uma linha com "Abrir no navegador". */
 	| (Base & { kind: "web-card"; card: WebCardKind; title: string; key: string })
 	/** Marcador de uma linha no fio (conversa compactada, mensagem enviada a outro bot). */

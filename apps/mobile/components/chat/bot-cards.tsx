@@ -65,6 +65,7 @@ function ProposalBody({ item }: { item: BotProposalItem }) {
 export function BotProposalCard({ item, onDecide, onOpenBot }: { item: BotProposalItem; onDecide: (item: BotProposalItem, decision: Decision) => void; onOpenBot: (botId: string) => void }) {
 	const pending = item.status === "pending";
 	const applying = item.applying === true;
+	const blocked = applying || item.locked === true;
 	return (
 		<ChatCard className="max-w-[min(68ch,100%)] self-start">
 			<ChatCardHeader leading={<UserPlusIcon />} title={botProposalTitle(item)} badge={BADGE[item.status]} />
@@ -78,11 +79,11 @@ export function BotProposalCard({ item, onDecide, onOpenBot }: { item: BotPropos
 			{item.error ? <ChatCardError>{item.error}</ChatCardError> : null}
 			{pending ? (
 				<ChatCardActions>
-					<Button size="sm" disabled={applying} accessibilityLabel={applying ? "Criando o agente" : "Criar agente"} onPress={() => onDecide(item, "approved")}>
+					<Button size="sm" disabled={blocked} accessibilityLabel={applying ? "Criando o agente" : "Criar agente"} onPress={() => onDecide(item, "approved")}>
 						{applying ? <Spinner tone="primary-foreground" label="Criando" /> : null}
 						<Text>{applying ? "Criando…" : "Criar agente"}</Text>
 					</Button>
-					<Button size="sm" variant="secondary" disabled={applying} accessibilityLabel={CHAT_CARD_COPY.dismiss} onPress={() => onDecide(item, "rejected")}>
+					<Button size="sm" variant="secondary" disabled={blocked} accessibilityLabel={CHAT_CARD_COPY.dismiss} onPress={() => onDecide(item, "rejected")}>
 						<Text>{CHAT_CARD_COPY.dismiss}</Text>
 					</Button>
 				</ChatCardActions>
@@ -126,6 +127,7 @@ function ProfileRows({ item }: { item: BotProfileItem }) {
 export function BotProfileCard({ item, onDecide }: { item: BotProfileItem; onDecide: (item: BotProfileItem, decision: Decision) => void }) {
 	const pending = item.status === "pending";
 	const applying = item.applying === true;
+	const blocked = applying || item.locked === true;
 	return (
 		<ChatCard className="max-w-[min(68ch,100%)] self-start">
 			<ChatCardHeader leading={<UserCogIcon />} title={botProfileTitle(item)} badge={PROFILE_BADGE[item.status]} />
@@ -139,11 +141,11 @@ export function BotProfileCard({ item, onDecide }: { item: BotProfileItem; onDec
 			{item.error ? <ChatCardError>{item.error}</ChatCardError> : null}
 			{pending ? (
 				<ChatCardActions>
-					<Button size="sm" disabled={applying} accessibilityLabel={applying ? "Aplicando" : "Aplicar"} onPress={() => onDecide(item, "approved")}>
+					<Button size="sm" disabled={blocked} accessibilityLabel={applying ? "Aplicando" : "Aplicar"} onPress={() => onDecide(item, "approved")}>
 						{applying ? <Spinner tone="primary-foreground" label="Aplicando" /> : null}
 						<Text>{applying ? "Aplicando…" : "Aplicar"}</Text>
 					</Button>
-					<Button size="sm" variant="secondary" disabled={applying} accessibilityLabel={CHAT_CARD_COPY.dismiss} onPress={() => onDecide(item, "rejected")}>
+					<Button size="sm" variant="secondary" disabled={blocked} accessibilityLabel={CHAT_CARD_COPY.dismiss} onPress={() => onDecide(item, "rejected")}>
 						<Text>{CHAT_CARD_COPY.dismiss}</Text>
 					</Button>
 				</ChatCardActions>

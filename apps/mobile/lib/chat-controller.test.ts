@@ -670,13 +670,14 @@ describe("cartões de proposta (criar agente e perfil)", () => {
 		await flush();
 		expect(calls.proposal).toHaveLength(1);
 	});
-	it("repetir a aprovação (unchanged) mostra Criado sem inserir o bot de novo", async () => {
+	it("repetir a aprovação (unchanged) mostra Criado e ainda garante o bot na home", async () => {
 		const { controller, calls } = withCards({ resolveBotProposal: async () => ({ status: "approved", name: "Estoquinho", botId: "bot-new", unchanged: true, warnings: [] }) });
 		await controller.open();
 		controller.resolveProposal(proposal, "approved");
 		await flush();
 		expect(cardOf(controller, "bot-proposal")).toMatchObject({ status: "approved", botId: "bot-new" });
-		expect(calls.created).toEqual([]);
+		// o bot pode não estar na home (outro aparelho, atualização perdida): quem recebe garante (idempotente)
+		expect(calls.created).toEqual([expect.objectContaining({ id: "bot-new" })]);
 	});
 	it("Agora não dispensa sem criar bot", async () => {
 		const { controller, calls } = withCards();
@@ -687,7 +688,7 @@ describe("cartões de proposta (criar agente e perfil)", () => {
 		expect(cardOf(controller, "bot-proposal")).toMatchObject({ status: "rejected" });
 		expect(calls.created).toEqual([]);
 	});
-	it("404, 409 e rede viram frases simples e o cartão volta a poder ser tocado", async () => {
+	it("404 e 409 travam os botões e recarregam o fio; rede e 503 deixam tentar de novo", async () => {
 		for (const [error, text] of [
 			[new ChatApiError("Proposta não encontrada.", 404), "Esta proposta não existe mais."],
 			[new ChatApiError("x", 409), "Esta proposta já foi recusada."],
@@ -695,18 +696,40 @@ describe("cartões de proposta (criar agente e perfil)", () => {
 			[new ChatApiError("x", 503), "Não consegui criar o agente. Tente de novo."],
 		] as const) {
 			let fail = true;
-			const { controller, calls } = withCards({ resolveBotProposal: async () => (fail ? Promise.reject(error) : { status: "approved", name: "Estoquinho", botId: "bot-new", unchanged: false, warnings: [] }) });
+			let taps = 0;
+			const { controller, calls } = withCards({ resolveBotProposal: async () => (taps++, fail ? Promise.reject(error) : { status: "approved", name: "Estoquinho", botId: "bot-new", unchanged: false, warnings: [] }) });
 			await controller.open();
 			controller.resolveProposal(proposal, "approved");
 			await flush();
 			expect(cardOf(controller, "bot-proposal")).toMatchObject({ status: "pending", error: text });
 			expect(cardOf(controller, "bot-proposal").applying).toBeUndefined();
 			expect(calls.created).toEqual([]);
+			const stale = error instanceof ChatApiError && (error.status === 404 || error.status === 409);
+			expect(cardOf(controller, "bot-proposal").locked === true).toBe(stale);
 			fail = false;
 			controller.resolveProposal(proposal, "approved");
 			await flush();
-			expect(cardOf(controller, "bot-proposal")).toMatchObject({ status: "approved" });
+			// travado (404/409): o toque não chama a rota de novo; os outros erros deixam tentar
+			expect(cardOf(controller, "bot-proposal")).toMatchObject({ status: stale ? "pending" : "approved" });
+			expect(taps).toBe(stale ? 1 : 2);
 		}
+	});
+	it("404 e 409 recarregam o fio: o estado gravado (já decidido) substitui o cartão travado", async () => {
+		let decided = false;
+		const stored = (status: string) => row("m9", "bot-proposal", JSON.stringify({ v: 1, kind: "bot-proposal", proposalId: "p1", status, name: "Estoquinho", description: "Cuida do estoque", color: "#1084FE", shape: "blob", model: null, skills: [], firstTask: null, botId: "bot-9" }));
+		const { controller } = setup({ api: { fetchPage: async () => ({ messages: [stored(decided ? "approved" : "pending")], hasMore: false }), resolveBotProposal: async () => Promise.reject(new ChatApiError("x", 409)) } });
+		await controller.open();
+		decided = true;
+		controller.resolveProposal(proposal, "approved");
+		await flush();
+		expect(cardOf(controller, "bot-proposal")).toMatchObject({ status: "approved", botId: "bot-9" });
+	});
+	it("perfil: 404 (já resolvida) também trava", async () => {
+		const failing = withCards({ resolveBotProfile: async () => Promise.reject(new ChatApiError("Proposal not found or already resolved", 404)) });
+		await failing.controller.open();
+		failing.controller.resolveProposal(profile, "approved");
+		await flush();
+		expect(cardOf(failing.controller, "bot-profile")).toMatchObject({ error: "Esta proposta não existe mais.", locked: true });
 	});
 	it("401 encerra a sessão", async () => {
 		const { controller, calls } = withCards({ resolveBotProposal: async () => Promise.reject(new ChatApiError("x", 401)) });

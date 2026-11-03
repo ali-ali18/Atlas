@@ -40,7 +40,7 @@ export type ChatDeps = {
 	cacheFor: (conversationId: string) => ChatCache | null;
 	onUnauthorized: () => void;
 	/** Um agente foi criado pelo cartão do chat: a home o recebe já (e atualiza em segundo plano). */
-	onBotCreated?: (bot: HomeBot) => void;
+	onBotCreated?: (bot: HomeBot) => void | Promise<void>;
 	/** Um perfil proposto foi aplicado: a home mostra o que mudou (hoje, só o nome). */
 	onProfileApplied?: (botId: string, patch: { name?: string }) => void;
 	/** Troca o laço do stream (testes). */
@@ -534,7 +534,8 @@ export class ChatController {
 	resolveProposal(item: Extract<ChatItem, { kind: "bot-proposal" | "bot-profile" }>, decision: ResolveDecision): void {
 		const key = `${item.kind}|${item.proposalId}`;
 		const convId = this.conversationId;
-		if (item.status !== "pending" || this.state.cards[key]?.phase === "applying" || this.state.cards[key]?.phase === "done") return;
+		const known = this.state.cards[key];
+		if (item.status !== "pending" || known?.phase === "applying" || known?.phase === "done" || (known?.phase === "error" && known.locked)) return;
 		const action = item.kind === "bot-proposal" ? "bot" : "profile";
 		if (!convId) {
 			this.set({ cards: { ...this.state.cards, [key]: { phase: "error", text: proposalErrorText(new ChatApiError("", 404), decision, action) } } });
@@ -546,7 +547,8 @@ export class ChatController {
 				if (item.kind === "bot-proposal") {
 					const result = await this.deps.api.resolveBotProposal({ conversationId: convId, proposalId: item.proposalId, decision });
 					this.set({ cards: { ...this.state.cards, [key]: { phase: "done", status: result.status, ...(result.botId ? { botId: result.botId } : {}), name: result.name } } });
-					if (result.status === "approved" && result.botId && !result.unchanged) this.deps.onBotCreated?.(homeBotFromProposal(item, { botId: result.botId, name: result.name }));
+					// Também quando `unchanged` (já criado antes): a home pode não ter o bot (outro aparelho, atualização perdida).
+					if (result.status === "approved" && result.botId) void this.deps.onBotCreated?.(homeBotFromProposal(item, { botId: result.botId, name: result.name }));
 				} else {
 					const result = await this.deps.api.resolveBotProfile({ conversationId: convId, proposalId: item.proposalId, decision });
 					this.set({ cards: { ...this.state.cards, [key]: { phase: "done", status: result.status } } });
@@ -555,7 +557,10 @@ export class ChatController {
 			} catch (reason) {
 				this.fail(reason);
 				if (this.disposed) return;
-				this.set({ cards: { ...this.state.cards, [key]: { phase: "error", text: proposalErrorText(reason, decision, action) } } });
+				// 404/409: a proposta já foi decidida ou não existe mais. Trava os botões e traz o estado gravado.
+				const stale = reason instanceof ChatApiError && (reason.status === 404 || reason.status === 409);
+				this.set({ cards: { ...this.state.cards, [key]: { phase: "error", text: proposalErrorText(reason, decision, action), ...(stale ? { locked: true } : {}) } } });
+				if (stale) void this.syncTail(false);
 			}
 		})();
 	}

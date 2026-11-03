@@ -116,6 +116,10 @@ describe("textos para o usuário", () => {
 			{ field: "name", label: "Nome", before: "Cookie", after: "Biscoito" },
 			{ field: "description", label: "Briefing", before: "—", after: "Ajuda com a rotina" },
 		]);
+		// o id interno do modelo nunca aparece no antes/depois
+		const model = profileRows(profile({ fields: ["openRouterModel"], before: { name: "A", snippet: "", description: null, openRouterModel: "x/old-model" }, after: { openRouterModel: "anthropic/claude-sonnet-4.5" } }));
+		expect(model).toEqual([{ field: "openRouterModel", label: "Modelo", before: "Modelo atual", after: "Novo modelo" }]);
+		expect(JSON.stringify(model)).not.toMatch(/claude|old-model|\//);
 		expect(botProfileTitle(profile())).toBe("Atualizar perfil?");
 		expect(botProfileTitle(profile({ fields: ["name"] }))).toBe("Atualizar nome?");
 		expect(botProfileTitle(profile({ status: "approved" }))).toBe("Perfil atualizado");

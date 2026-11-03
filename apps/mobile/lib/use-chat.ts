@@ -11,7 +11,9 @@ import { ChatController, deriveView, type ChatApi, type ChatDeps } from "./chat-
 import type { ChatItem, ReplyQuote } from "./chat-types";
 import { clearBotRun, setBotRun } from "./run-store";
 import { useAtlasSession } from "./atlas-session";
+import { ensureHomeBot } from "./ensure-bot";
 import { useHomeData } from "./home-data";
+import { fetchHomeBot } from "./home-sync";
 import { homeStorage } from "./home-storage";
 import type { HomeBot } from "./home-types";
 
@@ -81,10 +83,9 @@ export function useChat(bot: HomeBot | undefined): ChatHook {
 				};
 			},
 			onUnauthorized: () => void latest.current.signOut(),
-			onBotCreated: (created) => {
-				// O agente aparece na home já; a atualização em segundo plano traz a conversa e a prévia dele.
-				latest.current.addBot(created);
-				void latest.current.refresh();
+			// O agente entra na home com a conversa de verdade (busca no servidor) e a atualização seguinte é nova.
+			onBotCreated: async (created) => {
+				await ensureHomeBot({ fetchBot: (botId) => fetchHomeBot(latest.current.apiFetch, botId), addBot: latest.current.addBot, refresh: latest.current.refresh }, created.id, created);
 			},
 			onProfileApplied: (botId, patch) => latest.current.applyBotUpdate(botId, patch),
 		};

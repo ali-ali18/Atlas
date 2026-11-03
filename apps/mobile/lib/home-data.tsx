@@ -19,7 +19,8 @@ export type HomeData = {
 	 * Devolve `ready` quando há o que mostrar; `signed-out` quando o servidor recusou a sessão ou a conta saiu no meio.
 	 */
 	prepare: () => Promise<"ready" | "empty" | "signed-out">;
-	refresh: () => Promise<void>;
+	/** `fresh`: descarta a atualização em voo e busca de novo (use depois de criar algo no servidor). */
+	refresh: (options?: { fresh?: boolean }) => Promise<void>;
 	/** Aplica na lista (e no cache do aparelho) o que acabou de ser salvo no servidor, sem esperar a próxima atualização. */
 	applyBotUpdate: (botId: string, patch: Partial<Pick<HomeBot, "name" | "color" | "shape" | "language" | "pinned" | "pinOrder" | "sectionId">>) => void;
 	/**
@@ -102,11 +103,11 @@ export function HomeDataProvider({ children }: { children: React.ReactNode }) {
 		setError(null);
 	}, [phase, controller]);
 
-	const refresh = React.useCallback(async () => {
+	const refresh = React.useCallback(async (options?: { fresh?: boolean }) => {
 		if (!key) return;
 		setRefreshing(true);
 		try {
-			await controller.run(key);
+			await controller.run(key, options?.fresh === true);
 		} finally {
 			setRefreshing(false);
 		}

@@ -70,7 +70,7 @@ export function applyDecidedProposals(items: readonly ChatItem[]): ChatItem[] {
 
 // ---- resolução local (o toque vale antes de o servidor gravar) ------------------------------------------------------
 
-export type CardResolution = { phase: "applying" } | { phase: "error"; text: string } | { phase: "done"; status: Exclude<ProposalStatus, "pending">; botId?: string; name?: string };
+export type CardResolution = { phase: "applying" } | { phase: "error"; text: string; /** A proposta não aceita mais decisão (404/409): os botões ficam desligados. */ locked?: boolean } | { phase: "done"; status: Exclude<ProposalStatus, "pending">; botId?: string; name?: string };
 
 /** Aplica o que o toque já fez ao cartão ainda pendente: carregando, erro ou o resultado (antes do gravado chegar). */
 export function withProposalResolution(item: ChatItem, resolutions: Readonly<Record<string, CardResolution>>): ChatItem {
@@ -78,7 +78,7 @@ export function withProposalResolution(item: ChatItem, resolutions: Readonly<Rec
 	const resolution = resolutions[proposalKey(item)];
 	if (!resolution || item.status !== "pending") return item;
 	if (resolution.phase === "applying") return { ...item, applying: true };
-	if (resolution.phase === "error") return { ...item, error: resolution.text };
+	if (resolution.phase === "error") return { ...item, error: resolution.text, ...(resolution.locked ? { locked: true } : {}) };
 	if (item.kind === "bot-proposal") return { ...item, status: resolution.status, ...(resolution.botId ? { botId: resolution.botId } : {}), ...(resolution.name ? { name: resolution.name } : {}) };
 	return { ...item, status: resolution.status };
 }
@@ -120,7 +120,12 @@ export type ProfileRow = { field: BotProfileCardField; label: string; before: st
 
 /** Linhas de antes/depois do perfil, na ordem dos campos da proposta. */
 export function profileRows(item: BotProfileItem): ProfileRow[] {
-	return item.fields.map((field) => ({ field, label: PROFILE_LABELS[field], before: display(item.before[field]), after: display(item.after[field]) }));
+	// Modelo: o id interno não aparece (o app não tem catálogo de nomes); só se diz que muda.
+	return item.fields.map((field) =>
+		field === "openRouterModel"
+			? { field, label: PROFILE_LABELS[field], before: item.before.openRouterModel ? "Modelo atual" : "Modelo padrão", after: item.after.openRouterModel ? "Novo modelo" : "Modelo padrão" }
+			: { field, label: PROFILE_LABELS[field], before: display(item.before[field]), after: display(item.after[field]) },
+	);
 }
 
 export function botProfileTitle(item: BotProfileItem): string {
