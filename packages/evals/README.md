@@ -20,7 +20,8 @@ packages/evals/
   src/report.ts         matriz, delta entre variantes
   src/variants.ts       variantes de harness (`--harness`)
   src/from-run.ts       run de produção → cenário (com redação)
-  src/cli.ts            comandos run / compare / from-run / list
+  src/bridge/           avaliação da ponte do v3 (tarefas, mundo falso, métricas, relatório, custo)
+  src/cli.ts            comandos run / compare / from-run / list / motor-v1-vs-v2 / bridge
   results/              saída das execuções (ignorada pelo git)
 ```
 
@@ -35,6 +36,37 @@ pnpm --filter @workspace/evals run eval -- --mock
 
 No modo mock cada cenário usa o roteiro em `mock.turns`. Ele valida o **harness** (schema, ambiente falso,
 verificações, fiação do runner), nunca a qualidade de um modelo. Todo cenário semente precisa passar no mock.
+
+## Avaliação da ponte do harness v3 (marco M1)
+
+Mede se o modelo acha e chama a tool certa quando ela está **fora do núcleo**, com 50 conectores falsos no manifesto:
+a ponte `tool_search`/`tool_call` do motor v3 contra o "carrega e anexa" (`mcp_tool_search`) do v2, nas mesmas 10 tarefas
+(`src/bridge/tasks.ts`): criar bot, criar painel, ler e-mail, criar rotina, conector com nome degradado (prefixo), tool
+com argumento obrigatório, tool inexistente, duas tools em sequência, nativa x conector empatadas e pedido coloquial em pt-BR.
+As tools respondem por fixtures (`src/bridge/world.ts`); nada de rede além do modelo.
+
+Métricas por run: achou a tool certa, passos extras além do mínimo, JSON válido de primeira, nome de tool inventado,
+tokens (entrada, saída, cache) e custo. Passa por família (desenho 14.2): acerto ≥ 95%, ≤ 1 passo extra, JSON de 1ª ≥ 90%,
+nome inventado ≤ 2%, não pior que o v2 em mais de 3 pontos. Falha em 2 ou mais famílias baratas = o padrão vira "carrega e anexa".
+
+```bash
+# CI e conferência da mecânica: grátis, sem rede, sem chave (roteiro por motor)
+pnpm --filter @workspace/evals run eval -- bridge --mock
+
+# Estimativa de custo antes de gastar (sem chamar modelo)
+pnpm --filter @workspace/evals run eval -- bridge --estimate --budget 5
+
+# Real (gasta tokens): chaves SÓ do ambiente, nunca impressas
+OPENROUTER_API_KEY=... pnpm --filter @workspace/evals run eval -- \
+  bridge --engine both --models deepseek/deepseek-chat,openai/gpt-5-mini --repeat 3 --max-cost 5
+# equivalente: --suite bridge no lugar do comando `bridge`
+```
+
+- Chaves: `OPENROUTER_API_KEY` (a que o `packages/llm` já usa) para ids sem prefixo; `OPENCODE_GO_API_KEY` (nome só deste CLI; em produção a chave vive no cofre do usuário) para `opencode-go/<slug>`. Plano ChatGPT (OAuth) e Anthropic direto não têm chave de ambiente: use o slug do OpenRouter.
+- Saída em `results/bridge-<data>/`: `report.md` (resumo por modelo e motor, decisão, matriz tarefa × modelo × motor com o veredito `modelo | harness | instável`), `results.json` e `runs.jsonl` (trajetórias, com a chave redigida).
+- `--max-cost` (padrão 5 no modo real) para de iniciar execuções ao atingir o teto, usando o custo que o provedor informa por chamada. As repetições rodam por fora (todas as tarefas na 1ª repetição, depois na 2ª...), então um corte deixa dados em todas as tarefas.
+- Workflow manual `.github/workflows/evals.yml` (só `workflow_dispatch`; secrets `OPENROUTER_API_KEY` e `OPENCODE_GO_API_KEY`; permissão `contents: read`) roda o modo real e publica o relatório como artifact.
+- O modo mock prova a mecânica (o manifesto, as métricas, o relatório), não a qualidade de um modelo.
 
 Os testes importam `@workspace/agent-runtime` de `dist/`: depois de mudar o runtime, rode
 `pnpm exec turbo build --filter='./packages/*'` antes.
