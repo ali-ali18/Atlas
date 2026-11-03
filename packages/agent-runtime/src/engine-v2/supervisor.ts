@@ -115,7 +115,15 @@ export function globalFailureNote(count: number): string {
 export type CapSource = "account" | "server" | "bot";
 
 /** Teto que disparou a parada (só os `budget_*` têm). */
-export type StopCap = { usd?: number; ms?: number; source?: CapSource };
+export type StopCap = { usd?: number; ms?: number; source?: CapSource; steps?: number; stepsSource?: StepsSource };
+
+/** De onde veio o teto de passos que o dono configurou (o de segurança não tem origem). */
+export type StepsSource = "account" | "bot" | "request";
+const STEPS_PLACE: Record<StepsSource, string> = {
+	account: "the account settings (Execution > maximum steps)",
+	bot: "this bot's settings (step limit)",
+	request: "the request that started this run",
+};
 
 const CAP_PLACE: Record<"cost" | "wall", Record<CapSource, string>> = {
 	cost: {
@@ -143,7 +151,9 @@ export function deliveryInstruction(reason: "budget_cost" | "budget_wall" | "bud
 			: reason === "budget_wall"
 				? `The time cap the owner configured for this run${cap.ms !== undefined ? ` (${formatCapMinutes(cap.ms)}${cap.source ? `, set in ${CAP_PLACE.wall[cap.source]}` : ""})` : ""} was reached.${cap.source ? tellUser(CAP_PLACE.wall[cap.source]) : ""}`
 				: reason === "budget_steps"
-					? "The safety step limit for a single run was reached."
+					? cap.stepsSource
+						? `The step limit the owner configured for this run (${cap.steps} steps, set in ${STEPS_PLACE[cap.stepsSource]}) was reached.${tellUser(STEPS_PLACE[cap.stepsSource])}`
+						: `The safety step limit for a single run${cap.steps !== undefined ? ` (${cap.steps} steps)` : ""} was reached; it is built in and the owner cannot raise it.`
 					: reason === "tool_failures"
 						? "Your tools kept failing, so this approach did not work."
 						: "You kept repeating the same action without progress, so this approach did not work.";
@@ -191,6 +201,8 @@ export function createSupervisor(config: {
 	hardActiveMs?: number;
 	/** De onde veio o teto de US$ / de tempo que está valendo (conta, servidor ou bot): a instrução de entrega conta isso ao usuário. */
 	capSources?: { cost?: CapSource; wall?: CapSource };
+	/** O teto de passos efetivo é o que o dono configurou (e não o de segurança): a instrução de entrega diz de onde veio. */
+	stepsSource?: StepsSource;
 }) {
 	let budget = config.budget;
 	let profile = config.profile;
@@ -274,7 +286,7 @@ export function createSupervisor(config: {
 		},
 		gate(usage: SupervisorUsage, context: SupervisorGateContext = {}): SupervisorGate {
 			if (usage.step >= maxSteps) {
-				return { action: "deliver", stop: { reason: "budget_steps", detail: "delivered" }, instruction: deliveryInstruction("budget_steps") };
+				return { action: "deliver", stop: { reason: "budget_steps", detail: "delivered" }, instruction: deliveryInstruction("budget_steps", { steps: maxSteps, ...(config.stepsSource ? { stepsSource: config.stepsSource } : {}) }) };
 			}
 			const { cost, time } = fractions(usage);
 			// Chat promovível vira trabalho longo (uma vez, sem parar nem perguntar) quando o modelo monta uma lista com

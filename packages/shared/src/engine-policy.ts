@@ -200,7 +200,20 @@ export function resolveRunProfile(input: { policy: EnginePolicy }): RunProfile {
 export type RunCapSource = "account" | "server" | "bot";
 
 /** Tetos que valem para o run (gravados no `budgetJson` no começo), para o motivo da parada dizer valor e origem. */
-export type RunCaps = { costUsd?: number; costSource?: RunCapSource; wallMs?: number; wallSource?: RunCapSource };
+export type RunCaps = {
+	costUsd?: number;
+	costSource?: RunCapSource;
+	wallMs?: number;
+	wallSource?: RunCapSource;
+	/** Teto de passos EFETIVO do run (no v2, no máximo o limite de segurança). */
+	steps?: number;
+	/** Só quando o teto de passos efetivo é o que o dono configurou (conta, bot ou pedido); sem origem = limite de segurança. */
+	stepsSource?: RunStepsSource;
+};
+
+/** De onde veio o teto de passos que o dono configurou. */
+export type RunStepsSource = "account" | "bot" | "request";
+const STEPS_SOURCES: ReadonlySet<string> = new Set(["account", "bot", "request"]);
 
 const CAP_SOURCES: ReadonlySet<string> = new Set(["account", "server", "bot"]);
 
@@ -210,6 +223,7 @@ export function withRunCaps(budgetJson: unknown, caps: RunCaps): Record<string, 
 	const clean: RunCaps = {
 		...(caps.costUsd !== undefined && Number.isFinite(caps.costUsd) && caps.costUsd > 0 ? { costUsd: caps.costUsd, ...(caps.costSource ? { costSource: caps.costSource } : {}) } : {}),
 		...(caps.wallMs !== undefined && Number.isFinite(caps.wallMs) && caps.wallMs > 0 ? { wallMs: Math.round(caps.wallMs), ...(caps.wallSource ? { wallSource: caps.wallSource } : {}) } : {}),
+		...(caps.steps !== undefined && Number.isFinite(caps.steps) && caps.steps >= 1 ? { steps: Math.floor(caps.steps), ...(caps.stepsSource ? { stepsSource: caps.stepsSource } : {}) } : {}),
 	};
 	return Object.keys(clean).length > 0 ? { ...base, caps: clean } : { ...base };
 }
@@ -220,7 +234,10 @@ export function readRunCaps(budgetJson: unknown): RunCaps {
 	const source = (value: unknown): RunCapSource | undefined => (typeof value === "string" && CAP_SOURCES.has(value) ? (value as RunCapSource) : undefined);
 	const costUsd = typeof raw.costUsd === "number" && Number.isFinite(raw.costUsd) && raw.costUsd > 0 ? raw.costUsd : undefined;
 	const wallMs = typeof raw.wallMs === "number" && Number.isFinite(raw.wallMs) && raw.wallMs > 0 ? raw.wallMs : undefined;
+	const steps = typeof raw.steps === "number" && Number.isFinite(raw.steps) && raw.steps >= 1 ? Math.floor(raw.steps) : undefined;
+	const stepsSource = typeof raw.stepsSource === "string" && STEPS_SOURCES.has(raw.stepsSource) ? (raw.stepsSource as RunStepsSource) : undefined;
 	return {
+		...(steps !== undefined ? { steps, ...(stepsSource ? { stepsSource } : {}) } : {}),
 		...(costUsd !== undefined ? { costUsd, ...(source(raw.costSource) ? { costSource: source(raw.costSource) } : {}) } : {}),
 		...(wallMs !== undefined ? { wallMs, ...(source(raw.wallSource) ? { wallSource: source(raw.wallSource) } : {}) } : {}),
 	};

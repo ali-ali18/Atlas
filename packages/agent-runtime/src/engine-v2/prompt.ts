@@ -54,15 +54,18 @@ export const ENGINE_V2_PROMOTED_NOTE =
 	"This task turned into long work. Nothing caps the spending or the duration unless the owner configured a cap; if one is reached you will be told which. From now on: keep the plan with update_task_list (3 to 8 steps, one in_progress, mark each completed; update the list before delivering; set deliverable to \"document\" when the user wants a file or a report, or \"answer\" when the chat reply is enough), record findings with notebook_write (source URL; kind \"unconfirmed\" when unverified), and when the deliverable is a document, create it with create_file and then reply in chat with a short summary. Keep working until the result is ready; never hand the work back to the user to go on.";
 
 /**
- * Herança por estado: o run anterior da conversa parou com itens abertos e a lista e o caderno dele foram carregados. A mensagem
- * pode ser qualquer texto, então quem decide se continua o trabalho ou abre outro assunto é o modelo, pelo contexto.
+ * Herança por estado, só de CONTEXTO: o run anterior da conversa parou com itens abertos. A lista NÃO é do run novo (não vai para
+ * o rastreador, não vira portão nem lembrete): a mensagem pode ser qualquer texto, então quem decide se continua aquele trabalho
+ * ou abre outro assunto é o modelo, pelo contexto. Continuando, ele recria a lista com `update_task_list`.
  */
-export const CONTINUED_WORK_NOTE =
-	"The previous task in this conversation stopped with open items; its task list and notebook are loaded. Read the user's new message in that context: if it continues that work, carry on with the open items; if it is a new subject, answer the new subject and leave the old items alone.";
+export function continuedWorkNote(openItems: readonly string[]): string {
+	const list = openItems.slice(0, 8).map((item, index) => `${index + 1}. ${item}`).join("\n");
+	return `The previous task in this conversation stopped with open items:\n${list}\nContinue them only if the user's new message is about that task (then keep them in a new update_task_list); otherwise ignore them and answer the new subject. Its notebook, if any, is loaded.`;
+}
 
 /**
  * Resposta sem tool call com itens ABERTOS na lista do run e trabalho já iniciado: o texto fica na conversa (o usuário já o
- * viu) e esta nota volta ao modelo uma vez por run. Sinal estrutural (lista e tools), nunca regex sobre o texto
+ * viu) e esta nota volta ao modelo até 3 vezes por run (`MAX_OPEN_ITEMS_RETURNS`). Sinal estrutural (lista e tools), nunca regex sobre o texto
  * (decisão do dono, 03/11).
  */
 export function openItemsNote(openItems: readonly string[]): string {

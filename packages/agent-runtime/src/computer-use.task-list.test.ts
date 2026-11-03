@@ -74,6 +74,19 @@ describe("update_task_list: validacao", () => {
 		expect(s.read()).toEqual([{ content: "a b", status: "pending" }, { content: "c", status: "in_progress" }]);
 	});
 
+	it("deliverable inválido FALHA com a lista do que é aceito (não vira 'sem declaração' em silêncio) e a lista não muda", () => {
+		const s = store();
+		const items = [{ content: "a", status: "pending" }, { content: "b", status: "pending" }, { content: "c", status: "pending" }];
+		for (const bad of ["documento", "pdf", "", 3, true]) {
+			expect(() => executeUpdateTaskList({ items, deliverable: bad }, { taskListStore: s }), String(bad)).toThrow(/Accepted values: "document".*"answer"/);
+		}
+		expect(s.read()).toBeUndefined();
+		// Válido, ausente ou null seguem funcionando.
+		expect(executeUpdateTaskList({ items, deliverable: "document" }, { taskListStore: s }).deliverable).toBe("document");
+		expect(executeUpdateTaskList({ items }, { taskListStore: s }).deliverable).toBeUndefined();
+		expect(executeUpdateTaskList({ items, deliverable: null }, { taskListStore: s }).deliverable).toBeUndefined();
+	});
+
 	it("rejeita mais de um in_progress, status invalido, conteudo vazio e lista grande", () => {
 		const s = store();
 		const call = (items: unknown) => () => executeUpdateTaskList({ items }, { taskListStore: s });

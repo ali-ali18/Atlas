@@ -179,6 +179,8 @@ import {
 	appendObjective,
 	effectiveCostCapUsd,
 	capSourcesOf,
+	effectiveStepsCap,
+	stepsSourceOf,
 	runCapsOf,
 	historyWindowFor,
 	resolveRunConfigSnapshot,
@@ -1174,7 +1176,9 @@ async function executeLeasedRun(ctx: {
 		record: (choice) => recordRunEngine(runId, choice),
 	});
 	// Trabalho longo no v2 com orçamento gravado no bot: o dono do bot vale mais que o teto por execução da conta.
+	const shortRunForLimits = Boolean(alertRun) || isDetachedBriefRun(run) || run.origin === "proactive" || (isBotConfigEventObjective(run.objective ?? "") && !readRunHumanTurn(run)) || isFollowupCheckObjective(run.origin, run.objective);
 	const runLimits = resolveRunLimits({
+		shortRun: shortRunForLimits,
 		choice: engineChoice,
 		origin: run.origin,
 		humanTurn: readRunHumanTurn(run),
@@ -1193,13 +1197,26 @@ async function executeLeasedRun(ctx: {
 	});
 	const botLongWork = engineChoice.engine === "v2" && (engineChoice.profile === "long_work" || runLimits.canPromote) ? { costUsd: engineChoice.longWorkBudgetUsd, minutes: engineChoice.longWorkMinutes } : undefined;
 	// Melhor esforço: falhar em gravar o teto nunca derruba o run.
-	void recordRunCaps(runId, runUserId, runCapsOf({ costCapUsd: effectiveCostCap, wallMs: runtimeBudget.maxWallMs, sources: capSources, botLongWork })).catch(() => undefined);
-	// Herança por ESTADO (decisão do dono, 03/11: nada de regex sobre o texto): se o último run da conversa parou com trabalho
-	// aberto, a mensagem digitada agora herda lista e caderno, seja qual for o texto; o modelo decide pelo contexto se é
-	// continuação ou assunto novo. Mesmo dono; falha = sem herança.
-	const continuedWork =
-		run.origin === "chat" && !groupRun && run.conversationId && (autoContinueAttempt > 0 || (readRunHumanTurn(run) && (await lastChatRunStoppedWithOpenWork(runUserId, run.conversationId, { excludeRunId: runId }).catch(() => false))));
+	// Teto de passos: pedido > bot > conta; sem nenhum, é o limite de segurança (sem origem, o texto não diz "que você configurou").
+	const stepsCap = effectiveStepsCap({
+		engine: engineChoice.engine,
+		hardMaxSteps: budget.hardMaxSteps,
+		source: stepsSourceOf({ request: requestBudget.hardMaxSteps, bot: botPolicy.hardMaxSteps, account: accountBudgetPolicy(configSnapshot, run.maxSteps).hardMaxSteps }),
+	});
+	void recordRunCaps(runId, runUserId, runCapsOf({ costCapUsd: effectiveCostCap, wallMs: runtimeBudget.maxWallMs, sources: capSources, botLongWork, stepsCap })).catch(() => undefined);
+	// Herança por ESTADO (decisão do dono, 03/11: nada de regex sobre o texto), só de CONTEXTO: se o último run da conversa parou
+	// com itens abertos da lista dele, a mensagem digitada agora recebe uma nota com esses itens e o caderno. Perfil, lista e
+	// portão NÃO são herdados: o modelo decide pelo contexto se é continuação (e então recria a lista) ou assunto novo.
+	// A continuação automática (mesma tarefa, agendada pelo worker) continua herdando a lista do run pai. Mesmo dono; falha = sem herança.
+	const typedContinuation =
+		run.origin === "chat" && !groupRun && Boolean(run.conversationId) && autoContinueAttempt === 0 && readRunHumanTurn(run) && (await lastChatRunStoppedWithOpenWork(runUserId, run.conversationId, { excludeRunId: runId }).catch(() => false));
+	const continuedWork = run.origin === "chat" && !groupRun && Boolean(run.conversationId) && (autoContinueAttempt > 0 || typedContinuation);
 	const priorNotebook = continuedWork && run.conversationId ? await getConversationNotebook(runUserId, run.conversationId, { excludeRunId: runId }).catch(() => null) : null;
+	// No v2 a lista do banco só semeia o rastreador na continuação automática ou num plano aprovado; numa mensagem digitada ela
+	// vira nota (`priorOpenItems`). O v1 segue como sempre (semeia sempre).
+	const planSeeded = Boolean(!checkpoint?.llmMessages?.length && checkpoint?.transcriptSeed?.taskList?.length);
+	const v2 = engineChoice.engine === "v2";
+	const seedTaskList = v2 && !planSeeded && autoContinueAttempt === 0 ? undefined : priorTaskList;
 	try {
 		const result = await runSelectedEngine({ ...engineChoice, modelMaxOutputTokens: (modelId) => providers.capabilities(modelId).then((caps) => caps.maxOutputTokens, () => null) }, {
 			messageTriageModel,
@@ -1344,7 +1361,8 @@ async function executeLeasedRun(ctx: {
 			priorCompaction,
 			priorResearchNotes,
 			priorTaskLedger,
-			priorTaskList,
+			priorTaskList: seedTaskList,
+			...(v2 && typedContinuation && priorTaskList ? { priorOpenItems: priorTaskList } : {}),
 			...(priorNotebook ? { priorNotebook } : {}),
 			...(autoContinueAttempt > 0 ? { autoContinued: true } : {}),
 			...(continuedWork ? { continuedWork: true } : {}),
@@ -1420,7 +1438,7 @@ async function executeLeasedRun(ctx: {
 			decideForOtherBots: readDecideForOtherBots(rawBotPolicy),
 			// Checagens que só observam a resposta final não seguram a conclusão: o uso delas é somado depois (abaixo).
 			backgroundObserveChecks: true,
-		}, { canPromote: runLimits.canPromote, onPromoted: () => recordRunPromotion(runId, runUserId).then(() => undefined), capSources });
+		}, { canPromote: runLimits.canPromote, onPromoted: () => recordRunPromotion(runId, runUserId).then(() => undefined), capSources: { ...capSources, ...(stepsCap.stepsSource ? { steps: stepsCap.stepsSource } : {}) } });
 		runTelemetry.markRuntimeDone();
 		await coalescer.flush();
 		await emitState.tail;
@@ -1429,7 +1447,7 @@ async function executeLeasedRun(ctx: {
 			await emit({
 				type: "status",
 				status: "budget_exhausted",
-				detail: `Alcancei o limite de ${budget.hardMaxSteps} passos (${usageText(result.usage)}). A resposta acima é o melhor que apurei.`,
+				detail: `Alcancei o limite de ${stepsCap.steps} passos${stepsCap.stepsSource ? " que você configurou" : " de segurança"} (${usageText(result.usage)}). A resposta acima é o melhor que apurei.`,
 				stopReason: "budget_steps",
 			});
 			await emitState.tail;

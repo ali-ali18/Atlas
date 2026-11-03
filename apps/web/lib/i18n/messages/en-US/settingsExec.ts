@@ -48,6 +48,7 @@ export const settingsExec: NamespaceMessages<typeof ptBR> = {
 	"settings.exec.noLimitCap": "No limit",
 	"settings.exec.fmtTokens": "{n}k tokens",
 	"settings.exec.fmtSteps": "{n} steps",
+	"settings.exec.fmtCapped": "{value} (effective: {max})",
 	"settings.exec.fmtMinutes": "{n} min",
 	"settings.exec.fmtHours": "{n} h",
 	"settings.exec.fmtChars": "{n}k characters",

@@ -5,6 +5,7 @@ import type { AgentRunCheckpoint, ComputerUseEvent, LessonRule } from "@workspac
 import type { PersistUserArtifactInput } from "@workspace/db";
 import type { DelegateDeps } from "../tools/delegate-task.js";
 import { noveltyKey } from "./notebook.js";
+import { DELEGATE_V2_TOOL } from "./helpers.js";
 import { runEngineV2, type EngineV2Options } from "./run.js";
 
 vi.mock("@workspace/db", async (original) => ({
@@ -269,6 +270,14 @@ async function runV2Reads(input: { secret: string }) {
 	});
 	return run;
 }
+
+describe("motor v2: texto do delegate ao modelo não promete orçamento que pode não existir", () => {
+	it("a descrição só fala em teto se o dono configurou, nunca em 'budget'", () => {
+		const text = DELEGATE_V2_TOOL.function.description ?? "";
+		expect(text).not.toMatch(/\bbudget\b/i);
+		expect(text).toMatch(/if the owner configured a spending or time cap/);
+	});
+});
 
 describe("motor v2: ajudantes", () => {
 	it("5 ajudantes em paralelo (no máximo 4 ao mesmo tempo), orçamento repartido com soma ≤ pai, uso somado ao pai e 5 entradas no caderno", async () => {
@@ -645,7 +654,7 @@ describe("motor v2: estouro do orçamento ainda entrega o documento", () => {
 		const content = Buffer.from(run.persisted[0]!.bytes).toString("utf8");
 		expect(content).toContain("https://alfa.example.com/preco");
 		expect(content).toContain("## Não deu para confirmar");
-		expect(run.result.stop).toEqual({ reason: "budget_cost", detail: "delivered" });
+		expect(run.result.stop).toEqual({ reason: "budget_cost", detail: "delivered:items_open" });
 		expect(run.result.text).not.toMatch(/Não consegui gerar o documento/);
 	});
 
@@ -727,7 +736,7 @@ describe("motor v2: o árbitro é progresso e tempo, não dinheiro (replays)", (
 				coordinator: [OPEN_DOC(), later(11), reportFile(), say("Entreguei dentro do limite de tempo.")],
 				options: { longWorkMinutes: 10 },
 			});
-			expect(hard.result.stop).toEqual({ reason: "budget_wall", detail: "delivered" });
+			expect(hard.result.stop).toEqual({ reason: "budget_wall", detail: "delivered:items_open" });
 			expect(hard.persisted).toHaveLength(1);
 			expect(hard.coordinatorRequests.at(-2)!.toolNames).toEqual(["create_file"]);
 		} finally {
@@ -750,7 +759,7 @@ describe("motor v2: o árbitro é progresso e tempo, não dinheiro (replays)", (
 			coordinator: [OPEN_DOC(), search(1.4), reportFile(0.2), say("Pronto.")],
 			options: { longWorkBudgetUsd: 1 },
 		});
-		expect(over.result.stop).toEqual({ reason: "budget_cost", detail: "delivered" });
+		expect(over.result.stop).toEqual({ reason: "budget_cost", detail: "delivered:items_open" });
 		expect(over.persisted).toHaveLength(1);
 		expect(over.coordinatorRequests.at(-2)!.params.maxOutputTokens).toBe(16_000);
 	});

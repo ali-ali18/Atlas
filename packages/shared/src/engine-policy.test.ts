@@ -267,6 +267,13 @@ describe("perfil do run (sem regex sobre o texto do pedido, decisão do dono de 
 });
 
 describe("tetos do run gravados no budgetJson (valor e origem)", () => {
+	it("withRunCaps/readRunCaps: o teto de passos guarda valor e, só se veio do dono, a origem", () => {
+		expect(readRunCaps(withRunCaps({}, { steps: 80, stepsSource: "bot" }))).toEqual({ steps: 80, stepsSource: "bot" });
+		expect(readRunCaps(withRunCaps({}, { steps: 200 }))).toEqual({ steps: 200 });
+		expect(readRunCaps({ caps: { steps: 50, stepsSource: "servidor" } })).toEqual({ steps: 50 });
+		expect(readRunCaps({ caps: { steps: 0 } })).toEqual({});
+	});
+
 	it("withRunCaps/readRunCaps: guardam só tetos positivos e finitos, com origem válida, preservando o resto", () => {
 		const budget = withRunCaps({ humanTurn: true }, { costUsd: 0.25, costSource: "server", wallMs: 20 * 60_000, wallSource: "bot" });
 		expect(budget).toEqual({ humanTurn: true, caps: { costUsd: 0.25, costSource: "server", wallMs: 1_200_000, wallSource: "bot" } });

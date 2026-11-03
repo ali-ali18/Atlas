@@ -314,8 +314,10 @@ describe("integração E1: janela do modelo", () => {
 		expect(run.events.some((event) => event.type === "error")).toBe(false);
 	});
 
-	it("perto de 75% da janela o modelo recebe UM aviso (sem falar em teto) e nada quebra mesmo sem resumo", async () => {
-		const run = await longBrowserRun(8, 20_000, 60_000, false, { contextBudget: { targetTokens: 24_000, ceilingTokens: 48_000, summarize: false } }, "Pronto.");
+	it("perto de 75% da janela o modelo recebe UM aviso (sem falar em teto), o checkpoint guarda contextWarned e a retomada não avisa de novo", async () => {
+		// Teto do orçamento acima da janela: não há resumo; só o aviso (e a higiene da cópia enviada) cuida da pressão.
+		const budget = { targetTokens: 100_000, ceilingTokens: 200_000, summarize: true };
+		const run = await longBrowserRun(8, 20_000, 60_000, false, { contextBudget: budget }, "Pronto.");
 		expect(run.result.stop).toEqual({ reason: "answered" });
 		expect(run.summaries()).toBe(0);
 		const warned = run.steps.filter((item) => item.text.includes(CONTEXT_WINDOW_NOTE));
@@ -323,13 +325,87 @@ describe("integração E1: janela do modelo", () => {
 		expect(CONTEXT_WINDOW_NOTE).not.toMatch(BAD_WORDS);
 		// Uma vez só: o aviso entra no histórico canônico uma única vez.
 		expect(JSON.stringify(run.checkpoints.at(-1)!.llmMessages).split("Context notice").length - 1).toBe(1);
+		// O checkpoint guarda que já avisou (antes do aviso, não).
+		const firstWarned = run.checkpoints.findIndex((checkpoint) => checkpoint.contextWarned === true);
+		expect(firstWarned).toBeGreaterThan(0);
+		expect(run.checkpoints.slice(0, firstWarned).every((checkpoint) => !checkpoint.contextWarned)).toBe(true);
+		// Retomar de um checkpoint depois do aviso NÃO avisa de novo: a nota continua uma só vez no que vai ao modelo.
+		const resumedFrom = run.checkpoints[firstWarned]!;
+		expect(JSON.stringify(resumedFrom.llmMessages).split("Context notice").length - 1).toBe(1);
+		let firstSeen: Seen | undefined;
+		const resumed = await runBrowser({
+			messages: [{ role: "user", content: "Leia o site inteiro" }],
+			script: [
+				(seen) => {
+					firstSeen = seen;
+					return say("Fim.");
+				},
+			],
+			extra: { restoredCheckpoint: resumedFrom, contextLength: 60_000, contextBudget: budget },
+		});
+		expect(resumed.result.stop).toEqual({ reason: "answered" });
+		// A camada de aviso (mensagem de sistema do passo) não volta: só a nota que já estava no histórico poderia aparecer.
+		expect(firstSeen!.messages.filter((message) => message.role === "system" && textOf(message) === CONTEXT_WINDOW_NOTE)).toHaveLength(0);
+		expect(warned.some((item) => item.messages.some((message) => message.role === "system" && textOf(message) === CONTEXT_WINDOW_NOTE))).toBe(true);
 	});
 
-	it("com ATLAS_ENGINE_V2_CONTEXT_KEEP=off o E1 desliga (sem resumo próprio nem manutenção do canônico)", async () => {
+	it("sob pressão REAL (limpeza da janela na cópia enviada) os resultados antigos continuam INTEIROS no checkpoint canônico", async () => {
+		// Janela de 60 mil tokens e teto do orçamento alto (sem resumo): a 85% a cópia enviada limpa os resultados antigos.
+		const run = await longBrowserRun(10, 20_000, 60_000, false, { contextBudget: { targetTokens: 100_000, ceilingTokens: 200_000, summarize: true } }, "Terminei.");
+		expect(run.result.stop).toEqual({ reason: "answered" });
+		expect(run.summaries()).toBe(0);
+		const FULL = "conteúdo da leitura do navegador ".repeat(100);
+		// Houve colapso de verdade na cópia enviada: algum passo foi ao modelo com resultados antigos limpos.
+		expect(run.steps.some((item) => item.text.includes("[higiene: resultados de ferramentas anteriores colapsados"))).toBe(true);
+		// ...mas o canônico guarda a leitura 1 inteira (se alguém voltar a fazer `conversation = hygiene.messages`, isto falha).
+		const canonical = JSON.stringify(run.checkpoints.at(-1)!.llmMessages);
+		expect(canonical).not.toContain("[higiene: resultados de ferramentas anteriores colapsados");
+		expect(canonical).toContain(`Página 1: ${FULL}`);
+		expect(canonical).toContain(`Página 5: ${FULL}`);
+		// E o que foi ao modelo no último passo já não traz a leitura 1 inteira.
+		expect(run.steps.at(-1)!.text).not.toContain(`Página 1: ${FULL}`);
+	});
+
+	it("Econômico (orçamento sem summarize): o canônico não cresce sem teto, resume como o Padrão", async () => {
+		const run = await longBrowserRun(9, 20_000, 60_000, false, { contextBudget: { targetTokens: 24_000, ceilingTokens: 48_000, summarize: false } }, "Pronto.");
+		expect(run.result.stop).toEqual({ reason: "answered" });
+		expect(run.summaries()).toBeGreaterThanOrEqual(1);
+		expect(run.events.some((event) => event.type === "context_compacted")).toBe(true);
+		// O histórico canônico final cabe no teto do orçamento (antes, 9 leituras de ~5,7 mil tokens ficavam todas lá).
+		const canonical = run.checkpoints.at(-1)!.llmMessages as LlmMessage[];
+		expect(estimateMessagesTokens(canonical, 0)).toBeLessThanOrEqual(48_000);
+		expect(JSON.stringify(canonical)).toContain("replaced by the summary below");
+		expect(run.events.some((event) => event.type === "error")).toBe(false);
+	});
+
+	it("depois do resumo o canônico mantém as capturas recentes como imagem (omitOldScreenshots só vale no envio)", async () => {
+		// A base (prompt + tools) já pesa ~10 mil tokens; cada passo de leitura + captura soma ~0,8 mil: o resumo vem perto do 18o passo
+		// e deixa vários passos recentes (com as capturas) na janela mantida.
+		const run = await longBrowserRun(24, 1_200, 200_000, true, { contextBudget: { targetTokens: 20_000, ceilingTokens: 24_000, summarize: true } }, "Pronto.");
+		expect(run.result.stop).toEqual({ reason: "answered" });
+		expect(run.summaries()).toBeGreaterThanOrEqual(1);
+		const canonical = run.checkpoints.at(-1)!.llmMessages as LlmMessage[];
+		expect(JSON.stringify(canonical)).not.toContain("[screenshot omitted");
+		const images = canonical.flatMap((message) => (Array.isArray(message.content) ? message.content : [])).filter((part) => part.type === "image_url" || part.type === "screenshot_ref");
+		// Mais de 2 imagens no canônico: o envio mostra só as 2 últimas, o canônico não perde nenhuma que sobrou na janela mantida.
+		expect(images.length).toBeGreaterThan(2);
+		const lastSent = run.steps.at(-1)!.messages.flatMap((message) => (Array.isArray(message.content) ? message.content : [])).filter((part) => part.type === "image_url" || part.type === "screenshot_ref");
+		expect(lastSent.length).toBeLessThanOrEqual(2);
+	});
+
+	it("com ATLAS_ENGINE_V2_CONTEXT_KEEP=off volta ao comportamento ANTIGO: sem resumo próprio e a higiene sobrescreve o canônico (resultados antigos colapsados)", async () => {
 		process.env.ATLAS_ENGINE_V2_CONTEXT_KEEP = "off";
 		const run = await longBrowserRun(9, 20_000, 60_000, false, { contextBudget: { targetTokens: 24_000, ceilingTokens: 48_000, summarize: true } }, "Fim.");
 		expect(run.summaries()).toBe(0);
 		expect(run.result.stop).toEqual({ reason: "answered" });
+		// Comportamento antigo: o canônico É a cópia higienizada, então os resultados antigos ficam colapsados nele...
+		const canonical = JSON.stringify(run.checkpoints.at(-1)!.llmMessages);
+		expect(canonical).toContain("[higiene: resultados de ferramentas anteriores colapsados");
+		expect(canonical).not.toContain(`Página 1: ${"conteúdo da leitura do navegador ".repeat(100)}`);
+		// ...e não há aviso de janela nem nota de resumo.
+		expect(canonical).not.toContain("Context notice");
+		expect(canonical).not.toContain("replaced by the summary below");
+		expect(run.checkpoints.every((checkpoint) => !checkpoint.contextWarned)).toBe(true);
 	});
 });
 

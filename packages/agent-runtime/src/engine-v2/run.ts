@@ -126,12 +126,12 @@ import { buildEngineV2Catalog } from "./catalog.js";
 import { shouldExposeSetEngine } from "../tools/set-engine.js";
 import { buildEngineV2SystemPrompt } from "./prompt.js";
 import { originSystemNotes } from "./origin-notes.js";
-import { MAX_STEPS_SAFETY, type CapSource, type SupervisorProfile, budgetForProfile, capSourcesFor, createSupervisor, deliveryInstruction } from "./supervisor.js";
-import { CONTINUED_WORK_NOTE, ENGINE_V2_PROMOTED_NOTE, openItemsNote } from "./prompt.js";
+import { MAX_STEPS_SAFETY, type CapSource, type StepsSource, type SupervisorProfile, budgetForProfile, capSourcesFor, createSupervisor, deliveryInstruction } from "./supervisor.js";
+import { continuedWorkNote, ENGINE_V2_PROMOTED_NOTE, openItemsNote } from "./prompt.js";
 import { callCostUsd, estimateCostUsd, fallbackPricesFromEnv } from "./cost.js";
 import { dedupeLoginAsk, unattendedLoginOutcome } from "./login.js";
 import { createPreToolRunner } from "../hooks/pre-tool-runner.js";
-import { appendUnconfirmed, createTaskListGate, droppedItems, openItems } from "./task-list.js";
+import { appendUnconfirmed, createTaskListGate, droppedItems, openItems, withOpenItemsMarker } from "./task-list.js";
 import { type DelegateDeps } from "../tools/delegate-task.js";
 import { HELPER_DELIVERY_INSTRUCTION, type HelperChildInput, type HelpersContext } from "./helpers.js";
 import {
@@ -157,7 +157,7 @@ export type EngineV2Options = {
 	 * De onde veio o teto de US$ e o de tempo que o worker entregou em `params.budget` (conta, servidor ou bot). A instrução de
 	 * entrega conta isso ao usuário. Ausente: conta.
 	 */
-	capSources?: { cost?: CapSource; wall?: CapSource };
+	capSources?: { cost?: CapSource; wall?: CapSource; steps?: StepsSource };
 	/** Piso de TEMPO (minutos) sem ligar o trabalho longo: brief "Seu dia" e lembrete `check`. Só tem efeito junto de um teto de tempo (o worker aplica 30 min nesses runs sem humano; chat humano não tem teto). Não há piso em US$. */
 	budgetFloor?: { minutes: number };
 	/**
@@ -249,13 +249,17 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 		: budgetForProfile(options.profile, { ...profileOverrides, floor: options.budgetFloor });
 	// Orçamento que o run passa a ter se for promovido (sem piso: o piso é do brief/check, que nunca promovem).
 	const promotedBudget = promotable ? budgetForProfile("long_work", profileOverrides) : undefined;
+	// Teto de passos: o do dono (conta, bot ou pedido) só é "o que você configurou" se vale de fato; acima do limite de segurança vale o de segurança.
+	const effectiveMaxSteps = Math.min(MAX_STEPS_SAFETY, runLimits.hardMaxSteps, helperRole?.budget.maxSteps ?? MAX_STEPS_SAFETY);
+	const stepsSource = !helperRole && options.capSources?.steps && runLimits.hardMaxSteps <= MAX_STEPS_SAFETY ? options.capSources.steps : undefined;
 	const supervisor = createSupervisor({
 		profile: options.profile,
 		budget,
 		promotable,
 		...(helperRole ? {} : { hardActiveMs: runLimits.maxWallMs }),
 		capSources: capSourcesFor({ budget, paramsCostCapUsd: params.budget?.maxCostUsd, longWorkBudgetUsd: options.longWorkBudgetUsd, wallMs: runLimits.maxWallMs, longWorkMinutes: options.longWorkMinutes, declared: options.capSources }),
-		maxSteps: Math.min(MAX_STEPS_SAFETY, runLimits.hardMaxSteps, helperRole?.budget.maxSteps ?? MAX_STEPS_SAFETY),
+		maxSteps: effectiveMaxSteps,
+		...(stepsSource ? { stepsSource } : {}),
 	});
 	const wall = wallClockAnchors({ maxWallMs: budget.maxActiveMs, now: Date.now(), runStartedAt: params.runStartedAt, restored: parsed });
 	const activeElapsedMs = () => wall.baseMs + (Date.now() - wall.executionStartMs);
@@ -366,18 +370,17 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 
 	// --- lista de tarefas (a mesma do v1: TaskTracker + cartão da doca) ---
 	const taskTracker = createTaskTracker(parsed?.taskState, params.objective ?? lastUserMessage);
+	// O chamador só passa `priorTaskList` aqui na continuação automática (mesma tarefa) e no plano aprovado; numa mensagem digitada
+	// os itens antigos chegam como nota (`priorOpenItems`) e a lista deste run só nasce quando o modelo chama `update_task_list`.
 	if (!parsed?.taskState) taskTracker.setTaskList(parseTaskList(params.priorTaskList));
 	const taskListStore: TaskListStore = { get: () => taskTracker.taskList(), set: (next) => taskTracker.setTaskList(next) };
 	/** Última lista que o modelo enviou (a do tracker some quando tudo conclui; o portão e os descartados precisam dela). */
 	let lastTaskItems: TaskListItem[] | undefined = taskTracker.taskList();
-	/** Maior lista que o MODELO montou neste run (só `update_task_list` chega aqui; lista herdada não conta): 3+ promove o chat. */
-	// "continua" digitado depois de um trabalho com itens abertos: a lista herdada vale como plano para promover o chat
-	// (sem isso "continua" cairia no chat curto e recomeçaria do zero). Outra mensagem com lista herdada nunca promove.
-	// Herança por ESTADO (o worker confere se o último run parou com itens abertos), nunca pelo texto digitado. O modelo decide
-	// pelo contexto se a mensagem continua o trabalho ou abre um assunto novo (ver `CONTINUED_WORK_NOTE`).
+	/** Maior lista ABERTA que o MODELO montou neste run (só `update_task_list` chega aqui; lista herdada não conta): 3+ promove o chat. */
+	let modelPlannedSteps = 0;
+	// Herança por ESTADO (o worker confere se o último run parou com itens abertos), nunca pelo texto digitado. O que se herda é
+	// contexto (nota + caderno); promoção por lista herdada só acontece se o modelo chamar `update_task_list` mantendo os itens.
 	const continuation = !helperRole && origin === "chat" && (params.autoContinued === true || params.continuedWork === true);
-	const inheritedOpenPlan = continuation ? (taskTracker.taskList() ?? []) : [];
-	let modelPlannedSteps = inheritedOpenPlan.some((item) => item.status !== "completed") ? inheritedOpenPlan.length : 0;
 	/** O que o MODELO declarou como entregável na lista de tarefas (`document` | `answer`). Sem declaração: nenhum efeito. */
 	let declaredDeliverable: Deliverable | undefined = parsed?.deliverable;
 	const emitTaskListEvent = async (items: Array<{ content: string; status: "pending" | "in_progress" | "completed" }>, meta?: { deliverable?: Deliverable }) => {
@@ -404,7 +407,7 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 		: helperRole
 			? { writer: helperRole.writer }
 			: undefined;
-	/** Passo em que o portão do documento já agiu (no máximo uma vez por run) e se algum arquivo já saiu. */
+	/** Se algum arquivo já saiu neste run (o fechamento por documento só roda enquanto nenhum saiu). */
 	let fileDelivered = (parsed?.toolCallCounts?.create_file ?? 0) > 0;
 	/** Passos de escrita do documento no estouro: o teto de saída do documento vale também aqui. */
 	let documentFallbackActive = false;
@@ -531,6 +534,8 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 
 	// --- checkpoint ---
 	let checkpointTail: Promise<void> = Promise.resolve();
+	/** O aviso de janela (75%) já foi enviado; vai no checkpoint para a retomada não avisar de novo. */
+	let contextWarned = parsed?.contextWarned === true;
 	const snapshotCheckpoint = (stepIndex: number) =>
 		buildRuntimeCheckpoint({
 			messages: params.messages,
@@ -552,6 +557,7 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 			activeElapsedMs: activeElapsedMs(),
 			promoted: supervisor.promoted,
 			deliverable: declaredDeliverable,
+			contextWarned,
 			...(() => {
 				const state = supervisor.state();
 				return { wrapUpSent: state.wrapUpSent, budgetBaseMs: state.timeBaseMs };
@@ -591,20 +597,22 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 	const contextKeep = contextKeepEnabled();
 	const summarizeContext = createStreamSummarizer({ streamChat, model: () => params.messageTriageModel?.trim() || model, apiKey, signal: params.abortSignal });
 	let summaryRetryAtStep = 0;
-	let contextWarned = false;
 	/**
 	 * Acima do teto do orçamento de contexto, a parte antiga do histórico CANÔNICO vira um resumo do modelo de manutenção (como no v1).
 	 * Falhou ou não encolheu: a higiene da cópia enviada cobre, e só se ainda não couber é que o erro fiel da janela sobe.
 	 */
 	const summarizeIfNeeded = async (budget: ReturnType<typeof contextBudgetFor>, toolsChars: number) => {
-		if (!budget.summarize || helperRole || step < summaryRetryAtStep) return;
-		const estimate = (list: readonly LlmMessage[]) => estimateMessagesTokens(list, toolsChars);
-		// Capturas antigas nunca vão ao modelo (só as 2 últimas): contá-las inflaria o histórico e resumiria à toa.
-		const forEstimate = omitOldScreenshots(conversation, KEEP_RECENT_SCREENSHOTS);
-		if (estimate(forEstimate) <= budget.ceilingTokens) return;
+		if (helperRole || step < summaryRetryAtStep) return;
+		// Capturas antigas nunca vão ao modelo (só as 2 últimas): a estimativa as ignora, mas o histórico CANÔNICO que o resumo
+		// recebe e devolve é o `conversation` inteiro (nunca a cópia com as capturas trocadas por texto).
+		const estimate = (list: readonly LlmMessage[]) => estimateMessagesTokens(omitOldScreenshots(list, KEEP_RECENT_SCREENSHOTS), toolsChars);
+		if (estimate(conversation) <= budget.ceilingTokens) return;
+		// Econômico (sem `summarize` no orçamento) usa a mesma estratégia do Padrão: sem isso o histórico canônico crescia sem teto
+		// (a higiene só encolhe a cópia enviada). Escolha mais simples que um corte próprio: uma só rotina, o mesmo resumo do modelo
+		// de manutenção, e o corte da cópia continua como plano B.
 		const result = await compactWithSummary({
-			messages: forEstimate,
-			budget,
+			messages: conversation,
+			budget: budget.summarize ? budget : { ...budget, summarize: true },
 			estimate,
 			trim: trimHistory,
 			summarize: summarizeContext,
@@ -1203,9 +1211,12 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 		return undefined;
 	};
 
-	const finishOk = async (text: string, stop: RunStop, messageId: string): Promise<RunComputerUseResult> => {
+	const finishOk = async (text: string, rawStop: RunStop, messageId: string): Promise<RunComputerUseResult> => {
 		// Itens descartados e pendências vão na resposta; o delta mantém o balão ao vivo igual ao gravado.
 		const items = currentTaskItems();
+		// Itens abertos DESTE run, qualquer que seja o motivo da parada: o detalhe `items_open` é o que deixa a mensagem seguinte
+		// receber a nota de continuação (`stoppedWithOpenWork`). Sem itens abertos deste run, parar por teto não herda nada.
+		const stop = withOpenItemsMarker(rawStop, !helperRole && openItems(items).length > 0);
 		const unresolved = stop.detail === "tasklist_open" ? openItems(items).map((item) => item.content) : [];
 		const withNotes = appendUnconfirmed(text, { dropped: droppedItems(items), unresolved, language });
 		if (withNotes !== text) await onEvent({ type: "assistant_delta", id: messageId, delta: withNotes.slice(text.length) });
@@ -1256,7 +1267,7 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 			if (isControlFlowError(error)) throw error;
 		}
 		if (!text) {
-			text = budgetStopFallbackText(stopReasonPhrase(stop.reason, language), language);
+			text = budgetStopFallbackText(stopReasonPhrase(stop.reason, language, stepsSource ? { ownerSteps: effectiveMaxSteps } : {}), language);
 			await onEvent({ type: "assistant_delta", id: messageId, delta: text });
 		}
 		if (documentFallback && !fileDelivered) {
@@ -1346,7 +1357,11 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 	let emptyRetries = 0;
 	// Lembrete "continue ou finalize" com itens abertos: no máximo MAX_OPEN_ITEMS_RETURNS por run (o texto já transmitido nunca é apagado).
 	let openItemsReturns = 0;
-	if (!parsed && !helperRole && params.continuedWork === true && params.autoContinued !== true) conversation.push({ role: "user", content: `${AUTO_CONTEXT} ${CONTINUED_WORK_NOTE}` });
+	if (!parsed && !helperRole && params.continuedWork === true && params.autoContinued !== true) {
+		// Só contexto: os itens da lista antiga NÃO entram no rastreador (não são cobrados nem viram "Não deu para confirmar").
+		const priorOpen = openItems(parseTaskList(params.priorOpenItems)).map((item) => item.content);
+		if (priorOpen.length > 0) conversation.push({ role: "user", content: `${AUTO_CONTEXT} ${continuedWorkNote(priorOpen)}` });
+	}
 	/** O run já usou navegador ou VM: num chat promovível isso vira trabalho longo no gate seguinte. */
 	let actionToolUsed = false;
 	// Rodadas de tool deste run (mesmo as recusadas contam: o trabalho começou) mais as de execuções anteriores.
@@ -1437,7 +1452,7 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 					return await finishOk(EMPTY_REPLY_FALLBACK_TEXT, { reason: "answered", detail: "empty_reply" }, stepId);
 				}
 				// Lista de tarefas em trabalho longo: sem itens abertos para entregar. É um AVISO: o texto que o modelo já transmitiu
-				// fica na conversa (nunca `assistant_discard`) e a nota volta ao modelo no máximo uma vez por run.
+				// fica na conversa (nunca `assistant_discard`) e a nota volta ao modelo até MAX_TASK_GATE_NOTES vezes por run.
 				const verdict = taskGate.check(currentTaskItems());
 				if (verdict.kind === "note") {
 					openItemsReturns += 1;
@@ -1447,7 +1462,8 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 					continue;
 				}
 				// Chat (sem a lista obrigatória do trabalho longo) com itens ABERTOS na lista do run e trabalho já iniciado: sinal estrutural,
-				// nunca regex sobre o texto ("vou pedir..."). Mesmo aviso, uma vez por run, sem apagar o que o usuário leu.
+				// nunca regex sobre o texto ("vou pedir..."). Mesmo aviso, até MAX_OPEN_ITEMS_RETURNS vezes por run, sem apagar o que o usuário leu.
+				// Só conta a lista DESTE run (a que o modelo atualizou ou recriou); item antigo só em nota nunca é cobrado.
 				if (openItemsReturns < MAX_OPEN_ITEMS_RETURNS && !helperRole && !longWorkCoordinator && workStarted() && openItems(currentTaskItems()).length > 0) {
 					openItemsReturns += 1;
 					conversation.push({ role: "assistant", content: text });

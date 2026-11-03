@@ -410,21 +410,6 @@ export async function getConversationInheritance(userId: string, conversationId:
 }
 
 /**
- * Herança para uma mensagem digitada curta de continuação ("continua"): só se o último run de chat da conversa parou com
- * trabalho aberto (ver `stoppedWithOpenWork`); senão nada, e o run decide o perfil pelo texto como sempre.
- */
-export async function getContinuationInheritance(userId: string, conversationId: string | undefined | null): Promise<RunInheritance> {
-	if (!conversationId || !userId.trim() || userId === "default") return { humanTurn: false };
-	const last = await prisma.agentRun.findFirst({
-		where: { userId, conversationId, origin: "chat" },
-		orderBy: { createdAt: "desc" },
-		select: { budgetJson: true, stopReason: true, stopDetail: true },
-	});
-	if (!last || !stoppedWithOpenWork({ reason: last.stopReason, detail: last.stopDetail })) return { humanTurn: false };
-	return readRunInheritance(last);
-}
-
-/**
  * Caderno do trabalho anterior da conversa, para semear uma continuação. Só se o ÚLTIMO run de chat da conversa parou com
  * trabalho aberto (`stoppedWithOpenWork`): senão o caderno é de um trabalho já entregue e não deve contaminar um pedido novo.
  * Lê só `checkpointJson->'notebook'` (não o checkpoint inteiro). Mesmo escopo de dono; sem caderno = null.
@@ -445,8 +430,9 @@ export async function getConversationNotebook(userId: string, conversationId: st
 }
 
 /**
- * O último run de chat da conversa (fora `excludeRunId`) parou com trabalho aberto? Sinal de ESTADO que decide se a
- * mensagem digitada agora continua aquele trabalho (herda perfil, lista e caderno), qualquer que seja o texto. Escopado pelo dono.
+ * O último run de chat da conversa (fora `excludeRunId`) parou com itens abertos da lista dele? Sinal de ESTADO que só
+ * leva CONTEXTO ao run seguinte (nota com os itens e o caderno); perfil e portão da lista nunca são herdados por uma mensagem
+ * digitada. Escopado pelo dono.
  */
 export async function lastChatRunStoppedWithOpenWork(userId: string, conversationId: string | undefined | null, options?: { excludeRunId?: string }): Promise<boolean> {
 	if (!conversationId || !userId.trim() || userId === "default") return false;
@@ -481,8 +467,6 @@ export async function createAgentRun(input: {
 	onMergedIntoActiveRun?: (runId: string) => void | Promise<void>;
 	/** Resposta de questionário/cartão dentro de um trabalho do dono: herda turno humano, motor e perfil do último run de chat da conversa. */
 	inheritFromConversation?: boolean;
-	/** Mensagem digitada pelo dono: herda perfil e motor do último run SE ele parou com trabalho aberto (estado, não o texto; o modelo decide se é continuação). */
-	inheritWhenContinuation?: boolean;
 }): Promise<AgentRun> {
 	const { request, model } = input;
 	const userId = input.userId?.trim();
@@ -517,11 +501,7 @@ export async function createAgentRun(input: {
 				request: withReplyContextOnRequest(fileCards.length ? { ...request, attachments: await imageAttachmentsOf(request.attachments ?? [], userId) } : request, replyTo),
 				model, userId, conversationId, contextLength: input.contextLength, modelAuto: input.modelAuto, humanTurn: input.humanTurn,
 				fileArtifactIds: fileCards.map((card) => card.artifactId),
-				...(input.inheritFromConversation
-					? { inherited: await getConversationInheritance(userId, conversationId) }
-					: input.inheritWhenContinuation
-						? { inherited: await getContinuationInheritance(userId, conversationId) }
-						: {}),
+				...(input.inheritFromConversation ? { inherited: await getConversationInheritance(userId, conversationId) } : {}),
 			}),
 		});
 		if (conversationId && origin !== "routine" && request.silent !== true) {

@@ -46,6 +46,7 @@ export const settingsExec = {
 	"settings.exec.noLimitCap": "Sem limite",
 	"settings.exec.fmtTokens": "{n}k tokens",
 	"settings.exec.fmtSteps": "{n} passos",
+	"settings.exec.fmtCapped": "{value} (vale {max})",
 	"settings.exec.fmtMinutes": "{n} min",
 	"settings.exec.fmtHours": "{n} h",
 	"settings.exec.fmtChars": "{n} mil caracteres",
