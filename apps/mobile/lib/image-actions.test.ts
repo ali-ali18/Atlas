@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ChatApiError } from "./chat-api";
 import { FileTooLargeError } from "./file-api";
+import { TimeoutError } from "./with-timeout";
 import { IMAGE_NOTICE, imageDownloadErrorText, saveOutcomeText } from "./image-actions";
 
 describe("imageDownloadErrorText", () => {
@@ -12,6 +13,9 @@ describe("imageDownloadErrorText", () => {
 	it("imagem grande demais e rede têm frases próprias", () => {
 		expect(imageDownloadErrorText(new FileTooLargeError(10))).toBe(IMAGE_NOTICE.tooLarge);
 		expect(imageDownloadErrorText(new TypeError("Network request failed"))).toBe(IMAGE_NOTICE.offline);
+	});
+	it("tempo esgotado tem frase própria", () => {
+		expect(imageDownloadErrorText(new TimeoutError(30_000))).toBe(IMAGE_NOTICE.slow);
 	});
 	it("nunca vaza texto técnico do erro", () => {
 		expect(imageDownloadErrorText(new ChatApiError("ECONNRESET stack…", 502))).not.toMatch(/ECONNRESET/);

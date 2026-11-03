@@ -6,6 +6,21 @@ const ok = () => new Response(PNG, { status: 200, headers: { "content-type": "im
 const image = (artifactId: string, uri?: string) => ({ artifactId, mime: "image/png", ...(uri ? { uri } : {}) });
 
 describe("createLruCache", () => {
+	it("o teto é por peso: item pesado expulsa os mais antigos e o que passa do teto inteiro não entra", () => {
+		const cache = createLruCache<string>(10, (value) => value.length);
+		cache.set("a", "1234");
+		cache.set("b", "1234");
+		expect(cache.weight).toBe(8);
+		cache.set("c", "123456");
+		expect(cache.get("a")).toBeUndefined();
+		expect(cache.get("b")).toBe("1234");
+		expect(cache.weight).toBe(10);
+		cache.set("d", "x".repeat(11));
+		expect(cache.get("d")).toBeUndefined();
+		expect(cache.get("b")).toBe("1234");
+		cache.set("b", "12");
+		expect(cache.weight).toBe(8);
+	});
 	it("o mais antigo sai ao passar do limite e ler renova", () => {
 		const cache = createLruCache<number>(2);
 		cache.set("a", 1);
@@ -25,7 +40,7 @@ describe("createImageLoader", () => {
 		const load = createImageLoader();
 		const first = await load(apiFetch, image("a1"));
 		expect(first).toMatch(/^data:image\/png;base64,/);
-		expect(apiFetch).toHaveBeenCalledWith("/v1/files/a1");
+		expect(apiFetch).toHaveBeenCalledWith("/v1/files/a1", expect.objectContaining({ signal: expect.anything() }));
 		await load(apiFetch, image("a1"));
 		expect(apiFetch).toHaveBeenCalledTimes(1);
 	});
@@ -56,7 +71,8 @@ describe("createImageLoader", () => {
 	});
 	it("a memória guarda só as mais recentes", async () => {
 		const apiFetch = vi.fn(async () => ok());
-		const load = createImageLoader(1);
+		// Cada imagem de teste vira ~50 caracteres de data URI: 60 bytes de teto guardam uma só.
+		const load = createImageLoader(60);
 		await load(apiFetch, image("a"));
 		await load(apiFetch, image("b"));
 		await load(apiFetch, image("a"));

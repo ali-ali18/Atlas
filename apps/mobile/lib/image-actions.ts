@@ -2,6 +2,7 @@
 // técnico). Puro: a parte nativa (compartilhar, galeria) está em `share-file.ts` e `save-image.ts`.
 import { ChatApiError } from "./chat-api";
 import { FileTooLargeError } from "./file-api";
+import { TimeoutError } from "./with-timeout";
 
 export type SaveOutcome = "saved" | "denied" | "unavailable";
 
@@ -16,6 +17,7 @@ export const IMAGE_NOTICE = {
 	gone: "Esta imagem não existe mais.",
 	expired: "Sua sessão expirou. Entre de novo.",
 	tooLarge: "Imagem grande demais para enviar.",
+	slow: "A imagem demorou para baixar. Tente de novo.",
 	offline: "Sem conexão com o seu servidor. Tente de novo.",
 } as const;
 
@@ -27,6 +29,7 @@ export function imageDownloadErrorText(error: unknown): string {
 		return IMAGE_NOTICE.prepareFailed;
 	}
 	if (error instanceof FileTooLargeError) return IMAGE_NOTICE.tooLarge;
+	if (error instanceof TimeoutError) return IMAGE_NOTICE.slow;
 	// Falha de rede no RN chega como TypeError: é "sem conexão", não erro do servidor.
 	return IMAGE_NOTICE.offline;
 }
