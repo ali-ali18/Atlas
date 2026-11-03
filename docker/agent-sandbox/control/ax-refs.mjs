@@ -71,7 +71,10 @@ export function createAxStore() {
 		},
 		/** Snapshot v1/read/find: as refs agora são as do DOM (`data-atlas-ref`). */
 		setDom(page) {
-			states.set(page, { engine: "dom" });
+			// Guarda a tabela AX: ref que o DOM não conhece ainda pode ser de uma árvore que o modelo viu antes de um read/find.
+			const previous = states.get(page);
+			const prevAx = previous?.engine === "ax" ? { table: previous.table } : previous?.prevAx;
+			states.set(page, { engine: "dom", ...(prevAx ? { prevAx } : {}) });
 		},
 		setRendered(page, rendered) {
 			const state = states.get(page);

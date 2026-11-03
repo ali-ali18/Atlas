@@ -9,6 +9,9 @@ import { createFrameRegistry, frameTag, splitRef } from "./frames.mjs";
 import { waitForTextStable } from "./text-stable.mjs";
 import { collectInteractive } from "./snapshot-page.mjs";
 import { SNAPSHOT_MAX_SCAN, buildSnapshot, describeElement, formatElementLine } from "./snapshot.mjs";
+import { AxUnavailableError, axEnabled } from "./ax-snapshot.mjs";
+import { StaleRefError, createAxStore, resolveAxRef } from "./ax-refs.mjs";
+import { createAxEngine } from "./browser-ax.mjs";
 
 export const ACT_ACTIONS = ["click", "type", "select", "check", "uncheck", "hover", "press", "clear"];
 export const WAIT_KINDS = ["text", "ref", "url", "network", "stable", "text_stable"];
@@ -92,6 +95,9 @@ export function createRefActions({
 	sleep,
 	clickElement,
 	registry = createFrameRegistry(),
+	axStore = createAxStore(),
+	axOn = axEnabled,
+	axTimeoutMs,
 }) {
 	const pause = sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
 
@@ -140,22 +146,72 @@ export function createRefActions({
 		}
 	}
 
-	async function browserSnapshot({ scope, offset, limit, area } = {}) {
+	// Motor v2: a árvore de acessibilidade lê `scrollOf` daqui (uma fonte só).
+	const axEngine = createAxEngine({ store: axStore, scrollOf: (page) => scrollOf(page), timeoutMs: axTimeoutMs });
+
+	/**
+	 * `engine`: "dom" força o snapshot v1; sem ele, a árvore de acessibilidade (flag
+	 * ATLAS_AX_SNAPSHOT, ligada por padrão) e, se ela falhar ou estourar 4 s, o v1 com uma nota.
+	 * `scope` (seletor CSS) é coisa do v1.
+	 */
+	async function browserSnapshot({ scope, offset, limit, area, engine, ref } = {}) {
 		const selectorScope = typeof scope === "string" && scope.trim() ? scope.trim() : undefined;
+		const wantAx = !selectorScope && engine !== "dom" && axOn();
+		if (ref !== undefined && ref !== null && ref !== "" && !REF_PATTERN.test(String(ref).trim())) {
+			throw new Error(`ref inválido "${ref}": use um ref do browser_snapshot (ex.: e12).`);
+		}
 		return withPageRetry(async (page) => {
+			let note;
+			if (wantAx) {
+				try {
+					return await axEngine.snapshot(page, { area, ref, offset, limit });
+				} catch (error) {
+					if (error?.userFacing) throw error;
+					const reason = error instanceof AxUnavailableError ? error.reason : "failed";
+					// Playwright sem o recurso é o caso esperado de versão antiga: cai no v1 sem ruído.
+					if (reason !== "unsupported") note = `Árvore de acessibilidade indisponível (${reason === "timeout" ? "demorou mais de 4 s" : reason}): usando a lista de elementos.`;
+				}
+			}
+			axStore.setDom(page);
 			const raws = await collect(page, {
 				scope: selectorScope,
 				mode: "full",
 				area: area === "page" ? "page" : "viewport",
 			});
-			return buildSnapshot({
-				url: page.url(),
-				title: await page.title(),
-				raws,
-				page: { offset, limit },
-				scroll: await scrollOf(page),
-			});
+			return {
+				...buildSnapshot({
+					url: page.url(),
+					title: await page.title(),
+					raws,
+					page: { offset, limit },
+					scroll: await scrollOf(page),
+				}),
+				engine: "dom",
+				...(note ? { note } : {}),
+			};
 		}, { tries: 3 });
+	}
+
+	/**
+	 * Ref da ação/espera, pelo motor do último snapshot da aba: AX resolve a ref
+	 * vencida (papel+nome); DOM usa data-atlas-ref. Ref que o DOM não conhece cai
+	 * na última árvore AX (o modelo pode ter lido/achado algo depois do snapshot).
+	 */
+	async function resolveRef(page, ref) {
+		const state = axStore.get(page);
+		const ax = async (table) => {
+			try {
+				return { ...(await resolveAxRef(page, table, ref)), engine: "ax" };
+			} catch (error) {
+				if (error instanceof StaleRefError) return { stale: error.message };
+				throw error;
+			}
+		};
+		if (state?.engine === "ax") return ax(state.table);
+		const locator = await locateRef(page, ref);
+		if (locator || !state?.prevAx) return { locator, engine: "dom" };
+		const viaTree = await ax(state.prevAx.table);
+		return viaTree.stale ? { engine: "dom" } : viaTree;
 	}
 
 	async function locateRef(page, ref) {
@@ -238,7 +294,7 @@ export function createRefActions({
 	 * espera adaptativa e refs novos (numerados agora ou que reapareceram).
 	 * Nunca falha por causa da observação: sem digest, só o efeito.
 	 */
-	async function observeAction(page, perform, { urlBefore = page.url() } = {}) {
+	async function observeAction(page, perform, { urlBefore = page.url(), ax = false } = {}) {
 		await page.evaluate(installProbeInPage).catch(() => {});
 		const before = await readDigest(page, registry);
 		const result = await perform();
@@ -249,7 +305,11 @@ export function createRefActions({
 		const reloaded = diff ? diff.reloaded : Boolean(effect.navigated);
 		let fresh = [];
 		let newTotal = 0;
-		if (!reloaded) {
+		let tree;
+		if (ax) {
+			// Árvore de acessibilidade: o diff por ref traz os elementos novos já com ref; só roda se o digest viu mudança.
+			if (!reloaded && changes && Object.keys(changes).length > 0) tree = await axEngine.changesAfter(page);
+		} else if (!reloaded) {
 			const raws = await collect(page, { mode: "incremental", area: "viewport", maxScan: MAX_DELTA * 3 });
 			fresh = raws.slice(0, MAX_DELTA);
 			// Elementos já numerados que voltaram a aparecer (acordeão reaberto).
@@ -266,7 +326,7 @@ export function createRefActions({
 			result,
 			effect,
 			diff,
-			...(changes && Object.keys(changes).length > 0 ? { changes } : {}),
+			...(changes && Object.keys(changes).length > 0 || tree?.length ? { changes: { ...(changes ?? {}), ...(tree?.length ? { tree } : {}) } } : {}),
 			...(diff && diff.errors.length > 0 ? { errors: diff.errors } : {}),
 			newElements: elements.map(formatElementLine),
 			newTotal,
@@ -276,8 +336,11 @@ export function createRefActions({
 	async function browserAct(body) {
 		const args = parseActArgs(body);
 		return withPageRetry(async (page) => {
-			const locator = await locateRef(page, args.ref);
+			const found = await resolveRef(page, args.ref);
+			if (found.stale) throw new Error(found.stale);
+			const { locator, resolved } = found;
 			if (!locator) throw new Error(`Ref ${args.ref} não encontrado: a página mudou ou o ref é de um snapshot antigo. ${STALE_HINT}`);
+			const useAx = found.engine === "ax" && axStore.engineOf(page) === "ax";
 			try {
 				await locator.scrollIntoViewIfNeeded({ timeout: 3000 });
 			} catch {
@@ -292,7 +355,7 @@ export function createRefActions({
 			}
 			const pointer = await safePointer(() => locator);
 			const urlBefore = page.url();
-			const observed = await observeAction(page, () => perform(page, locator, args), { urlBefore });
+			const observed = await observeAction(page, () => perform(page, locator, args), { urlBefore, ax: useAx });
 			const { effect, result: performed } = observed;
 			const readsField = ["type", "clear", "select", "check", "uncheck"].includes(args.action);
 			const field = readsField && !effect.navigated ? await readField(locator) : undefined;
@@ -301,6 +364,7 @@ export function createRefActions({
 				ok: true,
 				ref: args.ref,
 				action: args.action,
+				...(resolved ? { note: resolved } : {}),
 				...(click ? { rung: click.rung, tried: click.tried, ...(click.dismissed ? { dismissed: click.dismissed } : {}) } : {}),
 				...(pointer ? { pointer } : {}),
 				...effect,
@@ -315,7 +379,7 @@ export function createRefActions({
 
 	async function waitForRef(page, ref, gone, deadline) {
 		for (;;) {
-			const locator = await locateRef(page, ref);
+			const locator = (await resolveRef(page, ref)).locator;
 			const visible = locator ? await locator.isVisible().catch(() => false) : false;
 			if (gone ? !visible : visible) return true;
 			if (now() >= deadline) return false;
@@ -372,5 +436,5 @@ export function createRefActions({
 		}, { tries: 2 });
 	}
 
-	return { browserSnapshot, browserAct, browserWait, observeAction, collect, locateRef, registry };
+	return { browserSnapshot, browserAct, browserWait, observeAction, collect, locateRef, registry, axStore };
 }

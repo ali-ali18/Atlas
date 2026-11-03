@@ -159,6 +159,11 @@ const { readPage, findText } = createPageReader({
 	clickElement: actions.clickElement,
 });
 
+function noteDomRefs() {
+	const p = peekPage();
+	if (p) refActions.axStore.setDom(p);
+}
+
 async function browserText({ offset, limit, mode } = {}) {
 	return withPageRetry(async (p) => {
 		const viewport = mode === "viewport";
@@ -382,13 +387,18 @@ const handleControlRequest = async (req, res) => {
 			return;
 		}
 
+		// read/find entregam refs do DOM (`data-atlas-ref`): a aba passa a resolver ref por esse motor até o próximo snapshot.
 		if (req.method === "POST" && req.url === "/browser/read") {
-			sendJson(res, 200, await readPage((await readJsonBody(req)) ?? {}));
+			const result = await readPage((await readJsonBody(req)) ?? {});
+			noteDomRefs();
+			sendJson(res, 200, result);
 			return;
 		}
 
 		if (req.method === "POST" && req.url === "/browser/find") {
-			sendJson(res, 200, await findText((await readJsonBody(req)) ?? {}));
+			const result = await findText((await readJsonBody(req)) ?? {});
+			noteDomRefs();
+			sendJson(res, 200, result);
 			return;
 		}
 

@@ -72,7 +72,7 @@ async function open(path) {
 		for (const frame of page.frames()) await frame.waitForLoadState("domcontentloaded").catch(() => {});
 	}
 	const actions = createBrowserActions({ getPage: async () => page });
-	const refs = createRefActions({ withPageRetry: actions.withPageRetry, clickElement: actions.clickElement });
+	const refs = createRefActions({ withPageRetry: actions.withPageRetry, clickElement: actions.clickElement, axOn: () => false });
 	actions.setObserver(refs.observeAction);
 	const reader = createPageReader({
 		withPageRetry: actions.withPageRetry,

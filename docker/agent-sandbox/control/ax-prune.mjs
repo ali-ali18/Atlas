@@ -130,9 +130,10 @@ export function parseAxYaml(yaml) {
 const squash = (value) => String(value ?? "").replace(/\s+/g, " ").trim();
 const clip = (value, max) => (value.length > max ? `${value.slice(0, max - 1)}…` : value);
 
-function textNode(text) {
+function textNode(text, via = "") {
 	const value = clip(squash(text), TEXT_MAX);
-	return value ? { role: "text", text: value, children: [] } : null;
+	// `via`: ref do elemento de onde o texto veio; a sonda de recorte usa para esconder texto de acordeão fechado.
+	return value ? { role: "text", text: value, via, children: [] } : null;
 }
 
 /** Junta textos vizinhos e tira o que repete o nome do pai ou do irmão (rótulo ao lado de checkbox). */
@@ -166,11 +167,12 @@ export function pruneNode(node) {
 		for (const pruned of pruneNode(child)) {
 			// Texto não tem caixa no YAML: herda a do elemento de onde veio.
 			if (pruned.role === "text" && !pruned.abs) pruned.abs = node.abs ?? null;
+			if (pruned.role === "text" && !pruned.via) pruned.via = node.ref || node.via || "";
 			children.push(pruned);
 		}
 	}
 	const name = clip(squash(node.name), NAME_MAX);
-	const own = node.text && !isValueRole(node.role) ? textNode(node.text) : null;
+	const own = node.text && !isValueRole(node.role) ? textNode(node.text, node.ref) : null;
 	if (own) {
 		own.abs = node.abs ?? null;
 		children = [own, ...children];
@@ -184,7 +186,8 @@ export function pruneNode(node) {
 			const label = children.filter((c) => c.role === "text").map((c) => c.text).join(" ");
 			return [{ ...base(node, "clickable"), name: clip(label, NAME_MAX), children: children.filter((c) => c.role !== "text") }];
 		}
-		return children;
+		// Quem sobe herda o contêiner de origem: é nele que `ref=` abre a lista inteira.
+		return children.map((child) => (child.parentRef || !node.ref ? child : { ...child, parentRef: node.ref }));
 	}
 	if (!interactive && !name && children.length === 0 && !node.text) {
 		return node.role === "iframe" ? [base(node, node.role)] : []; // estrutura vazia some; iframe vazio ainda é um alvo de leitura
@@ -228,38 +231,42 @@ function intersects(abs, viewport) {
 
 /**
  * Só o que cruza a janela (+ ancestrais de contexto). `dropped` lista, por
- * contêiner mantido, quantos filhos ficaram de fora, para o rodapé.
+ * contêiner, quantos filhos ficaram de fora, para o rodapé dizer onde pedir.
  */
-export function selectViewport(nodes, viewport) {
+export function selectViewport(nodes, viewport, container = { ref: "", role: "", name: "" }) {
 	const kept = [];
 	const dropped = [];
+	const lost = [];
 	let omitted = 0;
 	for (const node of nodes) {
 		if (node.role === "text") {
 			if (intersects(node.abs, viewport)) kept.push(node);
 			continue;
 		}
-		const sub = selectViewport(node.children, viewport);
+		const sub = selectViewport(node.children, viewport, { ref: node.ref, role: node.role, name: node.name });
 		const hasReal = sub.nodes.some((n) => n.role !== "text");
 		const hasText = sub.nodes.some((n) => n.role === "text");
 		const selfIn = intersects(node.abs, viewport);
 		const useful = isInteractive(node.role) || node.name || node.role === "iframe";
 		if (!(hasReal || (selfIn && (useful || hasText)))) {
 			omitted += 1;
+			lost.push(node);
 			continue;
-		}
-		const real = node.children.filter((c) => c.role !== "text");
-		const keptReal = sub.nodes.filter((n) => n.role !== "text");
-		if (real.length > keptReal.length) {
-			const keptSet = new Set(keptReal.map((n) => n.ref).filter(Boolean));
-			const counts = new Map();
-			for (const child of real) if (!child.ref || !keptSet.has(child.ref)) counts.set(child.role, (counts.get(child.role) ?? 0) + 1);
-			const [role, count] = [...counts.entries()].sort((a, b) => b[1] - a[1])[0] ?? ["item", real.length - keptReal.length];
-			dropped.push({ ref: node.ref, role: node.role, name: node.name, count: real.length - keptReal.length, dominant: [role, count] });
 		}
 		dropped.push(...sub.dropped);
 		omitted += sub.omitted;
 		kept.push({ ...node, children: sub.nodes });
+	}
+	const groups = new Map();
+	for (const node of lost) {
+		const ref = node.parentRef || container.ref;
+		const group = groups.get(ref) ?? { ref, role: ref === container.ref ? container.role : "", name: ref === container.ref ? container.name : "", roles: new Map(), count: 0 };
+		group.roles.set(node.role, (group.roles.get(node.role) ?? 0) + 1);
+		group.count += 1;
+		groups.set(ref, group);
+	}
+	for (const { roles, ...group } of groups.values()) {
+		dropped.push({ ...group, dominant: [...roles.entries()].sort((a, b) => b[1] - a[1])[0] });
 	}
 	return { nodes: kept, omitted, dropped };
 }
@@ -308,7 +315,7 @@ export function collapseRuns(nodes, { containerRef = "", expandTop = false } = {
 				count: hidden.length,
 				firstRef: firstRef(hidden[0]),
 				lastRef: lastRef(hidden[hidden.length - 1]),
-				containerRef,
+				containerRef: hidden[0].parentRef || containerRef,
 				children: [],
 			});
 		}
@@ -331,6 +338,7 @@ export function renderAx(nodes, { values = new Map(), hidden = new Set(), ariaHi
 	for (const node of nodes) {
 		if (node.ref && hidden.has(node.ref)) continue;
 		if (node.role === "text") {
+			if (node.via && hidden.has(node.via)) continue;
 			lines.push(`${pad}${node.text}`);
 			continue;
 		}
@@ -348,11 +356,11 @@ export function renderAx(nodes, { values = new Map(), hidden = new Set(), ariaHi
 		if (node.href) parts.push(`[href=${node.href}]`);
 		if (node.ref && ariaHidden.has(node.ref)) parts.push("[aria-hidden]");
 		let tail = "";
-		if (node.value !== undefined && node.value !== "") {
-			const state = values.get(node.ref);
-			if (state === "ok") tail = `: ${q(clip(squash(node.value), 120))}`;
-			else if (state === "secret") parts.push("(campo secreto: nunca preencha)");
-		}
+		const state = values.get(node.ref);
+		// Mesmas frases do snapshot v1: o muro de login e o prompt já reconhecem.
+		if (state === "secret") parts.push("(campo de senha: nunca preencha)");
+		else if (state === "otp") parts.push("(campo de código de uso único: nunca preencha)");
+		else if (state === "ok" && node.value !== undefined && node.value !== "") tail = `: ${q(clip(squash(node.value), 120))}`;
 		lines.push(`${pad}${parts.join(" ")}${tail}`);
 		if (node.children?.length) renderAx(node.children, { values, hidden, ariaHidden, showRefs, depth: depth + 1, lines });
 	}
@@ -368,7 +376,26 @@ export function referencedRefs(nodes, found = new Set()) {
 	return found;
 }
 
-/** Percorre os nós emitidos (para a sonda): refs de nós visíveis na saída. */
+/**
+ * O que a sonda de recorte precisa olhar no chunk emitido: refs de nós nomeados
+ * ou interativos, refs de origem do texto (`via`) e TODO campo de valor
+ * (para achar senha/código mesmo vazio).
+ */
+export function probeTargets(nodes, found = { refs: new Set(), fields: new Set() }) {
+	for (const node of nodes) {
+		if (node.role === "__similar") continue;
+		if (node.role === "text") {
+			if (node.via) found.refs.add(node.via);
+			continue;
+		}
+		if (node.ref && isValueRole(node.role)) found.fields.add(node.ref);
+		else if (node.ref && (isInteractive(node.role) || node.name)) found.refs.add(node.ref);
+		if (node.children?.length) probeTargets(node.children, found);
+	}
+	return found;
+}
+
+/** Percorre os nós emitidos: refs de nós visíveis na saída. */
 export function emittedNodes(nodes, out = []) {
 	for (const node of nodes) {
 		if (node.role === "text" || node.role === "__similar") continue;
@@ -400,6 +427,6 @@ export function footerFor(dropped, omittedTotal) {
 		.filter((d) => d.ref && d.count > 0)
 		.sort((a, b) => b.count - a.count)
 		.slice(0, 3)
-		.map((d) => `+${d.count} ${d.dominant?.[0] ?? "itens"} fora da janela em ${d.role}${d.name ? ` ${q(clip(d.name, 40))}` : ""}: browser_snapshot ref=${d.ref}`);
+		.map((d) => `+${d.count} ${d.dominant?.[0] ?? "itens"} fora da janela${d.role ? ` em ${d.role}${d.name ? ` ${q(clip(d.name, 40))}` : ""}` : ""}: browser_snapshot ref=${d.ref}`);
 	return [`[fora da janela: ${omittedTotal} blocos; area=page mostra a página toda]`, ...rows];
 }

@@ -47,7 +47,7 @@ export async function takeAxSnapshot(page, { timeoutMs = AX_TIMEOUT_MS } = {}) {
 			if (typeof yaml === "string") return { yaml, via: "ai", boxes: true };
 		} catch (error) {
 			if (error instanceof AxUnavailableError) throw error;
-			if (!isUnsupportedOption(error)) throw new AxUnavailableError(compact(error), "failed");
+			if (!isUnsupportedOption(error)) throw new AxUnavailableError(compact(error), isTimeout(error) ? "timeout" : "failed");
 		}
 	}
 	if (page && typeof page._snapshotForAI === "function") {
@@ -57,10 +57,14 @@ export async function takeAxSnapshot(page, { timeoutMs = AX_TIMEOUT_MS } = {}) {
 			if (typeof yaml === "string") return { yaml, via: "forAI", boxes: false };
 		} catch (error) {
 			if (error instanceof AxUnavailableError) throw error;
-			throw new AxUnavailableError(compact(error), "failed");
+			throw new AxUnavailableError(compact(error), isTimeout(error) ? "timeout" : "failed");
 		}
 	}
 	throw new AxUnavailableError("este Playwright não expõe a árvore de acessibilidade para IA", "unsupported");
+}
+
+function isTimeout(error) {
+	return /timeout .*exceeded|timed out/i.test(error instanceof Error ? error.message : String(error));
 }
 
 function compact(error) {

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-	collapseRuns, emittedNodes, footerFor, paginateLines, parseAxYaml, pruneNodes, referencedRefs, renderAx, selectViewport,
+	collapseRuns, emittedNodes, footerFor, paginateLines, parseAxYaml, probeTargets, pruneNodes, referencedRefs, renderAx, selectViewport,
 } from "./ax-prune.mjs";
 
 const SAMPLE = `- generic [active] [ref=e1] [box=8,8,884,684]:
@@ -58,7 +58,8 @@ test("valor de campo some por padrão; só sai com a ref aprovada; senha vira av
 	assert.match(renderAx(nodes, { values: new Map([["e21", "ok"]]) }).join("\n"), /textbox "Senha" \[e21\]: "segredo"/);
 	const secret = renderAx(nodes, { values: new Map([["e21", "secret"]]) }).join("\n");
 	assert.doesNotMatch(secret, /segredo/);
-	assert.match(secret, /campo secreto/);
+	assert.match(secret, /campo de senha: nunca preencha/);
+	assert.match(renderAx(nodes, { values: new Map([["e21", "otp"]]) }).join("\n"), /código de uso único/);
 });
 
 test("nomes passam de 200 e são cortados", () => {
@@ -137,4 +138,18 @@ test("emittedNodes lista só nós reais; paginação corta em fim de linha e con
 	const second = paginateLines(lines, { offset: first.nextOffset, limit: 100 });
 	assert.match(second.text, /^linha numero \d+/);
 	assert.equal(paginateLines(lines, { limit: 99_999 }).nextOffset, null);
+});
+
+test("sonda: alvos são interativos, nomeados, origem do texto e todo campo de valor", () => {
+	const targets = probeTargets(pruneNodes(parseAxYaml(SAMPLE).roots));
+	assert.ok(targets.fields.has("e21"));
+	assert.ok(targets.refs.has("e10") && targets.refs.has("e19"), "texto do parágrafo aponta para o elemento de origem");
+	assert.equal(targets.refs.has("e21"), false);
+});
+
+test("texto de elemento oculto pela sonda some junto (acordeão fechado)", () => {
+	const yaml = `- main [ref=e1]:\n  - generic [ref=e2]:\n    - text: conteúdo do acordeão\n  - button "Abrir" [ref=e3]`;
+	const nodes = pruneNodes(parseAxYaml(yaml).roots);
+	assert.match(renderAx(nodes).join("\n"), /conteúdo do acordeão/);
+	assert.doesNotMatch(renderAx(nodes, { hidden: new Set(["e2"]) }).join("\n"), /acordeão/);
 });

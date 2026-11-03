@@ -71,7 +71,7 @@ async function open() {
 	const page = await fixtures.newPage();
 	await page.goto(`${fixtures.base}/stream`);
 	const actions = createBrowserActions({ getPage: async () => page });
-	const refs = createRefActions({ withPageRetry: actions.withPageRetry, clickElement: actions.clickElement });
+	const refs = createRefActions({ withPageRetry: actions.withPageRetry, clickElement: actions.clickElement, axOn: () => false });
 	actions.setObserver(refs.observeAction);
 	return { page, refs };
 }

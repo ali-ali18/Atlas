@@ -125,7 +125,7 @@ async function open(path) {
 	const page = await fixtures.newPage();
 	await page.goto(`${fixtures.base}${path}`);
 	const actions = createBrowserActions({ getPage: async () => page });
-	const refs = createRefActions({ withPageRetry: actions.withPageRetry, clickElement: actions.clickElement });
+	const refs = createRefActions({ withPageRetry: actions.withPageRetry, clickElement: actions.clickElement, axOn: () => false });
 	actions.setObserver(refs.observeAction);
 	const snap = await refs.browserSnapshot({});
 	const refOf = (label) => {
