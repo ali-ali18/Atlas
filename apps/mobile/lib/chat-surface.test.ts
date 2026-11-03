@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { chatCardEdge, chatCardSkin, chatSurface } from "./chat-surface";
 import { colorTokens } from "./color-tokens";
-import { RING_SCALE } from "./shape-ring";
+import { RING_GAP_PT, RING_STROKE_PT } from "./shape-ring";
 import { surfaceColors } from "./surfaces";
 
 describe("pele do cartão do chat (tabela e propostas)", () => {
@@ -18,8 +18,8 @@ describe("pele do cartão do chat (tabela e propostas)", () => {
 });
 
 describe("contorno da forma escolhida", () => {
-	it("é maior que a forma, com folga", () => {
-		expect(RING_SCALE).toBeGreaterThan(1.1);
-		expect(RING_SCALE).toBeLessThan(1.5);
+	it("fica rente à forma: respiro e traço finos", () => {
+		expect(RING_GAP_PT).toBeGreaterThan(0);
+		expect(RING_GAP_PT + RING_STROKE_PT).toBeLessThanOrEqual(5);
 	});
 });
