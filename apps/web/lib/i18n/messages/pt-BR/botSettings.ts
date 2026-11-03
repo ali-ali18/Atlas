@@ -33,7 +33,7 @@ export const botSettings = {
 	"botSettings.engineNew": "Novo (padrão)",
 	"botSettings.engineNewHelp": "O motor novo trabalha até o fim, em vez de parar no meio e perguntar: ele decide quando já pesquisou o bastante pelo progresso da tarefa, não pelo preço. Vale a partir da próxima mensagem.",
 	"botSettings.engineBudget": "Limites da tarefa longa",
-	"botSettings.engineBudgetDesc": "Gasto máximo (opcional, vazio = sem limite) e tempo máximo (de 1 a 180 minutos, padrão 60). Se você preencher o gasto, ele vira um teto duro e o bot ainda reserva o fim para escrever.",
+	"botSettings.engineBudgetDesc": "Gasto máximo (opcional, vazio = sem limite) e tempo máximo (opcional, de 1 a 180 minutos, vazio = sem limite). Se você preencher o gasto, ele vira um teto duro e o bot ainda reserva o fim para escrever.",
 	"botSettings.engineBudgetUsdInvalid": "Use um valor entre US$ 0,05 e 20, ou deixe vazio para não limitar.",
 	"botSettings.engineBudgetMinutesInvalid": "Use um valor entre 1 e 180 minutos.",
 	"botSettings.engineBudgetUsd": "Gasto máximo por tarefa longa",

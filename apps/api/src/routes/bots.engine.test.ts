@@ -42,7 +42,7 @@ test("PATCH /v1/bots/:id valida as chaves do motor (piloto do motor v2) e escopa
 	};
 	try {
 		const a = await appFor("user-a");
-		for (const bad of [{ engine: "v3" }, { longWorkBudgetUsd: 100 }, { longWorkMinutes: 0 }, { helperModel: 7 }, { helperModel: "foo/nao-existe" }, { engine: "v2", engineScope: "tudo" }, { engineScope: true }, { engineScope: "ALL" }, { engineScope: 1 }]) {
+		for (const bad of [{ engine: "v3" }, { longWorkBudgetUsd: 100 }, { longWorkMinutes: -1 }, { longWorkMinutes: 500 }, { helperModel: 7 }, { helperModel: "foo/nao-existe" }, { engine: "v2", engineScope: "tudo" }, { engineScope: true }, { engineScope: "ALL" }, { engineScope: 1 }]) {
 			assert.equal((await patch(a, bad)).status, 400, JSON.stringify(bad));
 		}
 		assert.equal(saved, undefined);
@@ -95,6 +95,12 @@ test("PATCH com longWorkBudgetUsd 0, null ou vazio remove o teto de gasto (a cha
 			saved = undefined;
 			assert.equal((await patch(a, { engine: "v2", longWorkBudgetUsd: empty, longWorkMinutes: 90 })).status, 200, JSON.stringify(empty));
 			assert.deepEqual(saved, { engine: "v2", longWorkMinutes: 90 });
+		}
+		// Tempo máximo também é opcional (sem limite por padrão, decisão do dono 02/11): 0, null ou vazio remove a chave.
+		for (const empty of [0, null, ""]) {
+			saved = undefined;
+			assert.equal((await patch(a, { engine: "v2", longWorkMinutes: empty })).status, 200, JSON.stringify(empty));
+			assert.deepEqual(saved, { engine: "v2" });
 		}
 		// Valor positivo continua virando teto; negativo continua recusado.
 		saved = undefined;

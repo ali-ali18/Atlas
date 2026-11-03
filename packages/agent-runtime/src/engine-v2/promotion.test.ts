@@ -1,6 +1,7 @@
 /**
- * Motor v2: promoção automática chat -> trabalho longo, sem teto em US$ por padrão, nunca pedir "continua" e não perguntar
- * no meio do trabalho. LLM mockado; o relógio é falso (só `Date`) para o chat "gastar" os 8 min do perfil.
+ * Motor v2: promoção automática chat -> trabalho longo (pela lista de 3+ passos do modelo; tempo não promove mais), sem teto
+ * de US$ nem de tempo por padrão (decisão do dono, 02/11), nunca pedir "continua" e não perguntar no meio do trabalho.
+ * LLM mockado; o relógio é falso (só `Date`): cada passo "gasta" 2,5 min, e o run segue sem aviso nem entrega por tempo.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SandboxManager } from "@workspace/sandbox";
@@ -10,7 +11,7 @@ import { SYSTEM_MESSAGES } from "@workspace/shared";
 import type { PersistUserArtifactInput } from "@workspace/db";
 import { runEngineV2, type EngineV2Options } from "./run.js";
 import { DOCUMENT_BUDGET_NOTE, DOCUMENT_DELIVERY_NOTE, DOCUMENT_DONE_INSTRUCTION, documentMissingNote, stopReasonPhrase } from "./delivery.js";
-import { ENGINE_V2_CORE, ENGINE_V2_PROMOTED_NOTE, ENGINE_V2_UNATTENDED, UNASKED_MIDWORK_NOTE, midWorkQuestion } from "./prompt.js";
+import { ANNOUNCED_ACTION_NOTE, ENGINE_V2_CORE, ENGINE_V2_PROMOTED_NOTE, ENGINE_V2_UNATTENDED, UNASKED_MIDWORK_NOTE, announcesAction, midWorkQuestion } from "./prompt.js";
 import { RESERVE_GAPS_NOTE, RESERVE_WRITE_NOTE, WRAP_UP_NOTE, deliveryInstruction } from "./supervisor.js";
 import { budgetStopFallbackText } from "../computer-use.js";
 
@@ -35,7 +36,7 @@ const taskList = (items: Array<[string, "pending" | "in_progress" | "completed"]
 const words = (n: number) => Array.from({ length: n }, (_, i) => `palavra${i}`).join(" ");
 
 const COOKIE = "Abra o vídeo https://youtu.be/abc123, faça perguntas ao Gemini sobre ele, compare com Hermes, Dots e Grok Bot e monte um relatório";
-/** Cada passo do modelo "gasta" 2,5 min de relógio ativo: o 4º passo cruza 80% dos 8 min do chat. */
+/** Cada passo do modelo "gasta" 2,5 min de relógio ativo: o 4º passo já passaria dos antigos 8 min do chat. */
 const STEP_MS = 150_000;
 
 type Seen = { toolNames: string[]; system: string; lastUser: string; transcript: string };
@@ -107,12 +108,14 @@ beforeEach(() => {
 afterEach(() => vi.useRealTimers());
 
 const research = (cost: number) => turn([call("memory_search", { query: "grok bot" })], cost);
+/** Lista de 3 passos montada pelo modelo: o gatilho que promove o chat a trabalho longo. */
+const threeStepList = (cost: number) => turn([taskList([["Abrir o vídeo", "in_progress"], ["Comparar", "pending"], ["Montar o relatório", "pending"]])], cost);
 
 describe("promoção automática chat -> trabalho longo (v2)", () => {
-	it("caso real: várias tools estouram os 8 min e muito mais que US$ 0,25, o run vira trabalho longo, entrega o documento e não pede 'continua'", async () => {
+	it("caso real: várias tools passam dos 8 min e de muito mais que US$ 0,25, o modelo monta a lista, o run vira trabalho longo, entrega o documento e não pede 'continua'", async () => {
 		const run = await runChat({
 			script: [
-				research(2), research(2), research(2),
+				research(2), research(2), threeStepList(2),
 				// 4º passo: já promovido (lista e caderno disponíveis); o modelo planeja.
 				(seen) => {
 					expect(seen.toolNames).toEqual(expect.arrayContaining(["update_task_list", "notebook_write", "notebook_read", "create_file", "delegate"]));
@@ -140,19 +143,33 @@ describe("promoção automática chat -> trabalho longo (v2)", () => {
 		expect(run.events.some((event) => event.type === "file")).toBe(true);
 	});
 
-	it("o tempo vira o do trabalho longo: 9 min de relógio não entregam mais depois da promoção", async () => {
+	it("sem teto de tempo: 12 min de relógio ativo depois da promoção não entregam nem avisam", async () => {
 		const run = await runChat({
 			messages: [{ role: "user", content: "abra a página e resuma" }],
-			script: [research(0.5), research(0.5), research(0.5), turn([taskList([["Resumir", "in_progress"]])], 0.5), research(0.5), turn([taskList([["Resumir", "completed"]])], 0.5), say("Feito.")],
+			script: [research(0.5), research(0.5), threeStepList(0.5), research(0.5), turn([taskList([["Abrir o vídeo", "completed"], ["Comparar", "completed"], ["Montar o relatório", "completed"]])], 0.5), say("Feito.")],
 		});
-		expect(run.result.usage.costUsd).toBeGreaterThanOrEqual(3);
+		expect(run.result.usage.costUsd).toBeGreaterThanOrEqual(2.5);
+		expect(run.seen.every((seen) => !seen.transcript.includes(WRAP_UP_NOTE))).toBe(true);
 		expect(run.onPromoted).toHaveBeenCalledTimes(1);
 		expect(run.result.stop).toEqual({ reason: "answered" });
 	});
 
-	it("sem humano (promotable falso): o limite de tempo do chat segue e o run entrega por tempo, sem promover", async () => {
+	it("chat sem teto de tempo: passa de 8 min (5 passos de 2,5 min) sem WRAP_UP_NOTE nem entrega forçada, e termina quando o modelo responde", async () => {
 		const run = await runChat({
 			options: { promotable: false, onPromoted: undefined },
+			script: [1, 2, 3, 4, 5].map((n) => turn([call("memory_search", { query: `fonte ${n}` })], 0.1)).concat([say("Resposta completa, sem corte por tempo.")]),
+		});
+		expect(run.result.stop).toEqual({ reason: "answered" });
+		expect(run.result.text).toBe("Resposta completa, sem corte por tempo.");
+		expect(run.seen).toHaveLength(6);
+		expect(run.seen.every((seen) => !seen.transcript.includes(WRAP_UP_NOTE))).toBe(true);
+		expect(run.events.some((event) => event.type === "assistant_discard")).toBe(false);
+	});
+
+	it("com teto de tempo do dono (8 min, como o worker aplica em rotina) o comportamento de antes continua: avisa e entrega por tempo, sem promover", async () => {
+		const run = await runChat({
+			options: { promotable: false, onPromoted: undefined },
+			extra: { budget: { maxWallMs: 8 * 60_000 } },
 			script: [research(1), research(1), research(1), research(1), say("Entrega parcial: li a página; faltou comparar com o Grok Bot porque o tempo acabou.")],
 		});
 		expect(run.result.stop).toMatchObject({ reason: "budget_wall" });
@@ -182,7 +199,7 @@ describe("promoção automática chat -> trabalho longo (v2)", () => {
 	it("o teto de conta explícito também vale depois da promoção (não é piso do chat)", async () => {
 		const run = await runChat({
 			extra: { budget: { maxCostUsd: 3 } },
-			script: [research(0.5), research(0.5), research(0.5), research(0.5), turn([taskList([["Comparar", "in_progress"]])], 1.5), say("Entrega parcial: o gasto máximo acabou antes de fechar a comparação.")],
+			script: [research(0.5), research(0.5), research(0.5), threeStepList(1.5), say("Entrega parcial: o gasto máximo acabou antes de fechar a comparação.")],
 		});
 		expect(run.onPromoted).toHaveBeenCalledTimes(1);
 		expect(run.result.stop).toMatchObject({ reason: "budget_cost" });
@@ -294,7 +311,7 @@ describe("tempo da conta é teto duro; promoção sobrevive à falha de gravaç�
 	it("conta com 5 min: o chat respeita o menor valor e a promoção não passa de 5 min", async () => {
 		const run = await runChat({
 			extra: { budget: { maxWallMs: 5 * 60_000 } },
-			script: [research(0.01), research(0.01), say("Entrega parcial: o tempo máximo da conta acabou antes de comparar tudo.")],
+			script: [research(0.01), threeStepList(0.01), say("Entrega parcial: o tempo máximo da conta acabou antes de comparar tudo.")],
 		});
 		expect(run.onPromoted).toHaveBeenCalledTimes(1);
 		expect(run.result.stop).toMatchObject({ reason: "budget_wall" });
@@ -309,7 +326,7 @@ describe("tempo da conta é teto duro; promoção sobrevive à falha de gravaç�
 		const first = await runChat({
 			options: { onPromoted: failing },
 			extra: { onCheckpoint: async (checkpoint) => void checkpoints.push(JSON.parse(JSON.stringify(checkpoint))) },
-			script: [research(1), research(1), research(1), turn([taskList([["Comparar", "in_progress"]])], 1), turn([taskList([["Comparar", "completed"]])], 1), say("Pronto.", 1)],
+			script: [research(1), research(1), threeStepList(1), turn([taskList([["Comparar", "completed"]])], 1), say("Pronto.", 1)],
 		});
 		expect(failing).toHaveBeenCalledTimes(1);
 		expect(errors).toHaveBeenCalledWith("v2: could not record run promotion", "db fora");
@@ -429,10 +446,13 @@ describe("mensagem nova do usuário durante o run renova o tempo (v2)", () => {
 
 	it("retomada: a nota de fechamento já enviada não é reenviada", async () => {
 		const checkpoints: Array<{ wrapUpSent?: boolean }> = [];
+		// O aviso de 80% só existe com teto de tempo do dono (o padrão não tem mais): 8 min, como a rotina.
+		const ownerCap = { budget: { maxWallMs: 8 * 60_000 } };
 		await runChat({
 			stepMs: 1_000,
 			options: { promotable: false, onPromoted: undefined },
 			extra: {
+				...ownerCap,
 				consumeSteerInputs: async () => {
 					vi.setSystemTime(Date.now() + 6.8 * 60_000);
 					return [];
@@ -449,7 +469,7 @@ describe("mensagem nova do usuário durante o run renova o tempo (v2)", () => {
 		const resumed = await runChat({
 			stepMs: 1_000,
 			options: { promotable: false, onPromoted: undefined },
-			extra: { restoredCheckpoint: mid as never },
+			extra: { ...ownerCap, restoredCheckpoint: mid as never },
 			script: [(seen) => {
 				// Uma só (a do histórico restaurado); sem o estado no checkpoint seria reenviada: 2.
 				expect(wrapUps(seen.transcript)).toBe(1);
@@ -486,6 +506,38 @@ describe("promoção decidida pelo modelo: lista de tarefas com 3+ passos (v2)",
 		});
 		expect(run.onPromoted).toHaveBeenCalledTimes(1);
 		expect(run.result.stop).toEqual({ reason: "answered" });
+	});
+
+	it("a 1ª tool de navegador num chat promovível vira trabalho longo no gate seguinte (agir em site não é conversa curta)", async () => {
+		const run = await runChat({
+			stepMs: 5_000,
+			messages: [{ role: "user", content: "abra o Gemini e peça um resumo desse vídeo" }],
+			script: [
+				(seen) => {
+					expect(seen.transcript).not.toContain("This task turned into long work");
+					return turn([call("browser_snapshot")], 0.1);
+				},
+				(seen) => {
+					expect(seen.toolNames).toEqual(expect.arrayContaining(["notebook_write", "update_task_list"]));
+					return say("Resumo pronto.", 0.1);
+				},
+				// Trabalho longo sem lista pode pedir uma rodada a mais antes de entregar.
+				say("Resumo pronto.", 0.1),
+				say("Resumo pronto.", 0.1),
+			],
+			extra: { manager: { snapshot: async () => ({}) } as never },
+		});
+		expect(run.onPromoted).toHaveBeenCalledTimes(1);
+		// Uma conta no shell da VM (sandbox_*) não é agir em site: não promove.
+		const shell = await runChat({
+			stepMs: 5_000,
+			messages: [{ role: "user", content: "quanto é 17 vezes 23?" }],
+			script: [turn([call("sandbox_release")], 0.1), say("391.", 0.1)],
+		});
+		expect(shell.onPromoted).not.toHaveBeenCalled();
+		// Sem navegador no run (ex.: pergunta curta) nada promove.
+		const quiet = await runChat({ stepMs: 5_000, messages: [{ role: "user", content: "Bom dia" }], script: [say("Bom dia!")] });
+		expect(quiet.onPromoted).not.toHaveBeenCalled();
 	});
 
 	it("2 passos não promovem", async () => {
@@ -554,17 +606,20 @@ describe("promoção decidida pelo modelo: lista de tarefas com 3+ passos (v2)",
 		}
 	});
 
-	it("o prazo das operações do computador acompanha o teto duro da conta num chat que não promove (a renovação por mensagem estica o tempo)", async () => {
-		const deadlines: number[] = [];
+	it("o prazo das operações do computador acompanha o teto do dono (1,25x); sem teto não há prazo (nunca Infinity)", async () => {
+		const deadlines: Array<number | undefined> = [];
+		const manager = { withExecutionContext: (context: { deadlineAtMs?: number }) => (deadlines.push(context.deadlineAtMs), {}) } as never;
 		const start = Date.now();
 		await runChat({
 			stepMs: 1_000,
 			options: { promotable: false, onPromoted: undefined },
-			extra: { manager: { withExecutionContext: (context: { deadlineAtMs: number }) => (deadlines.push(context.deadlineAtMs), {}) } as never },
+			extra: { manager, budget: { maxWallMs: 30 * 60_000 } },
 			script: [say("Oi.", 0.1)],
 		});
-		// Chat tem 8 min de orçamento (prazo de 10 min sem a correção); o teto duro padrão é de 30 min, e o prazo vai a 1,25x dele.
 		expect(deadlines[0]! - start).toBeGreaterThan(30 * 60_000);
+		deadlines.length = 0;
+		await runChat({ stepMs: 1_000, options: { promotable: false, onPromoted: undefined }, extra: { manager }, script: [say("Oi.", 0.1)] });
+		expect(deadlines[0]).toBeUndefined();
 	});
 
 	it("o teto de custo do trabalho longo (gasto máximo do bot) continua valendo depois de promover pela lista", async () => {
@@ -575,5 +630,127 @@ describe("promoção decidida pelo modelo: lista de tarefas com 3+ passos (v2)",
 		});
 		expect(run.onPromoted).toHaveBeenCalledTimes(1);
 		expect(run.result.stop).toMatchObject({ reason: "budget_cost" });
+	});
+});
+
+describe("anunciar sem fazer (v2)", () => {
+	const discards = (run: Awaited<ReturnType<typeof runChat>>) => run.events.filter((event) => event.type === "assistant_discard").map((event) => (event as { reason?: string }).reason);
+
+	it("replay: 'Vou pedir o resumo ao Gemini.' sem tool call volta ao modelo uma vez, que executa a tool", async () => {
+		const run = await runChat({
+			stepMs: 1_000,
+			options: { promotable: false },
+			messages: [{ role: "user", content: "abra o Gemini e peça um resumo desse vídeo" }],
+			script: [
+				research(0.01),
+				say("Vou pedir o resumo ao Gemini."),
+				(seen) => {
+					expect(seen.lastUser).toContain("announced an action but called no tool");
+					return turn([call("memory_search", { query: "resumo do vídeo" })], 0.01);
+				},
+				say("Resumo do vídeo: ... (fonte: Gemini)."),
+			],
+		});
+		expect(discards(run)).toEqual(["announced_action"]);
+		expect(run.result.text).toContain("Resumo do vídeo");
+		expect(run.seen).toHaveLength(4);
+	});
+
+	it("o portão age uma vez só; pergunta, entrega real e promessa de avisar não são barradas; sem trabalho iniciado também não", async () => {
+		const twice = await runChat({ stepMs: 1_000, options: { promotable: false }, messages: [{ role: "user", content: "faça" }], script: [research(0.01), say("Vou abrir a página agora."), say("Agora vou pedir o resumo.")] });
+		expect(twice.result.text).toBe("Agora vou pedir o resumo.");
+		expect(discards(twice)).toEqual(["announced_action"]);
+		const offer = await runChat({ stepMs: 1_000, options: { promotable: false }, messages: [{ role: "user", content: "dólar?" }], script: [research(0.01), say("Está R$ 5,10. Quer que eu monitore?")] });
+		expect(discards(offer)).toEqual([]);
+		const done = await runChat({ stepMs: 1_000, options: { promotable: false }, messages: [{ role: "user", content: "resuma" }], script: [research(0.01), say(`Resumo pronto: ${words(70)}. Vou continuar de olho.`)] });
+		expect(discards(done)).toEqual([]);
+		const notify = await runChat({ stepMs: 1_000, options: { promotable: false }, messages: [{ role: "user", content: "monitora" }], script: [research(0.01), say("Criei o alerta. Vou te avisar quando mudar.")] });
+		expect(discards(notify)).toEqual([]);
+		const early = await runChat({ stepMs: 1_000, messages: [{ role: "user", content: "oi" }], script: [say("Vou te ajudar com isso.")] });
+		expect(discards(early)).toEqual([]);
+	});
+
+	it("announcesAction: promessa curta sem pergunta em pt-BR, inglês e espanhol", () => {
+		for (const text of ["Vou pedir o resumo ao Gemini.", "Agora vou clicar em enviar.", "Deixa eu abrir o painel.", "I'll ask Gemini now.", "Let me open the dashboard.", "Voy a abrir el panel."]) expect(announcesAction(text), text).toBe(true);
+		for (const text of ["", "Quer que eu monitore?", "Vou pedir o resumo ao Gemini?", "Resumo pronto.", "Vou te avisar quando mudar.", `${words(60)} vou pedir`]) expect(announcesAction(text), text).toBe(false);
+	});
+
+	it("announcesAction: respostas finais que parecem promessa mas não são NÃO são barradas; anúncios reais, sim (inclusive com apóstrofo curvo)", () => {
+		for (const text of [
+			"Pronto, o resumo está acima. Let me know if you want changes.",
+			"Não vou conseguir abrir o site, ele bloqueou o acesso.",
+			"Feito! Criei a rotina. Vou rodar toda segunda às 9h.",
+			"Pronto, enviei o e-mail. Vou aguardar a resposta dele.",
+			"I'll need your password to continue.",
+			"Não consegui acessar. Vou precisar que você faça o login.",
+		]) expect(announcesAction(text), text).toBe(false);
+		for (const text of ["I\u2019ll ask Gemini now.", "Vou pedir o resumo ao Gemini.", "Agora vou abrir o painel."]) expect(announcesAction(text), text).toBe(true);
+	});
+
+	it("o prompt manda chamar a tool no mesmo passo e não passar a execução ao usuário", () => {
+		const core = ENGINE_V2_CORE.join("\n");
+		expect(core).toMatch(/reply without a tool call ends your turn/i);
+		// Sem teto padrão de tempo ou dinheiro: o prompt não promete um "orçamento de tempo" que não existe.
+		expect(core).toMatch(/no default time or money limit/);
+		expect(core).not.toMatch(/Time is the budget/);
+		expect(core).toMatch(/Never announce an action/);
+		expect(core).toMatch(/never hand the execution to the user/);
+		expect(ANNOUNCED_ACTION_NOTE).toMatch(/call the tool in this step/);
+	});
+});
+
+describe("\"continua\" depois de um trabalho com itens abertos (v2)", () => {
+	const OPEN_LIST = [{ content: "Abrir o painel", status: "completed" }, { content: "Pedir o resumo ao Gemini", status: "in_progress" }, { content: "Montar o relatório", status: "pending" }] as never;
+	const NOTEBOOK = [{ id: "n1", title: "Painel", excerpt: "Entrei no painel com o login da loja", kind: "finding", author: "coordinator", step: 1 }] as never;
+
+	it("mensagem curta de continuação promove o chat pela lista herdada e semeia o caderno; o caderno anterior volta ao modelo", async () => {
+		const run = await runChat({
+			stepMs: 5_000,
+			messages: [{ role: "user", content: "continua" }],
+			extra: { priorTaskList: OPEN_LIST, priorNotebook: NOTEBOOK },
+			script: [
+				turn([call("notebook_read", {})], 0.1),
+				(seen) => {
+					expect(seen.transcript).toContain("Entrei no painel");
+					return say("Feito.", 0.1);
+				},
+				say("Feito.", 0.1),
+				say("Feito.", 0.1),
+			],
+		});
+		expect(run.onPromoted).toHaveBeenCalledTimes(1);
+	});
+
+	it("continuação automática (autoContinued) com a instrução do worker também promove pela lista herdada e recebe o caderno", async () => {
+		const run = await runChat({
+			stepMs: 5_000,
+			messages: [{ role: "user", content: "Continue the previous task from where it stopped. Do not repeat steps that are already done." }],
+			extra: { priorTaskList: OPEN_LIST, priorNotebook: NOTEBOOK, autoContinued: true },
+			script: [
+				turn([call("notebook_read", {})], 0.1),
+				(seen) => {
+					expect(seen.transcript).toContain("Entrei no painel");
+					return say("Feito.", 0.1);
+				},
+				say("Feito.", 0.1),
+				say("Feito.", 0.1),
+			],
+		});
+		expect(run.onPromoted).toHaveBeenCalledTimes(1);
+		// Sem o sinal de continuação automática a mesma mensagem longa não promove nem usa o caderno antigo.
+		const plain = await runChat({
+			stepMs: 5_000,
+			messages: [{ role: "user", content: "Continue the previous task from where it stopped. Do not repeat steps that are already done." }],
+			extra: { priorTaskList: OPEN_LIST, priorNotebook: NOTEBOOK },
+			script: [say("Ok.")],
+		});
+		expect(plain.onPromoted).not.toHaveBeenCalled();
+	});
+
+	it("a mesma lista herdada com outra mensagem (ou sem humano) não promove nem usa o caderno antigo", async () => {
+		const other = await runChat({ stepMs: 5_000, messages: [{ role: "user", content: "Bom dia" }], extra: { priorTaskList: OPEN_LIST, priorNotebook: NOTEBOOK }, script: [say("Bom dia!")] });
+		expect(other.onPromoted).not.toHaveBeenCalled();
+		const bot = await runChat({ stepMs: 5_000, messages: [{ role: "user", content: "continua" }], extra: { humanTurn: false, origin: "bot", priorTaskList: OPEN_LIST }, options: { promotable: false, onPromoted: undefined }, script: [say("Ok.")] });
+		expect(bot.onPromoted).not.toHaveBeenCalled();
 	});
 });
