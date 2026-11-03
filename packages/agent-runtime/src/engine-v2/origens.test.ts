@@ -342,17 +342,18 @@ describe("v2 em e-mail recebido", () => {
 		expect(result.stop).toEqual({ reason: "answered" });
 	});
 
-	it("envio que precisa de aprovação (remetente novo, Equilibrado): cartão para o dono, nada enviado, o run espera", async () => {
+	it("email_send novo (remetente novo) em run de e-mail: não envia nem abre cartão, falha dizendo que precisa do dono (D1)", async () => {
 		const delivered: unknown[] = [];
-		const { events, result } = await runOrigin({
+		const { events, result, results } = await runOrigin({
 			origin: "email",
 			text: framed,
 			extra: { email: emailCtx(balanced, delivered), conversationId: "conv-o" },
-			script: [toolCall("e1", "email_send", { to: "estranho@fora.com", subject: "Dados", body: "segue" })],
+			script: [toolCall("e1", "email_send", { to: "estranho@fora.com", subject: "Dados", body: "segue" }), say("Avisei o dono.")],
 		});
 		expect(delivered).toHaveLength(0);
-		expect(events.some((event) => event.type === "confirm")).toBe(true);
-		expect(result.stop?.reason).toBe("awaiting_confirmation");
+		expect(events.some((event) => event.type === "confirm")).toBe(false);
+		expect(results[0]).toMatchObject({ ok: false });
+		expect(result.stop?.reason).toBe("answered");
 	});
 });
 
