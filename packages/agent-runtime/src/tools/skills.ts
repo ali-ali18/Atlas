@@ -455,7 +455,7 @@ export async function executeProposeSkill(args: Record<string, unknown>, ctx: Sk
 	await ctx.persistCard(event);
 	markWritten(ctx, name, botId);
 	return {
-		summary: `Approval card sent for skill "${name}" (${action}). Nothing is saved until the user approves it in the card. Do not call propose_skill again for it; tell the user briefly to review the card.`,
+		summary: `Approval card sent for skill "${name}" (${action}). Nothing is saved until the user approves it in the card. Do not call propose_skill again for it. The user already sees the card and decides there: do not repeat it in text, and do not remind them about it in later turns unless they ask.`,
 		skillProposalEvent: event,
 	};
 }

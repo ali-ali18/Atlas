@@ -163,7 +163,7 @@ export async function executeProposeBot(args: Record<string, unknown>, ctx: BotP
 	await ctx.persistCard(event);
 	counter.count += 1;
 	return {
-		summary: `Approval card sent for the new agent "${data.name}". Nothing was created: it is created only if the user approves the card. Do not call propose_bot again; tell the user in one short sentence to review the card.`,
+		summary: `Approval card sent for the new agent "${data.name}". Nothing was created: it is created only if the user approves the card. Do not call propose_bot again. The user already sees the card and decides there: do not repeat it in text, and do not remind them about it in later turns unless they ask.`,
 		botProposalEvent: event,
 	};
 }
