@@ -145,7 +145,8 @@ Tudo em `apps/mobile/lib` com teste (vitest): `home-list.ts` (agrupamento, orden
 |---|---|
 | Carregar e paginar | `GET /v1/conversations/:id/messages?limit=30[&beforeCreatedAt=&beforeId=]` (o web usa `beforeCreatedAt`+`beforeId`, não `before`; lista do mais antigo para o mais novo, `hasMore`) |
 | Conversa nova | `POST /v1/conversations` (bot sem conversa; o web faz igual) |
-| Enviar | `POST /v1/runs` (`messages`, `conversationId`, `botId`, `modelAuto: true`, `clientKey`; 409 "já tem uma tarefa" tenta de novo 3x como o web) |
+| Enviar | `POST /v1/runs` (`messages`, `conversationId`, `botId`, `clientKey` e os campos de modelo do seletor, ver "Seletor de modelo"; 409 "já tem uma tarefa" tenta de novo 3x como o web) |
+| Catálogo do seletor | `GET /v1/models` (catálogo), `GET /v1/settings` (níveis da conta = modelos principais) e `GET /v1/bots` (modelo fixo do bot), lidos ao abrir a folha |
 | Falar com run ativo | `POST /v1/runs/:id/inputs` (`mode: "join"`) |
 | Ao vivo | `GET /v1/runs/:id/stream?after=<cursor>` (SSE, `Last-Event-ID`) |
 | Parar | `POST /v1/runs/:id/cancel` |
@@ -179,7 +180,27 @@ Decisão do dono: o app não leva o "mini cérebro" do web (`model/brain.ts`) ne
 - **Olhos:** pintados com a cor de fundo do tema (prop `eyeColor` para superfícies que não são o fundo), não recortados com `<Mask>`: os olhos animam num `Svg` próprio e a máscara teria de estar no `Svg` do corpo, onde animar o `<G>` não funciona no Android.
 
 ### Composer (referências do dono)
-Pílula de uma linha ("+", "Perguntar a <bot>" a 17, microfone cinza e botão na cor do bot com as ondas de voz) que vira, quando o texto quebra, um retângulo de duas faixas (texto em cima, "+" e microfone/enviar embaixo); o campo cresce até 40% da tela e rola por dentro; esvaziar volta à pílula. O botão vira seta de enviar com texto e quadrado de parar durante o run. Container único como o do web (fundo `input`), sem doca de tarefas (as tarefas ficam no perfil); a borda é a do web, colada na pílula: uma View só com `border border-border`, `bg-input` e o raio total, nos dois formatos (sem wrapper nem respiro de 1px). O estado "expandido" da segunda referência não tem gatilho claro: só o crescimento automático foi feito. O botão de rolar para o fim aparece quando se rolou mais de 360 px para cima. O topo flutuante tem um degradê do fundo para transparente por baixo (sem faixa sólida), igual ao degradê em cima do composer.
+Pílula de uma linha ("+", "Perguntar a <bot>" a 17, seletor de modelo, microfone cinza e botão na cor do bot com as ondas de voz) que vira, quando o texto quebra, um retângulo de duas faixas (texto em cima, "+" e microfone/enviar embaixo); o campo cresce até 40% da tela e rola por dentro; esvaziar volta à pílula. O botão vira seta de enviar com texto e quadrado de parar durante o run. Container único como o do web (fundo `input`), sem doca de tarefas (as tarefas ficam no perfil); a borda é a do web, colada na pílula: uma View só com `border border-border`, `bg-input` e o raio total, nos dois formatos (sem wrapper nem respiro de 1px). O estado "expandido" da segunda referência não tem gatilho claro: só o crescimento automático foi feito. O botão de rolar para o fim aparece quando se rolou mais de 360 px para cima. O topo flutuante tem um degradê do fundo para transparente por baixo (sem faixa sólida), igual ao degradê em cima do composer.
+
+### Seletor de modelo (botão no composer)
+Botão redondo (ícone de ajustes, "Selecionar modelo") no grupo da direita do composer, antes do microfone. Abre a folha arrastável do app (`DraggableSheet`), no padrão do app do Claude:
+- **Modelos principais** em cartões (nome de exibição + uma linha: "Lê imagens · Raciocínio · 200k de contexto"), ✓ no selecionado. Principais = o modelo fixo do bot + os cadastrados nos níveis da conta (o grupo "Dos seus níveis" do web); sem níveis cadastrados, os recomendados do `shared` que o catálogo tem (o mesmo fallback do web). O catálogo não traz descrição de modelo, então a linha vem das capacidades (`getModelCapabilities`, as mesmas dos selos do web).
+- **Esforço** (só se o modelo escolhido aceita raciocínio, regra `availableReasoningEfforts` do `shared`): a linha mostra o nível atual e, no "Médio", o selo "Recomendado"; abre a escolha entre "Padrão do modelo", "Desligado" (só onde o modelo desliga), "Baixo", "Médio" e "Alto". "Recomendado" é decisão de produto do app (`RECOMMENDED_EFFORT`), não vem do backend.
+- **Outros modelos**: o resto do catálogo por nome, recolhido (mostra a contagem).
+- **Automático**: o servidor escolhe o modelo pela dificuldade do pedido.
+
+**Corpo do run (`lib/model-choice.ts`, `runModelFields`), no mesmo formato do web (`createAgentRun`):**
+| Escolha | O que vai em `POST /v1/runs` |
+|---|---|
+| Nenhuma (padrão) | nenhum campo de modelo: a API respeita o modelo fixo do bot (`resolveRunModelChoice`); sem modelo no bot ela já roda no Automático |
+| Automático | `modelAuto: true`, sem `model` |
+| Modelo | `model`, sem `modelAuto`; `reasoningEffort` só se o modelo suporta (o mesmo filtro do web: "Desligado" vira "Baixo" onde o modelo não desliga) |
+
+**Correção:** o app mandava `modelAuto: true` em todo run, e a API então ignorava o modelo fixo do bot (`apps/api/src/chat/effective-model.ts`, `pinned = modelAuto ? null : bot.model`). A API não mudou.
+
+**Onde salva:** por conversa, no `AsyncStorage` do app (o mesmo do cache do chat), chave `atlas.chat.model.v1:<servidor>|<e-mail>|<conversationId>`. O prefixo `atlas.chat.` faz o `clearChatCache` apagar a escolha ao sair da conta. Chat novo (sem conversa): a escolha fica em memória e vale para a conversa que o primeiro envio cria (`onConversationCreated`). Valor inválido ou disco indisponível = sem escolha (volta ao padrão do bot).
+
+**Fora desta versão:** os grupos de provedor do web que dependem de conexão própria (plano ChatGPT e chaves Anthropic/OpenCode Go). O modelo fixo do bot de qualquer provedor aparece e funciona; só não há como escolher esses modelos pelo app.
 
 ### Menu ao segurar a mensagem, Responder e balão na cor do bot
 - **Gaveta de ações** (`components/ui/action-sheet.tsx`): o padrão do app para qualquer menu de segurar. Sobe de baixo (`Modal` transparente), com alça, um `header` opcional e grupos de ações em cartões, divisor fino de **ponta a ponta** entre as linhas. Ação com `submenu` troca a página da própria gaveta, com "voltar" no topo (a pilha é `lib/action-sheet-nav.ts`, testada); `tone: "destructive"` pinta o texto de vermelho. Não fecha sozinha ao tocar numa ação: quem chama decide. **A gaveta é arrastável, como no Grok** (`components/ui/draggable-sheet.tsx`, usada também por "Selecionar texto"): abre na altura do conteúdo (até 60% da tela) e a alça/cabeçalho (não o corpo, que rola) sobem até o topo seguro + 16 pt; puxar para baixo volta, e da altura inicial (distância ou arremesso) fecha; toque na alça alterna e toque no fundo fecha. A decisão é pura em `lib/sheet-drag.ts` (testada); o gesto é `PanResponder` do RN. A gaveta da mensagem (`message-actions-sheet.tsx`) e, quando a home trocar o popover, a da conversa/bot usam a mesma casca.
