@@ -175,6 +175,13 @@ describe("cartão de painel gravado", () => {
 	});
 });
 
+describe("cartão de arquivo gravado", () => {
+	const fileRow = (extra: Record<string, unknown> = {}) => row("m2", "file", JSON.stringify({ v: 1, kind: "file", artifactId: "f1", filename: "vm.md", mime: "text/markdown", size: 321, format: "markdown", version: 1, ...extra }));
+	it("guarda fileId, mime e tamanho para abrir a folha do documento", () => {
+		expect(sessionMessageToItem(fileRow())).toEqual({ id: "m2", kind: "web-card", card: "file", title: "vm.md", key: "file:f1", fileId: "f1", mime: "text/markdown", size: 321, createdAt: "2026-11-01T10:00:00.000Z" });
+	});
+});
+
 describe("lista de tarefas", () => {
 	it("progresso, linha da doca e rótulo do fio", () => {
 		const items = tasks("r", "completed", "in_progress", "pending", "pending", "pending");

@@ -20,6 +20,11 @@ export function pageRef(pageId: string, revision: number, sourceCount: number): 
 	return { pageId, revision, sourceCount };
 }
 
+/** Identidade do arquivo no cartão (abre a folha do documento): id, mime e tamanho, sem o conteúdo. */
+export function fileRef(artifactId: string, mime: string | undefined, size: number | undefined): { fileId: string; mime?: string; size?: number } {
+	return { fileId: artifactId, ...(mime ? { mime } : {}), ...(typeof size === "number" && Number.isFinite(size) ? { size } : {}) };
+}
+
 export function cardToItem(id: string, card: PersistedConversationCard, createdAt?: string): ChatItem | null {
 	const base = { id, ...(createdAt ? { createdAt } : {}) };
 	switch (card.kind) {
@@ -58,7 +63,7 @@ export function cardToItem(id: string, card: PersistedConversationCard, createdA
 		case "page":
 			return { ...base, kind: "web-card", card: "page", title: card.title, key: `page:${card.pageId}`, ...pageRef(card.pageId, card.revision, card.sourceCount) };
 		case "file":
-			return { ...base, kind: "web-card", card: "file", title: card.filename, key: `file:${card.artifactId}` };
+			return { ...base, kind: "web-card", card: "file", title: card.filename, key: `file:${card.artifactId}`, ...fileRef(card.artifactId, card.mime, card.size) };
 		case "routine":
 			return { ...base, kind: "web-card", card: "routine", title: card.title ?? "Rotina", key: `routine:${card.routineId ?? id}` };
 		case "login":

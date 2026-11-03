@@ -2,7 +2,7 @@
 // cartões do run. Porta enxuta de `applyLiveEvent` e dos handlers de `use-atlas-chat.ts` (web). Pura: sem React.
 import type { ComputerUseEvent } from "@workspace/shared";
 import type { ChatItem, ChatPhase } from "./chat-types";
-import { pageRef } from "./chat-thread";
+import { fileRef, pageRef } from "./chat-thread";
 
 export type LiveState = {
 	items: ChatItem[];
@@ -123,7 +123,7 @@ export function applyRunEvent(state: LiveState, event: ComputerUseEvent): LiveSt
 		case "page":
 			return withWebCard(state, `page-live-${event.pageId}`, "page", event.title, `page:${event.pageId}`, pageRef(event.pageId, event.revision, event.sourceCount));
 		case "file":
-			return withWebCard(state, `file-${event.artifactId}`, "file", event.filename, `file:${event.artifactId}`);
+			return withWebCard(state, `file-${event.artifactId}`, "file", event.filename, `file:${event.artifactId}`, fileRef(event.artifactId, event.mime, event.size));
 		case "routine":
 			if (!event.title) return state;
 			return withWebCard(state, `routine-${state.runId ?? "local"}-${event.routineId ?? event.title}`, "routine", event.title, `routine:${event.routineId ?? event.title}`);
@@ -148,7 +148,7 @@ export function applyRunEvent(state: LiveState, event: ComputerUseEvent): LiveSt
 	}
 }
 
-function withWebCard(state: LiveState, id: string, card: Extract<ChatItem, { kind: "web-card" }>["card"], title: string, key: string, extra: { pageId?: string; revision?: number; sourceCount?: number } = {}): LiveState {
+function withWebCard(state: LiveState, id: string, card: Extract<ChatItem, { kind: "web-card" }>["card"], title: string, key: string, extra: { pageId?: string; revision?: number; sourceCount?: number; fileId?: string; mime?: string; size?: number } = {}): LiveState {
 	const existing = state.items.find((item): item is Extract<ChatItem, { kind: "web-card" }> => item.kind === "web-card" && item.key === key);
 	if (existing) {
 		// Painel atualizado (mesmo pageId, revisão maior): troca título, revisão e fontes no lugar, sem cartão novo.

@@ -27,7 +27,7 @@ export type ChatItem =
 	 * Painel (`card: "page"`) com `pageId` abre a tela nativa; `revision` e `sourceCount` são o resumo do cartão.
 	 * Cartão de painel antigo (gravado no cache sem `pageId`) continua abrindo no navegador.
 	 */
-	| (Base & { kind: "web-card"; card: WebCardKind; title: string; key: string; pageId?: string; revision?: number; sourceCount?: number })
+	| (Base & { kind: "web-card"; card: WebCardKind; title: string; key: string; pageId?: string; revision?: number; sourceCount?: number; fileId?: string; mime?: string; size?: number })
 	/** Marcador de uma linha no fio (conversa compactada, mensagem enviada a outro bot). */
 	| (Base & { kind: "marker"; text: string });
 
