@@ -1,5 +1,6 @@
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
+import { listLines } from "./browser-ax.mjs";
 import { createBrowserActions } from "./browser-actions.mjs";
 import { createRefActions } from "./browser-refs.mjs";
 import { launchFixtureBrowser } from "./test-browser.mjs";
@@ -201,4 +202,18 @@ test("árvore lenta (timeout curto) cai no v1 com uma nota, sem falhar", { skip 
 	assert.match(snap.note, /Árvore de acessibilidade indisponível \(demorou mais de 0.02 s\)/);
 	assert.ok(snap.lines.length > 0);
 	await page.close();
+});
+
+test("listLines: página densa — o campo de senha depois do 80º item não fica de fora do recorte", () => {
+	const buttons = Array.from({ length: 120 }, (_, i) => ({ ref: `a${i + 1}`, role: "link", name: `Link ${i}`, attrs: [], children: [] }));
+	const login = [
+		{ ref: "a500", role: "textbox", name: "E-mail", attrs: [], children: [] },
+		{ ref: "a501", role: "textbox", name: "Senha", attrs: [], children: [] },
+	];
+	const probes = new Map([["a501", { secret: "secret" }]]);
+	const lines = listLines([...buttons, ...login], probes, new Set());
+	assert.equal(lines.length, 80);
+	assert.ok(lines.some((l) => l.includes("a501") || l.includes("Senha")), "campo de senha presente");
+	assert.ok(lines.some((l) => l.includes("E-mail")));
+	assert.ok(lines.findIndex((l) => l.includes("Link 0")) < lines.findIndex((l) => l.includes("Senha")), "ordem original preservada");
 });
