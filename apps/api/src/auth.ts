@@ -7,6 +7,7 @@ import { sendMail, type MailMessage } from "@workspace/mail";
 import { betterAuth, type BetterAuthOptions } from "better-auth";
 import { APIError, createAuthMiddleware } from "better-auth/api";
 import { emailOTP, magicLink, oneTimeToken } from "better-auth/plugins";
+import { OAUTH_HANDOFF_USER_AGENT } from "./mobile-oauth-handoff.js";
 import { createEmailCodeLimiter, type EmailCodeLimiter } from "./auth-email-limit.js";
 
 const ownerEmail = process.env.ATLAS_OWNER_EMAIL?.trim().toLowerCase();
@@ -113,6 +114,20 @@ export function createAuth(deps: AuthDeps = {}) {
 					: { error: "email_not_allowed", errorDescription: "Esta conta não tem acesso ao Atlas" },
 		},
 		databaseHooks: {
+			session: {
+				update: {
+					// Sessão curta da passagem do app (mobile-oauth-handoff.ts): o better-auth renova perto do fim e uma sessão de 10 min
+					// já nasce "devida", então o primeiro getSession a estenderia para 7 dias. Mantém o expiresAt original: passados os
+					// 10 min a sessão morre no servidor, mesmo que o cookie tenha sido renovado. A sessão do app renova normalmente.
+					before: async (_data, context) => {
+						if (!context) return;
+						const token = await context.getSignedCookie(context.context.authCookies.sessionToken.name, context.context.secret);
+						if (!token) return;
+						const row = await context.context.adapter.findOne<{ userAgent?: string | null; expiresAt: Date }>({ model: "session", where: [{ field: "token", value: token }] });
+						if (row?.userAgent === OAUTH_HANDOFF_USER_AGENT) return { data: { expiresAt: row.expiresAt } };
+					},
+				},
+			},
 			user: {
 				create: {
 					// Ninguém além do dono vira usuário, qualquer que seja o caminho (Google, link, código).

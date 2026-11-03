@@ -170,7 +170,7 @@ function setup(overrides: Partial<ComposioRoutesDeps> = {}, validKeys?: string[]
 	const as = (userId: string) => {
 		const outer = new Hono<AuthEnv>();
 		outer.use("*", async (c, next) => {
-			c.set("session", { user: { id: userId } } as AuthEnv["Variables"]["session"]);
+			c.set("session", { user: { id: userId }, session: { id: `sess-${userId}` } } as unknown as AuthEnv["Variables"]["session"]);
 			await next();
 		});
 		outer.route("/", inner);
@@ -315,6 +315,27 @@ test("POST /connect valida o slug e devolve o link com state de uso único no ca
 	assert.equal(callback.origin + callback.pathname, `${WEB}/v1/composio/callback`);
 	const state = callback.searchParams.get("state") as string;
 	assert.equal((store.rows[0] as Row).oauthStateHash, hashMcpOAuthState(state));
+});
+
+test("POST /connect com client mobile devolve handoffUrl do mesmo dono e sessão; sem client a resposta não muda; client inválido = 400", async () => {
+	const minted: { userId: string; sessionId: string; next: string }[] = [];
+	const handoff = { mint: async (input: { userId: string; sessionId: string; next: string }) => { minted.push(input); return "https://atlas.example.com/v1/mobile/oauth-handoff?t=TOKEN"; } };
+	const { as } = setup({ handoff });
+	const outer = as("user-a");
+	await put(outer, KEY_A);
+	const mobile = await post(outer, "/v1/composio/connect", { toolkit: "github", client: "mobile" });
+	assert.equal(mobile.status, 200);
+	assert.deepEqual(await mobile.json(), {
+		redirectUrl: "https://connect.composio.dev/link/ln_1",
+		handoffUrl: "https://atlas.example.com/v1/mobile/oauth-handoff?t=TOKEN",
+	});
+	assert.deepEqual(minted, [{ userId: "user-a", sessionId: "sess-user-a", next: "https://connect.composio.dev/link/ln_1" }]);
+	const web = await post(outer, "/v1/composio/connect", { toolkit: "github" });
+	assert.deepEqual(await web.json(), { redirectUrl: "https://connect.composio.dev/link/ln_1" });
+	assert.equal(minted.length, 1, "sem client não gera link");
+	const bad = await post(outer, "/v1/composio/connect", { toolkit: "github", client: "web" });
+	assert.equal(bad.status, 400);
+	assert.match(((await bad.json()) as { error: string }).error, /mobile/);
 });
 
 async function connectFlow(app: Hono<AuthEnv>, composio: ReturnType<typeof fakeComposio>, userId: string, extra = "") {
