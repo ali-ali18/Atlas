@@ -12,6 +12,8 @@ import { Spinner } from "@/components/ui/spinner";
 import { Text } from "@/components/ui/text";
 import { type BotProfileItem, type BotProposalItem, botProfileTitle, botProposalTitle, profileRows, proposalModelLabel, skillLabel, summarizeTask } from "@/lib/bot-cards";
 import type { ProposalStatus } from "@/lib/chat-types";
+import { chatCardSkin } from "@/lib/chat-surface";
+import { useAppColorScheme } from "@/lib/use-theme";
 
 type Decision = "approved" | "rejected";
 
@@ -26,7 +28,7 @@ function ProposalBody({ item }: { item: BotProposalItem }) {
 	// O app ainda não tem catálogo de modelos: sem nome de exibição conhecido, a linha do modelo não aparece.
 	const modelLabel = proposalModelLabel(item.model);
 	return (
-		<View className="min-w-0 gap-3 rounded-xl bg-background/70 p-3" accessibilityLabel={`Agente ${item.name}`}>
+		<View className="min-w-0 gap-3" accessibilityLabel={`Agente ${item.name}`}>
 			<View className="min-w-0 flex-row items-center gap-3">
 				<Avatar color={item.color} shape={item.shape} size={48} animated={false} />
 				<View className="min-w-0 flex-1 gap-0.5">
@@ -63,11 +65,12 @@ function ProposalBody({ item }: { item: BotProposalItem }) {
  * dispensa. Decidido, ficam o selo e os detalhes recolhidos; criado, "Abrir conversa" leva ao chat do agente novo.
  */
 export function BotProposalCard({ item, onDecide, onOpenBot }: { item: BotProposalItem; onDecide: (item: BotProposalItem, decision: Decision) => void; onOpenBot: (botId: string) => void }) {
+	const scheme = useAppColorScheme();
 	const pending = item.status === "pending";
 	const applying = item.applying === true;
 	const blocked = applying || item.locked === true;
 	return (
-		<ChatCard className="max-w-[min(68ch,100%)] self-start">
+		<ChatCard className="max-w-[min(68ch,100%)] gap-3 self-start p-4" style={chatCardSkin(scheme)}>
 			<ChatCardHeader leading={<UserPlusIcon />} title={botProposalTitle(item)} badge={BADGE[item.status]} />
 			{pending ? (
 				<ProposalBody item={item} />
@@ -107,9 +110,9 @@ const PROFILE_BADGE: Record<ProposalStatus, { tone: ChatCardTone; label: string 
 function ProfileRows({ item }: { item: BotProfileItem }) {
 	const rows = profileRows(item);
 	return (
-		<View className="min-w-0 overflow-hidden rounded-xl bg-background/70">
+		<View className="min-w-0">
 			{rows.map((row, index) => (
-				<View key={row.field} className={index > 0 ? "min-w-0 gap-1 border-t border-border/60 px-3 py-3" : "min-w-0 gap-1 px-3 py-3"}>
+				<View key={row.field} className={index > 0 ? "min-w-0 gap-1 border-t border-border/60 py-3" : "min-w-0 gap-1 pb-3"}>
 					<Text variant="caption" className="font-medium">
 						{row.label}
 					</Text>
@@ -125,11 +128,12 @@ function ProfileRows({ item }: { item: BotProfileItem }) {
 
 /** "Aplicar" muda o perfil do bot como proposto; "Agora não" descarta sem mudar nada. */
 export function BotProfileCard({ item, onDecide }: { item: BotProfileItem; onDecide: (item: BotProfileItem, decision: Decision) => void }) {
+	const scheme = useAppColorScheme();
 	const pending = item.status === "pending";
 	const applying = item.applying === true;
 	const blocked = applying || item.locked === true;
 	return (
-		<ChatCard className="max-w-[min(68ch,100%)] self-start">
+		<ChatCard className="max-w-[min(68ch,100%)] gap-3 self-start p-4" style={chatCardSkin(scheme)}>
 			<ChatCardHeader leading={<UserCogIcon />} title={botProfileTitle(item)} badge={PROFILE_BADGE[item.status]} />
 			{pending ? (
 				<ProfileRows item={item} />
