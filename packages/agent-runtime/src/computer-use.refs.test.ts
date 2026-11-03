@@ -268,17 +268,19 @@ describe("F12/B5 - muro de login: card, pausa e retomada", () => {
 		return { error, events, checkpoints, onLoginRequired, toolResults, seenMessages };
 	}
 
-	it("replay Linear: SSO sem senha em /home emite card e pausa em vez de pedir login por texto", async () => {
-		const { error, events, checkpoints, onLoginRequired } = await runLogin(
-			[step([{ id: "linear-snapshot", name: "browser_snapshot", args: {} }]), text("Entre no Linear e me avise")],
+	it("replay Linear: SSO sem senha em /home NÃO pausa; o modelo recebe só a nota 'pode precisar de login' e segue", async () => {
+		const { error, events, checkpoints, onLoginRequired, toolResults } = await runLogin(
+			[step([{ id: "linear-snapshot", name: "browser_snapshot", args: {} }]), text("Preciso que você entre no Linear; me avise quando terminar.")],
 			null,
-			{ ...loginSnapshot, url: "https://linear.app/home", title: "Linear", total: 3, lines: ['[e1] button "Continue with Google"', '[e2] textbox "Email"', '[e3] button "Continue"'] },
+			{ ...loginSnapshot, url: "https://linear.app/home", title: "Linear", total: 4, lines: ['[e1] button "Continue with Google"', '[e2] button "Continue with email"', '[e3] textbox "Email"', '[e4] button "Continue"'] },
 			"Me mostra minhas issues do Linear",
 		);
-		expect(error).toMatchObject({ name: "AgentRunPausedError" });
-		expect(events.filter((event) => event.type === "login")).toMatchObject([{ site: "linear.app", url: "https://linear.app/home", status: "pending" }]);
-		expect(onLoginRequired).toHaveBeenCalledTimes(1);
-		expect(checkpoints.at(-1)?.pendingLogin).toMatchObject({ site: "linear.app" });
+		expect(error).toMatchObject({ stop: { reason: "answered" } });
+		expect(events.filter((event) => event.type === "login")).toHaveLength(0);
+		expect(onLoginRequired).not.toHaveBeenCalled();
+		expect(checkpoints.at(-1)?.pendingLogin).toBeUndefined();
+		expect(toolResults[0]?.summary).toContain("may need a login");
+		expect(toolResults[0]?.summary).not.toContain("LOGIN REQUIRED");
 	});
 
 	it("emite o card, grava o pedido pendente no checkpoint e pausa o run", async () => {
@@ -360,7 +362,10 @@ describe("F12/B5 - muro de login: card, pausa e retomada", () => {
 		const checked = checkLoginWall({ runId: "r", loginAsked: asked }, { url: "https://www.bling.com.br/login", title: "Entrar", lines: loginSnapshot.lines });
 		expect(checked?.loginEvent).toBeUndefined();
 		expect(checked?.note).toContain("LOGIN STILL REQUIRED");
-		expect(checked?.note).toContain("Do NOT ask again");
+		expect(checked?.note).toContain("Do not ask again");
+		// Sem "pare neste site": diz o que precisa e segue com o que dá para fazer.
+		expect(checked?.note).toContain("continue with what you can do without it");
+		expect(checked?.note).not.toMatch(/stop working on this site/);
 	});
 
 	it("o modelo nunca recebe a senha: o resultado marca o campo e não traz valor", async () => {

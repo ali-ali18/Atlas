@@ -24,7 +24,7 @@ export const MODEL_DISCIPLINE_FAMILIES: ReadonlyArray<{ family: string; pattern:
 const UNKNOWN_LEVEL: DisciplineLevel = "full";
 
 const MINIMAL_LINES = [
-	"- Finish in this turn: if something needs checking, call the tool now; never end with a promise to check or do it later (\"let me check…\").",
+	"- A reply without a tool call ends your turn: if something needs checking or doing, call the tool now; never end with a promise (\"let me check…\").",
 	"- Claim only what a tool result in this task shows. Never say you opened, saw, sent or saved something the latest result or screenshot does not show; if a tool failed or returned an unexpected page, say so with the real error. Never say you cannot do something before trying the matching tool.",
 ];
 
@@ -34,7 +34,7 @@ const ACT_LINE =
 const FULL_EXTRA_LINES = [
 	"- Numbers come from tools: do arithmetic, totals, counts and date math with a tool (run_code) or straight from tool results; never estimate them.",
 	"- Tool-call arguments must be valid JSON that matches the schema; on an argument error, fix the field it names and retry once.",
-	"- Ask at most one question, and only when you are blocked.",
+	"- Ask only when you are blocked or before something irreversible, and then one question at a time with a default.",
 ];
 
 export function disciplineLevelForModel(modelId: string | undefined): DisciplineLevel {

@@ -88,6 +88,22 @@ describe("login em duas telas (A1): a mensagem real do control server vira campo
 	});
 });
 
+describe("depois do preenchimento: muro OU dica de login mantém o pedido à pessoa (Linear /home)", () => {
+	it("página que ainda mostra 2 entradas de identidade (sem senha, sem URL de login) volta needs-human", async () => {
+		await vault.create("u", { kind: "login", name: "ex", label: "Ex", siteUrl: "https://linear.app", username: "ana@x.com", payload: { password: "P@ss1" } });
+		const b = browser({ url: "https://linear.app/home" });
+		const result = await fillVaultLoginOnResume({
+			offer: { name: "ex", label: "Ex", domain: "linear.app" },
+			userId: "u",
+			vault,
+			fillContext: { browser: b.api },
+			readPage: async () => ({ url: "https://linear.app/home", title: "Linear", lines: ['[e1] button "Continue with Google"', '[e2] button "Continue with email"'] }),
+			settle: async () => undefined,
+		});
+		expect(result.kind).toBe("needs-human");
+	});
+});
+
 describe("cartão de vínculo (A2 e M2)", () => {
 	let saved: Array<{ payload: { confirmId?: string; vaultUse?: { linkHost?: string; secretId?: string } } }>;
 	let cards: Array<{ confirmId: string; title: string; description?: string }>;

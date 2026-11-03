@@ -3,6 +3,7 @@
  * tela em branco. Aqui o runtime só rastreia o que foi OBSERVADO no navegador e decide se uma afirmação sobre a
  * tela pode sair sem conferir. Funções puras; o loop do agente guarda o estado e aplica a revisão (no máximo uma por run).
  */
+import { isLoginPathUrl } from "@workspace/shared";
 
 /** Tools que LEEM a tela/página (valem como conferência). */
 const OBSERVE_TOOLS = new Set(["browser_snapshot", "browser_read", "browser_text", "browser_links", "browser_find", "screenshot"]);
@@ -27,14 +28,12 @@ export function extractShownUrl(summary: string): string | null {
 	return labeled ? labeled[1]! : null;
 }
 
-const LOGIN_PATH = /(^|[/._-])(login|log-in|signin|sign-in|entrar|acessar|auth|sso|logon)([/._?#-]|$)/i;
-
 /** about:blank, nova aba ou uma página de entrada: não prova que está logado. */
 export function isBlankOrLoginUrl(url: string): boolean {
 	if (/^(about:blank|about:newtab|chrome:\/\/newtab|chrome:\/\/new-tab-page)/i.test(url)) return true;
 	try {
-		const parsed = new URL(url);
-		return LOGIN_PATH.test(`${parsed.pathname}${parsed.hash}`);
+		new URL(url);
+		return isLoginPathUrl(url);
 	} catch {
 		return false;
 	}

@@ -24,6 +24,14 @@ Todas as mudanças relevantes do Atlas. Formato [Keep a Changelog](https://keepa
 - **agent:** estimativa de custo (quando o provedor não informa) desconta os tokens em cache (padrão 25% do preço de entrada; `ATLAS_V2_FALLBACK_CACHED_PROMPT_RATIO`).
 - **worker:** a continuação automática também cobre `tool_failures` com itens abertos.
 
+### Corrigido (ferramentas, prompt e paradas indevidas do motor v2)
+- **agent:** o navegador leva `click`, `type`, `key`, `scroll` e `browser_tabs` junto (tarefa de navegador ou 1ª tool do grupo): acabou o passo perdido com "Tool click was not loaded". O catálogo fica estável depois de carregado. O "Bom dia" não muda de tamanho. `sandbox_shell` já vem com o grupo shell.
+- **agent:** a escada da web usa o navegador primeiro quando o pedido é agir num site (abrir, clicar, preencher, acompanhar, entrar); para achar informação, `web_search`/`web_extract`.
+- **agent:** o prompt não contradiz mais a persistência: saem "pergunte no máximo uma vez, no início" e "sem dizer o que vai fazer"; "resposta sem tool encerra o turno" fica em uma linha só. A nota de login repetido manda contar o que precisa ao usuário e seguir com o que dá, em vez de parar no site.
+- **agent:** o login só pausa com campo de senha visível ou URL de login conhecida (`accounts.google.com`, `/login`, `/signin`, `/entrar`). "Please sign in" solto, sessão expirada no texto e botões "Continue with..." viram só uma nota ao modelo ("esta página pode precisar de login"). O replay YouTube -> Gemini não para mais na página do Gemini.
+- **agent:** cartão só informativo (skill criada, atualizada, apagada, listada ou mostrada; proposta de agente já decidida) não encerra mais o run do motor v2; só cartão que pede decisão define `awaiting_confirmation`.
+- **docs:** `docs/features/motor-v2.md` descreve o fluxo atual (laço sem fases, as travas que restam, login estrutural).
+
 ### Adicionado
 - **api, shared, web:** `stopReason` e `stopDetail` em `AgentRun` e em `GET /v1/runs/:id` (escopo por dono); o inspetor de run mostra "Motivo da parada" em pt-BR simples ("Teto de gasto configurado (US$ 0,25 · servidor)"). Os tetos do run (valor e origem) ficam em `budgetJson.caps`.
 
