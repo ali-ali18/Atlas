@@ -76,7 +76,7 @@ import type {
 	ScanFinding,
 	TextDiff,
 } from "@workspace/shared";
-import { parseSseBlock, type DevApprovalCardInfo, type DevSessionEvent, type DevTimingEvent, type FilePreview, type LoginConnector } from "@workspace/shared";
+import { parseSseBlock, runTerminalKey, type DevApprovalCardInfo, type DevSessionEvent, type DevTimingEvent, type FilePreview, type LoginConnector } from "@workspace/shared";
 import { filePreviewPath } from "@/lib/file-card";
 import { getStoredSseCursor, setStoredSseCursor } from "@/lib/active-run";
 import { isJevToolReview, type JevToolReview } from "@/lib/jev-status";
@@ -1308,6 +1308,11 @@ export type ComputerUseHandlers = {
 	}) => void;
 };
 
+/** O evento encerra o run no SSE (os 5 terminais de `RUN_TERMINAL_EVENTS`); tipo desconhecido nunca encerra. */
+export function isRunTerminalEvent(event: ComputerUseEvent): boolean {
+	return runTerminalKey(event) !== null;
+}
+
 export function dispatchComputerUseEvent(
 	event: ComputerUseEvent,
 	handlers: ComputerUseHandlers,
@@ -1877,16 +1882,7 @@ async function streamAgentRunLoop(
 					if (parsed.id !== undefined) setStoredSseCursor(runId, parsed.id);
 					if (!parsed.event) continue;
 					dispatchComputerUseEvent(parsed.event, handlers, { seq: parsed.id, runId });
-					if (
-						parsed.event.type === "done" ||
-						parsed.event.type === "paused" ||
-						parsed.event.type === "cancelled" ||
-						parsed.event.type === "error" ||
-						(parsed.event.type === "status" &&
-							parsed.event.status === "budget_exhausted")
-					) {
-						return;
-					}
+					if (isRunTerminalEvent(parsed.event)) return;
 				}
 			}
 		} finally {
