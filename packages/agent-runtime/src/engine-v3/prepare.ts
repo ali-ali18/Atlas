@@ -182,6 +182,7 @@ export async function prepareRun(params: ComputerUseParams, options: EngineV3Opt
 			loadedToolNames: () => tools.map((tool) => tool.function.name),
 			onInspect: params.onInspect,
 			recordFeedback: params.lessons?.recordFeedback,
+			confirmNative: true,
 		}),
 		...(secrets ? { secrets } : {}),
 		health: params.providerHealth ?? createProviderHealth(),

@@ -240,6 +240,28 @@ describe("motor v3: limites", () => {
 	});
 });
 
+describe("motor v3: recusas entram na rede de repetição", () => {
+	it("mesma tool desconhecida: 3ª recebe nota, 5ª é bloqueada, 2 bloqueios = FINAL_STEP", async () => {
+		const ghost = (index: number) => tools(call(`g${index}`, "publish_tiktok", { video: "a" }));
+		const { results, requests, result } = await runV3({ script: [ghost(1), ghost(2), ghost(3), ghost(4), ghost(5), ghost(6), say("Não dá para publicar no TikTok.")] });
+		expect(results[2]!.summary).toMatch(/Unknown tool "publish_tiktok"[\s\S]*Same call and same result 3 times/);
+		expect(results[4]!.summary).toMatch(/^blocked: repeated/);
+		expect(results[5]!.summary).toMatch(/^blocked: repeated/);
+		expect(requests.at(-1)!.params.toolChoice).toBe("none");
+		expect(result.stop?.reason).toBe("loop_repeat");
+	});
+
+	it("args inválidos e chamada negada também sobem a escada", async () => {
+		const bad = (index: number) => tools(call(`b${index}`, READ, "{nome: "));
+		const denied = (index: number) => tools(call(`d${index}`, WRITE, { cliente: "Acme" }));
+		const invalid = await runV3({ script: [bad(1), bad(2), bad(3), say("fim")] });
+		expect(invalid.results[2]!.summary).toMatch(/Invalid arguments[\s\S]*Same call and same result 3 times/);
+		const routine = await runV3({ origin: "routine", script: [denied(1), denied(2), denied(3), denied(4), denied(5), say("fim")] });
+		expect(routine.results[2]!.summary).toMatch(/Not available in this run[\s\S]*Same call and same result 3 times/);
+		expect(routine.results[4]!.summary).toMatch(/^blocked: repeated/);
+	});
+});
+
 describe("motor v3: política decide", () => {
 	it("rotina não vê nem executa escrita de conector; needsHuman some sem humano", async () => {
 		const { requests, results, mcpCall } = await runV3({ origin: "routine", script: [tools(call("w", WRITE, { cliente: "Acme" })), say("Não consegui criar sozinho.")] });

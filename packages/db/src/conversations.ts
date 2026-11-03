@@ -1064,6 +1064,45 @@ export async function findExecutedConfirmCall(
 	return null;
 }
 
+/** Detalhe gravado no cartão quando a chamada aprovada já rodou: a aprovação vale para UMA execução. */
+export const TOOL_CALL_CONSUMED_DETAIL = "executada";
+
+/**
+ * Aprovação de uma chamada de tool nativa (motor v3, cartão genérico `tool-call`): procura o cartão mais recente desta
+ * chamada (`callKey` = tool + args) na conversa do dono, dentro da janela.
+ * - aprovado e ainda não usado: marca como usado (troca otimista do conteúdo; dois runs não usam a mesma aprovação) e
+ *   devolve `approved`;
+ * - recusado: `declined`;
+ * - já usado, pendente ou inexistente: `null` (o runtime pede de novo).
+ */
+export async function takeToolCallApproval(
+	userId: string,
+	conversationId: string,
+	callKey: string,
+	windowMs = 2 * 60 * 60_000,
+): Promise<"approved" | "declined" | null> {
+	if (!userId || !conversationId || !callKey) return null;
+	const rows = await prisma.conversationMessage.findMany({
+		where: { conversationId, role: "confirm", conversation: { userId } },
+		orderBy: { createdAt: "desc" },
+		take: 30,
+	});
+	for (const row of rows) {
+		if (Date.now() - row.createdAt.getTime() > windowMs) break;
+		const card = parseConversationCard(row.content);
+		if (card?.kind !== "confirm" || card.callKey !== callKey) continue;
+		if (!card.outcome) return null;
+		if (!card.outcome.ok) return card.status === "rejected" && card.outcome.detail !== SUPERSEDED_CARD_DETAIL ? "declined" : null;
+		if (card.outcome.detail === TOOL_CALL_CONSUMED_DETAIL) return null;
+		const used = await prisma.conversationMessage.updateMany({
+			where: { id: row.id, content: row.content },
+			data: { content: serializeConversationCard({ ...card, outcome: { ok: true, detail: TOOL_CALL_CONSUMED_DETAIL } }) },
+		});
+		return used.count > 0 ? "approved" : null;
+	}
+	return null;
+}
+
 /**
  * Estado do cartão de confirmação mais recente da conversa (`dev`: é aprovação de sessão de código)
  * (`null` = não há). Serve para reconhecer um "Executar" repetido de um cartão

@@ -19,6 +19,7 @@ import { SKIPPED_FOR_PARK, SKIPPED_FOR_USER_MESSAGE, closestToolNames, honestErr
 import { decideCall, deniedMessage, spanPolicyDecision } from "./policy.js";
 import { BLOCKED_REPEATED } from "./repetition.js";
 import { pollSteer } from "./steering.js";
+import { hasOwnApprovalCard, nativeApprovalGate } from "./approval.js";
 import type { ToolContextFactory } from "./tool-context.js";
 import type { V3Run } from "./state.js";
 
@@ -65,12 +66,19 @@ export function createToolsStep(run: V3Run, contextFor: ToolContextFactory) {
 			outputJson: { summary, ok, ...extra },
 		});
 	};
-	/** Falha antes de executar (nome, args, política, repetição): o modelo recebe o erro como resultado da tool. */
-	const refuse = async (call: LlmToolCall, sub: number, name: string, summary: string, decision: "allow" | "blocked" = "blocked"): Promise<CallOutcome> => {
+	/**
+	 * Falha antes de executar (nome, args, política, repetição): o modelo recebe o erro como resultado da tool. Entra na
+	 * rede de repetição com a mesma escada (chave tool + args + erro): insistir na mesma recusa recebe nota e depois bloqueio.
+	 */
+	const refuse = async (call: LlmToolCall, sub: number, name: string, summary: string, options: { decision?: "allow" | "blocked"; argsKey?: string; checked?: boolean } = {}): Promise<CallOutcome> => {
+		const argsKey = options.argsKey ?? `${name}:${call.function.arguments.slice(0, 2_000)}`;
+		const base = !options.checked && run.repetition.shouldBlock({ argsKey, poll: false }) ? BLOCKED_REPEATED : summary;
+		const { notes } = run.repetition.record({ argsKey, resultKey: toolResultKey(base, false), poll: false, ok: false, errorKey: `${name}|\u0000${base.slice(0, 200)}` });
+		const text = notes.length > 0 ? `${base}\n\n${notes.join("\n")}` : base;
 		await run.emit({ type: "tool_call", id: call.id, name, args: call.function.arguments, step: run.step });
-		await run.emit({ type: "tool_result", id: call.id, name, ok: false, summary });
-		await span(call, sub, name, false, summary, decision);
-		return { call, name, ok: false, summary };
+		await run.emit({ type: "tool_result", id: call.id, name, ok: false, summary: text });
+		await span(call, sub, name, false, text, options.decision ?? "blocked");
+		return { call, name, ok: false, summary: text };
 	};
 
 	const processCall = async (call: LlmToolCall, sub: number): Promise<CallOutcome> => {
@@ -82,7 +90,7 @@ export function createToolsStep(run: V3Run, contextFor: ToolContextFactory) {
 			const deferred = deferral?.isDeferred(name) ? name : deferral?.isDeferred(normalizeToolName(name)) ? normalizeToolName(name) : undefined;
 			if (deferral && deferred) {
 				const { notes } = deferral.loadGroupOf(deferred);
-				return await refuse(call, sub, deferred, `Tool ${deferred} was not loaded; it is loaded now. Call it again.${notes ? `\n${notes}` : ""}`, "allow");
+				return await refuse(call, sub, deferred, `Tool ${deferred} was not loaded; it is loaded now. Call it again.${notes ? `\n${notes}` : ""}`, { decision: "allow" });
 			}
 			// Existe mas a política tirou do catálogo: o modelo recebe o motivo, não "não existe".
 			const hiddenEntry = run.entryOf(name);
@@ -90,7 +98,7 @@ export function createToolsStep(run: V3Run, contextFor: ToolContextFactory) {
 				let hiddenArgs: Record<string, unknown> = {};
 				try { hiddenArgs = parseArgs(call.function.arguments); } catch { /* o motivo da política vale sem os args */ }
 				const hidden = decideCall({ name, args: hiddenArgs, ...(hiddenEntry ? { entry: hiddenEntry } : {}), base: run.policy, autonomy: run.autonomy.get() });
-				if (hidden.decision === "deny" || hidden.decision === "hide") return await refuse(call, sub, name, deniedMessage(hidden.reason));
+				if (hidden.decision === "deny" || hidden.decision === "hide") return await refuse(call, sub, name, deniedMessage(hidden.reason), { argsKey: toolArgsKey(name, hiddenArgs) });
 			}
 			const known = [...run.tools.map((tool) => tool.function.name), ...(deferral?.pending() ?? [])];
 			return await refuse(call, sub, name, unknownToolMessage(name, closestToolNames(name, known)));
@@ -103,19 +111,32 @@ export function createToolsStep(run: V3Run, contextFor: ToolContextFactory) {
 		} catch (error) {
 			return await refuse(call, sub, name, invalidArgsMessage(tool, honestError(error)));
 		}
+		const argsKey = toolArgsKey(name, args);
 		const missing = missingRequiredArgs(tool, args);
-		if (missing.length > 0) return await refuse(call, sub, name, invalidArgsMessage(tool, `missing required ${missing.join(", ")}`));
+		if (missing.length > 0) return await refuse(call, sub, name, invalidArgsMessage(tool, `missing required ${missing.join(", ")}`), { argsKey });
 		// --- política (decide de verdade) ---
 		const entry = run.entryOf(name);
 		const pre = run.preTools.run(name, args, entry);
-		if (pre.error) return await refuse(call, sub, name, pre.error);
+		if (pre.error) return await refuse(call, sub, name, pre.error, { argsKey });
 		const verdict = decideCall({ name, args, ...(entry ? { entry } : {}), base: run.policy, autonomy: run.autonomy.get(), confirmAlways: pre.forceConfirm });
-		if (verdict.decision === "deny" || verdict.decision === "hide") return await refuse(call, sub, name, deniedMessage(verdict.reason));
+		if (verdict.decision === "deny" || verdict.decision === "hide") return await refuse(call, sub, name, deniedMessage(verdict.reason), { argsKey });
 		// --- rede de repetição ---
 		const meta = getToolMeta(name);
-		const argsKey = toolArgsKey(name, args);
 		const errorTarget = `${name}|${targetOf(args)}`;
-		if (run.repetition.shouldBlock({ argsKey, poll: meta?.poll === true, errorTarget })) return await refuse(call, sub, name, BLOCKED_REPEATED);
+		if (run.repetition.shouldBlock({ argsKey, poll: meta?.poll === true, errorTarget })) return await refuse(call, sub, name, BLOCKED_REPEATED, { argsKey, checked: true });
+		// --- `ask` em tool nativa: cartão genérico e o run estaciona (conector e tool com cartão próprio usam o deles) ---
+		const nativeAsk = verdict.decision === "ask" && !entry && !hasOwnApprovalCard(name);
+		if (nativeAsk) {
+			const gate = await nativeApprovalGate(run, name, args);
+			if (gate.kind === "refuse") return await refuse(call, sub, name, gate.summary, { argsKey });
+			if (gate.kind === "parked") {
+				await run.emit({ type: "tool_call", id: call.id, name, args: call.function.arguments, step: run.step });
+				await run.emit({ type: "tool_result", id: call.id, name, ok: true, summary: gate.summary });
+				await run.emit(gate.card);
+				await span(call, sub, name, true, gate.summary, "confirm");
+				return Object.assign({ call, name, ok: true, summary: gate.summary }, { awaiting: "confirm" as const });
+			}
+		}
 
 		// --- execução (mesmo executor do v1/v2; escrita externa com journal não repete) ---
 		const idempotencyKey = toolIdempotencyKey({ runId: run.runId, decisionIndex: run.step, toolCallId: call.id, toolName: name });
@@ -144,8 +165,8 @@ export function createToolsStep(run: V3Run, contextFor: ToolContextFactory) {
 		let media: LlmContentPart[] = [];
 		const startedAt = Date.now();
 		try {
-			// `ask` com humano: o executor mostra o cartão de confirmação existente (conector) e o run estaciona.
-			const outcome = await runSandboxOperation({ signal: params.abortSignal }, isSandboxTool(name) ? 180_000 : undefined, (signal) => executeTool(name, args, contextFor(call, signal, verdict.decision === "ask")));
+			// `ask` com humano em conector: o executor mostra o cartão dele e o run estaciona. Nativa já aprovada roda aqui.
+			const outcome = await runSandboxOperation({ signal: params.abortSignal }, isSandboxTool(name) ? 180_000 : undefined, (signal) => executeTool(name, args, contextFor(call, signal, verdict.decision === "ask" && !nativeAsk)));
 			if (isUntrustedContentTool(name) && !(isMcpToolName(name) && outcome.confirmEvent)) await run.markUntrusted();
 			summary = outcome.summary;
 			const pending = (event?: { status?: string }) => Boolean(event) && (event!.status ?? "pending") === "pending";

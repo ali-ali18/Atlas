@@ -2,7 +2,7 @@ import type { PlanInfo } from "@workspace/shared";
 import { prisma } from "./client.js";
 
 export type SkillPendingKind = "need-name" | "pick-skill" | "confirm";
-export type SkillPendingAction = "dev-pr-create" | "request-secrets" | "dev-command" | "rename" | "edit" | "show" | "delete" | "delete-all" | "clean-drafts" | "mcp-call" | "generate-image" | "set-primary-bot" | "vault-use" | "email-send" | "email-key" | "email-create-mailbox" | "plan" | "infra-setup";
+export type SkillPendingAction = "dev-pr-create" | "request-secrets" | "dev-command" | "rename" | "edit" | "show" | "delete" | "delete-all" | "clean-drafts" | "mcp-call" | "generate-image" | "set-primary-bot" | "vault-use" | "email-send" | "email-key" | "email-create-mailbox" | "plan" | "infra-setup" | "tool-call";
 export type SkillPendingCandidate = { skillId: string; capabilityKey: string; title: string };
 /** Chamada de conector MCP que escreve dados, aguardando o "confirmado". */
 export type SkillPendingMcpCall = {
@@ -52,6 +52,8 @@ export type SkillPendingPayload = {
 	secretsRequest?: { environmentId: string; repo: string; names: string[] };
 	/** Escrita de infraestrutura da prévia completa (DNS) aguardando o "confirmado"; o agente repete a chamada depois. Nenhum segredo aqui. */
 	infraSetup?: { callKey: string; label: string };
+	/** Chamada de tool nativa que a política do motor v3 pediu para o dono aprovar; o agente repete a chamada depois. Nenhum segredo aqui. */
+	toolCall?: { callKey: string; tool: string; label: string };
 	/** Plano proposto (`propose_plan`) aguardando "Aprovar plano"; aprovar não aprova escritas. */
 	plan?: PlanInfo;
 	/** Vínculo de um login do Cofre sem site a um host (a primeira vez); nenhum valor aqui. `linkHost` = hostname exato que o "Sim" grava no item. */

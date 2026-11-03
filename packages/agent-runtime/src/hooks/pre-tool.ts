@@ -33,6 +33,8 @@ export type PreToolState = {
 	planPending: boolean;
 	/** A tool existe neste run? Uma regra que exige uma tool inexistente nunca poderia ser cumprida e é ignorada. */
 	isToolAvailable: (pattern: string) => boolean;
+	/** `confirm_always` também vale para tool nativa (motor v3, que tem cartão genérico). Ausente = só conector (v1/v2). */
+	confirmNative?: boolean;
 };
 
 export type PreToolHit = {
@@ -87,7 +89,7 @@ export function runPreToolHooks(call: PreToolCall, state: PreToolState): PreTool
 		const ref = lessonRef(lesson.id);
 		const base = { source: "rule" as const, tool: call.name, lessonId: lesson.id, ref, ruleKind: rule.kind };
 		if (rule.kind === "confirm_always") {
-			if (call.isMcp) {
+			if (call.isMcp || state.confirmNative) {
 				forceConfirm = true;
 				hits.push({ ...base, action: "confirm" });
 			}

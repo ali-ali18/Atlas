@@ -23,6 +23,8 @@ export {
 	touchBotProfileCard,
 	updateConfirmCardStatus,
 	findExecutedConfirmCall,
+	takeToolCallApproval,
+	TOOL_CALL_CONSUMED_DETAIL,
 	setConfirmCardGrantUses,
 	listApprovedConfirmTools,
 	getLatestConfirmCardStatus,
