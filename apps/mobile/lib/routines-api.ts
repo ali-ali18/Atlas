@@ -27,6 +27,12 @@ export async function setRoutineEnabled(apiFetch: ApiFetch, botId: string, routi
 	if (!response.ok) throw new ChatApiError(response.statusText || `HTTP ${response.status}`, response.status);
 }
 
+/** Rotina nova de um bot (`POST /v1/bots/:botId/routines`): o corpo que o web manda ao instalar do catálogo (`createRoutine`), ligada. */
+export async function createRoutine(apiFetch: ApiFetch, botId: string, input: { name: string; prompt: string; schedule: string }): Promise<void> {
+	const response = await apiFetch(`${base(botId)}/routines`, { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ name: input.name, prompt: input.prompt, schedule: input.schedule, enabled: true }) });
+	if (!response.ok) throw new ChatApiError(response.statusText || `HTTP ${response.status}`, response.status);
+}
+
 /** `GET /v1/bots/:botId/routines/:routineId/runs`: as execuções recentes (até 20). */
 export async function listRoutineRuns(apiFetch: ApiFetch, botId: string, routineId: string): Promise<RoutineRunRecord[]> {
 	const body = await readJson<{ runs?: RoutineRunRecord[] }>(await apiFetch(`${base(botId)}/routines/${encodeURIComponent(routineId)}/runs`, { headers: { accept: "application/json" } }));
