@@ -7,8 +7,8 @@ import { ReplyChip } from "./reply-chip";
 import { ArrowUpIcon, MicIcon, PlusIcon, StopIcon, WaveformIcon } from "@/components/icons";
 import { Text } from "@/components/ui/text";
 import { pillAccessibilityLabel, type ModelPill } from "@/lib/model-pill";
-import { chatChrome } from "@/lib/chat-surface";
 import { themeColor } from "@/lib/theme";
+import { useSurfaces } from "@/lib/use-surfaces";
 import { useAppColorScheme } from "@/lib/use-theme";
 
 /** Composer magro como o do Grok (medido no print): 47 de altura externa (45 + borda), botões de 30, margem de 19,5. */
@@ -53,14 +53,14 @@ type ComposerProps = {
  * base. O botão da cor do bot é "enviar" com texto, "parar" durante o run (sem texto) e, parado e vazio, as ondas de
  * voz. Microfone e voz ainda são "em breve".
  *
- * Estrutura e borda como no `chat-composer` do web: uma View só, com `border border-border` e `bg-input`, colada na
+ * Estrutura e borda como no `chat-composer` do web: uma View só, com `chromeEdge` e `chromeFill` (lib/surfaces.ts), colada na
  * pílula (sem respiro nem wrapper), com o raio total direto nela, nos dois formatos (pílula e retângulo).
  */
 export function Composer({ initialText, botName, color, foreground, running, onSend, onStop, onSoon, onModel, modelPill, holdWriting, onWriting, replyTo, onCancelReply }: ComposerProps) {
 	// `color` é o destaque do bot (`botAccent`): o primeiro plano é o que vem dele, sempre branco.
 	const onColor = foreground;
 	const scheme = useAppColorScheme();
-	const chrome = chatChrome(scheme);
+	const surfaces = useSurfaces();
 	const [text, setText] = React.useState(initialText ?? "");
 	const hasText = text.trim().length > 0;
 	const inputRef = React.useRef<React.ComponentRef<typeof TextInput>>(null);
@@ -107,7 +107,7 @@ export function Composer({ initialText, botName, color, foreground, running, onS
 	};
 	return (
 		<View className="mb-2 gap-2" style={{ marginHorizontal: 19.5 }}>
-			<View className="overflow-hidden border" style={{ borderRadius: open || replyTo ? STACKED_RADIUS : PILL_RADIUS, borderColor: chrome.edge, backgroundColor: chrome.fill }}>
+			<View className="overflow-hidden border" style={{ borderRadius: open || replyTo ? STACKED_RADIUS : PILL_RADIUS, borderColor: surfaces.chromeEdge, backgroundColor: surfaces.chromeFill }}>
 				{replyTo && onCancelReply ? <ReplyChip quote={replyTo} onCancel={onCancelReply} /> : null}
 				{/*
 				  Um só TextInput nos dois formatos (assim o foco e o teclado não se perdem na troca). Os botões ficam sempre
@@ -177,11 +177,11 @@ export function Composer({ initialText, botName, color, foreground, running, onS
 						pointerEvents="box-none"
 					>
 						<View className="min-w-0 shrink flex-row items-center gap-2">
-							<Pressable role="button" accessibilityLabel="Adicionar" onPress={() => onSoon("anexos")} style={{ width: BUTTON, height: BUTTON, backgroundColor: chrome.control }} className="items-center justify-center rounded-full active:opacity-70">
+							<Pressable role="button" accessibilityLabel="Adicionar" onPress={() => onSoon("anexos")} style={{ width: BUTTON, height: BUTTON, backgroundColor: surfaces.chromeControl }} className="items-center justify-center rounded-full active:opacity-70">
 								<PlusIcon size={18} />
 							</Pressable>
 							{writing ? (
-								<Pressable role="button" accessibilityLabel={pillAccessibilityLabel(modelPill)} onPress={onModel} style={{ height: BUTTON, backgroundColor: chrome.control }} className="min-w-0 shrink flex-row items-center gap-1.5 rounded-full px-3 active:opacity-70">
+								<Pressable role="button" accessibilityLabel={pillAccessibilityLabel(modelPill)} onPress={onModel} style={{ height: BUTTON, backgroundColor: surfaces.chromeControl }} className="min-w-0 shrink flex-row items-center gap-1.5 rounded-full px-3 active:opacity-70">
 									<Text numberOfLines={1} className="shrink text-body">
 										{modelPill.name}
 									</Text>
@@ -194,8 +194,7 @@ export function Composer({ initialText, botName, color, foreground, running, onS
 							) : null}
 						</View>
 						<View className="flex-row items-center gap-2">
-							
-							<Pressable role="button" accessibilityLabel="Microfone (em breve)" onPress={() => onSoon("voz")} style={{ width: BUTTON, height: BUTTON, backgroundColor: chrome.control }} className="items-center justify-center rounded-full active:opacity-70">
+							<Pressable role="button" accessibilityLabel="Microfone (em breve)" onPress={() => onSoon("voz")} style={{ width: BUTTON, height: BUTTON, backgroundColor: surfaces.chromeControl }} className="items-center justify-center rounded-full active:opacity-70">
 								<MicIcon size={18} />
 							</Pressable>
 							<Pressable

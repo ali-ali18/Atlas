@@ -1,41 +1,34 @@
-import { themeColor } from "./theme";
+import type { ColorScheme } from "./color-tokens";
+import { surfaceColors } from "./surfaces";
 
-/**
- * Cor do balão do bot e do cartão da tabela: no escuro, o cinza neutro do app do Grok (#1f1f1f, medido no print),
- * em vez do `muted` do tema (#27272a, com um fio de azul). No claro vale o token.
- */
-export function chatSurface(scheme: "light" | "dark", kind: "bubble" | "card" = "bubble"): string {
-	if (scheme !== "dark") return themeColor(scheme, "muted");
-	return kind === "card" ? "#1f1f1f" : "#202020";
+// Compatibilidade: as cores moram em `lib/surfaces.ts`. Estas funções só mantêm os nomes antigos (outras branches ainda
+// importam daqui); código novo usa `surfaceColors`/`useSurfaces`.
+
+/** Balão do bot (`"bubble"`) e cartão da tabela (`"card"`, agora a superfície padrão). */
+export function chatSurface(scheme: ColorScheme, kind: "bubble" | "card" = "bubble"): string {
+	const colors = surfaceColors(scheme);
+	return kind === "card" ? colors.surface : colors.bubble;
 }
 
-/** Borda do cartão da tabela e dos cartões de proposta: no escuro, o #313131 medido no app do Grok; no claro, o token. */
-export function chatCardEdge(scheme: "light" | "dark"): string {
-	return scheme === "dark" ? "#313131" : themeColor(scheme, "border");
+/** Chrome do chat: campo, botões redondos, topo. */
+export function chatChrome(scheme: ColorScheme): { fill: string; edge: string; control: string } {
+	const colors = surfaceColors(scheme);
+	return { fill: colors.chromeFill, edge: colors.chromeEdge, control: colors.chromeControl };
 }
 
-/** Pele do cartão do chat (tabela, propostas): fundo, borda e raio do app do Grok. Peça única, sem caixas aninhadas. */
-export function chatCardSkin(scheme: "light" | "dark") {
-	return { backgroundColor: chatSurface(scheme, "card"), borderWidth: 1, borderColor: chatCardEdge(scheme), borderRadius: 21 } as const;
+/** Telas de Rotinas: agora usam o mesmo fundo e cartão de todas as telas. */
+export function routineSurface(scheme: ColorScheme): { screen: string; card: string; edge: string; link: string; off: string } {
+	const colors = surfaceColors(scheme);
+	return { screen: colors.screen, card: colors.surface, edge: colors.surfaceEdge, link: colors.link, off: colors.switchOff };
 }
 
-/**
- * Cores do "chrome" do chat (campo de mensagem, botões redondos, topo) no escuro, medidas no app do Grok: preenchimento
- * #2c2c2e, contorno #4b4b4d (bem mais claro que o token `border`, #222223, que quase some) e botão interno #3e3d42.
- * No claro valem os tokens.
- */
-export function chatChrome(scheme: "light" | "dark"): { fill: string; edge: string; control: string } {
-	return scheme === "dark"
-		? { fill: "#2c2c2e", edge: "#4b4b4d", control: "#3e3d42" }
-		: { fill: themeColor(scheme, "input"), edge: themeColor(scheme, "border"), control: themeColor(scheme, "muted") };
+/** Contorno do cartão do chat (tabela, propostas): o contorno padrão do cartão. */
+export function chatCardEdge(scheme: ColorScheme): string {
+	return surfaceColors(scheme).surfaceEdge;
 }
 
-/**
- * Cores das telas de Rotinas no escuro (medidas no app do Grok): fundo da tela #1e1e1e, cartões #2c2c2e com contorno
- * #373739 e o azul da ação "Editar rotina" (#136cd0). No claro valem os tokens.
- */
-export function routineSurface(scheme: "light" | "dark"): { screen: string; card: string; edge: string; link: string; off: string } {
-	return scheme === "dark"
-		? { screen: "#1e1e1e", card: "#2c2c2e", edge: "#373739", link: "#136cd0", off: "#3a3a3c" }
-		: { screen: themeColor(scheme, "background"), card: themeColor(scheme, "muted"), edge: themeColor(scheme, "border"), link: themeColor(scheme, "info"), off: themeColor(scheme, "input") };
+/** Pele do cartão do chat (tabela, propostas): a superfície padrão com contorno e raio de cartão. */
+export function chatCardSkin(scheme: ColorScheme) {
+	const colors = surfaceColors(scheme);
+	return { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.surfaceEdge, borderRadius: 21 } as const;
 }

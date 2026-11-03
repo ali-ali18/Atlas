@@ -1,13 +1,12 @@
 import * as React from "react";
 import { ScrollView, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
 import { CheckCircleIcon, CircleIcon } from "@/components/icons";
+import { ScreenFrame } from "@/components/ui/screen-frame";
 import { ScreenHeader } from "@/components/ui/screen-header";
 import { Spinner } from "@/components/ui/spinner";
+import { SurfaceGroup } from "@/components/ui/surface-card";
 import { Text } from "@/components/ui/text";
-import { routineSurface } from "@/lib/chat-surface";
 import type { TaskItem } from "@/lib/chat-types";
-import { useAppColorScheme } from "@/lib/use-theme";
 
 /** Rótulo do estado de um passo, embaixo do título (como o "Concluído" do Grok). */
 export function stepStatusLabel(status: TaskItem["status"]): string {
@@ -26,15 +25,14 @@ function StepIcon({ status }: { status: TaskItem["status"] }) {
  * Os passos vêm do run vivo (ou o último do fio); o servidor não guarda um histórico de passos para listar mais.
  */
 export function ExecutionsView({ steps, active, onBack }: { steps: readonly TaskItem[]; active: boolean; onBack: () => void }) {
-	const surface = routineSurface(useAppColorScheme());
 	return (
-		<SafeAreaView className="flex-1" style={{ backgroundColor: surface.screen }}>
+		<ScreenFrame>
 			<ScreenHeader title="Execuções" onBack={onBack} />
 			<ScrollView contentContainerClassName="gap-3 px-4 pb-10 pt-6">
 				{steps.length > 0 ? (
-					<View style={{ borderWidth: 1, borderColor: surface.edge, backgroundColor: surface.card, borderRadius: 21, overflow: "hidden" }}>
+					<SurfaceGroup>
 						{steps.map((step, index) => (
-							<View key={`${index}-${step.content}`} className="flex-row items-center gap-4 px-5 py-4" style={index > 0 ? { borderTopWidth: 1, borderTopColor: surface.edge } : undefined}>
+							<View key={`${index}-${step.content}`} className="flex-row items-center gap-4 px-5 py-4">
 								<View className="size-8 items-center justify-center">
 									<StepIcon status={step.status} />
 								</View>
@@ -48,13 +46,13 @@ export function ExecutionsView({ steps, active, onBack }: { steps: readonly Task
 								</View>
 							</View>
 						))}
-					</View>
+					</SurfaceGroup>
 				) : (
 					<Text variant="muted" className="px-2 pt-8 text-center text-control">
 						{active ? "O bot está começando…" : "Quando o bot trabalhar em algo de vários passos, você acompanha por aqui."}
 					</Text>
 				)}
 			</ScrollView>
-		</SafeAreaView>
+		</ScreenFrame>
 	);
 }

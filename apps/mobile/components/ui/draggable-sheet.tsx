@@ -4,6 +4,7 @@ import Animated, { Easing, useAnimatedStyle, useReducedMotion, useSharedValue, w
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ThemedModalRoot } from "@/components/home/themed-modal";
 import { useKeyboardHeight } from "@/lib/use-keyboard-visible";
+import { useSurfaces } from "@/lib/use-surfaces";
 import { dragHeight, normalizeRest, restHeight, settleSheet, type SheetRest, tapRest } from "@/lib/sheet-drag";
 
 /** Folga entre o topo da gaveta expandida e a barra de status. */
@@ -45,6 +46,7 @@ type Props = {
  */
 export function DraggableSheet({ visible, onClose, onRequestClose, header, fixed, fullHeight = false, backgroundColor, bodyPadding = 16, refreshControl, children }: Props) {
 	const insets = useSafeAreaInsets();
+	const surfaces = useSurfaces();
 	const { height: screenHeight } = useWindowDimensions();
 	const reducedMotion = useReducedMotion();
 	// Com o teclado aberto a gaveta sobe junto: a altura útil é a tela menos o teclado.
@@ -176,7 +178,7 @@ export function DraggableSheet({ visible, onClose, onRequestClose, header, fixed
 				<Pressable accessibilityLabel="Fechar" onPress={onClose} className="absolute inset-0 bg-black/50" />
 				<View pointerEvents="box-none" className="flex-1 justify-end" style={{ paddingBottom: keyboard }}>
 					<Animated.View style={[{ opacity: shown ? 1 : 0 }, sheetStyle]}>
-						<View className="flex-1 overflow-hidden rounded-t-panel bg-popover" style={backgroundColor ? { backgroundColor } : undefined}>
+						<View className="flex-1 overflow-hidden rounded-t-panel" style={{ backgroundColor: backgroundColor ?? surfaces.sheet }}>
 							<View onLayout={(event) => setZoneHeight(event.nativeEvent.layout.height)}>
 							<View {...pan.panHandlers}>
 								<View

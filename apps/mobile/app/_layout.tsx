@@ -10,7 +10,8 @@ import { SplashView } from "@/components/splash-screen";
 import { redirectFor } from "@/lib/auth-flow";
 import { AtlasSessionProvider, useAtlasSession } from "@/lib/atlas-session";
 import { HomeDataProvider } from "@/lib/home-data";
-import { themeColor, themeVars } from "@/lib/theme";
+import { surfaceColors } from "@/lib/surfaces";
+import { themeVars } from "@/lib/theme";
 import { useAppColorScheme } from "@/lib/use-theme";
 
 // O splash nativo fica até a primeira tela do app desenhar (abaixo), sem piscar entre os dois.
@@ -48,7 +49,7 @@ export default function RootLayout() {
 							screenOptions={{
 								headerShown: false,
 								animation: "fade",
-								contentStyle: { backgroundColor: themeColor(scheme, "background") },
+								contentStyle: { backgroundColor: surfaceColors(scheme).screen },
 							}}
 						/>
 						<AccessGate />
