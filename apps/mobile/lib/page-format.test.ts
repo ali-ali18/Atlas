@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ChartSpec } from "@workspace/shared";
-import { barPercent, chartTable, currencyDigits, formatChartDates, formatCompact, formatDecimal, formatPageDelta, formatPageNumber, formatPageValue, resolveTab, shortDeltaLabel, sourceCountLabel, updatedAgoLabel } from "./page-format";
+import { barPercent, chartTable, currencyDigits, formatChartDates, formatCompact, formatDecimal, formatPageDelta, formatPageNumber, formatPageValue, pageStatusLine, resolveTab, shortDeltaLabel, sourceCountLabel, updatedAgoLabel } from "./page-format";
 
 describe("números do painel (sem Intl)", () => {
 	it("decimal pt-BR: milhar com ponto, vírgula, sem zeros sobrando", () => {
@@ -104,6 +104,16 @@ describe("Atualizado há…", () => {
 		expect(updatedAgoLabel(null, now)).toBeNull();
 		expect(updatedAgoLabel("ontem", now)).toBeNull();
 		expect(updatedAgoLabel("2026-11-02T12:05:00Z", now)).toBe("Atualizado agora");
+	});
+});
+
+describe("linha de status do painel", () => {
+	const now = Date.parse("2026-11-02T12:00:00Z");
+	it("mostra o erro de atualização junto com o Atualizado há", () => {
+		expect(pageStatusLine("Não consegui atualizar agora.", "2026-11-02T10:00:00Z", now)).toBe("Não consegui atualizar agora. · Atualizado há 2 h");
+		expect(pageStatusLine(null, "2026-11-02T10:00:00Z", now)).toBe("Atualizado há 2 h");
+		expect(pageStatusLine("Falhou", null, now)).toBe("Falhou");
+		expect(pageStatusLine(null, null, now)).toBe("");
 	});
 });
 

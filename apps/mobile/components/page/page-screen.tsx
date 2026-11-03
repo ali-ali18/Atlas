@@ -9,7 +9,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Text } from "@/components/ui/text";
 import { routineSurface } from "@/lib/chat-surface";
 import type { PageData } from "@/lib/page-api";
-import { sourceCountLabel, updatedAgoLabel } from "@/lib/page-format";
+import { pageStatusLine, sourceCountLabel } from "@/lib/page-format";
 import type { PageState } from "@/lib/page-state";
 import { themeColor } from "@/lib/theme";
 import { useAppColorScheme } from "@/lib/use-theme";
@@ -103,12 +103,12 @@ export function PageScreen({ state, fallbackTitle, onBack, onRefresh, onRetry, o
 			</View>
 		);
 	} else {
-		const ago = updatedAgoLabel(state.page.updatedAt, now);
+		const status = pageStatusLine(state.refreshError, state.page.updatedAt, now);
 		body = (
 			<View className="gap-4">
-				{ago || state.refreshError ? (
+				{status ? (
 					<Text variant="muted" className="text-caption">
-						{state.refreshError ?? ago}
+						{status}
 					</Text>
 				) : null}
 				{state.page.spec.summary ? <Text variant="muted" className="text-control">{state.page.spec.summary}</Text> : null}

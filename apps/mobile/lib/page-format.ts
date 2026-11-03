@@ -139,6 +139,11 @@ export function updatedAgoLabel(iso: string | null | undefined, now: number): st
 	return `Atualizado em ${String(date.getUTCDate()).padStart(2, "0")}/${String(date.getUTCMonth() + 1).padStart(2, "0")}/${date.getUTCFullYear()}`;
 }
 
+/** Linha sob o topo: o aviso de falha ao atualizar E o "Atualizado há…" juntos ("Não consegui atualizar agora. · Atualizado há 2 h"). */
+export function pageStatusLine(refreshError: string | null, updatedAt: string | null, now: number): string {
+	return [refreshError, updatedAgoLabel(updatedAt, now)].filter(Boolean).join(" · ");
+}
+
 /** Quantas linhas do gráfico entram na tabela provisória (o gráfico de verdade abre no navegador). */
 export const CHART_TABLE_MAX_ROWS = 12;
 
