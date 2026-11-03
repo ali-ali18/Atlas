@@ -97,7 +97,29 @@ function next() {
 setTimeout(next, 100);
 </script></body>`;
 
-const fixtures = await launchFixtureBrowser({ "/stream": stream, "/feedstream": feedStream });
+// Chat que gera ~2 s de texto com o botão "Parar resposta" visível e o remove no fim (aria-busy volta a false).
+const genStop = `<body><main id="box" aria-busy="true"><div id="out"></div></main><button id="stop" aria-label="Parar resposta">■</button>
+<script>
+let n = 0;
+const t = setInterval(() => {
+  document.getElementById('out').textContent += ' palavra' + (++n);
+  if (n >= 10) { clearInterval(t); setTimeout(() => { document.getElementById('stop').remove(); document.getElementById('box').setAttribute('aria-busy', 'false'); }, 150); }
+}, 200);
+</script></body>`;
+// Mesma geração, mas com pausa de 2,5 s no meio e o botão de parar sempre visível até o fim.
+const genPause = `<body><div id="out"></div><button id="stop" aria-label="Stop generating">x</button>
+<script>
+let n = 0;
+function next() {
+  document.getElementById('out').textContent += ' w' + (++n);
+  if (n === 5) return setTimeout(next, 2500);
+  if (n >= 8) return setTimeout(() => document.getElementById('stop').remove(), 100);
+  setTimeout(next, 200);
+}
+next();
+</script></body>`;
+
+const fixtures = await launchFixtureBrowser({ "/stream": stream, "/feedstream": feedStream, "/genstop": genStop, "/genpause": genPause });
 after(() => fixtures?.close());
 const skip = fixtures ? false : "Chromium/playwright-core indisponível";
 
@@ -154,4 +176,36 @@ test("real: painel que streama atrás de 15 mil comentários, com pausa de 2 s: 
 	// 1 s + pausa de 2 s + 1,2 s de streaming + 2,5 s de silêncio/confirmação; folga para a carga da página.
 	assert.ok(took >= 5500, `terminou cedo demais (${took} ms)`);
 	assert.ok(took < 12_000, `demorou demais (${took} ms)`);
+});
+
+test("waitUntilTextStable: sinal de fim (botão de parar sumiu) encerra antes do silêncio completo", async () => {
+	const clock = fakeClock();
+	const sample = async () => ({ found: true, changed: true, idleMs: Math.max(0, clock.now() - 2000), len: 40, ended: clock.now() >= 2100 });
+	const res = await waitUntilTextStable({ sample, capMs: 20_000, ...clock });
+	assert.equal(res.met, true);
+	assert.equal(res.endSignal, true);
+	assert.ok(res.waitedMs < 2800, `waitedMs=${res.waitedMs}`);
+	// Sem o sinal, o mesmo texto só conclui no silêncio + confirmação.
+	const clock2 = fakeClock();
+	const slow = await waitUntilTextStable({ sample: async () => ({ found: true, changed: true, idleMs: Math.max(0, clock2.now() - 2000), len: 40 }), capMs: 20_000, ...clock2 });
+	assert.ok(slow.waitedMs >= 4500);
+	assert.equal(slow.endSignal, undefined);
+});
+
+test("real: botão de parar removido (e aria-busy=false) termina a espera cedo, sem passar do teto", { skip }, async () => {
+	const { refs } = await open("/genstop");
+	const started = Date.now();
+	const res = await refs.browserWait({ for: "text_stable", timeoutMs: 15_000 });
+	const took = Date.now() - started;
+	assert.equal(res.met, true, JSON.stringify(res));
+	assert.equal(res.endSignal, true, JSON.stringify(res));
+	// ~2,2 s de geração + ~0,4 s: o silêncio completo (2,5 s) só acabaria depois de ~4,7 s.
+	assert.ok(took < 4200, `demorou ${took} ms`);
+});
+
+test("real: pausa longa com o botão de parar ainda visível não encerra a espera", { skip }, async () => {
+	const { refs, page } = await open("/genpause");
+	const res = await refs.browserWait({ for: "text_stable", timeoutMs: 15_000 });
+	assert.equal(res.met, true, JSON.stringify(res));
+	assert.equal(await page.locator("#out").innerText(), "w1 w2 w3 w4 w5 w6 w7 w8");
 });
