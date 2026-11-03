@@ -172,6 +172,8 @@ export function createClickLadder({ timeouts = LADDER_TIMEOUTS, now = Date.now }
 		const started = now();
 		const tried = [];
 		let lastError;
+		let contextLost = false;
+		const urlAtStart = (() => { try { return page.url(); } catch { return ""; } })();
 		const base = { markAttr: MARK_ATTR, interactive: INTERACTIVE_SELECTOR, container: CONSENT_CONFIG.container };
 		const target = locator.locator(`xpath=ancestor-or-self::*[@${MARK_ATTR}="target"]`);
 		const inspect = (extra) => locator.evaluate(inspectInPage, { ...base, ...extra });
@@ -185,16 +187,26 @@ export function createClickLadder({ timeouts = LADDER_TIMEOUTS, now = Date.now }
 			clickMs: now() - started,
 			...(info.retargeted ? { retargeted: describeBlocker(info.retargeted) } : {}),
 			...(pointer ? { pointer } : {}),
+			...(contextLost ? { contextLost: true } : {}),
 			...extra,
 		});
-		// Um clique que navega pode derrubar o contexto no meio: conta como feito.
+		// Um clique que navega pode derrubar o contexto no meio: conta como feito. Se a URL não mudou
+		// (re-render de SPA), o clique pode não ter valido: segue como feito (não repete, evita clique duplo)
+		// mas avisa com `contextLost` para o modelo conferir o efeito.
 		const attempt = async (name, run) => {
 			tried.push(name);
 			try {
 				await run();
 				return true;
 			} catch (error) {
-				if (shouldRetryPlaywrightError(error instanceof Error ? error.message : String(error))) return true;
+				if (shouldRetryPlaywrightError(error instanceof Error ? error.message : String(error))) {
+					try {
+						contextLost = page.url() === urlAtStart;
+					} catch {
+						contextLost = false;
+					}
+					return true;
+				}
 				lastError = error;
 				return false;
 			}

@@ -2,24 +2,24 @@
 // entra por `withPageRetry` (injetado), então tudo roda com uma página falsa
 // nos testes.
 import { explainFillError } from "./target.mjs";
-import { installProbeInPage, settleAfterAction } from "./stability.mjs";
+import { installProbeInPage, settleAfterAction, waitForNetworkQuiet } from "./stability.mjs";
 import { diffPageDigest, readDigest, summarizeChanges } from "./page-digest.mjs";
 import { safePointer } from "./pointer.mjs";
 import { createFrameRegistry, frameTag, splitRef } from "./frames.mjs";
 import { waitForTextStable } from "./text-stable.mjs";
 import { collectInteractive } from "./snapshot-page.mjs";
 import { SNAPSHOT_MAX_SCAN, buildSnapshot, describeElement, formatElementLine } from "./snapshot.mjs";
-import { AxUnavailableError, axEnabled } from "./ax-snapshot.mjs";
+import { AX_TIMEOUT_MS, AxUnavailableError, axEnabled } from "./ax-snapshot.mjs";
 import { StaleRefError, createAxStore, resolveAxRef } from "./ax-refs.mjs";
 import { isTreeRef } from "./ax-ref-names.mjs";
 import { createAxEngine } from "./browser-ax.mjs";
+import { runExclusive } from "./page-lock.mjs";
 
 export const ACT_ACTIONS = ["click", "type", "select", "check", "uncheck", "hover", "press", "clear"];
 export const WAIT_KINDS = ["text", "ref", "url", "network", "stable", "text_stable"];
 const MAX_TYPE_LENGTH = 20_000;
 const MAX_VALUE_LENGTH = 300;
 const REF_PATTERN = /^(?:f\d{1,3})?[ea]\d{1,5}$/;
-const DOM_REF_PATTERN = /^(?:f\d{1,3})?e\d{1,5}$/;
 const ACT_TIMEOUT_MS = 10_000;
 const MAX_DELTA = 12;
 export const WAIT_DEFAULT_MS = 8000;
@@ -30,7 +30,7 @@ const STALE_HINT = "Tire um novo browser_snapshot e use o ref novo.";
 export function parseActArgs(body) {
 	const ref = typeof body?.ref === "string" ? body.ref.trim() : "";
 	if (!REF_PATTERN.test(ref)) {
-		throw new Error(`ref inválido "${ref}": use um ref do browser_snapshot (ex.: e12).`);
+		throw new Error(`ref inválido "${ref}": use um ref do browser_snapshot (ex.: a12 ou e12).`);
 	}
 	const action = body?.action;
 	if (!ACT_ACTIONS.includes(action)) {
@@ -77,7 +77,7 @@ export function parseWaitArgs(body) {
 	if (kind === "text_stable") {
 		// Alvo opcional: `ref` (de um read/snapshot) ou `scope` (seletor CSS). Sem nenhum, o bloco que mais mudou.
 		const ref = typeof body?.ref === "string" ? body.ref.trim() : "";
-		if (ref && !DOM_REF_PATTERN.test(ref)) throw new Error("ref inválido em text_stable: use um ref do browser_read/browser_snapshot (ex.: e12).");
+		if (ref && !REF_PATTERN.test(ref)) throw new Error("ref inválido em text_stable: use um ref do browser_read/browser_snapshot (ex.: a12 ou e12).");
 		const scope = typeof body?.scope === "string" ? body.scope.trim() : "";
 		if (scope.length > MAX_VALUE_LENGTH) throw new Error(`scope muito longo (máx. ${MAX_VALUE_LENGTH}).`);
 		if (ref) out.ref = ref;
@@ -108,7 +108,7 @@ export function createRefActions({
 
 	async function collect(page, { scope, mode, area, only, maxScan = SNAPSHOT_MAX_SCAN }) {
 		const raws = [];
-		let seq = mode === "full" ? 0 : registry.seq;
+		let seq = mode === "full" ? 0 : registry.seqOf(page);
 		for (const entry of framesOf(page)) {
 			if (raws.length >= maxScan) break;
 			let result;
@@ -129,7 +129,7 @@ export function createRefActions({
 			const tag = frameTag(entry);
 			for (const item of result.raw) raws.push(tag ? { ...item, inFrame: tag } : item);
 		}
-		registry.seq = seq;
+		registry.setSeq(page, seq);
 		return raws;
 	}
 
@@ -160,9 +160,9 @@ export function createRefActions({
 		const selectorScope = typeof scope === "string" && scope.trim() ? scope.trim() : undefined;
 		const wantAx = !selectorScope && engine !== "dom" && axOn();
 		if (ref !== undefined && ref !== null && ref !== "" && !REF_PATTERN.test(String(ref).trim())) {
-			throw new Error(`ref inválido "${ref}": use um ref do browser_snapshot (ex.: e12).`);
+			throw new Error(`ref inválido "${ref}": use um ref do browser_snapshot (ex.: a12 ou e12).`);
 		}
-		return withPageRetry(async (page) => {
+		return withPageRetry((page) => runExclusive(page, async () => {
 			let note;
 			if (wantAx) {
 				try {
@@ -171,7 +171,7 @@ export function createRefActions({
 					if (error?.userFacing) throw error;
 					const reason = error instanceof AxUnavailableError ? error.reason : "failed";
 					// Playwright sem o recurso é o caso esperado de versão antiga: cai no v1 sem ruído.
-					if (reason !== "unsupported") note = `Árvore de acessibilidade indisponível (${reason === "timeout" ? "demorou mais de 4 s" : reason}): usando a lista de elementos.`;
+					if (reason !== "unsupported") note = `Árvore de acessibilidade indisponível (${reason === "timeout" ? `demorou mais de ${(axTimeoutMs ?? AX_TIMEOUT_MS) / 1000} s` : reason}): usando a lista de elementos.`;
 				}
 			}
 			axStore.setDom(page);
@@ -191,7 +191,7 @@ export function createRefActions({
 				engine: "dom",
 				...(note ? { note } : {}),
 			};
-		}, { tries: 3 });
+		}), { tries: 3 });
 	}
 
 	/**
@@ -203,7 +203,7 @@ export function createRefActions({
 		try {
 			return { ...(await resolveAxRef(page, axStore.tableFor(page), ref)), engine: "ax" };
 		} catch (error) {
-			if (error instanceof StaleRefError) return { stale: error.message };
+			if (error instanceof StaleRefError) return { stale: error.message, staleKind: error.kind };
 			throw error;
 		}
 	}
@@ -331,7 +331,7 @@ export function createRefActions({
 
 	async function browserAct(body) {
 		const args = parseActArgs(body);
-		return withPageRetry(async (page) => {
+		return withPageRetry((page) => runExclusive(page, async () => {
 			const found = await resolveRef(page, args.ref);
 			if (found.stale) throw new Error(found.stale);
 			const { locator, resolved } = found;
@@ -361,7 +361,7 @@ export function createRefActions({
 				ref: args.ref,
 				action: args.action,
 				...(resolved ? { note: resolved } : {}),
-				...(click ? { rung: click.rung, tried: click.tried, ...(click.dismissed ? { dismissed: click.dismissed } : {}) } : {}),
+				...(click ? { rung: click.rung, tried: click.tried, ...(click.dismissed ? { dismissed: click.dismissed } : {}), ...(click.contextLost ? { contextLost: true } : {}) } : {}),
 				...(pointer ? { pointer } : {}),
 				...effect,
 				...(field ? { field } : {}),
@@ -370,12 +370,16 @@ export function createRefActions({
 				newElements: observed.newElements,
 				newTotal: observed.newTotal,
 			};
-		}, { tries: 2 });
+		}), { tries: 2 });
 	}
 
 	async function waitForRef(page, ref, gone, deadline) {
 		for (;;) {
-			const locator = (await resolveRef(page, ref)).locator;
+			const found = await resolveRef(page, ref);
+			// Ref vencida sem saber o porquê (ou ambígua) não prova que o elemento sumiu: gone:true dava "sucesso" falso.
+			// Só "o papel+nome não existe mais" vale como sumiu.
+			if (found.stale && found.staleKind !== "missing") throw new Error(found.stale);
+			const locator = found.locator;
 			const visible = locator ? await locator.isVisible().catch(() => false) : false;
 			if (gone ? !visible : visible) return true;
 			if (now() >= deadline) return false;
@@ -402,12 +406,28 @@ export function createRefActions({
 					await page.waitForURL((url) => url.href.includes(value), { timeout: timeoutMs });
 					met = true;
 				} else if (kind === "network") {
-					await page.waitForLoadState("networkidle", { timeout: timeoutMs });
-					met = true;
+					const net = await waitForNetworkQuiet(page, { timeoutMs, now, sleep: pause });
+					met = net.quiet;
+					if (!met) reason = `a rede não ficou quieta em ${timeoutMs} ms (há requisições em andamento)`;
 				} else if (kind === "ref") {
 					met = await waitForRef(page, value, gone, started + timeoutMs);
 				} else if (kind === "text_stable") {
-					const stable = await waitForTextStable(page, registry, { ref, scope, timeoutMs, now, sleep: pause });
+					// Ref da árvore (aN): o sample mede por seletor, então marca o elemento resolvido por papel+nome.
+					let target = { ref, scope };
+					let unmark;
+					if (ref && isTreeRef(ref)) {
+						const found = await resolveRef(page, ref);
+						if (found.stale || !found.locator) throw new Error(found.stale ?? `Ref ${ref} não encontrado: tire um novo browser_snapshot.`);
+						await found.locator.evaluate((el) => el.setAttribute("data-atlas-wait-target", "1"));
+						unmark = () => found.locator.evaluate((el) => el.removeAttribute("data-atlas-wait-target")).catch(() => undefined);
+						target = { ref: undefined, scope: '[data-atlas-wait-target="1"]' };
+					}
+					let stable;
+					try {
+						stable = await waitForTextStable(page, registry, { ...target, timeoutMs, now, sleep: pause });
+					} finally {
+						await unmark?.();
+					}
 					met = stable.met;
 					if (!met) reason = stable.reason;
 					textInfo = { changed: stable.changed, textLength: stable.textLength, ...(stable.endSignal ? { endSignal: true } : {}) };

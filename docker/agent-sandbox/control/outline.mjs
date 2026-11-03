@@ -8,6 +8,7 @@ export const READ_MAX_LIMIT = 20_000;
 export const FIND_MAX_MATCHES = 20;
 export const FIND_CONTEXT = 70;
 export const QUERY_MAX = 200;
+const REGEX_TEXT_MAX = 2000;
 
 /**
  * `frames`: [{ prefix, label, crossOrigin?, main?, items }] (principal primeiro).
@@ -152,6 +153,68 @@ function snippet(text, index, length) {
 	return `${from > 0 ? "…" : ""}${text.slice(from, to)}${to < text.length ? "…" : ""}`;
 }
 
+const GROUP_RE = /\(((?:[^()\\]|\\.)*)\)\s*([+*]|\{\d+,\d*\})/g;
+
+/** Quebra o corpo de um grupo em átomos: { text, quant } (quant = "", "?", "+", "*" ou "{n,m}"). */
+function regexAtoms(body) {
+	const atoms = [];
+	let i = 0;
+	while (i < body.length) {
+		let text;
+		if (body[i] === "\\") text = body.slice(i, i + 2);
+		else if (body[i] === "[") {
+			let j = i + 1;
+			while (j < body.length && body[j] !== "]") j += body[j] === "\\" ? 2 : 1;
+			text = body.slice(i, j + 1);
+		} else text = body[i];
+		i += text.length;
+		let quant = "";
+		const m = /^(?:[+*?]|\{\d+(?:,\d*)?\})\??/.exec(body.slice(i));
+		if (m) {
+			quant = m[0].replace(/\?$/, (q) => (m[0].length > 1 ? "" : q));
+			i += m[0].length;
+		}
+		atoms.push({ text, quant });
+	}
+	return atoms;
+}
+
+const isUnbounded = (quant) => quant === "+" || quant === "*" || /^\{\d+,\}$/.test(quant);
+
+function groupIsRisky(inner) {
+	const body = inner.replace(/^\?:/, "");
+	const branches = body.split("|");
+	if (branches.length > 1) {
+		// Alternância com ramos iguais ou um prefixo do outro: (a|a)+, (a|ab)+.
+		for (let a = 0; a < branches.length; a++) {
+			for (let b = 0; b < branches.length; b++) {
+				if (a !== b && branches[a].startsWith(branches[b])) return true;
+			}
+		}
+		return false;
+	}
+	const atoms = regexAtoms(body);
+	const last = atoms.length - 1;
+	for (let k = 0; k <= last; k++) {
+		if (!isUnbounded(atoms[k].quant)) continue;
+		// Separador obrigatório depois do X+ que não casa o mesmo que X: (\d+\.)+, (\w+\s)+.
+		const sep = atoms[k + 1];
+		const mandatory = sep && (sep.quant === "" || sep.quant === "+");
+		const overlaps = !mandatory || sep.text === atoms[k].text || sep.text === "." || atoms[k].text === "." || sep.text.startsWith("[");
+		if (overlaps) return true;
+	}
+	return false;
+}
+
+/**
+ * Heurística de ReDoS: quantificador ilimitado sobre grupo que repete algo ambíguo.
+ * Recusa (a+)+, (.*)*, (x+x+)+, (a|a)+; deixa passar (\d+\.)+, (\d+,)*, (\w+\s)+.
+ */
+export function isRiskyRegex(source) {
+	for (const m of String(source).matchAll(GROUP_RE)) if (groupIsRisky(m[1])) return true;
+	return false;
+}
+
 /**
  * Busca por texto (ou regex) nas entradas, com contexto, a seção (último
  * título) e o ref do elemento (ou do interativo mais próximo). Só enxerga o
@@ -164,13 +227,18 @@ export function findEntries(entries, { query, regex = false, max = FIND_MAX_MATC
 	let test;
 	if (regex) {
 		let re;
+		// Backtracking exponencial trava o control server: ver isRiskyRegex.
+		if (isRiskyRegex(q)) {
+			throw new Error("regex arriscada (quantificador repetido dentro de grupo): simplifique ou use busca por texto simples (regex:false).");
+		}
 		try {
 			re = new RegExp(q, "i");
 		} catch {
 			throw new Error("regex inválida em query.");
 		}
 		test = (text) => {
-			const m = re.exec(text);
+			// Linha enorme só entra com o começo (limita o custo de uma regex lenta).
+			const m = re.exec(text.length > REGEX_TEXT_MAX ? text.slice(0, REGEX_TEXT_MAX) : text);
 			return m ? { index: m.index, length: m[0].length } : null;
 		};
 	} else {

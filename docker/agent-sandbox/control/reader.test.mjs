@@ -68,6 +68,7 @@ after(() => fixtures?.close());
 const skip = fixtures ? false : "Chromium/playwright-core indisponível";
 
 async function open(path) {
+	const epoch = { n: 0 };
 	const page = await fixtures.newPage();
 	await page.goto(`${fixtures.base}${path}`);
 	await page.waitForLoadState("load");
@@ -85,8 +86,10 @@ async function open(path) {
 		locateRef: refs.locateRef,
 		observeAction: refs.observeAction,
 		clickElement: actions.clickElement,
+		peekPage: () => page,
+		epoch: () => epoch.n,
 	});
-	return { page, refs, reader };
+	return { page, refs, reader, epoch };
 }
 
 test("real: read com iframe, outra origem e shadow DOM traz o texto em ordem, com refs", { skip }, async () => {
@@ -295,4 +298,22 @@ test("reader: o teto de nós é GLOBAL entre frames, não um teto por frame", as
 	);
 	assert.equal(budgets[1].maxItems, READ_MAX_ITEMS - 1);
 	assert.equal(res.capped, true, "frame que ficou sem orçamento marca a leitura como cortada");
+});
+
+test("real: continuação do read NÃO vem do cache se a URL, a aba ou a época de ações mudou", { skip }, async () => {
+	const { reader, page, epoch } = await open("/long");
+	const first = await reader.readPage({ view: "text", limit: 3000 });
+	assert.ok(first.nextOffset > 0);
+	// Mesma aba e URL: continua do cache.
+	assert.equal((await reader.readPage({ view: "text", limit: 3000, offset: first.nextOffset })).cached, true);
+	// Ação no meio (clique/digitação): não é mais o mesmo texto.
+	epoch.n += 1;
+	assert.notEqual((await reader.readPage({ view: "text", limit: 3000, offset: first.nextOffset })).cached, true);
+	// Navegou para outra página com texto próprio: a página anterior não pode voltar.
+	const again = await reader.readPage({ view: "text", limit: 3000 });
+	await page.goto(`${fixtures.base}/lms`);
+	const other = await reader.readPage({ view: "text", limit: 3000, offset: again.nextOffset });
+	assert.notEqual(other.cached, true);
+	assert.match(other.url, /\/lms$/);
+	assert.ok(!other.text.includes("Paragraph "), "texto da página anterior não volta");
 });

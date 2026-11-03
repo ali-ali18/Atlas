@@ -84,18 +84,25 @@ function hiddenSet(probes) {
 	return hidden;
 }
 
-/** Linhas no formato do v1 (`[e3] textbox "x" (campo de senha...)`): o muro de login e readLoginFields leem estas. */
-function listLines(nodes, probes, hidden) {
-	const lines = [];
+const FIELD_ROLES = new Set(["textbox", "searchbox", "combobox", "spinbutton"]);
+const LIST_ROLES = ["textbox", "searchbox", "combobox", "spinbutton", "slider", "button", "link", "checkbox", "radio", "switch", "tab", "menuitem", "option", "clickable"];
+
+/**
+ * Linhas no formato do v1 (`[e3] textbox "x" (campo de senha...)`): o muro de login e readLoginFields leem estas.
+ * Passou de LINES_MAX: campos de formulário têm prioridade (metade do teto) e o resto entra em ordem, para o
+ * formulário de login de uma página densa não ficar de fora do recorte.
+ */
+export function listLines(nodes, probes, hidden) {
+	const items = [];
 	const walk = (list) => {
 		for (const node of list) {
-			if (lines.length >= LINES_MAX) return;
 			if (node.role === "text" || node.role === "__similar") continue;
 			if (node.ref && hidden.has(node.ref)) continue;
-			if (node.ref && (["textbox", "searchbox", "combobox", "spinbutton", "slider", "button", "link", "checkbox", "radio", "switch", "tab", "menuitem", "option", "clickable"].includes(node.role))) {
+			if (node.ref && LIST_ROLES.includes(node.role)) {
 				const probe = probes.get(node.ref);
-				lines.push(
-					formatElementLine({
+				items.push({
+					field: FIELD_ROLES.has(node.role) || Boolean(probe?.secret),
+					line: formatElementLine({
 						ref: node.ref,
 						role: node.role,
 						name: node.name.slice(0, 80),
@@ -104,13 +111,21 @@ function listLines(nodes, probes, hidden) {
 						...(node.attrs.includes("disabled") ? { disabled: true } : {}),
 						...(node.attrs.includes("checked") ? { checked: true } : {}),
 					}),
-				);
+				});
 			}
 			walk(node.children ?? []);
 		}
 	};
 	walk(nodes);
-	return lines;
+	if (items.length <= LINES_MAX) return items.map((item) => item.line);
+	const keep = new Set();
+	items.forEach((item, index) => {
+		if (item.field && keep.size < LINES_MAX / 2) keep.add(index);
+	});
+	items.forEach((_, index) => {
+		if (keep.size < LINES_MAX) keep.add(index);
+	});
+	return items.filter((_, index) => keep.has(index)).map((item) => item.line);
 }
 
 function countInteractive(nodes, role = (n) => n.ref && n.role !== "text") {

@@ -17,6 +17,11 @@ describe("computerStateKey", () => {
 		const b = computerStateKey({ url: "https://x.com/a", lines: ['[f2e9] button "Salvar"'], scrollY: 0 });
 		expect(a).toBe(b);
 	});
+	it("ignora o ref no meio da linha (formato da árvore: button \"Salvar\" [a12])", () => {
+		const a = computerStateKey({ url: "https://x.com/a", lines: ['button "Salvar" [a12]', 'textbox "Nome" [f1a3] value="x"'], scrollY: 0 });
+		const b = computerStateKey({ url: "https://x.com/a", lines: ['button "Salvar" [a99]', 'textbox "Nome" [f2a7] value="x"'], scrollY: 0 });
+		expect(a).toBe(b);
+	});
 	it("muda com URL, elementos, valor e scroll grande", () => {
 		const base = { url: "https://x.com/a", lines: ['[e1] textbox "Nome" value="a"'], scrollY: 0 };
 		const key = computerStateKey(base);
