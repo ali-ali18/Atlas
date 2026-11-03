@@ -433,11 +433,11 @@ describe("motor v2: lista de tarefas em trabalho longo", () => {
 		// 3 lembretes gastos (sem lista + 2 com itens abertos): a próxima tentativa de entrega passa, marcada com os itens abertos.
 		expect(result.stop).toEqual({ reason: "answered", detail: "tasklist_open" });
 		expect(result.text).toContain("Entrega final.");
-		expect(result.text).toContain("Não deu para confirmar: Pesquisar concorrentes");
-		expect(result.text).toContain("Não deu para confirmar: Conferir preços");
+		// Sem rodapé automático: a lista é interna e o modelo diz o que ficou de fora na própria resposta.
+		expect(result.text).toBe("Entrega final.");
 	});
 
-	it("itens descartados com motivo liberam a entrega e aparecem como 'não deu para confirmar'", async () => {
+	it("itens descartados com motivo liberam a entrega, sem rodapé automático", async () => {
 		const { result, events } = await runV2({
 			messages: [
 				{
@@ -457,13 +457,13 @@ describe("motor v2: lista de tarefas em trabalho longo", () => {
 			options: { profile: "long_work" },
 		});
 		expect(result.stop).toEqual({ reason: "answered" });
-		expect(result.text).toBe("Aqui está o relatório.\n\n- Não deu para confirmar: o site exige login");
-		// O balão ao vivo recebe o mesmo acréscimo.
+		// Nada é anexado à resposta (nem no texto gravado, nem no balão ao vivo).
+		expect(result.text).toBe("Aqui está o relatório.");
 		const deltas = events
 			.filter((event): event is Extract<ComputerUseEvent, { type: "assistant_delta" }> => event.type === "assistant_delta")
 			.map((event) => event.delta)
 			.join("");
-		expect(deltas).toContain("Não deu para confirmar: o site exige login");
+		expect(deltas).not.toContain("Não deu para confirmar");
 	});
 
 	it("no perfil chat a lista não é exigida", async () => {

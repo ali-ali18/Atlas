@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { TaskListItem } from "@workspace/shared";
-import { MAX_TASK_GATE_NOTES, appendUnconfirmed, createTaskListGate, droppedItems, isDroppedItem } from "./task-list.js";
+import { MAX_TASK_GATE_NOTES, createTaskListGate, droppedItems, isDroppedItem } from "./task-list.js";
 
 const item = (content: string, status: TaskListItem["status"]): TaskListItem => ({ content, status });
 
@@ -50,15 +50,5 @@ describe("descartados na resposta", () => {
 		expect(isDroppedItem(items[1]!)).toBe(true);
 		expect(isDroppedItem(items[3]!)).toBe(false);
 		expect(droppedItems(items)).toEqual(["o site exige login", "sem dados públicos"]);
-	});
-
-	it("a resposta traz 'Não deu para confirmar: …' para descartados e pendentes", () => {
-		const text = appendUnconfirmed("Resumo da pesquisa.", { dropped: ["o site exige login"], unresolved: ["Conferir preços"], language: "pt-BR" });
-		expect(text).toBe("Resumo da pesquisa.\n\n- Não deu para confirmar: o site exige login\n- Não deu para confirmar: Conferir preços");
-	});
-
-	it("sem pendências o texto não muda; em inglês o rótulo muda", () => {
-		expect(appendUnconfirmed("ok", { dropped: [], unresolved: [], language: "pt-BR" })).toBe("ok");
-		expect(appendUnconfirmed("ok", { dropped: ["x"], unresolved: [], language: "en-US" })).toContain("Could not confirm: x");
 	});
 });

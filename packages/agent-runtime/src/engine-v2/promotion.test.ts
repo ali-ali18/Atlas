@@ -697,6 +697,30 @@ describe("anunciar sem fazer (v2): sinal estrutural, sem regex e sem apagar text
 		expect(early.result.text).toBe("Vou te ajudar com isso.");
 	});
 
+	it("replay (Cookie, 03/11): resposta completa + lembrete de itens abertos + modelo fecha a lista SEM texto novo = uma bolha só, sem resumo repetido", async () => {
+		const run = await runChat({
+			stepMs: 1_000,
+			options: { promotable: false },
+			messages: [{ role: "user", content: "abra o Gemini e peça um resumo desse vídeo" }],
+			script: [
+				research(0.01),
+				OPEN_LIST(),
+				say("Resposta completa do Gemini, com fontes e lacunas."),
+				(seen) => {
+					expect(seen.lastUser).toContain("already shown to the user");
+					expect(seen.lastUser).toContain("never repeat or summarize");
+					return turn([taskList([["Abrir o Gemini", "completed"], ["Pedir o resumo ao Gemini", "completed"]])], 0.01);
+				},
+				say(""),
+			],
+		});
+		expect(run.result.text).toBe("Resposta completa do Gemini, com fontes e lacunas.");
+		expect(discards(run)).toEqual([]);
+		// Nenhum texto de fallback ("não consegui gerar resposta") e nenhuma segunda bolha.
+		const texts = run.events.filter((event) => event.type === "assistant_delta").map((event) => (event as { delta: string }).delta);
+		expect(texts).toEqual(["Resposta completa do Gemini, com fontes e lacunas."]);
+	});
+
 	it("o prompt manda chamar a tool no mesmo passo e não passar a execução ao usuário", () => {
 		const core = ENGINE_V2_CORE.join("\n");
 		// A regra "resposta sem tool encerra o turno" mora numa linha só, na disciplina do modelo (não repete no núcleo).

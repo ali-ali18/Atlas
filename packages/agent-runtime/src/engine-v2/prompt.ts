@@ -71,7 +71,7 @@ export function continuedWorkNote(openItems: readonly string[]): string {
  */
 export function openItemsNote(openItems: readonly string[]): string {
 	const list = openItems.slice(0, 8).map((item, index) => `${index + 1}. ${item}`).join("\n");
-	return `You still have open items on your task list:\n${list}\nContinue or finalize: do the next one now by calling the tool in this step, or explain why it is blocked. If the work is really finished, update the list (mark the items completed) and reply with the result.`;
+	return `Your last reply was already shown to the user: never repeat or summarize it.\nYou still have open items on your task list:\n${list}\nContinue or finalize: do the next one now by calling the tool in this step, or explain why it is blocked. If the work is really finished, update the list (mark the items completed) and end; add text only if it is new.`;
 }
 
 /** Trabalho longo sem a lista de tarefas (rotina): só caderno e entrega. */

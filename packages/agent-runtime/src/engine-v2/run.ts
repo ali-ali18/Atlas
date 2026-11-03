@@ -134,7 +134,7 @@ import { continuedWorkNote, ENGINE_V2_PROMOTED_NOTE, openItemsNote } from "./pro
 import { callCostUsd, estimateCostUsd, fallbackPricesFromEnv } from "./cost.js";
 import { dedupeLoginAsk, unattendedLoginOutcome } from "./login.js";
 import { createPreToolRunner } from "../hooks/pre-tool-runner.js";
-import { appendUnconfirmed, createTaskListGate, droppedItems, openItems, withOpenItemsMarker } from "./task-list.js";
+import { createTaskListGate, openItems, withOpenItemsMarker } from "./task-list.js";
 import { type DelegateDeps } from "../tools/delegate-task.js";
 import { HELPER_DELIVERY_INSTRUCTION, type HelperChildInput, type HelpersContext } from "./helpers.js";
 import {
@@ -1237,19 +1237,17 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 		return undefined;
 	};
 
-	const finishOk = async (text: string, rawStop: RunStop, messageId: string): Promise<RunComputerUseResult> => {
-		// Itens descartados e pendências vão na resposta; o delta mantém o balão ao vivo igual ao gravado.
+	const finishOk = async (text: string, rawStop: RunStop, _messageId: string): Promise<RunComputerUseResult> => {
+		// Itens descartados ou pendentes NÃO viram rodapé automático (era ruído que expunha a lista interna): quem diz o que ficou
+		// sem confirmar é o modelo, na própria resposta (o resultado de `update_task_list` lembra disso).
 		const items = currentTaskItems();
 		// Itens abertos DESTE run, qualquer que seja o motivo da parada: o detalhe `items_open` é o que deixa a mensagem seguinte
 		// receber a nota de continuação (`stoppedWithOpenWork`). Sem itens abertos deste run, parar por teto não herda nada.
 		const stop = withOpenItemsMarker(rawStop, !helperRole && openItems(items).length > 0);
-		const unresolved = stop.detail === "tasklist_open" ? openItems(items).map((item) => item.content) : [];
-		const withNotes = appendUnconfirmed(text, { dropped: droppedItems(items), unresolved, language });
-		if (withNotes !== text) await onEvent({ type: "assistant_delta", id: messageId, delta: withNotes.slice(text.length) });
 		taskTracker.setPhase("done");
 		await persistCheckpoint(step + 1);
 		await checkpointTail;
-		return { text: withNotes, model: lastModel, hitWall: false, usage: usageTotals, stop };
+		return { text, model: lastModel, hitWall: false, usage: usageTotals, stop };
 	};
 
 	/** Última chamada SEM tools: entrega o que há, nunca aborta sem resposta. */
@@ -1383,6 +1381,8 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 	let emptyRetries = 0;
 	// Lembrete "continue ou finalize" com itens abertos: no máximo MAX_OPEN_ITEMS_RETURNS por run (o texto já transmitido nunca é apagado).
 	let openItemsReturns = 0;
+	// Última fala já transmitida que levou um lembrete: se o modelo responder VAZIO depois dele (nada novo a dizer), isso é o fim, não um erro.
+	let deliveredBeforeNote: { text: string; id: string } | undefined;
 	if (!parsed && !helperRole && params.continuedWork === true && params.autoContinued !== true) {
 		// Só contexto: os itens da lista antiga NÃO entram no rastreador (não são cobrados nem viram "Não deu para confirmar").
 		const priorOpen = openItems(parseTaskList(params.priorOpenItems)).map((item) => item.content);
@@ -1467,6 +1467,7 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 					step += 1;
 					continue;
 				}
+				if (text.length === 0 && deliveredBeforeNote) return await finishOk(deliveredBeforeNote.text, { reason: "answered" }, deliveredBeforeNote.id);
 				if (text.length === 0) {
 					if (emptyRetries < 1) {
 						emptyRetries += 1;
@@ -1482,6 +1483,7 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 				const verdict = taskGate.check(currentTaskItems());
 				if (verdict.kind === "note") {
 					openItemsReturns += 1;
+					deliveredBeforeNote = { text, id: stepId };
 					conversation.push({ role: "assistant", content: text });
 					conversation.push({ role: "user", content: `${AUTO_CONTEXT} ${verdict.text}` });
 					step += 1;
@@ -1492,6 +1494,7 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 				// Só conta a lista DESTE run (a que o modelo atualizou ou recriou); item antigo só em nota nunca é cobrado.
 				if (openItemsReturns < MAX_OPEN_ITEMS_RETURNS && !helperRole && !longWorkCoordinator && workStarted() && openItems(currentTaskItems()).length > 0) {
 					openItemsReturns += 1;
+					deliveredBeforeNote = { text, id: stepId };
 					conversation.push({ role: "assistant", content: text });
 					conversation.push({ role: "user", content: `${AUTO_CONTEXT} ${openItemsNote(openItems(currentTaskItems()).map((item) => item.content))}` });
 					step += 1;

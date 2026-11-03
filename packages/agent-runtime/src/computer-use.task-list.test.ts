@@ -109,6 +109,16 @@ describe("update_task_list: validacao", () => {
 		expect(s.read()).toBeUndefined();
 	});
 
+	it("lista fechada depois da resposta não induz um segundo resumo; descartado pede dizer na resposta, sem rodapé", () => {
+		const s = store();
+		const done = executeUpdateTaskList({ items: [{ content: "a", status: "completed" }] }, { taskListStore: s });
+		expect(done.summary).toContain("do not repeat or summarize it");
+		expect(done.summary).not.toMatch(/Give the user the final result\./);
+		const dropped = executeUpdateTaskList({ items: [{ content: "a", status: "completed" }, { content: "DROPPED: site exige login", status: "completed" }] }, { taskListStore: s });
+		expect(dropped.summary).toContain("Discarded items are not shown to the user");
+		expect(executeUpdateTaskList({ items: [{ content: "a", status: "completed" }] }, { taskListStore: s }).summary).not.toContain("Discarded");
+	});
+
 	it("a nota some quando tudo esta concluido", () => {
 		expect(renderTaskListNote(undefined)).toBeNull();
 		expect(renderTaskListNote([{ content: "a", status: "completed" }])).toBeNull();

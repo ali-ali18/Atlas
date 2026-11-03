@@ -118,13 +118,17 @@ export function executeUpdateTaskList(args: Record<string, unknown>, ctx: { task
 		store.set(undefined);
 		return { summary: "Task list cleared.", items: [], ...declared };
 	}
+	// Item descartado some da vista do usuário (a lista é interna): se o motivo importa, o modelo o diz na própria resposta.
+	const dropped = items.some((item) => item.status === "completed" && item.content.trim().toUpperCase().startsWith("DROPPED:"));
+	const droppedHint = dropped ? " Discarded items are not shown to the user: if something could not be confirmed, say so briefly in your reply." : "";
 	if (isTaskListDone(items)) {
 		store.set(undefined);
-		return { summary: `All ${items.length} steps completed; list closed. Give the user the final result.`, items, ...declared };
+		// A resposta pode já ter sido entregue antes de fechar a lista: não induz um segundo resumo.
+		return { summary: `All ${items.length} steps completed; list closed. If you have not given the user the final result yet, give it now; if you already did, do not repeat or summarize it.${droppedHint}`, items, ...declared };
 	}
 	store.set(items);
 	const done = items.filter((item) => item.status === "completed").length;
 	// Só contexto, nunca portão: o modelo declarou um documento, então lembra de criá-lo antes da resposta final.
 	const reminder = deliverable === "document" ? " You declared a document as the deliverable: remember to create it with create_file before the final answer." : "";
-	return { summary: `Task list saved: ${done}/${items.length} completed. Continue with the step in progress.${reminder}`, items, ...declared };
+	return { summary: `Task list saved: ${done}/${items.length} completed. Continue with the step in progress.${reminder}${droppedHint}`, items, ...declared };
 }

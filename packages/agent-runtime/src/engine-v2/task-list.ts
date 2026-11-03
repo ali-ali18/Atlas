@@ -5,7 +5,7 @@
  * continua sendo `completed`, mas com o conteúdo `DROPPED: <motivo>`: assim o contrato do cartão, do checkpoint e
  * do validador não muda. Quem decide se o modelo pode entregar é este portão, não o humor do modelo.
  */
-import type { BotLanguage, RunStop, TaskListItem } from "@workspace/shared";
+import type { RunStop, TaskListItem } from "@workspace/shared";
 
 export const DROPPED_PREFIX = "DROPPED:";
 /** Quantas vezes o portão devolve nota antes de deixar o modelo sair (e marcar no stop). */
@@ -55,7 +55,7 @@ export function createTaskListGate(config: { required: boolean; maxNotes?: numbe
 					kind: "note",
 					text:
 						"Task list required: this is a long task. Before delivering, call update_task_list with the steps you did or still need to do, " +
-						"then complete each step or discard it with a reason (mark it completed with content \"DROPPED: <reason>\"). Then deliver the final answer.",
+						"then complete each step or discard it with a reason (mark it completed with content \"DROPPED: <reason>\"). Then deliver the final answer (if you already gave it, do not repeat it).",
 				};
 			}
 			const lines = open.map((item, index) => `${index + 1}. ${item.content}`).join("\n");
@@ -63,28 +63,13 @@ export function createTaskListGate(config: { required: boolean; maxNotes?: numbe
 				kind: "note",
 				text:
 					`Task list still has open items:\n${lines}\n` +
-					"Finish each one, or discard it with a reason by calling update_task_list with that item completed and its content set to \"DROPPED: <reason>\". Deliver the final answer only after every item is done or discarded.",
+					"Finish each one, or discard it with a reason by calling update_task_list with that item completed and its content set to \"DROPPED: <reason>\". Deliver the final answer only after every item is done or discarded; anything you already said stays shown, so never repeat it.",
 			};
 		},
 	};
 }
 
 export type TaskGate = ReturnType<typeof createTaskListGate>;
-
-const UNCONFIRMED_LABEL: Partial<Record<BotLanguage, string>> & { default: string } = {
-	"pt-BR": "Não deu para confirmar",
-	"es-ES": "No se pudo confirmar",
-	default: "Could not confirm",
-};
-
-/** Itens descartados e pendências aparecem na resposta, nas palavras do usuário. */
-export function appendUnconfirmed(text: string, input: { dropped: readonly string[]; unresolved: readonly string[]; language: BotLanguage }): string {
-	const reasons = [...input.dropped, ...input.unresolved.map((item) => item)];
-	if (reasons.length === 0) return text;
-	const label = UNCONFIRMED_LABEL[input.language] ?? UNCONFIRMED_LABEL.default;
-	const lines = reasons.map((reason) => `- ${label}: ${reason}`).join("\n");
-	return `${text.trimEnd()}\n\n${lines}`;
-}
 
 /**
  * Marca no detalhe da parada que o run terminou com itens abertos da lista DELE (a que o modelo atualizou ou recriou), seja qual
