@@ -1,6 +1,6 @@
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
-import { createBrowserActions, loginFieldMissingMessage, loginFieldVerdict } from "./browser-actions.mjs";
+import { assertNavigableUrl, createBrowserActions, loginFieldMissingMessage, loginFieldVerdict } from "./browser-actions.mjs";
 import { launchFixtureBrowser } from "./test-browser.mjs";
 
 function fakePage({ candidates = [], log = [], fillError, url = "https://erp.test/home" } = {}) {
@@ -302,4 +302,11 @@ test("código de verificação (B3): só em campo de código visível de formul�
 		await assert.rejects(actions.browserType({ selector: PASSWORD_SELECTOR, text: "482913", guard: guard("code") }), /Recusado: o código só pode|Não achei/);
 		assert.equal(await valueOf(p, "#p"), "");
 	});
+});
+
+test("navigate: só http(s) e about:blank; file:, javascript: e data: são recusados", () => {
+	for (const ok of ["https://a.test/x", "http://a.test", "about:blank", "example.com"]) assert.doesNotThrow(() => assertNavigableUrl(ok), ok);
+	for (const bad of ["file:///tmp/chrome-data/Default/Cookies", "javascript:alert(1)", "data:text/html,<b>x", "chrome://settings"]) {
+		assert.throws(() => assertNavigableUrl(bad), /URL não permitida/, bad);
+	}
 });

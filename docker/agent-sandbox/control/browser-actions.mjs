@@ -125,6 +125,18 @@ function loginRefusalMessage(kind, verdict) {
 const NOT_FOUND_HINT =
 	"Use browser_snapshot para ver os elementos da página. Se o controle só tem ícone (janela estreita, menu \"…\"), tire um browser_screenshot com marks e procure o ícone.";
 
+/** Só http(s) e about:blank: `file://` (perfil/cookies da VM) e `javascript:`/`data:` ficam de fora. */
+export function assertNavigableUrl(raw) {
+	let parsed;
+	try {
+		parsed = new URL(String(raw));
+	} catch {
+		return; // sem esquema válido: o goto do Playwright dá o erro claro
+	}
+	const ok = parsed.protocol === "http:" || parsed.protocol === "https:" || String(raw).trim() === "about:blank";
+	if (!ok) throw new Error(`URL não permitida (${parsed.protocol}): navegue só para http(s) ou about:blank.`);
+}
+
 export function createBrowserActions({
 	getPage,
 	restart,
@@ -410,6 +422,7 @@ export function createBrowserActions({
 	const isAbortedNavigation = (message) => /ERR_ABORTED|frame was detached/i.test(message);
 
 	async function navigate(url) {
+		assertNavigableUrl(url);
 		return withPageRetry(async (page) => {
 			const t0 = now();
 			await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60_000 });

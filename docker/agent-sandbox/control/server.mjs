@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { chromium } from "playwright-core";
 import { createBrowserSession } from "./browser-session.mjs";
 import { attachTabNotice, createTabScope, parseTabHeader, parseTabsRequest, runTabsAction } from "./browser-tabs.mjs";
-import { createBrowserActions } from "./browser-actions.mjs";
+import { assertNavigableUrl, createBrowserActions } from "./browser-actions.mjs";
 import { collectPageText, normalizeText, paginateText } from "./text-page.mjs";
 import { settleAfterAction } from "./stability.mjs";
 import { compactPlaywrightError } from "./target.mjs";
@@ -316,6 +316,7 @@ const handleControlRequest = async (req, res) => {
 		if (req.method === "POST" && req.url === "/browser/tab/open") {
 			const body = await readJsonBody(req);
 			const url = typeof body?.url === "string" && body.url ? body.url : undefined;
+			if (url) assertNavigableUrl(url);
 			sendJson(res, 200, await tabScope.openTab(url));
 			return;
 		}
