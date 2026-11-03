@@ -23,7 +23,8 @@ import { useAtlasSession } from "@/lib/atlas-session";
 import { botColors } from "@/lib/bot-color";
 import { themeColor } from "@/lib/theme";
 import { useAppColorScheme } from "@/lib/use-theme";
-import { pageRouteFor } from "@/lib/web-card";
+import { type ViewerTarget, viewerTargetForCard } from "@/lib/viewer-target";
+import { ViewerSheet } from "@/components/viewer/viewer-sheet";
 import { webChatUrl } from "@/lib/chat-links";
 import type { ChatItem, ReplyQuote } from "@/lib/chat-types";
 import { containsTable } from "@/lib/markdown";
@@ -63,7 +64,7 @@ export default function ChatScreen() {
 	const insets = useSafeAreaInsets();
 	const { id, draft } = useLocalSearchParams<{ id: string; draft?: string }>();
 	const { snapshot } = useHomeData();
-	const { serverUrl } = useAtlasSession();
+	const { serverUrl, apiFetch } = useAtlasSession();
 	const bot = snapshot?.bots.find((item) => item.id === id);
 	const chat = useChat(bot);
 	const listRef = React.useRef<FlatList<ChatItem>>(null);
@@ -81,13 +82,16 @@ export default function ChatScreen() {
 		},
 		[serverUrl, id],
 	);
+	// Painel e documento abrem numa folha por cima da conversa; o que não tem destino nativo continua no navegador.
+	const [viewer, setViewer] = React.useState<ViewerTarget | null>(null);
+	const closeViewer = React.useCallback(() => setViewer(null), []);
 	const openPage = React.useCallback(
 		(item: Extract<ChatItem, { kind: "web-card" }>) => {
-			const route = pageRouteFor(item);
-			if (route) router.push(route as never);
+			const target = viewerTargetForCard(item);
+			if (target) setViewer(target);
 			else openWeb(item);
 		},
-		[router, openWeb],
+		[openWeb],
 	);
 	// "Responder": a mensagem citada fica no chip do composer até enviar ou cancelar.
 	const [replyTo, setReplyTo] = React.useState<ReplyQuote | null>(null);
@@ -208,6 +212,7 @@ export default function ChatScreen() {
 				</View>
 			</KeyboardAvoidingView>
 			<ChatMenu open={menu} onClose={() => setMenu(false)} onPick={onMenuPick} />
+			<ViewerSheet target={viewer} onClose={closeViewer} apiFetch={apiFetch} />
 			{messageMenu.node}
 			<SoonSheet open={soon !== null} title={soon ? SOON_TITLE[soon] : ""} onClose={() => setSoon(null)} />
 		</SafeAreaView>

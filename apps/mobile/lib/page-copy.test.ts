@@ -15,6 +15,8 @@ const files = [
 	"lib/web-card.ts",
 	"lib/chat-types.ts",
 	"app/(app)/pages/[id].tsx",
+	"components/ui/content-sheet.tsx",
+	...readdirSync(at("components/viewer")).filter((name) => name.endsWith(".tsx")).map((name) => `components/viewer/${name}`),
 	...readdirSync(at("components/page")).filter((name) => name.endsWith(".tsx")).map((name) => `components/page/${name}`),
 	...readdirSync(at("components/page/charts")).filter((name) => name.endsWith(".tsx")).map((name) => `components/page/charts/${name}`),
 ];
@@ -34,9 +36,10 @@ describe("o usuário vê Painel, nunca Página", () => {
 	});
 	it("a tela do painel tem 'Painel' como título provisório e 'Fechar' no botão do topo", () => {
 		const screen = withoutComments(read("components/page/page-screen.tsx"));
-		expect(screen).toContain('"Painel"');
+		const content = withoutComments(read("components/page/page-content.tsx"));
+		expect(content).toContain('"Painel"');
 		expect(screen).toContain('label="Fechar"');
-		expect(screen).toContain("Carregando painel");
+		expect(content).toContain("Carregando painel");
 	});
 	it("o botão de compartilhar só existe com ação (o app ainda não tem link público do painel)", () => {
 		const screen = withoutComments(read("components/page/page-screen.tsx"));
