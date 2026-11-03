@@ -23,23 +23,27 @@ const FLASH_MS = 4000;
 /** Avatar do autor ao lado do balão, e o espaço que a pílula flutuante reserva no fim da lista. */
 const AVATAR_BOX = 28;
 const FOOTER_SPACE = 72;
-const STACK = 40;
-const STACK_BODY = 24;
+const STACK_BODY = 26;
+/** Quanto do primeiro avatar o segundo cobre, na horizontal. */
+const STACK_OVERLAP = 0.35;
 
 /**
- * Os dois bots empilhados, como o avatar de grupo do web: o segundo fica abaixo e à direita, cobrindo parte do primeiro,
- * e um disco na cor da pílula em volta dele os separa (os corpos não são círculos, então não há contorno próprio).
+ * Os dois bots lado a lado, na mesma linha de base, o segundo cobrindo uma parte do primeiro. O recorte que os separa
+ * é um disco na MESMA cor da pílula (os corpos não são círculos, então não há contorno próprio): some à vista e só
+ * "corta" o primeiro avatar. Os olhos também usam essa cor, em vez do fundo da tela.
  */
 function StackedAvatars({ first, second, fill }: { first: ExchangeBot; second: ExchangeBot; fill: string }) {
 	const box = Math.round(STACK_BODY / 0.705);
-	const cell = { position: "absolute" as const, width: STACK_BODY + 4, height: STACK_BODY + 4, alignItems: "center" as const, justifyContent: "center" as const };
+	const cell = STACK_BODY + 4;
+	const shift = Math.round(cell * (1 - STACK_OVERLAP));
+	const base = { width: cell, height: cell, alignItems: "center" as const, justifyContent: "center" as const };
 	return (
-		<View style={{ width: STACK, height: STACK }}>
-			<View style={[cell, { left: 0, top: 0 }]}>
-				<Avatar color={resolveColor(first.color, first.id)} shape={resolveShape(first.shape, first.id)} size={box} animated={false} />
+		<View style={{ width: shift + cell, height: cell }}>
+			<View style={[base, { position: "absolute", left: 0, top: 0 }]}>
+				<Avatar color={resolveColor(first.color, first.id)} shape={resolveShape(first.shape, first.id)} size={box} animated={false} eyeColor={fill} />
 			</View>
-			<View style={[cell, { right: 0, bottom: 0, borderRadius: (STACK_BODY + 4) / 2, backgroundColor: fill }]}>
-				<Avatar color={resolveColor(second.color, second.id)} shape={resolveShape(second.shape, second.id)} size={box} animated={false} />
+			<View style={[base, { position: "absolute", left: shift, top: 0, borderRadius: cell / 2, backgroundColor: fill }]}>
+				<Avatar color={resolveColor(second.color, second.id)} shape={resolveShape(second.shape, second.id)} size={box} animated={false} eyeColor={fill} />
 			</View>
 		</View>
 	);
