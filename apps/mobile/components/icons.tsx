@@ -10,6 +10,7 @@ import {
 	ChevronsUpDown as LucideChevronsUpDown,
 	Circle as LucideCircle,
 	CircleCheck as LucideCircleCheck,
+	Check as LucideCheck,
 	CircleUserRound as LucideCircleUserRound,
 	Clock as LucideClock,
 	CodeXml as LucideCodeXml,
@@ -31,6 +32,7 @@ import {
 	Plus as LucidePlus,
 	Reply as LucideReply,
 	Search as LucideSearch,
+	SlidersHorizontal as LucideSlidersHorizontal,
 	Send as LucideSend,
 	Share as LucideShare,
 	Square as LucideSquare,
@@ -184,6 +186,16 @@ export function MonitorIcon({ size = 22, tone = "muted-foreground" }: LineIconPr
 /** Lucide `Pencil`. */
 export function PencilIcon({ size = 20, tone = "foreground" }: LineIconProps) {
 	return <LucidePencil size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `Check` (item marcado numa lista). */
+export function CheckIcon({ size = 20, tone = "foreground" }: LineIconProps) {
+	return <LucideCheck size={size} color={useStroke(tone)} strokeWidth={2.25} />;
+}
+
+/** Lucide `SlidersHorizontal` (o seletor de modelo no composer). */
+export function SlidersIcon({ size = 18, tone = "foreground" }: LineIconProps) {
+	return <LucideSlidersHorizontal size={size} color={useStroke(tone)} strokeWidth={2} />;
 }
 
 /** Lucide `ChevronsUpDown` (seletor). */

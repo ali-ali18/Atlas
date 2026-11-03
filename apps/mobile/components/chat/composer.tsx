@@ -3,7 +3,7 @@ import { Platform, Pressable, TextInput, useWindowDimensions, View } from "react
 
 import type { ReplyQuote } from "@/lib/chat-types";
 import { ReplyChip } from "./reply-chip";
-import { ArrowUpIcon, MicIcon, PlusIcon, StopIcon, WaveformIcon } from "@/components/icons";
+import { ArrowUpIcon, MicIcon, PlusIcon, SlidersIcon, StopIcon, WaveformIcon } from "@/components/icons";
 import { chatChrome } from "@/lib/chat-surface";
 import { themeColor } from "@/lib/theme";
 import { useAppColorScheme } from "@/lib/use-theme";
@@ -31,6 +31,8 @@ type ComposerProps = {
 	onSend: (text: string) => void;
 	onStop: () => void;
 	onSoon: (what: "anexos" | "voz") => void;
+	/** Abre a folha "Selecionar modelo". */
+	onModel: () => void;
 	/** Mensagem que a próxima fala responde: vira o chip dentro do campo, com X para cancelar. */
 	replyTo?: ReplyQuote | null;
 	onCancelReply?: () => void;
@@ -45,7 +47,7 @@ type ComposerProps = {
  * Estrutura e borda como no `chat-composer` do web: uma View só, com `border border-border` e `bg-input`, colada na
  * pílula (sem respiro nem wrapper), com o raio total direto nela, nos dois formatos (pílula e retângulo).
  */
-export function Composer({ initialText, botName, color, foreground, running, onSend, onStop, onSoon, replyTo, onCancelReply }: ComposerProps) {
+export function Composer({ initialText, botName, color, foreground, running, onSend, onStop, onSoon, onModel, replyTo, onCancelReply }: ComposerProps) {
 	// `color` é o destaque do bot (`botAccent`): o primeiro plano é o que vem dele, sempre branco.
 	const onColor = foreground;
 	const scheme = useAppColorScheme();
@@ -63,8 +65,8 @@ export function Composer({ initialText, botName, color, foreground, running, onS
 	const [webHeight, setWebHeight] = React.useState(0);
 	// O campo cresce com o texto até 40% da tela e rola por dentro depois disso.
 	const maxFieldHeight = Math.round(useWindowDimensions().height * 0.4);
-	// Largura do grupo da direita: microfone + botão da cor do bot (o microfone fica também com texto).
-	const rightWidth = BUTTON * 2 + 8;
+	// Largura do grupo da direita: modelo + microfone + botão da cor do bot (os dois primeiros ficam também com texto).
+	const rightWidth = BUTTON * 3 + 16;
 	const mode = hasText ? "send" : running ? "stop" : "voice";
 	const press = () => {
 		if (mode === "send") {
@@ -141,6 +143,9 @@ export function Composer({ initialText, botName, color, foreground, running, onS
 							<PlusIcon size={18} />
 						</Pressable>
 						<View className="flex-row items-center gap-2">
+							<Pressable role="button" accessibilityLabel="Selecionar modelo" onPress={onModel} style={{ width: BUTTON, height: BUTTON, backgroundColor: chrome.control }} className="items-center justify-center rounded-full active:opacity-70">
+								<SlidersIcon size={16} />
+							</Pressable>
 							<Pressable role="button" accessibilityLabel="Microfone (em breve)" onPress={() => onSoon("voz")} style={{ width: BUTTON, height: BUTTON, backgroundColor: chrome.control }} className="items-center justify-center rounded-full active:opacity-70">
 								<MicIcon size={18} />
 							</Pressable>
