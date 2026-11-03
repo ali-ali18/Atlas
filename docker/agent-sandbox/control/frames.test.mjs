@@ -35,6 +35,17 @@ test("registry: prefixos estáveis, outra origem marcada, frame desanexado some"
 	assert.equal(reg.frameOf(page, ""), main);
 });
 
+test("registry: iframes além do teto são contados em omittedOf", () => {
+	const mk = (i) => ({ url: () => `http://a.test/i${i}`, name: () => "", isDetached: () => false });
+	const main = mk("m");
+	const inner = Array.from({ length: 12 }, (_, i) => mk(i));
+	const page = { mainFrame: () => main, frames: () => [main, ...inner] };
+	const reg = createFrameRegistry();
+	const entries = reg.list(page);
+	assert.equal(entries.length + reg.omittedOf(page), 13);
+	assert.ok(reg.omittedOf(page) > 0);
+});
+
 test("registry: o prefixo f1 de uma aba não resolve para o frame de outra aba", () => {
 	const mk = (url) => ({ url: () => url, name: () => "", isDetached: () => false });
 	const mkPage = (...inner) => {

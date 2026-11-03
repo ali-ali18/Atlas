@@ -17,6 +17,7 @@ import {
 } from "./outline.mjs";
 import { readPageInPage, READ_MAX_NODES, READ_MAX_ITEMS } from "./read-page.mjs";
 import { describeElement } from "./snapshot.mjs";
+import { MAX_FRAMES } from "./frames.mjs";
 import { runExclusive } from "./page-lock.mjs";
 
 export const EXPAND_MAX_SECTIONS = 30;
@@ -100,7 +101,7 @@ export function createPageReader({ withPageRetry, registry, collect, locateRef, 
 			frames.push({ prefix: entry.prefix, label: entry.label, crossOrigin: entry.crossOrigin, main: entry.main, items: out.items, truncated: out.truncated });
 		}
 		const entries = flattenFrames(frames, rawByRef);
-		return { entries, raws, rawByRef, frames: frames.length, nodeCapped: budgetSpent || frames.some((frame) => frame.truncated) };
+		return { entries, raws, rawByRef, frames: frames.length, framesOmitted: registry.omittedOf?.(page) ?? 0, nodeCapped: budgetSpent || frames.some((frame) => frame.truncated) };
 	}
 
 	/** Conteúdo de uma seção recém-aberta: o painel controlado pelo botão; sem painel, o texto novo do diff. */
@@ -210,6 +211,7 @@ export function createPageReader({ withPageRetry, registry, collect, locateRef, 
 				expansion = await expandSections(page, snap, { view: args.view, which: args.expand === "all" ? undefined : args.expand });
 				text += expansionText(expansion, args.view);
 			}
+			if (snap.framesOmitted) text += `\n\n[${snap.framesOmitted} more iframe${snap.framesOmitted === 1 ? "" : "s"} beyond the limit of ${MAX_FRAMES} were not read]`;
 			let full = normalizeText(text);
 			let capped = false;
 			if (full.length > READ_TOTAL_MAX) {
@@ -221,6 +223,7 @@ export function createPageReader({ withPageRetry, registry, collect, locateRef, 
 				title: await page.title(),
 				view: args.view,
 				frames: snap.frames,
+				...(snap.framesOmitted ? { framesOmitted: snap.framesOmitted } : {}),
 				collapsed,
 				...(similar ? { similar: { count: similar.count } } : {}),
 				...(expansion
@@ -257,6 +260,7 @@ export function createPageReader({ withPageRetry, registry, collect, locateRef, 
 				total: found.total,
 				matches: found.matches,
 				frames: snap.frames,
+				...(snap.framesOmitted ? { framesOmitted: snap.framesOmitted } : {}),
 				collapsed: countCollapsed(snap.entries),
 			};
 		}, { tries: 3 });

@@ -32,7 +32,7 @@ export function createFrameRegistry() {
 	const stateOf = (page) => {
 		let state = states.get(page);
 		if (!state) {
-			state = { ids: new WeakMap(), byPrefix: new Map(), count: 0, seq: 0 };
+			state = { ids: new WeakMap(), byPrefix: new Map(), count: 0, seq: 0, omitted: 0 };
 			states.set(page, state);
 		}
 		return state;
@@ -56,9 +56,14 @@ export function createFrameRegistry() {
 		if (!main) return [{ frame: page, prefix: "", label: "", main: true }];
 		const mainOrigin = parse(main.url())?.origin ?? "";
 		const out = [{ frame: main, prefix: "", label: "", main: true }];
+		let omitted = 0;
 		for (const frame of page.frames()) {
-			if (frame === main || out.length > MAX_FRAMES) continue;
+			if (frame === main) continue;
 			if (frame.isDetached?.()) continue;
+			if (out.length > MAX_FRAMES) {
+				omitted += 1;
+				continue;
+			}
 			const url = parse(frame.url());
 			const inline = !url || url.protocol === "about:";
 			const crossOrigin = !inline && url.origin !== mainOrigin ? url.host : "";
@@ -70,6 +75,7 @@ export function createFrameRegistry() {
 				...(crossOrigin ? { crossOrigin } : {}),
 			});
 		}
+		stateOf(page).omitted = omitted;
 		return out;
 	}
 
@@ -84,6 +90,8 @@ export function createFrameRegistry() {
 		list,
 		frameOf,
 		prefixOf,
+		/** Quantos iframes vivos ficaram de fora da última listagem (teto MAX_FRAMES). */
+		omittedOf: (page) => stateOf(page).omitted,
 		seqOf: (page) => stateOf(page).seq,
 		setSeq: (page, value) => {
 			stateOf(page).seq = value;
