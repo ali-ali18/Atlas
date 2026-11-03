@@ -2,11 +2,8 @@ import type { HomeBot } from "@/lib/home-types";
 import * as React from "react";
 import { Pressable, View } from "react-native";
 import { ChevronDownIcon, SendIcon } from "@/components/icons";
-import { Input } from "@/components/ui/input";
 import { Text } from "@/components/ui/text";
 import { formatListDate, NO_SECTION_KEY, type HomeSection } from "@/lib/home-list";
-import { chatChrome } from "@/lib/chat-surface";
-import { useAppColorScheme } from "@/lib/use-theme";
 import { BotAvatar } from "./bot-avatar";
 
 const ROW_BODY = 48;
@@ -48,9 +45,6 @@ export function SectionBlock({
 	onMenu,
 	onSectionMenu,
 	showEmpty,
-	renaming,
-	onCommitRename,
-	onCancelRename,
 }: {
 	section: HomeSection;
 	bots: readonly HomeBot[];
@@ -62,68 +56,27 @@ export function SectionBlock({
 	/** Só para seções reais (não "Sem sessão"). */
 	onSectionMenu?: (section: HomeSection) => void;
 	showEmpty: boolean;
-	renaming?: boolean;
-	onCommitRename?: (name: string) => void;
-	onCancelRename?: () => void;
 }) {
 	const editable = section.key !== NO_SECTION_KEY && Boolean(onSectionMenu);
-	const draftName = React.useRef(section.title);
-	// Enviar pelo teclado tira o foco e dispara o onBlur logo depois: só o primeiro dos dois salva.
-	const settled = React.useRef(false);
-	React.useEffect(() => {
-		if (!renaming) return;
-		draftName.current = section.title;
-		settled.current = false;
-	}, [renaming, section.title]);
-	const settle = (action: () => void) => {
-		if (settled.current) return;
-		settled.current = true;
-		action();
-	};
-	const scheme = useAppColorScheme();
-	const chrome = chatChrome(scheme);
 	return (
 		<View>
-			{renaming ? (
-				<View className="min-h-11 justify-center px-5 py-1">
-					<Input
-						autoFocus
-						defaultValue={section.title}
-						returnKeyType="done"
-						onChangeText={(text) => {
-							draftName.current = text;
-						}}
-						onSubmitEditing={() => settle(() => onCommitRename?.(draftName.current))}
-						onBlur={() =>
-							settle(() => {
-								if (draftName.current.trim() === section.title.trim()) onCancelRename?.();
-								else onCommitRename?.(draftName.current);
-							})
-						}
-						style={{ backgroundColor: chrome.fill, borderColor: chrome.edge }}
-						className="h-11 rounded-full border px-4"
-						accessibilityLabel="Nome da seção"
-					/>
+			<Pressable
+				role="button"
+				accessibilityState={{ expanded: open }}
+				accessibilityLabel={section.title}
+				accessibilityHint={editable ? "Toque para recolher ou expandir. Segure para editar a seção." : undefined}
+				onPress={onToggle}
+				onLongPress={editable ? () => onSectionMenu?.(section) : undefined}
+				delayLongPress={400}
+				className="min-h-11 flex-row items-center gap-1.5 self-start px-5 active:opacity-70"
+			>
+				<Text numberOfLines={1} className="shrink text-control text-muted-foreground">
+					{section.title}
+				</Text>
+				<View style={{ transform: [{ rotate: open ? "0deg" : "-90deg" }] }}>
+					<ChevronDownIcon size={20} />
 				</View>
-			) : (
-				<Pressable
-					role="button"
-					accessibilityState={{ expanded: open }}
-					accessibilityLabel={section.title}
-					accessibilityHint={editable ? "Toque para recolher ou expandir. Segure para editar a seção." : undefined}
-					onPress={onToggle}
-					onLongPress={editable ? () => onSectionMenu?.(section) : undefined}
-					delayLongPress={400}
-					className="min-h-11 flex-row items-center gap-1.5 self-start px-5 active:opacity-70"
-				>
-					<Text numberOfLines={1} className="shrink text-control text-muted-foreground">
-						{section.title}
-					</Text>
-					<View style={{ transform: [{ rotate: open ? "0deg" : "-90deg" }] }}>
-						<ChevronDownIcon size={20} />
-					</View>
-				</Pressable>
-			)}
+			</Pressable>
 			{open
 				? section.bots.length > 0
 					? section.bots.map((bot) => <ConversationRow key={bot.id} bot={bot} bots={bots} now={now} onOpen={onOpen} onMenu={onMenu} />)

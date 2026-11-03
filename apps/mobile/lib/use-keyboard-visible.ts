@@ -17,3 +17,17 @@ export function useKeyboardVisible(): boolean {
 	}, []);
 	return visible;
 }
+
+/** Altura do teclado aberto, em pt (0 fechado). Mesmos eventos de `useKeyboardVisible`. */
+export function useKeyboardHeight(): number {
+	const [height, setHeight] = React.useState(0);
+	React.useEffect(() => {
+		const show = Keyboard.addListener(Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow", (event) => setHeight(event.endCoordinates.height));
+		const hide = Keyboard.addListener(Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide", () => setHeight(0));
+		return () => {
+			show.remove();
+			hide.remove();
+		};
+	}, []);
+	return height;
+}
