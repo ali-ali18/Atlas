@@ -21,7 +21,8 @@ packages/evals/
   src/variants.ts       variantes de harness (`--harness`)
   src/from-run.ts       run de produção → cenário (com redação)
   src/bridge/           avaliação da ponte do v3 (tarefas, mundo falso, métricas, relatório, custo)
-  src/cli.ts            comandos run / compare / from-run / list / motor-v1-vs-v2 / bridge
+  src/engine-compare/v3/ avaliação lado a lado v2 × v3 (T1..T13, métricas, critério de vitória, relatório, custo)
+  src/cli.ts            comandos run / compare / from-run / list / motor-v1-vs-v2 / navegador / bridge / motor-v2-vs-v3
   results/              saída das execuções (ignorada pelo git)
 ```
 
@@ -271,6 +272,40 @@ Verificações (`expect`; `id` opcional dá o nome que aparece na matriz):
   dois diretórios de resultado.
 - Idioma, pergunta e promessa são heurísticas de texto: leia a trajetória antes de concluir.
 - Custo vem do `usage.cost` do OpenRouter; quando o provedor não informa, o total sai marcado como parcial.
+
+## Avaliação lado a lado v2 × v3 (harness v3, PR9)
+
+Roda as 13 tarefas do desenho (seção 11.1, `src/engine-compare/v3/tasks.ts`) no loop REAL de cada motor (`runEngineV2` e
+`runEngineV3`), com `streamChat` injetado e as tools respondidas por fixtures: T1 "Bom dia", T2 YouTube → Gemini no navegador →
+slide, T3 criar bot com 50 conectores, T4 "acompanha o preço", T5 rotina só leitura que tenta escrever, T6 e-mail com injeção,
+T7 login (um site com senha no cofre, outro sem), T8 pesquisa longa de 10 fornecedores, T9 dado colado, T10 pedido de outro bot
+para enviar e-mail, T11 mensagem do usuário no meio do run, T12 compactação, T13 "Continua" com itens abertos. Cada tarefa tem
+fixtures, checks determinísticos (segurança e conclusão) e um roteiro por motor (`turns: { v2, v3 }`) para o mock.
+
+Métricas por run (desenho 11.2): conclusão, passos, chamadas de modelo, tokens (entrada, cache, saída), custo, erros de tool,
+repetições idênticas, perguntas, empurrões por tipo, escritas sem humano (tem de ser 0), obediência à injeção, vazamento de
+internals no texto final, rodapé automático e tempo. "Anuncia e para" só pelo juiz offline opcional (`--judge`, desligado por
+padrão). O relatório calcula o critério de vitória (11.3) e marca ✅/❌ por item, por modelo, por tarefa e por família.
+
+```bash
+# CI e conferência da mecânica: grátis, sem rede, sem chave (roteiro por motor)
+pnpm --filter @workspace/evals run eval -- motor-v2-vs-v3 --mock
+
+# Estimativa de custo antes de gastar (roda o mock só para medir os tokens; não chama modelo)
+pnpm --filter @workspace/evals run eval -- motor-v2-vs-v3 --estimate --models claude-haiku-5-5,claude-sonnet-5-5 --repeat 2
+
+# Real (gasta tokens): chave SÓ do ambiente, nunca impressa. Haiku é a referência "de entrada"; o Sonnet é o controle
+pnpm --filter @workspace/evals run eval -- motor-v2-vs-v3 --models claude-haiku-5-5,claude-sonnet-5-5 --repeat 2 --max-cost 10
+```
+
+- Opções: `--engines v2,v3` (padrão os dois; o critério precisa dos dois), `--only T1,T5`, `--strong a,b` (controles; padrão Claude
+  Sonnet/Opus), `--concurrency N`, `--timeout S`, `--prices ARQ.json` (preço dos `claude-*`), `--judge MODELO` (só no real), `--out DIR`.
+- Saída em `results/v2-vs-v3-<data>/`: `report.md`, `results.json` (veredito e runs) e `runs.jsonl` (trajetórias, com a chave redigida).
+- No mock, custo e cache são SIMULADOS: preço do Haiku 5.5 e cache de prefixo (tokens em cache = prefixo comum com o pedido anterior do
+  mesmo run, piso de 1024 tokens). Mede a estabilidade do prefixo, não o desconto real de um provedor.
+- Cobertura: sem VM real (T2 e T7 usam fixtures para o navegador e o login), sem banco (os cards persistidos e o rascunho do
+  `prepare_for_owner` só rodam com alvo nativo, por fixture). O relatório lista o que cada tarefa não cobre.
+- O mock prova a mecânica; o veredito do desenho só vale com a rodada real (ao vivo na VM para T2, T7 e T12, com revisão humana de 20% das trajetórias).
 
 ## Bench do navegador (harness v3, PR6)
 
