@@ -4,4 +4,4 @@ export { BRIDGE_CRITERIA, extractAttempts, judgeCell, measureBridgeRun, shapePro
 export { runBridgeSuite, runBridgeTask, type BridgeRunOptions, type BridgeSuiteResult } from "./run.js";
 export { buildBridgeReport, decide, formatBridgeReport, type BridgeDecision, type BridgeReport } from "./report.js";
 export { ESTIMATE_MARGIN, PRICE_ASSUMPTIONS, estimateModelCost, estimateTable, formatEstimate, recommendPlan, tokensPerEngine, type ModelPrice } from "./cost.js";
-export { assertKeysFor, createRealModel, OPENCODE_GO_ENV, OPENROUTER_ENV } from "./providers.js";
+export { ANTHROPIC_ENV_NAMES, CLAUDE_DIRECT_PRICES, anthropicKeyFrom, assertKeysFor, claudeCallCostUsd, claudePriceFor, createRealModel, isClaudeDirect, OPENCODE_GO_ENV, OPENROUTER_ENV, type ClaudePrice } from "./providers.js";

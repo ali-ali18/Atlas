@@ -62,3 +62,20 @@ describe("CLI", () => {
 		expect(lines.join("\n")).toContain("repeat 5, v2+v3");
 	});
 });
+
+describe("Claude pela Anthropic direta (CLI)", () => {
+	it("--estimate --models claude-haiku-5-5 usa o preço da Anthropic direta; modelo sem preço falha", async () => {
+		const lines: string[] = [];
+		const original = console.log;
+		console.log = (...args: unknown[]) => void lines.push(args.join(" "));
+		try {
+			expect(await main(["bridge", "--estimate", "--models", "claude-haiku-5-5", "--budget", "5"])).toBe(0);
+			await expect(main(["bridge", "--estimate", "--models", "claude-sem-preco"])).rejects.toThrow(/sem preço/);
+		} finally {
+			console.log = original;
+		}
+		const out = lines.join("\n");
+		expect(out).toContain("claude-haiku-5-5");
+		expect(out).toContain("0.1 / 0.5");
+	});
+});

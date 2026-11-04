@@ -93,15 +93,15 @@ motor-v1-vs-v2          compara o motor atual (v1) e o novo (v2) em 11 tarefas d
 
 bridge (ou run --suite bridge)   10 tarefas com a tool certa FORA do núcleo e 50 conectores falsos: ponte (v3) × carrega e anexa (v2)
   --engine v2|v3|both   motor(es) (padrão: both; o critério "não pior que o v2" precisa dos dois)
-  --models a,b          ids do OpenRouter (sem prefixo) ou opencode-go/<slug> (obrigatório sem --mock)
+  --models a,b          ids do OpenRouter (sem prefixo), opencode-go/<slug> ou claude-<modelo> (Anthropic direta; obrigatório sem --mock)
   --repeat N            repetições por tarefa, modelo e motor (padrão: 3)
   --max-cost USD        para de iniciar execuções depois do teto (padrão no modo real: 5)
   --concurrency N       execuções simultâneas (padrão: 3)   --timeout S  segundos por execução (padrão: 180)
   --only ids            só estas tarefas   --strong a,b  modelos de controle (padrão: Claude Sonnet/Opus)
   --mock                roteiro por motor (sem rede, sem chave, grátis): prova a mecânica
-  --estimate            só imprime a estimativa de custo (sem chamar modelo); --budget USD (padrão 5)  --prices ARQ.json
+  --estimate            só imprime a estimativa de custo (sem chamar modelo); --budget USD (padrão 5)  --prices ARQ.json (no modo real: preço dos claude-*)
   --out DIR             pasta de saída: report.md, results.json, runs.jsonl (padrão: results/bridge-<data-hora>)
-  Chaves só do ambiente (nunca impressas): OPENROUTER_API_KEY; OPENCODE_GO_API_KEY para ids opencode-go/...; ou --env-file.`;
+  Chaves só do ambiente (nunca impressas): OPENROUTER_API_KEY; OPENCODE_GO_API_KEY para opencode-go/...; ANTHROPIC_API_KEY (ou CLAUDE_KEY, claude_key) para claude-*; ou --env-file.`;
 
 async function loadAll(args: CliArgs) {
 	const { loadScenarios, selectScenarios } = await import("./scenario.js");
@@ -225,7 +225,7 @@ async function commandEngineCompare(args: CliArgs): Promise<number> {
 }
 
 async function commandBridge(args: CliArgs): Promise<number> {
-	const { runBridgeSuite, buildBridgeReport, formatBridgeReport, formatEstimate, tokensPerEngine, assertKeysFor, createRealModel, PRICE_ASSUMPTIONS } = await import("./bridge/index.js");
+	const { runBridgeSuite, buildBridgeReport, formatBridgeReport, formatEstimate, tokensPerEngine, assertKeysFor, createRealModel, PRICE_ASSUMPTIONS, CLAUDE_DIRECT_PRICES } = await import("./bridge/index.js");
 	const { strongMatcher } = await import("./verdict.js");
 	const { redactSecrets: redact } = await import("@workspace/shared");
 	const { z } = await import("zod");
@@ -235,19 +235,35 @@ async function commandBridge(args: CliArgs): Promise<number> {
 	const engines = engineFlag === "both" ? (["v2", "v3"] as const) : ([engineFlag] as ["v2" | "v3"]);
 	const only = list(flag(args, "only"));
 
+	// --prices vale para a estimativa (lista de ModelPrice) e para o modo real (preço dos claude-* diretos, que a Anthropic não devolve).
+	const priceSchema = z.array(z.object({ model: z.string().min(1), label: z.string().min(1), promptUsdPerMTok: z.number().positive(), completionUsdPerMTok: z.number().positive(), extraOutputPerStep: z.number().min(0), strong: z.boolean().optional() }).strict()).min(1);
+	const pricesFile = flag(args, "prices");
+	const pricesRaw: unknown = pricesFile ? JSON.parse(await readFile(resolve(pricesFile), "utf8")) : undefined;
+	const wanted = list(flag(args, "models"));
+
 	if (args.flags.estimate === true) {
 		const probe = await runBridgeSuite({ mode: "mock", engines: ["v2", "v3"], models: [], repeat: 1, concurrency: 1, only });
-		const priceSchema = z.array(z.object({ model: z.string().min(1), label: z.string().min(1), promptUsdPerMTok: z.number().positive(), completionUsdPerMTok: z.number().positive(), extraOutputPerStep: z.number().min(0), strong: z.boolean().optional() }).strict()).min(1);
-		const pricesFile = flag(args, "prices");
-		const prices = pricesFile ? priceSchema.parse(JSON.parse(await readFile(resolve(pricesFile), "utf8"))) : PRICE_ASSUMPTIONS;
+		let prices = pricesRaw ? priceSchema.parse(pricesRaw) : [...PRICE_ASSUMPTIONS];
+		if (wanted.length > 0) {
+			// Com --models, só esses modelos; `claude-*` entra pelo preço da Anthropic direta (~300 tokens de raciocínio por passo: thinking adaptativo ligado).
+			const direct = CLAUDE_DIRECT_PRICES.map((item) => ({ model: item.model, label: `${item.model} (Anthropic direta)`, promptUsdPerMTok: item.promptUsdPerMTok, completionUsdPerMTok: item.completionUsdPerMTok, extraOutputPerStep: 300 }));
+			const pool = [...prices, ...direct.filter((item) => !prices.some((known) => known.model === item.model))];
+			prices = wanted.map((model) => {
+				const found = pool.find((item) => item.model === model);
+				if (!found) throw new Error(`sem preço para ${model} na estimativa: informe com --prices <arquivo.json>`);
+				return found;
+			});
+		}
 		console.log(formatEstimate(tokensPerEngine(probe.runs), { budgetUsd: strictNumber("--budget", flag(args, "budget") ?? "5"), prices }));
 		return 0;
 	}
 
 	const models = list(flag(args, "models"));
 	if (!mock && models.length === 0) throw new Error("informe --models (ou use --mock)");
-	if (!mock) assertKeysFor(models);
-	const real = mock ? undefined : createRealModel();
+	// No modo real, --prices é [{ model, promptUsdPerMTok, completionUsdPerMTok }] (campos extras são ignorados): preço dos claude-* diretos.
+	const directPrices = Array.isArray(pricesRaw) ? z.array(z.object({ model: z.string().min(1), promptUsdPerMTok: z.number().positive(), completionUsdPerMTok: z.number().positive() }).passthrough()).parse(pricesRaw) : undefined;
+	if (!mock) assertKeysFor(models, process.env, directPrices ?? CLAUDE_DIRECT_PRICES);
+	const real = mock ? undefined : createRealModel(process.env, directPrices ? { prices: directPrices } : {});
 	const repeat = number(flag(args, "repeat"), mock ? 1 : 3);
 	const maxCostUsd = mock ? undefined : number(flag(args, "max-cost"), 5);
 	const stamp = new Date().toISOString().replace(/[:.]/g, "-");
@@ -274,7 +290,7 @@ async function commandBridge(args: CliArgs): Promise<number> {
 	});
 	// Controle forte = Claude por padrão: "GPT mini" e "Gemini Flash" são famílias baratas (o padrão geral do `run` trataria GPT-5 mini como forte).
 	const strongList = list(flag(args, "strong"));
-	const report = buildBridgeReport(result, { isStrong: strongList.length > 0 ? strongMatcher(strongList) : (model) => /anthropic\/claude-(opus|sonnet)/i.test(model) });
+	const report = buildBridgeReport(result, { isStrong: strongList.length > 0 ? strongMatcher(strongList) : (model) => /(anthropic\/)?claude-(opus|sonnet|fable)/i.test(model) });
 	const markdown = redact(formatBridgeReport(report), secrets);
 	await writeFile(join(outDir, "report.md"), markdown);
 	await writeFile(join(outDir, "results.json"), `${redact(JSON.stringify({ report, runs: result.runs }, null, 2), secrets)}\n`);

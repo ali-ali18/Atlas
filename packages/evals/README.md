@@ -59,10 +59,15 @@ pnpm --filter @workspace/evals run eval -- bridge --estimate --budget 5
 # Real (gasta tokens): chaves SÓ do ambiente, nunca impressas
 OPENROUTER_API_KEY=... pnpm --filter @workspace/evals run eval -- \
   bridge --engine both --models deepseek/deepseek-chat,openai/gpt-5-mini --repeat 3 --max-cost 5
+# Claude pela Anthropic direta (sem OpenRouter): chave em ANTHROPIC_API_KEY, CLAUDE_KEY ou claude_key (nessa ordem)
+pnpm --filter @workspace/evals run eval -- \
+  bridge --engine both --models claude-haiku-5-5 --repeat 3 --max-cost 2
 # equivalente: --suite bridge no lugar do comando `bridge`
 ```
 
-- Chaves: `OPENROUTER_API_KEY` (a que o `packages/llm` já usa) para ids sem prefixo; `OPENCODE_GO_API_KEY` (nome só deste CLI; em produção a chave vive no cofre do usuário) para `opencode-go/<slug>`. Plano ChatGPT (OAuth) e Anthropic direto não têm chave de ambiente: use o slug do OpenRouter.
+- Chaves: `OPENROUTER_API_KEY` (a que o `packages/llm` já usa) para ids sem prefixo; `OPENCODE_GO_API_KEY` (nome só deste CLI; em produção a chave vive no cofre do usuário) para `opencode-go/<slug>`. `claude-<modelo>` (ex.: `claude-haiku-5-5`) vai pela Anthropic direta (Messages API com tool use, adaptador do `packages/llm`) com `ANTHROPIC_API_KEY`, `CLAUDE_KEY` ou `claude_key`, nessa ordem; `anthropic/claude-...` (com barra) continua sendo o slug do OpenRouter. Plano ChatGPT (OAuth) não tem chave de ambiente: use o slug do OpenRouter.
+- Custo dos `claude-*` diretos: a Anthropic não devolve custo, então cada chamada é calculada dos tokens (entrada nova, cache lido a 0,1x, cache gravado a 1,25x, saída), com preço de lista: Haiku 5.5 US$ 0,10 / 0,50 por Mtok até 100 mil tokens de prompt e 5x acima (tabela `CLAUDE_DIRECT_PRICES`, de 2026-10-06; confira). Sobrescreva com `--prices arq.json` (`[{ "model": "claude-haiku-5-5", "promptUsdPerMTok": 0.1, "completionUsdPerMTok": 0.5 }]`); modelo `claude-*` sem preço falha antes de gastar. O `--max-cost` usa esse custo e as colunas de cache do relatório vêm dos tokens informados.
+- Estimativa só do Haiku: `bridge --estimate --models claude-haiku-5-5` (~US$ 0,23 para `--engine both --repeat 3` nas 10 tarefas, sem desconto de cache; ~US$ 0,07 só no v3).
 - Saída em `results/bridge-<data>/`: `report.md` (resumo por modelo e motor, decisão, matriz tarefa × modelo × motor com o veredito `modelo | harness | instável`), `results.json` e `runs.jsonl` (trajetórias, com a chave redigida).
 - `--max-cost` (padrão 5 no modo real) para de iniciar execuções ao atingir o teto, usando o custo que o provedor informa por chamada. As repetições rodam por fora (todas as tarefas na 1ª repetição, depois na 2ª...), então um corte deixa dados em todas as tarefas.
 - Workflow manual `.github/workflows/evals.yml` (só `workflow_dispatch`; secrets `OPENROUTER_API_KEY` e `OPENCODE_GO_API_KEY`; permissão `contents: read`) roda o modo real e publica o relatório como artifact.

@@ -142,6 +142,6 @@ export function formatEstimate(tokens: Record<BridgeEngine, EngineTokens>, optio
 	lines.push(`Configuração ${plan.label}, total estimado ${usd(plan.totalUsd)}. Motores e repetições valem para a rodada inteira, então modelos com a mesma combinação saem numa rodada só (um disparo do workflow ou um comando por combinação):`);
 	for (const item of plan.items) lines.push(`- \`${item.model}\`: ${item.engines.join("+")} × ${item.repeat} repetição(ões) ≈ ${usd(item.usd)}`);
 	lines.push("");
-	lines.push("Preços são suposições de planejamento (lista pública aproximada, não verificada); o repositório não tem tabela de preços por modelo. O `--max-cost` do CLI usa o custo real que o OpenRouter informa por chamada (ou, sem ele, uma estimativa por tokens).");
+	lines.push("Preços são suposições de planejamento (lista pública aproximada, não verificada); o repositório não tem tabela de preços por modelo. O `--max-cost` do CLI usa o custo real que o OpenRouter informa por chamada; nos `claude-*` diretos a Anthropic não informa custo, então ele sai dos tokens com o preço de lista (Haiku 5.5: US$ 0,10 / 0,50 por Mtok; confira e sobrescreva com `--prices`).");
 	return lines.join("\n");
 }
