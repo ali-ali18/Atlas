@@ -77,11 +77,6 @@ export const TOOL_META: Readonly<Record<string, ToolMetaFields>> = {
 	propose_skill_delete: { effect: "write_internal", ownCard: true, needsHuman: true, endsTurn: true },
 
 	// E-mail do bot
-	email_list: { effect: "read" },
-	email_read: { effect: "read" },
-	email_reply: { effect: "send", ownCard: true },
-	email_send: { effect: "send", ownCard: true },
-	email_create_mailbox: { effect: "write_external", ownCard: true },
 
 	// Proativo
 	schedule_followup: { effect: "write_internal" },

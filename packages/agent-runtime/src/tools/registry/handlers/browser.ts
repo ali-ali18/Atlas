@@ -173,7 +173,6 @@ async function handleNativeComputer(args: Record<string, unknown>, ctx: ToolCont
 	return { summary: summaries.join("\n"), image: last?.image };
 }
 
-/** Família `browser`. */
 /** Família `browser`: definição, metadado e handler de cada tool num lugar só (`defineRawTool`, harness v3 PR5b). */
 export const BROWSER_DEFINED: readonly DefinedTool[] = [
 	defineRawTool({
