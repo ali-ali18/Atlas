@@ -59,6 +59,8 @@ export async function executeScheduleReturn(args: z.output<typeof input>, ctx: T
 	try {
 		await deps.scheduleReturn({ userId: ctx.userId, returnId: record.id, delayMs: plan.delayMs });
 	} catch (error) {
+		// Sem job a linha nunca dispararia e ocuparia uma das 3 vagas: sai junto.
+		await store.cancel(ctx.userId, record.id, ctx.conversationId).catch(() => null);
 		await deps.cancelReturn?.(record.id).catch(() => undefined);
 		throw new Error(`Could not schedule the return (${error instanceof Error ? error.message : String(error)}). Nothing was scheduled; tell the user when to check back instead.`);
 	}

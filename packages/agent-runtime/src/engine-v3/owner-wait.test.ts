@@ -253,6 +253,13 @@ describe("schedule_return", () => {
 		await expect(executeScheduleReturn({ inMinutes: 5, reason: "x" }, { ...ctx(), ownerWait: undefined } as unknown as ToolContext, fakeStore().store)).rejects.toThrow(/not available/);
 	});
 
+	it("fila fora do ar: erro honesto e a linha não fica pendente (não ocupa vaga nem dispara)", async () => {
+		const { store, rows } = fakeStore();
+		const own = { ...deps(), scheduleReturn: vi.fn(async () => { throw new Error("redis down"); }) };
+		await expect(executeScheduleReturn({ inMinutes: 30, reason: "x" }, ctx(own), store)).rejects.toThrow(/Nothing was scheduled/);
+		expect(rows[0]!.status).toBe("cancelled");
+	});
+
 	it("cancelar remove o retorno e o job; outro usuário não cancela", async () => {
 		const { store, rows } = fakeStore();
 		const own = deps();
