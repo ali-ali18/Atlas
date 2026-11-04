@@ -12,6 +12,13 @@ import { executeInspectPresentation } from "../../inspect-presentation.js";
 import { executeRunCode } from "../../run-code.js";
 
 import type { ToolFamily } from "../registry.js";
+import { defineRawTool, definedFamily, type DefinedTool } from "../../define-tool.js";
+import { ATTACHMENT_READ_TOOL, ATTACHMENT_LIST_TOOL, ATTACHMENT_TO_COMPUTER_TOOL } from "../../attachment-tools.js";
+import { GENERATE_IMAGE_TOOL } from "../../generate-image.js";
+import { SHOW_IMAGE_TOOL } from "../../show-image.js";
+import { CREATE_FILE_TOOL } from "../../create-file.js";
+import { INSPECT_PRESENTATION_TOOL } from "../../inspect-presentation.js";
+import { RUN_CODE_TOOL } from "../../run-code.js";
 
 async function handleAttachmentReadGroup(name: string, args: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult> {
 	const attachments = ctx.attachments;
@@ -135,14 +142,66 @@ async function handleRunCode(args: Record<string, unknown>, ctx: ToolContext): P
 	return { summary: outcome.summary, visionArtifactIds: outcome.visionArtifactIds };
 }
 
-/** Família `files`. */
-export const FILES_TOOLS: ToolFamily = {
-	"attachment_read": { group: "files", handler: (args, ctx) => handleAttachmentReadGroup("attachment_read", args, ctx) },
-	"attachment_list": { group: "files", handler: (args, ctx) => handleAttachmentReadGroup("attachment_list", args, ctx) },
-	"attachment_to_computer": { group: "files", handler: (args, ctx) => handleAttachmentReadGroup("attachment_to_computer", args, ctx) },
-	"generate_image": { group: "files", handler: handleGenerateImage },
-	"show_image": { group: "files", handler: handleShowImage },
-	"create_file": { group: "files", handler: handleCreateFile },
-	"inspect_presentation": { group: "files", handler: handleInspectPresentation },
-	"run_code": { group: "files", handler: handleRunCode },
-};
+/** Família `files`: definição, metadado e handler de cada tool num lugar só (`defineRawTool`, harness v3 PR5b). */
+export const FILES_DEFINED: readonly DefinedTool[] = [
+	defineRawTool({
+		name: "attachment_read",
+		definition: ATTACHMENT_READ_TOOL,
+		effect: "read",
+		group: "files",
+		run: (args, ctx) => handleAttachmentReadGroup("attachment_read", args, ctx),
+	}),
+	defineRawTool({
+		name: "attachment_list",
+		definition: ATTACHMENT_LIST_TOOL,
+		effect: "read",
+		group: "files",
+		run: (args, ctx) => handleAttachmentReadGroup("attachment_list", args, ctx),
+	}),
+	defineRawTool({
+		name: "attachment_to_computer",
+		definition: ATTACHMENT_TO_COMPUTER_TOOL,
+		effect: "write_internal",
+		group: "files",
+		run: (args, ctx) => handleAttachmentReadGroup("attachment_to_computer", args, ctx),
+	}),
+	defineRawTool({
+		name: "generate_image",
+		definition: GENERATE_IMAGE_TOOL,
+		effect: "write_internal",
+		endsTurn: true,
+		ownCard: true,
+		group: "files",
+		run: handleGenerateImage,
+	}),
+	defineRawTool({
+		name: "show_image",
+		definition: SHOW_IMAGE_TOOL,
+		effect: "read",
+		group: "files",
+		run: handleShowImage,
+	}),
+	defineRawTool({
+		name: "create_file",
+		definition: CREATE_FILE_TOOL,
+		effect: "write_internal",
+		group: "files",
+		run: handleCreateFile,
+	}),
+	defineRawTool({
+		name: "inspect_presentation",
+		definition: INSPECT_PRESENTATION_TOOL,
+		effect: "read",
+		group: "files",
+		run: handleInspectPresentation,
+	}),
+	defineRawTool({
+		name: "run_code",
+		definition: RUN_CODE_TOOL,
+		effect: "write_internal",
+		group: "files",
+		run: handleRunCode,
+	}),
+];
+
+export const FILES_TOOLS: ToolFamily = definedFamily(FILES_DEFINED);

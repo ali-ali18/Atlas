@@ -265,11 +265,11 @@ import {
 } from "./tools/sandbox-shell.js";
 import { createBrowserWatch, SCREEN_CLAIM_NOTE } from "./tools/browser-claims.js";
 import { SANDBOX_RELEASE_TOOL_NAME } from "./tools/sandbox-release.js";
+import { DEV_SESSION_TOOLS } from "./tools/registry/handlers/dev.js";
 import { VIDEO_TRANSCRIPT_TOOL_NAME, videoTranscriptBlocked } from "./tools/video-transcript.js";
 import {
 	createDevSessionRuntime,
 	DEV_SESSION_READONLY_TOOL_NAMES,
-	DEV_SESSION_TOOLS,
 	devSessionAllowedForOrigin,
 	devSessionAutonomyMeta,
 	devSessionBlocked,
