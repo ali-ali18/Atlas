@@ -41,14 +41,6 @@ export const TOOL_META: Readonly<Record<string, ToolMetaFields>> = {
 	web_extract: { effect: "read" },
 
 	// Arquivos e imagens
-	attachment_read: { effect: "read" },
-	attachment_list: { effect: "read" },
-	attachment_to_computer: { effect: "write_internal" },
-	generate_image: { effect: "write_internal", ownCard: true, endsTurn: true },
-	show_image: { effect: "read" },
-	create_file: { effect: "write_internal" },
-	inspect_presentation: { effect: "read" },
-	run_code: { effect: "write_internal" },
 
 	// Memória e leitura de contexto
 	memory: { effect: "write_internal" },

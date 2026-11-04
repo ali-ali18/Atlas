@@ -1,7 +1,7 @@
 import type { DefinedTool } from "../../define-tool.js";
 import type { ToolFamily, ToolResolvers } from "../registry.js";
 import { BROWSER_TOOLS, BROWSER_DEFINED } from "./browser.js";
-import { FILES_TOOLS } from "./files.js";
+import { FILES_TOOLS, FILES_DEFINED } from "./files.js";
 import { MEMORY_TOOLS } from "./memory.js";
 import { MISC_TOOLS } from "./misc.js";
 import { VAULT_TOOLS } from "./vault.js";
@@ -25,4 +25,4 @@ export const TOOL_FAMILIES: Array<() => ToolFamily> = [() => BROWSER_TOOLS, () =
 export const TOOL_RESOLVERS: ToolResolvers = { before: [() => devSessionResolver], after: [() => connectorToolResolver] };
 
 /** Toda tool nativa declarada com `defineTool`/`defineRawTool`, por família (o catálogo `COMPUTER_USE_TOOLS` lê as definições daqui). */
-export const ALL_DEFINED_TOOLS: readonly DefinedTool[] = [...PAGES_DEFINED, ...ROUTINES_DEFINED, ...EMAIL_DEFINED, ...BROWSER_DEFINED];
+export const ALL_DEFINED_TOOLS: readonly DefinedTool[] = [...FILES_DEFINED, ...PAGES_DEFINED, ...ROUTINES_DEFINED, ...EMAIL_DEFINED, ...BROWSER_DEFINED];
