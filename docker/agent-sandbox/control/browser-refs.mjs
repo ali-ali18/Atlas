@@ -14,8 +14,10 @@ import { StaleRefError, createAxStore, resolveAxRef } from "./ax-refs.mjs";
 import { isTreeRef } from "./ax-ref-names.mjs";
 import { createAxEngine } from "./browser-ax.mjs";
 import { runExclusive } from "./page-lock.mjs";
+import { resolveUploadPath } from "./upload-path.mjs";
 
-export const ACT_ACTIONS = ["click", "type", "select", "check", "uncheck", "hover", "press", "clear"];
+// `upload` (v3) entra no fim: o caminho é validado por `upload-path.mjs` (pasta de trabalho do bot, sem oculto).
+export const ACT_ACTIONS = ["click", "type", "select", "check", "uncheck", "hover", "press", "clear", "upload"];
 export const WAIT_KINDS = ["text", "ref", "url", "network", "stable", "text_stable"];
 const MAX_TYPE_LENGTH = 20_000;
 const MAX_VALUE_LENGTH = 300;
@@ -44,6 +46,10 @@ export function parseActArgs(body) {
 	if (action === "select") {
 		if (!value) throw new Error("select exige `value` (texto ou valor da opção).");
 		if (value.length > MAX_VALUE_LENGTH) throw new Error(`value muito longo (máx. ${MAX_VALUE_LENGTH}).`);
+	}
+	if (action === "upload") {
+		if (!value) throw new Error("upload exige `value` com o caminho do arquivo na pasta de trabalho do bot.");
+		if (value.length > 400) throw new Error("caminho muito longo.");
 	}
 	if (action === "press") {
 		if (!value) throw new Error("press exige `value` com a tecla (ex.: Enter, Tab, ArrowDown).");
@@ -267,6 +273,14 @@ export function createRefActions({
 					return await locator.hover({ timeout: ACT_TIMEOUT_MS });
 				case "press":
 					return await locator.press(value, { timeout: ACT_TIMEOUT_MS });
+				case "upload": {
+					const file = await resolveUploadPath(value);
+					const isFileInput = await locator.evaluate((el) => el.tagName === "INPUT" && el.type === "file").catch(() => false);
+					if (isFileInput) return await locator.setInputFiles(file, { timeout: ACT_TIMEOUT_MS });
+					// Botão que abre o seletor de arquivos: clica e entrega o arquivo ao seletor.
+					const [chooser] = await Promise.all([page.waitForEvent("filechooser", { timeout: ACT_TIMEOUT_MS }), locator.click({ timeout: ACT_TIMEOUT_MS })]);
+					return await chooser.setFiles(file);
+				}
 				default:
 					throw new Error(`action ${action} não suportada`);
 			}
@@ -353,7 +367,7 @@ export function createRefActions({
 			const urlBefore = page.url();
 			const observed = await observeAction(page, () => perform(page, locator, args), { urlBefore, ax: useAx });
 			const { effect, result: performed } = observed;
-			const readsField = ["type", "clear", "select", "check", "uncheck"].includes(args.action);
+			const readsField = ["type", "clear", "select", "check", "uncheck", "upload"].includes(args.action);
 			const field = readsField && !effect.navigated ? await readField(locator) : undefined;
 			const click = performed && typeof performed === "object" && performed.rung ? performed : undefined;
 			return {

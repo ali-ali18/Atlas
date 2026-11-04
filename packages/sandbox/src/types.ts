@@ -32,6 +32,12 @@ export type ControlPointer = {
 	sensitive?: boolean;
 };
 
+/** Estado estruturado da página (harness v3); aditivo: imagem antiga da VM não manda. */
+export type ControlPageState = {
+	state: "loading" | "login_wall" | "consent" | "challenge" | "error" | "ok";
+	reason?: string;
+};
+
 /** V4 — o que mudou na página por causa da ação (servidor novo; campos ausentes = nada). */
 export type ControlPageChanges = {
 	/** Documento novo: a página é outra, o texto não é comparado e os refs antigos morreram. */
@@ -90,6 +96,7 @@ export type ControlNavigateResult = {
 	url: string;
 	title: string;
 } & Pick<ControlActionEffect, "navigated" | "settled"> & {
+	pageState?: ControlPageState;
 	/** O conteúdo apareceu e estabilizou dentro do teto (false: SPA ainda montando). */
 	ready?: boolean;
 	/** Tempo do `goto` e da espera de prontidão (ms). */
@@ -185,6 +192,7 @@ export type ControlSnapshotResult = {
 	cached?: boolean;
 	/** Por que caiu no snapshot v1 (ex.: árvore passou de 4 s). */
 	note?: string;
+	pageState?: ControlPageState;
 };
 
 export type ControlReadOptions = {
@@ -256,7 +264,9 @@ export type ControlActAction =
 	| "uncheck"
 	| "hover"
 	| "press"
-	| "clear";
+	| "clear"
+	/** Imagem nova da VM (harness v3): `value` = arquivo da pasta de trabalho do bot. */
+	| "upload";
 
 export type ControlActParams = {
 	ref: string;
@@ -275,6 +285,7 @@ export type ControlActResult = ControlActionEffect & {
 	errors?: string[];
 	newElements: string[];
 	newTotal: number;
+	pageState?: ControlPageState;
 };
 
 export type ControlWaitParams = {
