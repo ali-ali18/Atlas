@@ -25,6 +25,7 @@ Todas as mudanças relevantes do Atlas. Formato [Keep a Changelog](https://keepa
 - **worker:** o worker entende o motor `v3` (harness v3) antes de o v3 existir: bot com `engine: "v3"` roda no v2, com uma linha de log, e o run grava o motor de fato usado; run gravado como `v3` retoma no v2. O v3 só vale com `ATLAS_ENGINE_V3` diferente de `off` e a conta em `ATLAS_ENGINE_V3_ACCOUNTS` (e, por ora, mesmo assim cai no v2). `set_engine` e a rota do bot ainda recusam gravar `v3`, com mensagem clara. Variáveis documentadas no `.env.example` do worker.
 
 ### Corrigido
+- **api:** motor v3: o questionário ignorado (o dono mandou outra mensagem) só vira "Dispensado", e só cancela o prazo, depois que o run novo nasce; se a criação falhar, o cartão segue pendente.
 - **api, db:** motor v3: a saída do cartão de login/VM é gravada antes de o run ser liberado, e só se ainda não houver uma (condicional pela versão do run). O prazo vencido não sobrescreve mais o "Terminei" (nem o contrário), e o worker ou o reconcile nunca pegam o run retomado sem a saída.
 - **worker, db:** motor v3: o retorno agendado (visível ou silencioso) herda do run que agendou só o motor e o perfil, nunca o turno humano: na hora da volta ninguém está presente, então o run só lê (sem escrita nem cartão de aprovação). Antes herdava `humanTurn: true` de um chat.
 - **worker, db:** motor v3: retorno agendado não se perde mais quando a criação do run falha depois da reserva; ele volta a "pendente" (`releaseReturnClaim`, só sem run gravado) e a nova tentativa do job dispara.

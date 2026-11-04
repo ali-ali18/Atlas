@@ -35,25 +35,29 @@ export function questionnaireRunId(questionnaireId: string): string | undefined 
 }
 
 /**
- * O dono mandou outra mensagem com um questionário do motor v3 ainda pendente: o cartão vira "Dispensado" e o run novo
- * parte da conversa do run que perguntou, com o resultado "owner did not answer the previous request and sent: …"
- * na chamada que parou. Só questionário de run v3 do mesmo dono; v1/v2 seguem como sempre (`null`).
+ * O dono mandou outra mensagem com um questionário do motor v3 ainda pendente: o run novo parte da conversa do run que
+ * perguntou, com o resultado "owner did not answer the previous request and sent: …" na chamada que parou. Só
+ * questionário de run v3 do mesmo dono; v1/v2 seguem como sempre (`null`). Sem efeito aqui: quem chama cria o run e só
+ * DEPOIS chama `commit` (cartão vira "Dispensado", prazo cancelado); se o run não nascer, o cartão segue pendente.
  */
-export async function ignoredQuestionnaireSeed(input: { userId: string; conversationId: string; text: string }): Promise<TranscriptSeed | null> {
+export async function ignoredQuestionnaireSeed(input: { userId: string; conversationId: string; text: string }): Promise<{ seed: TranscriptSeed; commit: () => Promise<void> } | null> {
 	const card = await findPendingQuestionnaireCard(input.conversationId, input.userId).catch(() => null);
 	const runId = card ? questionnaireRunId(card.questionnaireId) : undefined;
 	if (!card || !runId) return null;
 	const asking = await getAgentRun(runId).catch(() => null);
 	if (!asking || asking.userId !== input.userId || asking.conversationId !== input.conversationId || readStoredRunEngine(asking.budgetJson) !== "v3") return null;
-	const dismissed = await dismissPendingQuestionnaireCard({ conversationId: input.conversationId, ownerId: input.userId, questionnaireId: card.questionnaireId }).catch(() => null);
-	if (!dismissed) return null;
-	await cancelCardTimeout(card.questionnaireId);
 	return {
-		fromRunId: runId,
-		toolName: QUESTIONNAIRE_TOOL,
-		resultContent: ownerWaitResultText("ignored", { what: card.title, message: input.text }),
-		shortContent: input.text,
-		refused: [refusedQuestionnaireKey],
+		seed: {
+			fromRunId: runId,
+			toolName: QUESTIONNAIRE_TOOL,
+			resultContent: ownerWaitResultText("ignored", { what: card.title, message: input.text }),
+			shortContent: input.text,
+			refused: [refusedQuestionnaireKey],
+		},
+		commit: async () => {
+			await dismissPendingQuestionnaireCard({ conversationId: input.conversationId, ownerId: input.userId, questionnaireId: card.questionnaireId }).catch(() => null);
+			await cancelCardTimeout(card.questionnaireId);
+		},
 	};
 }
 

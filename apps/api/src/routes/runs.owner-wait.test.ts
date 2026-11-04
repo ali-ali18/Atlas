@@ -102,6 +102,19 @@ test("questionário do v3 ignorado: a fala nova vira o resultado da pergunta e o
 	assert.equal((runs.rows.find((row) => row.id !== "asker")!.budgetJson as Record<string, unknown>).humanTurn, true);
 });
 
+test("questionário ignorado mas o run não nasce: o cartão segue pendente (nada é dispensado à toa)", async () => {
+	const table = prisma.agentRun as unknown as { create: (args: unknown) => Promise<unknown> };
+	const original = table.create.bind(table);
+	table.create = async () => { throw new Error("banco fora"); };
+	try {
+		const response = await post(appFor(OWNER), "/v1/runs", { messages: [{ role: "user", content: "esquece, faz em pdf mesmo" }], conversationId: "conv-1" });
+		assert.notEqual(response.status, 202);
+		assert.equal(cardStatus(), "pending");
+	} finally {
+		table.create = original;
+	}
+});
+
 test("questionário de run v2 ignorado: nada muda (v1/v2 iguais)", async () => {
 	runs.rows[0]!.budgetJson = { humanTurn: true, engine: "v2" };
 	const response = await post(appFor(OWNER), "/v1/runs", { messages: [{ role: "user", content: "outra coisa" }], conversationId: "conv-1" });

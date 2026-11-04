@@ -466,9 +466,11 @@ export function createRunRoutes(
 
 		// Questionário do motor v3 pendente e o dono mandou outra mensagem: o cartão vira "Dispensado" e o modelo recebe a
 		// fala nova como resultado da pergunta que parou (só fala digitada no chat; v1/v2 não mudam).
+		// O cartão só vira "Dispensado" depois que o run nasce (`commit` abaixo): se o create falhar, segue pendente.
+		let ignoredQuestionnaire: Awaited<ReturnType<typeof ignoredQuestionnaireSeed>> = null;
 		if (!followUpFromConfirm && !request.transcriptSeed && (request.origin ?? "chat") === "chat" && request.silent !== true && request.conversationId && lastUser.trim()) {
-			const ignored = await ignoredQuestionnaireSeed({ userId: scopeFor(c.get("session")).userId, conversationId: request.conversationId, text: lastUser.trim() }).catch(() => null);
-			if (ignored) request = { ...request, transcriptSeed: ignored };
+			ignoredQuestionnaire = await ignoredQuestionnaireSeed({ userId: scopeFor(c.get("session")).userId, conversationId: request.conversationId, text: lastUser.trim() }).catch(() => null);
+			if (ignoredQuestionnaire) request = { ...request, transcriptSeed: ignoredQuestionnaire.seed };
 		}
 
 		let run;
@@ -496,6 +498,7 @@ export function createRunRoutes(
 			return c.json({ error: message }, 400);
 		}
 
+		await ignoredQuestionnaire?.commit();
 		const enqueued = await enqueueAgentRunJob(config.agentRunQueue, run.id);
 
 		const body: CreateAgentRunResponse = {
