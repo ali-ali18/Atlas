@@ -2,6 +2,7 @@
 import * as React from "react";
 import { canSendAttachments, countsOf, fileSlotsLeft, imageSlotsLeft, isUploading, patchDraft, removeDraft, toOutgoing, uploadErrorMessage, validatePicked, type AttachmentDraft, type OutgoingAttachment, type PickedFile } from "./attachments";
 import type { ApiFetch } from "./home-sync";
+import { filePart } from "./file-part";
 import { UploadError, uploadAttachment } from "./upload-api";
 
 export type AttachmentsApi = {
@@ -48,7 +49,7 @@ export function useAttachments(apiFetch: ApiFetch): AttachmentsApi {
 			const controller = new AbortController();
 			aborts.current.set(draft.key, controller);
 			try {
-				const result = await uploadAttachment(apiFetch, draft.route, { uri: draft.uri, name: draft.name, mime: draft.mime }, controller.signal);
+				const result = await uploadAttachment(apiFetch, draft.route, { uri: draft.uri, name: draft.name, mime: draft.mime }, filePart, controller.signal);
 				if (controller.signal.aborted) return;
 				apply(patchDraft(latest.current, draft.key, { status: "done", artifactId: result.id, ...(result.width && !draft.width ? { width: result.width } : {}), ...(result.height && !draft.height ? { height: result.height } : {}) }));
 			} catch (reason) {
