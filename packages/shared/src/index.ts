@@ -971,6 +971,7 @@ export * from "./model-tiers.js";
 export * from "./maintenance-status.js";
 export * from "./run-inspect.js";
 export * from "./lessons.js";
+export * from "./lesson-facts.js";
 export * from "./skill-review.js";
 export * from "./bot-sla.js";
 export {
