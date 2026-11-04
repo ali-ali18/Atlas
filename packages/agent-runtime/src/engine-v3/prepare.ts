@@ -34,6 +34,7 @@ import { assembleV3Conversation, attachToLastUser, buildV3ContextBlock, buildV3S
 import { createRepetitionGuard } from "./repetition.js";
 import { pendingReturnsTurnNote } from "./owner-wait.js";
 import { OWNER_WAIT_DEFINED } from "../tools/registry/handlers/owner-wait.js";
+import { ROUTINE_LIMITS_DEFINED } from "../tools/routine-limits.js";
 
 const ownerWaitTools = () => OWNER_WAIT_DEFINED.flatMap((tool) => (tool.definition ? [tool.definition] : []));
 import type { V3Run } from "./state.js";
@@ -103,6 +104,11 @@ export async function prepareRun(params: ComputerUseParams, options: EngineV3Opt
 	// Só no v3 (PR8a): "Volto depois" precisa das filas, de uma conversa e de um dono; subagente não agenda.
 	if (params.ownerWait && params.conversationId && userId !== "default" && origin !== "subagent") {
 		for (const tool of ownerWaitTools()) if (params.toolFilter?.(tool.function.name) ?? true) natives.push(tool);
+	}
+	// Só no v3 (PR8b, D4): o dono muda os limites da rotina pelo chat. `needsHuman`: sem pessoa a política a esconde
+	// (a rotina nunca sobe o próprio teto).
+	if (origin === "chat" && params.botId && userId !== "default" && (params.toolFilter?.(ROUTINE_LIMITS_DEFINED.name) ?? true) && ROUTINE_LIMITS_DEFINED.definition) {
+		natives.push(ROUTINE_LIMITS_DEFINED.definition);
 	}
 	const entryOf = (name: string) => mcp?.toolset.entries.get(name);
 	const hides = (name: string) => catalogHides({ name, entry: entryOf(name), base: policy, autonomy });

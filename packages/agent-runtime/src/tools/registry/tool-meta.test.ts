@@ -106,6 +106,7 @@ describe("metadado das tools (effect, poll, endsTurn)", () => {
 			"propose_skill",
 			"propose_skill_change",
 			"propose_skill_delete",
+			"routine_limits",
 			"sandbox_release",
 			"set_autonomy",
 			"set_connector_tool_marks",

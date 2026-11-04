@@ -3794,6 +3794,59 @@
    "effectBySample": []
   },
   {
+   "name": "routine_limits",
+   "group": "routines",
+   "source": "registry",
+   "readOnly": false,
+   "definition": {
+    "type": "function",
+    "function": {
+     "name": "routine_limits",
+     "description": "Change how far one run of a routine may go before it stops and asks the owner \"continue?\": steps per run and an optional US$ cap. USE WHEN the owner asks to raise, lower or reset a routine's step or spending limit. DO NOT USE for the schedule, the instruction or pausing (use the routine tools).",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "target": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 200,
+        "description": "Routine name or id (from list_routines)."
+       },
+       "maxSteps": {
+        "description": "Steps per run (5 to 200). Default without it: 40.",
+        "type": "number"
+       },
+       "maxCostUsd": {
+        "description": "Max US$ per run (0.01 to 50). No default: without it there is no US$ cap.",
+        "type": "number"
+       },
+       "reset": {
+        "description": "Fields to put back to the default (maxSteps → 40 steps, maxCostUsd → no US$ cap).",
+        "type": "array",
+        "items": {
+         "type": "string",
+         "enum": [
+          "maxSteps",
+          "maxCostUsd"
+         ]
+        }
+       }
+      },
+      "required": [
+       "target"
+      ]
+     }
+    }
+   },
+   "effect": "write_internal",
+   "catalogEffect": null,
+   "poll": null,
+   "endsTurn": null,
+   "needsHuman": true,
+   "ownCard": null,
+   "effectBySample": []
+  },
+  {
    "name": "routine_webhook_info",
    "group": "vault",
    "source": "registry",
