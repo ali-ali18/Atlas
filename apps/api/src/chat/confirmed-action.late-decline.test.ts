@@ -173,3 +173,21 @@ test("usuário B não fecha o cartão nem mexe no run do usuário A", async () =
 		db.restore();
 	}
 });
+
+test("recusa sem run ativo: o run termina sem balão (sem \"Ok, deixei pra lá\") e a nota oculta chega ao modelo", async () => {
+	const { finishDeclinedActivity } = await import("./confirmed-action.js");
+	const notes: Array<{ conversationId: string; content: string }> = [];
+	const finished: string[] = [];
+	const run = { id: "run-activity", conversationId: CONV } as unknown as Parameters<typeof finishDeclinedActivity>[0]["run"];
+	const deps = {
+		appendNote: async (conversationId: string, content: string) => { notes.push({ conversationId, content }); },
+		finish: async (input: { run: typeof run; assistantText: string }) => { finished.push(input.assistantText); return input.run; },
+	};
+	await finishDeclinedActivity({ run, merged: false, conversationId: CONV, title: 'Agenda: executar "create_event"?' }, deps);
+	assert.deepEqual(finished, [""], "nenhum texto do assistente: nada vira balão");
+	assert.equal(notes.length, 1);
+	assert.match(notes[0]!.content, /^\[runtime\] Owner declined: "Agenda: executar \\?"create_event\\?""\. It was not done\./);
+	// Run ativo de outro trabalho: sem nota (a do PR8a vai como steer) e sem concluir nada além do de sempre.
+	await finishDeclinedActivity({ run, merged: true, conversationId: CONV }, deps);
+	assert.equal(notes.length, 1);
+});

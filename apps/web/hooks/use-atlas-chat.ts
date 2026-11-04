@@ -343,6 +343,8 @@ function sessionMessageToThread(message: SessionMessage): Message | null {
 }
 
 export function buildSessionMessage(message: SessionMessage): Message | null {
+	// Nota interna para o modelo (ex.: o registro de um cartão recusado): existe no histórico, nunca vira balão.
+	if (message.role === "system") return null;
 	// Conversa entre bots: marcador "Enviou mensagem para X" (id estável = o do live).
 	if ((message.role as string) === BOT_LINK_ROLE) {
 		// "X precisa de você": o id é o da linha (o marcador muda de estado no lugar).

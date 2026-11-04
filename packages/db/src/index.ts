@@ -33,6 +33,7 @@ export {
 	setConfirmCardGrantUses,
 	listApprovedConfirmTools,
 	getLatestConfirmCardStatus,
+	findConfirmCardTitle,
 	markLoginCardDone,
 	hasPendingQuestionnaireCard,
 	submitQuestionnaireCard,
