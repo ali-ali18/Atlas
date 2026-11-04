@@ -43,6 +43,7 @@ import { useComposerSkills } from "@/lib/use-composer-skills";
 import { ensureHomeBot } from "@/lib/ensure-bot";
 import { useHomeData } from "@/lib/home-data";
 import { fetchHomeBot } from "@/lib/home-sync";
+import { useRequestActions } from "@/lib/use-request-actions";
 
 /** Rolou para cima além disto (px do fim): aparece o botão de voltar ao fim. */
 const JUMP_THRESHOLD = 360;
@@ -137,6 +138,12 @@ export default function ChatScreen() {
 	const imageActions = useImageActions();
 	const openImage = React.useCallback((artifactId: string) => setImageStart(viewerStartIndex(viewerImages, artifactId)), [viewerImages]);
 	const closeImage = React.useCallback(() => setImageStart(null), []);
+	const request = useRequestActions();
+	// "Abrir a tela": o app ainda não tem o computador do bot; abre o chat no navegador, onde o web tem o viewer da VM.
+	const openScreen = React.useCallback(() => {
+		const url = webChatUrl(serverUrl, id);
+		if (url) void WebBrowser.openBrowserAsync(url).catch(() => undefined);
+	}, [serverUrl, id]);
 	// "Responder": a mensagem citada fica no chip do composer até enviar ou cancelar.
 	const [replyTo, setReplyTo] = React.useState<ReplyQuote | null>(null);
 	const startReply = React.useCallback((item: ChatItem) => setReplyTo(replyQuoteFor(item)), []);
@@ -170,6 +177,13 @@ export default function ChatScreen() {
 			onOpenExchange: openExchange,
 			onOpenWeb: openWeb,
 			onOpenPage: openPage,
+			onResumeLogin: chat.resumeLogin,
+			onOpenScreen: openScreen,
+			onConnectLogin: chat.connectLogin,
+			connects: chat.connects,
+			request,
+			botName: bot?.name ?? "bot",
+			serverUrl,
 			onOpenMenu: messageMenu.open,
 			onOpenImage: openImage,
 			activeRunId: chat.runTasks?.runId ?? null,
@@ -178,7 +192,7 @@ export default function ChatScreen() {
 			bots: rowBots,
 			skills: skillSet,
 		}),
-		[chat.decide, chat.answer, chat.resolveProposal, openBot, botFor, openExchange, openWeb, openImage, messageMenu.open, chat.running, chat.runTasks?.runId, userBubble, rowBots, skillSet],
+		[chat.decide, chat.answer, chat.resolveProposal, chat.resumeLogin, chat.connectLogin, chat.connects, openBot, botFor, openExchange, openWeb, openPage, openScreen, openImage, request, bot?.name, palette.accent, serverUrl, messageMenu.open, chat.running, chat.runTasks?.runId, userBubble, rowBots, skillSet],
 	);
 
 	// A lista é invertida (o fim da conversa fica embaixo e o teclado não a desloca): mais novo primeiro.

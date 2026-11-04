@@ -1,23 +1,17 @@
 import { resolveColor, resolveShape } from "@workspace/shared/avatar/identity";
 import { CHAT_CARD_COPY } from "@workspace/ui/lib/chat-card-copy";
-import * as React from "react";
-import { Pressable, TextInput, View } from "react-native";
-import { ExternalLinkIcon, LibraryIcon, ListChecksIcon } from "@/components/icons";
+import { Pressable, View } from "react-native";
+import { ExternalLinkIcon, LibraryIcon } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { ChatCard, ChatCardActions, ChatCardHeader, ChatCardLine } from "@/components/ui/chat-card";
 import { Avatar } from "@/components/ui/avatar";
 import { Text } from "@/components/ui/text";
-import { cn } from "@/lib/cn";
 import type { ChatItem } from "@/lib/chat-types";
 import { viewerTargetForCard } from "@/lib/viewer-target";
 import { pageCardSummary } from "@/lib/web-card";
 import { findLinkedBot, type MentionBotRef } from "@/lib/message-text";
-import { buildAnswers, missingRequired, toggleChoice, type AnswerMap } from "@/lib/questionnaire";
-import { themeColor } from "@/lib/theme";
-import { useAppColorScheme } from "@/lib/use-theme";
 
 type Confirm = Extract<ChatItem, { kind: "confirm" }>;
-type Questionnaire = Extract<ChatItem, { kind: "questionnaire" }>;
 type WebCard = Extract<ChatItem, { kind: "web-card" }>;
 
 const CONFIRM_BADGE: Record<Confirm["status"], { tone: "pending" | "success" | "muted" | "danger"; label: string }> = {
@@ -48,94 +42,6 @@ export function ConfirmCard({ item, onDecide }: { item: Confirm; onDecide: (item
 					</Button>
 				</ChatCardActions>
 			) : null}
-		</ChatCard>
-	);
-}
-
-/** Pergunta do bot: escolhas (uma ou várias) e texto livre; "Responder" envia o mapa de respostas do web. */
-export function QuestionnaireCard({ item, onAnswer }: { item: Questionnaire; onAnswer: (item: Questionnaire, answers: AnswerMap) => void }) {
-	const scheme = useAppColorScheme();
-	const [selected, setSelected] = React.useState<Record<string, string[]>>({});
-	const [free, setFree] = React.useState<Record<string, string>>({});
-	const [tried, setTried] = React.useState(false);
-	const pending = item.status === "pending";
-	const answers = buildAnswers(item.items, selected, free);
-	const missing = missingRequired(item.items, answers);
-	const submit = () => {
-		if (missing.length > 0) {
-			setTried(true);
-			return;
-		}
-		onAnswer(item, answers);
-	};
-	if (!pending || item.items.length === 0) {
-		return (
-			<ChatCard variant="activity" className="self-start">
-				<ChatCardLine leading={<ListChecksIcon />}>
-					<Text numberOfLines={1} className="text-sm font-medium">
-						{item.title}
-					</Text>
-				</ChatCardLine>
-			</ChatCard>
-		);
-	}
-	return (
-		<ChatCard className="max-w-[min(68ch,100%)] self-start">
-			<ChatCardHeader title={item.title} badge={{ tone: "pending", label: CHAT_CARD_COPY.needsYou }} />
-			{item.description ? (
-				<Text variant="muted" className="text-control">
-					{item.description}
-				</Text>
-			) : null}
-			{item.items.map((entry) => {
-				const invalid = tried && missing.includes(entry.name);
-				return (
-					<View key={entry.name} className="gap-2">
-						<Text className="text-control font-medium">{entry.prompt}</Text>
-						{entry.description ? (
-							<Text variant="caption" className="text-body">
-								{entry.description}
-							</Text>
-						) : null}
-						{(entry.choices ?? []).map((choice) => {
-							const on = (selected[entry.name] ?? []).includes(choice.value);
-							return (
-								<Pressable
-									key={choice.value}
-									role={entry.multiple ? "checkbox" : "radio"}
-									accessibilityState={{ checked: on }}
-									onPress={() => setSelected((previous) => ({ ...previous, [entry.name]: toggleChoice(previous[entry.name] ?? [], choice.value, entry.multiple === true) }))}
-									className={cn("min-h-11 justify-center rounded-xl px-3 py-2 active:opacity-80", on ? "bg-primary/15" : "bg-background/40", invalid && "border border-destructive")}
-								>
-									<Text className="text-control">{choice.label ?? choice.value}</Text>
-									{choice.description ? (
-										<Text variant="caption" className="text-body">
-											{choice.description}
-										</Text>
-									) : null}
-								</Pressable>
-							);
-						})}
-						{entry.input ? (
-							<TextInput
-								accessibilityLabel={entry.input.label}
-								placeholder={entry.input.placeholder ?? entry.input.label}
-								placeholderTextColor={themeColor(scheme, "muted-foreground")}
-								value={free[entry.name] ?? ""}
-								onChangeText={(text) => setFree((previous) => ({ ...previous, [entry.name]: text }))}
-								multiline
-								className={cn("min-h-11 rounded-xl bg-background/40 px-3 py-2 text-control text-foreground", invalid && "border border-destructive")}
-							/>
-						) : null}
-						{invalid ? <Text className="text-body text-destructive">Responda esta pergunta.</Text> : null}
-					</View>
-				);
-			})}
-			<ChatCardActions>
-				<Button size="sm" onPress={submit}>
-					<Text>Responder</Text>
-				</Button>
-			</ChatCardActions>
 		</ChatCard>
 	);
 }

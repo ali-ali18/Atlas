@@ -24,3 +24,101 @@ export function toggleChoice(current: readonly string[], value: string, multiple
 	if (!multiple) return current.length === 1 && current[0] === value ? [] : [value];
 	return current.includes(value) ? current.filter((item) => item !== value) : [...current, value];
 }
+
+// ---- passo a passo ----------------------------------------------------------------------------------------------
+// Uma pergunta por vez no cartão (como o `questionnaire-card` do web): Voltar a partir da 2ª, Pular quando a pergunta
+// não é obrigatória, Avançar, e Enviar na última. O envio é um só, no fim, com o mesmo mapa de respostas de sempre.
+
+export type StepState = { index: number; selected: Record<string, string[]>; free: Record<string, string> };
+
+export const initialStepState = (): StepState => ({ index: 0, selected: {}, free: {} });
+
+export type StepAction = { type: "toggle"; name: string; value: string; multiple: boolean } | { type: "free"; name: string; text: string } | { type: "back" } | { type: "next" } | { type: "skip" };
+
+/** A pergunta já tem resposta (uma escolha ou texto livre)? */
+export function stepAnswered(item: QuestionnaireCardItem, state: Pick<StepState, "selected" | "free">): boolean {
+	return (state.selected[item.name]?.length ?? 0) > 0 || !!state.free[item.name]?.trim();
+}
+
+/** Letra da caixa de cada opção: A, B, C… (depois do Z recomeça com AA). */
+export function choiceLetter(index: number): string {
+	let n = index;
+	let out = "";
+	do {
+		out = String.fromCharCode(65 + (n % 26)) + out;
+		n = Math.floor(n / 26) - 1;
+	} while (n >= 0);
+	return out;
+}
+
+export function stepSubtitle(item: QuestionnaireCardItem): string | null {
+	if (item.multiple) return "Selecione todas as opções aplicáveis";
+	return item.description?.trim() || null;
+}
+
+export type StepFooter = {
+	dots: number;
+	index: number;
+	back: boolean;
+	skip: boolean;
+	/** `send` na última pergunta. */
+	primary: "next" | "send";
+	/** Obrigatória sem resposta: "Avançar"/"Enviar" fica apagado. */
+	primaryEnabled: boolean;
+};
+
+export function stepFooter(items: readonly QuestionnaireCardItem[], state: StepState): StepFooter {
+	const item = items[state.index];
+	const last = state.index >= items.length - 1;
+	return {
+		dots: items.length,
+		index: state.index,
+		back: state.index > 0,
+		skip: !!item && !item.required,
+		primary: last ? "send" : "next",
+		primaryEnabled: !item || !item.required || stepAnswered(item, state),
+	};
+}
+
+/**
+ * Um passo do cartão. `submit` vem preenchido quando a ação encerra o questionário (Enviar na última, ou Pular na
+ * última): só então o mapa de respostas sai. Obrigatória sem resposta não avança.
+ */
+export function stepReduce(items: readonly QuestionnaireCardItem[], state: StepState, action: StepAction): { state: StepState; submit: AnswerMap | null; empty?: true } {
+	const item = items[state.index];
+	const last = state.index >= items.length - 1;
+	switch (action.type) {
+		case "toggle":
+			return { state: { ...state, selected: { ...state.selected, [action.name]: toggleChoice(state.selected[action.name] ?? [], action.value, action.multiple) } }, submit: null };
+		case "free":
+			return { state: { ...state, free: { ...state.free, [action.name]: action.text } }, submit: null };
+		case "back":
+			return { state: { ...state, index: Math.max(0, state.index - 1) }, submit: null };
+		case "next": {
+			if (!item || (item.required && !stepAnswered(item, state))) return { state, submit: null };
+			if (!last) return { state: { ...state, index: state.index + 1 }, submit: null };
+			return finish(items, state, state);
+		}
+		case "skip": {
+			if (!item || item.required) return { state, submit: null };
+			// Pular limpa o que houver nesta pergunta: pular é "sem resposta", não "resposta antiga".
+			const selected = { ...state.selected, [item.name]: [] };
+			const free = { ...state.free, [item.name]: "" };
+			const next = { ...state, selected, free, index: last ? state.index : state.index + 1 };
+			if (!last) return { state: next, submit: null };
+			return finish(items, next, next);
+		}
+	}
+}
+
+/**
+ * Fim do questionário. O servidor recusa `answers` vazio (400: "ao menos 1 preenchido"), então pular tudo não envia:
+ * `empty` pede ao cartão uma mensagem clara. Não há endpoint de dispensar/pular o questionário.
+ */
+function finish(items: readonly QuestionnaireCardItem[], state: StepState, answersFrom: Pick<StepState, "selected" | "free">): { state: StepState; submit: AnswerMap | null; empty?: true } {
+	const answers = buildAnswers(items, answersFrom.selected, answersFrom.free);
+	if (Object.keys(answers).length === 0) return { state, submit: null, empty: true };
+	return { state, submit: missingRequired(items, answers).length === 0 ? answers : null };
+}
+
+export const EMPTY_QUESTIONNAIRE_NOTICE = "Responda ao menos uma pergunta para enviar.";

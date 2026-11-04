@@ -4,6 +4,7 @@ import {
 	ArrowDown as LucideArrowDown,
 	AtSign as LucideAtSign,
 	AudioLines as LucideAudioLines,
+	BadgeCheck as LucideBadgeCheck,
 	ChevronDown as LucideChevronDown,
 	ChevronLeft as LucideChevronLeft,
 	ChevronRight as LucideChevronRight,
@@ -19,6 +20,8 @@ import {
 	Copy as LucideCopy,
 	Download as LucideDownload,
 	Ellipsis as LucideEllipsis,
+	Eye as LucideEye,
+	EyeOff as LucideEyeOff,
 	ExternalLink as LucideExternalLink,
 	File as LucideFile,
 	Forward as LucideForward,
@@ -27,7 +30,9 @@ import {
 	Image as LucideImage,
 	LayoutDashboard as LucideLayoutDashboard,
 	Presentation as LucidePresentation,
+	Globe as LucideGlobe,
 	Hash as LucideHash,
+	KeyRound as LucideKeyRound,
 	LibraryBig as LucideLibraryBig,
 	Link as LucideLink,
 	MailOpen as LucideMailOpen,
@@ -48,6 +53,7 @@ import {
 	Sparkles as LucideSparkles,
 	Send as LucideSend,
 	Share as LucideShare,
+	ShieldCheck as LucideShieldCheck,
 	Square as LucideSquare,
 	Star as LucideStar,
 	TextCursorInput as LucideTextCursorInput,
@@ -403,4 +409,34 @@ export function UserCogIcon({ size = 16, tone = "muted-foreground" }: LineIconPr
 /** Lucide `Lock` (pílula "Somente leitura"). */
 export function LockIcon({ size = 14, tone = "muted-foreground" }: LineIconProps) {
 	return <LucideLock size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `BadgeCheck` (selo de conector nativo verificado). */
+export function BadgeCheckIcon({ size = 16, tone = "info" }: LineIconProps) {
+	return <LucideBadgeCheck size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `Globe` (cabeçalho "Formulário"). */
+export function GlobeIcon({ size = 16, tone = "muted-foreground" }: LineIconProps) {
+	return <LucideGlobe size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `KeyRound` (cabeçalho "Segredos"). */
+export function KeyRoundIcon({ size = 16, tone = "muted-foreground" }: LineIconProps) {
+	return <LucideKeyRound size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `ShieldCheck` (nota "armazenado com segurança"). */
+export function ShieldCheckIcon({ size = 14, tone = "muted-foreground" }: LineIconProps) {
+	return <LucideShieldCheck size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `Eye`. */
+export function EyeIcon({ size = 18, tone = "muted-foreground" }: LineIconProps) {
+	return <LucideEye size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `EyeOff`. */
+export function EyeOffIcon({ size = 18, tone = "muted-foreground" }: LineIconProps) {
+	return <LucideEyeOff size={size} color={useStroke(tone)} strokeWidth={2} />;
 }

@@ -4,6 +4,7 @@ import type { ComputerUseEvent } from "@workspace/shared";
 import { botProfileToItem, botProposalFromEvent, proposalKey } from "./bot-cards";
 import type { ChatItem, ChatPhase } from "./chat-types";
 import { fileRef, pageRef } from "./chat-thread";
+import { loginToItem, secretsToItem } from "./request-cards";
 
 export type LiveState = {
 	items: ChatItem[];
@@ -88,6 +89,8 @@ export function applyRunEvent(state: LiveState, event: ComputerUseEvent): LiveSt
 		}
 		case "confirm": {
 			const status = event.status === "approved" || event.status === "rejected" ? event.status : "pending";
+			const secrets = event.secretsRequest && !event.devApproval ? secretsToItem(`confirm-${event.confirmId}`, { ...event, status }) : null;
+			if (secrets) return { ...state, paused: status === "pending", items: upsert(state.items, secrets) };
 			if (event.devApproval || event.secretsRequest || event.emailKeyRequest || event.githubIdentity) {
 				return { ...state, paused: status === "pending", items: upsert(state.items, { id: `confirm-${event.confirmId}`, kind: "web-card", card: "approval", title: event.title, key: `confirm:${event.confirmId}` }) };
 			}
@@ -134,7 +137,9 @@ export function applyRunEvent(state: LiveState, event: ComputerUseEvent): LiveSt
 			if (!event.title) return state;
 			return withWebCard(state, `routine-${state.runId ?? "local"}-${event.routineId ?? event.title}`, "routine", event.title, `routine:${event.routineId ?? event.title}`);
 		case "login":
-			return withWebCard(state, `login-${event.loginId}`, "login", `Entrar em ${event.site}`, `login:${event.loginId}`);
+			// O replay do stream repete os eventos: um pedido já resolvido não volta a pendente.
+			if (state.items.some((item) => item.kind === "login" && item.loginId === event.loginId && item.status === "done")) return state;
+			return { ...state, items: upsert(state.items, loginToItem(`login-${event.loginId}`, event)) };
 		case "bot-proposal": {
 			const item = botProposalFromEvent(event);
 			return item ? withProposal(state, item) : state;

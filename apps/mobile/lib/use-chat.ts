@@ -7,13 +7,16 @@ import * as chatApi from "./chat-api";
 import type { MobileAvatarState } from "./avatar-activity";
 import { useAvatarLive } from "./use-avatar-live";
 import { chatCacheKey, createChatCacheWriter, loadChatCache } from "./chat-cache";
-import { ChatController, deriveView, type ChatApi, type ChatDeps } from "./chat-controller";
+import { ChatController, deriveView, type ChatApi, type ChatDeps, type ChatSnapshot } from "./chat-controller";
 import type { ChatItem, ReplyQuote } from "./chat-types";
 import { clearBotRun, setBotRun } from "./run-store";
 import { useAtlasSession } from "./atlas-session";
 import { ensureHomeBot } from "./ensure-bot";
 import { useHomeData } from "./home-data";
 import { fetchHomeBot } from "./home-sync";
+import * as WebBrowser from "expo-web-browser";
+import { connectApp } from "./connect-app";
+import { clearRequestMemory } from "./request-memory";
 import { homeStorage } from "./home-storage";
 import type { HomeBot } from "./home-types";
 import { useModelSelector, type ModelSelector } from "./use-model-selector";
@@ -37,7 +40,10 @@ export type ChatHook = ReturnType<typeof deriveView> & {
 	loadOlder: () => void;
 	send: (text: string, replyTo?: ReplyQuote) => void;
 	stop: () => void;
-	decide: (item: Extract<ChatItem, { kind: "confirm" }>, approve: boolean) => void;
+	decide: ChatController["decide"];
+	resumeLogin: ChatController["resumeLogin"];
+	connectLogin: ChatController["connectLogin"];
+	connects: ChatSnapshot["connects"];
 	answer: ChatController["answer"];
 	resolveProposal: ChatController["resolveProposal"];
 	react: (messageId: string, emoji: string) => void;
@@ -77,6 +83,7 @@ export function useChat(bot: HomeBot | undefined): ChatHook {
 			compactConversation: (conversationId, focus) => chatApi.compactConversation(latest.current.apiFetch, conversationId, focus),
 			resolveBotProposal: (input) => cardApi.resolveBotProposal(latest.current.apiFetch, input),
 			resolveBotProfile: (input) => cardApi.resolveBotProfile(latest.current.apiFetch, input),
+			resumeRun: (runId, options) => chatApi.resumeRun(latest.current.apiFetch, runId, options),
 		};
 		const deps: ChatDeps = {
 			api,
@@ -103,6 +110,26 @@ export function useChat(bot: HomeBot | undefined): ChatHook {
 				await ensureHomeBot({ fetchBot: (botId) => fetchHomeBot(latest.current.apiFetch, botId), addBot: latest.current.addBot, refresh: latest.current.refresh }, created.id, created);
 			},
 			onProfileApplied: (botId, patch) => latest.current.applyBotUpdate(botId, patch),
+			connect: (connector, signal) =>
+				connectApp(
+					{
+						apiFetch: latest.current.apiFetch,
+						serverUrl: latest.current.serverUrl,
+						open: (url) => WebBrowser.openBrowserAsync(url),
+						dismiss: () => WebBrowser.dismissBrowser(),
+						appState: {
+							subscribe: (listener) => {
+								const subscription = AppState.addEventListener("change", listener);
+								return () => subscription.remove();
+							},
+						},
+						now: Date.now,
+						sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+						onUnauthorized: () => void latest.current.signOut(),
+					},
+					connector,
+					signal,
+				),
 		};
 		return new ChatController(deps, { id: bot?.id ?? null, conversationId: bot?.conversationId ?? null });
 		// biome-ignore lint/correctness/useExhaustiveDependencies: um controlador por tela; o bot entra por `update`
@@ -123,6 +150,7 @@ export function useChat(bot: HomeBot | undefined): ChatHook {
 		() =>
 			onSignOut(() => {
 				chatCacheWriter.invalidate();
+				clearRequestMemory();
 				controller.dispose();
 			}),
 		[onSignOut, controller],
@@ -165,6 +193,9 @@ export function useChat(bot: HomeBot | undefined): ChatHook {
 		decide: (item, approve) => controller.decide(item, approve),
 		answer: (item, answers) => controller.answer(item, answers),
 		resolveProposal: (item, decision) => controller.resolveProposal(item, decision),
+		resumeLogin: (item, options) => controller.resumeLogin(item, options),
+		connectLogin: (item) => controller.connectLogin(item),
+		connects: snapshot.connects,
 		react: (messageId, emoji) => void controller.react(messageId, emoji),
 		markUnread: () => controller.markUnread(),
 		compact: (focus) => controller.compact(focus),

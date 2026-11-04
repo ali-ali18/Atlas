@@ -6,12 +6,19 @@ import { bubbleCorners, cornersNextToTable } from "@/lib/bubble-corners";
 import { Text } from "@/components/ui/text";
 import { taskCardActive } from "@/lib/chat-thread";
 import type { ChatItem, Reaction, ReplyQuote } from "@/lib/chat-types";
+import type { ResumeOptions } from "@/lib/chat-api";
 import type { AnswerMap } from "@/lib/questionnaire";
 import type { HomeBot } from "@/lib/home-types";
 import { BotExchangeMarker } from "./bot-exchange-marker";
 import { ImagesRow } from "./image-card";
 import { BotProfileCard, BotProposalCard } from "./bot-cards";
-import { BotLinkMarkerRow, ConfirmCard, MarkerRow, QuestionnaireCard, WebCardRow } from "./cards";
+import { BotLinkMarkerRow, ConfirmCard, MarkerRow, WebCardRow } from "./cards";
+import { loginVariant } from "@/lib/request-cards";
+import type { RequestActions } from "@/lib/use-request-actions";
+import { ConnectorCard } from "./connector-card";
+import { LoginCard } from "./login-card";
+import { QuestionnaireCard } from "./questionnaire-card";
+import { SecretsCard } from "./secrets-card";
 import { MarkdownBlocks, TableCard } from "./markdown-text";
 import { useAppColorScheme } from "@/lib/use-theme";
 import { surfaceColors } from "@/lib/surfaces";
@@ -22,7 +29,7 @@ import { ReplyPill } from "./reply-pill";
 import { TaskSummary } from "./task-dock";
 
 export type RowActions = {
-	onDecide: (item: Extract<ChatItem, { kind: "confirm" }>, approve: boolean) => void;
+	onDecide: (item: Pick<Extract<ChatItem, { kind: "confirm" }>, "confirmId" | "title" | "status">, approve: boolean) => void;
 	onAnswer: (item: Extract<ChatItem, { kind: "questionnaire" }>, answers: AnswerMap) => void;
 	/** Run ativo (id): o cartão de tarefas desse run mostra a tarefa em execução. */
 	activeRunId: string | null;
@@ -37,6 +44,15 @@ export type RowActions = {
 	onOpenPage: (item: Extract<ChatItem, { kind: "web-card" }>) => void;
 	/** Toque numa imagem do fio: abre o visualizador nela. */
 	onOpenImage: (artifactId: string) => void;
+	/** Cartões de pedido (conectar app, login, segredo): retomar o run, abrir a tela do bot e as chamadas à API. */
+	onResumeLogin: (item: Extract<ChatItem, { kind: "login" }>, options?: ResumeOptions) => void;
+	onOpenScreen: () => void;
+	/** "Autorizar" do conector e o estado das conexões em andamento (por `loginId`): o fluxo é do controller. */
+	onConnectLogin: (item: Extract<ChatItem, { kind: "login" }>) => void;
+	connects: Record<string, { busy: boolean; message: string | null }>;
+	request: RequestActions;
+	botName: string;
+	serverUrl: string | null;
 	/** Toque longo no balão: abre o menu da mensagem (só abre para fala já gravada; ver `messageMenuFor`). */
 	onOpenMenu: (item: ChatItem) => void;
 	/** Bot da lista da home pelo id (avatar da linha "N mensagens com X"); `undefined` = bot apagado. */
@@ -169,6 +185,14 @@ function RowContent({ item, actions, position }: { item: ChatItem; actions: RowA
 			return <BotProposalCard item={item} onDecide={actions.onResolveProposal} onOpenBot={actions.onOpenBot} />;
 		case "bot-profile":
 			return <BotProfileCard item={item} onDecide={actions.onResolveProposal} />;
+		case "login":
+			return loginVariant(item) === "connector" ? (
+				<ConnectorCard item={item} botName={actions.botName} serverUrl={actions.serverUrl} connect={actions.connects[item.loginId]} onAuthorize={actions.onConnectLogin} onOpenWeb={actions.onOpenScreen} />
+			) : (
+				<LoginCard item={item} botName={actions.botName} onResume={actions.onResumeLogin} onSaveLogin={(login, username, password) => actions.request.saveLogin(login, username, password)} onOpenScreen={actions.onOpenScreen} />
+			);
+		case "secrets":
+			return <SecretsCard item={item} onSave={actions.request.saveSecrets} onDecide={actions.onDecide} />;
 		case "web-card":
 			return <WebCardRow item={item} onOpen={actions.onOpenWeb} onOpenPage={actions.onOpenPage} />;
 		case "images":
