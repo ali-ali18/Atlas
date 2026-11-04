@@ -25,6 +25,9 @@ export const STEP_LIMIT_CARD_DETAIL = { continue: "o dono pediu para continuar",
 /**
  * `run`: o run retomado (quem chama põe na fila). `duplicate`: clique repetido, intenção vencida ou o run já não espera
  * este cartão: nada muda.
+ * Ordem (nada pode deixar o run pausado para sempre): 1) a decisão vai ao checkpoint (idempotente: o mesmo clique de
+ * novo confere; decisão diferente perde); 2) o run é liberado; 3) só então a intenção pendente sai e o cartão fecha.
+ * Se 1 ou 2 falham, a intenção continua viva e o dono pode clicar de novo.
  */
 export async function settleStepLimitCard(
 	input: { userId: string; conversationId: string; pending: SkillPendingIntent; decision: "continue" | "stop" },
@@ -33,14 +36,15 @@ export async function settleStepLimitCard(
 	const runId = input.pending.payload.stepLimit?.runId;
 	const cardId = input.pending.payload.confirmId;
 	if (!runId || !cardId) return { duplicate: true };
-	// Dois cliques ao mesmo tempo: só quem reserva a intenção decide.
-	if (!(await deps.claim(input.pending.id, input.userId, input.conversationId))) return { duplicate: true };
-	// A decisão vai ao checkpoint ANTES de liberar o run (o worker já acorda lendo-a). Só o run do dono que espera ESTE cartão.
+	// Só o run do dono que espera ESTE cartão. Dois cliques ao mesmo tempo: o primeiro grava; o outro só confere.
 	const marked = await deps.markOutcome({ runId, userId: input.userId, outcome: input.decision, cardId }).catch(() => false);
+	if (!marked) return { duplicate: true };
+	// Liberação condicional (pausado → na fila): entre dois cliques iguais, só um recebe o run.
+	const run = await deps.resume(runId).catch(() => null);
+	if (!run) return { duplicate: true };
+	await deps.claim(input.pending.id, input.userId, input.conversationId).catch(() => false);
 	await deps
 		.updateCard(input.conversationId, input.decision === "continue" ? "approved" : "rejected", cardId, input.userId, { ok: input.decision === "continue", detail: STEP_LIMIT_CARD_DETAIL[input.decision] })
 		.catch(() => undefined);
-	if (!marked) return { duplicate: true };
-	const run = await deps.resume(runId).catch(() => null);
-	return run ? { run } : { duplicate: true };
+	return { run };
 }

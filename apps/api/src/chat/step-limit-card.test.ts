@@ -23,68 +23,99 @@ const pending = (over: Partial<Pending["payload"]> = {}): Pending => ({
 	expiresAt: new Date(Date.now() + 60_000),
 });
 
-/** Banco em memória: a intenção (uma vez só), a decisão no checkpoint (só do dono e deste cartão) e o run pausado. */
-function fakeDeps(input: { owner?: string; claimed?: boolean } = {}) {
-	const calls = { marked: [] as Array<{ outcome: string; cardId?: string; userId: string }>, cards: [] as Array<{ status: string; ok: boolean }>, resumed: [] as string[] };
-	let claimed = input.claimed ?? false;
+/**
+ * Banco em memória com a regra real: a decisão no checkpoint (só do dono e deste cartão; a mesma decisão de novo confere,
+ * outra perde), a liberação condicional do run pausado (uma vez só) e a intenção pendente.
+ */
+function fakeDeps(input: { owner?: string; resumeFailures?: number; markFails?: boolean } = {}) {
+	const state = { outcome: undefined as string | undefined, paused: true, intentAlive: true, order: [] as string[], cards: [] as Array<{ status: string; ok: boolean }> };
+	let resumeFailures = input.resumeFailures ?? 0;
 	const deps: Deps = {
 		claim: (async () => {
-			if (claimed) return false;
-			claimed = true;
-			return true;
+			state.order.push("claim");
+			const was = state.intentAlive;
+			state.intentAlive = false;
+			return was;
 		}) as Deps["claim"],
 		markOutcome: (async (args: { runId: string; userId: string; outcome: "continue" | "stop"; cardId?: string }) => {
+			state.order.push("mark");
+			if (input.markFails) throw new Error("db down");
 			if (args.userId !== (input.owner ?? USER) || args.runId !== RUN || args.cardId !== CARD) return false;
-			calls.marked.push({ outcome: args.outcome, userId: args.userId, ...(args.cardId ? { cardId: args.cardId } : {}) });
+			if (state.outcome) return state.outcome === args.outcome;
+			state.outcome = args.outcome;
 			return true;
 		}) as Deps["markOutcome"],
 		updateCard: (async (_conv: string, status: string, _id?: string, _user?: string, outcome?: { ok: boolean }) => {
-			calls.cards.push({ status, ok: outcome?.ok ?? false });
+			state.cards.push({ status, ok: outcome?.ok ?? false });
 		}) as Deps["updateCard"],
 		resume: (async (runId: string) => {
-			calls.resumed.push(runId);
+			state.order.push("resume");
+			if (resumeFailures > 0) {
+				resumeFailures -= 1;
+				throw new Error("db down");
+			}
+			if (!state.paused) return null;
+			state.paused = false;
 			return { id: runId, status: "queued" } as Awaited<ReturnType<Deps["resume"]>>;
 		}) as Deps["resume"],
 	};
-	return { deps, calls };
+	return { deps, state };
 }
 
-test("Continuar: grava a decisão no checkpoint ANTES de liberar o mesmo run, e o cartão fica aprovado", async () => {
-	const { deps, calls } = fakeDeps();
-	const settled = await settleStepLimitCard({ userId: USER, conversationId: CONV, pending: pending(), decision: "continue" }, deps);
+const settle = (deps: Deps, decision: "continue" | "stop" = "continue") => settleStepLimitCard({ userId: USER, conversationId: CONV, pending: pending(), decision }, deps);
+
+test("Continuar: grava a decisão, libera o mesmo run e só então tira a intenção e fecha o cartão", async () => {
+	const { deps, state } = fakeDeps();
+	const settled = await settle(deps);
 	assert.ok("run" in settled);
 	assert.equal(settled.run.id, RUN);
-	assert.deepEqual(calls.marked, [{ outcome: "continue", userId: USER, cardId: CARD }]);
-	assert.deepEqual(calls.cards, [{ status: "approved", ok: true }]);
-	assert.deepEqual(calls.resumed, [RUN]);
+	assert.equal(state.outcome, "continue");
+	assert.deepEqual(state.order, ["mark", "resume", "claim"]);
+	assert.deepEqual(state.cards, [{ status: "approved", ok: true }]);
 	assert.equal(STEP_LIMIT_CARD_DETAIL.continue, "o dono pediu para continuar");
 });
 
 test("Agora não: grava stop e libera o run só para a resposta final (o cartão fica recusado)", async () => {
-	const { deps, calls } = fakeDeps();
-	const settled = await settleStepLimitCard({ userId: USER, conversationId: CONV, pending: pending(), decision: "stop" }, deps);
-	assert.ok("run" in settled);
-	assert.equal(calls.marked[0]?.outcome, "stop");
-	assert.deepEqual(calls.cards, [{ status: "rejected", ok: false }]);
+	const { deps, state } = fakeDeps();
+	assert.ok("run" in (await settle(deps, "stop")));
+	assert.equal(state.outcome, "stop");
+	assert.deepEqual(state.cards, [{ status: "rejected", ok: false }]);
 });
 
-test("clique repetido: a segunda reserva falha e nada muda (nem checkpoint, nem run)", async () => {
-	const { deps, calls } = fakeDeps({ claimed: true });
-	const settled = await settleStepLimitCard({ userId: USER, conversationId: CONV, pending: pending(), decision: "continue" }, deps);
-	assert.deepEqual(settled, { duplicate: true });
-	assert.equal(calls.marked.length, 0);
-	assert.equal(calls.resumed.length, 0);
+test("liberação que falha não deixa o run pausado para sempre: a intenção continua viva e o clique de novo retoma", async () => {
+	const { deps, state } = fakeDeps({ resumeFailures: 1 });
+	assert.deepEqual(await settle(deps), { duplicate: true });
+	assert.equal(state.intentAlive, true);
+	assert.equal(state.paused, true);
+	const again = await settle(deps);
+	assert.ok("run" in again);
+	assert.equal(state.intentAlive, false);
+});
+
+test("gravar a decisão falha: nada é liberado nem consumido", async () => {
+	const { deps, state } = fakeDeps({ markFails: true });
+	assert.deepEqual(await settle(deps), { duplicate: true });
+	assert.equal(state.intentAlive, true);
+	assert.deepEqual(state.order, ["mark"]);
+});
+
+test("dois cliques: o run sai uma vez só; decisão diferente depois da primeira perde", async () => {
+	const { deps, state } = fakeDeps();
+	const [a, b] = await Promise.all([settle(deps), settle(deps)]);
+	assert.equal(["run" in a, "run" in b].filter(Boolean).length, 1);
+	assert.deepEqual(await settle(deps, "stop"), { duplicate: true });
+	assert.equal(state.outcome, "continue");
 });
 
 test("run de outro dono (ou que já não espera este cartão): não libera nada", async () => {
-	const { deps, calls } = fakeDeps({ owner: "user-b" });
-	const settled = await settleStepLimitCard({ userId: USER, conversationId: CONV, pending: pending(), decision: "continue" }, deps);
-	assert.deepEqual(settled, { duplicate: true });
-	assert.equal(calls.resumed.length, 0);
+	const { deps, state } = fakeDeps({ owner: "user-b" });
+	assert.deepEqual(await settle(deps), { duplicate: true });
+	assert.equal(state.paused, true);
+	assert.equal(state.intentAlive, true);
 });
 
 test("intenção sem run ou sem cartão: não toca em nada", async () => {
-	const { deps, calls } = fakeDeps();
+	const { deps, state } = fakeDeps();
 	assert.deepEqual(await settleStepLimitCard({ userId: USER, conversationId: CONV, pending: pending({ stepLimit: undefined }), decision: "continue" }, deps), { duplicate: true });
-	assert.equal(calls.resumed.length, 0);
+	assert.deepEqual(state.order, []);
 });
