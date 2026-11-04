@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { ChatTool } from "@workspace/llm";
-import type { ToolContext, ToolEffect, ToolGroup, ToolMetaFields, ToolRegistration, ToolResult } from "./registry/types.js";
+import type { ToolContext, ToolEffect, ToolGroup, ToolHandler, ToolMetaFields, ToolRegistration, ToolResult } from "./registry/types.js";
 
 /**
  * `defineTool` (harness v3, PR5; pedido do dono 03/11): um lugar só por tool, no estilo `tool()` do AI SDK/EVE.
@@ -12,7 +12,8 @@ import type { ToolContext, ToolEffect, ToolGroup, ToolMetaFields, ToolRegistrati
  */
 export type DefinedTool = {
 	readonly name: string;
-	readonly definition: ChatTool;
+	/** Ausente só nas tools legadas sem schema próprio (alias de nome antigo que o modelo não vê). */
+	readonly definition?: ChatTool;
 	readonly meta: ToolMetaFields;
 	readonly group: ToolGroup;
 	/** Valida os args pelo schema e roda; arg inválido = erro honesto com a assinatura curta. */
@@ -72,7 +73,7 @@ function withoutNulls(args: Record<string, unknown>): Record<string, unknown> {
 	return Object.fromEntries(Object.entries(args).filter(([, value]) => value !== null));
 }
 
-export function defineTool<S extends Input>(spec: DefineToolSpec<S>): DefinedTool {
+export function defineTool<S extends Input>(spec: DefineToolSpec<S>): DefinedTool & { readonly definition: ChatTool } {
 	const definition: ChatTool = { type: "function", function: { name: spec.name, description: spec.description, parameters: toolParameters(spec.input) } };
 	const meta: ToolMetaFields = {
 		effect: spec.effect,
@@ -105,7 +106,41 @@ export function defineTool<S extends Input>(spec: DefineToolSpec<S>): DefinedToo
 	return { name: spec.name, definition, meta, group: spec.group, handler };
 }
 
+/**
+ * Mesma ideia do `defineTool`, para a tool que já tem o schema JSON escrito à mão e o handler que confere os
+ * próprios args (PR5b: migração sem mudar um byte do que o modelo vê nem o jeito de validar). `definition` entra
+ * como está (a mesma referência); sem ela, é uma tool legada sem schema (o modelo não a enxerga).
+ * Tool nova usa `defineTool` com zod; este é o caminho das nativas antigas.
+ */
+export type DefineRawToolSpec = {
+	name: string;
+	definition?: ChatTool;
+	effect: ToolEffect;
+	effectForArgs?: (args: Record<string, unknown>) => ToolEffect;
+	catalogEffect?: ToolEffect;
+	poll?: boolean;
+	endsTurn?: boolean;
+	needsHuman?: true;
+	ownCard?: true;
+	group: ToolGroup;
+	run: ToolHandler;
+};
+
+export function defineRawTool(spec: DefineRawToolSpec): DefinedTool {
+	if (spec.definition && spec.definition.function.name !== spec.name) throw new Error(`defineRawTool: a definição é de "${spec.definition.function.name}", não de "${spec.name}".`);
+	const meta: ToolMetaFields = {
+		effect: spec.effect,
+		...(spec.poll ? { poll: true } : {}),
+		...(spec.endsTurn ? { endsTurn: true } : {}),
+		...(spec.needsHuman ? { needsHuman: true as const } : {}),
+		...(spec.ownCard ? { ownCard: true as const } : {}),
+		...(spec.catalogEffect ? { catalogEffect: spec.catalogEffect } : {}),
+		...(spec.effectForArgs ? { effectForArgs: spec.effectForArgs } : {}),
+	};
+	return { name: spec.name, ...(spec.definition ? { definition: spec.definition } : {}), meta, group: spec.group, handler: async (args, ctx) => await spec.run(args, ctx) };
+}
+
 /** Registros do registro de tools (`ToolFamily`) a partir das tools definidas aqui. */
 export function definedFamily(tools: readonly DefinedTool[]): Record<string, ToolRegistration> {
-	return Object.fromEntries(tools.map((tool) => [tool.name, { ...tool.meta, group: tool.group, handler: tool.handler, definition: tool.definition }]));
+	return Object.fromEntries(tools.map((tool) => [tool.name, { ...tool.meta, group: tool.group, handler: tool.handler, defined: true as const, ...(tool.definition ? { definition: tool.definition } : {}) }]));
 }

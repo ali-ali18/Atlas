@@ -1,5 +1,5 @@
-import { DEFINED_TOOLS } from "../defined-tools.js";
-import type { ToolEffect, ToolMetaFields } from "./types.js";
+import { getToolRegistration } from "./index.js";
+import type { ToolEffect, ToolMetaFields, ToolRegistration } from "./types.js";
 
 const READ_HTTP_METHODS = new Set(["GET", "HEAD"]);
 
@@ -193,21 +193,39 @@ export function resolveToolEffect(name: string, args: Record<string, unknown>): 
 	return meta ? (meta.effectForArgs?.(args) ?? meta.effect) : undefined;
 }
 
-const DEFINED_META: ReadonlyMap<string, ToolMetaFields> = new Map(DEFINED_TOOLS.map((tool) => [tool.name, tool.meta]));
+/** Só o metadado do registro (sem handler, grupo nem definição). */
+function metaOf(registration: ToolRegistration): ToolMetaFields | undefined {
+	if (!registration.effect) return undefined;
+	const { effect, poll, endsTurn, needsHuman, ownCard, effectForArgs, catalogEffect } = registration;
+	return {
+		effect,
+		...(poll ? { poll } : {}),
+		...(endsTurn ? { endsTurn } : {}),
+		...(needsHuman ? { needsHuman } : {}),
+		...(ownCard ? { ownCard } : {}),
+		...(catalogEffect ? { catalogEffect } : {}),
+		...(effectForArgs ? { effectForArgs } : {}),
+	};
+}
 
-/** Tool declarada com `defineTool` (o metadado vem dela, não da tabela). */
+/** Tool declarada com `defineTool`/`defineRawTool` (o metadado vem dela, não da tabela). */
 export function isDefinedTool(name: string): boolean {
-	return DEFINED_META.has(name);
+	return getToolRegistration(name)?.defined === true;
+}
+
+/** Metadado da tabela solta (fallback das tools que ainda não migraram para `defineTool`). */
+export function tableToolMeta(name: string): ToolMetaFields | undefined {
+	return Object.hasOwn(TOOL_META, name) ? TOOL_META[name] : undefined;
 }
 
 /**
- * Metadado da tool de nome fixo: primeiro o de `defineTool`, depois a tabela (fallback das tools que ainda não
- * migraram); `undefined` para MCP e nome desconhecido (ver `mcpToolEffect`).
+ * Metadado da tool de nome fixo: vem do registro (`defineTool`); a tabela cobre o que ainda não migrou.
+ * `undefined` para MCP e nome desconhecido (ver `mcpToolEffect`).
  */
 export function getToolMeta(name: string): ToolMetaFields | undefined {
-	return DEFINED_META.get(name) ?? (Object.hasOwn(TOOL_META, name) ? TOOL_META[name] : undefined);
+	const registered = getToolRegistration(name);
+	return (registered && metaOf(registered)) ?? tableToolMeta(name);
 }
-
 /**
  * Efeito de uma tool de conector MCP. Deriva da classificação que já existe
  * (`isReadOnlyMcpTool` em `@workspace/shared`, anotações do servidor + marcas do usuário) em vez de criar outra: leitura = `read`; o resto = `write_external` (escrita em terceiro).

@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { APP_INFO_TOOL, appInfoTool } from "./app-info.js";
 import { CURRENT_TIME_TOOL, currentTimeTool } from "./current-time.js";
-import { defineTool } from "./define-tool.js";
-import { DEFINED_TOOLS } from "./defined-tools.js";
+import { defineRawTool, defineTool } from "./define-tool.js";
+import { toolCallTool, toolSearchTool } from "./tool-bridge.js";
 import { getToolMeta, isDefinedTool, TOOL_META } from "./registry/tool-meta.js";
 import { getToolRegistration, listRegisteredToolNames } from "./registry/index.js";
 import { DEV_SESSION_TOOL_NAMES } from "./dev-session.js";
@@ -76,6 +76,24 @@ describe("defineTool", () => {
 	});
 });
 
+describe("defineRawTool", () => {
+	it("usa a definição como está (mesma referência) e não valida nem muda os args", async () => {
+		const definition = { type: "function" as const, function: { name: "raw", description: "Raw.", parameters: { type: "object" as const, properties: { n: { type: "number" } } } } };
+		const seen: unknown[] = [];
+		const tool = defineRawTool({ name: "raw", definition, effect: "write_internal", endsTurn: true, group: "misc", run: (args) => (seen.push(args), { summary: "ok" }) });
+		expect(tool.definition).toBe(definition);
+		expect(tool.meta).toEqual({ effect: "write_internal", endsTurn: true });
+		await tool.handler({ n: null, extra: 1 }, ctx);
+		expect(seen).toEqual([{ n: null, extra: 1 }]);
+	});
+
+	it("recusa definição de outro nome e aceita tool legada sem schema", () => {
+		const definition = { type: "function" as const, function: { name: "outra", description: "", parameters: { type: "object" as const, properties: {} } } };
+		expect(() => defineRawTool({ name: "raw", definition, effect: "read", group: "misc", run: () => ({ summary: "" }) })).toThrow(/outra/);
+		expect(defineRawTool({ name: "legado", effect: "read", group: "misc", run: () => ({ summary: "" }) }).definition).toBeUndefined();
+	});
+});
+
 describe("tools migradas para defineTool", () => {
 	it("current_time e app_info mantêm o mesmo schema (bytes) que o catálogo enviava", () => {
 		expect(JSON.stringify(CURRENT_TIME_TOOL)).toBe(
@@ -91,7 +109,7 @@ describe("tools migradas para defineTool", () => {
 		for (const tool of [currentTimeTool, appInfoTool]) {
 			expect(getToolRegistration(tool.name)?.handler).toBe(tool.handler);
 			expect(getToolRegistration(tool.name)?.definition).toBe(tool.definition);
-			expect(getToolMeta(tool.name)).toBe(tool.meta);
+			expect(getToolMeta(tool.name)).toEqual(tool.meta);
 			expect(isDefinedTool(tool.name)).toBe(true);
 		}
 		await expect(currentTimeTool.handler({ timezone: "Not/AZone" }, ctx)).rejects.toThrow(/Invalid timezone/);
@@ -109,8 +127,8 @@ describe("tools migradas para defineTool", () => {
 describe("guarda: tool nova usa defineTool", () => {
 	it("a tabela TOOL_META não ganha nome novo (só encolhe) e não repete nome de defineTool", () => {
 		const added = Object.keys(TOOL_META).filter((name) => !LEGACY_TABLE.has(name));
-		expect(added, "tool nova: declare com defineTool (tools/defined-tools.ts), não na tabela").toEqual([]);
-		for (const tool of DEFINED_TOOLS) expect(Object.hasOwn(TOOL_META, tool.name), tool.name).toBe(false);
+		expect(added, "tool nova: declare com defineTool , não na tabela").toEqual([]);
+		for (const tool of [currentTimeTool, appInfoTool, toolSearchTool, toolCallTool]) expect(Object.hasOwn(TOOL_META, tool.name), tool.name).toBe(false);
 	});
 
 	it("toda tool do registro é da tabela antiga ou do defineTool, e nenhuma fica sem effect", () => {
@@ -118,7 +136,7 @@ describe("guarda: tool nova usa defineTool", () => {
 			expect(LEGACY_TABLE.has(name) || isDefinedTool(name), `${name}: declare com defineTool`).toBe(true);
 			expect(EFFECTS, name).toContain(getToolMeta(name)?.effect);
 		}
-		for (const tool of DEFINED_TOOLS) expect(EFFECTS, tool.name).toContain(tool.meta.effect);
+		for (const tool of [currentTimeTool, appInfoTool, toolSearchTool, toolCallTool]) expect(EFFECTS, tool.name).toContain(tool.meta.effect);
 	});
 
 	it("ownCard substitui a lista fixa do approval: propostas e cartões próprios marcados", () => {
