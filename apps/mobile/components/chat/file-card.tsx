@@ -3,14 +3,14 @@ import { ChatCard } from "@/components/ui/chat-card";
 import { FileTile } from "@/components/ui/file-tile";
 import { Text } from "@/components/ui/text";
 import type { ChatItem } from "@/lib/chat-types";
-import { fileCardKind, fileCardSubtitle } from "@/lib/file-card";
+import { fileCardKind, fileCardSubtitle, fileCardTitle } from "@/lib/file-card";
 import { viewerTargetForCard } from "@/lib/viewer-target";
 
 type WebCard = Extract<ChatItem, { kind: "web-card" }>;
 
 /**
- * Cartão de arquivo/documento no fio, na casca `ChatCard` (variante `activity`): ícone com faixa do tipo, nome em
- * destaque e, embaixo, "Documento · 1,6 KB". Toque abre a folha do documento (com `fileId`) ou, sem ele, o navegador.
+ * Cartão de arquivo/documento no fio, na casca `ChatCard` (variante `activity`): ícone com faixa do tipo, nome (sem
+ * extensão) em destaque e, embaixo, "PDF · 1,6 KB". Toque abre a folha do documento (com `fileId`) ou, sem ele, o navegador.
  */
 export function FileCardRow({ item, onOpen, onOpenPage }: { item: WebCard; onOpen: (item: WebCard) => void; onOpenPage?: (item: WebCard) => void }) {
 	const target = viewerTargetForCard(item);
@@ -28,7 +28,7 @@ export function FileCardRow({ item, onOpen, onOpenPage }: { item: WebCard; onOpe
 				<FileTile glyph={kind.glyph} tone={kind.tone} />
 				<View className="min-w-0 shrink gap-0.5">
 					<Text numberOfLines={1} className="text-sm font-medium">
-						{item.title}
+						{fileCardTitle(item.title)}
 					</Text>
 					<Text variant="caption" numberOfLines={1}>
 						{subtitle}
