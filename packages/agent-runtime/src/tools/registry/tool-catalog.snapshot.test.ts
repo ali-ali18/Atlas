@@ -31,7 +31,7 @@ import { SHOW_IMAGE_TOOL } from "../show-image.js";
 import { SKILL_GROUP_TOOLS } from "../skills.js";
 import { TRACK_ITEMS_TOOL } from "../track-items.js";
 import { UPDATE_TASK_LIST_TOOL } from "../task-list.js";
-import { getToolRegistration, listRegisteredToolNames, resolveToolEffect } from "./index.js";
+import { getToolMeta, getToolRegistration, listRegisteredToolNames, resolveToolEffect } from "./index.js";
 
 /**
  * Retrato do catálogo nativo INTEIRO (PR5b do harness v3): nome, descrição, schema, grupo, readOnly e metadado de
@@ -68,7 +68,7 @@ function definitionOf(name: string): ChatTool | undefined {
 
 function describeTool(name: string, dev: boolean) {
 	const registration = getToolRegistration(name);
-	const meta = registration ?? undefined;
+	const meta = dev ? getToolMeta(name) : (registration ?? undefined);
 	const effectAt = (args: Record<string, unknown>) => resolveToolEffect(name, args) ?? null;
 	return {
 		name,
@@ -76,12 +76,12 @@ function describeTool(name: string, dev: boolean) {
 		source: dev ? "dev-session" : "registry",
 		readOnly: dev ? isReadOnlyToolName(name, () => false) : (registration?.readOnly ?? null),
 		definition: definitionOf(name) ?? null,
-		effect: dev ? (resolveToolEffect(name, {}) ?? null) : (meta?.effect ?? null),
-		catalogEffect: dev ? null : (meta?.catalogEffect ?? null),
-		poll: dev ? null : (meta?.poll ?? null),
-		endsTurn: dev ? null : (meta?.endsTurn ?? null),
-		needsHuman: dev ? null : (meta?.needsHuman ?? null),
-		ownCard: dev ? null : (meta?.ownCard ?? null),
+		effect: meta?.effect ?? null,
+		catalogEffect: meta?.catalogEffect ?? null,
+		poll: meta?.poll ?? null,
+		endsTurn: meta?.endsTurn ?? null,
+		needsHuman: meta?.needsHuman ?? null,
+		ownCard: meta?.ownCard ?? null,
 		effectBySample: (EFFECT_SAMPLES[name] ?? []).map((args) => ({ args, effect: effectAt(args) })),
 	};
 }

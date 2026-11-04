@@ -5289,7 +5289,7 @@
    },
    "effect": "read",
    "catalogEffect": null,
-   "poll": null,
+   "poll": true,
    "endsTurn": null,
    "needsHuman": null,
    "ownCard": null,
@@ -5455,7 +5455,7 @@
    "poll": null,
    "endsTurn": null,
    "needsHuman": null,
-   "ownCard": null,
+   "ownCard": true,
    "effectBySample": []
   },
   {
@@ -5546,7 +5546,7 @@
    "poll": null,
    "endsTurn": null,
    "needsHuman": null,
-   "ownCard": null,
+   "ownCard": true,
    "effectBySample": []
   },
   {
@@ -5725,7 +5725,7 @@
    "poll": null,
    "endsTurn": null,
    "needsHuman": null,
-   "ownCard": null,
+   "ownCard": true,
    "effectBySample": []
   },
   {
@@ -5765,7 +5765,7 @@
    "poll": null,
    "endsTurn": null,
    "needsHuman": null,
-   "ownCard": null,
+   "ownCard": true,
    "effectBySample": []
   },
   {
@@ -5809,7 +5809,7 @@
    "poll": null,
    "endsTurn": null,
    "needsHuman": null,
-   "ownCard": null,
+   "ownCard": true,
    "effectBySample": []
   },
   {
@@ -5884,7 +5884,7 @@
    },
    "effect": "read",
    "catalogEffect": null,
-   "poll": null,
+   "poll": true,
    "endsTurn": null,
    "needsHuman": null,
    "ownCard": null,
@@ -6020,7 +6020,7 @@
    "poll": null,
    "endsTurn": null,
    "needsHuman": null,
-   "ownCard": null,
+   "ownCard": true,
    "effectBySample": []
   }
  ]
