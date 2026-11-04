@@ -9,6 +9,11 @@ import { mergeToolkits } from "./apps";
 /** Teto de páginas por busca/categoria: mais que isso é laço do servidor, não catálogo. */
 export const MAX_PAGES = 40;
 
+/** Itens que uma página pode trazer (o app pede 20): o servidor que ignorar o limite não entrega o catálogo à thread JS. */
+export const MAX_PAGE_ITEMS = 50;
+/** Itens do Composio guardados (e renderizados) por busca/categoria; passou disso, a pessoa refina pela busca. */
+export const MAX_ITEMS = 300;
+
 export type Paging = {
 	items: readonly ComposioToolkit[];
 	/** Cursor da próxima página; `null` = não há (ou ainda não houve primeira página). */
@@ -22,6 +27,11 @@ export type Paging = {
 
 export const EMPTY_PAGING: Paging = { items: [], cursor: null, loading: false, done: false, pages: 0, seen: [] };
 
+/** Descarta o excesso de uma página: sem custo proporcional ao que o servidor mandar. */
+export function clampPage(page: ComposioPage): ComposioPage {
+	return page.items.length <= MAX_PAGE_ITEMS ? page : { ...page, items: page.items.slice(0, MAX_PAGE_ITEMS) };
+}
+
 /** Só pede a próxima página se nenhuma está a caminho, a lista não acabou e há cursor. */
 export function canLoadMore(paging: Paging): boolean {
 	return !paging.loading && !paging.done && paging.cursor !== null && paging.pages < MAX_PAGES;
@@ -33,10 +43,15 @@ export function startMore(paging: Paging): Paging {
 
 /** Aplica uma página. `requested` é o cursor pedido (`null` na primeira). Página sem item novo ou cursor repetido = fim. */
 export function applyPage(paging: Paging, page: ComposioPage, requested: string | null): Paging {
-	const items = mergeToolkits(paging.items, page.items);
+	const clamped = clampPage(page);
+	// Página que veio grande demais: o cursor do servidor pularia o que foi descartado, então a lista acaba aqui.
+	const oversized = clamped !== page;
+	const merged = mergeToolkits(paging.items, clamped.items);
+	const full = merged.length >= MAX_ITEMS;
+	const items = full ? merged.slice(0, MAX_ITEMS) : merged;
 	const seen = requested === null ? paging.seen : [...paging.seen, requested];
 	const next = page.nextCursor;
-	const stalled = next === null || next === requested || seen.includes(next) || items.length === paging.items.length;
+	const stalled = oversized || full || next === null || next === requested || seen.includes(next) || items.length === paging.items.length;
 	const pages = paging.pages + 1;
 	return { items, cursor: stalled ? null : next, loading: false, done: stalled || pages >= MAX_PAGES, pages, seen };
 }

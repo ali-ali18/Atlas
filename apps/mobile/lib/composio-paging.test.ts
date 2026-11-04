@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ComposioPage, ComposioToolkit } from "./apps-parse";
-import { applyPage, canLoadMore, createEndReachedGate, EMPTY_PAGING, failMore, MAX_PAGES, startMore } from "./composio-paging";
+import { applyPage, canLoadMore, clampPage, MAX_ITEMS, MAX_PAGE_ITEMS, createEndReachedGate, EMPTY_PAGING, failMore, MAX_PAGES, startMore } from "./composio-paging";
 
 const toolkit = (slug: string): ComposioToolkit => ({ slug, name: slug, description: "", logo: null, connected: false, noAuth: false, nativeCatalogId: null });
 const page = (slugs: string[], nextCursor: string | null): ComposioPage => ({ items: slugs.map(toolkit), nextCursor, totalItems: 100 });
@@ -57,5 +57,23 @@ describe("porta do onEndReached", () => {
 		expect(gate.take()).toBe(false);
 		gate.arm();
 		expect(gate.take()).toBe(true);
+	});
+	it("página de 1700 itens (servidor que ignora o limite) guarda só MAX_PAGE_ITEMS e encerra", () => {
+		const huge = page(Array.from({ length: 1700 }, (_, index) => `app-${index}`), "c1");
+		expect(clampPage(huge).items).toHaveLength(MAX_PAGE_ITEMS);
+		const p = applyPage(EMPTY_PAGING, huge, null);
+		expect(p.items).toHaveLength(MAX_PAGE_ITEMS);
+		expect(p.done).toBe(true);
+		expect(canLoadMore(p)).toBe(false);
+	});
+	it("página dentro do limite passa intacta (mesma referência)", () => {
+		const small = page(["a", "b"], "c1");
+		expect(clampPage(small)).toBe(small);
+	});
+	it("teto de itens guardados encerra a lista", () => {
+		let p = applyPage(EMPTY_PAGING, page(Array.from({ length: 40 }, (_, index) => `p0-${index}`), "c0"), null);
+		for (let n = 1; n < 20 && canLoadMore(p); n += 1) p = applyPage(startMore(p), page(Array.from({ length: 40 }, (_, index) => `p${n}-${index}`), `c${n}`), p.cursor);
+		expect(p.items.length).toBeLessThanOrEqual(MAX_ITEMS);
+		expect(p.done).toBe(true);
 	});
 });

@@ -2,7 +2,7 @@ import * as React from "react";
 import { appsErrorText, fetchComposioCategories, fetchComposioConfigured, fetchComposioConnections, fetchComposioToolkits, fetchMcpCatalog, fetchMcpConnections } from "./apps-api";
 import type { ComposioCategory, ComposioConnection, ComposioToolkit, McpConnection, NativeConnector } from "./apps-parse";
 import { type ComposioState } from "./apps";
-import { applyPage, canLoadMore, EMPTY_PAGING, failMore, type Paging, startMore } from "./composio-paging";
+import { applyPage, canLoadMore, clampPage, EMPTY_PAGING, failMore, type Paging, startMore } from "./composio-paging";
 import { useAtlasSession } from "./atlas-session";
 import { fetchCatalog } from "./catalog-api";
 import type { CatalogBot } from "./catalog";
@@ -166,7 +166,7 @@ export function useComposioList(options: { enabled: boolean; query: string; cate
 			(page) => {
 				if (mine !== generation.current) return;
 				publish(applyPage(EMPTY_PAGING, page, null));
-				setLogos((current) => withLogos(current, page.items));
+				setLogos((current) => withLogos(current, clampPage(page).items));
 			},
 			(reason) => {
 				if (mine !== generation.current) return;
@@ -186,7 +186,7 @@ export function useComposioList(options: { enabled: boolean; query: string; cate
 			(page) => {
 				if (mine !== generation.current) return;
 				publish(applyPage(paging.current, page, requested));
-				setLogos((current) => withLogos(current, page.items));
+				setLogos((current) => withLogos(current, clampPage(page).items));
 			},
 			(reason) => {
 				if (mine !== generation.current) return;
