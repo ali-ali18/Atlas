@@ -1,8 +1,7 @@
 import * as React from "react";
 import { View } from "react-native";
 import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
-import { themeColor } from "@/lib/theme";
-import { useAppColorScheme } from "@/lib/use-theme";
+import { useSurfaces } from "@/lib/use-surfaces";
 
 let counter = 0;
 
@@ -12,8 +11,8 @@ let counter = 0;
  * do web). Não pega toque.
  */
 export function Fade({ height, from, className }: { height: number; from: "top" | "bottom"; className?: string }) {
-	const scheme = useAppColorScheme();
-	const color = themeColor(scheme, "background");
+	// Mesma cor que o `ScreenFrame` pinta (`surfaces.screen`): no escuro difere do token `background` e daria uma faixa.
+	const color = useSurfaces().screen;
 	const id = React.useMemo(() => `fade-${counter++}`, []);
 	return (
 		<View pointerEvents="none" className={className} style={{ height }}>

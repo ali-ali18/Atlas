@@ -8,7 +8,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ChevronDownIcon } from "@/components/icons";
 import { SoonSheet } from "@/components/home/soon-sheet";
 import { ChatMenu, type ChatMenuAction } from "@/components/chat/chat-menu";
-import { Fade } from "@/components/chat/fade";
+import { Fade } from "@/components/ui/fade";
 import { ChatTopBar, TOP_BAR_HEIGHT } from "@/components/chat/chat-top-bar";
 import { Composer } from "@/components/chat/composer";
 import { ModelSheet } from "@/components/chat/model-sheet";

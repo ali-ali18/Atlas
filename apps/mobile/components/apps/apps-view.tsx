@@ -4,6 +4,7 @@ import { CatalogRowView, CatalogSearchBar, CategoryFilters, CloseButton, ListRow
 import { BotLoader } from "@/components/ui/bot-loader";
 import { Button } from "@/components/ui/button";
 import { ChromePill } from "@/components/ui/chrome-pill";
+import { Fade } from "@/components/ui/fade";
 import { ScreenFrame } from "@/components/ui/screen-frame";
 import { Spinner } from "@/components/ui/spinner";
 import { Text } from "@/components/ui/text";
@@ -41,6 +42,10 @@ export type AppsViewProps = {
 	onUserScroll: () => void;
 	onRetry: () => void;
 };
+
+/** Altura do degradê em que a lista some sob os chips (em cima) e sob a busca (embaixo); o conteúdo ganha esse respiro. */
+const FADE_TOP = 20;
+const FADE_BOTTOM = 28;
 
 /**
  * "Aplicativos", como a tela "Conectar aplicativos" do Grok/ChatGPT: X, título e a pílula "N conectados" no topo; chips
@@ -134,7 +139,11 @@ export function AppsView(props: AppsViewProps) {
 					) : null}
 				</View>
 				{ready ? <CategoryFilters categories={chips} value={chip} onChange={onChip} /> : null}
-				<FlatList data={ready ? rows : []} keyExtractor={(row) => row.key} renderItem={renderItem} ListEmptyComponent={empty} ListFooterComponent={footer} style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 16 }} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" onEndReached={onEndReached} onEndReachedThreshold={0.6} onScrollBeginDrag={onUserScroll} onMomentumScrollBegin={onUserScroll} initialNumToRender={14} maxToRenderPerBatch={10} windowSize={7} removeClippedSubviews />
+				<View className="flex-1">
+					<FlatList data={ready ? rows : []} keyExtractor={(row) => row.key} renderItem={renderItem} ListEmptyComponent={empty} ListFooterComponent={footer} style={{ flex: 1 }} contentContainerStyle={{ paddingTop: FADE_TOP, paddingBottom: FADE_BOTTOM }} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" onEndReached={onEndReached} onEndReachedThreshold={0.6} onScrollBeginDrag={onUserScroll} onMomentumScrollBegin={onUserScroll} initialNumToRender={14} maxToRenderPerBatch={10} windowSize={7} removeClippedSubviews />
+					<Fade from="top" height={FADE_TOP} className="absolute left-0 right-0 top-0" />
+					<Fade from="bottom" height={FADE_BOTTOM} className="absolute bottom-0 left-0 right-0" />
+				</View>
 				<CatalogSearchBar query={query} onChange={onQuery} placeholder="Buscar aplicativos e bots" />
 			</KeyboardAvoidingView>
 		</ScreenFrame>
