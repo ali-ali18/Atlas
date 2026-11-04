@@ -84,16 +84,6 @@ export const TOOL_META: Readonly<Record<string, ToolMetaFields>> = {
 	// Rotinas
 
 	// Bots e configuração
-	propose_bot: { effect: "write_internal", ownCard: true, needsHuman: true, endsTurn: true },
-	propose_profile_update: { effect: "write_internal", ownCard: true, endsTurn: true },
-	send_to_bot: { effect: "write_external" },
-	decide_bot_pending: { effect: "write_external" },
-	set_primary_bot: { effect: "write_internal", ownCard: true },
-	set_autonomy: { effect: "write_internal", needsHuman: true },
-	set_engine: { effect: "write_internal", needsHuman: true },
-	set_reasoning_effort: { effect: "write_internal" },
-	delegate_task: { effect: "write_internal", needsHuman: true },
-	propose_questionnaire: { effect: "write_internal", ownCard: true, needsHuman: true, endsTurn: true },
 
 	// Planejamento
 	research_note: { effect: "write_internal" },
