@@ -15,6 +15,7 @@ import { groups } from "./groups";
 import { library } from "./library";
 import { libraryPanel } from "./libraryPanel";
 import { login } from "./login";
+import { ownerWait } from "./ownerWait";
 import { marketplace } from "./marketplace";
 import { mobile } from "./mobile";
 import { reasoning } from "./reasoning";
@@ -56,6 +57,7 @@ export const ptBR = {
 	...library,
 	...libraryPanel,
 	...login,
+	...ownerWait,
 	...marketplace,
 	...mobile,
 	...reasoning,

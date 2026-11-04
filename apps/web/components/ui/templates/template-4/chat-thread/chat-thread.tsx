@@ -72,6 +72,9 @@ import { useWindowAttention } from "@/hooks/use-window-attention";
 import { messageBefore, newMessagesSince, previewWithSource, sourceMarkerIds } from "@/lib/unread";
 import { LANDING_LOCK_MS, decideLanding, landingScrollTop, resolveDividerAnchor, resumeAnchorId, shouldReanchor } from "@/lib/thread-position";
 import {
+	AtlasApiError,
+	cancelConversationReturn,
+	skipQuestionnaire,
 	submitQuestionnaire,
 	resolveBotProfileProposal,
 	resolveRoutineProposal,
@@ -226,6 +229,8 @@ export function ChatThread({
 	const [offscreen, setOffscreen] = useState<ReadonlySet<string>>(() => new Set());
 	// Cartões de outro bot decididos daqui: saem do dock sem esperar o histórico recarregar.
 	const [relayedDone, setRelayedDone] = useState<ReadonlySet<string>>(() => new Set());
+	// "Cancelar" do marcador "Volto às" em andamento (ou o erro dele), por retorno.
+	const [returnCancel, setReturnCancel] = useState<{ returnId: string; pending: boolean; error?: string | null } | null>(null);
 	const pendingHistoryScrollRef = useRef<{
 		height: number;
 		top: number;
@@ -266,6 +271,7 @@ export function ChatThread({
 		compactState,
 		setConfirmStatus,
 		setLoginStatus,
+		setReturnStatus,
 		setQuestionnaireStatus,
 		setBotProfileStatus,
 		applySkillProposalState,
@@ -997,8 +1003,47 @@ export function ChatThread({
 		},
 		onLoginDone: (login: Extract<Message, { kind: "login" }>) => {
 			// Retoma o mesmo run do checkpoint; o servidor marca o card como feito.
-			setLoginStatus(login.id, "done");
+			setLoginStatus(login.id, "done", login.ownerWait ? "done" : undefined);
 			void resumeRun();
+		},
+		onLoginSkip: (login: Extract<Message, { kind: "login" }>) => {
+			// Motor v3: "Pular" não encerra a tarefa; o bot segue sem esse passo.
+			setLoginStatus(login.id, "done", "skipped");
+			void resumeRun({ via: "skip" });
+		},
+		onLoginTakeover: (login: Extract<Message, { kind: "login" }>) => {
+			// Motor v3: o dono fica com o computador (o bot não mexe nele) e o viewer abre sem retomar ao fechar.
+			setLoginStatus(login.id, "done", "takeover");
+			void resumeRun({ via: "takeover" });
+			onOpenSandboxViewerForLogin?.(() => undefined);
+		},
+		onReturnCancel: (item: Extract<Message, { kind: "return" }>) => {
+			const conversationId = agent?.conversationId;
+			if (!conversationId || returnCancel?.pending) return;
+			setReturnCancel({ returnId: item.returnId, pending: true });
+			void cancelConversationReturn(conversationId, item.returnId)
+				.then(() => {
+					setReturnStatus(item.returnId, "cancelled");
+					setReturnCancel(null);
+				})
+				.catch((error: unknown) => {
+					// 404: já disparou ou já foi cancelado; o próximo sync traz o estado real.
+					if (error instanceof AtlasApiError && error.status === 404) {
+						setReturnCancel(null);
+						return;
+					}
+					setReturnCancel({ returnId: item.returnId, pending: false, error: translator.t("ownerWait.return.cancelFailed") });
+				});
+		},
+		onQuestionnaireSkip: (questionnaire: QuestionnaireCardMessage) => {
+			// Motor v3: o cartão vira "Dispensado" e o bot segue a tarefa sem a resposta.
+			const conversationId = agent?.conversationId;
+			if (!conversationId) return;
+			setQuestionnaireStatus(questionnaire.id, "dismissed");
+			void skipQuestionnaire({ conversationId, questionnaireId: questionnaire.questionnaireId, botId: agent?.id }).catch((error: unknown) => {
+				// Já respondido (ou o prazo venceu): fica dispensado. Outro erro: volta a pedir.
+				if (!(error instanceof AtlasApiError && error.status === 404)) setQuestionnaireStatus(questionnaire.id, "pending");
+			});
 		},
 		onAdjustPlan: () => setAdjustPrefill({ text: PLAN_ADJUST_DRAFT, nonce: Date.now() }),
 		onBotProfileConfirm: (profile: Extract<Message, { kind: "bot-profile-confirm" }>) => {
@@ -1484,6 +1529,11 @@ export function ChatThread({
 										onLoginUseVault={rowHandlers.onLoginUseVault}
 										onLoginCode={rowHandlers.onLoginCode}
 										onLoginDone={rowHandlers.onLoginDone}
+										onLoginSkip={rowHandlers.onLoginSkip}
+										onLoginTakeover={rowHandlers.onLoginTakeover}
+										onReturnCancel={agent?.conversationId ? rowHandlers.onReturnCancel : undefined}
+										returnCancel={message.kind === "return" ? returnCancel : null}
+										onQuestionnaireSkip={rowHandlers.onQuestionnaireSkip}
 										onCancel={rowHandlers.onCancel}
 										onAdjustPlan={rowHandlers.onAdjustPlan}
 										onBotProfileConfirm={rowHandlers.onBotProfileConfirm}

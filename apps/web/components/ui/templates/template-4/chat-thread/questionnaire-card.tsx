@@ -2,7 +2,8 @@
 
 import * as React from "react";
 
-import { Check, MessageCircleQuestionIcon, X } from "lucide-react";
+import { Check, ClockIcon, MessageCircleQuestionIcon, X } from "lucide-react";
+import { Button } from "@workspace/ui/components/button";
 
 import {
 	Questionnaire,
@@ -25,7 +26,8 @@ import {
 import { RequestCard, REQUEST_PRIMARY_CLASS } from "@workspace/ui/components/request-card";
 
 import type { Message } from "../data";
-import { useT } from "@/lib/i18n/provider";
+import { useTranslations } from "@/lib/i18n/provider";
+import { ownerWaitDeadlineText } from "@/lib/owner-wait";
 
 export type QuestionnaireAnswersMap = Record<string, string | string[]>;
 
@@ -83,15 +85,23 @@ export function QuestionnaireCard({
 	message,
 	onSubmit,
 	onDismiss,
+	onSkip,
+	now,
+	timeZone,
 }: {
 	message: QuestionnaireCardMessage;
+	/** Motor v3 ("Pular"): o bot segue a tarefa sem a resposta. Só aparece em questionário do v3. */
+	onSkip?: (message: QuestionnaireCardMessage) => void;
+	now?: Date;
+	timeZone?: string;
 	onSubmit?: (
 		message: QuestionnaireCardMessage,
 		answers: QuestionnaireAnswersMap,
 	) => void;
 	onDismiss?: (message: QuestionnaireCardMessage) => void;
 }) {
-	const t = useT();
+	const translator = useTranslations();
+	const { t } = translator;
 	const status = message.status ?? "pending";
 
 	if (status === "submitted") {
@@ -175,6 +185,9 @@ export function QuestionnaireCard({
 		choices: (item.choices ?? []).map((choice) => ({ value: choice.value })),
 	}));
 
+	const skip = message.ownerWait && onSkip ? onSkip : undefined;
+	const deadline = ownerWaitDeadlineText(message.deadlineAt, now ?? new Date(), translator, timeZone ? { timeZone } : {});
+
 	// Espelho controlado do texto livre por item. O primitive só associa
 	// `name` ao campo quando ele está preenchido/selecionado — o espelho
 	// garante o digitado no submit mesmo nesse intervalo, sem mudar a
@@ -198,7 +211,11 @@ export function QuestionnaireCard({
 			badge={{ tone: "pending", label: t("chat.questionnaire.needsYou") }}
 			className="max-w-xl"
 			headerAction={
-				onDismiss ? (
+				skip ? (
+					<Button aria-label={t("ownerWait.skipQuestionnaire")} className="-my-1" data-slot="questionnaire-skip-all" onClick={() => skip(message)} size="sm" type="button" variant="secondary">
+						{t("ownerWait.skipAll")}
+					</Button>
+				) : onDismiss ? (
 					<button
 						aria-label={t("chat.questionnaire.dismiss")}
 						className="-my-0.5 -mr-1 shrink-0 rounded-full p-1 text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
@@ -210,6 +227,14 @@ export function QuestionnaireCard({
 				) : null
 			}
 			leading={<MessageCircleQuestionIcon aria-hidden />}
+			note={
+				deadline ? (
+					<span className="inline-flex items-center gap-1" data-slot="owner-wait-deadline">
+						<ClockIcon aria-hidden className="size-3.5" />
+						{deadline}
+					</span>
+				) : undefined
+			}
 			title={message.title}
 		>
 			<Questionnaire

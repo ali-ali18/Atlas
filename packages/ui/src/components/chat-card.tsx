@@ -12,14 +12,15 @@ import {
   CollapsibleTrigger,
 } from "./collapsible";
 
-/** Estado do selo do cabeçalho: espera (âmbar), sucesso, recusa/erro, neutro. */
-export type ChatCardTone = "pending" | "success" | "danger" | "muted";
+/** Estado do selo do cabeçalho: espera (âmbar), sucesso, recusa/erro, neutro, informação (ex.: "Você assumiu"). */
+export type ChatCardTone = "pending" | "success" | "danger" | "muted" | "info";
 
 const BADGE_TONE: Record<ChatCardTone, string> = {
   pending: "bg-warning/10 text-warning dark:bg-warning/15",
   success: "bg-success/10 text-success dark:bg-success/15",
   danger: "bg-destructive/10 text-destructive dark:bg-destructive/20",
   muted: "bg-foreground/[0.06] text-muted-foreground",
+  info: "bg-info/10 text-info dark:bg-info/15",
 };
 
 /**

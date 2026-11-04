@@ -4,6 +4,7 @@ import { isCardProtocolText } from "@/lib/card-decision";
 import { getActiveTranslator } from "@/lib/i18n/active";
 import type { Translator } from "@/lib/i18n/translator";
 import type { MessageKey } from "@/lib/i18n/translator";
+import { ownerConfirmClosedLabel } from "@/lib/owner-wait";
 
 type ConfirmMessage = Extract<Message, { kind: "confirm" }>;
 type NeedsUserMessage = Extract<Message, { kind: "needs-user" }>;
@@ -20,9 +21,12 @@ function shorten(text: string): string {
 	return line.length > SHORT_MAX ? `${line.slice(0, SHORT_MAX - 1).trimEnd()}…` : line;
 }
 
-/** Cartão de aprovação local que vai para o dock (o pedido de segredos é um formulário e continua na conversa). */
+/**
+ * Cartão de aprovação local que vai para o dock (o pedido de segredos é um formulário e continua na conversa). O
+ * "Cheguei no limite. Continuo?" do motor v3 também fica na conversa: é uma decisão sobre a tarefa, não uma ação.
+ */
 function isDockConfirm(message: Message): message is ConfirmMessage {
-	return message.kind === "confirm" && !message.secretsRequest && !message.emailKeyRequest && !message.plan;
+	return message.kind === "confirm" && !message.secretsRequest && !message.emailKeyRequest && !message.plan && message.ownerCard !== "step-limit";
 }
 
 /** Cartão repassado de outro bot que o usuário pode decidir daqui (questionário e logins ficam na conversa). */
@@ -119,6 +123,9 @@ export function approvalMarkerFor(message: Message, activeIds: ReadonlySet<strin
 		return null;
 	}
 	const short = approvalShortLabel(message as ConfirmMessage | NeedsUserMessage);
+	// Motor v3: prazo vencido, ignorado ou rascunho descartado dizem como o cartão fechou (nunca "Recusado").
+	const closed = message.kind === "confirm" && message.ownerCard && status !== "pending" ? ownerConfirmClosedLabel(message.outcomeDetail, translator) : null;
+	if (closed) return { status: status === "approved" ? status : "skipped", short, label: `${closed} · ${short}` };
 	// Aprovação por tarefa: "Aprovado · executado 3 vezes nesta tarefa · <ação>".
 	const uses = status === "approved" && message.kind === "confirm" ? message.grantUses : undefined;
 	return { status, short, label: uses ? approvalMarkerText(status, `${describeMcpTaskGrantUses(uses)} · ${short}`, translator) : approvalMarkerText(status, short, translator) };

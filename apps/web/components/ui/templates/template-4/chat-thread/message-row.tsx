@@ -40,6 +40,7 @@ import { LoginCard } from "@/components/ai-elements/login";
 import { openVaultNewLogin } from "@/components/settings/settings-url";
 import { DevSessionCard } from "@/components/ai-elements/dev-session/dev-session-card";
 import { SubagentsBlock } from "@/components/ai-elements/subagents";
+import { OwnerApprovalCard, ReturnMarker, StepLimitCard } from "@/components/ai-elements/owner-wait";
 import { ToolBudgetMarker } from "@/components/ai-elements/tool-budget";
 import { AssistantMessage } from "./assistant-message";
 import { RevisedDraft } from "./revised-draft";
@@ -83,6 +84,11 @@ export const MessageRow = memo(function MessageRow({
 	onLoginDone,
 	onLoginUseVault,
 	onLoginCode,
+	onLoginSkip,
+	onLoginTakeover,
+	onReturnCancel,
+	returnCancel,
+	onQuestionnaireSkip,
 	onBotProfileConfirm,
 	onBotProfileDismiss,
 	onBotProfileEdit,
@@ -126,6 +132,15 @@ export const MessageRow = memo(function MessageRow({
 	onLoginDone?: (message: Extract<Message, { kind: "login" }>) => void;
 	onLoginUseVault?: (message: Extract<Message, { kind: "login" }>) => void;
 	onLoginCode?: (message: Extract<Message, { kind: "login" }>, code: string) => void;
+	/** Motor v3: "Pular" e "Assumir" no cartão de login/VM. */
+	onLoginSkip?: (message: Extract<Message, { kind: "login" }>) => void;
+	onLoginTakeover?: (message: Extract<Message, { kind: "login" }>) => void;
+	/** Motor v3: "Cancelar" no marcador "Volto às HH:MM". */
+	onReturnCancel?: (message: Extract<Message, { kind: "return" }>) => void;
+	/** Estado do cancelamento em andamento (por `returnId`). */
+	returnCancel?: { returnId: string; pending: boolean; error?: string | null } | null;
+	/** Motor v3: "Pular" no questionário. */
+	onQuestionnaireSkip?: (message: QuestionnaireCardMessage) => void;
 	onBotProfileConfirm?: (
 		message: Extract<Message, { kind: "bot-profile-confirm" }>,
 	) => void;
@@ -293,7 +308,41 @@ export const MessageRow = memo(function MessageRow({
 					onOpen={onOpenRoutine}
 				/>
 			);
+		case "return":
+			return (
+				<ReturnMarker
+					at={message.at}
+					cancelling={returnCancel?.returnId === message.returnId && returnCancel.pending}
+					error={returnCancel?.returnId === message.returnId ? returnCancel.error : null}
+					onCancel={onReturnCancel ? () => onReturnCancel(message) : undefined}
+					status={message.status}
+				/>
+			);
 		case "confirm":
+			if (message.ownerCard === "step-limit") {
+				return (
+					<StepLimitCard
+						description={message.description}
+						onContinue={() => onConfirm?.(message)}
+						onStop={() => onCancel?.(message)}
+						progress={message.limitProgress}
+						status={message.status ?? "pending"}
+						title={message.title}
+					/>
+				);
+			}
+			if ((message.ownerCard === "approval" || message.ownerCard === "draft") && (message.status ?? "pending") === "pending") {
+				return (
+					<OwnerApprovalCard
+						deadlineAt={message.deadlineAt}
+						description={message.description}
+						onAllow={() => onConfirm?.(message)}
+						onNotNow={() => onCancel?.(message)}
+						title={message.title}
+						variant={message.ownerCard}
+					/>
+				);
+			}
 			if (message.plan) {
 				const status: PlanCardStatus = message.status === "approved" ? "approved" : message.status === "failed" ? "failed" : message.status === "rejected" ? (message.planOutcome === "ajuste pedido" ? "adjusted" : "cancelled") : "pending";
 				return (
@@ -415,6 +464,11 @@ export const MessageRow = memo(function MessageRow({
 					onOpenViewer={onLoginOpenViewer ? () => onLoginOpenViewer(message) : undefined}
 					onSaveToVault={() => openVaultNewLogin(message.site)}
 					codeField={message.codeField}
+					deadlineAt={message.deadlineAt}
+					onSkip={() => onLoginSkip?.(message)}
+					onTakeover={() => onLoginTakeover?.(message)}
+					outcome={message.outcome}
+					ownerWait={message.ownerWait}
 					onSubmitCode={(code) => onLoginCode?.(message, code)}
 					onUseVault={() => onLoginUseVault?.(message)}
 					reason={message.reason}
@@ -482,6 +536,7 @@ export const MessageRow = memo(function MessageRow({
 							? (target) => onQuestionnaireDismiss(target)
 							: undefined
 					}
+					onSkip={onQuestionnaireSkip ? (target) => onQuestionnaireSkip(target) : undefined}
 				/>
 			);
 	}

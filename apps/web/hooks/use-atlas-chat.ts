@@ -119,6 +119,7 @@ import {
 	streamChatCompletion,
 	threadToChatMessages,
 	type ComputerUseHandlers,
+	type ResumeVia,
 } from "@/lib/atlas-api";
 import { isCardProtocolText } from "@/lib/card-decision";
 import { notifyPagesChanged } from "@/lib/pages-refresh";
@@ -2254,7 +2255,7 @@ export function useAtlasChat({
 		[clearRunRefs],
 	);
 
-	const resumeRun = useCallback(async (options: { via?: "vault" | "code"; code?: string } = {}) => {
+	const resumeRun = useCallback(async (options: { via?: ResumeVia; code?: string } = {}) => {
 		const runId = activeRunIdRef.current;
 		const currentConversationId = conversationIdRef.current;
 		if (!runId || !currentConversationId) return;
@@ -2681,17 +2682,22 @@ export function useAtlasChat({
 	sendMessageRef.current = sendMessage;
 
 	const setLoginStatus = useCallback(
-		(id: string, status: "pending" | "done") => {
+		(id: string, status: "pending" | "done", outcome?: import("@workspace/shared").LoginWaitOutcome) => {
 			setMessages((previous) =>
 				previous.map((item) =>
 					item.kind === "login" && (item.id === id || item.loginId === id)
-						? { ...item, status }
+						? { ...item, status, ...(outcome ? { outcome } : {}) }
 						: item,
 				),
 			);
 		},
 		[],
 	);
+
+	/** "Volto às HH:MM": cancelado na tela (otimista; o servidor confirma pela rota de retornos). */
+	const setReturnStatus = useCallback((returnId: string, status: Extract<Message, { kind: "return" }>["status"]) => {
+		setMessages((previous) => previous.map((item) => (item.kind === "return" && item.returnId === returnId ? { ...item, status } : item)));
+	}, []);
 
 	const setConfirmStatus = useCallback(
 		(id: string, status: NonNullable<Extract<Message, { kind: "confirm" }>["status"]>) => {
@@ -2786,6 +2792,7 @@ export function useAtlasChat({
 		dismissMessage,
 		setConfirmStatus,
 		setLoginStatus,
+		setReturnStatus,
 		setQuestionnaireStatus,
 		setBotProfileStatus,
 		applySkillProposalState,

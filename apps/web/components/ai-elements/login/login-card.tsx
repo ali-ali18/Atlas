@@ -1,14 +1,16 @@
 "use client";
 
 import { useState } from "react";
-import { CheckIcon, KeyRoundIcon, LogInIcon, ShieldQuestionIcon } from "lucide-react";
-import type { LoginVaultOffer } from "@workspace/shared";
+import { CheckIcon, ClockIcon, KeyRoundIcon, LogInIcon, MonitorIcon, ShieldQuestionIcon, SkipForwardIcon } from "lucide-react";
+import type { LoginVaultOffer, LoginWaitOutcome } from "@workspace/shared";
 
 import { Button } from "@workspace/ui/components/button";
+import { ButtonGroup } from "@workspace/ui/components/button-group";
 import { Input } from "@workspace/ui/components/input";
 import { ChatCard, ChatCardLine } from "@workspace/ui/components/chat-card";
 import { RequestCard, REQUEST_PRIMARY_CLASS } from "@workspace/ui/components/request-card";
 import { useTranslations } from "@/lib/i18n/provider";
+import { loginOutcomeBadge, ownerWaitDeadlineText } from "@/lib/owner-wait";
 
 export type LoginCardProps = {
   site: string;
@@ -29,6 +31,16 @@ export type LoginCardProps = {
   /** O site pediu um código (e-mail/SMS): campo no card; o valor vai ao runtime, não ao modelo. */
   codeField?: boolean;
   onSubmitCode?: (code: string) => void;
+  /** Motor v3: o cartão oferece Pular · Terminei · Assumir e, decidido, mostra o selo da saída. */
+  ownerWait?: boolean;
+  outcome?: LoginWaitOutcome;
+  /** Motor v3: prazo (ISO): "Sigo sem isso às 14:30". */
+  deadlineAt?: string;
+  onSkip?: () => void;
+  onTakeover?: () => void;
+  /** Relógio injetável (testes). */
+  now?: Date;
+  timeZone?: string;
 };
 
 /**
@@ -51,8 +63,16 @@ export function LoginCard({
   onSaveToVault,
   codeField,
   onSubmitCode,
+  ownerWait = false,
+  outcome,
+  deadlineAt,
+  onSkip,
+  onTakeover,
+  now,
+  timeZone,
 }: LoginCardProps) {
-  const { t } = useTranslations();
+  const translator = useTranslations();
+  const { t } = translator;
   const [manual, setManual] = useState(false);
   const [code, setCode] = useState("");
   const done = status === "done";
@@ -102,6 +122,24 @@ export function LoginCard({
               ? t("aiElements.login.vaultTitleEmail", { site, who, email: vault.emailCode })
               : t("aiElements.login.vaultTitle", { site, who })
         }
+      />
+    );
+  }
+
+  if (ownerWait && !codeField) {
+    return (
+      <OwnerHandoffCard
+        canOpenViewer={canOpenViewer}
+        captcha={captcha}
+        deadline={done ? null : ownerWaitDeadlineText(deadlineAt, now ?? new Date(), translator, timeZone ? { timeZone } : {})}
+        done={done}
+        onDone={onDone}
+        onOpenViewer={onOpenViewer}
+        onSkip={onSkip}
+        onTakeover={onTakeover}
+        outcome={outcome}
+        site={site}
+        vaultTried={vaultTried}
       />
     );
   }
@@ -197,6 +235,88 @@ export function LoginCard({
           </Button>
         ) : undefined
       }
+    />
+  );
+}
+
+/**
+ * Cartão de login/VM do motor v3 (handoff): "Abrir computador" e, colados, Pular · Terminei · Assumir. Toda saída
+ * vira resultado para o bot (Pular não encerra a tarefa: ele segue sem isso). Decidido, só o selo da saída fica.
+ */
+function OwnerHandoffCard({
+  site,
+  captcha,
+  done,
+  outcome,
+  deadline,
+  vaultTried,
+  canOpenViewer,
+  onOpenViewer,
+  onDone,
+  onSkip,
+  onTakeover,
+}: {
+  site: string;
+  captcha: boolean;
+  done: boolean;
+  outcome?: LoginWaitOutcome;
+  deadline: string | null;
+  vaultTried?: string;
+  canOpenViewer: boolean;
+  onOpenViewer?: () => void;
+  onDone?: () => void;
+  onSkip?: () => void;
+  onTakeover?: () => void;
+}) {
+  const translator = useTranslations();
+  const { t } = translator;
+  if (done) {
+    const badge = loginOutcomeBadge(outcome, translator);
+    const finished = (outcome ?? "done") === "done";
+    return (
+      <RequestCard
+        badge={{ tone: badge.tone, label: badge.label }}
+        data-login-outcome={outcome ?? "done"}
+        description={badge.body}
+        leading={finished ? <CheckIcon aria-hidden /> : outcome === "takeover" ? <MonitorIcon aria-hidden /> : outcome === "skipped_timeout" ? <ClockIcon aria-hidden /> : <SkipForwardIcon aria-hidden />}
+        resolved
+        title={captcha ? t("aiElements.login.captchaTitle", { site }) : t("aiElements.login.loginTitle", { site })}
+      />
+    );
+  }
+  return (
+    <RequestCard
+      actions={
+        <>
+          <Button className={REQUEST_PRIMARY_CLASS} disabled={!canOpenViewer} onClick={onOpenViewer} size="sm" type="button">
+            {t("aiElements.login.openVm")}
+          </Button>
+          <ButtonGroup aria-label={t("ownerWait.handoffActions")}>
+            <Button onClick={onSkip} size="sm" type="button" variant="secondary">
+              {t("ownerWait.skip")}
+            </Button>
+            <Button onClick={onDone} size="sm" type="button" variant="secondary">
+              {t("ownerWait.done")}
+            </Button>
+            <Button onClick={onTakeover} size="sm" type="button" variant="secondary">
+              {t("ownerWait.takeover")}
+            </Button>
+          </ButtonGroup>
+        </>
+      }
+      badge={{ tone: "pending", label: t("aiElements.login.needsYou") }}
+      data-owner-card="handoff"
+      description={captcha ? t("aiElements.login.captchaHelp") : vaultTried ? t("aiElements.login.triedHelp", { tried: vaultTried }) : t("aiElements.login.loginHelp")}
+      leading={captcha ? <ShieldQuestionIcon aria-label={t("aiElements.login.captchaNeeded")} /> : <LogInIcon aria-label={t("aiElements.login.loginNeeded")} />}
+      note={
+        deadline ? (
+          <span className="inline-flex items-center gap-1" data-slot="owner-wait-deadline">
+            <ClockIcon aria-hidden className="size-3.5" />
+            {deadline}
+          </span>
+        ) : undefined
+      }
+      title={captcha ? t("aiElements.login.captchaTitle", { site }) : t("aiElements.login.loginTitle", { site })}
     />
   );
 }
