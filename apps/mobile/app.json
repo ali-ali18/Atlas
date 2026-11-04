@@ -4,6 +4,7 @@
     "slug": "atlas",
     "scheme": "atlas",
     "version": "0.0.1",
+    "icon": "./assets/icon.png",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
@@ -16,7 +17,13 @@
       "supportsTablet": false
     },
     "android": {
-      "package": "app.atlas.mobile"
+      "package": "app.atlas.mobile",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon-foreground.png",
+        "backgroundImage": "./assets/adaptive-icon-background.png",
+        "monochromeImage": "./assets/adaptive-icon-monochrome.png",
+        "backgroundColor": "#1a1917"
+      }
     },
     "web": {
       "bundler": "metro",
