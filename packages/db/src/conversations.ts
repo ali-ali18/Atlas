@@ -997,6 +997,35 @@ export async function updateConfirmCardStatus(
 	});
 }
 
+/**
+ * Fecha um cartão de confirmação AINDA pendente (decisão atrasada, prazo vencido, dono que mandou outra mensagem).
+ * Cartão já decidido não muda: um clique repetido nunca troca "aprovado" por "recusado". Só conversa do dono.
+ * Devolve o cartão fechado (título e id) ou `null` quando não havia o que fechar.
+ */
+export async function closePendingConfirmCard(input: {
+	conversationId: string;
+	ownerId: string;
+	confirmId?: string;
+	status: "rejected" | "approved";
+	detail: string;
+}): Promise<{ confirmId: string; title: string } | null> {
+	const owned = await prisma.conversation.findFirst({ where: { id: input.conversationId, userId: input.ownerId, bot: { is: { ownerId: input.ownerId } } }, select: { id: true } });
+	if (!owned) return null;
+	const rows = await prisma.conversationMessage.findMany({ where: { conversationId: input.conversationId, role: "confirm" }, orderBy: { createdAt: "desc" }, take: 20 });
+	for (const row of rows) {
+		const card = parseConversationCard(row.content);
+		if (!card || card.kind !== "confirm") continue;
+		if (input.confirmId ? card.confirmId !== input.confirmId : card.status !== "pending") continue;
+		if (card.status !== "pending") return null;
+		await prisma.conversationMessage.update({
+			where: { id: row.id },
+			data: { content: serializeConversationCard({ ...card, status: input.status, outcome: { ok: input.status === "approved", detail: input.detail.slice(0, 2000) } }) },
+		});
+		return { confirmId: card.confirmId, title: card.title };
+	}
+	return null;
+}
+
 /** Janela do que o Jev vê como "já aprovado nesta conversa". */
 const APPROVED_TOOLS_WINDOW_MS = 30 * 60_000;
 

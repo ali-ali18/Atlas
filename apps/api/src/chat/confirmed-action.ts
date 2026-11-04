@@ -1,6 +1,6 @@
 import type { TranscriptSeed } from "@workspace/shared";
 import type { VaultService } from "@workspace/agent-runtime";
-import { DEFAULT_COMMAND_ALLOWLIST, canGrantMcpTask, mcpTaskGrantName, hasExternalTargetArgs, PLAN_OUTCOME_ADJUSTED, hostOf, PLAN_OUTCOME_APPROVED, PLAN_OUTCOME_CANCELLED, SUPERSEDED_CARD_DETAIL, planAdjustResult, planApprovedResult, planToTaskList, VAULT_ENVIRONMENT_ID, isCardConfirmToken, labelCardProtocolMessage, parseDevApprovalReject, stripCommandSofteners } from "@workspace/shared";
+import { OWNER_WAIT_CARD_DETAIL, lateOwnerDecisionNote, DEFAULT_COMMAND_ALLOWLIST, canGrantMcpTask, mcpTaskGrantName, hasExternalTargetArgs, PLAN_OUTCOME_ADJUSTED, hostOf, PLAN_OUTCOME_APPROVED, PLAN_OUTCOME_CANCELLED, SUPERSEDED_CARD_DETAIL, planAdjustResult, planApprovedResult, planToTaskList, VAULT_ENVIRONMENT_ID, isCardConfirmToken, labelCardProtocolMessage, parseDevApprovalReject, stripCommandSofteners } from "@workspace/shared";
 import type { AgentRun } from "@workspace/shared";
 import {
 	addBotAutonomyException,
@@ -8,6 +8,9 @@ import {
 	appendRunEvent,
 	clearSkillPendingIntent,
 	claimSkillPendingIntent,
+	closePendingConfirmCard,
+	createRunInput,
+	findActiveConversationRun,
 	completeAgentRunAtomically,
 	createAgentRun,
 	getConversationRequesterBotId,
@@ -41,7 +44,8 @@ async function beginActivityRun(input: {
 	conversationId?: string;
 	model: string;
 	commandText: string;
-}): Promise<AgentRun> {
+}): Promise<{ run: AgentRun; merged: boolean }> {
+	let merged = false;
 	const run = await createAgentRun({
 		request: {
 			messages: [{ role: "user", content: input.commandText }],
@@ -53,11 +57,15 @@ async function beginActivityRun(input: {
 		model: input.model,
 		userId: effectiveUserId(input.userId),
 		contextLength: peekModelContextLength(input.model),
+		// A conversa já tinha run ativo: o create devolve ESSE run (a fala vira entrada nele). Ele não é nosso para concluir.
+		onMergedIntoActiveRun: () => { merged = true; },
 	});
-	return run;
+	return { run, merged };
 }
 
-async function finishActivityRun(input: { run: AgentRun; assistantText: string; costUsd?: number }): Promise<AgentRun> {
+async function finishActivityRun(input: { run: AgentRun; merged?: boolean; assistantText: string; costUsd?: number }): Promise<AgentRun> {
+	// Run ativo de outro trabalho (ver `beginActivityRun`): concluí-lo parava a tarefa em andamento.
+	if (input.merged) return input.run;
 	await completeAgentRunAtomically({
 		runId: input.run.id,
 		conversationId: input.run.conversationId,
@@ -288,8 +296,8 @@ async function resolvePendingIntent(input: {
 }): Promise<AgentRun | null> {
 	const pending = await getSkillPendingIntent(input.userId, input.conversationId);
 	if (!pending) return null;
-	const run = await beginActivityRun({ userId: input.userId, botId: input.botId, conversationId: input.conversationId, model: input.model, commandText: input.commandText });
-	const done = (assistantText: string, costUsd?: number) => finishActivityRun({ run, assistantText, costUsd });
+	const { run, merged } = await beginActivityRun({ userId: input.userId, botId: input.botId, conversationId: input.conversationId, model: input.model, commandText: input.commandText });
+	const done = (assistantText: string, costUsd?: number) => finishActivityRun({ run, merged, assistantText, costUsd });
 	const clear = () => clearSkillPendingIntent(input.userId, input.conversationId).catch(() => undefined);
 	if (pending.kind !== "confirm") {
 		await clear();
@@ -641,6 +649,37 @@ export function applyConfirmedFollowUp<T extends { role: string; content: string
 }
 
 /**
+ * Recusa ("Agora não", "Recusar") de um cartão enquanto OUTRO run da conversa está ativo (bug do dono, 03/11: recusar um
+ * cartão atrasado parava tudo). Antes, a recusa virava um run de atividade que, preso ao índice "um run ativo por
+ * conversa", devolvia o run ativo e o CONCLUÍA com "Ok, deixei pra lá"; ou o "cancela isso" entrava como fala no run
+ * ativo e a triagem do v2 o lia como "parar". Agora: o cartão pendente fecha como recusado (registro na conversa, com o
+ * rótulo), a intenção pendente daquele cartão sai, e o run ativo segue. No motor v3 ele recebe ainda a nota no próximo
+ * limite, como steer silencioso (o v2 não recebe nada: a triagem dele responderia em voz alta). Só "Parar" cancela.
+ * `null` = não há run ativo: segue o fluxo normal.
+ */
+async function settleLateCardDecline(input: {
+	userId: string;
+	conversationId: string;
+	pending: Awaited<ReturnType<typeof getSkillPendingIntent>>;
+	confirmId?: string;
+}): Promise<AgentRun | null> {
+	const active = await findActiveConversationRun(input.userId, input.conversationId).catch(() => null);
+	if (!active) return null;
+	const pendingConfirmId = input.pending?.kind === "confirm" ? input.pending.payload.confirmId : undefined;
+	const target = input.confirmId ?? pendingConfirmId;
+	// A intenção só sai quando o clique é no cartão dela (ou não diz qual): clique num cartão velho não apaga a do novo.
+	if (input.pending && (!input.confirmId || input.confirmId === pendingConfirmId)) {
+		await claimSkillPendingIntent(input.pending.id, input.userId, input.conversationId).catch(() => false);
+	}
+	const closed = await closePendingConfirmCard({ conversationId: input.conversationId, ownerId: input.userId, ...(target ? { confirmId: target } : {}), status: "rejected", detail: OWNER_WAIT_CARD_DETAIL.declined }).catch(() => null);
+	if (closed && active.engine === "v3") {
+		const note = lateOwnerDecisionNote({ outcome: "declined", what: closed.title.replace(/\?$/, ""), at: new Date() });
+		await createRunInput(active.run.id, { content: note, mode: "join", silent: true, author: "system" }, input.userId).catch(() => undefined);
+	}
+	return active.run;
+}
+
+/**
  * Só resolve o clique do card de confirmação (botão da UI).
  * Qualquer outro texto (inclusive pedidos de skill) vai para o agente.
  */
@@ -668,6 +707,12 @@ export async function maybeHandleConfirmedAction(input: {
 	const userId = effectiveUserId(input.userId);
 	const commandText = stripCommandSofteners(input.text.trim());
 	const pending = await getSkillPendingIntent(userId, input.conversationId);
+	// Clique de cartão com um run ATIVO na conversa: nenhum run ativo espera cartão de confirmação (quem pergunta termina em
+	// `awaiting_confirmation`), então o cartão é atrasado ou substituído. Recusar não pode parar o trabalho em andamento.
+	if (isCardCancelToken(commandText) || parseDevApprovalReject(commandText)) {
+		const late = await settleLateCardDecline({ userId, conversationId: input.conversationId, pending, confirmId: input.confirmId });
+		if (late) return { run: late, handled: true };
+	}
 	if (!pending && (isCardCancelToken(commandText) || parseDevApprovalReject(commandText))) {
 		// A intenção pendente expira (10 min) mas o card continua no chat: sem isto o
 		// "Cancelar" clicado depois disso ia só para o modelo e o card voltava a
@@ -770,7 +815,7 @@ export async function maybeHandleConfirmedAction(input: {
 			pending.payload.action === "plan" ? { ok: false, detail: PLAN_OUTCOME_CANCELLED } : undefined,
 		).catch(() => undefined);
 		await clearSkillPendingIntent(userId, input.conversationId).catch(() => undefined);
-		const run = await beginActivityRun({
+		const { run, merged } = await beginActivityRun({
 			userId,
 			botId: input.botId,
 			conversationId: input.conversationId,
@@ -778,7 +823,7 @@ export async function maybeHandleConfirmedAction(input: {
 			commandText: input.text.trim(),
 		});
 		return {
-			run: await finishActivityRun({ run, assistantText: `Ok, deixei pra lá.` }),
+			run: await finishActivityRun({ run, merged, assistantText: `Ok, deixei pra lá.` }),
 			handled: true,
 		};
 	}

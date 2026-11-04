@@ -877,6 +877,14 @@ export async function markPendingLoginCode(runId: string, codeEnc: string): Prom
 	return true;
 }
 
+/** Run ativo da conversa, do dono (o "ocupado" de agora), com o motor gravado. */
+export async function findActiveConversationRun(userId: string, conversationId: string): Promise<{ run: AgentRun; engine: RequestedEngine | null } | null> {
+	if (!userId.trim() || userId === "default") return null;
+	const row = await prisma.agentRun.findFirst({ where: { conversationId, userId, status: { in: ACTIVE_STATUSES } }, orderBy: { createdAt: "desc" }, select: AGENT_RUN_SELECT });
+	if (!row) return null;
+	return { run: mapRun(row), engine: readStoredRunEngine(row.budgetJson) ?? null };
+}
+
 export async function listActiveRunsForConversation(
 	conversationId: string,
 ): Promise<AgentRun[]> {
