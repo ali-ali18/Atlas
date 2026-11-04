@@ -234,3 +234,37 @@ Verificações (`expect`; `id` opcional dá o nome que aparece na matriz):
   dois diretórios de resultado.
 - Idioma, pergunta e promessa são heurísticas de texto: leia a trajetória antes de concluir.
 - Custo vem do `usage.cost` do OpenRouter; quando o provedor não informa, o total sai marcado como parcial.
+
+## Bench do navegador (harness v3, PR6)
+
+Mede as **4 tools de navegador do motor v3** (`browser_navigate`, `browser_snapshot`, `browser_act`, `browser_tabs`) contra as ~12 de hoje, em 8 páginas locais servidas no Chromium já instalado (sem rede externa). Cada tarefa tem checagem **determinística do estado final**: eventos que a própria página grava (`/__log`) mais o texto final do bot; nunca juiz LLM.
+
+| tarefa | o que prova |
+|---|---|
+| `chat-gemini` | caixa de texto + resposta lenta por streaming (~4 s): esperar o texto estabilizar antes de ler |
+| `share-menu` | botão Compartilhar escondido num menu de "três pontos" (botão só com ícone) |
+| `login-sem-senha` | formulário de login: **não** digitar nem enviar senha inventada, avisar o usuário |
+| `consent-cobrindo` | modal de cookies cobrindo a página: fechar/recusar, **nunca** aceitar |
+| `lista-rolando` | lista que carrega 20 itens por vez ao rolar: achar o Produto 55 |
+| `botao-tardio` | botão "Baixar PDF" que só aparece ~3 s depois |
+| `alvo-no-iframe` | campo de cupom dentro de iframe de outra origem (`localhost` x `127.0.0.1`) |
+| `300-links` | 300 links de ruído e um alvo (o 187º) |
+
+```bash
+# Modo mock (CI, grátis): roteiro que lê o resultado real de cada tool; valida tools, VM de bancada e checagens.
+pnpm --filter @workspace/evals run eval -- navegador
+pnpm --filter @workspace/evals run eval -- navegador --tools v3 --tasks chat-gemini,300-links --out /tmp/bench.md
+
+# Estimativa de custo antes de gastar (roda o mock para medir os tokens):
+pnpm --filter @workspace/evals run eval -- navegador --estimate --repeat 3
+
+# Modo real (GASTA tokens). Chave só do ambiente: ANTHROPIC_API_KEY, CLAUDE_KEY ou claude_key (claude-* vai direto à Anthropic);
+# outro id vai ao OpenRouter (OPENROUTER_API_KEY).
+CLAUDE_KEY=... pnpm --filter @workspace/evals run eval -- navegador --models claude-haiku-5-5 --repeat 3 --max-cost 1 --out /tmp/bench-haiku.md
+```
+
+Métricas por tarefa e por conjunto de tools: **completou**, **passos** (chamadas ao modelo), chamadas de tool, erros de tool, **"clicou e nada aconteceu"** (resultados com o aviso `no visible change`), **tokens** de entrada e saída, **custo**. `--max-cost` para de iniciar execuções ao passar do teto (o custo dos `claude-*` vem dos tokens com o preço de lista, editável por `--prices`). `BENCH_TRACE=1` imprime cada chamada e o começo do resultado.
+
+**A VM de bancada.** O bench roda o servidor de controle REAL da VM (`docker/agent-sandbox/control/server.mjs`, o mesmo código da imagem: árvore de acessibilidade, refs, diff, clique em escada, consentimento, `page_state`) contra um Chromium local, sem Docker. O que a VM faz com X11 (rolar com o mouse, teclar, tela inteira) não existe fora do container, então um proxy fala o **mesmo contrato HTTP** nessas rotas (`/scroll`, `/key`, `/click`, `/type`, `/screen`, `/screenshot`) usando o Playwright e repassa o resto ao servidor real. O gerente de sandbox das tools é um adaptador fino sobre esse contrato (`browser-bench/vm-harness.ts`). Limites: o bench é só texto (nenhuma imagem volta ao modelo, nos dois conjuntos), não passa pelo laço do motor (mede as tools e o formato dos resultados, não a política nem os cartões) e a rolagem por Playwright não reproduz a rolagem do X11 em containers de rolagem aninhados.
+
+O provedor real (`browser-bench/providers.ts`) repete o do marco M1 (`feat/harness-v3-m1-ponte`, `bridge/providers.ts`); quando o M1 entrar no `harness/v3`, trocar por um import do dele.
