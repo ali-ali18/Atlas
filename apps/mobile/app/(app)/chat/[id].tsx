@@ -3,13 +3,16 @@ import { resolveColor } from "@workspace/shared/avatar/identity";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
 import * as React from "react";
-import { FlatList, KeyboardAvoidingView, Pressable, View } from "react-native";
+import { BackHandler, FlatList, KeyboardAvoidingView, Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ChevronDownIcon } from "@/components/icons";
 import { SoonSheet } from "@/components/home/soon-sheet";
 import { ChatMenu, type ChatMenuAction } from "@/components/chat/chat-menu";
 import { Fade } from "@/components/ui/fade";
 import { ChatTopBar, TOP_BAR_HEIGHT } from "@/components/chat/chat-top-bar";
+import { ChatSearchBar } from "@/components/chat/chat-search-bar";
+import { ChatSearchProvider } from "@/components/chat/search-highlight";
+import { useChatSearch } from "@/lib/use-chat-search";
 import { Composer } from "@/components/chat/composer";
 import { ModelSheet } from "@/components/chat/model-sheet";
 import { modelPill as buildModelPill } from "@/lib/model-pill";
@@ -50,8 +53,8 @@ const JUMP_THRESHOLD = 360;
 /** Respiro entre a última mensagem (ou a linha "Pensando…") e o composer que flutua sobre a lista. */
 const LAST_MESSAGE_GAP = 16;
 
-type Soon = "anexos" | "voz" | "buscar" | "compartilhar" | null;
-const SOON_TITLE: Record<NonNullable<Soon>, string> = { anexos: "Anexos", voz: "Voz", buscar: "Buscar no chat", compartilhar: "Compartilhar como modelo" };
+type Soon = "anexos" | "voz" | "compartilhar" | null;
+const SOON_TITLE: Record<NonNullable<Soon>, string> = { anexos: "Anexos", voz: "Voz", compartilhar: "Compartilhar como modelo" };
 
 const NO_IDS: ReadonlySet<string> = new Set();
 
@@ -197,6 +200,29 @@ export default function ChatScreen() {
 
 	// A lista é invertida (o fim da conversa fica embaixo e o teclado não a desloca): mais novo primeiro.
 	const data = React.useMemo(() => [...shownItems].reverse(), [shownItems]);
+	// Buscar na conversa: só nas mensagens já carregadas; a barra toma o lugar do composer e a lista rola até a ocorrência atual.
+	const search = useChatSearch(shownItems);
+	const searchState = React.useMemo(() => ({ query: search.query, activeId: search.activeId }), [search.query, search.activeId]);
+	const dataRef = React.useRef(data);
+	dataRef.current = data;
+	const scrollToItem = React.useCallback((itemId: string) => {
+		const index = dataRef.current.findIndex((item) => item.id === itemId);
+		if (index >= 0) listRef.current?.scrollToIndex({ index, viewPosition: 0.5, animated: true });
+	}, []);
+	const activeSearchId = search.activeId;
+	React.useEffect(() => {
+		if (activeSearchId) scrollToItem(activeSearchId);
+	}, [activeSearchId, scrollToItem]);
+	// Voltar do Android fecha a busca antes de sair da conversa.
+	const closeSearch = search.close;
+	React.useEffect(() => {
+		if (!search.open) return;
+		const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+			closeSearch();
+			return true;
+		});
+		return () => subscription.remove();
+	}, [search.open, closeSearch]);
 	const animateIds = useNewItemIds(shownItems, chat.ready);
 	const positions = React.useMemo(() => bubblePositions(shownItems), [shownItems]);
 
@@ -219,11 +245,13 @@ export default function ChatScreen() {
 	const onMenuPick = (action: ChatMenuAction) => {
 		setMenu(false);
 		if (action === "profile") openProfile();
-		else setSoon(action === "search" ? "buscar" : "compartilhar");
+		else if (action === "search") search.start();
+		else setSoon("compartilhar");
 	};
 
 	return (
 		<ScreenFrame edges={["bottom", "left", "right"]}>
+			<ChatSearchProvider value={searchState}>
 			<KeyboardAvoidingView behavior="padding" className="flex-1">
 				<FlatList
 					ref={listRef}
@@ -237,6 +265,11 @@ export default function ChatScreen() {
 					renderItem={({ item }) => <MessageRow item={item} actions={actions} animate={animateIds.has(item.id)} position={positions.get(item.id)} />}
 					keyboardShouldPersistTaps="handled"
 					keyboardDismissMode="on-drag"
+					// Item fora da janela renderizada: vai para o deslocamento estimado e tenta de novo quando ele existir.
+					onScrollToIndexFailed={(info) => {
+						listRef.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: false });
+						setTimeout(() => listRef.current?.scrollToIndex({ index: info.index, viewPosition: 0.5, animated: true }), 120);
+					}}
 					onEndReached={chat.hasMore ? chat.loadOlder : undefined}
 					onEndReachedThreshold={0.6}
 					contentContainerClassName="gap-1.5 px-4"
@@ -283,12 +316,19 @@ export default function ChatScreen() {
 							<ChevronDownIcon size={22} tone="foreground" />
 						</Pressable>
 					) : null}
+					{search.open ? (
+						<ChatSearchBar value={search.text} onChange={search.setText} positionLabel={search.label} empty={search.empty} canStep={search.hits.length > 0} onPrevious={search.previous} onNext={search.next} onClose={search.close} />
+					) : null}
+					{/* Escondido (não desmontado) durante a busca: o texto que o usuário digitava continua lá quando a barra fecha. */}
+					<View style={search.open ? { display: "none" } : undefined}>
 					<Composer onCompact={bot.memberIds.length > 0 ? undefined : (focus) => void chat.compact(focus)} mentionBots={mentionBots} skills={bot.memberIds.length > 0 ? null : composerSkills.skills} skillsLoading={composerSkills.loading} skillsFailed={composerSkills.failed} onSlash={composerSkills.load} initialText={typeof draft === "string" ? draft : undefined} botName={bot.name} color={color} foreground={foreground} running={chat.running} onSend={(text) => {
 							chat.send(text, replyTo ?? undefined);
 							setReplyTo(null);
 						}} onStop={chat.stop} onSoon={(what) => setSoon(what)} onModel={() => setModelOpen(true)} modelPill={modelPill} holdWriting={modelOpen} onWriting={chat.modelSelector.loadCatalog} replyTo={replyTo} onCancelReply={() => setReplyTo(null)} />
+					</View>
 				</View>
 			</KeyboardAvoidingView>
+			</ChatSearchProvider>
 			<ChatMenu open={menu} onClose={() => setMenu(false)} onPick={onMenuPick} />
 			<ViewerSheet target={viewer} onClose={closeViewer} apiFetch={apiFetch} />
 			<ImageViewer visible={imageStart !== null} images={viewerImages} startIndex={imageStart ?? 0} onClose={closeImage} actions={imageActions} />

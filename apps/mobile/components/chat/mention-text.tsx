@@ -6,6 +6,7 @@ import { Avatar } from "@/components/ui/avatar";
 import { Text } from "@/components/ui/text";
 import { routineSurface } from "@/lib/chat-surface";
 import type { MentionBotRef, MessagePart } from "@/lib/message-text";
+import { HighlightedText } from "./search-highlight";
 import { useAppColorScheme } from "@/lib/use-theme";
 
 const AVATAR = 16;
@@ -38,7 +39,7 @@ export function MentionText({ parts, eyeColor }: { parts: readonly MessagePart[]
 	return (
 		<>
 			{parts.map((part, index) => {
-				if (part.type === "text") return <React.Fragment key={index}>{part.text}</React.Fragment>;
+				if (part.type === "text") return <HighlightedText key={index} text={part.text} />;
 				return (
 					<Text key={index} className="text-base font-medium leading-snug" style={{ color: blue }}>
 						{part.type === "bot" ? <InlineAvatar bot={part.bot} eyeColor={eyeColor} /> : <InlineSparkles />}

@@ -24,6 +24,7 @@ import { useAppColorScheme } from "@/lib/use-theme";
 import { surfaceColors } from "@/lib/surfaces";
 import { parseMarkdown, splitSegments } from "@/lib/markdown";
 import { MentionText } from "./mention-text";
+import { HighlightedText, MessageHighlight } from "./search-highlight";
 import { isPlainMessage, splitMessageText, type MentionBotRef } from "@/lib/message-text";
 import { ReplyPill } from "./reply-pill";
 import { TaskSummary } from "./task-dock";
@@ -81,7 +82,7 @@ function UserBubble({ text, bots, skills, position, reactions, replyTo, accent, 
 				className={`px-3.5 py-3.5 ${accent ? "" : "bg-muted"}`}
 			>
 				<Text className="text-base leading-snug" style={accent ? { color: accent.foreground } : undefined}>
-					{isPlainMessage(parts) ? text : <MentionText parts={parts} eyeColor={accent?.background} />}
+					{isPlainMessage(parts) ? <HighlightedText text={text} /> : <MentionText parts={parts} eyeColor={accent?.background} />}
 				</Text>
 			</Pressable>
 			<Reactions reactions={reactions} align="end" />
@@ -172,9 +173,17 @@ export const MessageRow = React.memo(function MessageRow({
 function RowContent({ item, actions, position }: { item: ChatItem; actions: RowActions; position: GroupPosition }) {
 	switch (item.kind) {
 		case "user":
-			return <UserBubble text={item.text} bots={actions.bots} skills={actions.skills} position={position} reactions={item.reactions} replyTo={item.replyTo} accent={actions.userBubble} onLongPress={() => actions.onOpenMenu(item)} />;
+			return (
+				<MessageHighlight itemId={item.id}>
+					<UserBubble text={item.text} bots={actions.bots} skills={actions.skills} position={position} reactions={item.reactions} replyTo={item.replyTo} accent={actions.userBubble} onLongPress={() => actions.onOpenMenu(item)} />
+				</MessageHighlight>
+			);
 		case "assistant":
-			return item.text.trim() ? <BotBubble text={item.text} position={position} reactions={item.reactions} replyTo={item.replyTo} onLongPress={() => actions.onOpenMenu(item)} /> : null;
+			return item.text.trim() ? (
+				<MessageHighlight itemId={item.id}>
+					<BotBubble text={item.text} position={position} reactions={item.reactions} replyTo={item.replyTo} onLongPress={() => actions.onOpenMenu(item)} />
+				</MessageHighlight>
+			) : null;
 		case "task-list":
 			return <TaskSummary items={item.items} active={taskCardActive(item.runId, actions.activeRunId, actions.running)} />;
 		case "confirm":

@@ -10,15 +10,15 @@ import { TOP_BAR_CONTROL, TOP_BAR_SIDE } from "./chat-top-bar";
 export type ChatMenuAction = "profile" | "search" | "share";
 
 /**
- * Menu do "…": Ver perfil, Buscar no chat e Compartilhar como modelo. Abre embaixo do botão, à direita, como na
- * referência. Buscar e Compartilhar ainda são "em breve" (o menu só avisa).
+ * Menu do "…": Ver perfil, Buscar na conversa e Compartilhar como modelo. Abre embaixo do botão, à direita, como na
+ * referência. Compartilhar ainda é "em breve" (o menu só avisa).
  */
 export function ChatMenu({ open, onClose, onPick }: { open: boolean; onClose: () => void; onPick: (action: ChatMenuAction) => void }) {
 	const insets = useSafeAreaInsets();
 	const surfaces = useSurfaces();
 	const entries: Array<{ action: ChatMenuAction; label: string; soon: boolean; icon: React.ReactNode }> = [
 		{ action: "profile", label: "Ver perfil", soon: false, icon: <UserCircleIcon /> },
-		{ action: "search", label: "Buscar no chat", soon: true, icon: <SearchIcon size={22} /> },
+		{ action: "search", label: "Buscar na conversa", soon: false, icon: <SearchIcon size={22} /> },
 		{ action: "share", label: "Compartilhar como modelo", soon: true, icon: <ShareIcon /> },
 	];
 	return (

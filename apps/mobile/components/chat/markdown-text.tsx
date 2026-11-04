@@ -5,6 +5,7 @@ import Animated, { useAnimatedScrollHandler, useAnimatedStyle, useSharedValue } 
 import { SendIcon } from "@/components/icons";
 import { Text } from "@/components/ui/text";
 import { SurfaceCard } from "@/components/ui/surface-card";
+import { HighlightedText } from "./search-highlight";
 import { surfaceColors } from "@/lib/surfaces";
 import { useSurfaces } from "@/lib/use-surfaces";
 import { cn } from "@/lib/cn";
@@ -61,7 +62,7 @@ function Inlines({ nodes, scheme, plainCode = false }: { nodes: readonly Inline[
 				const key = `${index}-${node.type}`;
 				switch (node.type) {
 					case "text":
-						return node.text;
+						return <HighlightedText key={key} text={node.text} />;
 					case "bold":
 						return (
 							<RNText key={key} style={{ fontWeight: "700" }}>
