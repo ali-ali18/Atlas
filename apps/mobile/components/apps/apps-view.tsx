@@ -97,7 +97,6 @@ export function AppsView(props: AppsViewProps) {
 		[installed, onOpenApp, onOpenBot, onMore, onRetry],
 	);
 
-	let footer: React.ReactElement | undefined;
 	let empty: React.ReactElement | undefined;
 	if (load.status === "loading") {
 		empty = (
@@ -116,14 +115,10 @@ export function AppsView(props: AppsViewProps) {
 				</Button>
 			</View>
 		);
-	} else if (composioLoading) {
-		footer = (
-			<View className="items-center py-6">
-				<BotLoader size={48} label="Carregando apps" />
-			</View>
-		);
 	}
 	const ready = load.status === "ready";
+	// Fixo entre a lista e a busca, não rodapé da lista: com muitos apps nativos o rodapé ficava abaixo da dobra e o bot nunca aparecia.
+	const showComposioLoader = ready && composioLoading;
 	return (
 		<ScreenFrame>
 			<KeyboardAvoidingView behavior="padding" className="flex-1">
@@ -140,10 +135,15 @@ export function AppsView(props: AppsViewProps) {
 				</View>
 				{ready ? <CategoryFilters categories={chips} value={chip} onChange={onChip} /> : null}
 				<View className="flex-1">
-					<FlatList data={ready ? rows : []} keyExtractor={(row) => row.key} renderItem={renderItem} ListEmptyComponent={empty} ListFooterComponent={footer} style={{ flex: 1 }} contentContainerStyle={{ paddingTop: FADE_TOP, paddingBottom: FADE_BOTTOM }} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" onEndReached={onEndReached} onEndReachedThreshold={0.6} onScrollBeginDrag={onUserScroll} onMomentumScrollBegin={onUserScroll} initialNumToRender={14} maxToRenderPerBatch={10} windowSize={7} removeClippedSubviews />
+					<FlatList data={ready ? rows : []} keyExtractor={(row) => row.key} renderItem={renderItem} ListEmptyComponent={empty} style={{ flex: 1 }} contentContainerStyle={{ paddingTop: FADE_TOP, paddingBottom: FADE_BOTTOM }} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" onEndReached={onEndReached} onEndReachedThreshold={0.6} onScrollBeginDrag={onUserScroll} onMomentumScrollBegin={onUserScroll} initialNumToRender={14} maxToRenderPerBatch={10} windowSize={7} removeClippedSubviews />
 					<Fade from="top" height={FADE_TOP} className="absolute left-0 right-0 top-0" />
 					<Fade from="bottom" height={FADE_BOTTOM} className="absolute bottom-0 left-0 right-0" />
 				</View>
+				{showComposioLoader ? (
+					<View className="items-center pb-2">
+						<BotLoader size={44} label="Carregando apps" />
+					</View>
+				) : null}
 				<CatalogSearchBar query={query} onChange={onQuery} placeholder="Buscar aplicativos e bots" />
 			</KeyboardAvoidingView>
 		</ScreenFrame>
