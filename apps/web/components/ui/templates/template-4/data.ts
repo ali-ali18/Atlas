@@ -471,6 +471,8 @@ type MessageVariant =
 	| { id: string; kind: "image-gen"; callId: string; count: 1 | 2; aspectRatio: string; startedAt: number; status: "running" | "error"; error?: string }
 	/** Checklist de passos do run (`update_task_list`); um cartão por run, atualizado no lugar. */
 	| { id: string; kind: "task-list"; runId: string; items: Array<{ content: string; status: "pending" | "in_progress" | "completed" }> }
+	/** Motor v3: "Volto às HH:MM" (retorno visível). Um por `returnId`; cancelar ou disparar muda no lugar. */
+	| { id: string; kind: "return"; returnId: string; at: string; reason: string; status: "pending" | "cancelled" | "done" }
 	/** `/compact`: a conversa levada foi resumida (números antes/depois e o texto do resumo); persistido na thread. */
 	| { id: string; kind: "compaction"; before: number; after: number; summary: string; focus?: string }
 	/** Gráfico nativo (spec validado) gerado pelo run_code em *.chart.json. */

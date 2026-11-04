@@ -96,6 +96,8 @@ describe("rotina no limite de passos: guarda o ponto e pergunta ao dono", () => 
 			expect.objectContaining({ confirmId: "confirm-limit1-run-r1", title: "Cheguei no limite de 40 passos. Continuo?", confirmLabel: "Continuar", cancelLabel: "Agora não" }),
 		]);
 		expect(cards[0]!.description).not.toMatch(/tool|checkpoint|step/i);
+		// PR8d: a UI sabe que é o cartão do limite e mostra o que já foi feito.
+		expect(cards[0]).toMatchObject({ ownerCard: "step-limit", limitProgress: { steps: 40 } });
 		const last = checkpoints.at(-1)!;
 		expect(last).toMatchObject({ engine: "v3", nextStepIndex: 40, engineV3: { limitWait: { cardId: "confirm-limit1-run-r1", kind: "steps", steps: 40 } } });
 		expect(saveSkillPendingIntentIfFree).toHaveBeenCalledWith(expect.objectContaining({ conversationId: "conv-rotina", payload: expect.objectContaining({ action: "step-limit", confirmId: "confirm-limit1-run-r1", stepLimit: { runId: "run-r1" } }) }));

@@ -34,6 +34,8 @@ export {
 	listApprovedConfirmTools,
 	getLatestConfirmCardStatus,
 	markLoginCardDone,
+	upsertReturnCard,
+	closeReturnCard,
 	hasPendingQuestionnaireCard,
 	submitQuestionnaireCard,
 	touchQuestionnaireCard,

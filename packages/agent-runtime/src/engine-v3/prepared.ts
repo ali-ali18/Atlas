@@ -83,7 +83,7 @@ export async function prepareDraftForOwner(run: V3Run, input: { tool: string; ar
 	// O contador vai ao checkpoint já: depois de uma retomada (limite, queda) o "um por run" continua valendo.
 	await run.persistCheckpoint().catch(() => undefined);
 	const note = redactSecrets(input.note.trim());
-	const card = { type: "confirm" as const, confirmId, title: `${label}?`, description: `${note}\n\n${details}`, confirmLabel: "Permitir", cancelLabel: "Agora não", callKey };
+	const card = { type: "confirm" as const, confirmId, title: `${label}?`, description: `${note}\n\n${details}`, confirmLabel: "Permitir", cancelLabel: "Agora não", callKey, ownerCard: "draft" as const };
 	await persistConversationCardFromEvent(run.conversationId, card).catch(() => undefined);
 	await run.emit(card);
 	return { summary: PREPARED_DRAFT_RESULT(label) };

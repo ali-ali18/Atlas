@@ -2,6 +2,7 @@ import {
 	claimDueReturn,
 	claimSkillPendingIntent,
 	closePendingConfirmCard,
+	closeReturnCard,
 	createAgentRun,
 	dismissPendingQuestionnaireCard,
 	getAgentRun,
@@ -39,6 +40,7 @@ export type OwnerWaitProcessorDeps = {
 	claimDueReturn: typeof claimDueReturn;
 	markReturnRun: typeof markReturnRun;
 	releaseReturnClaim: typeof releaseReturnClaim;
+	closeReturnCard: typeof closeReturnCard;
 	enqueueRun: (runId: string) => Promise<boolean>;
 };
 
@@ -54,6 +56,7 @@ export const defaultOwnerWaitDeps = (enqueueRun: (runId: string) => Promise<bool
 	claimDueReturn,
 	markReturnRun,
 	releaseReturnClaim,
+	closeReturnCard,
 	enqueueRun,
 });
 
@@ -148,6 +151,8 @@ export async function processScheduledReturn(job: ScheduledReturnJobPayload, dep
 		throw error;
 	}
 	await deps.markReturnRun(due.id, run.id).catch(() => undefined);
+	// O marcador "Volto às HH:MM" do dono fecha (o retorno chegou); o silencioso não tem marcador.
+	if (due.visible) await deps.closeReturnCard({ conversationId: due.conversationId, ownerId: job.userId, returnId: due.id, status: "done" }).catch(() => false);
 	if (run.status === "queued") await deps.enqueueRun(run.id);
 	return { outcome: "resumed", runId: run.id };
 }

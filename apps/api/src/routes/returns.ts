@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { cancelConversationReturn, getOwnedConversation, listPendingReturns, type ConversationReturnRecord } from "@workspace/db";
+import { cancelConversationReturn, closeReturnCard, getOwnedConversation, listPendingReturns, type ConversationReturnRecord } from "@workspace/db";
 import { scopeFor, type AuthEnv } from "../middleware/auth.js";
 import { cancelScheduledReturnJob } from "../chat/owner-wait.js";
 
@@ -12,6 +12,8 @@ export type ReturnRouteDeps = {
 	list(userId: string, conversationId: string): Promise<ConversationReturnRecord[]>;
 	cancel(userId: string, returnId: string, conversationId: string): Promise<ConversationReturnRecord | null>;
 	cancelJob(returnId: string): Promise<void>;
+	/** O marcador "Volto às HH:MM" gravado na conversa passa a "Cancelado". */
+	closeCard(input: { conversationId: string; ownerId: string; returnId: string; status: "cancelled" }): Promise<boolean>;
 };
 
 const defaultDeps: ReturnRouteDeps = {
@@ -19,6 +21,7 @@ const defaultDeps: ReturnRouteDeps = {
 	list: listPendingReturns,
 	cancel: cancelConversationReturn,
 	cancelJob: cancelScheduledReturnJob,
+	closeCard: closeReturnCard,
 };
 
 const view = (item: ConversationReturnRecord) => ({ id: item.id, at: item.dueAt.toISOString(), reason: item.reason, visible: item.visible, status: item.status });
@@ -41,6 +44,7 @@ export function createReturnRoutes(deps: ReturnRouteDeps = defaultDeps) {
 		const cancelled = await deps.cancel(userId, c.req.param("returnId"), conversationId);
 		if (!cancelled) return c.json({ error: "Return not found" }, 404);
 		await deps.cancelJob(cancelled.id);
+		await deps.closeCard({ conversationId, ownerId: userId, returnId: cancelled.id, status: "cancelled" }).catch(() => false);
 		return c.json({ return: view(cancelled) });
 	});
 

@@ -21,6 +21,7 @@ function fakeDeps(over: Partial<OwnerWaitProcessorDeps> = {}) {
 		claimDueReturn: async () => ({ id: "ret1", userId: "user-a", botId: "bot-a", conversationId: "conv-1", sourceRunId: "run1", dueAt: new Date(), reason: "ver o deploy", visible: true, status: "fired", runId: null, createdAt: new Date("2026-11-04T12:00:00Z") }),
 		markReturnRun: async () => undefined,
 		releaseReturnClaim: async () => { calls.push("release"); return true; },
+		closeReturnCard: async (input: { returnId: string; status: string }) => { calls.push(`marker:${input.returnId}:${input.status}`); return true; },
 		enqueueRun: async (runId: string) => { enqueued.push(runId); return true; },
 		...over,
 	} as unknown as OwnerWaitProcessorDeps;
@@ -74,7 +75,7 @@ test("prazo do login/VM: o run pausado retoma ele mesmo como pulado; já respond
 });
 
 test("retorno agendado acorda a mesma conversa com contexto, herdando do run que agendou", async () => {
-	const { deps, created, enqueued } = fakeDeps();
+	const { deps, created, enqueued, calls } = fakeDeps();
 	const result = await processOwnerWaitJob({ kind: "scheduled_return", userId: "user-a", returnId: "ret1" }, deps);
 	assert.equal(result.outcome, "resumed");
 	assert.equal(created[0]!.request.conversationId, "conv-1");
@@ -83,10 +84,11 @@ test("retorno agendado acorda a mesma conversa com contexto, herdando do run que
 	assert.equal(created[0]!.inheritHumanTurn, false, "ninguém presente: sem turno humano, só leitura");
 	assert.match(created[0]!.request.messages[0]!.content, /\[Scheduled return\].*ver o deploy.*post the result/);
 	assert.deepEqual(enqueued, ["new1"]);
+	assert.deepEqual(calls, ["marker:ret1:done"], "o marcador \"Volto às\" do dono fecha quando o retorno chega");
 });
 
 test("retorno silencioso só posta com novidade ([NO_UPDATE]) e é reconhecido pelo worker", async () => {
-	const { deps, created } = fakeDeps({ claimDueReturn: (async () => ({ id: "ret1", userId: "user-a", botId: "bot-a", conversationId: "conv-1", sourceRunId: "run1", dueAt: new Date(), reason: "ver o pedido", visible: false, status: "fired", runId: null, createdAt: new Date() })) as unknown as OwnerWaitProcessorDeps["claimDueReturn"] });
+	const { deps, created, calls } = fakeDeps({ claimDueReturn: (async () => ({ id: "ret1", userId: "user-a", botId: "bot-a", conversationId: "conv-1", sourceRunId: "run1", dueAt: new Date(), reason: "ver o pedido", visible: false, status: "fired", runId: null, createdAt: new Date() })) as unknown as OwnerWaitProcessorDeps["claimDueReturn"] });
 	await processOwnerWaitJob({ kind: "scheduled_return", userId: "user-a", returnId: "ret1" }, deps);
 	const content = created[0]!.request.messages[0]!.content;
 	assert.ok(content.startsWith(SILENT_RETURN_MARK));
@@ -94,6 +96,7 @@ test("retorno silencioso só posta com novidade ([NO_UPDATE]) e é reconhecido p
 	assert.match(content, /reply exactly \[NO_UPDATE\]/);
 	assert.equal(isSilentReturnObjective(content), true);
 	assert.equal(isSilentReturnObjective("[Scheduled return] visível"), false);
+	assert.ok(!calls.includes("marker:ret1:done"), "silencioso não tem marcador");
 });
 
 test("retorno cancelado (ou de outro dono) não cria run", async () => {

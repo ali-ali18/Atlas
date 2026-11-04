@@ -157,6 +157,7 @@ test("retornos: o dono lista o visível e cancela; outro dono recebe 404 e o ret
 		{ id: "ret2", userId: OWNER, botId: null, conversationId: "conv-1", sourceRunId: "asker", dueAt: new Date("2026-11-04T19:00:00Z"), reason: "silencioso", visible: false, status: "pending" as const, runId: null, createdAt: new Date() },
 	];
 	const cancelledJobs: string[] = [];
+	const closedCards: string[] = [];
 	const routes = createReturnRoutes({
 		conversationOwned: async (conversationId, userId) => conversationId === "conv-1" && userId === OWNER,
 		list: async (userId, conversationId) => rows.filter((row) => row.userId === userId && row.conversationId === conversationId && row.status === "pending"),
@@ -167,6 +168,7 @@ test("retornos: o dono lista o visível e cancela; outro dono recebe 404 e o ret
 			return { ...row, status: "cancelled" as const };
 		},
 		cancelJob: async (id) => { cancelledJobs.push(id); },
+		closeCard: async (input) => { closedCards.push(`${input.returnId}:${input.ownerId}:${input.status}`); return true; },
 	});
 	const app = (userId: string) => {
 		const shell = new Hono<AuthEnv>();
@@ -185,5 +187,7 @@ test("retornos: o dono lista o visível e cancela; outro dono recebe 404 e o ret
 	assert.equal((await post(app(OWNER), "/v1/conversations/conv-1/returns/ret1/cancel", {})).status, 200);
 	assert.equal(rows[0]!.status, "cancelled");
 	assert.deepEqual(cancelledJobs, ["ret1"]);
+	assert.deepEqual(closedCards, [`ret1:${OWNER}:cancelled`], "o marcador gravado vira \"Cancelado\"");
 	assert.equal((await post(app(OWNER), "/v1/conversations/conv-1/returns/ret1/cancel", {})).status, 404);
+	assert.equal(closedCards.length, 1);
 });

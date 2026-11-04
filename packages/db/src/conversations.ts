@@ -24,6 +24,13 @@ import {
 	parseSkillProposalCard,
 	serializeConversationCard,
 	SUPERSEDED_CARD_DETAIL,
+	parseLoginWaitOutcome,
+	parseOwnerConfirmCardKind,
+	parseOwnerWaitDeadline,
+	parseReturnCard,
+	parseStepLimitProgress,
+	type LoginWaitOutcome,
+	type PersistedReturnCard,
 	type PersistedBotProfileCard,
 	type PersistedSkillProposalCard,
 	type PersistedConversationCard,
@@ -440,7 +447,7 @@ export async function persistConversationCardFromEvent(
 		if (typeof event.loginId !== "string" || typeof event.site !== "string" || typeof event.url !== "string") return;
 		// Um card por loginId: o evento de "done" atualiza o existente.
 		if (event.status === "done") {
-			await markLoginCardDone(conversationId, event.loginId);
+			await markLoginCardDone(conversationId, event.loginId, parseLoginWaitOutcome(event.outcome));
 			return;
 		}
 		const existing = await findLoginCard(conversationId, event.loginId);
@@ -459,8 +466,16 @@ export async function persistConversationCardFromEvent(
 			...(parseLoginVaultOffer(event.vault) ? { vault: parseLoginVaultOffer(event.vault)! } : {}),
 			...(typeof event.vaultTried === "string" && event.vaultTried ? { vaultTried: event.vaultTried.slice(0, 400) } : {}),
 			...(event.codeField === true ? { codeField: true as const } : {}),
+			...(parseOwnerWaitDeadline(event.deadlineAt) ? { deadlineAt: parseOwnerWaitDeadline(event.deadlineAt)! } : {}),
+			...(event.ownerWait === true ? { ownerWait: true as const } : {}),
 		});
 		emitUserNeeded({ conversationId, cardId: event.loginId, detail: `Entrar em ${event.site}` });
+		return;
+	}
+	// "Volto às HH:MM" (motor v3): um marcador por retorno; cancelar ou disparar muda o mesmo no lugar.
+	if (event.type === "return_scheduled") {
+		const card = parseReturnCard({ v: 1, kind: "return", ...stripEventType(event) });
+		if (card) await upsertReturnCard(conversationId, card);
 		return;
 	}
 	if (event.type === "file") {
@@ -502,6 +517,9 @@ export async function persistConversationCardFromEvent(
 			...(parseEmailKeyRequestInfo(event.emailKeyRequest) ? { emailKeyRequest: parseEmailKeyRequestInfo(event.emailKeyRequest) } : {}),
 			...(parsePlanInfo(event.plan) ? { plan: parsePlanInfo(event.plan) } : {}),
 			...(parseGithubIdentityInfo(event.githubIdentity) ? { githubIdentity: parseGithubIdentityInfo(event.githubIdentity) } : {}),
+			...(parseOwnerWaitDeadline(event.deadlineAt) ? { deadlineAt: parseOwnerWaitDeadline(event.deadlineAt)! } : {}),
+			...(parseOwnerConfirmCardKind(event.ownerCard) ? { ownerCard: parseOwnerConfirmCardKind(event.ownerCard)! } : {}),
+			...(parseStepLimitProgress(event.limitProgress) ? { limitProgress: parseStepLimitProgress(event.limitProgress)! } : {}),
 		});
 		if (event.status !== "approved" && event.status !== "rejected" && event.status !== "failed") {
 			const dev = parseDevApprovalInfo(event.devApproval);
@@ -534,6 +552,8 @@ export async function persistConversationCardFromEvent(
 			...(typeof event.originalRequest === "string" && event.originalRequest.trim()
 				? { originalRequest: event.originalRequest.trim().slice(0, 500) }
 				: {}),
+			...(parseOwnerWaitDeadline(event.deadlineAt) ? { deadlineAt: parseOwnerWaitDeadline(event.deadlineAt)! } : {}),
+			...(event.ownerWait === true ? { ownerWait: true as const } : {}),
 		};
 		// Uma proposta por vez: substitui o pendente anterior do mesmo run
 		// (mesmo questionnaireId) em vez de empilhar um segundo card.
@@ -964,14 +984,53 @@ async function findLoginCard(conversationId: string, loginId: string) {
 	return null;
 }
 
-/** "Terminei": o card de login deixa de pedir ação (a retomada do run é do /resume). */
-export async function markLoginCardDone(conversationId: string, loginId: string): Promise<void> {
+/**
+ * "Terminei": o card de login deixa de pedir ação (a retomada do run é do /resume). Motor v3: guarda também a saída
+ * (Assumir, Pular, prazo vencido, ignorou) para o selo sobreviver ao reload. A primeira saída gravada vence.
+ */
+export async function markLoginCardDone(conversationId: string, loginId: string, outcome?: LoginWaitOutcome): Promise<void> {
 	const found = await findLoginCard(conversationId, loginId);
 	if (!found || found.card.status === "done") return;
 	await prisma.conversationMessage.update({
 		where: { id: found.row.id },
-		data: { content: serializeConversationCard({ ...found.card, status: "done" }) },
+		data: { content: serializeConversationCard({ ...found.card, status: "done", ...(outcome ? { outcome } : {}) }) },
 	});
+}
+
+async function findReturnCard(conversationId: string, returnId: string) {
+	const rows = await prisma.conversationMessage.findMany({ where: { conversationId, role: "return" }, orderBy: { createdAt: "desc" }, take: 30 });
+	for (const row of rows) {
+		const card = parseConversationCard(row.content);
+		if (card?.kind === "return" && card.returnId === returnId) return { row, card };
+	}
+	return null;
+}
+
+/**
+ * Marcador "Volto às HH:MM": cria o pendente ou muda o existente no lugar. Um retorno fechado (`cancelled`/`done`) não
+ * volta a pendente (evento repetido de uma retomada não reabre o marcador).
+ */
+export async function upsertReturnCard(conversationId: string, card: PersistedReturnCard): Promise<void> {
+	const found = await findReturnCard(conversationId, card.returnId);
+	if (!found) {
+		await appendConversationCard(conversationId, card);
+		return;
+	}
+	if (found.card.status !== "pending" || card.status === "pending") return;
+	await prisma.conversationMessage.update({ where: { id: found.row.id }, data: { content: serializeConversationCard({ ...found.card, status: card.status }) } });
+}
+
+/**
+ * Fecha o marcador do retorno do dono (cancelado pela tela ou disparado pelo worker). Só conversa do dono; sem
+ * marcador (retorno silencioso) não faz nada.
+ */
+export async function closeReturnCard(input: { conversationId: string; ownerId: string; returnId: string; status: "cancelled" | "done" }): Promise<boolean> {
+	const owned = await prisma.conversation.findFirst({ where: { id: input.conversationId, userId: input.ownerId }, select: { id: true } });
+	if (!owned) return false;
+	const found = await findReturnCard(input.conversationId, input.returnId);
+	if (!found || found.card.status !== "pending") return false;
+	await prisma.conversationMessage.update({ where: { id: found.row.id }, data: { content: serializeConversationCard({ ...found.card, status: input.status }) } });
+	return true;
 }
 
 /** Cards de aprovação de código ainda pendentes (menos `exceptConfirmId`) viram recusados: foram substituídos por um pedido mais novo. */

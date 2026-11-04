@@ -1,5 +1,5 @@
 import { persistConversationCardFromEvent, saveSkillPendingIntentIfFree } from "@workspace/db";
-import { stepLimitCardText, type StepLimitWait } from "@workspace/shared";
+import { STEP_LIMIT_PROGRESS_MAX_TASKS, stepLimitCardText, type StepLimitProgress, type StepLimitWait } from "@workspace/shared";
 import { AgentRunPausedError } from "../errors.js";
 import { grantedLimit, ownerContinueNote, parksAtLimit, type CapKind } from "./limits.js";
 import { RUNTIME_PREFIX } from "./nudges.js";
@@ -24,6 +24,14 @@ export function effectiveCostCap(run: Pick<V3Run, "costCapUsd" | "limitGrant">):
 
 /** Limite de passos efetivo. */
 export const effectiveStepLimit = (run: Pick<V3Run, "limit" | "limitGrant">) => grantedLimit(run.limit, run.limitGrant);
+
+/** O que o run fez até parar, para o dono decidir no cartão: passos, gasto e as tarefas já concluídas. */
+export function limitProgressOf(run: Pick<V3Run, "step" | "spentUsd" | "taskListItems" | "ownTaskList">): StepLimitProgress {
+	const tasks = run.taskListItems ?? run.ownTaskList ?? [];
+	const done = tasks.filter((task) => task.status === "completed").map((task) => task.content).slice(0, STEP_LIMIT_PROGRESS_MAX_TASKS);
+	const spent = run.spentUsd();
+	return { steps: run.step, ...(spent > 0 ? { costUsd: Math.round(spent * 100) / 100 } : {}), ...(done.length > 0 ? { tasksDone: done } : {}), ...(tasks.length > 0 ? { tasksTotal: tasks.length } : {}) };
+}
 
 /** Validade da intenção do cartão: o dono pode voltar no dia seguinte (o run parado não custa nada). */
 export const LIMIT_CARD_TTL_MS = 3 * 24 * 60 * 60_000;
@@ -57,7 +65,7 @@ export async function parkAtLimit(run: V3Run, kind: "steps_unattended" | "steps_
 	await run.persistCheckpoint();
 	await run.flushCheckpoints();
 	const text = stepLimitCardText(wait);
-	const card = { type: "confirm" as const, confirmId: wait.cardId, title: text.title, description: text.description, confirmLabel: "Continuar", cancelLabel: "Agora não" };
+	const card = { type: "confirm" as const, confirmId: wait.cardId, title: text.title, description: text.description, confirmLabel: "Continuar", cancelLabel: "Agora não", ownerCard: "step-limit" as const, limitProgress: limitProgressOf(run) };
 	await persistConversationCardFromEvent(run.conversationId, card).catch(() => undefined);
 	await run.emit(card);
 	throw new AgentRunPausedError(LIMIT_PAUSE_REASON);

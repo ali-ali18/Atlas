@@ -183,6 +183,7 @@ function conversationCardToMessage(
 		};
 	}
 	if (card.kind === "task-list") return { id, kind: "task-list", runId: card.runId, items: card.items };
+	if (card.kind === "return") return { id, kind: "return", returnId: card.returnId, at: card.at, reason: card.reason, status: card.status };
 	if (card.kind === "compaction") return { id, kind: "compaction", before: card.before, after: card.after, summary: card.summary, ...(card.focus ? { focus: card.focus } : {}) };
 	if (card.kind === "chart") return { id, kind: "chart", chartId: card.chartId, spec: card.spec, ...(card.filename ? { filename: card.filename } : {}) };
 	if (card.kind === "page") {
@@ -436,6 +437,7 @@ export function buildSessionMessage(message: SessionMessage): Message | null {
 		|| (message.role as string) === "task-list"
 		|| (message.role as string) === "compaction"
 		|| (message.role as string) === "revised-draft"
+		|| (message.role as string) === "return"
 	) {
 		// Fallback: card questionnaire persistido sob outro role.
 		if (message.content.includes('"questionnaire"')) {

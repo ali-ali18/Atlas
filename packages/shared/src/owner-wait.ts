@@ -70,6 +70,47 @@ export function ownerWaitResultText(outcome: OwnerWaitOutcome, input: { what: st
 	}
 }
 
+export const LOGIN_WAIT_OUTCOMES = ["done", "takeover", "skipped", "skipped_timeout", "ignored"] as const satisfies readonly LoginWaitOutcome[];
+
+export function parseLoginWaitOutcome(value: unknown): LoginWaitOutcome | undefined {
+	return typeof value === "string" && (LOGIN_WAIT_OUTCOMES as readonly string[]).includes(value) ? (value as LoginWaitOutcome) : undefined;
+}
+
+/** Prazo de um cartão (ISO válido) lido do evento ou do cartão gravado; lixo = sem prazo. */
+export function parseOwnerWaitDeadline(value: unknown): string | undefined {
+	if (typeof value !== "string" || value.length > 40) return undefined;
+	const at = new Date(value);
+	return Number.isNaN(at.getTime()) ? undefined : at.toISOString();
+}
+
+/**
+ * Qual cartão de confirmação do "esperar o dono" é (motor v3): aprovação genérica de uma ação, rascunho que um run sem
+ * pessoa deixou para o dono (`prepare_for_owner`) ou "Cheguei no limite. Continuo?". A UI escolhe o desenho por aqui.
+ */
+export const OWNER_CONFIRM_CARD_KINDS = ["approval", "draft", "step-limit"] as const;
+export type OwnerConfirmCardKind = (typeof OWNER_CONFIRM_CARD_KINDS)[number];
+
+export function parseOwnerConfirmCardKind(value: unknown): OwnerConfirmCardKind | undefined {
+	return typeof value === "string" && (OWNER_CONFIRM_CARD_KINDS as readonly string[]).includes(value) ? (value as OwnerConfirmCardKind) : undefined;
+}
+
+/** Cartão do limite: o que o run já fez até parar (passos usados, gasto, tarefas concluídas). */
+export type StepLimitProgress = { steps: number; costUsd?: number; tasksDone?: string[]; tasksTotal?: number };
+
+export const STEP_LIMIT_PROGRESS_MAX_TASKS = 8;
+
+export function parseStepLimitProgress(raw: unknown): StepLimitProgress | undefined {
+	if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+	const record = raw as Record<string, unknown>;
+	if (typeof record.steps !== "number" || !Number.isInteger(record.steps) || record.steps < 0 || record.steps > 10_000) return undefined;
+	const costUsd = typeof record.costUsd === "number" && Number.isFinite(record.costUsd) && record.costUsd > 0 ? Math.round(record.costUsd * 100) / 100 : undefined;
+	const tasksDone = Array.isArray(record.tasksDone)
+		? record.tasksDone.filter((item): item is string => typeof item === "string" && item.trim().length > 0).slice(0, STEP_LIMIT_PROGRESS_MAX_TASKS).map((item) => item.trim().slice(0, 160))
+		: [];
+	const tasksTotal = typeof record.tasksTotal === "number" && Number.isInteger(record.tasksTotal) && record.tasksTotal > 0 && record.tasksTotal <= 1_000 ? record.tasksTotal : undefined;
+	return { steps: record.steps, ...(costUsd !== undefined ? { costUsd } : {}), ...(tasksDone.length > 0 ? { tasksDone } : {}), ...(tasksTotal !== undefined ? { tasksTotal } : {}) };
+}
+
 /** Rótulo do cartão depois da decisão (pt-BR, para o dono). */
 export const OWNER_WAIT_CARD_DETAIL: Readonly<Record<OwnerWaitOutcome, string>> = {
 	done: "Feito",
@@ -170,6 +211,32 @@ export function pendingReturnsNote(returns: ReadonlyArray<{ dueAt: Date; reason:
 	if (returns.length === 0) return "";
 	const list = returns.map((item) => `${item.dueAt.toISOString()} (${quote(item.reason, 120)})`).join("; ");
 	return `Pending scheduled returns in this conversation: ${list}. Do not schedule the same again; if the user's new message already covers one, just answer.`;
+}
+
+/**
+ * Marcador "Volto às HH:MM" gravado na conversa (role `return`), um por `returnId`: nasce pendente com o evento
+ * `return_scheduled` e muda no lugar para `cancelled` (dono cancelou) ou `done` (o retorno disparou). Só o visível vira
+ * marcador; o silencioso nunca aparece.
+ */
+export type PersistedReturnCard = {
+	v: 1;
+	kind: "return";
+	returnId: string;
+	/** ISO do horário da volta. */
+	at: string;
+	reason: string;
+	status: "pending" | "cancelled" | "done";
+};
+
+export function parseReturnCard(raw: unknown): PersistedReturnCard | null {
+	if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+	const record = raw as Record<string, unknown>;
+	if (typeof record.returnId !== "string" || !record.returnId.trim() || record.returnId.length > 120) return null;
+	const at = parseOwnerWaitDeadline(record.at);
+	if (!at) return null;
+	const status = record.status === "cancelled" || record.status === "done" ? record.status : "pending";
+	const reason = typeof record.reason === "string" ? record.reason.replace(/\s+/g, " ").trim().slice(0, SCHEDULE_RETURN_REASON_MAX_CHARS) : "";
+	return { v: 1, kind: "return", returnId: record.returnId, at, reason, status };
 }
 
 // --- jobs da fila `ownerWait` (BullMQ, atrasados) ---

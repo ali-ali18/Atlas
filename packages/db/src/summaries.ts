@@ -88,6 +88,7 @@ export const FRESH_SUMMARY_IGNORE_ROLES: readonly string[] = [
 	"task-list",
 	"compaction",
 	"revised-draft",
+	"return",
 ];
 
 export type FreshSummaryOptions = {

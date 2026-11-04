@@ -171,6 +171,7 @@ describe("prepare_for_owner: rascunho, validação e uma execução só", () => 
 		expect(confirms).toHaveLength(1);
 		expect(confirms[0]).toMatchObject({ title: "Enviar esta mensagem?", confirmLabel: "Permitir", cancelLabel: "Agora não", callKey: toolCallKey("email_send", SEND) });
 		expect(confirms[0]!.confirmId).toMatch(/^confirm-tool[0-9a-f]{8}-run-routine$/);
+		expect(confirms[0]!.ownerCard).toBe("draft");
 		expect(confirms[0]!.description).toContain("Resumo de vendas de outubro para a Ana.");
 		expect(confirms[0]!.description).toContain("to: ana@cliente.com");
 		expect(db.intents[0]!.payload).toMatchObject({ action: "tool-call", toolCall: { tool: "email_send", prepared: true, callKey: toolCallKey("email_send", SEND) } });
