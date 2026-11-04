@@ -4,6 +4,12 @@ Todas as mudanças relevantes do Atlas. Formato [Keep a Changelog](https://keepa
 
 ## [Não lançado]
 
+### Adicionado
+- **mobile, ci:** workflow `apk-android.yml` gera o APK Android no GitHub Actions (`eas build --local`, sem fila nem cota do EAS): tag `apk-*` publica Release com o APK, "Run workflow" deixa artifact (14 dias). Exige o secret `EXPO_TOKEN`. Ver `docs/features/apk-android-ci.md`.
+
+### Corrigido
+- **mobile:** o perfil `preview` do EAS compila só `arm64-v8a` (o build morria por falta de memória com 4 ABIs) e `@babel/plugin-transform-react-jsx` virou dependência explícita (o `expo export` de produção falhava com "Cannot find module" sem o hoist do pnpm).
+
 ### Corrigido
 - **agent:** quem tem muitos conectores voltou a conseguir criar bot pelo chat: a busca de ferramentas achava algo parecido num conector (ex.: Figma, GitHub) e devolvia só isso, escondendo `propose_bot`. Grupo nativo pequeno (até 2 tools) que casa por palavra distintiva agora carrega junto. O índice e o resultado da carga lembram o modelo de não citar nome de ferramenta ao usuário.
 ### Adicionado
