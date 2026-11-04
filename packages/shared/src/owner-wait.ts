@@ -114,6 +114,23 @@ export function parseStepLimitProgress(raw: unknown): StepLimitProgress | undefi
 	return { steps: record.steps, ...(costUsd !== undefined ? { costUsd } : {}), ...(tasksDone.length > 0 ? { tasksDone } : {}), ...(tasksTotal !== undefined ? { tasksTotal } : {}) };
 }
 
+/**
+ * Decisão do dono sobre um cartão (recusa, prazo, ignorado) gravada na conversa como registro para o modelo (pedido
+ * do dono, 04/11: recusar é comunicação interna). Role próprio e oculto: fica fora da tela (web e app), da prévia da
+ * barra lateral e da busca, e nunca vira `system` (que `trimHistory`/`planSummary` do v1/v2 sobem para o início como
+ * regra). O texto é gravado SEM prefixo; quem monta o histórico do modelo usa `ownerDecisionHistoryMessage`.
+ */
+export const OWNER_DECISION_ROLE = "owner_decision";
+
+/** Prefixo das notas do runtime no histórico (o mesmo `[runtime]` do motor v3). */
+export const OWNER_DECISION_PREFIX = "[runtime]";
+
+/** A nota no histórico do modelo, na posição em que ocorreu: fala `user` curta com o prefixo, uma vez só. */
+export function ownerDecisionHistoryMessage(content: string): { role: "user"; content: string } {
+	const text = content.trim();
+	return { role: "user", content: text.startsWith(OWNER_DECISION_PREFIX) ? text : `${OWNER_DECISION_PREFIX} ${text}` };
+}
+
 /** Rótulo do cartão depois da decisão (pt-BR, para o dono). */
 export const OWNER_WAIT_CARD_DETAIL: Readonly<Record<OwnerWaitOutcome, string>> = {
 	done: "Feito",

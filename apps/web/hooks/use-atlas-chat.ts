@@ -34,6 +34,7 @@ import {
 	type SkillListItemData,
 	type RoutineListItemData,
 	SUPERSEDED_CARD_DETAIL,
+	OWNER_DECISION_ROLE,
 	type ReasoningEffort,
 	decideRunFollow,
 	decideStreamFailure,
@@ -343,8 +344,8 @@ function sessionMessageToThread(message: SessionMessage): Message | null {
 }
 
 export function buildSessionMessage(message: SessionMessage): Message | null {
-	// Nota interna para o modelo (ex.: o registro de um cartão recusado): existe no histórico, nunca vira balão.
-	if (message.role === "system") return null;
+	// Registro da decisão do dono (recusa, prazo): é para o modelo. A API já não o lista; isto é a defesa da tela.
+	if ((message.role as string) === OWNER_DECISION_ROLE) return null;
 	// Conversa entre bots: marcador "Enviou mensagem para X" (id estável = o do live).
 	if ((message.role as string) === BOT_LINK_ROLE) {
 		// "X precisa de você": o id é o da linha (o marcador muda de estado no lugar).

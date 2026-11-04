@@ -34,6 +34,7 @@ export {
 	listApprovedConfirmTools,
 	getLatestConfirmCardStatus,
 	findConfirmCardTitle,
+	appendOwnerDecisionNote,
 	markLoginCardDone,
 	hasPendingQuestionnaireCard,
 	submitQuestionnaireCard,

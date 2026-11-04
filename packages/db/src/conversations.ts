@@ -24,6 +24,8 @@ import {
 	parseSkillProposalCard,
 	serializeConversationCard,
 	SUPERSEDED_CARD_DETAIL,
+	OWNER_DECISION_ROLE,
+	ownerDecisionHistoryMessage,
 	parseLoginWaitOutcome,
 	parseOwnerConfirmCardKind,
 	parseOwnerWaitDeadline,
@@ -165,6 +167,8 @@ export async function listConversationMessages(
 	const rows = await prisma.conversationMessage.findMany({
 		where: {
 			conversationId,
+			// Registro da decisão do dono (recusa, prazo): é para o modelo, nunca para a tela (web e app).
+			role: { not: OWNER_DECISION_ROLE },
 			...(cursor
 				? {
 						OR: [
@@ -1232,6 +1236,33 @@ export async function getLatestConfirmCardStatus(
 	return null;
 }
 
+/** Papéis que vão ao modelo: os do chat mais o registro oculto das decisões do dono. */
+const HISTORY_ROLES: string[] = [...LLM_CHAT_ROLES, OWNER_DECISION_ROLE];
+
+/**
+ * Linha do banco → mensagem do histórico do modelo. A decisão do dono entra NA POSIÇÃO em que ocorreu como nota curta
+ * `user` `[runtime]` (v3 e v1/v2 iguais): nunca `system`, que o v1/v2 sobe para o início como regra.
+ */
+function toHistoryMessage(row: Parameters<typeof toSessionMessage>[0]): SessionMessage {
+	const message = toSessionMessage(row);
+	return row.role === OWNER_DECISION_ROLE ? { ...message, ...ownerDecisionHistoryMessage(row.content) } : message;
+}
+
+/**
+ * Grava o registro de uma decisão do dono sobre um cartão (role oculto `owner_decision`), só na conversa do dono.
+ * Fica fora da tela, da prévia e da busca; entra no histórico do modelo (`toHistoryMessage`). Texto sem prefixo.
+ */
+export async function appendOwnerDecisionNote(input: { conversationId: string; ownerId: string; content: string }): Promise<boolean> {
+	const content = input.content.trim().slice(0, 2_000);
+	if (!content || !input.ownerId.trim() || input.ownerId === "default") return false;
+	const owned = await prisma.conversation.findFirst({ where: { id: input.conversationId, userId: input.ownerId }, select: { id: true } });
+	if (!owned) return false;
+	await prisma.conversationMessage.create({
+		data: { conversationId: input.conversationId, role: OWNER_DECISION_ROLE, content, ...(currentMessageRunId() ? { runId: currentMessageRunId() } : {}) },
+	});
+	return true;
+}
+
 /** Marca d'água da conversa: a última mensagem (qualquer papel) e quantas existem até ela. */
 export type ConversationWatermark = { messageId: string; createdAt: string; count: number };
 
@@ -1275,7 +1306,7 @@ export async function loadMessagesAfterWatermark(
 	const rows = await prisma.conversationMessage.findMany({
 		where: {
 			conversationId,
-			role: { in: [...LLM_CHAT_ROLES] },
+			role: { in: HISTORY_ROLES },
 			AND: [
 				{ OR: [{ createdAt: { gt: anchor.createdAt } }, { createdAt: anchor.createdAt, id: { gt: anchor.id } }] },
 				{ OR: [{ runId: null }, { runId: { not: options.excludeRunId } }] },
@@ -1284,7 +1315,7 @@ export async function loadMessagesAfterWatermark(
 		orderBy: [{ createdAt: "asc" }, { id: "asc" }],
 		take: options.limit ?? 200,
 	});
-	return { ok: true, messages: foldAutomatedMessages(rows.map(toSessionMessage).filter((row) => isLlmChatRole(row.role))) };
+	return { ok: true, messages: foldAutomatedMessages(rows.map(toHistoryMessage).filter((row) => isLlmChatRole(row.role))) };
 }
 
 /**
@@ -1306,7 +1337,7 @@ export async function loadRecentConversationMessages(
 	const rows = await prisma.conversationMessage.findMany({
 		where: {
 			conversationId,
-			role: { in: [...LLM_CHAT_ROLES] },
+			role: { in: HISTORY_ROLES },
 			// Conversa entre bots (origin "bot") é histórico normal: não some quando o usuário fala depois.
 			...(lastUser ? { OR: [{ origin: null }, { origin: "bot" }, { createdAt: { gt: lastUser.createdAt } }] } : {}),
 		},
@@ -1315,6 +1346,6 @@ export async function loadRecentConversationMessages(
 	});
 
 	return foldAutomatedMessages(
-		rows.reverse().map(toSessionMessage).filter((row) => isLlmChatRole(row.role)),
+		rows.reverse().map(toHistoryMessage).filter((row) => isLlmChatRole(row.role)),
 	);
 }

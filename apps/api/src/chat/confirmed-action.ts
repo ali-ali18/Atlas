@@ -5,7 +5,7 @@ import type { AgentRun } from "@workspace/shared";
 import {
 	addBotAutonomyException,
 	addCommandPrefixesToRepo,
-	appendConversationMessage,
+	appendOwnerDecisionNote,
 	appendRunEvent,
 	clearSkillPendingIntent,
 	claimSkillPendingIntent,
@@ -685,31 +685,32 @@ export function applyConfirmedFollowUp<T extends { role: string; content: string
 }
 
 export type DeclinedActivityDeps = {
-	appendNote: (conversationId: string, content: string) => Promise<unknown>;
+	appendNote: (input: { conversationId: string; ownerId: string; content: string }) => Promise<unknown>;
 	finish: (input: { run: AgentRun; merged?: boolean; assistantText: string }) => Promise<AgentRun>;
 };
 
 const DECLINED_ACTIVITY_DEPS: DeclinedActivityDeps = {
-	appendNote: (conversationId, content) => appendConversationMessage(conversationId, "system", content),
+	appendNote: (input) => appendOwnerDecisionNote(input),
 	finish: (input) => finishActivityRun(input),
 };
 
 /**
  * Pedido do dono (04/11): recusar um cartão é comunicação interna. O run de atividade termina SEM balão do assistente
- * (antes: "Ok, deixei pra lá."), o cartão mostra o selo e o modelo recebe o registro como nota oculta (role `system`,
- * que a tela não desenha). Run ativo de outro trabalho (`merged`): não é nosso, nada muda nele.
+ * (antes: "Ok, deixei pra lá."), o cartão mostra o selo e o modelo recebe o registro numa linha de role oculto
+ * (`owner_decision`): fora da tela, da prévia e da busca, e no histórico do modelo como nota `[runtime]` na posição dela
+ * (nunca `system`). Vale também quando a recusa caiu num run ativo (`merged`): o registro fica, o run não é concluído.
  */
 export async function finishDeclinedActivity(
-	input: { run: AgentRun; merged: boolean; conversationId?: string; title?: string },
+	input: { run: AgentRun; merged: boolean; conversationId?: string; ownerId: string; title?: string },
 	deps: DeclinedActivityDeps = DECLINED_ACTIVITY_DEPS,
 ): Promise<AgentRun> {
-	if (!input.merged && input.conversationId) await deps.appendNote(input.conversationId, declinedCardNote(input.title)).catch(() => undefined);
+	if (input.conversationId) await deps.appendNote({ conversationId: input.conversationId, ownerId: input.ownerId, content: declinedCardNote(input.title) }).catch(() => undefined);
 	return await deps.finish({ run: input.run, merged: input.merged, assistantText: "" });
 }
 
-/** Nota oculta (para o modelo) de um cartão recusado sem run ativo: o registro existe, mas não vira balão. */
+/** Registro da recusa, sem prefixo (quem monta o histórico do modelo formata). */
 export function declinedCardNote(title: string | undefined): string {
-	return `[runtime] ${ownerWaitResultText("declined", { what: (title ?? "the pending request").replace(/\?$/, "") })}`;
+	return ownerWaitResultText("declined", { what: (title ?? "the pending request").replace(/\?$/, "") });
 }
 
 /**
@@ -919,7 +920,7 @@ export async function maybeHandleConfirmedAction(input: {
 			model: input.model,
 			commandText: input.text.trim(),
 		});
-		return { run: await finishDeclinedActivity({ run, merged, conversationId: input.conversationId, title: declinedTitle }), handled: true };
+		return { run: await finishDeclinedActivity({ run, merged, conversationId: input.conversationId, ownerId: userId, title: declinedTitle }), handled: true };
 	}
 
 	// Plano pendente: o texto que não é aprovar nem cancelar é pedido de ajuste (ou outro assunto); o modelo decide com o desfecho como resultado da chamada.
