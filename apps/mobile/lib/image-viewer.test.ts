@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ChatImage, ChatItem } from "./chat-types";
-import { revalidateIndex, clampIndex, collectViewerImages, fitImage, imageApiPath, imageCaption, imageFileName, imageGridColumns, indexFromOffset, isSafeImageUri, localImageUri, shortCaption, singleImageAspect, viewerStartIndex } from "./image-viewer";
+import { revalidateIndex, clampIndex, collectViewerImages, fitImage, imageApiPath, imageCaption, imageFileName, fanImages, imagesCountLabel, FAN_MAX, FAN_ROTATIONS, indexFromOffset, isSafeImageUri, localImageUri, shortCaption, singleImageAspect, viewerStartIndex } from "./image-viewer";
 
 const img = (artifactId: string, extra: Partial<ChatImage> = {}): ChatImage => ({ artifactId, mime: "image/png", width: 100, height: 50, ...extra });
 const card = (id: string, origin: "user" | "assistant", images: ChatImage[], caption?: string): ChatItem => ({ id, kind: "images", origin, images, ...(caption ? { caption } : {}) });
@@ -138,10 +138,23 @@ describe("fitImage", () => {
 	});
 });
 
-describe("grade do chat", () => {
-	it("colunas por quantidade", () => {
-		expect([1, 2, 3, 4, 5, 6].map(imageGridColumns)).toEqual([1, 2, 3, 2, 3, 3]);
-		expect(imageGridColumns(0)).toBe(1);
+describe("leque do chat", () => {
+	it("a primeira fica na frente e até 2 vão atrás, na ordem", () => {
+		expect(fanImages(["a"])).toEqual({ front: "a", behind: [] });
+		expect(fanImages(["a", "b"])).toEqual({ front: "a", behind: ["b"] });
+		expect(fanImages(["a", "b", "c", "d", "e", "f"])).toEqual({ front: "a", behind: ["b", "c"] });
+		expect(FAN_MAX).toBe(3);
+		expect(FAN_ROTATIONS).toEqual([4, 8]);
+	});
+	it("lista vazia não vira leque", () => {
+		expect(fanImages([])).toBeNull();
+	});
+	it("texto da contagem no singular e no plural", () => {
+		expect(imagesCountLabel(1)).toBe("1 imagem");
+		expect(imagesCountLabel(2)).toBe("2 imagens");
+		expect(imagesCountLabel(6)).toBe("6 imagens");
+		expect(imagesCountLabel(0)).toBe("0 imagens");
+		expect(imagesCountLabel(Number.NaN)).toBe("0 imagens");
 	});
 	it("proporção da imagem única é limitada", () => {
 		expect(singleImageAspect(3000, 100)).toBe(1.6);

@@ -117,11 +117,23 @@ export function fitImage(width: number, height: number, boxWidth: number, boxHei
 	return { width: Math.round(width * scale), height: Math.round(height * scale) };
 }
 
-/** Colunas da grade do cartão no chat: 1 imagem grande; 2 e 4 em duas colunas; 3, 5 e 6 em três. */
-export function imageGridColumns(count: number): number {
-	if (count <= 1) return 1;
-	if (count === 2 || count === 4) return 2;
-	return 3;
+/** Quantas cartas entram no leque do chat: a da frente e até 2 atrás. */
+export const FAN_MAX = 3;
+
+/** Rotação (graus) de cada carta de trás; a primeira é a mais próxima da frente. */
+export const FAN_ROTATIONS = [4, 8] as const;
+
+/** Cartas do leque: a imagem da frente (a primeira do cartão) e até 2 atrás, na ordem. Vazio = sem leque. */
+export function fanImages<T>(images: readonly T[]): { front: T; behind: T[] } | null {
+	const [front, ...rest] = images;
+	if (front === undefined) return null;
+	return { front, behind: rest.slice(0, FAN_MAX - 1) };
+}
+
+/** Texto embaixo do leque: "2 imagens" (o singular só existe por completude: uma imagem não vira leque). */
+export function imagesCountLabel(count: number): string {
+	const n = Math.max(0, Math.floor(Number.isFinite(count) ? count : 0));
+	return `${n} ${n === 1 ? "imagem" : "imagens"}`;
 }
 
 /** Proporção (largura/altura) da imagem única no chat, limitada para não virar faixa nem torre. */
