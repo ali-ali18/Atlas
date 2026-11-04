@@ -28,6 +28,8 @@ export type LessonMigrationDeps = {
 	listLessons: (userId: string, botId: string) => Promise<LessonView[]>;
 	listFacts: (userId: string, botId: string) => Promise<{ texts: string[]; used: number; limit: number }>;
 	addFact: (input: { userId: string; botId: string; content: string }) => Promise<MemoryActionResult>;
+	/** Nome de exibição dos conectores do dono, por `mcp:<id>`. Sem isso, o fato de conector sai sem contexto. */
+	connectorNames?: (userId: string) => Promise<ReadonlyMap<string, string>>;
 	now?: () => Date;
 };
 
@@ -48,15 +50,21 @@ export const defaultLessonMigrationDeps: LessonMigrationDeps = {
 		const store = await loadStore(userId, botId, "memory");
 		return { texts: store.rows.map((row) => row.content), used: store.used, limit: store.limit };
 	},
+	connectorNames: async (userId) => {
+		const rows = await prisma.mcpConnection.findMany({ where: { userId }, select: { id: true, name: true } });
+		return new Map(rows.map((row) => [`mcp:${row.id}`, row.name] as const));
+	},
 	addFact: ({ userId, botId, content }) => addMemoryEntry({ userId, botId, target: "memory", content, source: LESSON_MIGRATION_SOURCE, origin: "review" }),
 };
 
-function toInput(lesson: LessonView): LessonFactInput {
+function toInput(lesson: LessonView, names: ReadonlyMap<string, string>): LessonFactInput {
+	const label = lesson.scope === "connector" && lesson.scopeKey ? names.get(lesson.scopeKey) : undefined;
 	return {
 		id: lesson.id,
 		ref: lesson.ref,
 		scope: lesson.scope,
 		scopeKey: lesson.scopeKey,
+		...(label ? { scopeLabel: label } : {}),
 		content: lesson.content,
 		helpful: lesson.helpful,
 		harmful: lesson.harmful,
@@ -71,8 +79,9 @@ async function planFor(owner: LessonOwnerRef, deps: LessonMigrationDeps): Promis
 	// `listLessons` confere que o bot é do dono; bot de outro dono volta vazio.
 	const lessons = await deps.listLessons(owner.userId, owner.botId);
 	const facts = await deps.listFacts(owner.userId, owner.botId);
+	const names = lessons.some((lesson) => lesson.scope === "connector") ? ((await deps.connectorNames?.(owner.userId)) ?? new Map<string, string>()) : new Map<string, string>();
 	return planLessonFacts({
-		lessons: lessons.map(toInput),
+		lessons: lessons.map((lesson) => toInput(lesson, names)),
 		existingFacts: facts.texts,
 		budget: { limit: facts.limit, used: facts.used },
 		now: (deps.now ?? (() => new Date()))(),
@@ -139,6 +148,8 @@ export function parseLessonMigrationArgs(argv: readonly string[]): LessonMigrati
 		const inline = eq === -1 ? undefined : arg.slice(eq + 1);
 		if (!["apply", "out", "user", "bot"].includes(name)) return { ok: false, error: `flag desconhecida: --${name}` };
 		if (name === "apply") {
+			// `--apply=false` não pode virar "aplicar": a flag não aceita valor.
+			if (inline !== undefined) return { ok: false, error: "--apply não aceita valor (use só --apply para gravar; sem a flag, nada é gravado)" };
 			flags.set(name, true);
 			continue;
 		}

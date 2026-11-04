@@ -21,6 +21,8 @@ export type LessonFactInput = {
 	ref?: string;
 	scope: LessonScope;
 	scopeKey: string | null;
+	/** Nome de exibição do conector (a chave interna `mcp:<id>` nunca vai para o texto do fato). Sem nome, o fato sai sem contexto. */
+	scopeLabel?: string | null;
 	content: string;
 	helpful: number;
 	harmful: number;
@@ -59,6 +61,12 @@ export type LessonFactItem = {
 	mergeIntoId?: string;
 	/** Ids das lições que dizem o contrário. */
 	conflictWith: string[];
+	/** Fatos que já estão na memória e dizem o contrário (texto redigido). */
+	conflictWithFacts: string[];
+	/** Lições que este fato absorveu por serem duplicadas dele. */
+	absorbs: string[];
+	/** Explicação extra para o relatório (ex.: junção desfeita). */
+	note?: string;
 	/** O dono precisa olhar antes (conflito): a aplicação NÃO grava o que está marcado. */
 	needsReview: boolean;
 };
@@ -119,9 +127,10 @@ function negated(text: string): boolean {
 }
 
 /** Texto do fato: a lição como está; de conector ou tool leva o contexto na frente para não perder o "onde vale". */
-export function factTextFor(lesson: Pick<LessonFactInput, "scope" | "scopeKey">, content: string): string {
-	if (lesson.scope === "bot" || !lesson.scopeKey) return content;
-	return `(${lesson.scope === "connector" ? "conector" : "ferramenta"} ${lesson.scopeKey}) ${content}`;
+export function factTextFor(lesson: Pick<LessonFactInput, "scope" | "scopeKey" | "scopeLabel">, content: string): string {
+	if (lesson.scope === "bot") return content;
+	if (lesson.scope === "connector") return lesson.scopeLabel?.trim() ? `(conector ${collapse(lesson.scopeLabel)}) ${content}` : content;
+	return lesson.scopeKey ? `(ferramenta ${lesson.scopeKey}) ${content}` : content;
 }
 
 function score(lesson: LessonFactInput): number[] {
@@ -153,6 +162,8 @@ export function planLessonFacts(input: PlanLessonFactsInput): LessonFactPlan {
 			decision: "fact",
 			reason: "ok",
 			conflictWith: [],
+			conflictWithFacts: [],
+			absorbs: [],
 			needsReview: false,
 		};
 		return { lesson, item };
@@ -190,9 +201,21 @@ export function planLessonFacts(input: PlanLessonFactsInput): LessonFactPlan {
 			entry.item.reason = "duplicate";
 			entry.item.mergeIntoId = twin.lesson.id;
 			entry.item.factText = "";
+			twin.item.absorbs.push(entry.lesson.id);
 			continue;
 		}
 		kept.push(entry);
+	}
+
+	// 3a) conflito com fato que já está na memória: a lição vai para revisão e não é gravada.
+	for (const entry of kept) {
+		const own = tokens(entry.item.original, { dropNegations: true });
+		for (const fact of input.existingFacts ?? []) {
+			if (negated(fact) === negated(entry.item.original)) continue;
+			if (jaccard(tokens(fact, { dropNegations: true }), own) < FACT_CONFLICT_SIMILARITY) continue;
+			entry.item.conflictWithFacts.push(redactSecrets(collapse(fact)));
+			entry.item.needsReview = true;
+		}
 	}
 
 	// 3) conflito: mesmo assunto (sem contar negações) e polaridade oposta. Quem tem pior placar sai; empate pede revisão.
@@ -219,7 +242,8 @@ export function planLessonFacts(input: PlanLessonFactsInput): LessonFactPlan {
 	if (input.budget) {
 		let used = input.budget.used;
 		for (const entry of kept) {
-			if (entry.item.decision !== "fact") continue;
+			// Quem espera revisão não é gravado, então não gasta o espaço de quem será.
+			if (entry.item.decision !== "fact" || entry.item.needsReview) continue;
 			const size = entry.item.factText.length;
 			if (used + size > input.budget.limit) {
 				discard(entry, "over_budget");
@@ -227,6 +251,17 @@ export function planLessonFacts(input: PlanLessonFactsInput): LessonFactPlan {
 			}
 			used += size;
 		}
+	}
+
+	// 5) junção cuja lição destino caiu depois: a junta herda o destino e o relatório explica, em vez de sumir em silêncio.
+	const byId = new Map(work.map((w) => [w.lesson.id, w.item] as const));
+	for (const { item } of work) {
+		if (item.decision !== "merge" || !item.mergeIntoId) continue;
+		const target = byId.get(item.mergeIntoId);
+		if (!target || target.decision === "fact") continue;
+		item.decision = "discard";
+		item.reason = target.reason;
+		item.note = `junção desfeita: a lição ${target.ref} (com o mesmo texto) foi descartada (${FACT_REASON_LABEL[target.reason]})`;
 	}
 
 	const items = work.map((w) => w.item);
@@ -281,6 +316,9 @@ export function renderLessonFactsReport(owners: readonly LessonFactReportOwner[]
 			lines.push(`  - lição: ${inline(item.original) || "(vazia)"}`);
 			if (item.decision === "fact") lines.push(`  - fato: ${inline(item.factText)}`);
 			if (item.conflictWith.length > 0) lines.push(`  - conflita com: ${item.conflictWith.join(", ")}`);
+			for (const fact of item.conflictWithFacts) lines.push(`  - contradiz um fato da memória: ${inline(fact)}`);
+			if (item.absorbs.length > 0) lines.push(`  - absorve duplicadas: ${item.absorbs.join(", ")}`);
+			if (item.note) lines.push(`  - ${inline(item.note)}`);
 		}
 		lines.push("");
 	}

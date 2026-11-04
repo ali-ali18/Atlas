@@ -16,10 +16,10 @@ describe("planLessonFacts", () => {
 		expect(plan.counts).toEqual({ total: 0, fact: 0, merge: 0, discard: 0, needsReview: 0 });
 	});
 
-	it("lição normal vira fato; conector leva o contexto na frente", () => {
+	it("lição normal vira fato; conector sem nome de exibição sai sem contexto", () => {
 		const plan = planLessonFacts({ lessons: [lesson("a", "Ao enviar relatório, use PDF"), lesson("b", "Filtre por data", { scope: "connector", scopeKey: "mcp:x1" })], now });
 		expect(itemOf(plan, "a")).toMatchObject({ decision: "fact", reason: "ok", factText: "Ao enviar relatório, use PDF" });
-		expect(itemOf(plan, "b").factText).toBe("(conector mcp:x1) Filtre por data");
+		expect(itemOf(plan, "b").factText).toBe("Filtre por data");
 	});
 
 	it("vazia e só espaços são descartadas", () => {
@@ -96,6 +96,54 @@ describe("planLessonFacts", () => {
 		});
 		expect(itemOf(plan, "a").decision).toBe("fact");
 		expect(itemOf(plan, "b").reason).toBe("over_budget");
+	});
+
+	it("fato de conector usa o nome de exibição e nunca a chave interna; sem nome, omite", () => {
+		const plan = planLessonFacts({
+			lessons: [lesson("a", "Filtre por data", { scope: "connector", scopeKey: "mcp:cm9x1", scopeLabel: "Notion" }), lesson("b", "Pagine sempre os resultados", { scope: "connector", scopeKey: "mcp:cm9x2" })],
+			now,
+		});
+		expect(itemOf(plan, "a").factText).toBe("(conector Notion) Filtre por data");
+		expect(itemOf(plan, "b").factText).toBe("Pagine sempre os resultados");
+		expect(plan.items.map((item) => item.factText).join("\n")).not.toContain("mcp:");
+	});
+
+	it("lição que contradiz um fato já na memória vai para revisão e não é aplicada", () => {
+		const plan = planLessonFacts({ lessons: [lesson("a", "Nunca envie o resumo por e-mail ao terminar")], existingFacts: ["Envie o resumo por e-mail ao terminar"], now });
+		expect(itemOf(plan, "a")).toMatchObject({ decision: "fact", needsReview: true });
+		expect(itemOf(plan, "a").conflictWithFacts).toEqual(["Envie o resumo por e-mail ao terminar"]);
+		expect(applicableFacts(plan)).toEqual([]);
+		expect(renderLessonFactsReport([{ userId: "u", botId: "b", plan }], now)).toContain("contradiz um fato da memória");
+	});
+
+	it("quem espera revisão não gasta o espaço da memória", () => {
+		const plan = planLessonFacts({
+			lessons: [lesson("a", "Use sempre tabela no relatório mensal", { helpful: 5 }), lesson("b", "Nunca use tabela no relatório mensal", { helpful: 5 }), lesson("c", "Outro fato totalmente diferente")],
+			budget: { limit: 40, used: 0 },
+			now,
+		});
+		expect(itemOf(plan, "c").decision).toBe("fact");
+		expect(itemOf(plan, "c").reason).toBe("ok");
+	});
+
+	it("junção cujo destino caiu: a junta herda o destino e o relatório explica", () => {
+		const plan = planLessonFacts({
+			lessons: [lesson("a", "Envie o resumo por e-mail ao terminar", { helpful: 2 }), lesson("b", "envie o resumo por e-mail ao terminar!", { helpful: 1 }), lesson("c", "Não envie o resumo por e-mail ao terminar", { helpful: 0 })],
+			now,
+		});
+		expect(itemOf(plan, "c").reason).toBe("conflict_loser");
+		expect(itemOf(plan, "a").absorbs).toEqual(["b"]);
+		const lost = planLessonFacts({
+			lessons: [lesson("w", "Envie o resumo por e-mail ao terminar", { helpful: 5 }), lesson("a", "Não envie o resumo por e-mail ao terminar", { helpful: 1 }), lesson("b", "não envie o resumo por e-mail ao terminar.")],
+			now,
+		});
+		expect(itemOf(lost, "a").reason).toBe("conflict_loser");
+		expect(itemOf(lost, "b")).toMatchObject({ decision: "discard", reason: "conflict_loser" });
+		const over = planLessonFacts({ lessons: [lesson("a", "Fato um repetido igual", { helpful: 2 }), lesson("b", "fato um repetido igual.")], budget: { limit: 5, used: 0 }, now });
+		expect(itemOf(over, "a").reason).toBe("over_budget");
+		expect(itemOf(over, "b")).toMatchObject({ decision: "discard", reason: "over_budget" });
+		expect(itemOf(over, "b").note).toContain("junção desfeita");
+		expect(renderLessonFactsReport([{ userId: "u", botId: "b", plan: over }], now)).toContain("junção desfeita");
 	});
 
 	it("é determinística: a ordem de entrada não muda as decisões", () => {

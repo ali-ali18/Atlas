@@ -127,3 +127,27 @@ test("argumentos: --apply exige --user; relatório exige --out; flag desconhecid
 	assert.equal(parseLessonMigrationArgs(["--out"]).ok, false);
 	assert.equal(parseLessonMigrationArgs(["--apply", "--user", "u1", "--out", "x"]).ok, false);
 });
+
+test("args: --apply=false (valor inline) é rejeitado com erro claro, nunca aplica", () => {
+	for (const arg of ["--apply=false", "--apply=0", "--apply="]) {
+		const parsed = parseLessonMigrationArgs([arg, "--user", "u1"]);
+		assert.equal(parsed.ok, false);
+		if (!parsed.ok) assert.match(parsed.error, /--apply não aceita valor/);
+	}
+});
+
+test("fato de conector usa o nome de exibição, nunca a chave interna", async () => {
+	lessons = new FakeTable([
+		lessonRow("lc1", "user-a", "bot-a", "Filtre por data", { scope: "connector", scopeKey: "mcp:cx1" }),
+		lessonRow("lc2", "user-a", "bot-a", "Pagine os resultados", { scope: "connector", scopeKey: "mcp:cx2" }),
+	]);
+	installed.restore();
+	installed = installFakes({ bot: new FakeTable([{ id: "bot-a", ownerId: "user-a" }]), botLesson: lessons });
+	const report = await buildLessonMigrationReport({ userId: "user-a" }, { ...deps(), connectorNames: async () => new Map([["mcp:cx1", "Notion"]]) });
+	assert.ok(report.markdown.includes("(conector Notion) Filtre por data"));
+	// O relatório mostra o escopo da lição ao dono; o que não pode ter a chave interna é a linha do fato.
+	const factLines = report.markdown.split("\n").filter((line) => line.includes("- fato:"));
+	assert.equal(factLines.length, 2);
+	assert.ok(factLines.every((line) => !line.includes("mcp:")));
+	assert.ok(factLines.some((line) => line.includes("- fato: Pagine os resultados")));
+});

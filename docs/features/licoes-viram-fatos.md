@@ -39,7 +39,11 @@ cd apps/worker && pnpm exec tsx ../../packages/db/scripts/lessons-to-facts.ts --
 Só grava o que o relatório marca como fato e sem conflito pendente. Rodar de novo não duplica (o plano já descarta o que a memória tem e o porteiro recusa texto igual).
 
 ## Riscos
-- O v3 ainda aplica `rule` de lição nos hooks antes das tools (`createPreToolRunner`); a retirada desse bloqueio é decisão separada do dono (D5: só vale regra pedida pelo usuário).
+- O v3 ainda aplica `rule` de lição nos hooks antes das tools (`createPreToolRunner`); as pré-regras ficam como estão por decisão D5 do dono (só vale regra pedida pelo usuário) e a retirada desse bloqueio é decisão separada. Por isso o `recordFeedback` do `createPreToolRunner` continua ligado (ele só marca "ajudou" quando uma pré-regra evitou erro). A tool `lesson_feedback` NÃO existe no catálogo do v3 (`NOT_IN_V2` em `engine-v2/catalog.ts`; o v3 monta os nativos pelo mesmo `eligibleNativeTools`): sem as refs de lição no prompt ela não faz sentido, e há teste que a protege.
+- Fato de conector leva o nome de exibição da conexão (`(conector Notion) ...`); a chave interna `mcp:<id>` nunca entra no texto. Sem o nome disponível, o fato sai sem contexto.
+- A lição também é comparada com os fatos que já estão na memória: se a contradiz, vira "precisa de revisão" e não é gravada. Quem espera revisão não gasta o espaço da memória.
+- Lição "juntada" a outra (duplicada): se a lição destino cai depois (perdeu um conflito ou ficou sem espaço), a junta herda o destino e o relatório diz "junção desfeita" em vez de sumir em silêncio.
+- `--apply` não aceita valor (`--apply=false` é rejeitado com erro), para não gravar por engano.
 - Lição de conector/tool só chega ao v3 como fato depois da aplicação; até lá o v3 não as vê (antes só a do bot entrava no prompt estável; as de conector/tool o v3 já não injetava).
 - O inspetor do run ainda registra o evento `inspect_lessons` com as lições que o worker montou, mesmo no v3 (que as ignora).
 - A conversa de um run que nasceu no v2 e retomou no v3 pode conter o bloco de lições dentro do checkpoint já gravado.
