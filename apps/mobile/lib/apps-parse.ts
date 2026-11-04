@@ -1,5 +1,7 @@
 // Aplicativos (conectores): parse defensivo das respostas de `/v1/mcp/*` e `/v1/composio/*`. O que o servidor devolve é
 // dado não confiável: campo fora do formato é descartado, nunca desenhado. Funções puras, testadas em apps-parse.test.ts.
+import { customMcpIconPath } from "@workspace/shared";
+
 
 export type ConnectionStatus = "pending_auth" | "connected" | "error";
 
@@ -23,7 +25,7 @@ export type NativeConnector = {
 };
 
 /** Conexão do dono (`GET /v1/mcp/connections`). `catalogId` nulo = conector próprio (custom). */
-export type McpConnection = { id: string; catalogId: string | null; name: string; authType: string; status: ConnectionStatus; accountLabel: string };
+export type McpConnection = { id: string; catalogId: string | null; name: string; authType: string; status: ConnectionStatus; accountLabel: string; icon: string | null };
 
 export type ComposioToolkit = { slug: string; name: string; description: string; logo: string | null; connected: boolean; noAuth: boolean; nativeCatalogId: string | null };
 export type ComposioPage = { items: ComposioToolkit[]; nextCursor: string | null; totalItems: number };
@@ -88,12 +90,29 @@ export function parseMcpCatalog(body: unknown): NativeConnector[] | null {
 	return entries;
 }
 
+/**
+ * Logo de um conector que a pessoa adicionou: mesma regra do web (`custom-mcp-icon.tsx`, `customMcpHost` + `customMcpIconPath`
+ * de `@workspace/shared`): o host da `url` da conexão vira `/v1/mcp/icon/<host>`, imagem que o servidor busca e valida.
+ * URL que não é http(s) ou sem host público válido → `null` (fica a inicial).
+ */
+export function customMcpIcon(url: string): string | null {
+	if (!url) return null;
+	try {
+		const parsed = new URL(url);
+		if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return null;
+		const host = parsed.hostname.toLowerCase();
+		return /^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(host) ? customMcpIconPath(host) : null;
+	} catch {
+		return null;
+	}
+}
+
 function parseConnection(raw: unknown): McpConnection | null {
 	if (!isRecord(raw)) return null;
 	const id = text(raw.id);
 	const status = statusOf(raw.status);
 	if (!id || !status) return null;
-	return { id, catalogId: text(raw.catalogId) || null, name: text(raw.name) || text(raw.slug) || "Conector", authType: text(raw.authType), status, accountLabel: text(raw.accountLabel) };
+	return { id, catalogId: text(raw.catalogId) || null, name: text(raw.name) || text(raw.slug) || "Conector", authType: text(raw.authType), status, accountLabel: text(raw.accountLabel), icon: customMcpIcon(text(raw.url)) };
 }
 
 /** `GET /v1/mcp/connections`. */

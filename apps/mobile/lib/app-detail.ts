@@ -67,7 +67,7 @@ export function customDetail(connection: McpConnection): AppDetail {
 		ref: { kind: "custom", id: connection.id },
 		name: connection.name,
 		description: "Conector adicionado por você.",
-		icon: null,
+		icon: connection.icon,
 		action,
 		skills: [],
 		apiKey: null,

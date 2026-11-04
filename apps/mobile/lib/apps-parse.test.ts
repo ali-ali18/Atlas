@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { allowsHttp, browserUrl, MAX_COMPOSIO_CATEGORIES, parseComposioCategories, parseComposioConfigured, parseComposioConnections, parseComposioPage, parseConnectResult, parseMcpCatalog, parseMcpConnections, pickBrowserUrl, safeLogoUrl } from "./apps-parse";
+import { allowsHttp, browserUrl, customMcpIcon, MAX_COMPOSIO_CATEGORIES, parseComposioCategories, parseComposioConfigured, parseComposioConnections, parseComposioPage, parseConnectResult, parseMcpCatalog, parseMcpConnections, pickBrowserUrl, safeLogoUrl } from "./apps-parse";
 
 const entry = { id: "github", name: "GitHub", description: "Repos", longDescription: "Repos e issues", category: "productivity", icon: "/connectors/github.svg", authType: "oauth", availability: "available", skills: [{ key: "a", title: "Ler issues", description: "x" }, { key: "b" }], oauthReady: true, connectionId: "c1", status: "connected", accountCount: 2 };
 
@@ -23,7 +23,7 @@ describe("parseMcpCatalog", () => {
 describe("parseMcpConnections", () => {
 	it("lê conexões válidas e ignora status inválido", () => {
 		const list = parseMcpConnections({ connections: [{ id: "1", catalogId: null, slug: "meu", authType: "oauth", status: "pending_auth", accountLabel: "a@b" }, { id: "2", status: "zzz" }, { status: "connected" }] })!;
-		expect(list).toEqual([{ id: "1", catalogId: null, name: "meu", authType: "oauth", status: "pending_auth", accountLabel: "a@b" }]);
+		expect(list).toEqual([{ id: "1", catalogId: null, name: "meu", authType: "oauth", status: "pending_auth", accountLabel: "a@b", icon: null }]);
 		expect(parseMcpConnections({ connections: "x" })).toBeNull();
 	});
 });

@@ -3,7 +3,7 @@ import { canSubmitKey, composioDetail, customDetail, isComposioConnected, isConn
 import type { McpConnection, NativeConnector } from "./apps-parse";
 
 const entry = (over: Partial<NativeConnector> = {}): NativeConnector => ({ id: "firecrawl", name: "Firecrawl", description: "curta", longDescription: "longa", category: "search", icon: "/connectors/firecrawl.svg", authType: "api_key", comingSoon: false, apiKey: { label: "Chave de API Firecrawl", helpUrl: "https://h" }, skills: [], oauthReady: false, connectionId: null, status: null, accountCount: 0, ...over });
-const conn = (over: Partial<McpConnection> = {}): McpConnection => ({ id: "c1", catalogId: "firecrawl", name: "Firecrawl", authType: "api_key", status: "connected", accountLabel: "", ...over });
+const conn = (over: Partial<McpConnection> = {}): McpConnection => ({ id: "c1", catalogId: "firecrawl", name: "Firecrawl", authType: "api_key", status: "connected", accountLabel: "", icon: null, ...over });
 
 describe("nativeDetail", () => {
 	it("conector de chave pede a chave (label do catálogo) antes de conectar", () => {

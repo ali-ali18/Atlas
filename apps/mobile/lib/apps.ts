@@ -173,7 +173,7 @@ export function connectedItems(input: { entries: readonly NativeConnector[]; con
 	const items: AppItem[] = input.entries.filter((entry) => entry.status === "connected").map(nativeItem);
 	for (const connection of input.connections) {
 		if (connection.catalogId !== null || connection.status !== "connected") continue;
-		items.push({ key: `custom:${connection.id}`, ref: { kind: "custom", id: connection.id }, name: connection.name, description: connection.accountLabel, icon: null, action: "connected" });
+		items.push({ key: `custom:${connection.id}`, ref: { kind: "custom", id: connection.id }, name: connection.name, description: connection.accountLabel, icon: connection.icon, action: "connected" });
 	}
 	// Já aparece como nativo só se o nativo está conectado; senão a conexão do Composio é a única linha dele.
 	const nativeSlugs = new Set(input.entries.filter((entry) => entry.status === "connected").map((entry) => entry.id));

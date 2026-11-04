@@ -65,7 +65,7 @@ describe("destaque", () => {
 
 const base = (over: Partial<SectionsInput> = {}): SectionsInput => ({
 	entries: [native({ id: "firecrawl", category: "search" }), native({ id: "github", status: "connected", connectionId: "c1" }), native({ id: "notion" }), native({ id: "gmail", category: "google" })],
-	connections: [{ id: "x1", catalogId: null, name: "Meu MCP", authType: "oauth", status: "connected", accountLabel: "eu" }],
+	connections: [{ id: "x1", catalogId: null, name: "Meu MCP", authType: "oauth", status: "connected", accountLabel: "eu", icon: null }],
 	composioConnections: [{ id: "k1", toolkit: "slack_x", toolkitName: "Slack X", noAuth: false }],
 	composio: { status: "ready", items: [toolkit("asana"), toolkit("trello", { connected: true }), toolkit("dup", { nativeCatalogId: "github" })], hasMore: true, loadingMore: false },
 	bots: [bot("b1"), bot("b2")],
