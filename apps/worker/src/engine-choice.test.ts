@@ -4,7 +4,7 @@
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { earlyWallMs, engineDefaultFromEnv, longWorkOwnerLimits, pickRunEngine, resolveRunLimits } from "./engine-choice.js";
+import { earlyWallMs, lessonsInjectedByEngine, engineDefaultFromEnv, longWorkOwnerLimits, pickRunEngine, resolveRunLimits } from "./engine-choice.js";
 import type { EngineDefault } from "@workspace/shared";
 import { effectiveCostCapUsd } from "./run-config.js";
 
@@ -526,4 +526,10 @@ test("motor v3 sem humano: sem relógio padrão (D4: valem os 40 passos e o US$ 
 	assert.equal(resolveRunLimits({ choice: { engine: "v2", profile: "chat" }, origin: "routine", humanTurn: false, requestOrBotCap: undefined, snapshot: none, wallFixed: false }).wallMs, 30 * 60_000);
 	// Tempo máximo da conta é do dono: vale também no v3 (o worker o passa no orçamento do run).
 	assert.equal(resolveRunLimits({ choice: v3, origin: "routine", humanTurn: false, requestOrBotCap: 0.5, snapshot: { maxRunCostUsd: undefined, maxWallMinutes: 20 }, wallFixed: false }).costCapUsd, 0.5);
+});
+
+test("lessonsInjectedByEngine: o v3 não conta lição como injetada; v1 e v2 contam", () => {
+	assert.deepEqual(lessonsInjectedByEngine({ resolved: "v3" }, ["l1", "l2"]), []);
+	assert.deepEqual(lessonsInjectedByEngine({ resolved: "v2" }, ["l1", "l2"]), ["l1", "l2"]);
+	assert.deepEqual(lessonsInjectedByEngine({}, ["l1"]), ["l1"]);
 });

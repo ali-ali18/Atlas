@@ -260,3 +260,11 @@ export function resolveRunLimits(input: {
 		...(wallMs !== undefined ? { wallMs } : {}),
 	};
 }
+
+/**
+ * Ids de lição que o inspetor pode dizer "injetadas": o v3 não injeta o bloco de lições (lições viram fatos, PR8c),
+ * mesmo que o worker o tenha montado antes de escolher o motor.
+ */
+export function lessonsInjectedByEngine(choice: { resolved?: RequestedEngine }, ids: readonly string[]): string[] {
+	return choice.resolved === "v3" ? [] : [...ids];
+}

@@ -76,7 +76,6 @@ export function createToolContextFactory(run: V3Run) {
 		userRequestText: [...params.messages].reverse().find((message) => message.role === "user")?.content ?? "",
 		humanTurn: run.humanTurn,
 		jev: params.jev,
-		lessonFeedback: params.lessons?.recordFeedback,
 		forceConfirm,
 		...(run.canPrepareForOwner ? { prepareForOwner: (input: { tool: string; args: Record<string, unknown>; note: string }) => prepareDraftForOwner(run, input) } : {}),
 		mcpRun: run.mcpRun,
