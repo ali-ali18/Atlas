@@ -12,15 +12,16 @@ const BAND: Record<FileTone, string> = {
 };
 
 function Glyph({ glyph }: { glyph: FileGlyph }) {
+	const size = 28;
 	switch (glyph) {
 		case "text":
-			return <FileTextIcon />;
+			return <FileTextIcon size={size} />;
 		case "sheet":
-			return <FileSpreadsheetIcon />;
+			return <FileSpreadsheetIcon size={size} />;
 		case "presentation":
-			return <PresentationIcon />;
+			return <PresentationIcon size={size} />;
 		default:
-			return <FileIcon />;
+			return <FileIcon size={size} />;
 	}
 }
 
@@ -30,11 +31,11 @@ function Glyph({ glyph }: { glyph: FileGlyph }) {
  */
 export function FileTile({ glyph, tone, className }: { glyph: FileGlyph; tone: FileTone; className?: string }) {
 	return (
-		<View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" className={cn("h-11 w-10 shrink-0 overflow-hidden rounded-lg bg-foreground/[0.06]", className)}>
+		<View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" className={cn("h-14 w-12 shrink-0 overflow-hidden rounded-xl bg-foreground/[0.06]", className)}>
 			<View className="flex-1 items-center justify-center">
 				<Glyph glyph={glyph} />
 			</View>
-			<View className={cn("h-1.5 w-full", BAND[tone])} />
+			<View className={cn("h-2 w-full", BAND[tone])} />
 		</View>
 	);
 }
