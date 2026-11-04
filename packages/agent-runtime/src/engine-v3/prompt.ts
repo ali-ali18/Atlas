@@ -1,4 +1,5 @@
 import type { LlmContentPart, LlmMessage } from "@workspace/llm";
+import { LESSONS_HEADER } from "@workspace/shared";
 import { disciplineForModel } from "../context/model-discipline.js";
 import { skillIndexPrompt } from "../context/prompt-blocks.js";
 import { ROUTINE_MODE_LINES } from "../loop/prompt-builder.js";
@@ -99,6 +100,9 @@ export function assembleV3Conversation(input: {
 				}
 				continue;
 			}
+			// Lições deixaram de ser um bloco à parte (PR8c, "lições viram fatos"): o bloco que o worker monta para o v1/v2 não
+			// entra no v3, que só traz os fatos da memória. Marca do próprio runtime, não texto do usuário.
+			if (message.content.startsWith(LESSONS_HEADER)) continue;
 			(seenTurn ? notes : snapshot).push(message.content);
 			continue;
 		}

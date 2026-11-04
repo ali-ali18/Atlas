@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { autoLanguageInstruction, buildPersonaBlock, languageInstruction } from "@workspace/shared";
+import { autoLanguageInstruction, buildPersonaBlock, languageInstruction, renderLessonsBlock } from "@workspace/shared";
 import { ENGINE_V2_UNATTENDED } from "../engine-v2/prompt.js";
 import { CONTEXT_HEADER, assembleV3Conversation, buildV3ContextBlock, buildV3SystemPrompt, isContextMessage } from "./prompt.js";
 
@@ -67,5 +67,31 @@ describe("motor v3: contexto e volátil", () => {
 		expect(conversation[2]!.content).toBe("antes");
 		expect(conversation[4]!.content).toBe("[runtime] Now is 10:00\n\nNota do turno");
 		expect(conversation[5]!.content).toBe("oi");
+	});
+});
+
+describe("motor v3: lições não entram no prompt (PR8c, lições viram fatos)", () => {
+	const lessonsBlock = renderLessonsBlock([{ id: "cl1a2b", content: "Ao enviar relatório, use PDF" }])!;
+	const build = (leading: string[]) =>
+		assembleV3Conversation({
+			system: "S",
+			contextFor: (snapshot) => buildV3ContextBlock({ manifest: "M", canReadSkills: false, snapshot }),
+			messages: [...leading.map((content) => ({ role: "system", content })), { role: "user", content: "oi" }],
+			priorHistory: [],
+			slot: "[[slot]]",
+			volatile: [],
+		});
+	const text = (conversation: ReturnType<typeof build>) => JSON.stringify(conversation);
+
+	it("com lições no banco: o bloco de lições não aparece, os fatos da memória continuam", () => {
+		const withLessons = build(["USER: Ana", "Fato: prefere PDF", lessonsBlock]);
+		expect(text(withLessons)).not.toContain("LIÇÕES APRENDIDAS");
+		expect(text(withLessons)).not.toContain("Ao enviar relatório, use PDF");
+		expect(text(withLessons)).not.toContain("lesson_feedback");
+		expect(text(withLessons)).toContain("Fato: prefere PDF");
+	});
+
+	it("sem lições no banco: o prompt é byte a byte o mesmo", () => {
+		expect(build(["USER: Ana", "Fato: prefere PDF", lessonsBlock])).toEqual(build(["USER: Ana", "Fato: prefere PDF"]));
 	});
 });
