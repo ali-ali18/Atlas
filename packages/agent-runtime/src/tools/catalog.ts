@@ -1,13 +1,13 @@
 import type { ChatTool } from "@workspace/llm";
 import { attachToolDefinitions } from "./registry/index.js";
-import { ALL_DEFINED_TOOLS } from "./registry/handlers/index.js";
+import { allDefinedTools } from "./registry/handlers/index.js";
 
 export { MCP_TOOL_SEARCH_TOOL, TOOL_SEARCH_WITH_BUILTINS } from "./mcp-tool-search.js";
 
 /** Definições das tools declaradas com `defineTool`/`defineRawTool`, na ordem pedida. */
 function defined(...names: string[]): ChatTool[] {
 	return names.map((name) => {
-		const definition = ALL_DEFINED_TOOLS.find((tool) => tool.name === name)?.definition;
+		const definition = allDefinedTools().find((tool) => tool.name === name)?.definition;
 		if (!definition) throw new Error(`Catálogo: a tool "${name}" não está declarada com defineTool.`);
 		return definition;
 	});

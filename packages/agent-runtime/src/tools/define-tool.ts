@@ -7,8 +7,8 @@ import type { ToolContext, ToolEffect, ToolGroup, ToolHandler, ToolMetaFields, T
  * Do mesmo objeto saem a definição enviada ao modelo (schema gerado do zod), o metadado do PR1 (`effect`, `poll`,
  * `endsTurn`, `needsHuman`, `ownCard`...) e o handler do registro, com os args já validados pelo schema.
  *
- * Tools antigas migram aos poucos: a tabela `TOOL_META` continua como fallback e o teste `define-tool.test.ts` falha
- * se um nome novo entrar na tabela em vez de passar por aqui.
+ * Toda tool nativa passa por aqui (PR5b removeu a tabela solta `TOOL_META`); os testes-guarda falham se uma tool
+ * do registro não vier de `defineTool`/`defineRawTool` ou ficar sem `effect`.
  */
 export type DefinedTool = {
 	readonly name: string;

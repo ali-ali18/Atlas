@@ -24,5 +24,11 @@ export const TOOL_FAMILIES: Array<() => ToolFamily> = [() => BROWSER_TOOLS, () =
 
 export const TOOL_RESOLVERS: ToolResolvers = { before: [() => devSessionResolver], after: [() => connectorToolResolver], defined: [() => DEV_SESSION_DEFINED] };
 
-/** Toda tool nativa declarada com `defineTool`/`defineRawTool`, por família (o catálogo `COMPUTER_USE_TOOLS` lê as definições daqui). */
-export const ALL_DEFINED_TOOLS: readonly DefinedTool[] = [...MISC_DEFINED, ...LONG_WORK_DEFINED, ...PLANNING_DEFINED, ...PROACTIVE_DEFINED, ...VAULT_DEFINED, ...MEMORY_DEFINED, ...WEB_DEFINED, ...SANDBOX_DEFINED, ...SKILLS_DEFINED, ...BOTS_DEFINED, ...CONNECTORS_DEFINED, ...FILES_DEFINED, ...PAGES_DEFINED, ...ROUTINES_DEFINED, ...EMAIL_DEFINED, ...BROWSER_DEFINED];
+/**
+ * Toda tool nativa declarada com `defineTool`/`defineRawTool`, por família (o catálogo `COMPUTER_USE_TOOLS` lê as
+ * definições daqui). É uma função, não uma constante: há ciclo de import (família → registry → este arquivo), e
+ * montar a lista no carregamento estouraria TDZ se uma família fosse o primeiro módulo importado.
+ */
+export function allDefinedTools(): readonly DefinedTool[] {
+	return [...MISC_DEFINED, ...LONG_WORK_DEFINED, ...PLANNING_DEFINED, ...PROACTIVE_DEFINED, ...VAULT_DEFINED, ...MEMORY_DEFINED, ...WEB_DEFINED, ...SANDBOX_DEFINED, ...SKILLS_DEFINED, ...BOTS_DEFINED, ...CONNECTORS_DEFINED, ...FILES_DEFINED, ...PAGES_DEFINED, ...ROUTINES_DEFINED, ...EMAIL_DEFINED, ...BROWSER_DEFINED];
+}
