@@ -12,6 +12,7 @@ import {
 	publishRunSignal,
 	publishRunEventsSignal,
 	createAgentRunQueue,
+	createOwnerWaitQueue,
 	createChatCompletionQueue,
 	createRedisConnection,
 	createRoutineQueue,
@@ -63,6 +64,8 @@ import { createHealthRoutes } from "./health.js";
 import { endAllObserverStreams } from "./routes/run-observer.js";
 import { closeUserEventWaker } from "./user-event-wakeups.js";
 import { createRunRoutes, enqueueAgentRunJob, reconcileQueuedAgentRuns, resumeRunsAwaitingConnector } from "./routes/runs.js";
+import { createReturnRoutes } from "./routes/returns.js";
+import { setOwnerWaitQueue } from "./chat/owner-wait.js";
 import { createEmailRoutes } from "./routes/email.js";
 import { createEmailInboundRoutes } from "./webhooks/email-inbound.js";
 import { notifyRunSignal } from "./run-signal.js";
@@ -136,6 +139,8 @@ try {
 	chatQueue = createChatCompletionQueue(redisConnection);
 	agentRunQueue = createAgentRunQueue(redisConnection);
 	routineQueue = createRoutineQueue(redisConnection);
+	// Motor v3 (PR8a): cancelar o prazo do cartão quando o dono responde e o retorno agendado.
+	setOwnerWaitQueue(createOwnerWaitQueue(redisConnection));
 	redisConnection.on("error", (err) => {
 		console.error("Redis connection error", err);
 	});
@@ -212,6 +217,7 @@ app.all("/api/auth/*", (c) => auth.handler(c.req.raw));
 app.route("/", createChatRoutes(config));
 app.route("/", createComputerUseRoutes(config));
 app.route("/", createRunRoutes(config));
+app.route("/", createReturnRoutes());
 app.route("/", createEventRoutes());
 app.route("/", createBotPendingRoutes(config));
 app.route("/", createAvatarRoutes());

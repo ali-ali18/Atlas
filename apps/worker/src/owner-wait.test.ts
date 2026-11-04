@@ -15,7 +15,7 @@ function fakeDeps(over: Partial<OwnerWaitProcessorDeps> = {}) {
 		claimSkillPendingIntent: async () => { calls.push("claim"); return true; },
 		closePendingConfirmCard: async (input: { status: string; detail: string }) => { calls.push(`close:${input.status}:${input.detail}`); return { confirmId: "confirm-toolab12cd34-run1", title: "Criar um link público do painel?", callKey: "k1" }; },
 		dismissPendingQuestionnaireCard: async () => { calls.push("dismiss"); return { questionnaireId: "questionnaire-run1", title: "Formato?" }; },
-		markPendingLoginOutcome: async (input: { outcome: string }) => { calls.push(`login:${input.outcome}`); return true; },
+		markPendingLoginOutcome: async (input: { outcome: string }) => { calls.push(`login:${input.outcome}`); return "login-1"; },
 		requestResumeAgentRun: async () => { calls.push("resume"); return source; },
 		createAgentRun: async (input: Created) => { created.push(input); return { ...source, id: `new${created.length}`, status: "queued" }; },
 		claimDueReturn: async () => ({ id: "ret1", userId: "user-a", botId: "bot-a", conversationId: "conv-1", sourceRunId: "run1", dueAt: new Date(), reason: "ver o deploy", visible: true, status: "fired", runId: null, createdAt: new Date("2026-11-04T12:00:00Z") }),
@@ -67,7 +67,7 @@ test("prazo do login/VM: o run pausado retoma ele mesmo como pulado; já respond
 	assert.deepEqual(enqueued, ["run1"]);
 	assert.equal(created.length, 0);
 	assert.equal(result.runId, "run1");
-	const answered = fakeDeps({ markPendingLoginOutcome: (async () => false) as unknown as OwnerWaitProcessorDeps["markPendingLoginOutcome"] });
+	const answered = fakeDeps({ markPendingLoginOutcome: (async () => null) as unknown as OwnerWaitProcessorDeps["markPendingLoginOutcome"] });
 	assert.equal((await processOwnerWaitJob({ ...timeout, card: "login", cardId: "login-1" }, answered.deps)).outcome, "noop");
 	assert.equal(answered.enqueued.length, 0);
 });

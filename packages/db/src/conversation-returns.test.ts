@@ -142,9 +142,9 @@ test("login/VM: a saída do cartão só vale para o run do dono que espera aquel
 		return { count: 1 };
 	}) as unknown as typeof prisma.agentRun.updateMany;
 	try {
-		assert.equal(await markPendingLoginOutcome({ runId: "run1", userId: "user-b", outcome: "skipped" }), false);
-		assert.equal(await markPendingLoginOutcome({ runId: "run1", userId: "user-a", outcome: "skipped", loginId: "outro" }), false);
-		assert.equal(await markPendingLoginOutcome({ runId: "run1", userId: "user-a", outcome: "skipped", loginId: "login-1" }), true);
+		assert.equal(await markPendingLoginOutcome({ runId: "run1", userId: "user-b", outcome: "skipped" }), null);
+		assert.equal(await markPendingLoginOutcome({ runId: "run1", userId: "user-a", outcome: "skipped", loginId: "outro" }), null);
+		assert.equal(await markPendingLoginOutcome({ runId: "run1", userId: "user-a", outcome: "skipped", loginId: "login-1" }), "login-1");
 		assert.equal((run.checkpointJson.pendingLogin as { outcome?: string }).outcome, "skipped");
 	} finally {
 		Object.assign(prisma.agentRun, original);
