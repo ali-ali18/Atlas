@@ -107,7 +107,8 @@ export async function nativeApprovalGate(run: V3Run, name: string, args: Record<
 	await saveSkillPendingIntent({
 		userId: run.userId,
 		conversationId: run.conversationId,
-		ttlMs: DEV_APPROVAL_TTL_MS,
+		// Prazo maior que a validade padrão: a intenção vive até o prazo (e um pouco depois, para o job a encontrar).
+		ttlMs: waitMinutes ? Math.max(DEV_APPROVAL_TTL_MS, (waitMinutes + 10) * 60_000) : DEV_APPROVAL_TTL_MS,
 		payload: { kind: "confirm", action: "tool-call", confirmId, ...(run.botId ? { botId: run.botId } : {}), toolCall: { callKey, tool: name, label, ...(refused.length > 0 ? { refused } : {}), ...(waitMinutes ? { waitMinutes } : {}) } },
 	});
 	const deadlineAt = waitMinutes ? await scheduleCardDeadline(run, { card: "tool-call", cardId: confirmId, toolName: name, what: label, minutes: waitMinutes }) : undefined;

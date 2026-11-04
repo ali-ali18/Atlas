@@ -1042,7 +1042,7 @@ export async function closePendingConfirmCard(input: {
 	confirmId?: string;
 	status: "rejected" | "approved";
 	detail: string;
-}): Promise<{ confirmId: string; title: string } | null> {
+}): Promise<{ confirmId: string; title: string; callKey?: string } | null> {
 	const owned = await prisma.conversation.findFirst({ where: { id: input.conversationId, userId: input.ownerId, bot: { is: { ownerId: input.ownerId } } }, select: { id: true } });
 	if (!owned) return null;
 	const rows = await prisma.conversationMessage.findMany({ where: { conversationId: input.conversationId, role: "confirm" }, orderBy: { createdAt: "desc" }, take: 20 });
@@ -1055,7 +1055,7 @@ export async function closePendingConfirmCard(input: {
 			where: { id: row.id },
 			data: { content: serializeConversationCard({ ...card, status: input.status, outcome: { ok: input.status === "approved", detail: input.detail.slice(0, 2000) } }) },
 		});
-		return { confirmId: card.confirmId, title: card.title };
+		return { confirmId: card.confirmId, title: card.title, ...(card.callKey ? { callKey: card.callKey } : {}) };
 	}
 	return null;
 }

@@ -1,3 +1,4 @@
+import { isSilentReturnObjective } from "../owner-wait.js";
 import { createRunProviderServices } from "../provider-services.js";
 import { createAssistantSegmentRecorder } from "../assistant-segments.js";
 import { recordObserveChecks } from "../observe-checks.js";
@@ -262,6 +263,8 @@ export type AgentRunProcessorDeps = {
 	/** Revisão de skill após tarefa complexa e bem-sucedida (um job por run). */
 	enqueueSkillReview?: (payload: SkillReviewJobPayload) => Promise<void>;
 	enqueueNextRun?: (runId: string, options?: { delayMs?: number }) => Promise<boolean>;
+	/** Motor v3 (PR8a): filas do "esperar o dono" (prazo do cartão, `schedule_return`). v1 e v2 não leem. */
+	ownerWait?: import("@workspace/agent-runtime").OwnerWaitDeps;
 	/** Teste: troca a ligação da retomada automática com banco e fila. */
 	autoContinueIo?: AutoContinueIo;
 	extendLock?: () => Promise<void>;
@@ -1392,6 +1395,7 @@ async function executeLeasedRun(ctx: {
 			recentLoginAsks: () => (run.conversationId ? listRecentLoginAsks(runUserId, run.conversationId) : Promise.resolve({ asked: [], vaultTried: [] })),
 			// Núcleo por uso do motor v3: o v3 só lê ao abrir conversa nova; v1/v2 ignoram.
 			loadToolUsage: async () => (run.botId ? await listBotToolUsage({ userId: runUserId, botId: run.botId }) : {}),
+			...(deps.ownerWait ? { ownerWait: deps.ownerWait } : {}),
 			onSandboxError: () => {
 				// Sessão pode ter morrido (reaper/container); força re-resolve
 				// (adopt-by-label ou cria nova) na próxima tool em vez de
@@ -1470,7 +1474,8 @@ async function executeLeasedRun(ctx: {
 			? planAlertRun({ alert: alertCtx.alert, routineName: alertCtx.name, verdict: alertRun.report.verdict, modelText: result.text, interval: alertCtx.interval ?? null, now: new Date() })
 			: null;
 		// Verificação de follow-up sem novidade ([NO_UPDATE]): nada entra na conversa, sem push e sem revisão de memória.
-		const noUpdate = run.origin === "proactive" && isNoUpdateReply(result.text);
+		// Retorno agendado silencioso do v3 (`schedule_return` invisível): mesma regra, só posta com novidade.
+		const noUpdate = (run.origin === "proactive" || isSilentReturnObjective(run.objective)) && isNoUpdateReply(result.text);
 		const resultText = alertPlan ? alertPlan.text : result.text;
 		const resultConversationId = (alertPlan && !alertPlan.notify) || noUpdate ? null : run.conversationId;
 		const jevAtCompletion = jevTelemetry.snapshot();
