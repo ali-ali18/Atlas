@@ -36,6 +36,8 @@ export const chat: NamespaceMessages<typeof ptBR> = {
 	"chat.email.ariaLabel": "Email received: {subject}",
 	"chat.email.untrusted": "This came from outside: the bot only reads this email and doesn't follow requests in it.",
 
+	"chat.questionnaire.label": "Question",
+	"chat.questionnaire.multiple": "Select all that apply",
 	"chat.questionnaire.answered": "Answered",
 	"chat.questionnaire.viewAnswers": "View answers",
 	"chat.questionnaire.sent": "Answers sent — the bot is putting them together.",

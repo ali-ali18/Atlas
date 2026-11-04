@@ -74,6 +74,7 @@ import { LANDING_LOCK_MS, decideLanding, landingScrollTop, resolveDividerAnchor,
 import {
 	AtlasApiError,
 	cancelConversationReturn,
+	sandboxScreenshotUrl,
 	skipQuestionnaire,
 	submitQuestionnaire,
 	resolveBotProfileProposal,
@@ -1534,6 +1535,7 @@ export function ChatThread({
 										onReturnCancel={agent?.conversationId ? rowHandlers.onReturnCancel : undefined}
 										returnCancel={message.kind === "return" ? returnCancel : null}
 										onQuestionnaireSkip={rowHandlers.onQuestionnaireSkip}
+										sandboxScreenshot={message.kind === "login" && message.ownerWait && sandboxSessionId ? sandboxScreenshotUrl(sandboxSessionId, message.loginId) : null}
 										onCancel={rowHandlers.onCancel}
 										onAdjustPlan={rowHandlers.onAdjustPlan}
 										onBotProfileConfirm={rowHandlers.onBotProfileConfirm}

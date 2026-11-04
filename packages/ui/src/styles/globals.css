@@ -207,6 +207,8 @@
     /* Raios semânticos além da escala do shadcn (12px e 20px, valores já usados em cartões e listas). */
     --radius-card: 0.75rem;
     --radius-panel: 1.25rem;
+    /* Casca dos cards do chat (28px): raio grande da referência do dono (04/11). */
+    --radius-card-lg: 1.75rem;
     --color-chart-1: var(--chart-1);
     --color-chart-2: var(--chart-2);
     --color-chart-3: var(--chart-3);

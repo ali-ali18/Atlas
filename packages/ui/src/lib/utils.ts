@@ -10,7 +10,7 @@ const merge = createCn({
   extend: {
     classGroups: {
       "font-size": [{ text: ["body", "caption"] }],
-      rounded: [{ rounded: ["card", "panel"] }],
+      rounded: [{ rounded: ["card", "card-lg", "panel"] }],
     },
   },
 })

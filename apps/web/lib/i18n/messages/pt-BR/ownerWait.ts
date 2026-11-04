@@ -1,5 +1,15 @@
 /** Cartões que esperam o dono (motor v3): login/VM, questionário, aprovação, rascunho, limite e "Volto às". */
 export const ownerWait = {
+	"ownerWait.handoff.label": "Computador",
+	"ownerWait.handoff.title": "Ação necessária",
+	"ownerWait.handoff.body": "Entre na sua conta de {site} e depois devolva a tela",
+	"ownerWait.handoff.captchaBody": "Resolva a verificação de {site} e depois devolva a tela",
+	"ownerWait.handoff.note": "Se você entrar, faz isso no navegador do computador do bot, e a sessão fica salva lá. O site pode mandar um aviso de login em aparelho novo.",
+	"ownerWait.handoff.preview": "Abrir o computador",
+	"ownerWait.handoff.previewAlt": "Tela atual do computador do bot",
+	"ownerWait.approval.label": "Aprovação",
+	"ownerWait.draft.label": "Rascunho da rotina",
+	"ownerWait.limit.label": "Rotina",
 	"ownerWait.deadlineToday": "Sigo sem isso às {time}",
 	"ownerWait.deadlineOther": "Sigo sem isso em {date} às {time}",
 	"ownerWait.skip": "Pular",

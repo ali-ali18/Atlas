@@ -66,6 +66,17 @@ const SCENARIOS: Array<{ name: string; seeds: Seed[]; groups: Array<[string, str
     groups: [["06-questionario-com-pular", ["q1"]], ["07-aprovacao-com-prazo", ["p1"]]],
   },
   {
+    // Antes/depois da casca nova (ChatCard): cartões antigos que todo motor usa.
+    name: "antigos",
+    seeds: [
+      text("u1", "user", "Manda o resumo das vendas para a Marina."),
+      card("o1", "confirm", { confirmId: "cf-1", title: "Enviar o resumo para a Marina?", description: "Vou mandar um e-mail para marina@exemplo.com com o resumo das vendas.", status: "pending", confirmLabel: "Enviar", cancelLabel: "Agora não" }),
+      card("o2", "task-list", { runId: "run-1", items: [{ content: "Ler as vendas do mês", status: "completed" }, { content: "Calcular receita e despesas", status: "completed" }, { content: "Montar o painel", status: "completed" }] }),
+      card("o3", "login", { loginId: "lg-c", site: "Notion", url: "https://notion.so", status: "pending", connector: { kind: "native", id: "notion", name: "Notion", description: "Páginas, bancos de dados e comentários do seu workspace", icon: "/connectors/notion.svg" } }),
+    ],
+    groups: [["09-antigos-aprovacao-e-tarefas", ["o1", "o2"]], ["10-antigos-conector", ["o3"]]],
+  },
+  {
     // Pedido do dono (04/11): recusar é interno. O clique ("cancela isso") e a nota para o modelo não viram balão.
     name: "recusado-so-selo",
     seeds: [

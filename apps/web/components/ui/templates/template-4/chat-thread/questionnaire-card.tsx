@@ -211,26 +211,22 @@ export function QuestionnaireCard({
 			badge={{ tone: "pending", label: t("chat.questionnaire.needsYou") }}
 			className="max-w-xl"
 			headerAction={
-				!skip && onDismiss ? (
-					<button
-						aria-label={t("chat.questionnaire.dismiss")}
-						className="-my-0.5 -mr-1 shrink-0 rounded-full p-1 text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
-						onClick={() => onDismiss(message)}
+				skip || onDismiss ? (
+					<Button
+						aria-label={skip ? t("ownerWait.skipQuestionnaire") : t("chat.questionnaire.dismiss")}
+						className="-my-1 -mr-1 text-muted-foreground"
+						data-questionnaire-close={skip ? "skip" : "dismiss"}
+						onClick={() => (skip ? skip(message) : onDismiss?.(message))}
+						size="icon-sm"
 						type="button"
+						variant="ghost"
 					>
-						<X className="size-4" />
-					</button>
+						<X />
+					</Button>
 				) : null
 			}
+			label={t("chat.questionnaire.label")}
 			leading={<MessageCircleQuestionIcon aria-hidden />}
-			trailing={
-				skip ? (
-					// Motor v3: pula o questionário inteiro (o "Pular" de cada pergunta continua no corpo).
-					<Button aria-label={t("ownerWait.skipQuestionnaire")} data-slot="questionnaire-skip-all" onClick={() => skip(message)} size="sm" type="button" variant="secondary">
-						{t("ownerWait.skipAll")}
-					</Button>
-				) : undefined
-			}
 			note={
 				deadline ? (
 					<span className="inline-flex items-center gap-1" data-slot="owner-wait-deadline">
@@ -246,7 +242,6 @@ export function QuestionnaireCard({
 				onSubmit={handleSubmit}
 				shortcuts="letters"
 			>
-				{message.items.length > 1 ? <QuestionnaireProgress /> : null}
 
 				{message.items.map((item) => {
 					const choices = item.choices ?? [];
@@ -258,9 +253,9 @@ export function QuestionnaireCard({
 							multiple={item.multiple ?? false}
 						>
 							<QuestionnaireTitle className="text-lg">{item.prompt}</QuestionnaireTitle>
-							{item.description ? (
+							{item.description || item.multiple ? (
 								<QuestionnaireDescription>
-									{item.description}
+									{item.description ?? t("chat.questionnaire.multiple")}
 								</QuestionnaireDescription>
 							) : null}
 							{choices.length > 0 ? (
@@ -269,7 +264,6 @@ export function QuestionnaireCard({
 										<QuestionnaireChoice
 											key={choice.value}
 											value={choice.value}
-											className="text-[15px]"
 										>
 											{choice.label ?? choice.value}
 											{choice.description ? (
@@ -296,6 +290,7 @@ export function QuestionnaireCard({
 							/>
 							<QuestionnaireError />
 							<QuestionnaireActions>
+								{message.items.length > 1 ? <QuestionnaireProgress className="mr-auto" variant="dots" /> : null}
 								<QuestionnairePrevious>{t("chat.questionnaire.back")}</QuestionnairePrevious>
 								<QuestionnaireSkip>{t("chat.questionnaire.skip")}</QuestionnaireSkip>
 								<QuestionnaireNext>{t("chat.questionnaire.next")}</QuestionnaireNext>

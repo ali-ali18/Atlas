@@ -1753,6 +1753,11 @@ export async function pauseAgentRun(runId: string): Promise<{
  * Como o dono retomou o run pausado: `vault`/`code` (login), e no motor v3 `skip` (Pular), `takeover` (Assumir) e
  * `limit_stop` (Agora não do cartão do limite). Sem `via` = "Terminei" / "Continuar".
  */
+/** Última captura da tela da VM (`v` quebra o cache quando o cartão pede uma nova). */
+export function sandboxScreenshotUrl(sessionId: string, version: string | number = ""): string {
+	return `${getAtlasApiBaseUrl()}/v1/sandbox/sessions/${encodeURIComponent(sessionId)}/screenshot${version !== "" ? `?v=${encodeURIComponent(String(version))}` : ""}`;
+}
+
 export type ResumeVia = "vault" | "code" | "skip" | "takeover" | "limit_stop";
 
 export async function resumeAgentRun(runId: string, options: { via?: ResumeVia; code?: string } = {}): Promise<{

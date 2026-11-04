@@ -10,18 +10,28 @@ import {
 } from "./chat-card"
 
 describe("ChatCard", () => {
-  it("variante card: pele única (rounded-2xl, sem borda, bg-muted/60, largura 68ch)", () => {
+  it("variante card: pele única (04/11: rounded-card-lg, borda fina, bg-card, 20px, largura 68ch)", () => {
     const html = renderToStaticMarkup(
       <ChatCard>
-        <ChatCardHeader badge={{ tone: "pending", label: CHAT_CARD_COPY.needsYou }} title="Enviar?" />
+        <ChatCardHeader badge={{ tone: "pending", label: CHAT_CARD_COPY.needsYou }} label="Aprovação" leading={<i />} title="Enviar?" />
       </ChatCard>
     )
     expect(html).toContain('data-slot="chat-card"')
-    expect(html).toContain("rounded-2xl")
-    expect(html).toContain("bg-muted/60")
+    expect(html).toContain("rounded-card-lg border border-border/60 bg-card")
+    expect(html).toContain("p-5")
     expect(html).toContain("max-w-[min(68ch,100%)]")
-    expect(html).not.toContain("border")
+    expect(html).toContain('data-slot="chat-card-icon"')
     expect(html).toContain("Precisa de você")
+    // O título fica numa linha própria, depois da linha do rótulo e do selo.
+    expect(html.indexOf("Precisa de você")).toBeLessThan(html.indexOf('data-slot="chat-card-title"'))
+  })
+
+  it("estado sem urgência vira texto muted ao lado do rótulo; só espera e erro viram pílula", () => {
+    const quiet = renderToStaticMarkup(<ChatCardHeader badge={{ tone: "success", label: "Concluído" }} label="Agentes na nuvem" title="Investigar" />)
+    expect(quiet).toMatch(/data-tone="success"[^>]*class="[^"]*text-muted-foreground/)
+    expect(quiet).not.toMatch(/rounded-full px-2/)
+    const loud = renderToStaticMarkup(<ChatCardHeader badge={{ tone: "pending", label: "Precisa de você" }} title="x" />)
+    expect(loud).toMatch(/rounded-full px-2/)
   })
 
   it("variante activity: linha compacta com ícone e texto", () => {
@@ -32,7 +42,7 @@ describe("ChatCard", () => {
     )
     expect(html).toContain('data-variant="activity"')
     expect(html).toContain("Pesquisou na web")
-    expect(html).toContain("bg-muted/60")
+    expect(html).toContain("rounded-card-lg border border-border/60 bg-card")
   })
 
   it("detalhes: fechado mostra 'Ver detalhes' sem o corpo; aberto mostra 'Mostrar menos'", () => {

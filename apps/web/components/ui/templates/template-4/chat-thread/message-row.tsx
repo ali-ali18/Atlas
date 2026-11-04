@@ -89,6 +89,7 @@ export const MessageRow = memo(function MessageRow({
 	onReturnCancel,
 	returnCancel,
 	onQuestionnaireSkip,
+	sandboxScreenshot,
 	onBotProfileConfirm,
 	onBotProfileDismiss,
 	onBotProfileEdit,
@@ -139,6 +140,8 @@ export const MessageRow = memo(function MessageRow({
 	onReturnCancel?: (message: Extract<Message, { kind: "return" }>) => void;
 	/** Estado do cancelamento em andamento (por `returnId`). */
 	returnCancel?: { returnId: string; pending: boolean; error?: string | null } | null;
+	/** Motor v3: última captura da VM para o cartão "Computador" (pendente). */
+	sandboxScreenshot?: string | null;
 	/** Motor v3: "Pular" no questionário. */
 	onQuestionnaireSkip?: (message: QuestionnaireCardMessage) => void;
 	onBotProfileConfirm?: (
@@ -455,7 +458,7 @@ export const MessageRow = memo(function MessageRow({
 			);
 		case "login":
 			if (message.connector || message.composioToolkit) {
-				return <ConnectorLoginCard connector={message.connector ?? legacyComposioConnector(message.composioToolkit!)} status={message.status} onDone={() => onLoginDone?.(message)} />;
+				return <ConnectorLoginCard botName={botName} connector={message.connector ?? legacyComposioConnector(message.composioToolkit!)} status={message.status} onDone={() => onLoginDone?.(message)} />;
 			}
 			return (
 				<LoginCard
@@ -469,6 +472,7 @@ export const MessageRow = memo(function MessageRow({
 					onTakeover={() => onLoginTakeover?.(message)}
 					outcome={message.outcome}
 					ownerWait={message.ownerWait}
+					screenshotUrl={message.ownerWait && (message.status ?? "pending") === "pending" ? sandboxScreenshot : null}
 					onSubmitCode={(code) => onLoginCode?.(message, code)}
 					onUseVault={() => onLoginUseVault?.(message)}
 					reason={message.reason}

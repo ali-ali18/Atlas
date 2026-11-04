@@ -1,11 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { CheckIcon, ClockIcon, KeyRoundIcon, LogInIcon, MonitorIcon, ShieldQuestionIcon, SkipForwardIcon } from "lucide-react";
+import { CheckIcon, ClockIcon, KeyRoundIcon, LaptopIcon, LogInIcon, MonitorIcon, ShieldCheckIcon, ShieldQuestionIcon, SkipForwardIcon } from "lucide-react";
 import type { LoginVaultOffer, LoginWaitOutcome } from "@workspace/shared";
 
 import { Button } from "@workspace/ui/components/button";
-import { ButtonGroup } from "@workspace/ui/components/button-group";
 import { Input } from "@workspace/ui/components/input";
 import { ChatCard, ChatCardLine } from "@workspace/ui/components/chat-card";
 import { RequestCard, REQUEST_PRIMARY_CLASS } from "@workspace/ui/components/request-card";
@@ -38,6 +37,8 @@ export type LoginCardProps = {
   deadlineAt?: string;
   onSkip?: () => void;
   onTakeover?: () => void;
+  /** Motor v3: última captura da tela da VM (toque abre o computador). */
+  screenshotUrl?: string | null;
   /** Relógio injetável (testes). */
   now?: Date;
   timeZone?: string;
@@ -68,6 +69,7 @@ export function LoginCard({
   deadlineAt,
   onSkip,
   onTakeover,
+  screenshotUrl,
   now,
   timeZone,
 }: LoginCardProps) {
@@ -138,8 +140,8 @@ export function LoginCard({
         onSkip={onSkip}
         onTakeover={onTakeover}
         outcome={outcome}
+        screenshotUrl={screenshotUrl}
         site={site}
-        vaultTried={vaultTried}
       />
     );
   }
@@ -240,8 +242,10 @@ export function LoginCard({
 }
 
 /**
- * Cartão de login/VM do motor v3 (handoff): "Abrir computador" e, colados, Pular · Terminei · Assumir. Toda saída
- * vira resultado para o bot (Pular não encerra a tarefa: ele segue sem isso). Decidido, só o selo da saída fica.
+ * Cartão "Computador" do motor v3 (handoff; referência do dono, 04/11): rótulo "Computador", título "Ação necessária",
+ * a instrução gerada do site, a última captura da tela da VM (toque abre o computador) e as pílulas Pular · Terminei ·
+ * Assumir (a principal, clara, na ponta). Toda saída vira resultado para o bot (Pular não encerra a tarefa). Fora do
+ * cartão, a nota de que o login fica no navegador do computador do bot. Decidido, só o selo da saída fica.
  */
 function OwnerHandoffCard({
   site,
@@ -249,8 +253,8 @@ function OwnerHandoffCard({
   done,
   outcome,
   deadline,
-  vaultTried,
   canOpenViewer,
+  screenshotUrl,
   onOpenViewer,
   onDone,
   onSkip,
@@ -261,8 +265,8 @@ function OwnerHandoffCard({
   done: boolean;
   outcome?: LoginWaitOutcome;
   deadline: string | null;
-  vaultTried?: string;
   canOpenViewer: boolean;
+  screenshotUrl?: string | null;
   onOpenViewer?: () => void;
   onDone?: () => void;
   onSkip?: () => void;
@@ -278,45 +282,69 @@ function OwnerHandoffCard({
         badge={{ tone: badge.tone, label: badge.label }}
         data-login-outcome={outcome ?? "done"}
         description={badge.body}
+        label={t("ownerWait.handoff.label")}
         leading={finished ? <CheckIcon aria-hidden /> : outcome === "takeover" ? <MonitorIcon aria-hidden /> : outcome === "skipped_timeout" ? <ClockIcon aria-hidden /> : <SkipForwardIcon aria-hidden />}
         resolved
         title={captcha ? t("aiElements.login.captchaTitle", { site }) : t("aiElements.login.loginTitle", { site })}
       />
     );
   }
+  const body = captcha ? t("ownerWait.handoff.captchaBody", { site }) : t("ownerWait.handoff.body", { site });
   return (
-    <RequestCard
-      actions={
-        <>
-          <Button className={REQUEST_PRIMARY_CLASS} disabled={!canOpenViewer} onClick={onOpenViewer} size="sm" type="button">
-            {t("aiElements.login.openVm")}
-          </Button>
-          <ButtonGroup aria-label={t("ownerWait.handoffActions")}>
-            <Button onClick={onSkip} size="sm" type="button" variant="secondary">
-              {t("ownerWait.skip")}
+    <div className="flex min-w-0 flex-col gap-2" data-owner-card="handoff">
+      <RequestCard
+        actions={
+          <>
+            <Button className={REQUEST_PRIMARY_CLASS} onClick={onTakeover} size="sm" type="button">
+              {t("ownerWait.takeover")}
             </Button>
             <Button onClick={onDone} size="sm" type="button" variant="secondary">
               {t("ownerWait.done")}
             </Button>
-            <Button onClick={onTakeover} size="sm" type="button" variant="secondary">
-              {t("ownerWait.takeover")}
+            <Button onClick={onSkip} size="sm" type="button" variant="secondary">
+              {t("ownerWait.skip")}
             </Button>
-          </ButtonGroup>
-        </>
-      }
-      badge={{ tone: "pending", label: t("aiElements.login.needsYou") }}
-      data-owner-card="handoff"
-      description={captcha ? t("aiElements.login.captchaHelp") : vaultTried ? t("aiElements.login.triedHelp", { tried: vaultTried }) : t("aiElements.login.loginHelp")}
-      leading={captcha ? <ShieldQuestionIcon aria-label={t("aiElements.login.captchaNeeded")} /> : <LogInIcon aria-label={t("aiElements.login.loginNeeded")} />}
-      note={
-        deadline ? (
-          <span className="inline-flex items-center gap-1" data-slot="owner-wait-deadline">
-            <ClockIcon aria-hidden className="size-3.5" />
-            {deadline}
-          </span>
-        ) : undefined
-      }
-      title={captcha ? t("aiElements.login.captchaTitle", { site }) : t("aiElements.login.loginTitle", { site })}
-    />
+          </>
+        }
+        trailing={
+          !screenshotUrl && canOpenViewer ? (
+            <Button onClick={onOpenViewer} size="sm" type="button" variant="ghost">
+              <MonitorIcon aria-hidden /> {t("ownerWait.handoff.preview")}
+            </Button>
+          ) : undefined
+        }
+        badge={{ tone: "pending", label: t("aiElements.login.needsYou") }}
+        description={body}
+        label={t("ownerWait.handoff.label")}
+        leading={captcha ? <ShieldQuestionIcon aria-hidden /> : <LaptopIcon aria-hidden />}
+        note={
+          deadline ? (
+            <span className="inline-flex items-center gap-1" data-slot="owner-wait-deadline">
+              <ClockIcon aria-hidden className="size-3.5" />
+              {deadline}
+            </span>
+          ) : undefined
+        }
+        title={t("ownerWait.handoff.title")}
+      >
+        {screenshotUrl ? (
+          <button
+            aria-label={t("ownerWait.handoff.preview")}
+            className="block w-full overflow-hidden rounded-card border border-border/60 bg-muted outline-none focus-visible:ring-3 focus-visible:ring-ring/30 disabled:cursor-default"
+            data-slot="handoff-preview"
+            disabled={!canOpenViewer}
+            onClick={onOpenViewer}
+            type="button"
+          >
+            {/* Última captura da VM (a prévia ao vivo fica para o próximo PR). */}
+            <img alt={t("ownerWait.handoff.previewAlt")} className="block aspect-video w-full object-cover object-top" loading="lazy" src={screenshotUrl} />
+          </button>
+        ) : null}
+      </RequestCard>
+      <p className="m-0 flex items-start gap-2 px-5 text-caption text-muted-foreground" data-slot="handoff-note">
+        <ShieldCheckIcon aria-hidden className="mt-px size-3.5 shrink-0" />
+        <span>{t("ownerWait.handoff.note")}</span>
+      </p>
+    </div>
   );
 }

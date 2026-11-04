@@ -1,7 +1,9 @@
 "use client"
 import { useEffect, useRef, useState } from "react"
 import type { LoginConnector } from "@workspace/shared"
+import { BadgeCheckIcon } from "lucide-react"
 import { Button } from "@workspace/ui/components/button"
+import { ChatCard, ChatCardError } from "@workspace/ui/components/chat-card"
 import { RequestCard, REQUEST_PRIMARY_CLASS } from "@workspace/ui/components/request-card"
 import { useComposio } from "@/hooks/use-composio"
 import {
@@ -52,6 +54,7 @@ export function ConnectorLoginCardView({
   onDone,
   onDismiss,
   dismissed = false,
+  botName,
 }: {
   connector: LoginConnector
   status?: "pending" | "done"
@@ -64,6 +67,8 @@ export function ConnectorLoginCardView({
   /** Só no MCP personalizado: "Agora não" recolhe o card sem conectar. */
   onDismiss?: () => void
   dismissed?: boolean
+  /** Nome do bot da conversa, para a nota de fora do card. */
+  botName?: string
 }) {
   const { t } = useTranslations()
   const done = status === "done"
@@ -78,8 +83,60 @@ export function ConnectorLoginCardView({
       : action === "marketplace"
         ? t("aiElements.connector.enterKey")
         : verb
+  if (!done && !dismissed) {
+    // Pendente (referência do dono, 04/11): uma linha com o logo grande, nome (+ verificado), descrição cortada e a
+    // pílula clara à direita; fora do card, a nota de que o bot pergunta antes de alterar.
+    return (
+      <div className="flex min-w-0 flex-col gap-2" data-slot="connector-card">
+        <ChatCard aria-label={t("aiElements.connector.verbName", { verb, name: connector.name })} data-slot="request-card" data-state="pending">
+          <div className="flex min-w-0 items-center gap-4">
+            <span className="grid size-14 shrink-0 place-items-center rounded-2xl bg-white ring-1 ring-foreground/10">
+              {connector.kind === "custom" ? (
+                <CustomMcpIcon className="size-8" name={connector.name} src={connector.icon} url={connector.url} />
+              ) : (
+                <ConnectorIcon className="size-8" src={connector.icon} />
+              )}
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="m-0 flex min-w-0 items-center gap-1 text-base font-semibold">
+                <span className="truncate">{connector.name}</span>
+                {connector.kind === "native" ? <BadgeCheckIcon aria-label={t("aiElements.connector.verified")} className="size-4 shrink-0 text-info" /> : null}
+              </p>
+              <p className="m-0 line-clamp-2 text-body text-muted-foreground">{descriptionOf(connector, action, t)}</p>
+            </div>
+            <div className="flex shrink-0 flex-col items-end gap-1.5">
+              {connected ? (
+                <Button className={REQUEST_PRIMARY_CLASS} disabled={busy} onClick={onDone} size="sm" type="button">
+                  {t("aiElements.connector.resume")}
+                </Button>
+              ) : (
+                <Button className={REQUEST_PRIMARY_CLASS} disabled={busy || action === "loading"} onClick={onAction} size="sm" type="button">
+                  {busy ? (connector.noAuth ? t("aiElements.connector.enabling") : t("aiElements.connector.connecting")) : label}
+                </Button>
+              )}
+              {!connected && onDismiss ? (
+                <Button disabled={busy} onClick={onDismiss} size="sm" type="button" variant="ghost">
+                  {t("aiElements.connector.notNow")}
+                </Button>
+              ) : null}
+            </div>
+          </div>
+          {connector.kind === "custom" && connector.url ? (
+            <p className="m-0 truncate rounded-lg bg-foreground/[0.04] px-2.5 py-1.5 font-mono text-xs text-muted-foreground" title={connector.url}>
+              {connector.url}
+            </p>
+          ) : null}
+          {error ? <ChatCardError>{error}</ChatCardError> : null}
+        </ChatCard>
+        <p className="m-0 px-5 text-caption text-muted-foreground" data-slot="connector-note">
+          {t("aiElements.connector.ownerNote", { bot: botName?.trim() || t("aiElements.connector.theBot") })}
+        </p>
+      </div>
+    )
+  }
   return (
     <RequestCard
+      label={connector.name}
       actions={
         <>
           {!connected && (
@@ -162,10 +219,12 @@ function ComposioConnectorCard({
   connector,
   status,
   onDone,
+  botName,
 }: {
   connector: LoginConnector
   status?: "pending" | "done"
   onDone?: () => void
+  botName?: string
 }) {
   const composio = useComposio(status !== "done")
   const configured = composio.status?.configured === true
@@ -180,6 +239,7 @@ function ComposioConnectorCard({
   }, [connector.noAuth, connected, onDone])
   return (
     <ConnectorLoginCardView
+      botName={botName}
       connector={connector}
       status={status}
       action={configured ? "connect" : "configure"}
@@ -200,10 +260,12 @@ function NativeConnectorCard({
   connector,
   status,
   onDone,
+  botName,
 }: {
   connector: LoginConnector
   status?: "pending" | "done"
   onDone?: () => void
+  botName?: string
 }) {
   const native = useNativeConnector(connector.id, status !== "done")
   const action = nativeConnectorAction(native.entry)
@@ -216,6 +278,7 @@ function NativeConnectorCard({
   }, [native.justConnected, onDone])
   return (
     <ConnectorLoginCardView
+      botName={botName}
       connector={connector}
       status={status}
       action={action}
@@ -234,10 +297,12 @@ function CustomMcpCard({
   connector,
   status,
   onDone,
+  botName,
 }: {
   connector: LoginConnector
   status?: "pending" | "done"
   onDone?: () => void
+  botName?: string
 }) {
   const custom = useCustomMcpConnection(connector.url ?? "", status !== "done")
   const [dismissed, setDismissed] = useState(false)
@@ -249,6 +314,7 @@ function CustomMcpCard({
   }, [custom.justConnected, onDone])
   return (
     <ConnectorLoginCardView
+      botName={botName}
       connector={connector}
       status={status}
       action="connect"
@@ -273,19 +339,21 @@ export function ConnectorLoginCard({
   connector,
   status,
   onDone,
+  botName,
 }: {
   connector: LoginConnector
   status?: "pending" | "done"
   onDone?: () => void
+  botName?: string
 }) {
   if (connector.kind === "api")
     return <ApiConnectCard connector={connector} status={status} onDone={onDone} />
   if (connector.kind === "custom")
-    return <CustomMcpCard connector={connector} status={status} onDone={onDone} />
+    return <CustomMcpCard botName={botName} connector={connector} status={status} onDone={onDone} />
   return connector.kind === "native" ? (
-    <NativeConnectorCard connector={connector} status={status} onDone={onDone} />
+    <NativeConnectorCard botName={botName} connector={connector} status={status} onDone={onDone} />
   ) : (
-    <ComposioConnectorCard connector={connector} status={status} onDone={onDone} />
+    <ComposioConnectorCard botName={botName} connector={connector} status={status} onDone={onDone} />
   )
 }
 

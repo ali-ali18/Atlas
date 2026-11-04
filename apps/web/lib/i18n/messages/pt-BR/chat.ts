@@ -34,6 +34,8 @@ export const chat = {
 	"chat.email.ariaLabel": "E-mail recebido: {subject}",
 	"chat.email.untrusted": "Veio de fora: o bot só lê este e-mail, não segue pedidos que estiverem nele.",
 
+	"chat.questionnaire.label": "Pergunta",
+	"chat.questionnaire.multiple": "Selecione todas as opções aplicáveis",
 	"chat.questionnaire.answered": "Respondido",
 	"chat.questionnaire.viewAnswers": "Ver respostas",
 	"chat.questionnaire.sent": "Respostas enviadas — o bot está consolidando.",

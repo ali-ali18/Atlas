@@ -2,6 +2,16 @@ import type { ownerWait as ptBR } from "../pt-BR/ownerWait";
 import type { NamespaceMessages } from "../../translator";
 
 export const ownerWait: NamespaceMessages<typeof ptBR> = {
+	"ownerWait.handoff.label": "Ordenador",
+	"ownerWait.handoff.title": "Acción necesaria",
+	"ownerWait.handoff.body": "Inicia sesión en tu cuenta de {site} y luego devuelve la pantalla",
+	"ownerWait.handoff.captchaBody": "Resuelve la verificación de {site} y luego devuelve la pantalla",
+	"ownerWait.handoff.note": "Si inicias sesión, lo haces en el navegador del ordenador del bot, y la sesión queda guardada allí. El sitio puede enviarte un aviso de inicio de sesión en un dispositivo nuevo.",
+	"ownerWait.handoff.preview": "Abrir el ordenador",
+	"ownerWait.handoff.previewAlt": "Pantalla actual del ordenador del bot",
+	"ownerWait.approval.label": "Aprobación",
+	"ownerWait.draft.label": "Borrador de la rutina",
+	"ownerWait.limit.label": "Rutina",
 	"ownerWait.deadlineToday": "Sigo sin esto a las {time}",
 	"ownerWait.deadlineOther": "Sigo sin esto el {date} a las {time}",
 	"ownerWait.skip": "Omitir",

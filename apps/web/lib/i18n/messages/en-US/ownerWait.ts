@@ -2,6 +2,16 @@ import type { ownerWait as ptBR } from "../pt-BR/ownerWait";
 import type { NamespaceMessages } from "../../translator";
 
 export const ownerWait: NamespaceMessages<typeof ptBR> = {
+	"ownerWait.handoff.label": "Computer",
+	"ownerWait.handoff.title": "Action needed",
+	"ownerWait.handoff.body": "Sign in to your {site} account, then hand the screen back",
+	"ownerWait.handoff.captchaBody": "Solve the {site} check, then hand the screen back",
+	"ownerWait.handoff.note": "If you sign in, you do it in the browser on the bot's computer, and the session stays signed in there. The site may send you a new-device sign-in alert.",
+	"ownerWait.handoff.preview": "Open the computer",
+	"ownerWait.handoff.previewAlt": "Current screen of the bot's computer",
+	"ownerWait.approval.label": "Approval",
+	"ownerWait.draft.label": "Routine draft",
+	"ownerWait.limit.label": "Routine",
 	"ownerWait.deadlineToday": "I'll go on without it at {time}",
 	"ownerWait.deadlineOther": "I'll go on without it on {date} at {time}",
 	"ownerWait.skip": "Skip",

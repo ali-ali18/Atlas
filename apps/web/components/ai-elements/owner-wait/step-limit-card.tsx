@@ -54,6 +54,7 @@ export function StepLimitCard({ title, description, progress, status, disabled, 
 			}
 			badge={resolved ? (continued ? { tone: "success", label: t("ownerWait.limit.continued") } : { tone: "muted", label: t("ownerWait.limit.stopped") }) : { tone: "pending", label: t("chat.questionnaire.needsYou") }}
 			data-owner-card="step-limit"
+			label={t("ownerWait.limit.label")}
 			description={resolved ? (continued ? t("ownerWait.limit.continuedBody") : t("ownerWait.limit.stoppedBody")) : description}
 			leading={resolved ? continued ? <CheckIcon aria-hidden /> : <SquareIcon aria-hidden /> : <GaugeIcon aria-hidden />}
 			resolved={resolved}

@@ -23,8 +23,8 @@ test("no fio: uma linha 'Tarefas · 5/5 concluídas', recolhida, na casca padrã
 	assert.match(html, /Ver tudo \(3\)/);
 	assert.match(html, /aria-expanded="false"/);
 	assert.doesNotMatch(html, /Enviar o resumo/);
-	assert.match(html, /rounded-2xl[^"]*bg-muted\/60|bg-muted\/60[^"]*rounded-2xl/);
-	assert.doesNotMatch(html, /border-border/);
+	// Casca nova (04/11): raio grande, borda fina e fundo uniforme.
+	assert.match(html, /rounded-card-lg border border-border\/60 bg-card/);
 });
 
 test("lista vazia não renderiza nada", () => {

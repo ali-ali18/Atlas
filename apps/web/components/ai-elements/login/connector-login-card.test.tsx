@@ -56,7 +56,18 @@ test("card nativo mostra ícone, nome, descrição e o botão Conectar", () => {
   assert.match(html, /Repositórios, issues e pull requests\./)
   assert.match(html, />Conectar<\/button>/)
   assert.doesNotMatch(html, /Abrir a VM/)
-  assert.match(html, /disabled=""[^>]*>Retomar tarefa/)
+  // Molde da referência (04/11): uma linha com logo grande, verificado e a pílula clara; nota fora do card.
+  assert.match(html, /size-14[^"]*rounded-2xl bg-white/)
+  assert.match(html, /aria-label="Verificado"/)
+  assert.match(html, /bg-foreground text-background[^>]*>Conectar</)
+  assert.match(html, /data-slot="connector-note"[^>]*>O bot sempre pergunta antes de fazer alterações\. Desconecte quando quiser\./)
+  // "Retomar tarefa" só aparece depois de conectar (no lugar de Conectar).
+  assert.doesNotMatch(html, /Retomar tarefa/)
+})
+
+test("a nota usa o nome do bot do Atlas", () => {
+  const html = renderToStaticMarkup(<ConnectorLoginCardView action="connect" botName="Nova" busy={false} connected={false} connector={github} onAction={() => undefined} />)
+  assert.match(html, />Nova sempre pergunta antes de fazer alterações/)
 })
 
 test("conector desconectado mostra Reconectar", () => {
@@ -96,6 +107,7 @@ test("ícone inválido cai no ícone padrão e card antigo sem dados continua ab
 })
 
 test("retomada só libera após a conexão; concluído não mostra botões", () => {
+  assert.match(view(github, { connected: true }), />Retomar tarefa<\/button>/)
   assert.doesNotMatch(view(github, { connected: true }), /disabled=""[^>]*>Retomar tarefa/)
   const done = view(github, { status: "done" })
   assert.match(done, /GitHub conectado/)

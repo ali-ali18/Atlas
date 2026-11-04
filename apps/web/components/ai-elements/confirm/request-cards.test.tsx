@@ -11,7 +11,7 @@ Object.assign(globalThis, { React });
 
 const html = (node: React.ReactElement) => renderToStaticMarkup(node);
 
-test("casca: cabeçalho com selo, ações com a primária primeiro e terciária à direita", () => {
+test("casca nova (04/11): raio grande, borda fina, título em linha própria; terciária à esquerda e a primária na ponta direita", () => {
 	const out = html(
 		<RequestCard
 			actions={<button type="button">Permitir uma vez</button>}
@@ -24,8 +24,12 @@ test("casca: cabeçalho com selo, ações com a primária primeiro e terciária 
 	);
 	assert.match(out, /data-slot="request-card"[^>]*data-state="pending"/);
 	assert.match(out, /data-tone="pending"[^>]*>Precisa de você</);
-	assert.ok(out.indexOf("Permitir uma vez") < out.indexOf("Negar"), "primária antes da terciária");
-	assert.match(out, /ml-auto/);
+	assert.ok(out.indexOf("Negar") < out.indexOf("Permitir uma vez"), "terciária à esquerda, primária na ponta");
+	assert.match(out, /rounded-card-lg border border-border\/60/);
+	assert.match(out, /data-slot="chat-card-icon"/);
+	// O título nunca divide a linha com o selo: fica fora da linha do ícone/selo.
+	const top = out.slice(out.indexOf('data-slot="chat-card-header"'), out.indexOf('data-slot="chat-card-title"'));
+	assert.match(top, /Precisa de você/);
 });
 
 test("casca resolvida: sem barra de ações e corpo recolhido atrás do detalhe", () => {
@@ -49,17 +53,19 @@ test("casca resolvida: sem barra de ações e corpo recolhido atrás do detalhe"
 test("confirmação pendente: confirmar antes de recusar; decidida só mostra o selo", () => {
 	const pending = html(<ConfirmCard title="Enviar e-mail?" confirmLabel="Enviar" cancelLabel="Cancelar" onAlways={() => {}} alwaysLabel="Sempre" />);
 	assert.match(pending, /Precisa de você/);
-	assert.ok(pending.indexOf(">Enviar<") < pending.indexOf(">Sempre<"));
-	assert.ok(pending.indexOf(">Sempre<") < pending.indexOf(">Cancelar<"));
+	// Visual (e foco) da esquerda para a direita: Cancelar (terciária) · Sempre · Enviar (principal na ponta).
+	assert.ok(pending.indexOf(">Cancelar<") < pending.indexOf(">Sempre<"));
+	assert.ok(pending.indexOf(">Sempre<") < pending.indexOf(">Enviar<"));
 	const done = html(<ConfirmCard title="Enviar e-mail?" status="approved" />);
 	assert.match(done, />Aprovado</);
+	assert.doesNotMatch(done, /rounded-full px-2 py-0\.5[^"]*bg-success/, "decidido: estado em texto muted, sem pílula colorida");
 	assert.doesNotMatch(done, /<button/);
 });
 
 test("login/captcha: Abrir a VM primeiro, Terminei depois; concluído sem botões", () => {
 	const pending = html(<LoginCard site="exemplo.com" />);
 	assert.match(pending, /Preciso que você faça login em exemplo\.com/);
-	assert.ok(pending.indexOf(">Abrir a VM<") < pending.indexOf(">Terminei<"));
+	assert.ok(pending.indexOf(">Terminei<") < pending.indexOf(">Abrir a VM<"), "a principal fica na ponta direita");
 	assert.match(html(<LoginCard site="exemplo.com" reason="captcha" />), /pediu uma verificação/);
 	const done = html(<LoginCard site="exemplo.com" status="done" />);
 	assert.match(done, />Concluído</);
@@ -70,7 +76,7 @@ test("login com Cofre: Entrar primeiro, Eu faço depois; sem 'Abrir a VM' nem at
 	const vault = { name: "chatgpt", label: "ChatGPT", username: "ana@exemplo.com", domain: "chatgpt.com" };
 	const pending = html(<LoginCard site="chatgpt.com" vault={vault} onSaveToVault={() => {}} />);
 	assert.match(pending, /Entrar em chatgpt.com com o login do Cofre (ana@exemplo.com)?/);
-	assert.ok(pending.indexOf(">Entrar<") < pending.indexOf(">Eu faço<"));
+	assert.ok(pending.indexOf(">Eu faço<") < pending.indexOf(">Entrar<"), "Entrar, a principal, na ponta direita");
 	assert.doesNotMatch(pending, /Abrir a VM|login-save-to-vault/);
 	assert.doesNotMatch(pending, /senha[^<]*ana@/);
 });
@@ -82,7 +88,7 @@ test("login sem Cofre: atalho para salvar um login; com passo extra explica o qu
 	assert.doesNotMatch(html(<LoginCard site="chatgpt.com" reason="captcha" onSaveToVault={() => {}} />), /Salvar um login/);
 	const tried = html(<LoginCard site="chatgpt.com" vaultTried="Usei o login do Cofre, mas o site pediu mais um passo." onSaveToVault={() => {}} />);
 	assert.match(tried, /Usei o login do Cofre, mas o site pediu mais um passo./);
-	assert.ok(tried.indexOf(">Abrir a VM<") < tried.indexOf(">Terminei<"));
+	assert.ok(tried.indexOf(">Terminei<") < tried.indexOf(">Abrir a VM<"));
 	assert.doesNotMatch(tried, /Salvar um login/);
 });
 
@@ -93,7 +99,7 @@ test("login: com e-mail conectado o cartão do cofre avisa; campo de código no 
 	const field = html(<LoginCard site="chatgpt.com" codeField onSubmitCode={() => {}} vaultTried="Digite o código que chegou no seu e-mail." />);
 	assert.match(field, /data-slot="login-code-input"/);
 	assert.match(field, /autoComplete="one-time-code"|autocomplete="one-time-code"/);
-	assert.ok(field.indexOf(">Enviar código<") < field.indexOf(">Abrir a VM<"));
+	assert.ok(field.indexOf(">Abrir a VM<") < field.indexOf(">Enviar código<"));
 	assert.doesNotMatch(html(<LoginCard site="chatgpt.com" />), /login-code-input/);
 	assert.doesNotMatch(html(<LoginCard site="chatgpt.com" codeField status="done" />), /login-code-input/);
 });
@@ -124,13 +130,13 @@ test("questionário: pendente tem selo e dispensar; respondido recolhe as respos
 	assert.doesNotMatch(answered, /Opção X/);
 });
 
-test("ação primária dos cards usa a cor de destaque do bot (var --bot-accent)", () => {
+test("ação primária dos cards é a pílula clara (o inverso do fundo), como na referência do dono", () => {
 	const confirm = html(<ConfirmCard title="Aprovar" confirmLabel="Confirmar" onConfirm={() => {}} onCancel={() => {}} />);
-	assert.match(confirm, /class="[^"]*bg-\(--bot-accent,var\(--primary\)\)[^"]*"[^>]*>Confirmar/);
+	assert.match(confirm, /class="[^"]*bg-foreground text-background[^"]*"[^>]*>Confirmar/);
 	const destructive = html(<ConfirmCard title="Apagar" destructive confirmLabel="Apagar" onConfirm={() => {}} onCancel={() => {}} />);
-	assert.doesNotMatch(destructive, /--bot-accent/);
+	assert.doesNotMatch(destructive, /bg-foreground text-background/);
 	const login = html(<LoginCard site="exemplo.com" onDone={() => {}} onOpenViewer={() => {}} />);
-	assert.match(login, /--bot-accent[^>]*>Abrir a VM/);
+	assert.match(login, /bg-foreground text-background[^>]*>Abrir a VM/);
 });
 
 test("cartão do GitHub: repositório fora do app oferece só instalar o app e Pronto (nunca a conta do usuário)", async () => {

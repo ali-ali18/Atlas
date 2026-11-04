@@ -45,7 +45,6 @@ const BASELINE: Record<string, Counts> = {
 	"apps/web/components/ui/templates/template-4/chat-thread/chat-add-menu.tsx": { textPx: 1 },
 	"apps/web/components/ui/templates/template-4/chat-thread/composer-image-attachments.tsx": { textPx: 2 },
 	"apps/web/components/ui/templates/template-4/chat-thread/mention-popup.tsx": { textPx: 1 },
-	"apps/web/components/ui/templates/template-4/chat-thread/questionnaire-card.tsx": { textPx: 1 },
 	"apps/web/components/ui/templates/template-4/marketplace/marketplace-page.tsx": { textPx: 1 },
 	"apps/web/components/ui/templates/template-4/primary-bot-badge.tsx": { hex: 2 },
 	"packages/ui/src/charts/area-value-labels.tsx": { textPx: 1 },

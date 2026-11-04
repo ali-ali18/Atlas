@@ -15,15 +15,17 @@ import {
 export type RequestTone = ChatCardTone;
 
 /**
- * Classes da ação primária do card: cor de destaque do bot (`--bot-accent`, definida
- * no contêiner do chat/card) com texto legível; sem cor cai no `primary` do tema.
+ * Classes da ação primária do card: pílula clara, o inverso do fundo (referência do dono, 04/11:
+ * "Autorizar", "Assumir", "Avançar"). A cor do bot fica para fora do card (composer, sugestões).
  */
 export const REQUEST_PRIMARY_CLASS =
-  "bg-(--bot-accent,var(--primary)) text-(--bot-accent-foreground,var(--primary-foreground)) hover:bg-(--bot-accent,var(--primary))/90";
+  "bg-foreground text-background hover:bg-foreground/90";
 
 export type RequestCardProps = Omit<React.ComponentProps<"section">, "title"> & {
-  /** Ícone ou avatar à esquerda do título (20px de altura). */
+  /** Ícone do cabeçalho (vai no quadradinho muted, ao lado do rótulo). */
   leading?: React.ReactNode;
+  /** Rótulo curto do tipo de cartão na linha de cima ("Computador", "Aprovação", "Pergunta"). */
+  label?: React.ReactNode;
   title: React.ReactNode;
   /** Selo do estado ("Precisa de você", "Permitido"...). */
   badge?: { tone: RequestTone; label: string };
@@ -55,6 +57,7 @@ export type RequestCardProps = Omit<React.ComponentProps<"section">, "title"> & 
  */
 function RequestCard({
   leading,
+  label,
   title,
   badge,
   description,
@@ -80,6 +83,7 @@ function RequestCard({
       <ChatCardHeader
         action={headerAction}
         badge={badge}
+        label={label}
         leading={leading}
         title={title}
       />

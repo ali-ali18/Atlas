@@ -45,7 +45,8 @@ export function OwnerApprovalCard({ variant, title, description, deadlineAt, dis
 					</Button>
 				</>
 			}
-			badge={draft ? { tone: "info", label: t("ownerWait.draft.badge") } : { tone: "pending", label: t("chat.questionnaire.needsYou") }}
+			badge={{ tone: "pending", label: t("chat.questionnaire.needsYou") }}
+			label={draft ? t("ownerWait.draft.label") : t("ownerWait.approval.label")}
 			data-owner-card={variant}
 			description={draft ? t("ownerWait.draft.intro") : undefined}
 			leading={draft ? <FilePenLineIcon aria-hidden /> : <ShieldAlertIcon aria-hidden />}

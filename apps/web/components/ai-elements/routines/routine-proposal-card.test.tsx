@@ -23,14 +23,13 @@ test("Sugerir pendente: pergunta com a agenda, Criar primeiro e Agora não à di
 	assert.match(out, /data-slot="request-card"[^>]*data-state="pending"/);
 	assert.match(out, /Quer que eu faça “Resumo da semana” toda segunda às 8h\?/);
 	assert.match(out, /data-tone="pending"[^>]*>Sugestão</);
-	assert.ok(out.indexOf(">Criar<") < out.indexOf(">Agora não<"));
-	assert.match(out, /ml-auto/);
+	assert.ok(out.indexOf(">Agora não<") < out.indexOf(">Criar<"), "Agora não à esquerda; Criar, a principal, na ponta direita");
 });
 
 test("Automático pendente: 'Criei a rotina … — manter?' com Manter e Desfazer", () => {
 	const out = html({ ...base, mode: "auto", routineId: "r1" });
 	assert.match(out, /Criei a rotina “Resumo da semana” — manter\?/);
-	assert.ok(out.indexOf(">Manter<") < out.indexOf(">Desfazer<"));
+	assert.ok(out.indexOf(">Desfazer<") < out.indexOf(">Manter<"));
 	assert.match(out, /Roda toda segunda às 8h\./);
 });
 
