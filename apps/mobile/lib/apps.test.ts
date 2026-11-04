@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { appRouteParams, isSvgUri, resolveIconUri, type AppsRow, buildAppsRows, buildChips, composioAction, composioCategoryOf, composioWantsMore, connectedCountText, connectedItems, customAction, initialOf, isFeatured, mergeToolkits, nativeAction, appRefId, parseAppRef, type SectionsInput } from "./apps";
 import type { ComposioToolkit, NativeConnector } from "./apps-parse";
+import { applyPage, EMPTY_PAGING, MAX_ITEMS } from "./composio-paging";
 import type { CatalogBot } from "./catalog";
 
 const native = (over: Partial<NativeConnector> & { id: string }): NativeConnector => ({ name: over.id.toUpperCase(), description: `desc ${over.id}`, longDescription: "", category: "productivity", icon: null, authType: "oauth", comingSoon: false, apiKey: null, skills: [], oauthReady: true, connectionId: null, status: null, accountCount: 0, ...over });
@@ -219,5 +220,19 @@ describe("pequenos auxiliares", () => {
 	});
 	it("mergeToolkits não repete app", () => {
 		expect(mergeToolkits([toolkit("a"), toolkit("b")], [toolkit("b"), toolkit("c")]).map((item) => item.slug)).toEqual(["a", "b", "c"]);
+	});
+});
+
+describe("chegada de uma página enorme do Composio (servidor que ignora limit=20)", () => {
+	it("1700 itens viram poucas linhas e o trabalho da tela não cresce com o catálogo", () => {
+		const huge = { items: Array.from({ length: 1700 }, (_, index) => toolkit(`app-${index}`)), nextCursor: "c1", totalItems: 1700 };
+		const started = performance.now();
+		const paging = applyPage(EMPTY_PAGING, huge, null);
+		const rows = buildAppsRows(base({ composio: { status: "ready", items: paging.items, hasMore: !paging.done, loadingMore: false } }));
+		const elapsed = performance.now() - started;
+		expect(paging.items.length).toBeLessThanOrEqual(MAX_ITEMS);
+		expect(appKeys(rows).filter((key) => key.startsWith("c:")).length).toBeLessThanOrEqual(MAX_ITEMS);
+		expect(rows.length).toBeLessThan(MAX_ITEMS + 40);
+		expect(elapsed).toBeLessThan(200);
 	});
 });
