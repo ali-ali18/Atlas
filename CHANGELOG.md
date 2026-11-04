@@ -5,6 +5,7 @@ Todas as mudanças relevantes do Atlas. Formato [Keep a Changelog](https://keepa
 ## [Não lançado]
 
 ### Adicionado
+- **mobile:** ditado por voz no composer com o reconhecimento nativo do aparelho (`expo-speech-recognition`, sem servidor). O microfone troca o composer por uma barra de voz: X cancela, o meio mostra o texto ao vivo ("Ouvindo…" enquanto nada chegou), o quadrado para e leva o texto ao campo para revisar, a seta para e envia. Silêncio de 2 s encerra como "revisar" (mesmos limites do web: 6 s sem fala desiste, teto de 2 min). Idioma do aparelho (fallback pt-BR); no Expo Go o módulo não existe e o app só avisa "Voz disponível no app instalado". Precisa do APK novo.
 - **mobile, ci:** workflow `apk-android.yml` gera o APK Android no GitHub Actions (`eas build --local`, sem fila nem cota do EAS): tag `apk-*` publica Release com o APK, "Run workflow" deixa artifact (14 dias). Exige o secret `EXPO_TOKEN`. Ver `docs/features/apk-android-ci.md`.
 
 ### Corrigido

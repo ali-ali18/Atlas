@@ -1,15 +1,18 @@
 import { parseCompactCommand } from "@workspace/shared";
 import * as React from "react";
-import { LayoutAnimation, Platform, Pressable, TextInput, useWindowDimensions, View } from "react-native";
+import { LayoutAnimation, Linking, Platform, Pressable, TextInput, useWindowDimensions, View } from "react-native";
 import { useReducedMotion } from "react-native-reanimated";
 
 import type { ReplyQuote } from "@/lib/chat-types";
+import { DictationBar } from "./dictation-bar";
 import { MARKER_HEIGHT, MarkerChip } from "./marker-chip";
 import { MentionPopup } from "./mention-popup";
 import { ReplyChip } from "./reply-chip";
 import { ArrowUpIcon, MicIcon, PlusIcon, StopIcon, WaveformIcon } from "@/components/icons";
 import { Text } from "@/components/ui/text";
 import { addMarker, adoptLeadingMarkers, composeMessage, fieldMaxLength, fieldOffset, fieldValue, hasContent, readFieldChange, removeMarker, skillsFull, splitLeadingMarkers, type Marker } from "@/lib/composer-markers";
+import { problemNotice, resolveDictation, type DictationOutcome, type DictationProblem } from "@/lib/dictation";
+import { useDictation } from "@/lib/use-dictation";
 import { applyPick, composerCommands, removeTrigger, triggerState, type BotCandidate, type SkillCandidate, type TriggerState } from "@/lib/mention-input";
 import { pillAccessibilityLabel, type ModelPill } from "@/lib/model-pill";
 import { themeColor } from "@/lib/theme";
@@ -27,6 +30,23 @@ const STACKED_INSET = 10;
 const PILL_RADIUS = 28;
 const NO_BOTS: readonly BotCandidate[] = [];
 const STACKED_RADIUS = 24;
+
+/** Aviso do ditado (sem módulo, sem serviço de voz, permissão negada), acima do composer; permissão negada leva às configurações. */
+function DictationNotice({ problem }: { problem: DictationProblem }) {
+	const notice = problemNotice(problem);
+	return (
+		<View className="flex-row flex-wrap items-center gap-x-2 px-3" accessibilityLiveRegion="polite">
+			<Text variant="muted" className="text-body">
+				{notice.message}
+			</Text>
+			{notice.settings ? (
+				<Pressable role="link" accessibilityLabel="Abrir as configurações" onPress={() => void Linking.openSettings()} className="active:opacity-70">
+					<Text className="text-body text-info underline">Abrir configurações</Text>
+				</Pressable>
+			) : null}
+		</View>
+	);
+}
 
 type ComposerProps = {
 	/** Texto que o campo já abre preenchido (ex.: "Quero mudar a rotina …: " vindo da tela de Rotinas). */
@@ -70,7 +90,7 @@ type ComposerProps = {
  * Composer da referência: uma pílula só, numa linha ("+" num círculo, o campo "Perguntar a <bot>", o microfone num
  * círculo cinza e, colado nele, o círculo na cor do bot). O campo cresce quando o texto quebra e os botões ficam na
  * base. O botão da cor do bot é "enviar" com texto, "parar" durante o run (sem texto) e, parado e vazio, as ondas de
- * voz. Microfone e voz ainda são "em breve".
+ * voz. O microfone dita por voz (barra de voz no lugar do composer, `dictation-bar.tsx`); o modo de voz (ondas) ainda é "em breve".
  *
  * Estrutura e borda como no `chat-composer` do web: uma View só, com `chromeEdge` e `chromeFill` (lib/surfaces.ts), colada na
  * pílula (sem respiro nem wrapper), com o raio total direto nela, nos dois formatos (pílula e retângulo).
@@ -182,6 +202,38 @@ export function Composer({ initialText, botName, color, foreground, running, onS
 		setStacked(false);
 		baseline.current = null;
 	};
+	// Ditado: o falado entra no campo (somado ao que havia) para revisar, ou segue direto para o envio; cancelar não mexe no campo.
+	// `latest` guarda o estado de agora para o callback do controlador, que vive além de um render.
+	const latest = React.useRef({ text, markers });
+	latest.current = { text, markers };
+	const [dictationNotice, setDictationNotice] = React.useState<DictationProblem | null>(null);
+	const onDictationFinish = ({ outcome, spoken }: { outcome: DictationOutcome; spoken: string }) => {
+		const now = latest.current;
+		const result = resolveDictation(outcome, now.text, spoken, fieldMaxLength(now.markers));
+		if (outcome === "cancel") return;
+		if (result.send) {
+			onSend(composeMessage(now.markers, result.text));
+			clearField();
+			return;
+		}
+		if (result.text === now.text) return;
+		animate();
+		setText(result.text);
+		forceCaret(result.text.length, now.markers.length);
+		inputRef.current?.focus();
+	};
+	const dictation = useDictation({ onFinish: onDictationFinish, onProblem: setDictationNotice });
+	const dictating = dictation.phase !== "idle";
+	React.useEffect(() => {
+		if (!dictationNotice) return;
+		const timer = setTimeout(() => setDictationNotice(null), 8000);
+		return () => clearTimeout(timer);
+	}, [dictationNotice]);
+	const startDictation = () => {
+		setDictationNotice(null);
+		inputRef.current?.blur();
+		dictation.start();
+	};
 	const press = () => {
 		if (mode === "send") {
 			// `/compact [foco]` escrito à mão também é o comando (como no web); com o bot respondendo segue como texto.
@@ -228,15 +280,20 @@ export function Composer({ initialText, botName, color, foreground, running, onS
 	return (
 		<View className="mb-2 gap-2" style={{ marginHorizontal: 19.5 }}>
 			{trigger ? <MentionPopup state={trigger} loading={skillsLoading} failed={skillsFailed} limitReached={skillLimit} onRetry={onSlash} onPick={pick} onPressChange={(down) => { pressing.current = down; }} commandBusy={running} /> : null}
-			<View className="overflow-hidden border" style={{ borderRadius: open || replyTo ? STACKED_RADIUS : PILL_RADIUS, borderColor: surfaces.chromeEdge, backgroundColor: surfaces.chromeFill }}>
+			{dictationNotice ? <DictationNotice problem={dictationNotice} /> : null}
+			<View className="overflow-hidden border" style={{ borderRadius: (open || replyTo) && !dictating ? STACKED_RADIUS : PILL_RADIUS, borderColor: surfaces.chromeEdge, backgroundColor: surfaces.chromeFill }}>
 				{replyTo && onCancelReply ? <ReplyChip quote={replyTo} onCancel={onCancelReply} /> : null}
+				{dictating ? (
+					<DictationBar spoken={dictation.spoken} level={dictation.level} color={color} foreground={onColor} busy={dictation.phase === "stopping"} onCancel={dictation.cancel} onStop={() => dictation.stop("review")} onSend={() => dictation.stop("send")} />
+				) : null}
 				{/*
 				  Um só TextInput nos dois formatos (assim o foco e o teclado não se perdem na troca). Os botões ficam sempre
 				  em posição absoluta na base: com uma linha o campo fica entre eles (pílula); quando o texto quebra, o campo
 				  ocupa a largura toda e reserva uma faixa embaixo para a linha de botões ("+" à esquerda, microfone e botão
 				  da cor do bot à direita), como nas referências do dono.
 				*/}
-				<View style={{ paddingBottom: open ? BUTTON + STACKED_INSET * 2 : 0 }}>
+				{/* Escondido (não desmontado) durante o ditado: o campo e os marcadores ficam intactos até o desfecho. */}
+				<View style={{ paddingBottom: open ? BUTTON + STACKED_INSET * 2 : 0, ...(dictating ? { display: "none" } : null) }}>
 					{/*
 					  Os chips e o campo fluem na mesma linha, que quebra: o TextInput vem logo depois do último chip (`flex: 1` com largura
 					  mínima) e desce para a linha de baixo só quando não cabe. Sem chip é só o campo, como antes. A árvore é a mesma nos dois
@@ -354,7 +411,7 @@ export function Composer({ initialText, botName, color, foreground, running, onS
 						</View>
 						<View className="flex-row items-center gap-2">
 							
-							<Pressable role="button" accessibilityLabel="Microfone (em breve)" onPress={() => onSoon("voz")} style={{ width: BUTTON, height: BUTTON, backgroundColor: surfaces.chromeControl }} className="items-center justify-center rounded-full active:opacity-70">
+							<Pressable role="button" accessibilityLabel="Ditado por voz" onPress={startDictation} style={{ width: BUTTON, height: BUTTON, backgroundColor: surfaces.chromeControl }} className="items-center justify-center rounded-full active:opacity-70">
 								<MicIcon size={18} />
 							</Pressable>
 							<Pressable
