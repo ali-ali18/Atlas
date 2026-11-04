@@ -103,3 +103,34 @@ export async function getViewerSocket(apiFetch: ApiFetch, baseUrl: string, sessi
 	if (!socket) throw new ComputerApiError("bad-link", response.status);
 	return socket;
 }
+
+/** Tamanho máximo aceito para uma captura (a miniatura não precisa de mais; protege a memória do celular). */
+export const MAX_FRAME_BYTES = 6 * 1024 * 1024;
+
+/** Blob → `data:` URI (o `Image` do React Native lê assim, sem arquivo em disco). */
+function blobToDataUri(blob: Blob): Promise<string> {
+	return new Promise((resolve, reject) => {
+		const reader = new FileReader();
+		reader.onloadend = () => (typeof reader.result === "string" ? resolve(reader.result) : reject(new Error("leitura")));
+		reader.onerror = () => reject(new Error("leitura"));
+		reader.readAsDataURL(blob);
+	});
+}
+
+/**
+ * `GET /v1/sandbox/sessions/:id/screenshot` (`apps/api/src/routes/sandbox.ts`): uma captura PNG da tela da VM, sem abrir o
+ * viewer. É o que a miniatura do cartão "Computador" mostra. Devolve um `data:` URI. Recusa o que não for imagem ou
+ * passar de `MAX_FRAME_BYTES`. `toDataUri` é injetável nos testes.
+ */
+export async function getComputerFrame(apiFetch: ApiFetch, sessionId: string, toDataUri: (blob: Blob) => Promise<string> = blobToDataUri): Promise<string> {
+	const response = await call(apiFetch, `/v1/sandbox/sessions/${encodeURIComponent(sessionId)}/screenshot`, { headers: { accept: "image/png" } }, statusError);
+	if (!(response.headers.get("content-type") ?? "").startsWith("image/")) throw new ComputerApiError("unavailable", response.status);
+	let blob: Blob;
+	try {
+		blob = await response.blob();
+	} catch {
+		throw new ComputerApiError("network");
+	}
+	if (blob.size === 0 || blob.size > MAX_FRAME_BYTES) throw new ComputerApiError("unavailable", response.status);
+	return toDataUri(blob);
+}

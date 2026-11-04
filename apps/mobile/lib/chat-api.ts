@@ -98,7 +98,8 @@ export async function submitQuestionnaire(apiFetch: ApiFetch, input: { conversat
 	return { runId: typeof result.runId === "string" ? result.runId : null };
 }
 
-export type ResumeOptions = { via?: "vault" | "code"; code?: string };
+/** `via` ausente = "Terminei"; `skip` = Pular; `takeover` = Assumir (motor v3, `apps/api/src/routes/runs.ts`). */
+export type ResumeOptions = { via?: "vault" | "code" | "skip" | "takeover"; code?: string };
 
 /** `POST /v1/runs/:id/resume`, igual ao do web (`resumeAgentRun`): retoma o run parado no login. O código vai selado ao runtime, não ao modelo. */
 export async function resumeRun(apiFetch: ApiFetch, runId: string, options: ResumeOptions = {}): Promise<{ enqueued: boolean }> {

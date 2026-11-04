@@ -2,7 +2,8 @@
 // gravado ou evento ao vivo) ao que a tela desenha, e as decisões puras de cada um (botões, campos, desfecho).
 // Nada aqui toca em rede nem guarda valor digitado: a credencial e o segredo vivem só no campo e vão direto à API.
 import { registrableDomain, suggestSecretName, VAULT_ENVIRONMENT_ID, type LoginConnector, type LoginVaultOffer, type SecretsRequestInfo } from "@workspace/shared";
-import type { ChatItem, ConfirmStatus } from "./chat-types";
+import type { ResumeOptions } from "./chat-api";
+import type { ChatItem, ConfirmStatus, LoginOutcome } from "./chat-types";
 
 export type LoginItem = Extract<ChatItem, { kind: "login" }>;
 export type SecretsItem = Extract<ChatItem, { kind: "secrets" }>;
@@ -20,7 +21,25 @@ export type LoginFields = {
 	vault?: LoginVaultOffer;
 	vaultTried?: string;
 	codeField?: boolean;
+	/** Motor v3 (ver `docs/features/app-mobile.md`): como o dono respondeu, o prazo da espera (ISO) e o sinal "Pular · Terminei · Assumir". */
+	outcome?: unknown;
+	deadlineAt?: unknown;
+	ownerWait?: unknown;
 };
+
+const LOGIN_OUTCOMES: readonly string[] = ["done", "takeover", "skipped", "skipped_timeout", "ignored"];
+
+/** Desfecho conhecido do servidor; o que não for um dos cinco valores do contrato é ignorado. */
+export function parseLoginOutcome(value: unknown): LoginOutcome | undefined {
+	return typeof value === "string" && LOGIN_OUTCOMES.includes(value) ? (value as LoginOutcome) : undefined;
+}
+
+/** Prazo ISO válido ou nada (mesma regra do `parseOwnerWaitDeadline` do servidor). */
+export function parseDeadline(value: unknown): string | undefined {
+	if (typeof value !== "string" || value.length > 40) return undefined;
+	const at = new Date(value);
+	return Number.isNaN(at.getTime()) ? undefined : at.toISOString();
+}
 
 export function loginToItem(id: string, fields: LoginFields, createdAt?: string): LoginItem {
 	return {
@@ -38,6 +57,9 @@ export function loginToItem(id: string, fields: LoginFields, createdAt?: string)
 		...(fields.vault ? { vault: fields.vault } : {}),
 		...(fields.vaultTried ? { vaultTried: fields.vaultTried } : {}),
 		...(fields.codeField ? { codeField: true } : {}),
+		...(fields.status === "done" && parseLoginOutcome(fields.outcome) ? { outcome: parseLoginOutcome(fields.outcome)! } : {}),
+		...(parseDeadline(fields.deadlineAt) ? { deadlineAt: parseDeadline(fields.deadlineAt)! } : {}),
+		...(fields.ownerWait === true ? { ownerWait: true as const } : {}),
 	};
 }
 
@@ -132,11 +154,69 @@ export function vaultLoginBody(item: Pick<LoginItem, "url" | "site">, username: 
 	return { kind: "login", name: suggestSecretName(base, "login"), label: siteName(item).slice(0, 120), siteUrl: item.url.slice(0, 500), username: username.trim().slice(0, 300), password };
 }
 
+/** Selo de cada desfecho do contrato v3 (`pendingLogin.outcome`). */
+const OUTCOME_BADGE: Record<LoginOutcome, { tone: "success" | "muted"; label: string }> = {
+	done: { tone: "success", label: "Concluído" },
+	takeover: { tone: "success", label: "Você assumiu" },
+	skipped: { tone: "muted", label: "Pulado" },
+	skipped_timeout: { tone: "muted", label: "Tempo esgotado · segui sem isso" },
+	ignored: { tone: "muted", label: "Dispensado" },
+};
+
 /** Desfecho do cartão de login resolvido (o selo que fica no lugar dos botões). */
-export function loginOutcome(item: Pick<LoginItem, "status" | "connector" | "composioToolkit" | "reason">): { tone: "success" | "muted"; label: string } | null {
+export function loginOutcome(item: Pick<LoginItem, "status" | "connector" | "composioToolkit" | "reason" | "outcome">): { tone: "success" | "muted"; label: string } | null {
 	if (item.status !== "done") return null;
 	if (loginVariant(item) === "connector") return { tone: "success", label: item.connector?.noAuth ? "Ativado" : "Conectado" };
+	if (item.outcome) return OUTCOME_BADGE[item.outcome];
 	return { tone: "success", label: item.reason === "captcha" ? "Verificado" : "Concluído" };
+}
+
+/** Qual cartão de login de PÁGINA aparece: o "Computador · Ação necessária" (v3) ou o "Formulário" com gaveta (antigo). */
+export type LoginCardKind = "computer" | "form";
+
+/**
+ * Regra única da escolha, pelo contrato (nada de texto):
+ * - conector não passa por aqui (é o `ConnectorCard`);
+ * - SINAL do v3 = `ownerWait === true` no cartão/evento (o servidor só manda no motor v3: "oferece Pular · Terminei ·
+ *   Assumir") ou, num cartão já resolvido, um `outcome` gravado. Sem sinal (v1/v2) = "form", como no #129;
+ * - com sinal, os casos que pedem digitar (campo de código, login do Cofre que casa, Cofre já usado) ficam no "form",
+ *   que tem a gaveta; o resto (captcha, passar a tela, login a fazer na VM) é o cartão do Computador.
+ */
+export function loginCardKind(item: Pick<LoginItem, "ownerWait" | "outcome" | "status" | "reason" | "codeField" | "vault" | "vaultTried" | "connector" | "composioToolkit">): LoginCardKind {
+	if (loginVariant(item) === "connector") return "form";
+	if (item.ownerWait !== true && !item.outcome) return "form";
+	if (item.codeField || item.vault || item.vaultTried) return "form";
+	return "computer";
+}
+
+/** Os três botões do cartão do Computador e o corpo do `POST /v1/runs/:id/resume` de cada um. */
+export type ComputerAction = "skip" | "done" | "takeover";
+
+export function computerResumeOptions(action: ComputerAction): ResumeOptions {
+	if (action === "skip") return { via: "skip" };
+	if (action === "takeover") return { via: "takeover" };
+	return {};
+}
+
+/** Subtítulo do cartão: o motivo do pedido. */
+export function computerSubtitle(item: Pick<LoginItem, "reason" | "url" | "site">): string {
+	const site = siteName(item);
+	return item.reason === "captcha" ? `Resolva a verificação do ${site} e depois devolva a tela.` : `Entre na sua conta do ${site} e depois devolva a tela.`;
+}
+
+/** Nota fora do cartão (com escudo): onde a pessoa estaria entrando. */
+export function computerNote(botName: string): string {
+	return `Se você entrar, faz isso no navegador do computador do ${botName}, e a sessão fica salva lá. O site pode te mandar um aviso de novo acesso.`;
+}
+
+const two = (n: number) => String(n).padStart(2, "0");
+
+/** Linha de prazo (`deadlineAt`): "Sigo sem isso às HH:MM" (hora local) e, vencido, "Tempo esgotado · segui sem isso". `now` injetado. */
+export function deadlineLine(deadlineAt: string | undefined, now: number): string | null {
+	const at = deadlineAt ? new Date(deadlineAt) : null;
+	if (!at || Number.isNaN(at.getTime())) return null;
+	if (at.getTime() <= now) return "Tempo esgotado · segui sem isso";
+	return `Sigo sem isso às ${two(at.getHours())}:${two(at.getMinutes())}`;
 }
 
 /**

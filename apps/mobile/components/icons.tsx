@@ -22,6 +22,7 @@ import {
 	Globe as LucideGlobe,
 	Hash as LucideHash,
 	KeyRound as LucideKeyRound,
+	Laptop as LucideLaptop,
 	LibraryBig as LucideLibraryBig,
 	Link as LucideLink,
 	MailOpen as LucideMailOpen,
@@ -338,4 +339,9 @@ export function KeyboardIcon({ size = 22, color = "#ffffff" }: IconProps & { col
 /** Lucide `CircleHelp` (o "?" do topo). */
 export function HelpIcon({ size = 22, tone = "foreground" }: LineIconProps) {
 	return <LucideCircleHelp size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `Laptop` (cabeçalho "Computador"). */
+export function LaptopIcon({ size = 16, tone = "muted-foreground" }: LineIconProps) {
+	return <LucideLaptop size={size} color={useStroke(tone)} strokeWidth={2} />;
 }
