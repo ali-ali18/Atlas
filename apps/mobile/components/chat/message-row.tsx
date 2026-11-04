@@ -8,11 +8,13 @@ import { taskCardActive } from "@/lib/chat-thread";
 import type { ChatItem, Reaction, ReplyQuote } from "@/lib/chat-types";
 import type { AnswerMap } from "@/lib/questionnaire";
 import { ImagesRow } from "./image-card";
-import { ConfirmCard, MarkerRow, QuestionnaireCard, WebCardRow } from "./cards";
+import { BotLinkMarkerRow, ConfirmCard, MarkerRow, QuestionnaireCard, WebCardRow } from "./cards";
 import { MarkdownBlocks, TableCard } from "./markdown-text";
 import { useAppColorScheme } from "@/lib/use-theme";
 import { surfaceColors } from "@/lib/surfaces";
 import { parseMarkdown, splitSegments } from "@/lib/markdown";
+import { MentionText } from "./mention-text";
+import { isPlainMessage, splitMessageText, type MentionBotRef } from "@/lib/message-text";
 import { ReplyPill } from "./reply-pill";
 import { TaskSummary } from "./task-dock";
 
@@ -32,10 +34,15 @@ export type RowActions = {
 	onOpenMenu: (item: ChatItem) => void;
 	/** Cor do bot para o balão do usuário (fundo e texto por cima dele). Sem ela, o balão usa o cinza neutro. */
 	userBubble?: { background: string; foreground: string };
+	/** Bots do usuário: o avatar da menção `@bot` no balão e o do marcador "Enviou mensagem para X". */
+	bots?: readonly MentionBotRef[];
+	/** Habilidades conhecidas (slugs): `/habilidade` no balão ganha o visual de marcador. */
+	skills?: ReadonlySet<string>;
 };
 
 /** Balão do usuário, à direita, na cor do bot (como no Grok); sem a cor, o cinza do `Bubble variant="muted"` do web. */
-function UserBubble({ text, position, reactions, replyTo, accent, onLongPress }: { text: string; position: GroupPosition; reactions?: Reaction[]; replyTo?: ReplyQuote; accent?: RowActions["userBubble"]; onLongPress: () => void }) {
+function UserBubble({ text, bots, skills, position, reactions, replyTo, accent, onLongPress }: { text: string; bots?: RowActions["bots"]; skills?: RowActions["skills"]; position: GroupPosition; reactions?: Reaction[]; replyTo?: ReplyQuote; accent?: RowActions["userBubble"]; onLongPress: () => void }) {
+	const parts = React.useMemo(() => splitMessageText(text, bots ?? [], skills), [text, bots, skills]);
 	return (
 		<View className="max-w-[87%] self-end">
 			{replyTo ? <ReplyPill quote={replyTo} align="end" spaced={position !== "single" && position !== "first"} /> : null}
@@ -47,7 +54,7 @@ function UserBubble({ text, position, reactions, replyTo, accent, onLongPress }:
 				className={`px-3.5 py-3.5 ${accent ? "" : "bg-muted"}`}
 			>
 				<Text className="text-base leading-snug" style={accent ? { color: accent.foreground } : undefined}>
-					{text}
+					{isPlainMessage(parts) ? text : <MentionText parts={parts} eyeColor={accent?.background} />}
 				</Text>
 			</Pressable>
 			<Reactions reactions={reactions} align="end" />
@@ -138,7 +145,7 @@ export const MessageRow = React.memo(function MessageRow({
 function RowContent({ item, actions, position }: { item: ChatItem; actions: RowActions; position: GroupPosition }) {
 	switch (item.kind) {
 		case "user":
-			return <UserBubble text={item.text} position={position} reactions={item.reactions} replyTo={item.replyTo} accent={actions.userBubble} onLongPress={() => actions.onOpenMenu(item)} />;
+			return <UserBubble text={item.text} bots={actions.bots} skills={actions.skills} position={position} reactions={item.reactions} replyTo={item.replyTo} accent={actions.userBubble} onLongPress={() => actions.onOpenMenu(item)} />;
 		case "assistant":
 			return item.text.trim() ? <BotBubble text={item.text} position={position} reactions={item.reactions} replyTo={item.replyTo} onLongPress={() => actions.onOpenMenu(item)} /> : null;
 		case "task-list":
@@ -152,6 +159,6 @@ function RowContent({ item, actions, position }: { item: ChatItem; actions: RowA
 		case "images":
 			return <ImagesRow item={item} onOpen={actions.onOpenImage} />;
 		case "marker":
-			return <MarkerRow text={item.text} />;
+			return item.link ? <BotLinkMarkerRow link={item.link} fallback={item.text} bots={actions.bots} /> : <MarkerRow text={item.text} />;
 	}
 }

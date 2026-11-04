@@ -301,3 +301,14 @@ describe("citação (replyTo)", () => {
 		expect(persisted[0]).not.toHaveProperty("replyTo"); // não muda a lista recebida
 	});
 });
+
+describe("marcador de mensagem enviada a outro bot", () => {
+	it("guarda o bot destino (id e nome) e a prévia, para o avatar; o texto fica de reserva", () => {
+		const content = JSON.stringify({ v: 1, kind: "sent", botMessageId: "m9", botId: "b9", botName: "Bobinho", title: "Bobinho Apoio: criação não deu certo" });
+		expect(sessionMessageToItem(row("7", "bot-link", content))).toMatchObject({
+			kind: "marker",
+			text: "Enviou mensagem para Bobinho: Bobinho Apoio: criação não deu certo",
+			link: { botId: "b9", botName: "Bobinho", title: "Bobinho Apoio: criação não deu certo" },
+		});
+	});
+});

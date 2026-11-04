@@ -1,7 +1,7 @@
 // Fio da conversa: do que o servidor grava (`SessionMessage`) ao que a tela desenha, e a junção do gravado com o
 // que só existe ao vivo (balão do usuário ainda não gravado, fala em andamento, cartões do run). Porta enxuta do
 // `use-atlas-chat.ts` / `thread-merge.ts` / `thread-live.ts` do web: o gravado manda, o ao vivo preenche o resto.
-import { BOT_LINK_ROLE, formatSourceMarker, isCardConfirmToken, type MessageSource, parseBotLinkCard, parseConversationCard, type PersistedConversationCard, type SessionMessage } from "@workspace/shared";
+import { BOT_LINK_ROLE, formatSourceMarker, formatTokensPt, isCardConfirmToken, type MessageSource, parseBotLinkCard, parseConversationCard, type PersistedConversationCard, type SessionMessage } from "@workspace/shared";
 import type { ChatItem, Reaction, TaskItem } from "./chat-types";
 import { parseReplyTo } from "./reply-quote";
 
@@ -57,7 +57,7 @@ export function cardToItem(id: string, card: PersistedConversationCard, createdA
 		case "task-list":
 			return { ...base, kind: "task-list", runId: card.runId, items: card.items };
 		case "compaction":
-			return { ...base, kind: "marker", text: `Conversa compactada · ${card.before} → ${card.after}` };
+			return { ...base, kind: "marker", text: compactionMarkerText(card.before, card.after) };
 		case "chart":
 			return { ...base, kind: "web-card", card: "chart", title: "Gráfico", key: `chart:${card.chartId}` };
 		case "page":
@@ -114,13 +114,18 @@ export function withSourceMarkers(items: readonly ChatItem[], timeZone?: string)
 	return out;
 }
 
+/** Marcador da conversa compactada: "Conversa compactada · 48,2 mil → 6,1 mil" (tokens estimados antes e depois). */
+export function compactionMarkerText(before: number, after: number): string {
+	return `Conversa compactada · ${formatTokensPt(before)} → ${formatTokensPt(after)}`;
+}
+
 /** Uma linha gravada do servidor vira o que a tela desenha; `null` = não aparece (protocolo de cartão, vazia, só do web). */
 export function sessionMessageToItem(message: SessionMessage): ChatItem | null {
 	const createdAt = message.createdAt;
 	const role = message.role as string;
 	if (role === BOT_LINK_ROLE) {
 		const link = parseBotLinkCard(message.content);
-		return link ? { id: message.id, kind: "marker", createdAt, text: `Enviou mensagem para ${link.botName}${link.title ? `: ${link.title}` : ""}` } : null;
+		return link ? { id: message.id, kind: "marker", createdAt, text: `Enviou mensagem para ${link.botName}${link.title ? `: ${link.title}` : ""}`, link: { botId: link.botId, botName: link.botName, title: link.title } } : null;
 	}
 	const reactions = validReactions(message.reactions);
 	// `replyTo` é do contrato novo do servidor (pode faltar em servidor antigo): lido sem confiar no formato.

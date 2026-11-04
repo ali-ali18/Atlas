@@ -38,7 +38,8 @@ export type ChatItem =
 	/** Imagens do fio (anexo do usuário ou imagem gerada/enviada pelo bot), com a legenda do cartão quando há. */
 	| (Base & { kind: "images"; origin: "user" | "assistant"; images: ChatImage[]; caption?: string })
 	/** Marcador de uma linha no fio (conversa compactada, mensagem enviada a outro bot). */
-	| (Base & { kind: "marker"; text: string });
+	/** `link`: marcador "Enviou mensagem para [bot]" (o texto fica como reserva; o avatar vem do bot pelo id ou nome). */
+	| (Base & { kind: "marker"; text: string; link?: { botId: string; botName: string; title: string } });
 
 export type WebCardKind = "chart" | "page" | "file" | "routine" | "login" | "images" | "proposal" | "approval";
 

@@ -23,6 +23,8 @@ export type ChatHook = ReturnType<typeof deriveView> & {
 	paused: boolean;
 	notice: string | null;
 	error: string | null;
+	/** Um `/compact` rodando: a tela mostra "Compactando a conversa…". */
+	compacting: boolean;
 	hasMore: boolean;
 	loadingOlder: boolean;
 	ready: boolean;
@@ -35,6 +37,8 @@ export type ChatHook = ReturnType<typeof deriveView> & {
 	answer: ChatController["answer"];
 	react: (messageId: string, emoji: string) => void;
 	markUnread: () => Promise<boolean>;
+	/** `/compact [foco]`: resume a conversa levada. */
+	compact: (focus?: string) => Promise<boolean>;
 	retry: () => void;
 	dismissError: () => void;
 	/** Seletor de modelo do composer (escolha salva por conversa + catálogo). */
@@ -64,6 +68,7 @@ export function useChat(bot: HomeBot | undefined): ChatHook {
 			setReaction: (messageId, emoji) => chatApi.setReaction(latest.current.apiFetch, messageId, emoji),
 			clearReaction: (messageId) => chatApi.clearReaction(latest.current.apiFetch, messageId),
 			markConversationUnread: (conversationId) => chatApi.markConversationUnread(latest.current.apiFetch, conversationId),
+			compactConversation: (conversationId, focus) => chatApi.compactConversation(latest.current.apiFetch, conversationId, focus),
 		};
 		const deps: ChatDeps = {
 			api,
@@ -137,6 +142,7 @@ export function useChat(bot: HomeBot | undefined): ChatHook {
 		paused: snapshot.live.paused,
 		notice: snapshot.live.notice,
 		error: snapshot.error,
+		compacting: snapshot.compacting,
 		hasMore: snapshot.hasMore,
 		loadingOlder: snapshot.loadingOlder,
 		ready: snapshot.ready,
@@ -147,6 +153,7 @@ export function useChat(bot: HomeBot | undefined): ChatHook {
 		answer: (item, answers) => controller.answer(item, answers),
 		react: (messageId, emoji) => void controller.react(messageId, emoji),
 		markUnread: () => controller.markUnread(),
+		compact: (focus) => controller.compact(focus),
 		retry: () => void controller.retry(),
 		dismissError: () => controller.dismissError(),
 		modelSelector,
