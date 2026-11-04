@@ -15,7 +15,7 @@ import { isTreeRef } from "./ax-ref-names.mjs";
 import { createAxEngine } from "./browser-ax.mjs";
 import { runExclusive } from "./page-lock.mjs";
 import { readUploadFile } from "./upload-path.mjs";
-import { TYPING_ACTIONS, assertNotSecretField } from "./secret-field.mjs";
+import { assertSafeTarget, guardedTyping } from "./secret-field.mjs";
 
 // `upload` (v3) entra no fim: o caminho é validado por `upload-path.mjs` (pasta de trabalho do bot, sem oculto).
 export const ACT_ACTIONS = ["click", "type", "select", "check", "uncheck", "hover", "press", "clear", "upload"];
@@ -255,7 +255,11 @@ export function createRefActions({
 					} else {
 						await locator.fill(value, { timeout: ACT_TIMEOUT_MS });
 					}
-					if (submit) await locator.press("Enter", { timeout: ACT_TIMEOUT_MS });
+					// O campo pode ter virado senha entre o preenchimento e o Enter: confere de novo logo antes da tecla.
+					if (submit) {
+						await assertSafeTarget(locator, "press");
+						await locator.press("Enter", { timeout: ACT_TIMEOUT_MS });
+					}
 					return;
 				case "clear":
 					return await locator.fill("", { timeout: ACT_TIMEOUT_MS });
@@ -365,11 +369,9 @@ export function createRefActions({
 			if (needsEnabled && !(await locator.isEnabled())) {
 				throw new Error(`O elemento ${args.ref} está desabilitado. Preencha os campos obrigatórios antes ou escolha outro ref.`);
 			}
-			// Barreira de segredo: vale para qualquer ref (árvore ou DOM), antes de digitar.
-			if (TYPING_ACTIONS.has(args.action)) await assertNotSecretField(locator);
 			const pointer = await safePointer(() => locator);
 			const urlBefore = page.url();
-			const observed = await observeAction(page, () => perform(page, locator, args), { urlBefore, ax: useAx });
+			const observed = await observeAction(page, () => guardedTyping(locator, args.action, () => perform(page, locator, args)), { urlBefore, ax: useAx });
 			const { effect, result: performed } = observed;
 			const readsField = ["type", "clear", "select", "check", "uncheck", "upload"].includes(args.action);
 			const field = readsField && !effect.navigated ? await readField(locator) : undefined;

@@ -72,3 +72,64 @@ test("readUploadFile: arquivo trocado por link depois da validação (TOCTOU) n�
 	};
 	await assert.rejects(readUploadFile("a.txt", { root, fs }), /mudou durante o envio/);
 });
+
+import { execFileSync } from "node:child_process";
+import { rm } from "node:fs/promises";
+
+test("readUploadFile: pasta do caminho trocada por link depois da validação (descritor aberto fora da raiz) é recusada", async () => {
+	const root = await workspace();
+	const outsideDir = join(root, "..", "elsewhere");
+	await mkdir(outsideDir, { recursive: true });
+	await writeFile(join(outsideDir, "b.txt"), "segredo");
+	const fs = {
+		stat: realStat,
+		open: realOpen,
+		// Logo depois de validar sub/b.txt, `sub` vira um link para uma pasta fora da raiz que tem um b.txt.
+		realpath: async (path) => {
+			const real = await realRealpath(path);
+			if (real.endsWith(join("sub", "b.txt"))) {
+				await rm(join(root, "sub"), { recursive: true, force: true });
+				await symlink(outsideDir, join(root, "sub"));
+			}
+			return real;
+		},
+	};
+	await assert.rejects(readUploadFile("sub/b.txt", { root, fs }), /Só arquivos/);
+});
+
+test("readUploadFile: se /proc não responde, recusa (fail-closed)", async () => {
+	const root = await workspace();
+	await assert.rejects(readUploadFile("a.txt", { root, fdPath: async () => { throw new Error("ENOENT"); } }), /Não consegui conferir/);
+});
+
+test("FIFO: recusado sem travar, direto e trocado depois da validação", async () => {
+	const root = await workspace();
+	execFileSync("mkfifo", [join(root, "pipe")]);
+	const started = Date.now();
+	await assert.rejects(readUploadFile("pipe", { root }), /não é um arquivo/);
+	// Troca por FIFO entre a validação e a abertura: O_NONBLOCK abre sem travar e o fstat recusa.
+	const fs = {
+		realpath: realRealpath,
+		open: realOpen,
+		// O stat da validação vê um arquivo regular; logo depois o arquivo vira FIFO.
+		stat: async (path) => {
+			const info = await realStat(path);
+			if (String(path).endsWith("a.txt")) {
+				await unlink(path);
+				execFileSync("mkfifo", [path]);
+			}
+			return info;
+		},
+	};
+	await assert.rejects(readUploadFile("a.txt", { root, fs }), /não é um arquivo regular/);
+	assert.ok(Date.now() - started < 5000, "travou num FIFO");
+});
+
+test("readUploadFile: arquivo que passa de 25 MB durante a leitura para no teto (laço, sem ler tudo)", async () => {
+	const root = await workspace();
+	const big = join(root, "big.bin");
+	await writeFile(big, Buffer.alloc(26 * 1024 * 1024));
+	// Passa pelo stat como pequeno (arquivo "crescendo"); a leitura em laço para no teto.
+	const fs = { realpath: realRealpath, open: realOpen, stat: async () => ({ isFile: () => true, size: 10 }) };
+	await assert.rejects(readUploadFile("big.bin", { root, fs }), /grande demais/);
+});

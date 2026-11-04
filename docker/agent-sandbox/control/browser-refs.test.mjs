@@ -58,7 +58,7 @@ function fakePage(dom, { log = [], href = "https://erp.test/orcamentos.php#add" 
 				setChecked: async (v) => log.push(`check:${ref}=${v}`),
 				hover: async () => log.push(`hover:${ref}`),
 				// A barreira de segredo lê o elemento com `secretKindInPage`; o resto lê o valor do campo.
-				evaluate: async (fn) => (fn?.name === "secretKindInPage" ? (el.secretKind ?? "") : { value: el.value ?? "", checked: undefined }),
+				evaluate: async (fn) => (fn?.name === "inspectInPage" ? { tag: "INPUT", targetKind: el.secretKind ?? "", editable: true, pressable: true, activeBeforeKind: "", activeKind: "", activeIsTarget: true, unreadable: false } : fn?.name === "clearSecretInPage" ? false : { value: el.value ?? "", checked: undefined }),
 			};
 			return loc;
 		},

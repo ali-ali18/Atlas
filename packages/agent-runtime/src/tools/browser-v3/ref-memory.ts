@@ -3,6 +3,9 @@
  * memória por sessão da VM do que o runtime já viu. Acumula (snapshot parcial não apaga marcação), lê o ref do PRÓPRIO nó
  * (nome, rótulo e href vêm da página e não decidem nada) e só zera ao navegar. Fica em memória do processo: outra
  * instância ou retomada começa vazia, e por isso a regra de VM sem barreira declarada é "só digita em ref já visto".
+ * Limitação conhecida (só VM antiga, sem barreira): "visto" se deduz de linhas que carregam texto da página, então uma
+ * página pode forjar `[e7]` num texto para marcar um ref inexistente como visto. Com a barreira da VM (imagem atual) isso
+ * não importa: a VM lê o elemento. Imagem antiga deve ser atualizada.
  */
 const MAX_SESSIONS = 100;
 const REF = "(?:f\\d{1,3})?[ea]\\d{1,5}";

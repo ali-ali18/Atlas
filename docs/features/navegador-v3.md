@@ -30,6 +30,11 @@ Desenho do harness v3 (seção 5): `browser_navigate`, `browser_snapshot(view: t
 - **Já tínhamos, melhor para nós:** poda da árvore (`ax-prune`), "+N similares", refs estáveis por papel e nome, diff pós-ação, marca de elemento novo.
 - **Não copiado:** índice numérico por `backend_node_id` (quebra em re-render, Atlas usa `aN`); heurística de "clicável" por `cursor: pointer`, listeners JS e elemento de ícone 10-50px (a árvore de acessibilidade já diz o que é acionável e a `screenshot` com marcas cobre ícone sem nome); remoção por ordem de pintura (`PaintOrderRemover`) e por contenção de caixa (0,99): custo alto em CDP e a sonda de recorte do Atlas cobre o mesmo caso; atributo `data-browser-use-exclude`.
 
+## Segurança de senha e envio de arquivo
+- Barreira na VM (`secret-field.mjs`): `type`, `select` e `press` resolvem o alvo EFETIVO (label → controle associado, descendente de label → controle) e recusam senha/código; recusam alvo que não aceita texto; `press` só em alvo de entrada que de fato recebe o foco, e o `activeElement` profundo (shadow DOM e iframes legíveis) é conferido antes e depois de focar; checagem de novo logo antes do Enter do `submit` e depois da ação (campo que virou senha tem o valor apagado).
+- Upload (`upload-path.mjs`): `O_NOFOLLOW|O_NONBLOCK`, caminho real do descritor (`/proc/self/fd`) conferido contra `/home/atlas/work`, `fstat` regular, leitura em laço até 25 MB; o navegador recebe o conteúdo.
+- Limitação: no runtime, em VM antiga sem a barreira, "ref visto" vem de texto de snapshot e uma página pode forjá-lo; atualizar a imagem fecha isso.
+
 ## Riscos
 - Contrato SSE: só nomes de tool novos nos eventos `tool_call`/`tool_result` (teste em `engine-v3/browser.test.ts` passa o stream pelo `parseSseBlock`).
 - v1/v2 intocados: o registro global e o catálogo deles não mudam; `browser_navigate` é a única tool nova no metadado global (efeito `read`).
