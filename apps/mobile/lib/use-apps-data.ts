@@ -1,4 +1,5 @@
 import * as React from "react";
+import { log, timedStage } from "./apps-diagnostics";
 import { appsErrorText, fetchComposioCategories, fetchComposioConfigured, fetchComposioConnections, fetchComposioToolkits, fetchMcpCatalog, fetchMcpConnections } from "./apps-api";
 import type { ComposioCategory, ComposioConnection, ComposioToolkit, McpConnection, NativeConnector } from "./apps-parse";
 import { type ComposioState } from "./apps";
@@ -25,7 +26,18 @@ export type AppsData = {
 	bots: CatalogBot[] | null;
 };
 
-const EMPTY: AppsData = { status: "loading", error: null, entries: [], connections: [], composioLoading: true, composioConfigured: false, composioFailed: false, composioConnections: [], composioCategories: [], bots: null };
+const EMPTY: AppsData = {
+	status: "loading",
+	error: null,
+	entries: [],
+	connections: [],
+	composioLoading: true,
+	composioConfigured: false,
+	composioFailed: false,
+	composioConnections: [],
+	composioCategories: [],
+	bots: null,
+};
 
 /** Limite de cada pedido: uma parte lenta (Composio, catálogo remoto de bots) não prende a tela girando. */
 export const APPS_REQUEST_TIMEOUT_MS = 15_000;
@@ -54,10 +66,15 @@ export function useAppsData(): AppsData & { reload: () => Promise<void> } {
 	const generation = React.useRef(0);
 	const reload = React.useCallback(async () => {
 		const mine = ++generation.current;
+		log("reload:início", { geracao: mine });
 		const { apiFetch: fetcher } = latest.current;
-		const timed = <T,>(promise: Promise<T>) => withTimeout(promise, APPS_REQUEST_TIMEOUT_MS, timeoutError);
+		const timed = <T>(promise: Promise<T>) => withTimeout(promise, APPS_REQUEST_TIMEOUT_MS, timeoutError);
 		const current = () => mounted.current && mine === generation.current;
 		const merge = (patch: Partial<AppsData>) => {
+			log("reload:merge", {
+				campos: Object.keys(patch).join(","),
+				atual: current() ? 1 : 0,
+			});
 			if (current()) setData((previous) => ({ ...previous, ...patch }));
 		};
 		const unauthorized = (reason: unknown) => {
@@ -65,7 +82,7 @@ export function useAppsData(): AppsData & { reload: () => Promise<void> } {
 			void latest.current.signOut();
 			return true;
 		};
-		const soft = <T,>(promise: Promise<T>, fallback: T): Promise<T> =>
+		const soft = <T>(promise: Promise<T>, fallback: T): Promise<T> =>
 			promise.catch((reason) => {
 				if (isUnauthorized(reason)) throw reason;
 				return fallback;
@@ -74,13 +91,31 @@ export function useAppsData(): AppsData & { reload: () => Promise<void> } {
 		// (2) Composio: não segura a tela. Sem saber o que já está conectado, melhor erro do que "Conectar" em dobro.
 		const composio = (async () => {
 			try {
-				const configured = await timed(fetchComposioConfigured(fetcher));
+				const configured = await timed(
+					timedStage(
+						"composio-status",
+						() => fetchComposioConfigured(fetcher),
+						(value) => ({ configurado: value ? 1 : 0 }),
+					),
+				);
 				if (!configured) {
-					merge({ composioLoading: false, composioConfigured: false, composioFailed: false, composioConnections: [], composioCategories: [] });
+					merge({
+						composioLoading: false,
+						composioConfigured: false,
+						composioFailed: false,
+						composioConnections: [],
+						composioCategories: [],
+					});
 					return;
 				}
 				const [connections, categories] = await Promise.all([
-					timed(fetchComposioConnections(fetcher)).then(
+					timed(
+						timedStage(
+							"composio-conexões",
+							() => fetchComposioConnections(fetcher),
+							(list) => ({ conexões: list.length }),
+						),
+					).then(
 						(list) => list as ComposioConnection[] | null,
 						(reason) => {
 							if (isUnauthorized(reason)) throw reason;
@@ -88,32 +123,88 @@ export function useAppsData(): AppsData & { reload: () => Promise<void> } {
 						},
 					),
 					// Categorias só enfeitam os chips: falhar não é erro.
-					soft(timed(fetchComposioCategories(fetcher)), [] as ComposioCategory[]),
+					soft(
+						timed(
+							timedStage(
+								"composio-categorias",
+								() => fetchComposioCategories(fetcher),
+								(list) => ({ categorias: list.length }),
+							),
+						),
+						[] as ComposioCategory[],
+					),
 				]);
-				merge({ composioLoading: false, composioConfigured: true, composioFailed: connections === null, composioConnections: connections ?? [], composioCategories: categories });
+				merge({
+					composioLoading: false,
+					composioConfigured: true,
+					composioFailed: connections === null,
+					composioConnections: connections ?? [],
+					composioCategories: categories,
+				});
 			} catch (reason) {
 				if (unauthorized(reason)) return;
-				merge({ composioLoading: false, composioConfigured: false, composioFailed: true });
+				merge({
+					composioLoading: false,
+					composioConfigured: false,
+					composioFailed: true,
+				});
 			}
 		})();
 
 		// (3) Bots do catálogo: aparecem quando chegarem; falha só esconde a seção.
-		const bots = soft(timed(fetchCatalog(fetcher)), null).then(
+		const bots = soft(
+			timed(
+				timedStage(
+					"bots-catálogo",
+					() => fetchCatalog(fetcher),
+					(list) => ({ bots: list.length }),
+				),
+			),
+			null,
+		).then(
 			(list) => merge({ bots: list }),
 			(reason) => void unauthorized(reason),
 		);
 
 		// (1) Nativos + conexões: liberam a tela.
 		try {
-			const [entries, connections] = await Promise.all([timed(fetchMcpCatalog(fetcher)), soft(timed(fetchMcpConnections(fetcher)), [] as McpConnection[])]);
+			const [entries, connections] = await Promise.all([
+				timed(
+					timedStage(
+						"nativos-catálogo",
+						() => fetchMcpCatalog(fetcher),
+						(list) => ({ itens: list.length }),
+					),
+				),
+				soft(
+					timed(
+						timedStage(
+							"nativos-conexões",
+							() => fetchMcpConnections(fetcher),
+							(list) => ({ conexões: list.length }),
+						),
+					),
+					[] as McpConnection[],
+				),
+			]);
 			merge({ status: "ready", error: null, entries, connections });
 		} catch (reason) {
 			if (!unauthorized(reason) && current()) {
 				// Já havia dados: a falha de uma releitura não derruba a tela.
-				setData((previous) => (previous.status === "ready" ? previous : { ...previous, status: "error", error: appsErrorText(reason, "list") }));
+				setData((previous) =>
+					previous.status === "ready"
+						? previous
+						: {
+								...previous,
+								status: "error",
+								error: appsErrorText(reason, "list"),
+							},
+				);
 			}
 		}
+		log("reload:nativos-prontos");
 		await Promise.all([composio, bots]);
+		log("reload:fim");
 	}, []);
 	return { ...data, reload };
 }
@@ -135,7 +226,12 @@ const PAGE = 20;
  * servidor) fica `off`. O "Conectado" não vem desta lista (pode estar velha): `buildAppsRows` usa as conexões do dono.
  * A paginação (um pedido por vez, fim por cursor repetido/página sem novidade, teto) é `lib/composio-paging.ts`.
  */
-export function useComposioList(options: { enabled: boolean; query: string; category: string | null }): { state: ComposioState; loadMore: () => void; retry: () => void; logos: ReadonlyMap<string, string | null> } {
+export function useComposioList(options: { enabled: boolean; query: string; category: string | null }): {
+	state: ComposioState;
+	loadMore: () => void;
+	retry: () => void;
+	logos: ReadonlyMap<string, string | null>;
+} {
 	const { apiFetch, signOut } = useAtlasSession();
 	const { enabled, query, category } = options;
 	const [state, setState] = React.useState<ComposioState>({ status: "loading" });
@@ -150,8 +246,20 @@ export function useComposioList(options: { enabled: boolean; query: string; cate
 	request.current = { query, category };
 
 	const publish = React.useCallback((next: Paging) => {
+		log("publish", {
+			itens: next.items.length,
+			paginas: next.pages,
+			cursor: next.cursor ? next.cursor.length : 0,
+			fim: next.done ? 1 : 0,
+			carregando: next.loading ? 1 : 0,
+		});
 		paging.current = next;
-		setState({ status: "ready", items: next.items, hasMore: !next.done && next.cursor !== null, loadingMore: next.loading });
+		setState({
+			status: "ready",
+			items: next.items,
+			hasMore: !next.done && next.cursor !== null,
+			loadingMore: next.loading,
+		});
 	}, []);
 
 	React.useEffect(() => {
@@ -162,14 +270,42 @@ export function useComposioList(options: { enabled: boolean; query: string; cate
 			return;
 		}
 		setState({ status: "loading" });
-		withTimeout(fetchComposioToolkits(latest.current.apiFetch, { search: query, category, limit: PAGE }), APPS_REQUEST_TIMEOUT_MS, timeoutError).then(
+		log("toolkits:1ª página", {
+			busca: query.length,
+			categoria: category ? 1 : 0,
+			tentativa: attempt,
+		});
+		withTimeout(
+			fetchComposioToolkits(latest.current.apiFetch, {
+				search: query,
+				category,
+				limit: PAGE,
+			}),
+			APPS_REQUEST_TIMEOUT_MS,
+			timeoutError,
+		).then(
 			(page) => {
-				if (mine !== generation.current) return;
-				publish(applyPage(EMPTY_PAGING, page, null));
+				if (mine !== generation.current) {
+					log("toolkits:1ª descartada", { geracao: mine });
+					return;
+				}
+				const from = Date.now();
+				const applied = applyPage(EMPTY_PAGING, page, null);
+				log("applyPage", {
+					itens: applied.items.length,
+					dur: Date.now() - from,
+				});
+				publish(applied);
+				const logosFrom = Date.now();
 				setLogos((current) => withLogos(current, clampPage(page).items));
+				log("setLogos", { dur: Date.now() - logosFrom });
 			},
 			(reason) => {
 				if (mine !== generation.current) return;
+				log("toolkits:1ª falhou", {
+					status: (reason as { status?: number } | null)?.status ?? 0,
+					erro: reason instanceof Error ? reason.message : "?",
+				});
 				if (isUnauthorized(reason)) void latest.current.signOut();
 				setState(reason && (reason as { status?: number }).status === 409 ? { status: "off" } : { status: "error" });
 			},
@@ -181,16 +317,36 @@ export function useComposioList(options: { enabled: boolean; query: string; cate
 		const before = paging.current;
 		if (!canLoadMore(before)) return;
 		const requested = before.cursor;
+		log("toolkits:mais", { paginas: before.pages, itens: before.items.length });
 		publish(startMore(before));
-		withTimeout(fetchComposioToolkits(latest.current.apiFetch, { search: request.current.query, category: request.current.category, cursor: requested, limit: PAGE }), APPS_REQUEST_TIMEOUT_MS, timeoutError).then(
+		withTimeout(
+			fetchComposioToolkits(latest.current.apiFetch, {
+				search: request.current.query,
+				category: request.current.category,
+				cursor: requested,
+				limit: PAGE,
+			}),
+			APPS_REQUEST_TIMEOUT_MS,
+			timeoutError,
+		).then(
 			(page) => {
 				if (mine !== generation.current) return;
-				publish(applyPage(paging.current, page, requested));
+				const from = Date.now();
+				const applied = applyPage(paging.current, page, requested);
+				log("applyPage:mais", {
+					itens: applied.items.length,
+					dur: Date.now() - from,
+				});
+				publish(applied);
 				setLogos((current) => withLogos(current, clampPage(page).items));
+				log("setLogos:mais");
 			},
 			(reason) => {
 				if (mine !== generation.current) return;
 				if (isUnauthorized(reason)) void latest.current.signOut();
+				log("toolkits:mais falhou", {
+					erro: reason instanceof Error ? reason.message : "?",
+				});
 				// Falhou a página seguinte: mantém o que já há e deixa tentar de novo.
 				publish(failMore(paging.current));
 			},
