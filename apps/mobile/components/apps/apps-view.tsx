@@ -36,6 +36,8 @@ export type AppsViewProps = {
 	onMore: (target: "composio" | "bots") => void;
 	/** Rolou até o fim: puxa a próxima página do Composio (quem chama decide se há). */
 	onEndReached: () => void;
+	/** O dedo arrastou/rolou a lista: libera a próxima página automática. */
+	onUserScroll: () => void;
 	onRetry: () => void;
 };
 
@@ -44,7 +46,7 @@ export type AppsViewProps = {
  * de categoria rolando de lado; as seções (Conectados, Em destaque, categorias, Apps, Bots) e a busca fixa embaixo.
  */
 export function AppsView(props: AppsViewProps) {
-	const { load, rows, chips, chip, onChip, query, onQuery, connectedCount, installed, composioLoading, onOpenConnected, onClose, onOpenApp, onOpenBot, onMore, onEndReached, onRetry } = props;
+	const { load, rows, chips, chip, onChip, query, onQuery, connectedCount, installed, composioLoading, onOpenConnected, onClose, onOpenApp, onOpenBot, onMore, onEndReached, onUserScroll, onRetry } = props;
 	const renderItem = React.useCallback(
 		({ item: row }: { item: AppsRow }) => {
 			switch (row.kind) {
@@ -131,7 +133,7 @@ export function AppsView(props: AppsViewProps) {
 					) : null}
 				</View>
 				{ready ? <CategoryFilters categories={chips} value={chip} onChange={onChip} /> : null}
-				<FlatList data={ready ? rows : []} keyExtractor={(row) => row.key} renderItem={renderItem} ListEmptyComponent={empty} ListFooterComponent={footer} style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 16 }} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" onEndReached={onEndReached} onEndReachedThreshold={0.6} />
+				<FlatList data={ready ? rows : []} keyExtractor={(row) => row.key} renderItem={renderItem} ListEmptyComponent={empty} ListFooterComponent={footer} style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 16 }} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" onEndReached={onEndReached} onEndReachedThreshold={0.6} onScrollBeginDrag={onUserScroll} onMomentumScrollBegin={onUserScroll} initialNumToRender={14} maxToRenderPerBatch={10} windowSize={7} removeClippedSubviews />
 				<CatalogSearchBar query={query} onChange={onQuery} placeholder="Buscar aplicativos e bots" />
 			</KeyboardAvoidingView>
 		</ScreenFrame>

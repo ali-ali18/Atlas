@@ -2,6 +2,7 @@ import { useFocusEffect, useRouter } from "expo-router";
 import * as React from "react";
 import { AppsView } from "@/components/apps/apps-view";
 import { type AppItem, type ComposioState, appRouteParams, buildAppsRows, buildChips, composioCategoryOf, composioWantsMore, connectedItems } from "@/lib/apps";
+import { createEndReachedGate } from "@/lib/composio-paging";
 import { useAppsData, useComposioList, useDebounced } from "@/lib/use-apps-data";
 import { useInstalledSlugs } from "@/lib/use-installed-slugs";
 
@@ -25,7 +26,7 @@ export default function AppsScreen() {
 	);
 
 	// Estado do Composio que a tela mostra: falha ao ler o status/conexões é erro (com "Tentar de novo"), não "desligado".
-	const composioState: ComposioState = data.composioLoading ? { status: "loading" } : data.composioFailed ? { status: "error" } : composio.state;
+	const composioState: ComposioState = React.useMemo(() => (data.composioLoading ? { status: "loading" } : data.composioFailed ? { status: "error" } : composio.state), [data.composioLoading, data.composioFailed, composio.state]);
 	const rows = React.useMemo(
 		() => buildAppsRows({ entries: data.entries, connections: data.connections, composioConnections: data.composioConnections, composioLogos: composio.logos, composio: composioState, bots: data.bots, query, chip }),
 		[data.entries, data.connections, data.composioConnections, data.bots, composio.logos, composioState, query, chip],
@@ -39,6 +40,11 @@ export default function AppsScreen() {
 		[router],
 	);
 	const loadMore = composio.loadMore;
+	// Uma página por gesto: sem o dedo a rolar, páginas todas filtradas não encadeiam o catálogo inteiro.
+	const gate = React.useMemo(() => createEndReachedGate(), []);
+	const onEndReached = React.useCallback(() => {
+		if (composioWantsMore(composioState) && gate.take()) loadMore();
+	}, [composioState, gate, loadMore]);
 	const more = React.useCallback(
 		(target: "composio" | "bots") => {
 			if (target === "composio") loadMore();
@@ -64,9 +70,8 @@ export default function AppsScreen() {
 			onOpenApp={openApp}
 			onOpenBot={(slug) => router.push(`/catalog/${encodeURIComponent(slug)}` as never)}
 			onMore={more}
-			onEndReached={() => {
-				if (composioWantsMore(composioState)) loadMore();
-			}}
+			onEndReached={onEndReached}
+			onUserScroll={gate.arm}
 			onRetry={() => (data.status === "error" || data.composioFailed ? void reload() : composio.retry())}
 		/>
 	);

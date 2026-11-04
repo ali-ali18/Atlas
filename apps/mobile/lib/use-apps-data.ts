@@ -1,7 +1,8 @@
 import * as React from "react";
 import { appsErrorText, fetchComposioCategories, fetchComposioConfigured, fetchComposioConnections, fetchComposioToolkits, fetchMcpCatalog, fetchMcpConnections } from "./apps-api";
 import type { ComposioCategory, ComposioConnection, ComposioToolkit, McpConnection, NativeConnector } from "./apps-parse";
-import { type ComposioState, mergeToolkits } from "./apps";
+import { type ComposioState } from "./apps";
+import { applyPage, canLoadMore, EMPTY_PAGING, failMore, type Paging, startMore } from "./composio-paging";
 import { useAtlasSession } from "./atlas-session";
 import { fetchCatalog } from "./catalog-api";
 import type { CatalogBot } from "./catalog";
@@ -132,6 +133,7 @@ const PAGE = 20;
 /**
  * Lista de apps do Composio (paginada): recomeça quando a busca ou a categoria mudam. Sem Composio ativo (ou 409 do
  * servidor) fica `off`. O "Conectado" não vem desta lista (pode estar velha): `buildAppsRows` usa as conexões do dono.
+ * A paginação (um pedido por vez, fim por cursor repetido/página sem novidade, teto) é `lib/composio-paging.ts`.
  */
 export function useComposioList(options: { enabled: boolean; query: string; category: string | null }): { state: ComposioState; loadMore: () => void; retry: () => void; logos: ReadonlyMap<string, string | null> } {
 	const { apiFetch, signOut } = useAtlasSession();
@@ -139,14 +141,22 @@ export function useComposioList(options: { enabled: boolean; query: string; cate
 	const [state, setState] = React.useState<ComposioState>({ status: "loading" });
 	const [attempt, setAttempt] = React.useState(0);
 	const [logos, setLogos] = React.useState<ReadonlyMap<string, string | null>>(new Map());
-	const cursor = React.useRef<string | null>(null);
+	// Fonte da verdade da paginação (síncrona: o guarda de "em voo" não pode esperar o re-render).
+	const paging = React.useRef<Paging>(EMPTY_PAGING);
 	const generation = React.useRef(0);
 	const latest = React.useRef({ apiFetch, signOut });
 	latest.current = { apiFetch, signOut };
+	const request = React.useRef({ query, category });
+	request.current = { query, category };
+
+	const publish = React.useCallback((next: Paging) => {
+		paging.current = next;
+		setState({ status: "ready", items: next.items, hasMore: !next.done && next.cursor !== null, loadingMore: next.loading });
+	}, []);
 
 	React.useEffect(() => {
 		const mine = ++generation.current;
-		cursor.current = null;
+		paging.current = EMPTY_PAGING;
 		if (!enabled) {
 			setState({ status: "off" });
 			return;
@@ -155,8 +165,7 @@ export function useComposioList(options: { enabled: boolean; query: string; cate
 		withTimeout(fetchComposioToolkits(latest.current.apiFetch, { search: query, category, limit: PAGE }), APPS_REQUEST_TIMEOUT_MS, timeoutError).then(
 			(page) => {
 				if (mine !== generation.current) return;
-				cursor.current = page.nextCursor;
-				setState({ status: "ready", items: page.items, hasMore: page.nextCursor !== null, loadingMore: false });
+				publish(applyPage(EMPTY_PAGING, page, null));
 				setLogos((current) => withLogos(current, page.items));
 			},
 			(reason) => {
@@ -165,30 +174,28 @@ export function useComposioList(options: { enabled: boolean; query: string; cate
 				setState(reason && (reason as { status?: number }).status === 409 ? { status: "off" } : { status: "error" });
 			},
 		);
-	}, [enabled, query, category, attempt]);
+	}, [enabled, query, category, attempt, publish]);
 
 	const loadMore = React.useCallback(() => {
 		const mine = generation.current;
-		const next = cursor.current;
-		if (!next) return;
-		cursor.current = null;
-		setState((current) => (current.status === "ready" ? { ...current, loadingMore: true } : current));
-		withTimeout(fetchComposioToolkits(latest.current.apiFetch, { search: query, category, cursor: next, limit: PAGE }), APPS_REQUEST_TIMEOUT_MS, timeoutError).then(
+		const before = paging.current;
+		if (!canLoadMore(before)) return;
+		const requested = before.cursor;
+		publish(startMore(before));
+		withTimeout(fetchComposioToolkits(latest.current.apiFetch, { search: request.current.query, category: request.current.category, cursor: requested, limit: PAGE }), APPS_REQUEST_TIMEOUT_MS, timeoutError).then(
 			(page) => {
 				if (mine !== generation.current) return;
-				cursor.current = page.nextCursor;
-				setState((current) => (current.status === "ready" ? { status: "ready", items: mergeToolkits(current.items, page.items), hasMore: page.nextCursor !== null, loadingMore: false } : current));
+				publish(applyPage(paging.current, page, requested));
 				setLogos((current) => withLogos(current, page.items));
 			},
 			(reason) => {
 				if (mine !== generation.current) return;
 				if (isUnauthorized(reason)) void latest.current.signOut();
 				// Falhou a página seguinte: mantém o que já há e deixa tentar de novo.
-				cursor.current = next;
-				setState((current) => (current.status === "ready" ? { ...current, loadingMore: false } : current));
+				publish(failMore(paging.current));
 			},
 		);
-	}, [query, category]);
+	}, [publish]);
 
 	const retry = React.useCallback(() => setAttempt((value) => value + 1), []);
 	return { state, loadMore, retry, logos };

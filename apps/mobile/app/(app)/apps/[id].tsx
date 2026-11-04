@@ -11,7 +11,8 @@ import { useAtlasSession } from "@/lib/atlas-session";
 import { isUnauthorized } from "@/lib/chat-api";
 import type { AppStateSource } from "@/lib/browser-return";
 import { runBrowserConnect } from "@/lib/connect-flow";
-import { useAppsData } from "@/lib/use-apps-data";
+import { APPS_REQUEST_TIMEOUT_MS, useAppsData } from "@/lib/use-apps-data";
+import { withTimeout } from "@/lib/with-timeout";
 
 /** No Android o navegador só "fecha" para nós quando o app volta ao primeiro plano (ver `lib/browser-return.ts`). */
 const APP_STATE: AppStateSource = {
@@ -20,6 +21,8 @@ const APP_STATE: AppStateSource = {
 		return () => subscription.remove();
 	},
 };
+// Cada pedido do conectar tem prazo: rede parada não pode deixar a tela em "Conectando" nem prender a conferência.
+const timed = <T,>(promise: Promise<T>) => withTimeout(promise, APPS_REQUEST_TIMEOUT_MS, () => new Error("Tempo esgotado."));
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 /**
@@ -93,8 +96,8 @@ export default function AppDetailScreen() {
 	const checkConnected = React.useCallback(
 		async (target: AppDetail): Promise<boolean> => {
 			const fetcher = latest.current.apiFetch;
-			if (target.ref.kind === "composio") return isComposioConnected(await fetchComposioConnections(fetcher), target.ref.id);
-			const connections = await fetchMcpConnections(fetcher);
+			if (target.ref.kind === "composio") return isComposioConnected(await timed(fetchComposioConnections(fetcher)), target.ref.id);
+			const connections = await timed(fetchMcpConnections(fetcher));
 			return target.ref.kind === "native" ? isNativeConnected(connections, target.ref.id) : isConnectionConnected(connections, target.ref.id);
 		},
 		[],
@@ -102,9 +105,9 @@ export default function AppDetailScreen() {
 
 	const start = async (target: AppDetail): Promise<ConnectResult> => {
 		const fetcher = latest.current.apiFetch;
-		if (target.ref.kind === "composio") return connectComposio(fetcher, target.ref.id, allowHttp);
-		if (target.reauthId) return reauthNative(fetcher, target.reauthId, allowHttp);
-		return connectNative(fetcher, target.ref.id, target.apiKey ? apiKey : undefined, allowHttp);
+		if (target.ref.kind === "composio") return timed(connectComposio(fetcher, target.ref.id, allowHttp));
+		if (target.reauthId) return timed(reauthNative(fetcher, target.reauthId, allowHttp));
+		return timed(connectNative(fetcher, target.ref.id, target.apiKey ? apiKey : undefined, allowHttp));
 	};
 
 	const connect = async () => {
