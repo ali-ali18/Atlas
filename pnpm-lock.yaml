@@ -218,6 +218,9 @@ importers:
       expo-system-ui:
         specifier: ~58.0.7
         version: 58.0.7(expo@58.0.22)(react-native-web@0.21.4(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react-native@0.88.1(@babel/core@7.29.7)(@react-native/metro-config@0.88.1(@babel/core@7.29.7))(@types/react@19.2.15)(react@19.3.0))
+      expo-updates:
+        specifier: ~58.0.21
+        version: 58.0.21(expo@58.0.22)(react-native@0.88.1(@babel/core@7.29.7)(@react-native/metro-config@0.88.1(@babel/core@7.29.7))(@types/react@19.2.15)(react@19.3.0))(react@19.3.0)
       expo-web-browser:
         specifier: ~58.0.7
         version: 58.0.7(expo@58.0.22)(react-native@0.88.1(@babel/core@7.29.7)(@react-native/metro-config@0.88.1(@babel/core@7.29.7))(@types/react@19.2.15)(react@19.3.0))
@@ -285,9 +288,6 @@ importers:
       esbuild:
         specifier: 0.28.2
         version: 0.28.2
-      expo-updates:
-        specifier: ~58.0.20
-        version: 58.0.20(expo@58.0.22)(react-native@0.88.1(@babel/core@7.29.7)(@react-native/metro-config@0.88.1(@babel/core@7.29.7))(@types/react@19.2.15)(react@19.3.0))(react@19.3.0)
       tailwindcss:
         specifier: 3.4.19
         version: 3.4.19(tsx@4.23.13)(yaml@2.6.0)
@@ -1987,6 +1987,10 @@ packages:
 
   '@expo/env@2.5.3':
     resolution: {integrity: sha512-dBGu8BAfvUcXvG4HvYth+EhcHEsdC+/fT6HTH/zFvvwfp50LG6uzpzT8TXObwEq/t2B/rvAMV5OolxQ46LWXHg==}
+    engines: {node: '>=20.12.0'}
+
+  '@expo/env@2.5.4':
+    resolution: {integrity: sha512-CjzuExX8GegcNLpOw8BDO19RpzJBD1xCCMSfRL1eMfIGiwIJ9EBu0cE3jn3elk7rKvU5QqH15x72YLWTyxGL2g==}
     engines: {node: '>=20.12.0'}
 
   '@expo/experimentation@0.0.5':
@@ -6144,8 +6148,8 @@ packages:
     peerDependencies:
       expo: '*'
 
-  expo-updates@58.0.20:
-    resolution: {integrity: sha512-6SoU9pivdg7xPikTCtvbabq3Dzt9ckpHF4ODXtAsP//vIeHZ1QC+M3+cFDVyFiY2bXOp8DFJBuHO4q97LQiAGA==}
+  expo-updates@58.0.21:
+    resolution: {integrity: sha512-shc/i52aoFcvweKoOVjTZMo+WSokHeJjVdzpOkpiPkzJP642exytEBQQPG5cO1QBgfGHzaPN+yzVm6CRao4LzQ==}
     hasBin: true
     peerDependencies:
       expo: '*'
@@ -11337,6 +11341,14 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
+  '@expo/env@2.5.4':
+    dependencies:
+      chalk: 4.1.2
+      debug: 4.4.3(supports-color@8.1.1)
+      getenv: 2.0.0
+    transitivePeerDependencies:
+      - supports-color
+
   '@expo/experimentation@0.0.5':
     dependencies:
       nullthrows: 1.1.1
@@ -15890,10 +15902,10 @@ snapshots:
     dependencies:
       expo: 58.0.22(@babel/core@7.29.7)(@expo/dom-webview@58.0.2)(@expo/metro-runtime@58.0.16)(expo-router@58.0.29)(react-dom@19.3.0(react@19.3.0))(react-native-web@0.21.4(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react-native-webview@14.0.1(react-native@0.88.1(@babel/core@7.29.7)(@react-native/metro-config@0.88.1(@babel/core@7.29.7))(@types/react@19.2.15)(react@19.3.0))(react@19.3.0))(react-native-worklets@0.13.0(@babel/core@7.29.7)(@react-native/metro-config@0.88.1(@babel/core@7.29.7))(react-native@0.88.1(@babel/core@7.29.7)(@react-native/metro-config@0.88.1(@babel/core@7.29.7))(@types/react@19.2.15)(react@19.3.0))(react@19.3.0))(react-native@0.88.1(@babel/core@7.29.7)(@react-native/metro-config@0.88.1(@babel/core@7.29.7))(@types/react@19.2.15)(react@19.3.0))(react@19.3.0)(typescript@5.9.3)
 
-  expo-updates@58.0.20(expo@58.0.22)(react-native@0.88.1(@babel/core@7.29.7)(@react-native/metro-config@0.88.1(@babel/core@7.29.7))(@types/react@19.2.15)(react@19.3.0))(react@19.3.0):
+  expo-updates@58.0.21(expo@58.0.22)(react-native@0.88.1(@babel/core@7.29.7)(@react-native/metro-config@0.88.1(@babel/core@7.29.7))(@types/react@19.2.15)(react@19.3.0))(react@19.3.0):
     dependencies:
       '@expo/code-signing-certificates': 0.0.7
-      '@expo/env': 2.5.3
+      '@expo/env': 2.5.4
       '@expo/plist': 0.10.1
       '@expo/spawn-async': 1.8.0
       '@react-native/asset-utils': 0.88.1
@@ -15906,7 +15918,6 @@ snapshots:
       expo-structured-headers: 58.0.1
       expo-updates-interface: 58.0.1(expo@58.0.22)
       getenv: 2.0.0
-      glob: 13.0.6
       ignore: 5.3.2
       nullthrows: 1.1.1
       react: 19.3.0
