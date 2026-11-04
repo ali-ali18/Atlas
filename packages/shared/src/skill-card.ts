@@ -18,6 +18,15 @@ import { parseTaskList, type TaskListItem } from "./task-list.js";
 import { parsePlanInfo, type PlanInfo } from "./plan.js";
 import { COMPACT_CARD_SUMMARY_MAX_CHARS, COMPACT_FOCUS_MAX_CHARS, type PersistedCompactionCard } from "./compaction.js";
 import { parseBotProposalCard, type PersistedBotProposalCard } from "./bot-proposal.js";
+import {
+	parseLoginWaitOutcome,
+	parseOwnerConfirmCardKind,
+	parseOwnerWaitDeadline,
+	parseStepLimitProgress,
+	type LoginWaitOutcome,
+	type OwnerConfirmCardKind,
+	type StepLimitProgress,
+} from "./owner-wait.js";
 
 /** Papéis de card na timeline da conversa (não vão para o LLM). */
 export type ConversationCardRole =
@@ -97,6 +106,12 @@ export type PersistedConfirmCard = {
 	modelNoted?: true;
 	/** Motor v3: rascunho de `prepare_for_owner` decidido sem aprovar: "Agora não" (`dismissed`) ou fala digitada (`ignored`). */
 	draftDecision?: "dismissed" | "ignored";
+	/** Motor v3: prazo da espera (ISO). Vencido, o cartão fecha como "Tempo esgotado · segui sem isso" (nunca aprova). */
+	deadlineAt?: string;
+	/** Motor v3: aprovação genérica, rascunho de rotina ou limite de passos (a UI escolhe o desenho). */
+	ownerCard?: OwnerConfirmCardKind;
+	/** Motor v3, cartão do limite: o que o run fez até parar. */
+	limitProgress?: StepLimitProgress;
 };
 
 /**
@@ -123,6 +138,12 @@ export type PersistedLoginCard = {
 	vaultTried?: string;
 	/** Campo de código no card (e-mail/SMS). */
 	codeField?: boolean;
+	/** Motor v3: como o dono respondeu (Terminei, Assumir, Pular, prazo vencido, ignorou). */
+	outcome?: LoginWaitOutcome;
+	/** Motor v3: prazo da espera (ISO). */
+	deadlineAt?: string;
+	/** Motor v3: o cartão oferece Pular · Terminei · Assumir. */
+	ownerWait?: true;
 };
 
 /** Escolha fixa de um item do questionário (renderiza `QuestionnaireChoice`). */
@@ -175,6 +196,10 @@ export type PersistedQuestionnaireCard = {
 	purpose?: QuestionnaireCardPurpose;
 	/** Pedido original do usuário que gerou o questionário (`purpose: "task"`). */
 	originalRequest?: string;
+	/** Motor v3: prazo da espera (ISO). */
+	deadlineAt?: string;
+	/** Motor v3: o cartão oferece "Pular". */
+	ownerWait?: true;
 };
 
 /** Campos do perfil que podem ir numa proposta (espelha o gate humano do web). */
@@ -639,6 +664,9 @@ export function parseConversationCard(content: string): PersistedConversationCar
 			...(typeof row.grantUses === "number" && Number.isInteger(row.grantUses) && row.grantUses > 0 && row.grantUses <= 1000 ? { grantUses: row.grantUses } : {}),
 			...(row.modelNoted === true ? { modelNoted: true as const } : {}),
 			...(row.draftDecision === "dismissed" || row.draftDecision === "ignored" ? { draftDecision: row.draftDecision } : {}),
+			...(parseOwnerWaitDeadline(row.deadlineAt) ? { deadlineAt: parseOwnerWaitDeadline(row.deadlineAt) } : {}),
+			...(parseOwnerConfirmCardKind(row.ownerCard) ? { ownerCard: parseOwnerConfirmCardKind(row.ownerCard) } : {}),
+			...(parseStepLimitProgress(row.limitProgress) ? { limitProgress: parseStepLimitProgress(row.limitProgress) } : {}),
 		};
 	}
 	if (row.kind === "login") {
@@ -660,6 +688,9 @@ export function parseConversationCard(content: string): PersistedConversationCar
 			...(parseLoginVaultOffer(row.vault) ? { vault: parseLoginVaultOffer(row.vault)! } : {}),
 			...(asOptionalString(row.vaultTried) ? { vaultTried: asOptionalString(row.vaultTried)!.slice(0, 400) } : {}),
 			...(row.codeField === true ? { codeField: true as const } : {}),
+			...(row.status === "done" && parseLoginWaitOutcome(row.outcome) ? { outcome: parseLoginWaitOutcome(row.outcome) } : {}),
+			...(parseOwnerWaitDeadline(row.deadlineAt) ? { deadlineAt: parseOwnerWaitDeadline(row.deadlineAt) } : {}),
+			...(row.ownerWait === true ? { ownerWait: true as const } : {}),
 		};
 	}
 	if (row.kind === "file") {
@@ -782,6 +813,8 @@ export function parseConversationCard(content: string): PersistedConversationCar
 			...(asOptionalString(row.originalRequest)
 				? { originalRequest: asOptionalString(row.originalRequest)!.slice(0, 500) }
 				: {}),
+			...(parseOwnerWaitDeadline(row.deadlineAt) ? { deadlineAt: parseOwnerWaitDeadline(row.deadlineAt) } : {}),
+			...(row.ownerWait === true ? { ownerWait: true as const } : {}),
 		};
 	}
 	if (row.kind === "bot-profile") {

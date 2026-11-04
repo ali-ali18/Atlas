@@ -12,6 +12,7 @@ import { redactSecrets } from "@workspace/shared";
  *   motor-v1-vs-v2  motor atual × motor novo nas mesmas tarefas (roteiro; `--live` gasta tokens)
  *   navegador     bench do navegador (8 páginas locais, 4 tools do v3 × tools atuais; roteiro grátis ou `--models claude-*`)
  *   bridge        avaliação da ponte tool_search/tool_call do v3 × "carrega e anexa" do v2 (`--mock` grátis; real gasta tokens)
+ *   motor-v2-vs-v3  avaliação lado a lado v2 × v3 em 13 tarefas (T1..T13) com o critério de vitória do desenho (`--mock` grátis; real gasta tokens)
  * A chave (`OPENROUTER_API_KEY`) vem do ambiente ou de `--env-file`; nunca é impressa nem gravada.
  */
 
@@ -40,7 +41,7 @@ export function parseCliArgs(argv: string[]): CliArgs {
 			index += 1;
 		}
 	}
-	const commands = new Set(["run", "compare", "from-run", "list", "motor-v1-vs-v2", "navegador", "bridge"]);
+	const commands = new Set(["run", "compare", "from-run", "list", "motor-v1-vs-v2", "navegador", "bridge", "motor-v2-vs-v3"]);
 	let command = positional[0] && commands.has(positional[0]) ? positional.shift()! : "run";
 	// `--suite bridge` é o mesmo que o comando `bridge`.
 	if (command === "run" && flags.suite === "bridge") command = "bridge";
@@ -108,7 +109,19 @@ bridge (ou run --suite bridge)   10 tarefas com a tool certa FORA do núcleo e 5
   --mock                roteiro por motor (sem rede, sem chave, grátis): prova a mecânica
   --estimate            só imprime a estimativa de custo (sem chamar modelo); --budget USD (padrão 5)  --prices ARQ.json (no modo real: preço dos claude-*)
   --out DIR             pasta de saída: report.md, results.json, runs.jsonl (padrão: results/bridge-<data-hora>)
-  Chaves só do ambiente (nunca impressas): OPENROUTER_API_KEY; OPENCODE_GO_API_KEY para opencode-go/...; ANTHROPIC_API_KEY (ou CLAUDE_KEY, claude_key) para claude-*; ou --env-file.`;
+  Chaves só do ambiente (nunca impressas): OPENROUTER_API_KEY; OPENCODE_GO_API_KEY para opencode-go/...; ANTHROPIC_API_KEY (ou CLAUDE_KEY, claude_key) para claude-*; ou --env-file.
+
+motor-v2-vs-v3   13 tarefas (T1..T13) no loop real do v2 e do v3, tools por fixtures, com o critério de vitória do desenho 11.3 por modelo e tarefa
+  --mock                roteiro por motor (sem rede, sem chave, grátis, determinístico): prova a mecânica, não a qualidade do modelo
+  --models a,b          ids do OpenRouter, opencode-go/<slug> ou claude-<modelo> (obrigatório sem --mock; ex.: claude-haiku-5-5,claude-sonnet-5-5)
+  --repeat N            repetições por tarefa, modelo e motor (padrão: 1 no mock, 3 no real)
+  --max-cost USD        para de iniciar execuções depois do teto (padrão no modo real: 5)
+  --estimate            só imprime a estimativa de custo (roda o mock para medir os tokens; não chama modelo)   --prices ARQ.json  preços dos claude-* (como no bridge)
+  --engines v2,v3       motores (padrão: os dois; o critério precisa dos dois)   --only T1,T5   só estas tarefas
+  --strong a,b          modelos de controle (padrão: Claude Sonnet/Opus)   --concurrency N (padrão 3)   --timeout S (padrão 180)
+  --judge MODELO        liga o juiz offline de "anuncia e para" (desligado por padrão; só no modo real)
+  --out DIR             pasta de saída: report.md, results.json, runs.jsonl (padrão: results/v2-vs-v3-<data-hora>)
+  Chaves só do ambiente (nunca impressas), como no bridge.`;
 
 async function loadAll(args: CliArgs) {
 	const { loadScenarios, selectScenarios } = await import("./scenario.js");
@@ -338,6 +351,106 @@ async function commandBridge(args: CliArgs): Promise<number> {
 	return mock || report.decision.kind === "ponte-aprovada" ? 0 : 1;
 }
 
+/** Padrão de modelo de controle da avaliação v2 × v3: o Sonnet é o controle, o Haiku é a referência "de entrada" (decisão do dono). */
+const isStrongClaude = (model: string) => /(anthropic\/|anthropic-direct\/)?claude-(opus|sonnet|fable)/i.test(model);
+
+/** Número positivo obrigatório e inteiro (ou não): "1,5", "abc", "0", vazio e flag sem valor falham com erro claro, nunca viram o padrão em silêncio. */
+function positiveFlag(args: CliArgs, name: string, options: { integer?: boolean; fallback?: number } = {}): number | undefined {
+	const raw = args.flags[name];
+	if (raw === undefined) return options.fallback;
+	if (raw === true || !/^\d+(\.\d+)?$/.test(raw.trim())) throw new Error(`--${name} precisa de um número positivo (recebido: ${raw === true ? "nada" : raw}).`);
+	const value = Number(raw);
+	if (!Number.isFinite(value) || value <= 0 || (options.integer && !Number.isInteger(value))) throw new Error(`--${name} precisa de um ${options.integer ? "inteiro " : "número "}maior que zero (recebido: ${raw}).`);
+	return value;
+}
+
+/** Linha de progresso de um run: o erro do run pode trazer pedaço de resposta do provedor, então a linha passa pela mesma redação dos arquivos. */
+export function v3ProgressLine(metrics: { engine: string; model: string; taskId: string; repeat: number; completed: boolean; failedChecks: string[]; error: string | null; modelCalls: number; costKnown: boolean; costUsd: number }, secrets: readonly string[]): string {
+	const outcome = metrics.completed ? "concluiu" : `falhou (${metrics.failedChecks.join(", ") || metrics.error})`;
+	return redactSecrets(`[${metrics.engine}] ${metrics.model} ${metrics.taskId} #${metrics.repeat + 1}: ${outcome} · ${metrics.modelCalls} cham. · ${metrics.costKnown ? `US$ ${metrics.costUsd.toFixed(4)}` : "custo desconhecido"}`, [...secrets]);
+}
+
+/** Repetições por padrão: o mesmo na estimativa e na rodada real (a estimativa tem de contar o que a rodada vai gastar). */
+const V3_DEFAULT_REPEAT_REAL = 3;
+
+async function commandEngineV3(args: CliArgs): Promise<number> {
+	const v3 = await import("./engine-compare/v3/index.js");
+	const { assertKeysFor, createRealModel, CLAUDE_DIRECT_PRICES } = await import("./bridge/index.js");
+	const { strongMatcher } = await import("./verdict.js");
+	const { redactSecrets: redact } = await import("@workspace/shared");
+	const { z } = await import("zod");
+	const mock = args.flags.mock === true;
+	const engines = list(flag(args, "engines"));
+	for (const engine of engines) if (engine !== "v2" && engine !== "v3") throw new Error(`--engines aceita v2 e v3 (recebido: ${engine}).`);
+	const selected = (engines.length > 0 ? engines : ["v2", "v3"]) as Array<"v2" | "v3">;
+	const only = list(flag(args, "only"));
+	const wanted = list(flag(args, "models"));
+	// Números validados antes de qualquer trabalho: erro de digitação não pode virar um padrão que gasta.
+	const repeat = positiveFlag(args, "repeat", { integer: true, fallback: mock ? 1 : V3_DEFAULT_REPEAT_REAL })!;
+	const concurrency = positiveFlag(args, "concurrency", { integer: true, fallback: 3 })!;
+	const timeoutSeconds = positiveFlag(args, "timeout", { fallback: 180 })!;
+	const maxCostUsd = positiveFlag(args, "max-cost");
+	const priceSchema = z.array(z.object({ model: z.string().min(1), promptUsdPerMTok: z.number().positive(), completionUsdPerMTok: z.number().positive() }).passthrough()).min(1);
+	const pricesFile = flag(args, "prices");
+	const prices = pricesFile ? priceSchema.parse(JSON.parse(await readFile(resolve(pricesFile), "utf8"))) : undefined;
+	const isStrong = list(flag(args, "strong")).length > 0 ? strongMatcher(list(flag(args, "strong"))) : isStrongClaude;
+	const extraPrices = (prices ?? []).map((item) => ({ model: item.model, label: `${item.model} (--prices)`, promptUsdPerMTok: item.promptUsdPerMTok, completionUsdPerMTok: item.completionUsdPerMTok, extraOutputPerStep: /^(anthropic-direct\/)?claude-/.test(item.model) ? v3.CLAUDE_EXTRA_OUTPUT_PER_STEP : 150 }));
+
+	if (args.flags.estimate === true) {
+		const probe = await v3.runV3Suite({ mode: "mock", engines: ["v2", "v3"], models: [], repeat: 1, concurrency: 1, only });
+		const models = (wanted.length > 0 ? wanted : ["claude-haiku-5-5", "claude-sonnet-5-5"]).map((model) => v3.planningPrice(model, extraPrices));
+		console.log(v3.formatV3Estimate(v3.tokensPerEngine(probe.runs), { models, engines: selected, repeat: positiveFlag(args, "repeat", { integer: true, fallback: V3_DEFAULT_REPEAT_REAL })!, tasks: probe.tasks.length }));
+		return 0;
+	}
+
+	if (!mock && wanted.length === 0) throw new Error("informe --models (ou use --mock)");
+	if (!mock && maxCostUsd === undefined) throw new Error("--max-cost é obrigatório no modo real (rode --estimate para ver o custo esperado). Nada foi executado.");
+	const judgeModel = mock ? undefined : flag(args, "judge");
+	if (flag(args, "judge") && mock) throw new Error("--judge só vale no modo real (o mock não chama modelo).");
+	if (!mock) assertKeysFor(judgeModel ? [...wanted, judgeModel] : wanted, process.env, prices ?? CLAUDE_DIRECT_PRICES);
+	// Reserva do teto: custo esperado de uma execução do modelo mais caro, medido no mock. Sem preço para um modelo, falha antes de gastar.
+	let reserveUsd = 0;
+	if (!mock) {
+		const probe = await v3.runV3Suite({ mode: "mock", engines: selected, models: [], repeat: 1, concurrency: 1, only });
+		const tokens = v3.tokensPerEngine(probe.runs);
+		reserveUsd = Math.max(...wanted.map((model) => v3.reservePerRunUsd(v3.planningPrice(model, extraPrices), tokens, selected)));
+	}
+	const real = mock ? undefined : createRealModel(process.env, prices ? { prices } : {});
+	const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+	const outDir = resolve(flag(args, "out") ?? join(PACKAGE_DIR, "results", `v2-vs-v3-${stamp}`));
+	await mkdir(outDir, { recursive: true });
+	const secrets = real?.secrets ?? [];
+	const runsFile = join(outDir, "runs.jsonl");
+	await writeFile(runsFile, "");
+	console.log(`v2 × v3: ${mock ? "mock" : `${wanted.length} modelo(s)`} × ${selected.join("+")} × ${repeat} repetição(ões)${maxCostUsd !== undefined ? ` · teto US$ ${maxCostUsd} (reserva de US$ ${reserveUsd.toFixed(4)} por execução)` : ""} → ${outDir}`);
+	const result = await v3.runV3Suite({
+		mode: mock ? "mock" : "real",
+		engines: selected,
+		models: wanted,
+		repeat,
+		concurrency,
+		timeoutMs: timeoutSeconds * 1000,
+		only,
+		...(maxCostUsd !== undefined ? { maxCostUsd, reserveUsd } : {}),
+		...(prices ? { prices } : {}),
+		...(real ? { streamChat: real.streamChat, apiKey: real.apiKey } : {}),
+		...(real && judgeModel ? { judge: v3.createAnnounceStopJudge({ model: judgeModel, apiKey: real.apiKey, streamChat: real.streamChat }) } : {}),
+		onRun: async (metrics, trajectory) => {
+			await appendFile(runsFile, `${redact(JSON.stringify({ metrics, trajectory }), secrets)}\n`);
+			// O texto de erro do run pode trazer pedaço de resposta do provedor: a linha de progresso passa pela mesma redação dos arquivos.
+			console.log(v3ProgressLine(metrics, secrets));
+		},
+	});
+	const victory = v3.evaluateVictory(result.runs, { isStrong, coverage: mock ? "mechanics" : "full", complete: result.complete });
+	const markdown = redact(v3.formatV3Report(result, { isStrong, victory, generatedAt: new Date().toISOString() }), secrets);
+	await writeFile(join(outDir, "report.md"), markdown);
+	await writeFile(join(outDir, "results.json"), `${redact(JSON.stringify({ victory, runs: result.runs, spentUsd: result.spentUsd, skippedByBudget: result.skippedByBudget, complete: result.complete }, null, 2), secrets)}\n`);
+	console.log(`\n${markdown}\nsaída: ${outDir}`);
+	// Mock: a mecânica do v3 tem de estar verde (nenhum check do v3 falha); o veredito completo é da rodada real.
+	if (mock) return result.runs.filter((run) => run.engine === "v3").every((run) => run.completed) ? 0 : 1;
+	return victory.verdict === "vence" ? 0 : 1;
+}
+
 export async function main(argv: string[]): Promise<number> {
 	const args = parseCliArgs(argv);
 	if (args.flags.help) {
@@ -355,6 +468,7 @@ export async function main(argv: string[]): Promise<number> {
 	if (args.command === "motor-v1-vs-v2") return commandEngineCompare(args);
 	if (args.command === "navegador") return commandBrowserBench(args);
 	if (args.command === "bridge") return commandBridge(args);
+	if (args.command === "motor-v2-vs-v3") return commandEngineV3(args);
 	return commandRun(args);
 }
 

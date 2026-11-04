@@ -1,5 +1,5 @@
 import { Prisma } from "@prisma/client";
-import { BOT_LANGUAGE_AUTO, BOT_LINK_ROLE, isMessageSourceKind, mergeServerPolicyKeys, parseBotLanguageSetting, type Bot, type ReasoningEffort, withBotReasoningEffort, type BotLanguageSetting, type CreateBotInput, type UpdateBotInput } from "@workspace/shared";
+import { BOT_LANGUAGE_AUTO, BOT_LINK_ROLE, OWNER_DECISION_ROLE, isMessageSourceKind, mergeServerPolicyKeys, parseBotLanguageSetting, type Bot, type ReasoningEffort, withBotReasoningEffort, type BotLanguageSetting, type CreateBotInput, type UpdateBotInput } from "@workspace/shared";
 import { prisma } from "./client.js";
 import { unreadResultsByConversation } from "./deliveries.js";
 import { getUnreadStates } from "./read-state.js";
@@ -73,7 +73,8 @@ async function lastConversationMessage(
 	if (!conversationId) return null;
 	const message = await prisma.conversationMessage.findFirst({
 		// O marcador "Enviou mensagem para X" é card interno, não texto de prévia.
-		where: { conversationId, role: { not: BOT_LINK_ROLE } },
+		// Nem o registro oculto da decisão do dono (recusa, prazo): é para o modelo.
+		where: { conversationId, AND: [{ role: { not: BOT_LINK_ROLE } }, { role: { not: OWNER_DECISION_ROLE } }] },
 		orderBy: { createdAt: "desc" },
 		select: { role: true, content: true, createdAt: true, sourceKind: true, sourceLabel: true },
 	});
@@ -118,7 +119,7 @@ export async function lastConversationMessages(
 			SELECT cm."conversationId", cm."role", LEFT(cm."content", ${BOT_PREVIEW_MAX_CHARS}::int) AS "content",
 				cm."createdAt", cm."sourceKind", cm."sourceLabel"
 			FROM "conversation_messages" cm
-			WHERE cm."conversationId" = c."id" AND cm."role" <> ${BOT_LINK_ROLE}
+			WHERE cm."conversationId" = c."id" AND cm."role" <> ${BOT_LINK_ROLE} AND cm."role" <> ${OWNER_DECISION_ROLE}
 			ORDER BY cm."createdAt" DESC, cm."id" DESC
 			LIMIT 1
 		) m

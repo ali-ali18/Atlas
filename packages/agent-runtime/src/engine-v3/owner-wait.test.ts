@@ -108,7 +108,7 @@ describe("login/VM: cada saída do cartão chega ao modelo e o run continua", ()
 		executeTool.mockImplementationOnce(async () => loginWall);
 		const first = await runV3([call("a", "web_extract", { urls: ["https://gemini.google.com/app"] })]);
 		expect(first.error).toBeInstanceOf(AgentRunPausedError);
-		expect(first.logins).toEqual([expect.objectContaining({ status: "pending", site: "gemini.google.com" })]);
+		expect(first.logins).toEqual([expect.objectContaining({ status: "pending", site: "gemini.google.com", ownerWait: true })]);
 		const paused = first.checkpoints.at(-1)!;
 		expect(paused.pendingLogin?.loginId).toBe("login-run1-ab");
 
@@ -184,7 +184,7 @@ describe("questionário: prazo e pergunta pulada", () => {
 		expect(result?.stop).toEqual({ reason: "awaiting_confirmation", detail: "questionnaire" });
 		expect(executeTool.mock.calls[0]![1]).not.toHaveProperty("waitMinutes");
 		expect(scheduleTimeout).toHaveBeenCalledWith(expect.objectContaining({ card: "questionnaire", cardId: "questionnaire-run1", minutes: 15, toolName: "propose_questionnaire" }));
-		expect(events.find((event) => event.type === "questionnaire")).toMatchObject({ deadlineAt: "2026-11-04T12:15:00.000Z" });
+		expect(events.find((event) => event.type === "questionnaire")).toMatchObject({ deadlineAt: "2026-11-04T12:15:00.000Z", ownerWait: true });
 	});
 
 	it("pergunta pulada/ignorada antes neste trabalho não volta: decide com um padrão", async () => {
