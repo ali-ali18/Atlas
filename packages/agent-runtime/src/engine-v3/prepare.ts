@@ -239,7 +239,7 @@ export async function prepareRun(params: ComputerUseParams, options: EngineV3Opt
 		...(v3State.limitWait ? { limitWait: v3State.limitWait } : {}),
 		heldBack,
 		canPrepareForOwner: canPrepareForOwner && catalog.entries.has(PREPARE_FOR_OWNER_DEFINED.name),
-		draftsPrepared: 0,
+		draftsPrepared: v3State.draftsPrepared ?? 0,
 		step: parsed?.nextStepIndex ?? 0,
 		usage,
 		estimatedCostUsd: usage.costUsd === undefined && (usage.costUnknownCalls ?? 0) > 0 ? estimateCostUsd(usage, prices) : 0,
@@ -294,6 +294,7 @@ export async function prepareRun(params: ComputerUseParams, options: EngineV3Opt
 					...(run.ownerRefused.size > 0 ? { ownerRefused: [...run.ownerRefused].slice(-50) } : {}),
 					...(run.limitWait ? { limitWait: run.limitWait } : {}),
 					...(run.limitGrant.steps > 0 || run.limitGrant.usd > 0 || run.limitGrant.waits > 0 ? { limitGrant: run.limitGrant } : {}),
+					...(run.draftsPrepared > 0 ? { draftsPrepared: run.draftsPrepared } : {}),
 				},
 			});
 			const write = checkpointTail.then(() => params.onCheckpoint!(snapshot));

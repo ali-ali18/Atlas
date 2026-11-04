@@ -1,5 +1,5 @@
 import type { ChatTool } from "@workspace/llm";
-import { persistConversationCardFromEvent, saveSkillPendingIntent, takeToolCallApproval } from "@workspace/db";
+import { persistConversationCardFromEvent, saveSkillPendingIntentIfFree, takeToolCallApproval } from "@workspace/db";
 import { redactSecrets } from "@workspace/shared";
 import { needsOwnerWithoutHuman } from "../policy/decide.js";
 import { getToolMeta } from "../tools/registry/tool-meta.js";
@@ -23,6 +23,7 @@ export const PREPARED_DRAFT_TTL_MS = 3 * 24 * 60 * 60_000;
 export const PREPARED_DRAFT_RESULT = (label: string) =>
 	`Draft created for the owner: "${label}". Nothing was done: the owner approves it (it then runs once) or dismisses it in the chat. Do not try another way to do it. In your reply, say in one short sentence that it is waiting for their approval.`;
 export const PREPARE_ONE_PER_RUN = "A draft for the owner was already created in this run (one per run). Do not create another; put the rest in your reply so the owner can ask for it.";
+export const PREPARE_OWNER_BUSY = "Draft not created: the owner already has another request waiting in this conversation (one at a time). Do not retry. In your reply, say what you did, what still needs the owner, and that a request of theirs is already waiting.";
 export const PREPARE_NO_CONVERSATION = "Drafts for the owner need a conversation with the owner, and this run has none. Say in your reply what the owner needs to do.";
 
 /** Tools nativas escondidas por falta de pessoa para aprovar (efeito externo), com o schema. */
@@ -70,13 +71,17 @@ export async function prepareDraftForOwner(run: V3Run, input: { tool: string; ar
 	// Mesmo formato do cartão genérico: `confirm-tool<8 hex>-<runId>` liga a aprovação a ESTE run (semente da continuação).
 	const confirmId = `confirm-tool${callKey.slice(0, 8)}-${run.runId}`;
 	const label = actionLabel(name);
-	await saveSkillPendingIntent({
+	// Nunca sobrescreve um pedido vivo do dono nesta conversa (um por conversa): sem rascunho, resposta honesta.
+	const saved = await saveSkillPendingIntentIfFree({
 		userId: run.userId,
 		conversationId: run.conversationId,
 		ttlMs: PREPARED_DRAFT_TTL_MS,
 		payload: { kind: "confirm", action: "tool-call", confirmId, ...(run.botId ? { botId: run.botId } : {}), toolCall: { callKey, tool: name, label, prepared: true } },
 	});
+	if (!saved) throw new Error(PREPARE_OWNER_BUSY);
 	run.draftsPrepared += 1;
+	// O contador vai ao checkpoint já: depois de uma retomada (limite, queda) o "um por run" continua valendo.
+	await run.persistCheckpoint().catch(() => undefined);
 	const note = redactSecrets(input.note.trim());
 	const card = { type: "confirm" as const, confirmId, title: `${label}?`, description: `${note}\n\n${details}`, confirmLabel: "Permitir", cancelLabel: "Agora não", callKey };
 	await persistConversationCardFromEvent(run.conversationId, card).catch(() => undefined);

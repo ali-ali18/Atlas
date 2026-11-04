@@ -1,12 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { CompleteChatWithToolsParams, CompleteChatWithToolsResult, LlmToolCall } from "@workspace/llm";
 import type { SandboxManager } from "@workspace/sandbox";
-import { saveSkillPendingIntent } from "@workspace/db";
+import { saveSkillPendingIntentIfFree } from "@workspace/db";
 import type { AgentRunCheckpoint, ComputerUseEvent } from "@workspace/shared";
 import { AgentRunPausedError } from "../errors.js";
 import type { ComputerUseParams } from "../run-types.js";
 import { runEngineV3, type EngineV3Options } from "./loop.js";
-import { OWNER_STOPPED_NOTE } from "./limits.js";
+import { OWNER_BUSY_NOTE, OWNER_STOPPED_NOTE } from "./limits.js";
 
 /** O executor real precisa de banco/VM: toda tool devolve um resultado novo (a rede de repetição não entra aqui). */
 const executeTool = vi.hoisted(() => vi.fn(async (name: string, args: Record<string, unknown>): Promise<Record<string, unknown>> => ({ summary: `${name} ${JSON.stringify(args)} ok` })));
@@ -19,7 +19,7 @@ vi.mock("@workspace/db", async (original) => ({
 	markMcpTaskGrantsUntrusted: vi.fn(async () => undefined),
 	persistConversationCardFromEvent: vi.fn(async () => undefined),
 	upsertTaskListCard: vi.fn(async () => undefined),
-	saveSkillPendingIntent: vi.fn(async () => undefined),
+	saveSkillPendingIntentIfFree: vi.fn(async () => true),
 	takeToolCallApproval: vi.fn(async () => null),
 }));
 
@@ -83,7 +83,7 @@ const resumeWith = (checkpoint: AgentRunCheckpoint, outcome?: "continue" | "stop
 
 beforeEach(() => {
 	executeTool.mockClear();
-	vi.mocked(saveSkillPendingIntent).mockClear();
+	vi.mocked(saveSkillPendingIntentIfFree).mockClear();
 });
 
 describe("rotina no limite de passos: guarda o ponto e pergunta ao dono", () => {
@@ -98,7 +98,18 @@ describe("rotina no limite de passos: guarda o ponto e pergunta ao dono", () => 
 		expect(cards[0]!.description).not.toMatch(/tool|checkpoint|step/i);
 		const last = checkpoints.at(-1)!;
 		expect(last).toMatchObject({ engine: "v3", nextStepIndex: 40, engineV3: { limitWait: { cardId: "confirm-limit1-run-r1", kind: "steps", steps: 40 } } });
-		expect(saveSkillPendingIntent).toHaveBeenCalledWith(expect.objectContaining({ conversationId: "conv-rotina", payload: expect.objectContaining({ action: "step-limit", confirmId: "confirm-limit1-run-r1", stepLimit: { runId: "run-r1" } }) }));
+		expect(saveSkillPendingIntentIfFree).toHaveBeenCalledWith(expect.objectContaining({ conversationId: "conv-rotina", payload: expect.objectContaining({ action: "step-limit", confirmId: "confirm-limit1-run-r1", stepLimit: { runId: "run-r1" } }) }));
+	});
+
+	it("pedido do dono já esperando na conversa: não sobrescreve, não estaciona; resposta final honesta dizendo isso", async () => {
+		vi.mocked(saveSkillPendingIntentIfFree).mockResolvedValueOnce(false);
+		const { error, cards, requests, result, checkpoints } = await runV3([...steps(40), say("Fiz 40 conferências; um pedido seu já está aguardando.")]);
+		expect(error).toBeUndefined();
+		expect(cards).toHaveLength(0);
+		expect(requests.at(-1)!.toolChoice).toBe("none");
+		expect(textOf(requests.at(-1)!)).toContain(OWNER_BUSY_NOTE);
+		expect(result).toMatchObject({ stop: { reason: "budget_steps", detail: "v3_steps_unattended:owner_busy" } });
+		expect((checkpoints.at(-1)?.engineV3 as Record<string, unknown> | undefined)?.limitWait).toBeUndefined();
 	});
 
 	it("Continuar retoma do checkpoint com mais 40 passos e para de novo no 80", async () => {

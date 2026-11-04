@@ -294,6 +294,7 @@ export { imageAttachmentsOf, loadUserImageHistory, parseImageAttachments, resolv
 export { loadUserFileHistory, loadUserFileMetas, resolveUserFileCards, userFileCardContent, userFileIdSet, type UserFileMeta } from "./file-attachments.js";
 export {
 	saveSkillPendingIntent,
+	saveSkillPendingIntentIfFree,
 	getSkillPendingIntent,
 	clearSkillPendingIntent,
 	claimSkillPendingIntent,

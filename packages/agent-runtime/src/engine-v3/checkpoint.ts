@@ -18,6 +18,8 @@ export type V3CheckpointState = {
 	limitWait?: StepLimitWait;
 	/** O que os "Continuar" do dono já somaram ao limite base (passos, US$) e quantas vezes ele parou. */
 	limitGrant?: LimitGrant;
+	/** Rascunhos de `prepare_for_owner` já criados neste run (o "um por run" vale depois de uma retomada). */
+	draftsPrepared?: number;
 };
 
 export type LimitGrant = { steps: number; usd: number; waits: number };
@@ -55,6 +57,7 @@ export function parseV3State(raw: Record<string, unknown> | undefined): Partial<
 	const ownerRefused = Array.isArray(raw.ownerRefused) ? raw.ownerRefused.filter((key): key is string => typeof key === "string" && key.length > 0 && key.length <= 200).slice(-50) : [];
 	const limitWait = parseStepLimitWait(raw.limitWait);
 	const limitGrant = parseLimitGrant(raw.limitGrant);
+	const draftsPrepared = typeof raw.draftsPrepared === "number" && Number.isInteger(raw.draftsPrepared) && raw.draftsPrepared > 0 ? Math.min(raw.draftsPrepared, 100) : 0;
 	return {
 		nudges,
 		repetition,
@@ -63,6 +66,7 @@ export function parseV3State(raw: Record<string, unknown> | undefined): Partial<
 		...(ownerRefused.length > 0 ? { ownerRefused } : {}),
 		...(limitWait ? { limitWait } : {}),
 		...(limitGrant ? { limitGrant } : {}),
+		...(draftsPrepared > 0 ? { draftsPrepared } : {}),
 	};
 }
 

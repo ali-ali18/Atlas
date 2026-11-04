@@ -62,6 +62,9 @@ export function grantedLimit(base: StepLimit, grant: { steps: number }): StepLim
 /** O dono escolheu "Agora não" no cartão do limite: resposta final honesta, sem tools. */
 export const OWNER_STOPPED_NOTE = "The owner chose not to continue after the limit. Reply now with what you have done, what is missing, and what you could not confirm. Do not call tools.";
 
+/** No limite sem poder perguntar "Continuo?": já há outro pedido do dono esperando na conversa (um por vez). */
+export const OWNER_BUSY_NOTE = "You reached the limit for this run, and the owner already has another request waiting in this conversation, so you cannot ask to continue now. Reply now with what you have done and what is missing, and say a request of theirs is already waiting. Do not call tools.";
+
 export function ownerContinueNote(wait: { kind: "steps" | "cost"; steps: number; costUsd?: number }): string {
 	const more = wait.kind === "cost" && wait.costUsd !== undefined ? `US$ ${wait.costUsd.toFixed(2)} more to spend` : `${wait.steps} more steps`;
 	return `The owner said to continue after the limit: you have ${more}. Continue from where you stopped; do not redo finished work.`;

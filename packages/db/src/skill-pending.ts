@@ -101,6 +101,35 @@ export async function saveSkillPendingIntent(input: {
 	});
 }
 
+/**
+ * Como `saveSkillPendingIntent`, mas NUNCA sobrescreve uma intenção viva da conversa (há uma por conversa): só grava se
+ * não há nenhuma ou se a que existe já venceu. Para quem pede sem pessoa presente (rotina no limite, rascunho para o
+ * dono): um pedido que o dono ainda vai responder (plano, PR, segredos, outro cartão) não pode perder a pendência.
+ * `false` = há um pedido vivo; nada foi gravado.
+ */
+export async function saveSkillPendingIntentIfFree(input: {
+	userId: string;
+	conversationId: string;
+	payload: SkillPendingPayload;
+	ttlMs?: number;
+}): Promise<boolean> {
+	const now = new Date();
+	const expiresAt = new Date(now.getTime() + (input.ttlMs ?? PENDING_TTL_MS));
+	const payload = JSON.parse(JSON.stringify(input.payload));
+	try {
+		await prisma.skillPendingIntent.create({ data: { userId: input.userId, conversationId: input.conversationId, kind: input.payload.kind, payload, expiresAt } });
+		return true;
+	} catch (error) {
+		if ((error as { code?: string } | null)?.code !== "P2002") throw error;
+	}
+	// Já existe uma: só a vencida é trocada (condicional no próprio UPDATE, sem janela entre ler e gravar).
+	const replaced = await prisma.skillPendingIntent.updateMany({
+		where: { conversationId: input.conversationId, expiresAt: { lte: now } },
+		data: { userId: input.userId, kind: input.payload.kind, payload, expiresAt },
+	});
+	return replaced.count === 1;
+}
+
 export async function getSkillPendingIntent(userId: string, conversationId: string): Promise<SkillPendingIntent | null> {
 	const row = await prisma.skillPendingIntent.findUnique({ where: { conversationId } }).catch(() => null);
 	if (!row || row.userId !== userId) return null;

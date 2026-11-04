@@ -24,7 +24,7 @@ import { OFFERED_TOOLS_SUB_INDEX, type ComputerUseParams, type RunComputerUseRes
 import { stopReasonPhrase } from "../engine-v2/delivery.js";
 import { repairUnansweredCalls } from "./checkpoint.js";
 import { createCompactor } from "./compaction.js";
-import { OWNER_STOPPED_NOTE, capStop, finalStepNote, parksAtLimit, reachedCap, type CapKind } from "./limits.js";
+import { OWNER_BUSY_NOTE, OWNER_STOPPED_NOTE, capStop, finalStepNote, parksAtLimit, reachedCap, type CapKind } from "./limits.js";
 import { canParkAtLimit, effectiveCostCap, effectiveStepLimit, parkAtLimit, resumeFromLimit, waitCapKind } from "./limit-wait.js";
 import { createModelStep } from "./model-step.js";
 import { RUNTIME_PREFIX, nudgeSignal, nudgeText } from "./nudges.js";
@@ -74,11 +74,12 @@ export async function runEngineV3(params: ComputerUseParams, options: EngineV3Op
 	};
 
 	/** FINAL_STEP: última chamada sem tools (mantidas no pedido), resposta honesta do que fez e do que falta. Nunca aborta. */
-	const finalStep = async (kind: CapKind, ownerStopped = false): Promise<RunComputerUseResult> => {
+	/** `owner`: `stopped` = o dono disse "Agora não"; `busy` = no limite, mas já há um pedido dele esperando na conversa. */
+	const finalStep = async (kind: CapKind, owner?: "stopped" | "busy"): Promise<RunComputerUseResult> => {
 		const messageId = `${run.turnId}-final`;
-		run.conversation.push({ role: "user", content: `${RUNTIME_PREFIX} ${ownerStopped ? OWNER_STOPPED_NOTE : finalStepNote(kind, !run.personWatching)}` });
+		run.conversation.push({ role: "user", content: `${RUNTIME_PREFIX} ${owner === "stopped" ? OWNER_STOPPED_NOTE : owner === "busy" ? OWNER_BUSY_NOTE : finalStepNote(kind, !run.personWatching)}` });
 		const base = capStop(kind, hasOpenItems(run));
-		const stop: RunStop = ownerStopped ? { ...base, detail: `${base.detail}:owner_stopped` } : base;
+		const stop: RunStop = owner ? { ...base, detail: `${base.detail}:owner_${owner}` } : base;
 		let text = "";
 		try {
 			text = (await modelStep({ messageId, toolChoice: "none" })).text;
@@ -108,7 +109,7 @@ export async function runEngineV3(params: ComputerUseParams, options: EngineV3Op
 	try {
 		// --- retomada do cartão "Cheguei no limite. Continuo?" (D4): Continuar soma o limite; Agora não = resposta final ---
 		const limitWait = run.limitWait;
-		if (limitWait && resumeFromLimit(run) === "stop") return await finalStep(waitCapKind(limitWait, run.limit), true);
+		if (limitWait && resumeFromLimit(run) === "stop") return await finalStep(waitCapKind(limitWait, run.limit), "stopped");
 		// --- retomada: login concluído, ou crash no meio de um lote ---
 		if (run.pendingLogin) {
 			const resumed = run.pendingLogin;
@@ -138,7 +139,8 @@ export async function runEngineV3(params: ComputerUseParams, options: EngineV3Op
 			if (await pollSteer(run)) flushSteer(run);
 			final ??= reachedCap({ step: run.step, limit: effectiveStepLimit(run), spentUsd: run.spentUsd(), costCapUsd: effectiveCostCap(run), activeMs: run.activeMs(), wallCapMs: params.budget?.maxWallMs }) ?? (run.repetition.reachedFinal() ? "repeated" : undefined);
 			// Sem humano, passos e US$ estacionam com o cartão "Continuo?" (o run não morre); o resto é o passo final honesto.
-			if (final && parksAtLimit(final) && canParkAtLimit(run, final)) await parkAtLimit(run, final);
+			// Já há um pedido vivo do dono nesta conversa: o cartão não sobrescreve; resposta final honesta dizendo isso.
+			if (final && parksAtLimit(final) && canParkAtLimit(run, final) && (await parkAtLimit(run, final)) === "busy") return await finalStep(final, "busy");
 			if (final) return await finalStep(final);
 			// Autonomia mudada no meio do run: o que a política passou a esconder sai do pedido.
 			applyCatalogPolicy(run.tools, { base: run.policy, autonomy: run.autonomy.get(), entryOf: run.entryOf });

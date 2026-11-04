@@ -9,7 +9,7 @@ import { COMPUTER_USE_TOOLS } from "../tools/catalog.js";
 import { PREPARE_FOR_OWNER_TOOL_NAME } from "../tools/prepare-for-owner.js";
 import { toolCallKey } from "./approval.js";
 import { runEngineV3 } from "./loop.js";
-import { PREPARED_DRAFT_RESULT, PREPARE_ONE_PER_RUN } from "./prepared.js";
+import { PREPARED_DRAFT_RESULT, PREPARE_ONE_PER_RUN, PREPARE_OWNER_BUSY } from "./prepared.js";
 
 /**
  * Banco em memória do cartão genérico: a intenção pendente (uma por conversa) e os cartões com o desfecho. O dono
@@ -29,6 +29,11 @@ vi.mock("@workspace/db", async (original) => ({
 	upsertTaskListCard: vi.fn(async () => undefined),
 	persistConversationCardFromEvent: vi.fn(async (_conversationId: string, event: { type: string; confirmId?: string; callKey?: string; title?: string; description?: string }) => {
 		if (event.type === "confirm" && event.confirmId) db.cards.push({ confirmId: event.confirmId, callKey: event.callKey, title: event.title, description: event.description, status: "pending" });
+	}),
+	saveSkillPendingIntentIfFree: vi.fn(async (input: { conversationId: string; payload: Record<string, unknown>; ttlMs?: number }) => {
+		if (db.intents.some((intent) => intent.conversationId === input.conversationId)) return false;
+		db.intents.push(input);
+		return true;
 	}),
 	saveSkillPendingIntent: vi.fn(async (input: { conversationId: string; payload: Record<string, unknown>; ttlMs?: number }) => {
 		db.intents = db.intents.filter((intent) => intent.conversationId !== input.conversationId);
@@ -206,6 +211,26 @@ describe("prepare_for_owner: rascunho, validação e uma execução só", () => 
 		);
 		expect(results[1]).toMatchObject({ ok: false, summary: PREPARE_ONE_PER_RUN });
 		expect(db.cards).toHaveLength(1);
+	});
+
+	it("pedido do dono já esperando na conversa (plano, PR, segredos, outro cartão): não sobrescreve, rascunho não sai", async () => {
+		const { email } = emailContext();
+		db.intents.push({ conversationId: "conv-1", payload: { kind: "confirm", action: "plan", confirmId: "confirm-plan-x" } });
+		const { results, confirms } = await runV3([call("c1", PREPARE_FOR_OWNER_TOOL_NAME, { tool: "email_send", args: SEND, note: "n" }), say("um pedido seu já está aguardando")], { email });
+		expect(results[0]).toMatchObject({ ok: false, summary: PREPARE_OWNER_BUSY });
+		expect(confirms).toHaveLength(0);
+		expect(db.intents).toEqual([expect.objectContaining({ payload: expect.objectContaining({ action: "plan" }) })]);
+	});
+
+	it("um rascunho por run vale também depois de uma retomada (o contador vem do checkpoint)", async () => {
+		const { email } = emailContext();
+		const first = await runV3([call("c1", PREPARE_FOR_OWNER_TOOL_NAME, { tool: "email_send", args: SEND, note: "n" }), say("ok")], { email });
+		const saved = first.checkpoints.at(-1)!;
+		expect((saved.engineV3 as Record<string, unknown>).draftsPrepared).toBe(1);
+		db.intents = [];
+		const resumed = await runV3([call("c2", PREPARE_FOR_OWNER_TOOL_NAME, { tool: "email_send", args: { ...SEND, to: "bia@cliente.com" }, note: "n" }), say("ok")], { email, restoredCheckpoint: saved });
+		expect(resumed.results[0]).toMatchObject({ ok: false, summary: PREPARE_ONE_PER_RUN });
+		expect(resumed.confirms).toHaveLength(0);
 	});
 
 	it("sem aprovação nunca executa: a continuação sem clique é recusada; aprovado, envia UMA vez", async () => {

@@ -1,4 +1,4 @@
-import { persistConversationCardFromEvent, saveSkillPendingIntent } from "@workspace/db";
+import { persistConversationCardFromEvent, saveSkillPendingIntentIfFree } from "@workspace/db";
 import { stepLimitCardText, type StepLimitWait } from "@workspace/shared";
 import { AgentRunPausedError } from "../errors.js";
 import { grantedLimit, ownerContinueNote, parksAtLimit, type CapKind } from "./limits.js";
@@ -30,7 +30,11 @@ export const LIMIT_CARD_TTL_MS = 3 * 24 * 60 * 60_000;
 
 export const LIMIT_PAUSE_REASON = "Aguardando o dono decidir se continua depois do limite";
 
-export async function parkAtLimit(run: V3Run, kind: "steps_unattended" | "steps_owner" | "cost"): Promise<never> {
+/**
+ * `busy`: a conversa já tem um pedido vivo do dono (plano, PR, segredos, outro cartão): o cartão não o sobrescreve e o
+ * run faz a resposta final honesta. Senão estaciona (lança a pausa).
+ */
+export async function parkAtLimit(run: V3Run, kind: "steps_unattended" | "steps_owner" | "cost"): Promise<"busy"> {
 	const waits = run.limitGrant.waits + 1;
 	const wait: StepLimitWait = {
 		// O formato `confirm-limit<n>-<runId>` diz de qual run e de qual parada é o cartão (a API confere).
@@ -39,17 +43,19 @@ export async function parkAtLimit(run: V3Run, kind: "steps_unattended" | "steps_
 		steps: run.limit.maxSteps,
 		...(kind === "cost" && run.costCapUsd !== undefined ? { costUsd: run.costCapUsd } : {}),
 	};
-	run.limitWait = wait;
-	run.limitGrant = { ...run.limitGrant, waits };
-	// Checkpoint ANTES do cartão: o clique do dono sempre acha a espera gravada.
-	await run.persistCheckpoint();
-	await run.flushCheckpoints();
-	await saveSkillPendingIntent({
+	// A intenção primeiro, sem sobrescrever pedido vivo. O cartão só sai depois do checkpoint, então o clique sempre acha
+	// a espera gravada (e, se chegasse antes, a decisão falha sem consumir a intenção).
+	const saved = await saveSkillPendingIntentIfFree({
 		userId: run.userId,
 		conversationId: run.conversationId!,
 		ttlMs: LIMIT_CARD_TTL_MS,
 		payload: { kind: "confirm", action: "step-limit", confirmId: wait.cardId, ...(run.botId ? { botId: run.botId } : {}), stepLimit: { runId: run.runId } },
-	});
+	}).catch(() => false);
+	if (!saved) return "busy";
+	run.limitWait = wait;
+	run.limitGrant = { ...run.limitGrant, waits };
+	await run.persistCheckpoint();
+	await run.flushCheckpoints();
 	const text = stepLimitCardText(wait);
 	const card = { type: "confirm" as const, confirmId: wait.cardId, title: text.title, description: text.description, confirmLabel: "Continuar", cancelLabel: "Agora não" };
 	await persistConversationCardFromEvent(run.conversationId, card).catch(() => undefined);
