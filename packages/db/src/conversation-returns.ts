@@ -95,6 +95,13 @@ export async function claimDueReturn(userId: string, returnId: string): Promise<
 	return row ? toRecord(row) : null;
 }
 
+/** Criar o run falhou depois da reserva: devolve a "pendente" para a nova tentativa do job disparar. Só sem run gravado. */
+export async function releaseReturnClaim(userId: string, returnId: string): Promise<boolean> {
+	if (!valid(userId)) return false;
+	const updated = await prisma.conversationReturn.updateMany({ where: { id: returnId, userId, status: "fired", runId: null }, data: { status: "pending" } });
+	return updated.count === 1;
+}
+
 export async function markReturnRun(returnId: string, runId: string): Promise<void> {
 	await prisma.conversationReturn.updateMany({ where: { id: returnId }, data: { runId } });
 }

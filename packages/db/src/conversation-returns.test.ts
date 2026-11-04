@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { serializeConversationCard } from "@workspace/shared";
 import { prisma } from "./client.js";
-import { cancelConversationReturn, claimDueReturn, createConversationReturn, ConversationReturnLimitError, listPendingReturns } from "./conversation-returns.js";
+import { cancelConversationReturn, claimDueReturn, createConversationReturn, ConversationReturnLimitError, listPendingReturns, releaseReturnClaim } from "./conversation-returns.js";
 import { closePendingConfirmCard, dismissPendingQuestionnaireCard } from "./conversations.js";
 import { markPendingLoginOutcome } from "./runs.js";
 
@@ -167,5 +167,20 @@ test("cartão de confirmação: decisão no meio (conteúdo mudou) faz o fechame
 	} finally {
 		prisma.conversationMessage.findMany = originalMany;
 		restore();
+	}
+});
+
+test("retorno: reserva devolvida volta a disparar; outro dono não devolve; com run gravado não volta", async () => {
+	const db = fakeReturns();
+	try {
+		const item = await createConversationReturn(base);
+		await claimDueReturn("user-a", item.id);
+		assert.equal(await releaseReturnClaim("user-b", item.id), false);
+		assert.equal(await releaseReturnClaim("user-a", item.id), true);
+		assert.equal((await claimDueReturn("user-a", item.id))?.status, "fired");
+		db.rows[0]!.runId = "run-x";
+		assert.equal(await releaseReturnClaim("user-a", item.id), false);
+	} finally {
+		db.restore();
 	}
 });

@@ -8,6 +8,7 @@ import {
 	getSkillPendingIntent,
 	markPendingLoginOutcome,
 	markReturnRun,
+	releaseReturnClaim,
 	requestResumeAgentRun,
 } from "@workspace/db";
 import {
@@ -37,6 +38,7 @@ export type OwnerWaitProcessorDeps = {
 	createAgentRun: typeof createAgentRun;
 	claimDueReturn: typeof claimDueReturn;
 	markReturnRun: typeof markReturnRun;
+	releaseReturnClaim: typeof releaseReturnClaim;
 	enqueueRun: (runId: string) => Promise<boolean>;
 };
 
@@ -51,6 +53,7 @@ export const defaultOwnerWaitDeps = (enqueueRun: (runId: string) => Promise<bool
 	createAgentRun,
 	claimDueReturn,
 	markReturnRun,
+	releaseReturnClaim,
 	enqueueRun,
 });
 
@@ -127,12 +130,19 @@ export async function processScheduledReturn(job: ScheduledReturnJobPayload, dep
 	const prompt = scheduledReturnPrompt({ reason: due.reason, visible: due.visible, scheduledAt: due.createdAt, noUpdateToken: PROACTIVE_NO_UPDATE_TOKEN });
 	const content = due.visible ? prompt : `${SILENT_RETURN_MARK} ${prompt}`;
 	const origin = source.origin === "chat" ? "chat" : "proactive";
-	const run = await deps.createAgentRun({
-		request: { messages: [{ role: "user", content }], conversationId: due.conversationId, ...(due.botId ? { botId: due.botId } : {}), origin, silent: true, objective: content },
-		model: source.model,
-		userId: job.userId,
-		inheritFromRunId: due.sourceRunId,
-	});
+	let run;
+	try {
+		run = await deps.createAgentRun({
+			request: { messages: [{ role: "user", content }], conversationId: due.conversationId, ...(due.botId ? { botId: due.botId } : {}), origin, silent: true, objective: content },
+			model: source.model,
+			userId: job.userId,
+			inheritFromRunId: due.sourceRunId,
+		});
+	} catch (error) {
+		// Sem run, o retorno volta a "pendente" e a nova tentativa do BullMQ dispara (senão ele se perdia).
+		await deps.releaseReturnClaim(job.userId, due.id).catch(() => false);
+		throw error;
+	}
 	await deps.markReturnRun(due.id, run.id).catch(() => undefined);
 	if (run.status === "queued") await deps.enqueueRun(run.id);
 	return { outcome: "resumed", runId: run.id };

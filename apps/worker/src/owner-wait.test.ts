@@ -20,6 +20,7 @@ function fakeDeps(over: Partial<OwnerWaitProcessorDeps> = {}) {
 		createAgentRun: async (input: Created) => { created.push(input); return { ...source, id: `new${created.length}`, status: "queued" }; },
 		claimDueReturn: async () => ({ id: "ret1", userId: "user-a", botId: "bot-a", conversationId: "conv-1", sourceRunId: "run1", dueAt: new Date(), reason: "ver o deploy", visible: true, status: "fired", runId: null, createdAt: new Date("2026-11-04T12:00:00Z") }),
 		markReturnRun: async () => undefined,
+		releaseReturnClaim: async () => { calls.push("release"); return true; },
 		enqueueRun: async (runId: string) => { enqueued.push(runId); return true; },
 		...over,
 	} as unknown as OwnerWaitProcessorDeps;
@@ -111,4 +112,10 @@ test("corrida com o clique: o dono reservou a intenção primeiro, o prazo não 
 	assert.equal(result.outcome, "noop");
 	assert.equal(calls.some((call) => call.startsWith("close:")), false, "o prazo não pode trocar o desfecho do cartão");
 	assert.equal(created.length, 0, "um cartão, um efeito");
+});
+
+test("retorno: criar o run falhou depois da reserva = devolve a pendente e o job falha (nova tentativa dispara)", async () => {
+	const { deps, calls } = fakeDeps({ createAgentRun: (async () => { throw new Error("db fora"); }) as unknown as OwnerWaitProcessorDeps["createAgentRun"] });
+	await assert.rejects(processOwnerWaitJob({ kind: "scheduled_return", userId: "user-a", returnId: "ret1" }, deps), /db fora/);
+	assert.deepEqual(calls, ["release"]);
 });

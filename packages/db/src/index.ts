@@ -782,6 +782,7 @@ export {
 	createConversationReturn,
 	cancelConversationReturn,
 	claimDueReturn,
+	releaseReturnClaim,
 	markReturnRun,
 	ConversationReturnLimitError,
 	type ConversationReturnRecord,
