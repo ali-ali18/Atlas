@@ -22,12 +22,15 @@ import {
 	Globe as LucideGlobe,
 	Hash as LucideHash,
 	KeyRound as LucideKeyRound,
+	Laptop as LucideLaptop,
 	LibraryBig as LucideLibraryBig,
 	Link as LucideLink,
 	MailOpen as LucideMailOpen,
 	ListChecks as LucideListChecks,
 	Mic as LucideMic,
 	Monitor as LucideMonitor,
+	MousePointer2 as LucideMousePointer2,
+	Check as LucideCheck,
 	Pencil as LucidePencil,
 	Pin as LucidePin,
 	PinOff as LucidePinOff,
@@ -43,6 +46,9 @@ import {
 	Star as LucideStar,
 	TextCursorInput as LucideTextCursorInput,
 	X as LucideX,
+	ClipboardPaste as LucideClipboardPaste,
+	CircleHelp as LucideCircleHelp,
+	Keyboard as LucideKeyboard,
 } from "lucide-react-native";
 import Svg, { Path, Rect } from "react-native-svg";
 import { themeColor, type ColorToken } from "@/lib/theme";
@@ -120,6 +126,16 @@ export function ChevronLeftIcon({ size = 22, tone = "foreground" }: LineIconProp
 /** Lucide `Ellipsis`. */
 export function DotsIcon({ size = 22, tone = "foreground" }: LineIconProps) {
 	return <LucideEllipsis size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `MousePointer2` (seta de cursor). Cor fixa: o menu do Computador é sempre escuro. */
+export function CursorIcon({ size = 22, color = "#a1a1aa" }: IconProps & { color?: string }) {
+	return <LucideMousePointer2 size={size} color={color} strokeWidth={2} />;
+}
+
+/** Lucide `Check`. Cor fixa, como `CursorIcon`. */
+export function CheckIcon({ size = 20, color = "#ffffff" }: IconProps & { color?: string }) {
+	return <LucideCheck size={size} color={color} strokeWidth={2} />;
 }
 
 /** Lucide `Mic`. */
@@ -308,4 +324,24 @@ export function EyeIcon({ size = 18, tone = "muted-foreground" }: LineIconProps)
 /** Lucide `EyeOff`. */
 export function EyeOffIcon({ size = 18, tone = "muted-foreground" }: LineIconProps) {
 	return <LucideEyeOff size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `ClipboardPaste` (Colar no computador). Cor fixa: a tela do Computador é sempre escura. */
+export function ClipboardPasteIcon({ size = 22, color = "#ffffff" }: IconProps & { color?: string }) {
+	return <LucideClipboardPaste size={size} color={color} strokeWidth={2} />;
+}
+
+/** Lucide `Keyboard`. */
+export function KeyboardIcon({ size = 22, color = "#ffffff" }: IconProps & { color?: string }) {
+	return <LucideKeyboard size={size} color={color} strokeWidth={2} />;
+}
+
+/** Lucide `CircleHelp` (o "?" do topo). */
+export function HelpIcon({ size = 22, tone = "foreground" }: LineIconProps) {
+	return <LucideCircleHelp size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `Laptop` (cabeçalho "Computador"). */
+export function LaptopIcon({ size = 16, tone = "muted-foreground" }: LineIconProps) {
+	return <LucideLaptop size={size} color={useStroke(tone)} strokeWidth={2} />;
 }

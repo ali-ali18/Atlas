@@ -33,6 +33,9 @@ export type RowActions = {
 	/** Cartões de pedido (conectar app, login, segredo): retomar o run, abrir a tela do bot e as chamadas à API. */
 	onResumeLogin: (item: Extract<ChatItem, { kind: "login" }>, options?: ResumeOptions) => void;
 	onOpenScreen: () => void;
+	/** Abre o Computador do bot (`/computer/<botId>`) e a conversa dele (de onde sai a captura da miniatura). */
+	onOpenComputer: () => void;
+	conversationId: string | null;
 	/** "Autorizar" do conector e o estado das conexões em andamento (por `loginId`): o fluxo é do controller. */
 	onConnectLogin: (item: Extract<ChatItem, { kind: "login" }>) => void;
 	connects: Record<string, { busy: boolean; message: string | null }>;
@@ -162,7 +165,7 @@ function RowContent({ item, actions, position }: { item: ChatItem; actions: RowA
 			return loginVariant(item) === "connector" ? (
 				<ConnectorCard item={item} botName={actions.botName} serverUrl={actions.serverUrl} connect={actions.connects[item.loginId]} onAuthorize={actions.onConnectLogin} onOpenWeb={actions.onOpenScreen} />
 			) : (
-				<LoginCard item={item} botName={actions.botName} onResume={actions.onResumeLogin} onSaveLogin={(login, username, password) => actions.request.saveLogin(login, username, password)} onOpenScreen={actions.onOpenScreen} />
+				<LoginCard item={item} botName={actions.botName} conversationId={actions.conversationId} onOpenComputer={actions.onOpenComputer} onResume={actions.onResumeLogin} onSaveLogin={(login, username, password) => actions.request.saveLogin(login, username, password)} onOpenScreen={actions.onOpenScreen} />
 			);
 		case "secrets":
 			return <SecretsCard item={item} onSave={actions.request.saveSecrets} onDecide={actions.onDecide} />;

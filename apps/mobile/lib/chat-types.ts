@@ -23,13 +23,16 @@ export type ChatItem =
 	| (Base & { kind: "confirm"; confirmId: string; title: string; description?: string; confirmLabel?: string; cancelLabel?: string; status: ConfirmStatus })
 	| (Base & { kind: "questionnaire"; questionnaireId: string; title: string; description?: string; items: QuestionnaireCardItem[]; status: QuestionnaireStatus; answers?: Record<string, string | string[]> })
 	/** Pedido de login do run (conector ou página): nunca carrega credencial. `status: "done"` = resolvido. */
-	| (Base & { kind: "login"; loginId: string; site: string; url: string; runId?: string; status: "pending" | "done"; reason?: "login" | "captcha"; composioToolkit?: string; connector?: LoginConnector; vault?: LoginVaultOffer; vaultTried?: string; codeField?: boolean })
+	| (Base & { kind: "login"; loginId: string; site: string; url: string; runId?: string; status: "pending" | "done"; reason?: "login" | "captcha"; composioToolkit?: string; connector?: LoginConnector; vault?: LoginVaultOffer; vaultTried?: string; codeField?: boolean; outcome?: LoginOutcome; deadlineAt?: string; ownerWait?: true })
 	/** Pedido de segredo do Cofre (`secretsRequest` com `environmentId: "vault"`): só os NOMES; o valor vive no campo e some ao enviar. */
 	| (Base & { kind: "secrets"; confirmId: string; title: string; description?: string; names: string[]; confirmLabel?: string; cancelLabel?: string; status: ConfirmStatus })
 	/** Cartão que ainda não tem tela nativa (gráfico, painel, arquivo, rotina…): uma linha com "Abrir no navegador". */
 	| (Base & { kind: "web-card"; card: WebCardKind; title: string; key: string })
 	/** Marcador de uma linha no fio (conversa compactada, mensagem enviada a outro bot). */
 	| (Base & { kind: "marker"; text: string });
+
+/** Desfecho do pedido de login/VM (motor v3): como o dono respondeu, ou o prazo que venceu. */
+export type LoginOutcome = "done" | "takeover" | "skipped" | "skipped_timeout" | "ignored";
 
 export type WebCardKind = "chart" | "page" | "file" | "routine" | "login" | "images" | "proposal" | "approval";
 

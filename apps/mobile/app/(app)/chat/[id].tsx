@@ -87,6 +87,7 @@ export default function ChatScreen() {
 		const url = webChatUrl(serverUrl, id);
 		if (url) void WebBrowser.openBrowserAsync(url).catch(() => undefined);
 	}, [serverUrl, id]);
+	const openComputer = React.useCallback(() => router.push(`/computer/${encodeURIComponent(id)}` as never), [router, id]);
 	// "Responder": a mensagem citada fica no chip do composer até enviar ou cancelar.
 	const [replyTo, setReplyTo] = React.useState<ReplyQuote | null>(null);
 	const startReply = React.useCallback((item: ChatItem) => setReplyTo(replyQuoteFor(item)), []);
@@ -105,6 +106,8 @@ export default function ChatScreen() {
 			onOpenWeb: openWeb,
 			onResumeLogin: chat.resumeLogin,
 			onOpenScreen: openScreen,
+			onOpenComputer: openComputer,
+			conversationId: bot?.conversationId ?? null,
 			onConnectLogin: chat.connectLogin,
 			connects: chat.connects,
 			request,
@@ -115,7 +118,7 @@ export default function ChatScreen() {
 			running: chat.running,
 			userBubble: userBubble,
 		}),
-		[chat.decide, chat.answer, chat.resumeLogin, chat.connectLogin, chat.connects, openWeb, openScreen, request, bot?.name, palette.accent, serverUrl, messageMenu.open, chat.running, chat.runTasks?.runId, userBubble],
+		[chat.decide, chat.answer, chat.resumeLogin, chat.connectLogin, chat.connects, openWeb, openScreen, openComputer, bot?.conversationId, request, bot?.name, palette.accent, serverUrl, messageMenu.open, chat.running, chat.runTasks?.runId, userBubble],
 	);
 
 	// A lista é invertida (o fim da conversa fica embaixo e o teclado não a desloca): mais novo primeiro.

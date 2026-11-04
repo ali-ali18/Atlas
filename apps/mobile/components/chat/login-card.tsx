@@ -7,10 +7,11 @@ import { Text } from "@/components/ui/text";
 import type { ResumeOptions } from "@/lib/chat-api";
 import { chatChrome, routineSurface } from "@/lib/chat-surface";
 import type { ChatItem } from "@/lib/chat-types";
-import { cleanLoginCode, concludeAction, drawerFields, drawerSave, loginOutcome, siteDomains, siteName } from "@/lib/request-cards";
+import { cleanLoginCode, concludeAction, drawerFields, drawerSave, loginCardKind, loginOutcome, siteDomains, siteName } from "@/lib/request-cards";
 import { themeColor } from "@/lib/theme";
 import type { ActionResult } from "@/lib/use-request-actions";
 import { useAppColorScheme } from "@/lib/use-theme";
+import { ComputerCard } from "./computer-card";
 import { RequestButton, RequestShell } from "./request-shell";
 
 type Login = Extract<ChatItem, { kind: "login" }>;
@@ -202,10 +203,19 @@ function LoginSheet({ item, botName, visible, onClose, onResume, onSaveLogin, on
 }
 
 /**
- * Login de página (sem conector): cartão "Formulário" com o site e "Continuar", que abre a gaveta. Nunca carrega
+ * Login de página (sem conector). Qual cartão aparece é `loginCardKind` (`lib/request-cards.ts`): com o sinal do motor v3
+ * (`ownerWait`), o "Computador · Ação necessária" (a menos que peça código ou Cofre); sem ele, o "Formulário" com gaveta.
+ */
+export function LoginCard({ item, botName, conversationId, onResume, onSaveLogin, onOpenScreen, onOpenComputer, initialOpen = false, frameUri }: { item: Login; botName: string; conversationId: string | null; onResume: (item: Login, options: ResumeOptions) => void; onSaveLogin: (item: Login, username: string, password: string) => Promise<ActionResult>; onOpenScreen: () => void; onOpenComputer: () => void; initialOpen?: boolean; frameUri?: string }) {
+	if (loginCardKind(item) === "computer") return <ComputerCard item={item} botName={botName} conversationId={conversationId} onResume={onResume} onOpenComputer={onOpenComputer} frameUri={frameUri} />;
+	return <FormCard item={item} botName={botName} onResume={onResume} onSaveLogin={onSaveLogin} onOpenScreen={onOpenScreen} initialOpen={initialOpen} />;
+}
+
+/**
+ * Cartão "Formulário" com o site e "Continuar", que abre a gaveta. Nunca carrega
  * credencial. Resolvido: um selo com o desfecho no lugar do botão.
  */
-export function LoginCard({ item, botName, onResume, onSaveLogin, onOpenScreen, initialOpen = false }: { item: Login; botName: string; onResume: (item: Login, options: ResumeOptions) => void; onSaveLogin: (item: Login, username: string, password: string) => Promise<ActionResult>; onOpenScreen: () => void; initialOpen?: boolean }) {
+function FormCard({ item, botName, onResume, onSaveLogin, onOpenScreen, initialOpen = false }: { item: Login; botName: string; onResume: (item: Login, options: ResumeOptions) => void; onSaveLogin: (item: Login, username: string, password: string) => Promise<ActionResult>; onOpenScreen: () => void; initialOpen?: boolean }) {
 	const [open, setOpen] = React.useState(initialOpen);
 	const captcha = item.reason === "captcha";
 	const site = siteName(item);

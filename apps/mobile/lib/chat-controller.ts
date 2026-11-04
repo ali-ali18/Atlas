@@ -65,7 +65,7 @@ export type ChatSnapshot = {
 	decisions: Record<string, "approved" | "rejected">;
 	answered: Record<string, true>;
 	/** Logins já resolvidos neste aparelho (vale na hora, antes de o servidor gravar o novo estado). */
-	loginsDone: Record<string, true>;
+	loginsDone: Record<string, LocalLoginDone>;
 	/** Conexões em andamento (`busy`) ou que não fecharam (`message`), por pedido de login. */
 	connects: Record<string, { busy: boolean; message: string | null }>;
 };
@@ -518,7 +518,7 @@ export class ChatController {
 	resumeLogin(item: Pick<Extract<ChatItem, { kind: "login" }>, "loginId" | "runId" | "status">, options: ResumeOptions = {}): void {
 		if (item.status !== "pending" || this.state.loginsDone[item.loginId] || this.disposed) return;
 		const runId = item.runId ?? this.runId;
-		this.set({ error: null, loginsDone: { ...this.state.loginsDone, [item.loginId]: true } });
+		this.set({ error: null, loginsDone: { ...this.state.loginsDone, [item.loginId]: localLoginDone(options) } });
 		void (async () => {
 			try {
 				if (!runId) throw new ChatApiError("Não achei a tarefa para continuar.", 404);
@@ -692,11 +692,21 @@ export function liveActivity(live: LiveState, running: boolean): AgentActivity {
 	}
 }
 
+/** O que o toque no cartão de login resolveu neste aparelho: `true` = "Terminei"/Cofre/código; Pular e Assumir guardam o desfecho. */
+export type LocalLoginDone = true | "skipped" | "takeover";
+
+function localLoginDone(options: ResumeOptions): LocalLoginDone {
+	return options.via === "skip" ? "skipped" : options.via === "takeover" ? "takeover" : true;
+}
+
 /** O toque no cartão vale na hora, antes de o servidor gravar o novo estado. */
 function withLocalDecisions(item: ChatItem, snapshot: ChatSnapshot): ChatItem {
 	if (item.kind === "confirm" && item.status === "pending" && snapshot.decisions[item.confirmId]) return { ...item, status: snapshot.decisions[item.confirmId]! };
 	if (item.kind === "secrets" && item.status === "pending" && snapshot.decisions[item.confirmId]) return { ...item, status: snapshot.decisions[item.confirmId]! };
-	if (item.kind === "login" && item.status === "pending" && snapshot.loginsDone[item.loginId]) return { ...item, status: "done" };
+	if (item.kind === "login" && item.status === "pending" && snapshot.loginsDone[item.loginId]) {
+		const done = snapshot.loginsDone[item.loginId]!;
+		return { ...item, status: "done", ...(done === true ? {} : { outcome: done }) };
+	}
 	if (item.kind === "questionnaire" && item.status === "pending" && snapshot.answered[item.questionnaireId]) return { ...item, status: "submitted" };
 	return item;
 }

@@ -360,6 +360,16 @@ describe("cartões de pedido: login e segredo", () => {
 		expect(calls.resume).toEqual([["r9", {}]]);
 		expect(controller.getSnapshot().loginsDone).toEqual({ lg1: true });
 	});
+	it("Pular e Assumir mandam o via do contrato e já mostram o desfecho no cartão", async () => {
+		for (const [via, outcome] of [["skip", "skipped"], ["takeover", "takeover"]] as const) {
+			const { controller, calls } = setup({ api: { getRunStatus: async () => "paused" }, follow: async () => new Promise<FollowResult>(() => undefined) });
+			await controller.open();
+			controller.resumeLogin(login, { via });
+			await flush();
+			expect(calls.resume).toEqual([["r9", { via }]]);
+			expect(controller.getSnapshot().loginsDone).toEqual({ lg1: outcome });
+		}
+	});
 	it("o código segue ao servidor no resume (nunca vira fala nem input)", async () => {
 		const { controller, calls } = setup({ api: { getRunStatus: async () => "paused" }, follow: async () => new Promise<FollowResult>(() => undefined) });
 		await controller.open();
