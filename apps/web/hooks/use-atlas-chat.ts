@@ -41,7 +41,7 @@ import {
 } from "@workspace/shared";
 import { activityForAssistantEvent, activityForToolIntent, runStatusOnProgress, type AgentActivity } from "@/lib/working-status";
 import { jevStatusText } from "@/lib/jev-status";
-import { applyPageEvent, dedupeCards, reconcilePersistedThread } from "@/lib/thread-merge";
+import { applyPageEvent, applyReturnEvent, dedupeCards, reconcilePersistedThread } from "@/lib/thread-merge";
 import { isMemoryUpdateResult, memoryChipId } from "@/lib/memory-chip";
 import { isAwaitingBot, mergeNeedsUserMarkers } from "@/lib/bot-needs-thread";
 import {
@@ -163,6 +163,10 @@ function conversationCardToMessage(
 			...(card.outcome?.detail === SUPERSEDED_CARD_DETAIL ? { superseded: true } : {}),
 			...(card.status === "failed" && card.outcome?.detail ? { failureDetail: card.outcome.detail } : {}),
 			...(card.grantUses ? { grantUses: card.grantUses } : {}),
+			...(card.deadlineAt ? { deadlineAt: card.deadlineAt } : {}),
+			...(card.ownerCard ? { ownerCard: card.ownerCard } : {}),
+			...(card.limitProgress ? { limitProgress: card.limitProgress } : {}),
+			...(card.ownerCard && card.status !== "pending" && card.outcome?.detail ? { outcomeDetail: card.outcome.detail } : {}),
 		};
 	}
 	if (card.kind === "routine-proposal") return routineProposalMessageFromCard(id, card);
@@ -216,6 +220,9 @@ function conversationCardToMessage(
 			...(card.vault ? { vault: card.vault } : {}),
 			...(card.vaultTried ? { vaultTried: card.vaultTried } : {}),
 			...(card.codeField ? { codeField: true } : {}),
+			...(card.outcome ? { outcome: card.outcome } : {}),
+			...(card.deadlineAt ? { deadlineAt: card.deadlineAt } : {}),
+			...(card.ownerWait ? { ownerWait: true } : {}),
 		};
 	}
 	if (card.kind === "questionnaire") {
@@ -228,6 +235,8 @@ function conversationCardToMessage(
 			...(card.description ? { description: card.description } : {}),
 			items: card.items,
 			...(card.answers ? { answers: card.answers } : {}),
+			...(card.deadlineAt ? { deadlineAt: card.deadlineAt } : {}),
+			...(card.ownerWait ? { ownerWait: true } : {}),
 		};
 	}
 	if (card.kind === "bot-profile") {
@@ -977,6 +986,9 @@ export function createComputerHandlers(params: {
 				...(event.emailKeyRequest ? { emailKeyRequest: event.emailKeyRequest } : {}),
 				...(event.githubIdentity ? { githubIdentity: event.githubIdentity } : {}),
 				...(event.plan ? { plan: event.plan } : {}),
+				...(event.deadlineAt ? { deadlineAt: event.deadlineAt } : {}),
+				...(event.ownerCard ? { ownerCard: event.ownerCard } : {}),
+				...(event.limitProgress ? { limitProgress: event.limitProgress } : {}),
 				confirmId: event.confirmId,
 			};
 			params.setMessages((previous) => {
@@ -1035,7 +1047,7 @@ export function createComputerHandlers(params: {
 				if (previous.some((m) => m.kind === "login" && m.loginId === event.loginId)) {
 					return previous.map((m) =>
 						m.kind === "login" && m.loginId === event.loginId
-							? { ...m, status: event.status ?? "pending" }
+							? { ...m, status: event.status ?? "pending", ...(event.outcome ? { outcome: event.outcome } : {}) }
 							: m,
 					);
 				}
@@ -1053,9 +1065,16 @@ export function createComputerHandlers(params: {
 					...(event.vault ? { vault: event.vault } : {}),
 					...(event.vaultTried ? { vaultTried: event.vaultTried } : {}),
 					...(event.codeField ? { codeField: true } : {}),
+					...(event.outcome ? { outcome: event.outcome } : {}),
+					...(event.deadlineAt ? { deadlineAt: event.deadlineAt } : {}),
+					...(event.ownerWait ? { ownerWait: true } : {}),
 				};
 				return dedupeCards(insertCardAfterCurrentTurn(previous, loginMessage));
 			});
+		},
+		onReturnScheduled: (event) => {
+			params.onActivity?.();
+			params.setMessages((previous) => applyReturnEvent(previous, event, (message) => insertCardAfterCurrentTurn(previous, message)));
 		},
 		onDone: (result) => {
 			clearIntentExpiry();

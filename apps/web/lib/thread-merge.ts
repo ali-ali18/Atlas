@@ -40,6 +40,8 @@ function cardDedupeKey(message: Message): string | null {
 		return `login|${message.loginId}|${message.status ?? "pending"}`;
 	}
 	if (message.kind === "file") return `file|${message.artifactId}`;
+	// "Volto às HH:MM": um marcador por retorno (o ao vivo e o gravado colapsam em `collapseReturnCards`).
+	if (message.kind === "return") return `return|${message.returnId}`;
 	// Cartão ao vivo (id da chamada) e o gravado (id do banco) colapsam.
 	if (message.kind === "code-run" && message.callId) return `code-run|${message.callId}`;
 	if (message.kind === "chart") return `chart|${message.chartId}`;
@@ -159,6 +161,56 @@ export function applyPageEvent(
 	return previous.map((message, i) => (i === index ? { ...next, id: current.id } : message));
 }
 
+type ReturnMessage = Extract<Message, { kind: "return" }>;
+
+/** Estado mais avançado vence: pendente → cancelado/concluído (um marcador fechado nunca volta a "Volto às"). */
+function returnRank(status: ReturnMessage["status"]): number {
+	return status === "pending" ? 0 : 1;
+}
+
+export const LIVE_RETURN_PREFIX = "return-live-";
+
+/**
+ * Evento ao vivo `return_scheduled`: o marcador do mesmo `returnId` muda no lugar (cancelado/concluído vencem o
+ * pendente); senão entra depois do turno atual. Retorno silencioso nunca chega aqui (o runtime não emite).
+ */
+export function applyReturnEvent(
+	previous: Message[],
+	event: Extract<ComputerUseEvent, { type: "return_scheduled" }>,
+	insert: (message: Message) => Message[],
+): Message[] {
+	const index = previous.findIndex((message) => message.kind === "return" && message.returnId === event.returnId);
+	if (index < 0) {
+		const next: ReturnMessage = { id: `${LIVE_RETURN_PREFIX}${event.returnId}`, kind: "return", returnId: event.returnId, at: event.at, reason: event.reason, status: event.status };
+		return dedupeCards(insert(next));
+	}
+	const current = previous[index] as ReturnMessage;
+	if (returnRank(event.status) <= returnRank(current.status)) return previous;
+	return previous.map((message, i) => (i === index ? { ...current, status: event.status } : message));
+}
+
+/**
+ * Um retorno (`returnId`) tem UM marcador na conversa: o gravado (id do banco) segura a posição e o estado mais
+ * avançado entre ele e o ao vivo vale (o clique em "Cancelar" pode chegar antes de o banco refletir).
+ */
+function collapseReturnCards(messages: Message[]): Message[] {
+	const groups = new Map<string, ReturnMessage[]>();
+	for (const message of messages) {
+		if (message.kind !== "return") continue;
+		groups.set(message.returnId, [...(groups.get(message.returnId) ?? []), message]);
+	}
+	if ([...groups.values()].every((cards) => cards.length === 1)) return messages;
+	return messages.flatMap((message): Message[] => {
+		if (message.kind !== "return") return [message];
+		const cards = groups.get(message.returnId) ?? [message];
+		if (cards.length === 1) return [message];
+		const keeper = cards.find((card) => !card.id.startsWith(LIVE_RETURN_PREFIX)) ?? cards[0]!;
+		if (message !== keeper) return [];
+		const status = cards.reduce<ReturnMessage["status"]>((best, card) => (returnRank(card.status) > returnRank(best) ? card.status : best), keeper.status);
+		return [{ ...keeper, status }];
+	});
+}
+
 /** Divisores "Contexto resumido" empilhados viram um só (o último); `mergedIds` guarda os ids juntados (contagem sem repetir). */
 export function collapseContextSummaries(input: Message[]): Message[] {
 	const result: Message[] = [];
@@ -219,7 +271,7 @@ export function settleTurnCards(messages: Message[]): Message[] {
 
 /** Cards iguais consecutivos ou com o mesmo id aparecem uma vez; turnos diferentes ficam. */
 export function dedupeCards(input: Message[]): Message[] {
-	const messages = collapseContextSummaries(collapseRoutineCreatedCards(collapsePageCards(collapseBotProposalCards(collapseSkillProposalCards(collapseConfirmCards(collapseSubagentGroups(collapseDevSessionCards(input))))))));
+	const messages = collapseContextSummaries(collapseReturnCards(collapseRoutineCreatedCards(collapsePageCards(collapseBotProposalCards(collapseSkillProposalCards(collapseConfirmCards(collapseSubagentGroups(collapseDevSessionCards(input)))))))));
 	const seenIds = new Set<string>();
 	const result: Message[] = [];
 	// Aviso de fallback repetido no mesmo turno (run retomado) aparece uma vez, mesmo não consecutivo.
@@ -387,6 +439,7 @@ export function reconcilePersistedThread(persisted: Message[], live: Message[], 
 		message.kind !== "compaction" &&
 		message.kind !== "subagents" &&
 		message.kind !== "context-summary" &&
+		message.kind !== "return" &&
 		message.kind !== "confirm" && message.kind !== "questionnaire" &&
 		message.kind !== "skill-proposal" &&
 		message.kind !== "routine-proposal" &&

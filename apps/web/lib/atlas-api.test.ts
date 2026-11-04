@@ -256,3 +256,52 @@ describe("compactErrorText (/compact)", () => {
 		assert.strictEqual(compactErrorText(error), compactFailedText());
 	});
 });
+
+describe("esperar o dono (motor v3, PR8d): chamadas da web", () => {
+	let originalFetch: typeof globalThis.fetch;
+	const calls: Array<{ url: string; method?: string; body?: unknown }> = [];
+	beforeEach(() => {
+		originalFetch = globalThis.fetch;
+		calls.length = 0;
+		globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+			calls.push({ url: String(url), method: init?.method, body: init?.body ? JSON.parse(String(init.body)) : undefined });
+			return new Response(JSON.stringify({ runId: "r2", status: "queued", enqueued: true, run: { id: "r1", status: "queued" }, return: { id: "ret-1", at: "2026-11-04T17:30:00.000Z", reason: "x", visible: true, status: "cancelled" }, returns: [] }), { status: 200 });
+		}) as unknown as typeof fetch;
+	});
+	afterEach(() => {
+		globalThis.fetch = originalFetch;
+	});
+
+	it("Pular, Assumir e Agora não do limite vão como `via` no resume; Terminei vai sem corpo", async () => {
+		const { resumeAgentRun } = await import("./atlas-api");
+		await resumeAgentRun("run-1", { via: "skip" });
+		await resumeAgentRun("run-1", { via: "takeover" });
+		await resumeAgentRun("run-1", { via: "limit_stop" });
+		await resumeAgentRun("run-1");
+		assert.deepStrictEqual(calls.map((call) => [call.method, call.url.replace(/^.*\/v1/, "/v1"), call.body]), [
+			["POST", "/v1/runs/run-1/resume", { via: "skip" }],
+			["POST", "/v1/runs/run-1/resume", { via: "takeover" }],
+			["POST", "/v1/runs/run-1/resume", { via: "limit_stop" }],
+			["POST", "/v1/runs/run-1/resume", undefined],
+		]);
+	});
+
+	it("Pular do questionário usa a rota própria com conversa, questionário e bot", async () => {
+		const { skipQuestionnaire } = await import("./atlas-api");
+		await skipQuestionnaire({ conversationId: "conv/1", questionnaireId: "questionnaire-r1", botId: "b1" });
+		assert.strictEqual(calls[0]!.method, "POST");
+		assert.match(calls[0]!.url, /\/v1\/questionnaire\/skip$/);
+		assert.deepStrictEqual(calls[0]!.body, { conversationId: "conv/1", questionnaireId: "questionnaire-r1", botId: "b1" });
+	});
+
+	it("retornos: lista e cancela com os ids escapados", async () => {
+		const { cancelConversationReturn, listConversationReturns } = await import("./atlas-api");
+		await listConversationReturns("conv/1");
+		const result = await cancelConversationReturn("conv/1", "ret 1");
+		assert.match(calls[0]!.url, /\/v1\/conversations\/conv%2F1\/returns$/);
+		assert.strictEqual(calls[0]!.method, undefined);
+		assert.match(calls[1]!.url, /\/v1\/conversations\/conv%2F1\/returns\/ret%201\/cancel$/);
+		assert.strictEqual(calls[1]!.method, "POST");
+		assert.strictEqual(result.return.status, "cancelled");
+	});
+});

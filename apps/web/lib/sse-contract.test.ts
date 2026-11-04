@@ -112,3 +112,11 @@ test("isRunTerminalEvent (predicado do laço de SSE): 5 terminais encerram, o re
 	}
 	assert.equal(isRunTerminalEvent({ type: "tipo_do_futuro" } as unknown as ComputerUseEvent), false);
 });
+
+test("return_scheduled (motor v3) chega ao handler do marcador \"Volto às\" e não encerra o run", () => {
+	const seen: string[] = [];
+	const event = { type: "return_scheduled", returnId: "ret-1", at: "2026-11-04T17:30:00.000Z", label: "Volto às 14:30", reason: "ver", status: "pending" } as const;
+	dispatchComputerUseEvent(event, { onDelta: () => undefined, onReturnScheduled: (received) => { seen.push(`${received.returnId}:${received.status}`); } });
+	assert.deepEqual(seen, ["ret-1:pending"]);
+	assert.equal(isRunTerminalEvent(event), false);
+});

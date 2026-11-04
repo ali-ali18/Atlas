@@ -386,6 +386,14 @@ type MessageVariant =
 			confirmId?: string;
 			/** Um pedido mais novo da mesma conversa substituiu este (o servidor o recusou): aparece como "Expirado". */
 			superseded?: boolean;
+			/** Motor v3: prazo da espera (ISO): "Sigo sem isso às 14:30". */
+			deadlineAt?: string;
+			/** Motor v3: aprovação genérica, rascunho de rotina ou "Cheguei no limite. Continuo?". */
+			ownerCard?: import("@workspace/shared").OwnerConfirmCardKind;
+			/** Motor v3, cartão do limite: o que o run fez até parar. */
+			limitProgress?: import("@workspace/shared").StepLimitProgress;
+			/** Motor v3: como o cartão fechou ("Tempo esgotado · segui sem isso", "Dispensado", "Descartado"...). */
+			outcomeDetail?: string;
 	  }
 	| {
 			/** F9: arquivo gerado pelo agente (PDF, Word, Excel, texto, código). */
@@ -420,6 +428,12 @@ type MessageVariant =
 			/** Campo de código (e-mail/SMS) no card. */
 			codeField?: boolean;
 			runId?: string;
+			/** Motor v3: como o dono respondeu (selo do cartão concluído). */
+			outcome?: import("@workspace/shared").LoginWaitOutcome;
+			/** Motor v3: prazo da espera (ISO). */
+			deadlineAt?: string;
+			/** Motor v3: o cartão oferece Pular · Terminei · Assumir. */
+			ownerWait?: boolean;
 	  }
 	| {
 			id: string;
@@ -500,6 +514,10 @@ type MessageVariant =
 			items: QuestionnaireItemData[];
 			status?: QuestionnaireStatus;
 			answers?: QuestionnaireAnswersData;
+			/** Motor v3: prazo da espera (ISO). */
+			deadlineAt?: string;
+			/** Motor v3: o cartão oferece "Pular" (o bot segue sem a resposta). */
+			ownerWait?: boolean;
 	  }
 	| {
 			/** Gate humano do propose_skill/delete_skill; o estado mora em `proposal.status`. */

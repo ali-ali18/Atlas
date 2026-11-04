@@ -76,7 +76,7 @@ import type {
 	ScanFinding,
 	TextDiff,
 } from "@workspace/shared";
-import { parseSseBlock, runTerminalKey, type DevApprovalCardInfo, type DevSessionEvent, type DevTimingEvent, type FilePreview, type LoginConnector } from "@workspace/shared";
+import { parseSseBlock, runTerminalKey, type DevApprovalCardInfo, type DevSessionEvent, type DevTimingEvent, type FilePreview, type LoginConnector, type LoginWaitOutcome, type OwnerConfirmCardKind, type StepLimitProgress } from "@workspace/shared";
 import { filePreviewPath } from "@/lib/file-card";
 import { getStoredSseCursor, setStoredSseCursor } from "@/lib/active-run";
 import { isJevToolReview, type JevToolReview } from "@/lib/jev-status";
@@ -1286,7 +1286,13 @@ export type ComputerUseHandlers = {
 		githubIdentity?: import("@workspace/shared").GithubIdentityCardInfo;
 		plan?: import("@workspace/shared").PlanInfo;
 		status?: "pending" | "approved" | "rejected";
+		/** Motor v3: prazo da espera (ISO), tipo do cartão e o que o run fez até o limite. */
+		deadlineAt?: string;
+		ownerCard?: OwnerConfirmCardKind;
+		limitProgress?: StepLimitProgress;
 	}) => void;
+	/** Motor v3: "Volto às HH:MM" (retorno visível agendado, cancelado ou concluído). */
+	onReturnScheduled?: (event: Extract<ComputerUseEvent, { type: "return_scheduled" }>) => void;
 	onFile?: (event: Extract<ComputerUseEvent, { type: "file" }>) => void;
 	onChart?: (event: Extract<ComputerUseEvent, { type: "chart" }>) => void;
 	onPage?: (event: Extract<ComputerUseEvent, { type: "page" }>) => void;
@@ -1305,6 +1311,10 @@ export type ComputerUseHandlers = {
 		vault?: import("@workspace/shared").LoginVaultOffer;
 		vaultTried?: string;
 		codeField?: boolean;
+		/** Motor v3: saída do cartão (com `status: "done"`), prazo e a oferta de Pular/Assumir. */
+		outcome?: LoginWaitOutcome;
+		deadlineAt?: string;
+		ownerWait?: true;
 	}) => void;
 };
 
@@ -1412,6 +1422,9 @@ export function dispatchComputerUseEvent(
 			break;
 		case "login":
 			handlers.onLogin?.(event);
+			break;
+		case "return_scheduled":
+			handlers.onReturnScheduled?.(event);
 			break;
 		case "file":
 			handlers.onFile?.(event);
@@ -1607,6 +1620,32 @@ export async function submitQuestionnaire(request: {
 }
 
 /**
+ * "Pular" no questionário do motor v3: o cartão fecha como dispensado e o bot segue a tarefa sem a resposta (run
+ * silencioso, sem balão do usuário). Já respondido ou de outro dono = 404.
+ */
+export async function skipQuestionnaire(request: { conversationId: string; questionnaireId: string; botId?: string }): Promise<{ runId: string; status: string; enqueued?: boolean }> {
+	return atlasFetch<{ runId: string; status: string; enqueued?: boolean }>("/v1/questionnaire/skip", {
+		method: "POST",
+		body: JSON.stringify(request),
+	});
+}
+
+/** Retorno visível agendado pelo bot ("Volto às HH:MM"). */
+export type ConversationReturnView = { id: string; at: string; reason: string; visible: boolean; status: "pending" | "fired" | "cancelled" };
+
+export async function listConversationReturns(conversationId: string): Promise<{ returns: ConversationReturnView[] }> {
+	return atlasFetch<{ returns: ConversationReturnView[] }>(`/v1/conversations/${encodeURIComponent(conversationId)}/returns`);
+}
+
+/** Cancela o "Volto às HH:MM" (o marcador gravado vira "Cancelado"). Já disparado, cancelado ou de outro dono = 404. */
+export async function cancelConversationReturn(conversationId: string, returnId: string): Promise<{ return: ConversationReturnView }> {
+	return atlasFetch<{ return: ConversationReturnView }>(
+		`/v1/conversations/${encodeURIComponent(conversationId)}/returns/${encodeURIComponent(returnId)}/cancel`,
+		{ method: "POST" },
+	);
+}
+
+/**
  * Responde, da conversa de quem chamou o bot, o card que ele deixou esperando o usuário
  * (aprovar/recusar/questionário). Mesmo efeito de responder na conversa do bot; já
  * resolvido (inclusive lá) devolve `already` sem aplicar de novo.
@@ -1710,7 +1749,13 @@ export async function pauseAgentRun(runId: string): Promise<{
 	});
 }
 
-export async function resumeAgentRun(runId: string, options: { via?: "vault" | "code"; code?: string } = {}): Promise<{
+/**
+ * Como o dono retomou o run pausado: `vault`/`code` (login), e no motor v3 `skip` (Pular), `takeover` (Assumir) e
+ * `limit_stop` (Agora não do cartão do limite). Sem `via` = "Terminei" / "Continuar".
+ */
+export type ResumeVia = "vault" | "code" | "skip" | "takeover" | "limit_stop";
+
+export async function resumeAgentRun(runId: string, options: { via?: ResumeVia; code?: string } = {}): Promise<{
 	run: { id: string; status: string };
 	enqueued: boolean;
 }> {

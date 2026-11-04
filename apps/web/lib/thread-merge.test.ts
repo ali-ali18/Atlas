@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { Message } from "@/components/ui/templates/template-4/data";
 import { insertCardAfterCurrentTurn, type ComputerUseEvent, type PageSpec } from "@workspace/shared";
-import { applyPageEvent, dedupeCards, reconcilePersistedThread } from "./thread-merge";
+import { applyPageEvent, applyReturnEvent, dedupeCards, reconcilePersistedThread } from "./thread-merge";
 
 const MARKER_TEXT = "JEV pediu confirmação; a ação ainda não foi executada.";
 const USER_TEXT = "Crie um evento de teste amanhã às 15h";
@@ -197,4 +197,40 @@ test("dedupeCards: rotina criada ao vivo e gravada não vizinhas colapsam no gra
 	const saved: Message = { id: "db-routine", kind: "routine", action: "created", routineId: "r1", title: "R" };
 	const result = dedupeCards([user("u"), saved, { id: "cu-1", kind: "assistant", text: "Vou montar a lista." }, live]);
 	assert.deepEqual(result.map((message) => message.id), ["u", "db-routine", "cu-1"]);
+});
+
+// --- "Volto às HH:MM" (motor v3, PR8d): um marcador por returnId ---
+const returnEvent = (status: "pending" | "cancelled" | "done" = "pending"): Extract<ComputerUseEvent, { type: "return_scheduled" }> => ({
+	type: "return_scheduled",
+	returnId: "ret-1",
+	at: "2026-11-04T17:30:00.000Z",
+	label: "Volto às 14:30",
+	reason: "ver o deploy",
+	status,
+});
+const returnRow = (id: string, status: "pending" | "cancelled" | "done" = "pending"): Message => ({ id, kind: "return", returnId: "ret-1", at: "2026-11-04T17:30:00.000Z", reason: "ver o deploy", status });
+
+test("retorno ao vivo e o gravado (mesmo returnId) viram um marcador só, na posição do gravado", () => {
+	const assistant: Message = { id: "db-a1", kind: "assistant", text: "Volto às 14:30 para conferir." };
+	const live = applyReturnEvent([user("db-u1"), assistant], returnEvent(), (message) => insertCardAfterCurrentTurn([user("db-u1"), assistant], message));
+	assert.equal(live.filter((m) => m.kind === "return").length, 1);
+	const persisted = [user("db-u1"), assistant, returnRow("db-r1")];
+	const result = reconcilePersistedThread(persisted, live);
+	assert.deepEqual(result.filter((m) => m.kind === "return").map((m) => m.id), ["db-r1"]);
+});
+
+test("evento repetido não duplica e o cancelado vence o pendente (nunca reabre)", () => {
+	const once = applyReturnEvent([user("u")], returnEvent(), (message) => [user("u"), message]);
+	const twice = applyReturnEvent(once, returnEvent(), (message) => [...once, message]);
+	assert.equal(twice.filter((m) => m.kind === "return").length, 1);
+	const cancelled = applyReturnEvent(twice, returnEvent("cancelled"), (message) => [...twice, message]);
+	assert.equal((cancelled.find((m) => m.kind === "return") as Extract<Message, { kind: "return" }>).status, "cancelled");
+	const reopened = applyReturnEvent(cancelled, returnEvent("pending"), (message) => [...cancelled, message]);
+	assert.equal(reopened, cancelled);
+});
+
+test("cancelado na tela antes de o banco refletir: fica um marcador, com o estado mais avançado", () => {
+	const result = dedupeCards([user("u"), returnRow("db-r1", "pending"), { id: "a", kind: "assistant", text: "ok" }, returnRow("return-live-ret-1", "cancelled")]);
+	const markers = result.filter((m) => m.kind === "return") as Array<Extract<Message, { kind: "return" }>>;
+	assert.deepEqual(markers.map((m) => [m.id, m.status]), [["db-r1", "cancelled"]]);
 });
