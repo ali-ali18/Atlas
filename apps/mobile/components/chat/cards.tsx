@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { ChatCard, ChatCardActions, ChatCardHeader, ChatCardLine } from "@/components/ui/chat-card";
 import { Avatar } from "@/components/ui/avatar";
 import { Text } from "@/components/ui/text";
+import { chatCardControl } from "@/lib/chat-surface";
+import { useAppColorScheme } from "@/lib/use-theme";
 import type { ChatItem } from "@/lib/chat-types";
 import { FileCardRow } from "./file-card";
 import { viewerTargetForCard } from "@/lib/viewer-target";
@@ -24,6 +26,7 @@ const CONFIRM_BADGE: Record<Confirm["status"], { tone: "pending" | "success" | "
 
 /** Cartão de aprovação: confirmar ou dispensar. O clique volta ao servidor como o do web (`decisionConfirmId`). */
 export function ConfirmCard({ item, onDecide }: { item: Confirm; onDecide: (item: Confirm, approve: boolean) => void }) {
+	const scheme = useAppColorScheme();
 	const pending = item.status === "pending";
 	return (
 		<ChatCard className="max-w-[min(68ch,100%)] self-start">
@@ -38,7 +41,7 @@ export function ConfirmCard({ item, onDecide }: { item: Confirm; onDecide: (item
 					<Button size="sm" accessibilityLabel={item.confirmLabel ?? "Confirmar"} onPress={() => onDecide(item, true)}>
 						<Text>{item.confirmLabel ?? "Confirmar"}</Text>
 					</Button>
-					<Button size="sm" variant="secondary" accessibilityLabel={item.cancelLabel ?? CHAT_CARD_COPY.dismiss} onPress={() => onDecide(item, false)}>
+					<Button size="sm" variant="secondary" style={chatCardControl(scheme)} accessibilityLabel={item.cancelLabel ?? CHAT_CARD_COPY.dismiss} onPress={() => onDecide(item, false)}>
 						<Text>{item.cancelLabel ?? CHAT_CARD_COPY.dismiss}</Text>
 					</Button>
 				</ChatCardActions>

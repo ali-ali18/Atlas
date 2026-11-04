@@ -17,6 +17,8 @@ describe("surfaceColors", () => {
 			chromeControl: "#3e3d42",
 			sheet: "#1c1c1e",
 			bubble: "#202020",
+			chatCard: "#232325",
+			chatCardControl: "#343436",
 			link: "#136cd0",
 			switchOff: "#3a3a3c",
 			switchThumb: "#ffffff",
@@ -32,6 +34,8 @@ describe("surfaceColors", () => {
 		expect(light.chromeFill).toBe(themeColor("light", "input"));
 		expect(light.chromeEdge).toBe(themeColor("light", "border"));
 		expect(light.sheet).toBe(themeColor("light", "popover"));
+		expect(light.chatCard).toBe(light.bubble);
+		expect(light.chatCardControl).toBe(themeColor("light", "input"));
 		expect(light.link).toBe(themeColor("light", "info"));
 	});
 
@@ -47,6 +51,14 @@ describe("surfaceColors", () => {
 		expect(surfaceColors("dark").chromeEdge > surfaceColors("dark").surfaceEdge).toBe(true);
 	});
 
+	it("a casca do cartão do chat é muito próxima do balão do bot e o botão secundário se destaca dela", () => {
+		const lum = (hex: string) => Number.parseInt(hex.slice(1, 3), 16);
+		const dark = surfaceColors("dark");
+		expect(Math.abs(lum(dark.chatCard) - lum(dark.bubble))).toBeLessThanOrEqual(6);
+		expect(lum(dark.chatCardControl) - lum(dark.chatCard)).toBeGreaterThanOrEqual(16);
+		expect(dark.chatCard).not.toBe(dark.surface);
+	});
+
 	it("o raio do cartão é 21", () => {
 		expect(SURFACE_RADIUS).toBe(21);
 	});
@@ -57,7 +69,7 @@ describe("reexports de chat-surface", () => {
 		for (const scheme of ["light", "dark"] as const) {
 			const colors = surfaceColors(scheme);
 			expect(chatChrome(scheme)).toEqual({ fill: colors.chromeFill, edge: colors.chromeEdge, control: colors.chromeControl });
-			expect(chatSurface(scheme, "card")).toBe(colors.surface);
+			expect(chatSurface(scheme, "card")).toBe(colors.chatCard);
 			expect(chatSurface(scheme, "bubble")).toBe(colors.bubble);
 			expect(routineSurface(scheme)).toEqual({ screen: colors.screen, card: colors.surface, edge: colors.surfaceEdge, link: colors.link, off: colors.switchOff });
 		}

@@ -12,7 +12,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Text } from "@/components/ui/text";
 import { type BotProfileItem, type BotProposalItem, botProfileTitle, botProposalTitle, profileRows, proposalModelLabel, skillLabel, summarizeTask } from "@/lib/bot-cards";
 import type { ProposalStatus } from "@/lib/chat-types";
-import { chatCardSkin } from "@/lib/chat-surface";
+import { chatCardControl, chatCardSkin } from "@/lib/chat-surface";
 import { useAppColorScheme } from "@/lib/use-theme";
 
 type Decision = "approved" | "rejected";
@@ -86,13 +86,13 @@ export function BotProposalCard({ item, onDecide, onOpenBot }: { item: BotPropos
 						{applying ? <Spinner tone="primary-foreground" label="Criando" /> : null}
 						<Text>{applying ? "Criando…" : "Criar agente"}</Text>
 					</Button>
-					<Button size="sm" variant="secondary" disabled={blocked} accessibilityLabel={CHAT_CARD_COPY.dismiss} onPress={() => onDecide(item, "rejected")}>
+					<Button size="sm" variant="secondary" style={chatCardControl(scheme)} disabled={blocked} accessibilityLabel={CHAT_CARD_COPY.dismiss} onPress={() => onDecide(item, "rejected")}>
 						<Text>{CHAT_CARD_COPY.dismiss}</Text>
 					</Button>
 				</ChatCardActions>
 			) : item.status === "approved" && item.botId ? (
 				<ChatCardActions>
-					<Button size="sm" variant="secondary" accessibilityLabel={`Abrir a conversa com ${item.name}`} onPress={() => onOpenBot(item.botId!)}>
+					<Button size="sm" variant="secondary" style={chatCardControl(scheme)} accessibilityLabel={`Abrir a conversa com ${item.name}`} onPress={() => onOpenBot(item.botId!)}>
 						<Text>Abrir conversa</Text>
 					</Button>
 				</ChatCardActions>
@@ -149,7 +149,7 @@ export function BotProfileCard({ item, onDecide }: { item: BotProfileItem; onDec
 						{applying ? <Spinner tone="primary-foreground" label="Aplicando" /> : null}
 						<Text>{applying ? "Aplicando…" : "Aplicar"}</Text>
 					</Button>
-					<Button size="sm" variant="secondary" disabled={blocked} accessibilityLabel={CHAT_CARD_COPY.dismiss} onPress={() => onDecide(item, "rejected")}>
+					<Button size="sm" variant="secondary" style={chatCardControl(scheme)} disabled={blocked} accessibilityLabel={CHAT_CARD_COPY.dismiss} onPress={() => onDecide(item, "rejected")}>
 						<Text>{CHAT_CARD_COPY.dismiss}</Text>
 					</Button>
 				</ChatCardActions>

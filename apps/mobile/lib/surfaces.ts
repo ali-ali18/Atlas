@@ -25,6 +25,10 @@ export type SurfaceColors = {
 	sheet: string;
 	/** Balão do bot no chat. */
 	bubble: string;
+	/** Casca dos cartões do chat (arquivo, conector, login, tarefas…): quase o balão do bot, para parecerem da mesma família. */
+	chatCard: string;
+	/** Botão secundário dentro do cartão do chat (precisa se destacar do `chatCard`, mais escuro que o `surface`). */
+	chatCardControl: string;
 	/** Azul de ação ("Editar rotina") e cor padrão do interruptor ligado. */
 	link: string;
 	/** Trilho do interruptor desligado. */
@@ -43,6 +47,8 @@ const DARK: SurfaceColors = {
 	chromeControl: "#3e3d42",
 	sheet: "#1c1c1e",
 	bubble: "#202020",
+	chatCard: "#232325",
+	chatCardControl: "#343436",
 	link: "#136cd0",
 	switchOff: "#3a3a3c",
 	switchThumb: "#ffffff",
@@ -60,6 +66,8 @@ export function surfaceColors(scheme: ColorScheme): SurfaceColors {
 		chromeControl: themeColor(scheme, "muted"),
 		sheet: themeColor(scheme, "popover"),
 		bubble: themeColor(scheme, "muted"),
+		chatCard: themeColor(scheme, "muted"),
+		chatCardControl: themeColor(scheme, "input"),
 		link: themeColor(scheme, "info"),
 		switchOff: themeColor(scheme, "input"),
 		switchThumb: "#ffffff",

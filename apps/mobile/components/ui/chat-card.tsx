@@ -29,10 +29,10 @@ const chatCardVariants = cva("min-w-0 rounded-2xl border", {
 	defaultVariants: { variant: "card" },
 });
 
-/** Casca de todo cartão do chat: a superfície e o contorno padrão do app (`surface`/`surfaceEdge`, lib/surfaces.ts). */
+/** Casca de todo cartão do chat: `chatCard` (quase o balão do bot) com o contorno `surfaceEdge` (lib/surfaces.ts). */
 export function ChatCard({ className, variant = "card", style, ...props }: React.ComponentProps<typeof View> & VariantProps<typeof chatCardVariants>) {
 	const surfaces = useSurfaces();
-	return <View style={[{ backgroundColor: surfaces.surface, borderColor: surfaces.surfaceEdge }, style]} className={cn(chatCardVariants({ variant }), className)} {...props} />;
+	return <View style={[{ backgroundColor: surfaces.chatCard, borderColor: surfaces.surfaceEdge }, style]} className={cn(chatCardVariants({ variant }), className)} {...props} />;
 }
 
 export function ChatCardLeading({ className, ...props }: React.ComponentProps<typeof View>) {

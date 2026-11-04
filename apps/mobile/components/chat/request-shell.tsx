@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { ChatCardBadge, type ChatCardTone } from "@/components/ui/chat-card";
 import { Spinner } from "@/components/ui/spinner";
 import { Text } from "@/components/ui/text";
-import { chatChrome } from "@/lib/chat-surface";
+import { chatCardControl, chatChrome } from "@/lib/chat-surface";
 import { cn } from "@/lib/cn";
 import { useAppColorScheme } from "@/lib/use-theme";
 
@@ -84,8 +84,9 @@ export function RequestNote({ text, icon = false }: { text: string; icon?: boole
 
 /** Botão pílula do cartão (Autorizar, Avançar, Salvar, Continuar): o `Button` padrão do app, com carregando. */
 export function RequestButton({ label, onPress, disabled = false, busy = false, variant = "default", className }: { label: string; onPress: () => void; disabled?: boolean; busy?: boolean; variant?: "default" | "secondary"; className?: string }) {
+	const scheme = useAppColorScheme();
 	return (
-		<Button size="sm" variant={variant} disabled={disabled || busy} onPress={onPress} accessibilityLabel={label} accessibilityState={{ disabled: disabled || busy, busy }} className={cn(disabled && !busy && "opacity-40", className)}>
+		<Button size="sm" variant={variant} style={variant === "secondary" ? chatCardControl(scheme) : undefined} disabled={disabled || busy} onPress={onPress} accessibilityLabel={label} accessibilityState={{ disabled: disabled || busy, busy }} className={cn(disabled && !busy && "opacity-40", className)}>
 			{busy ? <Spinner tone={variant === "default" ? "primary-foreground" : "foreground"} /> : null}
 			<Text>{label}</Text>
 		</Button>
