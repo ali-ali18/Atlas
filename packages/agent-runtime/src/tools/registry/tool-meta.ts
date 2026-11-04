@@ -58,13 +58,6 @@ export const TOOL_META: Readonly<Record<string, ToolMetaFields>> = {
 	login_fill: { effect: "credential", ownCard: true, endsTurn: true },
 
 	// Skills
-	skill_read: { effect: "read" },
-	list_skills: { effect: "read", endsTurn: true },
-	show_skill: { effect: "read", endsTurn: true },
-	propose_skill: { effect: "write_internal", ownCard: true, needsHuman: true, endsTurn: true },
-	delete_skill: { effect: "write_internal", needsHuman: true, endsTurn: true },
-	propose_skill_change: { effect: "write_internal", ownCard: true, needsHuman: true, endsTurn: true },
-	propose_skill_delete: { effect: "write_internal", ownCard: true, needsHuman: true, endsTurn: true },
 
 	// E-mail do bot
 

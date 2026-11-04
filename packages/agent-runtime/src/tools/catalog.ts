@@ -8,7 +8,6 @@ import { LESSON_FEEDBACK_TOOL } from "./lesson-feedback.js";
 import { PREVIEW_SETUP_TOOL } from "./preview-setup/tool.js";
 import { SANDBOX_RELEASE_TOOL } from "./sandbox-release.js";
 import { SANDBOX_SHELL_TOOLS } from "./sandbox-shell.js";
-import { SKILL_CORE_TOOLS, SKILL_GROUP_TOOLS } from "./skills.js";
 import { LOGIN_FILL_TOOL, ROUTINE_WEBHOOK_INFO_TOOL, SECRET_LIST_TOOL, SECRET_REQUEST_TOOL } from "./vault-tools.js";
 import { VIDEO_TRANSCRIPT_TOOL } from "./video-transcript.js";
 
@@ -220,8 +219,8 @@ export const COMPUTER_USE_TOOLS: ChatTool[] = [
 	},
 	ARTIFACT_READ_TOOL,
 	// Skills em Markdown (K1): `skill_read` é núcleo; propose/delete ficam no grupo adiado.
-	...SKILL_CORE_TOOLS,
-	...SKILL_GROUP_TOOLS,
+	...defined("skill_read"),
+	...defined("propose_skill", "delete_skill"),
 	// Lições do bot: só entra no pedido quando o run tem lições (ver `lessonFeedbackEnabled`).
 	LESSON_FEEDBACK_TOOL,
 	APP_INFO_TOOL,
