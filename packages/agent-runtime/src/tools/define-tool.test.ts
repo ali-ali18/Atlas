@@ -1,24 +1,20 @@
+import { readdirSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { APP_INFO_TOOL, appInfoTool } from "./app-info.js";
 import { CURRENT_TIME_TOOL, currentTimeTool } from "./current-time.js";
 import { defineRawTool, defineTool } from "./define-tool.js";
 import { toolCallTool, toolSearchTool } from "./tool-bridge.js";
-import { getToolMeta, isDefinedTool, TOOL_META } from "./registry/tool-meta.js";
+import { COMPUTER_USE_TOOLS } from "../computer-use.js";
+import { getToolMeta, isDefinedTool } from "./registry/tool-meta.js";
 import { getToolRegistration, listRegisteredToolNames } from "./registry/index.js";
 import { DEV_SESSION_TOOL_NAMES } from "./dev-session.js";
 import type { ToolContext, ToolEffect } from "./registry/types.js";
 
 const EFFECTS: ToolEffect[] = ["read", "write_internal", "write_external", "send", "money", "public_link", "credential"];
 const ctx = { timeZone: "America/Sao_Paulo" } as unknown as ToolContext;
-
-/**
- * Nomes que já estavam na tabela `TOOL_META` quando o `defineTool` nasceu (PR5). A lista só pode encolher: tool
- * nova vai para `defineTool` (com `effect` obrigatório pelo tipo), nunca para a tabela.
- */
-const LEGACY_TABLE = new Set(
-	"api_call api_search artifact_read attachment_list attachment_read attachment_to_computer browser_act browser_click browser_find browser_links browser_read browser_snapshot browser_tabs browser_text browser_type browser_wait cancel_followup checkpoint_read click computer create_file decide_bot_pending delegate delegate_task delete_skill dev_ci_logs dev_ci_status dev_environment_get dev_environment_update dev_pr_checkout dev_pr_create dev_session_start edit_file email_create_mailbox email_list email_read email_reply email_send find_page_value generate_image github_compare github_list_repos grep inspect_presentation key lesson_feedback list_files list_followups list_routines list_skills login_fill mcp_tool_search memory memory_search navigate notebook_read notebook_write notify_user page_create page_list page_read page_share page_update preview_setup preview_start preview_stop propose_api_connection propose_bot propose_connector propose_custom_mcp propose_plan propose_profile_update propose_questionnaire propose_routine propose_skill propose_skill_change propose_skill_delete read_file report_alert request_secrets reschedule_followup research_note routine_control routine_group routine_webhook_info run_code sandbox_download sandbox_list sandbox_read sandbox_release sandbox_shell sandbox_shell_wait schedule_followup screenshot scroll secret_list secret_request send_to_bot session_search set_autonomy set_connector_tool_marks set_engine set_primary_bot set_reasoning_effort shell shell_kill shell_output shell_stdin show_image show_skill skill_read suggest_routine todo_write track_items type update_task_list video_transcript web_extract web_search write_file".split(" "),
-);
 
 describe("defineTool", () => {
 	it("gera o schema do zod no formato do catálogo (sem $schema, required só quando há)", () => {
@@ -124,23 +120,30 @@ describe("tools migradas para defineTool", () => {
 	});
 });
 
-describe("guarda: tool nova usa defineTool", () => {
-	it("a tabela TOOL_META não ganha nome novo (só encolhe) e não repete nome de defineTool", () => {
-		const added = Object.keys(TOOL_META).filter((name) => !LEGACY_TABLE.has(name));
-		expect(added, "tool nova: declare com defineTool , não na tabela").toEqual([]);
-		for (const tool of [currentTimeTool, appInfoTool, toolSearchTool, toolCallTool]) expect(Object.hasOwn(TOOL_META, tool.name), tool.name).toBe(false);
-	});
+describe("guarda: toda tool nativa vem de defineTool", () => {
+	const natives = () => [...new Set([...listRegisteredToolNames(), ...DEV_SESSION_TOOL_NAMES])];
 
-	it("toda tool do registro é da tabela antiga ou do defineTool, e nenhuma fica sem effect", () => {
-		for (const name of [...listRegisteredToolNames(), ...DEV_SESSION_TOOL_NAMES]) {
-			expect(LEGACY_TABLE.has(name) || isDefinedTool(name), `${name}: declare com defineTool`).toBe(true);
+	it("toda tool do registro e da sessão de código é declarada com defineTool/defineRawTool e tem effect", () => {
+		for (const name of natives()) {
+			expect(isDefinedTool(name), `${name}: declare com defineTool (handlers/<familia>.ts)`).toBe(true);
 			expect(EFFECTS, name).toContain(getToolMeta(name)?.effect);
 		}
-		for (const tool of [currentTimeTool, appInfoTool, toolSearchTool, toolCallTool]) expect(EFFECTS, tool.name).toContain(tool.meta.effect);
+		for (const name of listRegisteredToolNames()) expect(getToolRegistration(name)?.defined, name).toBe(true);
+	});
+
+	it("as famílias não registram tool na mão: só por definedFamily(...)", () => {
+		const dir = join(dirname(fileURLToPath(import.meta.url)), "registry", "handlers");
+		for (const file of readdirSync(dir).filter((name) => name.endsWith(".ts") && !name.endsWith(".test.ts"))) {
+			expect(readFileSync(join(dir, file), "utf8"), `${file}: use defineTool/defineRawTool + definedFamily`).not.toMatch(/:\s*ToolFamily\s*=\s*\{/);
+		}
+	});
+
+	it("o catálogo (COMPUTER_USE_TOOLS) usa a definição declarada pela própria tool", () => {
+		for (const tool of COMPUTER_USE_TOOLS) expect(getToolRegistration(tool.function.name)?.definition, tool.function.name).toBe(tool);
 	});
 
 	it("ownCard substitui a lista fixa do approval: propostas e cartões próprios marcados", () => {
-		const meta = [...new Set([...listRegisteredToolNames(), ...DEV_SESSION_TOOL_NAMES])].map((name) => [name, getToolMeta(name)!] as const);
+		const meta = natives().map((name) => [name, getToolMeta(name)!] as const);
 		const own = meta.filter(([, m]) => m.ownCard).map(([name]) => name).sort();
 		for (const [name] of meta.filter(([key]) => key.startsWith("propose_"))) expect(own, name).toContain(name);
 		expect(own).toEqual(expect.arrayContaining(["dev_pr_create", "edit_file", "email_create_mailbox", "email_reply", "email_send", "generate_image", "login_fill", "preview_setup", "read_file", "request_secrets", "secret_request", "set_primary_bot", "shell", "write_file"]));

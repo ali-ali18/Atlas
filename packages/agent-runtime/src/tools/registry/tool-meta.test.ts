@@ -4,7 +4,7 @@ import { DEV_SESSION_TOOL_NAMES } from "../dev-session.js";
 import { getToolRegistration, listRegisteredToolNames } from "./index.js";
 import { isNativeWriteTool } from "../../hooks/pre-tool.js";
 import { SANDBOX_SHELL_TOOL_NAMES, sandboxShellAutonomyMeta } from "../sandbox-shell.js";
-import { getToolMeta, mcpToolEffect, resolveToolEffect, TOOL_META } from "./tool-meta.js";
+import { getToolMeta, mcpToolEffect, resolveToolEffect } from "./tool-meta.js";
 import type { ToolEffect } from "./types.js";
 
 const EFFECTS: ToolEffect[] = ["read", "write_internal", "write_external", "send", "money", "public_link", "credential"];
@@ -30,11 +30,6 @@ describe("metadado das tools (effect, poll, endsTurn)", () => {
 
 	it("toda tool da sessão de código tem efeito", () => {
 		for (const name of DEV_SESSION_TOOL_NAMES) expect(EFFECTS, name).toContain(getToolMeta(name)?.effect);
-	});
-
-	it("a tabela não guarda nome que não existe (sem lixo)", () => {
-		const known = new Set<string>([...listRegisteredToolNames(), ...DEV_SESSION_TOOL_NAMES]);
-		for (const name of Object.keys(TOOL_META)) expect(known.has(name), name).toBe(true);
 	});
 
 	it("tool marcada como só-leitura pelo registro tem efeito read", () => {

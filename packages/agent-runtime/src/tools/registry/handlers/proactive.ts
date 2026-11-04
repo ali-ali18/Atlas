@@ -52,6 +52,7 @@ export const PROACTIVE_DEFINED: readonly DefinedTool[] = [
 		group: "proactive",
 		run: (args, ctx) => handleScheduleFollowupGroup("suggest_routine", args, ctx),
 	}),
+	// O destino é o próprio dono (push/aviso no app dele), não um terceiro: `write_internal` deixa a rotina avisar o dono.
 	defineRawTool({
 		name: "notify_user",
 		definition: NOTIFY_USER_TOOL,

@@ -2,12 +2,13 @@ import { getResolvedDefinedTool, getToolRegistration } from "./index.js";
 import type { ToolEffect, ToolMetaFields, ToolRegistration } from "./types.js";
 
 /**
- * Metadado por tool (desenho do harness v3, seção 3/7): `effect`, `poll`, `endsTurn`. Tabela única em vez de
- * campo espalhado por 16 arquivos de handlers: o registro a aplica em cada tool de nome fixo e o teste
- * `tool-meta.test.ts` falha se uma tool do registro, do catálogo ou da sessão de código ficar sem efeito.
- * Só descreve; nenhum laço lê isto ainda (a política v3 e a rede de repetição vão ler).
+ * Metadado por tool (desenho do harness v3, seção 3/7): `effect`, `poll`, `endsTurn`, `needsHuman`, `ownCard`. Cada
+ * tool nativa declara o dela com `defineTool`/`defineRawTool`, ao lado da definição e do handler (família em
+ * `handlers/*.ts`); aqui só se lê (`getToolMeta`), do registro ou dos resolvedores (sessão de código). O teste
+ * `tool-meta.test.ts` falha se uma tool do registro, do catálogo ou da sessão de código ficar sem efeito, e
+ * `define-tool.test.ts` se alguma não vier de `defineTool`.
  *
- * Decisões que não são óbvias:
+ * Decisões que não são óbvias (valem para os `effect` declarados nas famílias):
  * - Navegador e VM são do próprio bot (`write_internal`): clique, digitação e shell não saem da VM por si.
  *   O que toca segredo é `login_fill`/`secret_request` (`credential`).
  * - `propose_*` só gera cartão de aprovação: `write_internal` (a escrita real acontece depois, na decisão).
@@ -17,50 +18,10 @@ import type { ToolEffect, ToolMetaFields, ToolRegistration } from "./types.js";
  *   `decide_bot_pending` aprova ação de outro bot: `write_external` (igual a `NATIVE_WRITE_TOOLS` do pre-tool).
  * - `endsTurn` = encerra o turno quando devolve cartão pendente (computer-use.ts, `stopFor*`).
  * - `ownCard` = a tool já mostra o cartão de aprovação dela (e-mail, propostas, imagem, PR, segredo, login, sessão de
- *   código): o motor v3 não põe o cartão genérico em cima (substitui a lista fixa `OWN_CARD_TOOLS` do approval.ts).
+ *   código): o motor v3 não põe o cartão genérico em cima.
  * - `needsHuman` = muda as próprias permissões (hoje com o portão `humanTurn`) ou só existe com humano hoje: questionário, `sandbox_release`,
  *   skills, `delegate*` e `propose_bot` (espelha os filtros por origem do catálogo v1/v2).
  */
-export const TOOL_META: Readonly<Record<string, ToolMetaFields>> = {
-	// Navegador (VM)
-
-	// VM (shell e arquivos do computador do bot)
-	// Pior caso: baixa URL arbitrária enviando por padrão os cookies do Chrome da VM; sem a sessão é só escrita na VM.
-
-	// Web
-
-	// Arquivos e imagens
-
-	// Memória e leitura de contexto
-
-	// Misc (`app_info` e `current_time` migraram para `defineTool`)
-	preview_setup: { effect: "write_internal", ownCard: true },
-
-	// Cofre
-
-	// Skills
-
-	// E-mail do bot
-
-	// Proativo
-	// O destino é o próprio dono (push/aviso no app dele), não um terceiro: `write_internal` deixa a rotina avisar o dono.
-
-	// Conectores
-	// Hoje o runtime só aceita operação GET/HEAD (api-connector/runtime.ts) e os args não trazem método: sem
-	// `method`, é leitura. Se um dia houver escrita, ela traz o método e cai em write_external.
-
-	// Rotinas
-
-	// Bots e configuração
-
-	// Planejamento
-
-	// Painéis
-
-	// Trabalho longo (motor v2)
-
-	// Sessão de código (resolvedor `devSessionResolver`)
-};
 
 /** Efeito desta chamada: `effectForArgs` quando existe, senão o `effect` estático (pior caso). MCP/desconhecido: `undefined`. */
 export function resolveToolEffect(name: string, args: Record<string, unknown>): ToolEffect | undefined {
@@ -88,18 +49,13 @@ export function isDefinedTool(name: string): boolean {
 	return getToolRegistration(name)?.defined === true || getResolvedDefinedTool(name) !== undefined;
 }
 
-/** Metadado da tabela solta (fallback das tools que ainda não migraram para `defineTool`). */
-export function tableToolMeta(name: string): ToolMetaFields | undefined {
-	return Object.hasOwn(TOOL_META, name) ? TOOL_META[name] : undefined;
-}
-
 /**
- * Metadado da tool de nome fixo: vem do registro (`defineTool`); a tabela cobre o que ainda não migrou.
+ * Metadado da tool de nome fixo: vem do registro (`defineTool`) ou do resolvedor da sessão de código.
  * `undefined` para MCP e nome desconhecido (ver `mcpToolEffect`).
  */
 export function getToolMeta(name: string): ToolMetaFields | undefined {
 	const registered = getToolRegistration(name);
-	return (registered && metaOf(registered)) ?? getResolvedDefinedTool(name)?.meta ?? tableToolMeta(name);
+	return (registered && metaOf(registered)) ?? getResolvedDefinedTool(name)?.meta;
 }
 /**
  * Efeito de uma tool de conector MCP. Deriva da classificação que já existe

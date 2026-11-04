@@ -53,6 +53,7 @@ export const SANDBOX_DEFINED: readonly DefinedTool[] = [
 		group: "sandbox",
 		run: (args, ctx) => handleSandboxShellGroup("sandbox_list", args, ctx),
 	}),
+	// Pior caso: baixa URL arbitrária enviando por padrão os cookies do Chrome da VM; sem a sessão é só escrita na VM.
 	defineRawTool({
 		name: "sandbox_download",
 		definition: toolNamed(SANDBOX_SHELL_TOOLS, "sandbox_download"),

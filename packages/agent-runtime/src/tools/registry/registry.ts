@@ -1,7 +1,6 @@
 import { isReadOnlyToolName } from "../../execution/run-governor.js";
 import type { ChatTool } from "@workspace/llm";
 import type { DefinedTool } from "../define-tool.js";
-import { tableToolMeta } from "./tool-meta.js";
 import type { ToolContext, ToolHandler, ToolRegistration, ToolResult } from "./types.js";
 
 /**
@@ -41,7 +40,7 @@ function registry(): RegistryState {
 	for (const load of families) {
 		for (const [name, registration] of Object.entries(load())) {
 			if (tools.has(name)) throw new Error(`Tool registrada duas vezes: ${name}`);
-			tools.set(name, { ...tableToolMeta(name), ...registration, readOnly: registration.readOnly ?? isReadOnlyToolName(name, () => false), definition: registration.definition ?? definitions.get(name) });
+			tools.set(name, { ...registration, readOnly: registration.readOnly ?? isReadOnlyToolName(name, () => false), definition: registration.definition ?? definitions.get(name) });
 		}
 	}
 	const resolved = new Map<string, DefinedTool>();
