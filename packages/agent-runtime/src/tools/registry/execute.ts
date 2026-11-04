@@ -3,7 +3,7 @@ import { COMPUTER_TABS_TOOL_NAME } from "../computer-tabs.js";
 import { SANDBOX_RELEASE_TOOL_NAME } from "../sandbox-release.js";
 import { executeRegisteredTool } from "./index.js";
 import { isSandboxTool } from "./sandbox-tools.js";
-import type { ToolContext, ToolResult } from "./types.js";
+import type { ToolContext, ToolHandler, ToolResult } from "./types.js";
 
 /**
  * Um link pode abrir em aba nova (ou a aba ativa fechar): a VM já passou para a aba certa e o
@@ -35,12 +35,15 @@ export async function executeTool(
 	name: string,
 	args: Record<string, unknown>,
 	ctx: ToolContext,
+	/** Handler que vale no lugar do registro global (motor v3: tools do navegador com nome repetido do v1/v2). */
+	override?: ToolHandler,
 ): Promise<ToolResult> {
+	const execute = (toolArgs: Record<string, unknown>) => (override ? override(toolArgs, ctx) : executeRegisteredTool(name, toolArgs, ctx));
 	const session = ctx.secrets;
-	if (!session) return await withTabNotice(name, ctx, await executeRegisteredTool(name, args, ctx));
+	if (!session) return await withTabNotice(name, ctx, await execute(args));
 	const prepared = await session.prepare(name, args);
 	try {
-		const outcome = await withTabNotice(name, ctx, await executeRegisteredTool(name, prepared.args, ctx));
+		const outcome = await withTabNotice(name, ctx, await execute(prepared.args));
 		return await session.redact(outcome);
 	} catch (error) {
 		if (error instanceof Error && session.redactor.size > 0) {

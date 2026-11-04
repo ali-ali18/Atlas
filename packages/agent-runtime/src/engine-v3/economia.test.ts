@@ -131,8 +131,13 @@ describe("motor v3: economia do \"Bom dia\" (VM + 50 conectores)", () => {
 	it("o navegador inteiro está no núcleo (D8) e todo nome de tool aparece no array ou no manifesto", async () => {
 		const { seen } = await v3({ text: "Bom dia", script: [say("Oi")] });
 		const first = seen[0]!;
-		expect(first.names).toEqual(expect.arrayContaining(["navigate", "browser_snapshot", "browser_act", "browser_wait", "browser_tabs", "screenshot", "sandbox_shell", "login_fill", "tool_search", "tool_call"]));
-		for (const name of ["propose_bot", "create_file", "page_create", "propose_routine", "browser_read", "click"]) expect(first.context, name).toMatch(new RegExp(`\\b${name}\\b`));
+		expect(first.names).toEqual(expect.arrayContaining(["browser_navigate", "browser_snapshot", "browser_act", "browser_tabs", "sandbox_shell", "login_fill", "tool_search", "tool_call"]));
+		for (const name of ["propose_bot", "create_file", "page_create", "propose_routine"]) expect(first.context, name).toMatch(new RegExp(`\\b${name}\\b`));
+		// O navegador antigo (ler, achar, esperar, tela, coordenadas) não existe no v3: nem no array nem no manifesto.
+		for (const name of ["browser_read", "browser_find", "browser_wait"]) {
+			expect(first.names, name).not.toContain(name);
+			expect(first.context, name).not.toMatch(new RegExp(`\\b${name}\\b`));
+		}
 		for (let index = 0; index < 50; index += 1) expect(first.context).toContain(`Servico ${index}`);
 	});
 

@@ -208,7 +208,11 @@ export function createToolsStep(run: V3Run, contextFor: ToolContextFactory) {
 		const startedAt = Date.now();
 		try {
 			// `ask` com humano em conector: o executor mostra o cartão dele e o run estaciona. Nativa já aprovada roda aqui.
-			const outcome = await runSandboxOperation({ signal: params.abortSignal }, isSandboxTool(name) ? 180_000 : undefined, (signal) => executeTool(name, args, contextFor(call, signal, verdict.decision === "ask" && !nativeAsk)));
+			const outcome = await runSandboxOperation({ signal: params.abortSignal }, isSandboxTool(name) ? 180_000 : undefined, (signal) => {
+				const toolCtx = contextFor(call, signal, verdict.decision === "ask" && !nativeAsk);
+				const own = run.toolHandlers.get(name);
+				return own ? executeTool(name, args, toolCtx, own) : executeTool(name, args, toolCtx);
+			});
 			if (isUntrustedContentTool(name) && !(isMcpToolName(name) && outcome.confirmEvent)) await run.markUntrusted();
 			summary = outcome.summary;
 			const pending = (event?: { status?: string }) => Boolean(event) && (event!.status ?? "pending") === "pending";
