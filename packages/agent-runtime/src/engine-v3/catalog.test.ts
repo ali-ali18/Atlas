@@ -179,3 +179,25 @@ describe("motor v3: envelope repetido e coerção numérica (puras)", () => {
 		expect(exampleCall(order)).toBe('getSalesOrder({"orderId":1})');
 	});
 });
+
+describe("motor v3: campo desconhecido falha com a lista aceita", () => {
+	const order: ChatTool = {
+		type: "function",
+		function: { name: "getSalesOrder", description: "Get one sales order.", parameters: { type: "object", properties: { orderId: { type: "integer" } }, required: ["orderId"] } },
+	};
+	it("argProblems acusa o campo inventado e lista os aceitos", () => {
+		expect(argProblems(order, { orderId: 48213, id: "48213", salesOrderId: "48213" })).toEqual([
+			"unknown field id (accepted: orderId)",
+			"unknown field salesOrderId (accepted: orderId)",
+		]);
+	});
+	it("unknownArgs respeita additionalProperties aberto e schema sem propriedades", async () => {
+		const { unknownArgs, unknownArgsMessage } = await import("./failures.js");
+		expect(unknownArgs(order, { orderId: 1, extra: 2 })).toEqual(["extra"]);
+		expect(unknownArgsMessage(order, ["extra"])).toContain("unknown field extra (accepted: orderId)");
+		const open: ChatTool = { ...order, function: { ...order.function, parameters: { ...order.function.parameters, additionalProperties: true } } };
+		expect(unknownArgs(open, { orderId: 1, extra: 2 })).toEqual([]);
+		const loose: ChatTool = { ...order, function: { ...order.function, parameters: { type: "object", properties: {} } } };
+		expect(unknownArgs(loose, { anything: 1 })).toEqual([]);
+	});
+});

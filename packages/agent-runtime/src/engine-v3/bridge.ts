@@ -224,8 +224,14 @@ export function argProblems(tool: ChatTool, args: Record<string, unknown>): stri
 	for (const key of tool.function.parameters.required ?? []) {
 		if (args[key] === undefined || args[key] === null) problems.push(`missing required ${key}`);
 	}
+	const open = (tool.function.parameters as { additionalProperties?: unknown }).additionalProperties;
+	const strict = Object.keys(properties).length > 0 && open !== true && typeof open !== "object";
 	for (const [key, value] of Object.entries(args)) {
 		const schema = properties[key] as JsonSchema | undefined;
+		if (!schema && strict) {
+			problems.push(`unknown field ${key} (accepted: ${Object.keys(properties).slice(0, 12).join(", ")})`);
+			continue;
+		}
 		if (!schema || value === undefined || value === null) continue;
 		if (!typeMatches(schema, value)) problems.push(`${key} must be ${Array.isArray(schema.type) ? schema.type.join(" or ") : String(schema.type)}`);
 		else if (Array.isArray(schema.enum) && !schema.enum.some((option) => option === value)) problems.push(`${key} must be one of ${schema.enum.slice(0, 8).map((option) => JSON.stringify(option)).join(", ")}`);
