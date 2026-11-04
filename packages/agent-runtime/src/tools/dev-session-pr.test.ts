@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { DEV_SESSION_TOOLS } from "./registry/handlers/dev.js";
 import type { DevClient, DevEndpoint, DevExecSnapshot, DevSandboxProvider } from "@workspace/sandbox";
 import { loadDevSandboxConfig } from "@workspace/sandbox";
 import type { DevSessionEvent, EffectiveAutonomy } from "@workspace/shared";
@@ -8,7 +9,6 @@ import { fileURLToPath } from "node:url";
 import { parseCiLogsArgs, parseCiStatusArgs, parsePrCheckoutArgs, parsePrCreateArgs } from "./dev-session-args.js";
 import {
 	createDevSessionRuntime,
-	DEV_SESSION_TOOLS,
 	devSessionAllowedForOrigin,
 	devSessionAutonomyMeta,
 	type DevPrGate,

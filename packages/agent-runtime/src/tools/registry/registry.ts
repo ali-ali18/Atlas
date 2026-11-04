@@ -1,5 +1,6 @@
 import { isReadOnlyToolName } from "../../execution/run-governor.js";
 import type { ChatTool } from "@workspace/llm";
+import type { DefinedTool } from "../define-tool.js";
 import { tableToolMeta } from "./tool-meta.js";
 import type { ToolContext, ToolHandler, ToolRegistration, ToolResult } from "./types.js";
 
@@ -13,10 +14,14 @@ export type ToolFamily = Record<string, ToolRegistration>;
 /** Resolve famílias dinâmicas (tools MCP, sessão de código) que não têm um nome fixo. */
 export type ToolResolver = (name: string) => ToolHandler | undefined;
 
-/** `before` roda antes do mapa (a sessão de código ganha de nome igual); `after` só para o que o mapa não conhece (conector MCP). */
-export type ToolResolvers = { before?: Array<() => ToolResolver>; after?: Array<() => ToolResolver> };
+/**
+ * `before` roda antes do mapa (a sessão de código ganha de nome igual); `after` só para o que o mapa não conhece (conector MCP).
+ * `defined`: tools que um resolvedor atende (sessão de código) mas que também são declaradas com `defineTool`: o metadado delas
+ * sai daqui (`getResolvedDefinedTool`), sem entrar no mapa de nomes fixos.
+ */
+export type ToolResolvers = { before?: Array<() => ToolResolver>; after?: Array<() => ToolResolver>; defined?: Array<() => readonly DefinedTool[]> };
 
-type RegistryState = { tools: Map<string, ToolRegistration>; before: ToolResolver[]; after: ToolResolver[] };
+type RegistryState = { tools: Map<string, ToolRegistration>; before: ToolResolver[]; after: ToolResolver[]; resolved: Map<string, DefinedTool> };
 
 let state: RegistryState | undefined;
 const families: Array<() => ToolFamily> = [];
@@ -39,12 +44,19 @@ function registry(): RegistryState {
 			tools.set(name, { ...tableToolMeta(name), ...registration, readOnly: registration.readOnly ?? isReadOnlyToolName(name, () => false), definition: registration.definition ?? definitions.get(name) });
 		}
 	}
-	state = { tools, before: (resolverFactories.before ?? []).map((factory) => factory()), after: (resolverFactories.after ?? []).map((factory) => factory()) };
+	const resolved = new Map<string, DefinedTool>();
+	for (const load of resolverFactories.defined ?? []) for (const tool of load()) resolved.set(tool.name, tool);
+	state = { tools, before: (resolverFactories.before ?? []).map((factory) => factory()), after: (resolverFactories.after ?? []).map((factory) => factory()), resolved };
 	return state;
 }
 
 export function getToolRegistration(name: string): ToolRegistration | undefined {
 	return registry().tools.get(name);
+}
+
+/** Tool declarada com `defineTool` que um resolvedor atende (sessão de código); fora do mapa de nomes fixos. */
+export function getResolvedDefinedTool(name: string): DefinedTool | undefined {
+	return registry().resolved.get(name);
 }
 
 /** Nomes das tools de nome fixo registradas (as dinâmicas, MCP e sessão de código, ficam nos resolvedores). */

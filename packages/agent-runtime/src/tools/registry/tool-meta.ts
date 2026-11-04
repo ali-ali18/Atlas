@@ -1,4 +1,4 @@
-import { getToolRegistration } from "./index.js";
+import { getResolvedDefinedTool, getToolRegistration } from "./index.js";
 import type { ToolEffect, ToolMetaFields, ToolRegistration } from "./types.js";
 
 /**
@@ -60,26 +60,6 @@ export const TOOL_META: Readonly<Record<string, ToolMetaFields>> = {
 	// Trabalho longo (motor v2)
 
 	// Sessão de código (resolvedor `devSessionResolver`)
-	dev_session_start: { effect: "write_internal" },
-	shell: { effect: "write_internal", ownCard: true },
-	shell_output: { effect: "read", poll: true },
-	shell_stdin: { effect: "write_internal" },
-	shell_kill: { effect: "write_internal" },
-	read_file: { effect: "read", ownCard: true },
-	write_file: { effect: "write_internal", ownCard: true },
-	edit_file: { effect: "write_internal", ownCard: true },
-	list_files: { effect: "read" },
-	grep: { effect: "read" },
-	todo_write: { effect: "write_internal" },
-	dev_environment_get: { effect: "read" },
-	dev_environment_update: { effect: "write_internal" },
-	request_secrets: { effect: "credential", ownCard: true },
-	dev_pr_create: { effect: "write_external", ownCard: true },
-	dev_pr_checkout: { effect: "write_internal" },
-	dev_ci_status: { effect: "read", poll: true },
-	dev_ci_logs: { effect: "read" },
-	preview_start: { effect: "write_internal" },
-	preview_stop: { effect: "write_internal" },
 };
 
 /** Efeito desta chamada: `effectForArgs` quando existe, senão o `effect` estático (pior caso). MCP/desconhecido: `undefined`. */
@@ -105,7 +85,7 @@ function metaOf(registration: ToolRegistration): ToolMetaFields | undefined {
 
 /** Tool declarada com `defineTool`/`defineRawTool` (o metadado vem dela, não da tabela). */
 export function isDefinedTool(name: string): boolean {
-	return getToolRegistration(name)?.defined === true;
+	return getToolRegistration(name)?.defined === true || getResolvedDefinedTool(name) !== undefined;
 }
 
 /** Metadado da tabela solta (fallback das tools que ainda não migraram para `defineTool`). */
@@ -119,7 +99,7 @@ export function tableToolMeta(name: string): ToolMetaFields | undefined {
  */
 export function getToolMeta(name: string): ToolMetaFields | undefined {
 	const registered = getToolRegistration(name);
-	return (registered && metaOf(registered)) ?? tableToolMeta(name);
+	return (registered && metaOf(registered)) ?? getResolvedDefinedTool(name)?.meta ?? tableToolMeta(name);
 }
 /**
  * Efeito de uma tool de conector MCP. Deriva da classificação que já existe

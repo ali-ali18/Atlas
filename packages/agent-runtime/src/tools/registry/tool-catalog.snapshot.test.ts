@@ -1,4 +1,5 @@
 import type { ChatTool } from "@workspace/llm";
+import { DEV_SESSION_TOOLS } from "./handlers/dev.js";
 import { describe, expect, it } from "vitest";
 import { COMPUTER_USE_TOOLS } from "../../computer-use.js";
 import { MCP_TOOL_SEARCH_TOOL } from "../catalog.js";
@@ -15,7 +16,7 @@ import { NATIVE_COMPUTER_TOOL } from "../computer-native.js";
 import { SET_CONNECTOR_TOOL_MARKS_TOOL } from "../connector-tool-marks.js";
 import { CREATE_FILE_TOOL } from "../create-file.js";
 import { DELEGATE_TASK_TOOL } from "../delegate-task.js";
-import { DEV_SESSION_TOOLS, DEV_SESSION_TOOL_NAMES } from "../dev-session.js";
+import { DEV_SESSION_TOOL_NAMES } from "../dev-session.js";
 import { GENERATE_IMAGE_TOOL } from "../generate-image.js";
 import { INSPECT_PRESENTATION_TOOL } from "../inspect-presentation.js";
 import { PAGE_TOOLS } from "../pages.js";
