@@ -101,7 +101,7 @@ jobs:
           # (tag criada pelo GITHUB_TOKEN não dispara outro workflow, então não há laço).
           tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('apk-{0}-{1}', env.PROFILE, github.run_number) }}
           target_commitish: ${{ github.sha }}
-          name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('APK {0} #{1}', env.PROFILE, github.run_number) }}
+          name: "${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('APK {0} - {1}', env.PROFILE, github.run_number) }}"
           files: atlas-${{ env.PROFILE }}.apk
           prerelease: true
           body: |
