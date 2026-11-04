@@ -85,11 +85,12 @@ export async function prepareDraftForOwner(run: V3Run, input: { tool: string; ar
 }
 
 /**
- * Run de continuação de um rascunho aprovado: a chamada de uma tool escondida por falta de pessoa só roda se o dono
- * aprovou EXATAMENTE ela (tool + args) no cartão do run que preparou. Consome a aprovação (uma execução só).
+ * Run de continuação de um rascunho aprovado: a ação só roda pelo caminho aprovado se o dono aprovou EXATAMENTE esta
+ * chamada (tool + args) no cartão do run que preparou. Consome a aprovação (uma execução só). Quem chama decide se a
+ * tool pode usar este caminho (escondida por falta de pessoa, ou com cartão próprio).
  */
 export async function takeOwnerApprovedCall(run: V3Run, name: string, args: Record<string, unknown>): Promise<boolean> {
-	if (!run.continuesRunId || !run.conversationId || run.userId === "default" || !run.heldBack.has(name)) return false;
+	if (!run.continuesRunId || !run.conversationId || run.userId === "default") return false;
 	const decided = await takeToolCallApproval(run.userId, run.conversationId, toolCallKey(name, args), run.continuesRunId, PREPARED_DRAFT_TTL_MS).catch(() => null);
 	return decided === "approved";
 }

@@ -399,6 +399,12 @@ export type ConfirmedFollowUp = {
 	transcript?: TranscriptSeed;
 	/** O texto é fala digitada pelo dono (ele ignorou o cartão e mandou outra mensagem): o run segue como turno humano. */
 	humanTyped?: true;
+	/**
+	 * Rascunho de `prepare_for_owner` aprovado: o run de continuação herda motor e perfil DESTE run (o que preparou, sem
+	 * pessoa), nunca o turno humano de uma fala antiga da conversa. Assim a ação aprovada só roda pelo caminho exato
+	 * (mesma tool, mesmos args, uma vez), sem cartão novo e sem a autonomia do chat liberar outros args.
+	 */
+	inheritFromRunId?: string;
 };
 
 export type ConfirmedActionResult =
@@ -962,7 +968,8 @@ export async function maybeHandleConfirmedAction(input: {
 			const userText = input.text.trim();
 			// Rascunho de `prepare_for_owner`: o desfecho vira o resultado da chamada que preparou (no run sem pessoa).
 			if (toolCallApproved.prepared) {
-				return { handled: false, followUp: { objective: userText, content: preparedApprovedFollowUpContent(userText, toolCallApproved), ...seedField(pending.payload, PREPARE_FOR_OWNER_TOOL_NAME, preparedApprovedFollowUpContent("", toolCallApproved), userText, undefined, toolCallRefused(toolCallApproved, false)) } };
+				const preparedBy = askingRunId(pending.payload.confirmId);
+				return { handled: false, followUp: { objective: userText, content: preparedApprovedFollowUpContent(userText, toolCallApproved), ...(preparedBy ? { inheritFromRunId: preparedBy } : {}), ...seedField(pending.payload, PREPARE_FOR_OWNER_TOOL_NAME, preparedApprovedFollowUpContent("", toolCallApproved), userText, undefined, toolCallRefused(toolCallApproved, false)) } };
 			}
 			return { handled: false, followUp: { objective: userText, content: toolCallFollowUpContent(userText, toolCallApproved, "approved"), ...seedField(pending.payload, toolCallApproved.tool, toolCallFollowUpContent("", toolCallApproved, "approved"), userText, undefined, toolCallRefused(toolCallApproved, false)) } };
 		}

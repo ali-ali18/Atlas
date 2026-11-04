@@ -163,6 +163,20 @@ export function isHumanTypedTurn(request: Pick<CreateAgentRunRequest, "origin" |
 	return request.origin === "chat" && request.silent !== true && request.compact !== true && !request.decisionConfirmId && !followUpFromConfirm;
 }
 
+/**
+ * De onde o run novo herda motor, perfil e turno humano. Clique de cartão: do último run de chat da conversa (resposta
+ * humana dentro do trabalho do dono). Rascunho aprovado do motor v3: só motor e perfil do run que preparou, nunca o turno
+ * humano (a ação aprovada roda pelo caminho exato, uma vez).
+ */
+export function runInheritanceFor(
+	request: Pick<CreateAgentRunRequest, "origin" | "silent" | "compact" | "decisionConfirmId">,
+	followUpFromConfirm: boolean,
+	draftRunId: string | undefined,
+): { inheritFromRunId: string; inheritHumanTurn: false } | { inheritFromConversation: boolean } {
+	if (draftRunId) return { inheritFromRunId: draftRunId, inheritHumanTurn: false };
+	return { inheritFromConversation: request.origin === "chat" && !isHumanTypedTurn(request, followUpFromConfirm) };
+}
+
 function positiveBudgetNumber(value: unknown): number | undefined {
 	if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
 		return undefined;
@@ -420,6 +434,8 @@ export function createRunRoutes(
 		const lastUser =
 			[...request.messages].reverse().find((m) => m.role === "user")?.content ?? "";
 		let followUpFromConfirm = false;
+		// Continuação de um rascunho aprovado (motor v3): herda só motor e perfil do run que preparou, sem turno humano.
+		let inheritFromDraftRunId: string | undefined;
 		try {
 			const confirmedAction = await maybeHandleConfirmedAction({
 				jevIntent: await buildJevIntentFor(scopeFor(c.get("session")).userId, config.openRouterApiKey, process.env, dependencies.getAccountConfig),
@@ -435,6 +451,7 @@ export function createRunRoutes(
 				// Ação MCP confirmada já rodou: o agente continua com o resultado. Cartão ignorado (o dono digitou outra
 				// coisa): a fala continua sendo turno humano.
 				followUpFromConfirm = confirmedAction.followUp.humanTyped !== true;
+				inheritFromDraftRunId = confirmedAction.followUp.inheritFromRunId;
 				request = {
 					...request,
 					messages: applyConfirmedFollowUp(request.messages, confirmedAction.followUp),
@@ -486,7 +503,7 @@ export function createRunRoutes(
 				// Sinal explícito de "o dono digitou isto" (nunca vem do corpo): libera a marcação de ferramentas só aqui.
 				humanTurn: isHumanTypedTurn(request, followUpFromConfirm),
 				// Clique de cartão: é resposta humana dentro do trabalho do dono (herda turno humano, motor e perfil do último run).
-				inheritFromConversation: request.origin === "chat" && !isHumanTypedTurn(request, followUpFromConfirm),
+				...runInheritanceFor(request, followUpFromConfirm, inheritFromDraftRunId),
 				contextLength: peekModelContextLength(model),
 				onMergedIntoActiveRun: (runId) => notifyRunSignal(publish, runId, "input"),
 			});

@@ -188,7 +188,11 @@ export function createToolsStep(run: V3Run, contextFor: ToolContextFactory) {
 		const pre = run.preTools.run(name, args, entry);
 		if (pre.error) return await refuse(call, sub, name, pre.error, { argsKey });
 		// Ação aprovada pelo dono num rascunho: a política decide como se ele estivesse aqui (o clique foi a aprovação).
-		const ownerApproved = heldTool ? await takeOwnerApprovedCall(run, name, args) : false;
+		// Também com a tool visível (continuação que herdou turno humano, deploy com api antiga): tool com cartão próprio
+		// (e-mail) aprovada no rascunho roda pelo caminho exato, sem o segundo cartão. As demais nativas visíveis já usam a
+		// mesma aprovação no `nativeApprovalGate`.
+		const approvable = Boolean(run.continuesRunId) && !entry && (Boolean(heldTool) || hasOwnApprovalCard(name));
+		const ownerApproved = approvable ? await takeOwnerApprovedCall(run, name, args) : false;
 		if (heldTool && !ownerApproved) {
 			const hidden = decideCall({ name, args, base: run.policy, autonomy: run.autonomy.get() });
 			return await refuse(call, sub, name, deniedMessage(hidden.reason), { argsKey });

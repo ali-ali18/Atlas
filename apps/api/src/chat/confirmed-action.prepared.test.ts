@@ -7,6 +7,7 @@ process.env.ATLAS_HOOK_PEPPER ||= "test-pepper";
 
 const { prisma } = await import("@workspace/db");
 const { maybeHandleConfirmedAction, PREPARED_DISMISSED_DETAIL } = await import("./confirmed-action.js");
+const { runInheritanceFor } = await import("../routes/runs.js");
 
 const USER = "user-a";
 const CONV = "conv-1";
@@ -35,7 +36,7 @@ function fakeDb(owner = USER) {
 }
 
 const run = (text: string, userId = USER) => maybeHandleConfirmedAction({ text, userId, botId: "bot-1", conversationId: CONV, model: "m", continueInAgent: true });
-type FollowUp = { content: string; humanTyped?: true; transcript?: { fromRunId: string; toolName?: string; resultContent: string } };
+type FollowUp = { content: string; humanTyped?: true; inheritFromRunId?: string; transcript?: { fromRunId: string; toolName?: string; resultContent: string } };
 const followUp = (result: unknown) => (result as { followUp?: FollowUp }).followUp;
 
 test("Permitir no rascunho: a continuação chama a ação com os args do rascunho, semeada na chamada que preparou", async () => {
@@ -47,6 +48,9 @@ test("Permitir no rascunho: a continuação chama a ação com os args do rascun
 		assert.match(follow.content, /Call email_send now with EXACTLY the arguments of that draft/);
 		assert.equal(follow.transcript?.fromRunId, "runR");
 		assert.equal(follow.transcript?.toolName, "prepare_for_owner");
+		// A continuação herda motor e perfil do run que preparou, nunca o turno humano de uma fala antiga da conversa.
+		assert.equal(follow.inheritFromRunId, "runR");
+		assert.deepEqual(runInheritanceFor({ origin: "chat" }, true, follow.inheritFromRunId), { inheritFromRunId: "runR", inheritHumanTurn: false });
 		assert.equal(db.state.status, "approved");
 		assert.deepEqual(db.state.outcome, { ok: true, detail: "aprovado pelo usuário" });
 	} finally { db.restore(); }
@@ -79,4 +83,9 @@ test("usuário B não aprova nem descarta o rascunho do usuário A", async () =>
 		await run("cancela isso", "user-b");
 		assert.equal(db.state.status, "pending");
 	} finally { db.restore(); }
+});
+
+test("clique de cartão comum continua herdando da conversa; fala digitada não herda", () => {
+	assert.deepEqual(runInheritanceFor({ origin: "chat" }, true, undefined), { inheritFromConversation: true });
+	assert.deepEqual(runInheritanceFor({ origin: "chat" }, false, undefined), { inheritFromConversation: false });
 });

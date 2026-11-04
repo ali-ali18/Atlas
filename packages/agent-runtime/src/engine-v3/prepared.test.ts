@@ -236,3 +236,27 @@ describe("prepare_for_owner: rascunho, validação e uma execução só", () => 
 		expect(delivered.map(({ to, subject }) => ({ to, subject }))).toEqual([{ to: "ana@cliente.com", subject: "Vendas de outubro" }]);
 	});
 });
+
+describe("prepare_for_owner: continuação que herdou turno humano de uma fala antiga", () => {
+	it("aprovado: uma execução com os args idênticos e sem segundo cartão; args diferentes ou repetição não usam a aprovação", async () => {
+		const { email, delivered } = emailContext();
+		const routine = await runV3([call("c1", PREPARE_FOR_OWNER_TOOL_NAME, { tool: "email_send", args: SEND, note: "n" }), say("rascunho pronto")], { email });
+		approve(routine.confirms[0]!.confirmId);
+		const continuation = (script: Script) =>
+			runV3(script, { runId: "run-cont", origin: "chat", humanTurn: true, email, restoredCheckpoint: { version: 2, messages: [{ role: "user", content: "[The owner APPROVED your draft]" }], transcriptSeed: { fromRunId: "run-routine", resultContent: "x", shortContent: "x" } } as unknown as AgentRunCheckpoint, messages: [{ role: "user", content: "[The owner APPROVED your draft]" }] });
+
+		// Args diferentes do aprovado: caminho normal com pessoa (o cartão próprio do e-mail), nada enviado.
+		const other = await continuation([call("c1", "email_send", { ...SEND, to: "outra@cliente.com" }), say("aguardando")]);
+		expect(other.results[0]!.summary).toMatch(/Card de confirmação enviado/);
+		expect(delivered).toHaveLength(0);
+
+		const exact = await continuation([call("c1", "email_send", SEND), say("enviado")]);
+		expect(exact.results[0]!.summary, exact.results[0]!.summary).toContain('"sent":true');
+		expect(exact.confirms).toHaveLength(0);
+
+		// A mesma chamada de novo: a aprovação já foi usada, volta o cartão do e-mail e nada sai.
+		const again = await continuation([call("c1", "email_send", SEND), say("aguardando")]);
+		expect(again.results[0]!.summary).toMatch(/Card de confirmação enviado/);
+		expect(delivered.map(({ to }) => to)).toEqual(["ana@cliente.com"]);
+	});
+});
