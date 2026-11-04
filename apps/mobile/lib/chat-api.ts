@@ -30,7 +30,7 @@ async function failure(response: Response): Promise<never> {
 	throw new ChatApiError(message, response.status);
 }
 
-async function json<T>(apiFetch: ApiFetch, path: string, init: RequestInit = {}): Promise<T> {
+export async function json<T>(apiFetch: ApiFetch, path: string, init: RequestInit = {}): Promise<T> {
 	const response = await apiFetch(path, { ...init, headers: { accept: "application/json", ...(init.body ? { "content-type": "application/json" } : {}), ...(init.headers as Record<string, string> | undefined) } });
 	if (!response.ok) return failure(response);
 	return (await response.json()) as T;
@@ -96,6 +96,25 @@ export async function listActiveRuns(apiFetch: ApiFetch, conversationId: string)
 export async function submitQuestionnaire(apiFetch: ApiFetch, input: { conversationId: string; questionnaireId: string; botId: string; answers: Record<string, string | string[]> }): Promise<{ runId: string | null }> {
 	const result = await json<{ runId?: unknown }>(apiFetch, "/v1/questionnaire/submit", { method: "POST", body: JSON.stringify(input) });
 	return { runId: typeof result.runId === "string" ? result.runId : null };
+}
+
+export type ResumeOptions = { via?: "vault" | "code"; code?: string };
+
+/** `POST /v1/runs/:id/resume`, igual ao do web (`resumeAgentRun`): retoma o run parado no login. O código vai selado ao runtime, não ao modelo. */
+export async function resumeRun(apiFetch: ApiFetch, runId: string, options: ResumeOptions = {}): Promise<{ enqueued: boolean }> {
+	const body = options.via ? { body: JSON.stringify({ via: options.via, ...(options.code ? { code: options.code } : {}) }) } : {};
+	const result = await json<{ enqueued?: unknown }>(apiFetch, `/v1/runs/${encodeURIComponent(runId)}/resume`, { method: "POST", ...body });
+	return { enqueued: result.enqueued === true };
+}
+
+/** `POST /v1/vault/secrets` (o mesmo do `VaultRequestCard` do web). O valor sai direto do campo para cá: não passa pelo chat, pelo cache nem por log. */
+export async function saveVaultSecrets(apiFetch: ApiFetch, entries: { name: string; value: string }[]): Promise<void> {
+	await json(apiFetch, "/v1/vault/secrets", { method: "POST", body: JSON.stringify({ entries, mode: "upsert" }) });
+}
+
+/** `POST /v1/vault` com `kind: "login"` (o mesmo da tela do Cofre no web). Usuário e senha do site, direto para o cofre. */
+export async function saveVaultLogin(apiFetch: ApiFetch, body: { kind: "login"; name: string; label: string; siteUrl: string; username: string; password: string }): Promise<void> {
+	await json(apiFetch, "/v1/vault", { method: "POST", body: JSON.stringify(body) });
 }
 
 /** `PUT /v1/messages/:id/reaction`: troca a reação do usuário (uma por mensagem). */
