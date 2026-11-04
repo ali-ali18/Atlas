@@ -27,6 +27,7 @@ import { estimateCostUsd, fallbackPricesFromEnv } from "../engine-v2/cost.js";
 import { parseV3State } from "./checkpoint.js";
 import { stepLimitFor } from "./limits.js";
 import { createNudges } from "./nudges.js";
+import { V3_BROWSER_HANDLERS, swapBrowserTools } from "../tools/browser-v3/index.js";
 import { buildV3Catalog, connectorEntries } from "./catalog.js";
 import { applyCatalogPolicy, catalogHides, policyBase } from "./policy.js";
 import { assembleV3Conversation, attachToLastUser, buildV3ContextBlock, buildV3SystemPrompt } from "./prompt.js";
@@ -81,7 +82,8 @@ export async function prepareRun(params: ComputerUseParams, options: EngineV3Opt
 		params.listBotRoster && params.botId && userId !== "default" && (origin === "chat" || origin === "bot") ? (await params.listBotRoster(userId).catch(() => [])).length : 0;
 	const imageIds = params.userImageArtifactIds ?? parsed?.userImageArtifactIds ?? [];
 
-	const natives = eligibleNativeTools({
+	// As ~10 tools de navegador do v1/v2 viram 4 (desenho 5); o resto do catálogo é o mesmo.
+	const natives = swapBrowserTools(eligibleNativeTools({
 		origin,
 		userId,
 		sandboxEnabled,
@@ -97,7 +99,7 @@ export async function prepareRun(params: ComputerUseParams, options: EngineV3Opt
 		...(params.proactive ? { proactive: { hasConversation: Boolean(params.conversationId) } } : {}),
 		...(params.userPush && (origin === "routine" || origin === "chat") ? { userPush: params.userPush.mode } : {}),
 		...(origin === "routine" && params.alertRun ? { alertRun: true } : {}),
-	});
+	}));
 	// Só no v3 (PR8a): "Volto depois" precisa das filas, de uma conversa e de um dono; subagente não agenda.
 	if (params.ownerWait && params.conversationId && userId !== "default" && origin !== "subagent") {
 		for (const tool of ownerWaitTools()) if (params.toolFilter?.(tool.function.name) ?? true) natives.push(tool);
@@ -184,6 +186,7 @@ export async function prepareRun(params: ComputerUseParams, options: EngineV3Opt
 		unattended,
 		personWatching,
 		language: replyLanguage.language,
+		languageInstruction: replyLanguage.instruction,
 		model: params.model,
 		lastModel: parsed?.model ?? params.model,
 		turnId: `t${Date.now().toString(36)}${randomBytes(4).toString("hex")}`,
@@ -191,6 +194,7 @@ export async function prepareRun(params: ComputerUseParams, options: EngineV3Opt
 		catalog,
 		tools,
 		toolUsage,
+		toolHandlers: V3_BROWSER_HANDLERS,
 		entryOf,
 		hasTool,
 		conversation,

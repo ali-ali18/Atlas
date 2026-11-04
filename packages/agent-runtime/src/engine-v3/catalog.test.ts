@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ChatTool } from "@workspace/llm";
 import { COMPUTER_USE_TOOLS } from "../tools/catalog.js";
+import { swapBrowserTools } from "../tools/browser-v3/index.js";
 import { PROPOSE_BOT_TOOL } from "../tools/bot-proposal.js";
 import { CREATE_FILE_TOOL } from "../tools/create-file.js";
 import { PAGE_TOOLS } from "../tools/pages.js";
@@ -8,7 +9,8 @@ import { UPDATE_TASK_LIST_TOOL_V2 } from "../tools/task-list.js";
 import { NO_TOOL_FOUND_HINT, TOOL_SEARCH_MAX_CHARS, argProblems, coerceNumericText, exampleCall, firstSentence, rankTools, toolSearchText, unwrapEnvelope, type CatalogEntry } from "./bridge.js";
 import { BASE_CORE, CORE_SCHEMA_MAX_CHARS, MANIFEST_MAX_CHARS, USAGE_CORE_MAX, VM_CORE, buildManifest, buildV3Catalog, selectCore } from "./catalog.js";
 
-const natives: ChatTool[] = [...COMPUTER_USE_TOOLS, PROPOSE_BOT_TOOL, CREATE_FILE_TOOL, UPDATE_TASK_LIST_TOOL_V2, ...PAGE_TOOLS];
+// Como o PREPARE monta: as tools de navegador de hoje viram as 4 do PR6.
+const natives: ChatTool[] = swapBrowserTools([...COMPUTER_USE_TOOLS, PROPOSE_BOT_TOOL, CREATE_FILE_TOOL, UPDATE_TASK_LIST_TOOL_V2, ...PAGE_TOOLS]);
 const tool = (name: string, description: string, properties: Record<string, unknown> = {}, required: string[] = []): ChatTool => ({
 	type: "function",
 	function: { name, description, parameters: { type: "object", properties, ...(required.length ? { required } : {}) } },

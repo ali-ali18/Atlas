@@ -11,7 +11,7 @@ import type { RunStop } from "@workspace/shared";
 export const MAX_STEPS_SAFETY = 200;
 export const UNATTENDED_MAX_STEPS = 40;
 
-export type CapKind = "steps_unattended" | "steps_owner" | "steps_safety" | "cost" | "wall" | "repeated";
+export type CapKind = "steps_unattended" | "steps_owner" | "steps_safety" | "cost" | "wall" | "repeated" | "context";
 
 export type StepLimit = { maxSteps: number; kind: Extract<CapKind, "steps_unattended" | "steps_owner" | "steps_safety"> };
 
@@ -45,6 +45,7 @@ const LIMIT_LABEL: Record<CapKind, string> = {
 	cost: "spending limit set by the owner",
 	wall: "time limit",
 	repeated: "stopped: repeated calls",
+	context: "the conversation is too long to continue and could not be compacted",
 };
 
 /** Nota curta do FINAL_STEP (vai como `user` com prefixo `[runtime]`). Sem humano, a resposta pergunta se deve continuar. */
@@ -55,7 +56,7 @@ export function finalStepNote(kind: CapKind, unattended: boolean): string {
 
 /** Motivo de parada gravado no run (contrato de `RunStop` inalterado). */
 export function capStop(kind: CapKind, openItems: boolean): RunStop {
-	const reason: RunStop["reason"] = kind === "cost" ? "budget_cost" : kind === "wall" ? "budget_wall" : kind === "repeated" ? "loop_repeat" : "budget_steps";
+	const reason: RunStop["reason"] = kind === "cost" ? "budget_cost" : kind === "wall" ? "budget_wall" : kind === "repeated" ? "loop_repeat" : kind === "context" ? "budget_context" : "budget_steps";
 	const detail = `v3_${kind}${openItems ? ":items_open" : ""}`;
 	return { reason, detail };
 }

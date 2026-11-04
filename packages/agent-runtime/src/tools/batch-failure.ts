@@ -17,6 +17,7 @@ const PAGE_ACTION_TOOLS = new Set([
 	"browser_type",
 	"browser_act",
 	"navigate",
+	"browser_navigate",
 ]);
 
 export function isPageActionTool(name: string): boolean {

@@ -270,6 +270,7 @@ const ACT_VERBS: Record<ControlActAction, string> = {
 	hover: "Hovered",
 	press: "Pressed key on",
 	clear: "Cleared",
+	upload: "Uploaded a file to",
 };
 
 /** V4 — resultado de `browser_act`: o que fez e o que mudou (inglês, compacto). */

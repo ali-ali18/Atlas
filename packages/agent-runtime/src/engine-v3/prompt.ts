@@ -116,7 +116,7 @@ export function assembleV3Conversation(input: {
 }
 
 /** Nota `system` de um run antigo (v2) no histórico: vira `user` `[runtime]` na mesma posição. */
-function asRuntimeNote(message: LlmMessage): LlmMessage {
+export function asRuntimeNote(message: LlmMessage): LlmMessage {
 	if (typeof message.content === "string") return { role: "user", content: `${RUNTIME_PREFIX} ${message.content}` };
 	return { role: "user", content: [{ type: "text", text: RUNTIME_PREFIX }, ...(Array.isArray(message.content) ? message.content : [])] };
 }

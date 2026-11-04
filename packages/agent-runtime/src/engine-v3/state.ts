@@ -5,6 +5,7 @@ import type { McpToolEntry } from "../mcp/registry.js";
 import type { createPreToolRunner } from "../hooks/pre-tool-runner.js";
 import type { SecretSession } from "../secrets/session.js";
 import type { ProviderHealth } from "../tools/provider-health.js";
+import type { ToolHandler } from "../tools/registry/types.js";
 import type { ComputerUseParams } from "../run-types.js";
 import type { V3Catalog } from "./catalog.js";
 import type { StepLimit } from "./limits.js";
@@ -29,6 +30,8 @@ export type V3Run = {
 	/** Uma pessoa acompanha o run (chat com turno humano, inclusive resposta de cartão): sem o teto de 40 passos. */
 	personWatching: boolean;
 	language: BotLanguage;
+	/** Instrução de idioma de resposta (`languageInstruction`): o resumo da compactação sai no idioma do bot. */
+	languageInstruction: string;
 	model: string;
 	lastModel: string;
 	turnId: string;
@@ -40,6 +43,8 @@ export type V3Run = {
 	tools: ChatTool[];
 	/** Uso das tools pelo bot (30 dias): desempate do `tool_search`. Vazio quando o catálogo veio congelado. */
 	toolUsage: Readonly<Record<string, number>>;
+	/** Handlers próprios do v3 que valem no lugar do registro global (as 4 tools do navegador, que repetem nomes do v1/v2). */
+	toolHandlers: ReadonlyMap<string, ToolHandler>;
 	entryOf: (name: string) => McpToolEntry | undefined;
 	hasTool: (name: string) => boolean;
 	conversation: LlmMessage[];
