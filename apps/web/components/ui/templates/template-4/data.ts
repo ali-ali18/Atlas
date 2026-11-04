@@ -250,6 +250,8 @@ export type Routine = {
 	github?: RoutineGithubUiConfig;
 	/** Só rotina de e-mail recebido: filtros do gatilho (a UI só mostra; o agente configura). */
 	email?: { fromContains?: string; subjectContains?: string };
+	/** Motor v3: limites por execução (ausente = 40 passos, sem teto de gasto). */
+	limits?: import("@workspace/shared").RoutineLimits;
 };
 
 export const initialAgents: Agent[] = [

@@ -261,6 +261,7 @@ export function ChatContextPanel({
 	onToggleRoutine,
 	isRoutinePersisted,
 	onSaveGithubTrigger,
+	onSaveRoutineLimits,
 	onDeleteRoutine,
 	routineGroups = [],
 	onCreateRoutineGroup,
@@ -323,6 +324,8 @@ export function ChatContextPanel({
 	onSaveGithubTrigger?: (
 		github: RoutineGithubUiConfig,
 	) => Promise<RoutineGithubUiConfig | { error: string }>;
+	/** Limites por execução da rotina aberta (motor v3): botão explícito do campo recolhido. */
+	onSaveRoutineLimits?: (patch: import("@workspace/shared").RoutineLimitsPatch | null) => Promise<{ error: string } | void>;
 	onDeleteRoutine?: (routine: Routine) => void;
 	/** Grupos de rotinas do bot (o bloco agrupa as rotinas com o mesmo `groupId`). */
 	routineGroups?: Array<{ id: string; name: string }>;
@@ -731,6 +734,7 @@ export function ChatContextPanel({
 								groups={routineGroups}
 								onCreateGroup={onCreateRoutineGroup}
 								onSaveGithubTrigger={onSaveGithubTrigger}
+								onSaveLimits={onSaveRoutineLimits}
 								oneTimeSecret={routineOneTimeSecret}
 								persisted={routinePersisted}
 								routine={editingRoutine}

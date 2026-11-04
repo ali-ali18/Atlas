@@ -60,6 +60,7 @@ import {
 } from "@workspace/ui/components/dropdown-menu";
 import { Field, FieldLabel } from "@workspace/ui/components/field";
 import { Input } from "@workspace/ui/components/input";
+import { RoutineLimitsField } from "./routine-limits-field";
 import {
 	Popover,
 	PopoverContent,
@@ -300,6 +301,7 @@ export function RoutineEditor({
 	onOpenMarketplace,
 	onEditWithAgent,
 	onSaveGithubTrigger,
+	onSaveLimits,
 	persisted = false,
 	routine,
 	runs = [],
@@ -324,6 +326,8 @@ export function RoutineEditor({
 	onSaveGithubTrigger?: (
 		github: RoutineGithubUiConfig,
 	) => Promise<RoutineGithubUiConfig | { error: string }>;
+	/** Limites por execução (motor v3): salva só no botão do campo recolhido. */
+	onSaveLimits?: (patch: import("@workspace/shared").RoutineLimitsPatch | null) => Promise<{ error: string } | void>;
 	persisted?: boolean;
 	routine?: Routine;
 	runs?: RoutineRunRecord[];
@@ -843,6 +847,8 @@ export function RoutineEditor({
 				/>
 				<p className="text-xs text-muted-foreground">{t("routines.editor.notifyHelp")}</p>
 			</Field>
+
+			{persisted && onSaveLimits ? <RoutineLimitsField limits={routine?.limits} onSave={onSaveLimits} /> : null}
 
 			{model.startsWith("chatgpt/") ? <Field><FieldLabel className="text-xs text-muted-foreground">{t("routines.editor.plan")}</FieldLabel><SettingsPicker aria-label={t("routines.editor.plan")} value={allowChatgptPlan ? "on" : "off"} onChange={(value) => setAllowChatgptPlan(value === "on")} options={[{ value: "off", label: t("routines.editor.planOff") }, { value: "on", label: t("routines.editor.planOn") }]} /><p className="text-xs text-muted-foreground">{t("routines.editor.planHelp")}</p></Field> : null}
 {!isGithubTrigger ? (

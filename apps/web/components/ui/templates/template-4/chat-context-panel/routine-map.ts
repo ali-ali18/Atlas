@@ -98,7 +98,8 @@ export function recordToUiRoutine(record: RoutineRecord): Routine {
 	const withGroup = record.groupId ? { ...base, groupId: record.groupId } : base;
 	const withPage = record.pageId ? { ...withGroup, pageId: record.pageId } : withGroup;
 	const alert = alertSource(record);
-	const routine = alert ? { ...withPage, alert } : withPage;
+	const withAlert = alert ? { ...withPage, alert } : withPage;
+	const routine = record.limits ? { ...withAlert, limits: record.limits } : withAlert;
 	return record.createdBy === "bot" ? { ...routine, createdBy: "bot" } : routine;
 }
 

@@ -1519,6 +1519,21 @@ export function Template4Client({
 		}
 	}
 
+	/** Limites por execução da rotina aberta (motor v3): `null` volta ao padrão (40 passos, sem teto de gasto). */
+	async function saveRoutineLimits(limits: import("@workspace/shared").RoutineLimitsPatch | null): Promise<{ error: string } | void> {
+		if (!activeId || !editingRoutine) return { error: t("app.routineNotFound") };
+		try {
+			const updated = await updateRoutineRequest(activeId, editingRoutine.id, { limits });
+			const ui = recordToUiRoutine(updated.routine);
+			snapshotRoutine(ui);
+			setRoutines((previous) => previous.map((item) => (item.id === ui.id ? ui : item)));
+			setEditingRoutine((current) => (current?.id === ui.id ? ui : current));
+		} catch {
+			// O erro da API cita os nomes dos campos (internals): o dono vê só a frase.
+			return { error: t("routines.limits.saveFailed") };
+		}
+	}
+
 	/** Cria uma rotina de uma vez (templates do chooser) — sempre create, nunca update. */
 	async function createRoutineFromChooser(
 		template: GithubRoutineTemplate,
@@ -2441,6 +2456,7 @@ export function Template4Client({
 								persistedRoutineIds.current.has(routine.id)
 							}
 							onSaveGithubTrigger={saveGithubTrigger}
+							onSaveRoutineLimits={saveRoutineLimits}
 							onDeleteRoutine={(routine) => {
 								void deleteRoutineFor(routine);
 							}}
