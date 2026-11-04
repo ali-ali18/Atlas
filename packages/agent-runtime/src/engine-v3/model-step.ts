@@ -121,6 +121,12 @@ export function createModelStep(run: V3Run, deps: { sleep?: TransportOptions["sl
 			outputJson: { content: text, toolCallIds: toolCalls.map((call) => call.id), engine: "v3", ...(result.finishReason ? { finishReason: result.finishReason } : {}) },
 		});
 		const providerItems = renameProviderItemCallIds(result.message.providerItems, (id) => namespaceToolCallId(id, run.runId));
+		// A nota de rascunho descartado/ignorado entrou numa chamada que o modelo respondeu: só agora conta como dita.
+		if (run.draftNoteIds?.length) {
+			const ids = run.draftNoteIds;
+			run.draftNoteIds = undefined;
+			await run.params.draftDecisions?.markNoted(ids).catch(() => undefined);
+		}
 		return { text, raw: result.message.content ?? "", toolCalls, ...(providerItems ? { providerItems } : {}), ...(result.finishReason ? { finishReason: result.finishReason } : {}), result };
 	};
 }

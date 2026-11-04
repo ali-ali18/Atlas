@@ -143,11 +143,11 @@ import {
 	resolveBudget,
 	wallClockAnchors,
 } from "@workspace/agent-runtime";
-import { earlyWallMs, engineDefaultFromEnv, lessonsInjectedByEngine, pickRunEngine, resolveRunLimits, runSelectedEngine } from "../engine-choice.js";
+import { earlyWallMs, engineDefaultFromEnv, lessonsInjectedByEngine, pickRunEngine, priorTaskInheritance, resolveRunLimits, runSelectedEngine } from "../engine-choice.js";
 import { isReadOnlyConnectorOrigin, budgetStopFallbackText, isBotConfigEventObjective, createReviewerClient, resolveMaintenanceCandidates } from "@workspace/agent-runtime";
 import { runToolFilter } from "../run-tool-filter.js";
 import { briefDeliveryDeps, deliverBriefFailure, deliverDailyBrief, findRoutineRunIdWithRetry, isDetachedBriefRun } from "../daily-brief.js";
-import { appendConversationMessage, getLanguageContext, listBotToolUsage, listRecentLoginAsks } from "@workspace/db";
+import { appendConversationMessage, getLanguageContext, listBotToolUsage, listRecentLoginAsks, listPendingDraftDecisions, markDraftDecisionsNoted } from "@workspace/db";
 import { resolveReplyLanguage, stopOfCompletion, systemMessages, type BotLanguage, type RunStop } from "@workspace/shared";
 import { stopOfBudgetError, stopOfFailure } from "../run-stop.js";
 import { runSystemLanguage } from "../system-language.js";
@@ -1233,8 +1233,14 @@ async function executeLeasedRun(ctx: {
 	// No v2 a lista do banco só semeia o rastreador na continuação automática ou num plano aprovado; numa mensagem digitada ela
 	// vira nota (`priorOpenItems`). O v1 segue como sempre (semeia sempre).
 	const planSeeded = Boolean(!checkpoint?.llmMessages?.length && checkpoint?.transcriptSeed?.taskList?.length);
+	// Motor v3: a lista de um run v3 mora no estado dele (`engineV3`); só um run v3 a lê (v1/v2 nunca herdam a lista do v3).
+	const v3ChatList =
+		engineChoice.resolved === "v3" && !planSeeded && !groupRun && run.origin === "chat" && run.conversationId && (typedContinuation || autoContinueAttempt > 0)
+			? await getConversationTaskList(runUserId, run.conversationId, { excludeRunId: runId, origin: run.origin, engineV3: true }).catch(() => null)
+			: priorTaskList;
 	const v2 = engineChoice.engine === "v2";
-	const seedTaskList = v2 && !planSeeded && autoContinueAttempt === 0 ? undefined : priorTaskList;
+	const inherited = priorTaskInheritance({ choice: engineChoice, planSeeded, autoContinueAttempt, typedContinuation, priorTaskList: v3ChatList });
+	const seedTaskList = inherited.priorTaskList;
 	try {
 		const result = await runSelectedEngine({ ...engineChoice, modelMaxOutputTokens: (modelId) => providers.capabilities(modelId).then((caps) => caps.maxOutputTokens, () => null) }, {
 			messageTriageModel,
@@ -1377,7 +1383,7 @@ async function executeLeasedRun(ctx: {
 			priorResearchNotes,
 			priorTaskLedger,
 			priorTaskList: seedTaskList,
-			...(v2 && typedContinuation && priorTaskList ? { priorOpenItems: priorTaskList } : {}),
+			...(inherited.priorOpenItems ? { priorOpenItems: inherited.priorOpenItems } : {}),
 			...(priorNotebook ? { priorNotebook } : {}),
 			...(autoContinueAttempt > 0 ? { autoContinued: true } : {}),
 			...(continuedWork ? { continuedWork: true } : {}),
@@ -1404,6 +1410,10 @@ async function executeLeasedRun(ctx: {
 			// Núcleo por uso do motor v3: o v3 só lê ao abrir conversa nova; v1/v2 ignoram.
 			loadToolUsage: async () => (run.botId ? await listBotToolUsage({ userId: runUserId, botId: run.botId }) : {}),
 			...(deps.ownerWait ? { ownerWait: deps.ownerWait } : {}),
+			// Rascunho descartado/ignorado pelo dono vira nota interna do próximo run (só o v3 lê; marca depois da 1ª resposta).
+			...(run.conversationId
+				? { draftDecisions: { list: () => listPendingDraftDecisions(runUserId, run.conversationId!), markNoted: (ids: string[]) => markDraftDecisionsNoted(runUserId, run.conversationId!, ids) } }
+				: {}),
 			onSandboxError: () => {
 				// Sessão pode ter morrido (reaper/container); força re-resolve
 				// (adopt-by-label ou cria nova) na próxima tool em vez de

@@ -18,7 +18,7 @@ const CARD = "confirm-toolab12cd34-runR";
  * (`runR`) sem pessoa. Banco em memória como no teste do cartão genérico.
  */
 function fakeDb(owner = USER) {
-	const state = { cleared: false, status: "pending", outcome: undefined as { ok: boolean; detail: string } | undefined };
+	const state = { cleared: false, status: "pending", outcome: undefined as { ok: boolean; detail: string } | undefined, draftDecision: undefined as string | undefined };
 	const originals = { find: prisma.skillPendingIntent.findUnique, del: prisma.skillPendingIntent.deleteMany, many: prisma.conversationMessage.findMany, update: prisma.conversationMessage.update };
 	prisma.skillPendingIntent.findUnique = (async () => ({
 		id: "p1", userId: owner, conversationId: CONV, kind: "confirm", expiresAt: new Date(Date.now() + 60_000),
@@ -27,9 +27,10 @@ function fakeDb(owner = USER) {
 	prisma.skillPendingIntent.deleteMany = (async () => { state.cleared = true; return { count: 1 }; }) as unknown as typeof prisma.skillPendingIntent.deleteMany;
 	prisma.conversationMessage.findMany = (async () => [{ id: "m1", content: JSON.stringify({ v: 1, kind: "confirm", confirmId: CARD, title: "Enviar esta mensagem?", status: state.status, callKey: "k-mail", ...(state.outcome ? { outcome: state.outcome } : {}) }), createdAt: new Date() }]) as unknown as typeof prisma.conversationMessage.findMany;
 	prisma.conversationMessage.update = (async (args: { data: { content: string } }) => {
-		const next = JSON.parse(args.data.content) as { status: string; outcome?: { ok: boolean; detail: string } };
+		const next = JSON.parse(args.data.content) as { status: string; outcome?: { ok: boolean; detail: string }; draftDecision?: string };
 		state.status = next.status;
 		state.outcome = next.outcome;
+		state.draftDecision = next.draftDecision;
 		return {};
 	}) as unknown as typeof prisma.conversationMessage.update;
 	return { state, restore: () => { Object.assign(prisma.skillPendingIntent, { findUnique: originals.find, deleteMany: originals.del }); Object.assign(prisma.conversationMessage, { findMany: originals.many, update: originals.update }); } };
@@ -63,6 +64,7 @@ test("Agora não no rascunho: descarta, sem run novo (duplicata) e sem nada para
 		assert.deepEqual(result, { handled: false, duplicate: true });
 		assert.equal(db.state.status, "rejected");
 		assert.deepEqual(db.state.outcome, { ok: false, detail: PREPARED_DISMISSED_DETAIL });
+		assert.equal(db.state.draftDecision, "dismissed");
 		assert.equal(db.state.cleared, true);
 	} finally { db.restore(); }
 });
@@ -73,6 +75,7 @@ test("dono escreveu outra coisa com o rascunho pendente: Dispensado, e a fala se
 		const result = await run("me fala o clima de amanhã");
 		assert.deepEqual(result, { handled: false });
 		assert.deepEqual(db.state.outcome, { ok: false, detail: "Dispensado" });
+		assert.equal(db.state.draftDecision, "ignored");
 	} finally { db.restore(); }
 });
 

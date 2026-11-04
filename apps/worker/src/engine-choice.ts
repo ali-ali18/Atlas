@@ -274,3 +274,23 @@ export function resolveRunLimits(input: {
 export function lessonsInjectedByEngine(choice: { resolved?: RequestedEngine }, ids: readonly string[]): string[] {
 	return choice.resolved === "v3" ? [] : [...ids];
 }
+
+/**
+ * O que um run herda da lista do run anterior da conversa (PR8e: o v3 segue a regra do v2, explícita aqui). v2 e v3
+ * (família `engine: "v2"`): a lista só SEMEIA na continuação automática ou num plano aprovado; numa mensagem digitada
+ * depois de um run que parou com itens abertos, ela vai como nota de CONTEXTO (`priorOpenItems`) e o modelo decide se
+ * é a mesma tarefa. Mensagem sem trabalho aberto antes não recebe nada. O v1 segue como sempre (semeia sempre). Puro.
+ */
+export function priorTaskInheritance(input: {
+	choice: Pick<EngineChoice, "engine" | "resolved">;
+	planSeeded: boolean;
+	autoContinueAttempt: number;
+	typedContinuation: boolean;
+	priorTaskList: unknown;
+}): { priorTaskList?: unknown; priorOpenItems?: unknown } {
+	const list = input.priorTaskList ?? undefined;
+	const v2Family = input.choice.engine === "v2" || input.choice.resolved === "v3";
+	if (!v2Family) return list === undefined ? {} : { priorTaskList: list };
+	if (input.planSeeded || input.autoContinueAttempt > 0) return list === undefined ? {} : { priorTaskList: list };
+	return input.typedContinuation && list !== undefined ? { priorOpenItems: list } : {};
+}

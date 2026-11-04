@@ -433,3 +433,143 @@ describe("motor v3: ponte tolerante (envelope repetido, número em texto, tool n
 		expect(results[0]!.summary).toMatch(/^Tool "sandbox_shell" is not offered in this run\./);
 	});
 });
+
+describe("motor v3: array mandado como texto JSON (PR8e)", () => {
+	const listing = {
+		id: "conn-erp",
+		slug: "erp",
+		name: "ERP",
+		disabledTools: [],
+		tools: [
+			{
+				name: "conferir_itens",
+				description: "Confere itens",
+				inputSchema: { type: "object", properties: { itens: { type: "array", items: { type: "object", properties: { sku: { type: "string" }, qtd: { type: "integer" } }, required: ["sku"] } } }, required: ["itens"] },
+				annotations: { readOnlyHint: true },
+			},
+		],
+	};
+	const TOOL = "mcp__erp__conferir_itens";
+	const mcpWith = (callFn: ReturnType<typeof vi.fn>) => ({ toolset: buildMcpToolset([listing], { autonomy: balanced }), call: callFn }) as unknown as McpRuntime;
+
+	it("texto JSON válido chega ao conector como array, uma vez, e o modelo recebe a nota", async () => {
+		const mcpCall = vi.fn(async () => ({ ok: true, text: "2 itens ok", truncated: false }));
+		const itens = [{ sku: "A1", qtd: 2 }, { sku: "B2" }];
+		const { results, requests } = await runV3({ script: [tools(call("c1", TOOL, { itens: JSON.stringify(itens) })), say("Conferido.")], params: { mcp: mcpWith(mcpCall) } });
+		expect(mcpCall).toHaveBeenCalledTimes(1);
+		expect(mcpCall.mock.calls[0]![1]).toEqual({ itens });
+		expect(results[0]).toMatchObject({ name: TOOL, ok: true });
+		// A nota vai ao modelo junto do resultado da tool.
+		expect(requests[1]!.texts.at(-1)).toMatch(/2 itens ok[\s\S]*Note: itens arrived as JSON text and was converted/);
+	});
+
+	it("texto que parece JSON mas é inválido: falha com a dica e o formato dos itens, sem chamar o conector", async () => {
+		const mcpCall = vi.fn(async () => ({ ok: true, text: "x", truncated: false }));
+		const { results } = await runV3({ script: [tools(call("c1", TOOL, { itens: '[{"sku": "A1"' })), say("Não deu.")], params: { mcp: mcpWith(mcpCall) } });
+		expect(mcpCall).not.toHaveBeenCalled();
+		expect(results[0]).toMatchObject({ name: TOOL, ok: false });
+		expect(results[0]!.summary).toMatch(/itens must be a JSON array, not text[\s\S]*shapes \(send real JSON arrays\/objects, not text\): itens: \{sku: string, qtd\?: number\}\[\]/);
+	});
+});
+
+describe("motor v3: caderno no trabalho longo (PR8e)", () => {
+	const entry = { id: "n1", kind: "finding", title: "Preço fornecedor A", excerpt: "R$ 10 por unidade, pedido mínimo 100.", source: "https://a.example/precos", author: "coordinator", step: 2 };
+
+	it("sem trabalho longo o caderno não existe (o 'Bom dia' fica igual)", async () => {
+		const { requests } = await runV3({ text: "Bom dia", script: [say("Bom dia!")] });
+		expect(requests[0]!.visible).not.toContain("notebook_write");
+		expect(requests[0]!.visible).not.toContain("notebook_read");
+	});
+
+	it("trabalho longo: o caderno vai no núcleo, grava e o conteúdo sai no checkpoint", async () => {
+		const { requests, results, checkpoints } = await runV3({
+			text: "Pesquise o preço de 3 fornecedores e monte um relatório",
+			options: { longWork: true },
+			script: [tools(call("n1", "notebook_write", { title: "Preço fornecedor A", excerpt: "R$ 10 por unidade, pedido mínimo 100.", source: "https://a.example/precos" })), say("Anotado.")],
+		});
+		expect(requests[0]!.toolNames).toEqual(expect.arrayContaining(["notebook_write", "notebook_read"]));
+		expect(results[0]).toMatchObject({ name: "notebook_write", ok: true, summary: expect.stringMatching(/^Entry n1 saved/) });
+		const notebook = (checkpoints.at(-1) as { notebook?: Array<{ id: string; title: string }> }).notebook;
+		expect(notebook?.map((item) => [item.id, item.title])).toEqual([["n1", "Preço fornecedor A"]]);
+	});
+
+	it("continuação ('Continua') herda o caderno do run anterior: o índice entra no começo e notebook_read lê", async () => {
+		const { requests, results } = await runV3({
+			text: "Continua",
+			options: { longWork: true },
+			params: { continuedWork: true, priorNotebook: [entry] },
+			script: [tools(call("r1", "notebook_read", { ids: ["n1"] })), say("Seguindo.")],
+		});
+		expect(requests[0]!.texts.some((text) => text.includes("Task notebook (1 entry") && text.includes("Preço fornecedor A"))).toBe(true);
+		expect(results[0]).toMatchObject({ name: "notebook_read", ok: true, summary: expect.stringContaining("R$ 10 por unidade") });
+	});
+
+	it("o perfil long_work do v2 liga o caderno no v3 pela mesma entrada do worker", async () => {
+		const { runEngineV3WithV2Options } = await import("./index.js");
+		const seen: string[][] = [];
+		await runEngineV3WithV2Options(
+			{
+				manager: {} as SandboxManager,
+				getSessionId: async () => "s",
+				sandboxEnabled: false,
+				model: "m",
+				apiKey: "k",
+				runId: "run-v3",
+				userId: "user-a",
+				botId: "bot-cookie",
+				conversationId: "conv-1",
+				origin: "chat",
+				humanTurn: true,
+				messages: [{ role: "user", content: "Relatório longo" }],
+				onEvent: () => undefined,
+				streamChat: async (params) => {
+					seen.push(params.tools.map((tool: ChatTool) => tool.function.name));
+					return say("ok");
+				},
+			},
+			{ profile: "long_work" },
+		);
+		expect(seen[0]).toContain("notebook_write");
+	});
+});
+
+describe("motor v3: itens abertos do run anterior (PR8e)", () => {
+	const prior = [
+		{ content: "Levantar preços", status: "completed" },
+		{ content: "Comparar fornecedores", status: "in_progress" },
+		{ content: "Montar o relatório", status: "pending" },
+	];
+
+	it("replay 'Continua': o 1º passo vê os itens abertos (não os concluídos) e o modelo retoma em vez de recomeçar", async () => {
+		const { requests, results, result } = await runV3({
+			text: "Continua",
+			params: { continuedWork: true, priorOpenItems: prior },
+			script: [
+				(request) => {
+					const note = request.texts.find((text) => text.includes("The previous task in this conversation stopped with open items"));
+					expect(note).toMatch(/1\. Comparar fornecedores\n2\. Montar o relatório/);
+					expect(note).not.toContain("Levantar preços");
+					return tools(call("t1", "update_task_list", { items: [{ content: "Levantar preços", status: "completed" }, { content: "Comparar fornecedores", status: "in_progress" }, { content: "Montar o relatório", status: "pending" }] }));
+				},
+				say("Retomei: estou comparando os fornecedores."),
+				// A lista do próprio modelo segue aberta: um empurrão estrutural (E4) e o turno acaba.
+				say("Sigo no próximo turno."),
+			],
+		});
+		expect(requests).toHaveLength(3);
+		expect(results[0]).toMatchObject({ name: "update_task_list", ok: true, summary: expect.stringMatching(/^Task list saved: 1\/3 completed/) });
+		expect(result.stop).toEqual({ reason: "answered", detail: "tasklist_open" });
+	});
+
+	it("continuação automática: a lista segue com a tarefa e a nota diz de onde continuar", async () => {
+		const { requests } = await runV3({ text: "[continuação]", params: { autoContinued: true, continuedWork: true, priorTaskList: prior }, script: [say("Seguindo do item 2.")] });
+		const note = requests[0]!.texts.find((text) => text.includes("Task list of this task, carried from its previous run"));
+		expect(note).toMatch(/- \[completed\] Levantar preços\n- \[in_progress\] Comparar fornecedores\n- \[pending\] Montar o relatório\nContinue from the first item that is not completed; do not redo completed ones/);
+	});
+
+	it("mensagem sem trabalho aberto antes (ou lista toda concluída): nenhuma nota", async () => {
+		const done = prior.map((item) => ({ ...item, status: "completed" }));
+		const { requests } = await runV3({ text: "Bom dia", params: { priorTaskList: done }, script: [say("Bom dia!")] });
+		expect(requests[0]!.texts.some((text) => text.includes("Task list of this task") || text.includes("stopped with open items"))).toBe(false);
+	});
+});

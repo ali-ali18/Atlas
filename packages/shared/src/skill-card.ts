@@ -102,6 +102,10 @@ export type PersistedConfirmCard = {
 	outcome?: { ok: boolean; detail: string };
 	/** Aprovação por tarefa: quantas vezes a mesma ferramenta já rodou por este "Aprovado" (contador da UI). */
 	grantUses?: number;
+	/** Motor v3: o desfecho deste cartão (rascunho descartado ou ignorado) já foi dito ao modelo num run seguinte (uma vez só). */
+	modelNoted?: true;
+	/** Motor v3: rascunho de `prepare_for_owner` decidido sem aprovar: "Agora não" (`dismissed`) ou fala digitada (`ignored`). */
+	draftDecision?: "dismissed" | "ignored";
 	/** Motor v3: prazo da espera (ISO). Vencido, o cartão fecha como "Tempo esgotado · segui sem isso" (nunca aprova). */
 	deadlineAt?: string;
 	/** Motor v3: aprovação genérica, rascunho de rotina ou limite de passos (a UI escolhe o desenho). */
@@ -658,6 +662,8 @@ export function parseConversationCard(content: string): PersistedConversationCar
 				? { outcome: { ok: row.outcome.ok, detail: row.outcome.detail.slice(0, 2000) } }
 				: {}),
 			...(typeof row.grantUses === "number" && Number.isInteger(row.grantUses) && row.grantUses > 0 && row.grantUses <= 1000 ? { grantUses: row.grantUses } : {}),
+			...(row.modelNoted === true ? { modelNoted: true as const } : {}),
+			...(row.draftDecision === "dismissed" || row.draftDecision === "ignored" ? { draftDecision: row.draftDecision } : {}),
 			...(parseOwnerWaitDeadline(row.deadlineAt) ? { deadlineAt: parseOwnerWaitDeadline(row.deadlineAt) } : {}),
 			...(parseOwnerConfirmCardKind(row.ownerCard) ? { ownerCard: parseOwnerConfirmCardKind(row.ownerCard) } : {}),
 			...(parseStepLimitProgress(row.limitProgress) ? { limitProgress: parseStepLimitProgress(row.limitProgress) } : {}),

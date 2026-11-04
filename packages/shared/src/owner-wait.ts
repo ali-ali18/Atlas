@@ -160,6 +160,30 @@ export function lateOwnerDecisionNote(input: { outcome: OwnerWaitOutcome; what: 
 	return `[runtime] The owner ${verb} an earlier request at ${hhmm(input.at, input.timeZone)}: ${quote(input.what, 200)}. It is not what you are working on now; change your plan only if you depended on it. Do not ask for it again.`;
 }
 
+/** Selo do rascunho de `prepare_for_owner` que o dono descartou ("Agora não"): nada executa, nenhum run novo. */
+export const DRAFT_DISMISSED_DETAIL = "Descartado";
+
+/** Rascunho decidido sem aprovar: "Agora não" ou o dono mandou outra mensagem com ele pendente. */
+export type DraftDecision = { title: string; decision: "dismissed" | "ignored" };
+
+/**
+ * Nota interna (nunca balão) para o próximo run da conversa: rascunhos que o dono descartou ou deixou sem resposta
+ * desde então. Sem ela o modelo, que só viu "rascunho esperando aprovação", tomaria o pedido como pendente ou o
+ * recriaria às cegas. Nenhum foi feito; nenhum volta salvo pedido do dono.
+ */
+export function draftDecisionsNote(decisions: readonly DraftDecision[]): string {
+	const list = (kind: DraftDecision["decision"]) =>
+		decisions.filter((item) => item.decision === kind).slice(0, 5).map((item) => quote(item.title.replace(/\?$/, ""), 120)).join("; ");
+	const dismissed = list("dismissed");
+	const ignored = list("ignored");
+	const lines = [
+		...(dismissed ? [`The owner dismissed draft(s) you left for approval: ${dismissed}.`] : []),
+		...(ignored ? [`The owner did not answer the draft(s) you left for approval and sent another message instead: ${ignored}.`] : []),
+	];
+	if (lines.length === 0) return "";
+	return `${lines.join(" ")} None of them was done. Do not prepare them again unless the owner asks.`;
+}
+
 // --- "Volto depois" (`schedule_return`) ---
 
 export const SCHEDULE_RETURN_MIN_MS = 60_000;

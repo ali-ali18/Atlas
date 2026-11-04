@@ -4,7 +4,7 @@
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { earlyWallMs, lessonsInjectedByEngine, engineDefaultFromEnv, longWorkOwnerLimits, pickRunEngine, resolveRunLimits } from "./engine-choice.js";
+import { earlyWallMs, lessonsInjectedByEngine, engineDefaultFromEnv, longWorkOwnerLimits, pickRunEngine, priorTaskInheritance, resolveRunLimits } from "./engine-choice.js";
 import type { EngineDefault } from "@workspace/shared";
 import { effectiveCostCapUsd } from "./run-config.js";
 
@@ -541,4 +541,22 @@ test("motor v3 sem humano e sem cartão possível (sem conversa, subagente, dono
 	assert.equal(resolveRunLimits({ choice: v3, origin: "routine", humanTurn: false, requestOrBotCap: undefined, snapshot: none, wallFixed: false, canParkAtLimit: false }).wallMs, v2Routine);
 	assert.equal(resolveRunLimits({ choice: v3, origin: "routine", humanTurn: false, requestOrBotCap: undefined, snapshot: none, wallFixed: false }).wallMs, v2Routine);
 	assert.ok(resolveRunLimits({ choice: v3, origin: "proactive", humanTurn: false, requestOrBotCap: undefined, snapshot: none, wallFixed: false, shortRun: true }).wallMs !== undefined);
+});
+
+test("lista do run anterior (PR8e): v3 segue o v2; 'Bom dia' sem trabalho aberto não herda; 'Continua' recebe só a nota; v1 igual", () => {
+	const list = [{ content: "Comparar fornecedores", status: "in_progress" }];
+	const v3 = { engine: "v2" as const, resolved: "v3" as const };
+	const v2 = { engine: "v2" as const };
+	// "Bom dia" depois de um run que NÃO parou com itens abertos: nada (nem lista semeada, nem nota).
+	assert.deepEqual(priorTaskInheritance({ choice: v3, planSeeded: false, autoContinueAttempt: 0, typedContinuation: false, priorTaskList: list }), {});
+	// Mensagem digitada depois de um run com itens abertos: os itens vão como nota de contexto, a lista não é semeada.
+	assert.deepEqual(priorTaskInheritance({ choice: v3, planSeeded: false, autoContinueAttempt: 0, typedContinuation: true, priorTaskList: list }), { priorOpenItems: list });
+	// Continuação automática e plano aprovado: a lista segue com o run.
+	assert.deepEqual(priorTaskInheritance({ choice: v3, planSeeded: false, autoContinueAttempt: 1, typedContinuation: false, priorTaskList: list }), { priorTaskList: list });
+	assert.deepEqual(priorTaskInheritance({ choice: v3, planSeeded: true, autoContinueAttempt: 0, typedContinuation: false, priorTaskList: list }), { priorTaskList: list });
+	// v2 igual ao v3; v1 como sempre (semeia sempre).
+	assert.deepEqual(priorTaskInheritance({ choice: v2, planSeeded: false, autoContinueAttempt: 0, typedContinuation: true, priorTaskList: list }), { priorOpenItems: list });
+	assert.deepEqual(priorTaskInheritance({ choice: v2, planSeeded: false, autoContinueAttempt: 0, typedContinuation: false, priorTaskList: list }), {});
+	assert.deepEqual(priorTaskInheritance({ choice: { engine: "v1" }, planSeeded: false, autoContinueAttempt: 0, typedContinuation: false, priorTaskList: list }), { priorTaskList: list });
+	assert.deepEqual(priorTaskInheritance({ choice: v3, planSeeded: false, autoContinueAttempt: 0, typedContinuation: true, priorTaskList: null }), {});
 });

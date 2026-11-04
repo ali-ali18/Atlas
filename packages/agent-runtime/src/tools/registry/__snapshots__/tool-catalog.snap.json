@@ -2557,7 +2557,7 @@
     "type": "function",
     "function": {
      "name": "prepare_for_owner",
-     "description": "Leave an action that needs the owner (send, write outside Atlas, money, public link, credential) as a draft card in the owner's chat. The owner approves it (it then runs once) or dismisses it; nothing runs now. USE WHEN the task needs one of those actions and nobody is here to approve. DO NOT USE for actions available in this run, or to ask a question. One draft per run.",
+     "description": "Leave an action that needs the owner (send, a connector write or other write outside Atlas, money, public link, credential) as a draft card in the owner's chat. The owner approves it (it then runs once) or dismisses it; nothing runs now. USE WHEN the task needs one of those actions and nobody is here to approve. DO NOT USE for actions available in this run, or to ask a question. One draft per run.",
      "parameters": {
       "type": "object",
       "properties": {
@@ -2565,7 +2565,7 @@
         "type": "string",
         "minLength": 1,
         "maxLength": 128,
-        "description": "Name of the action that needs the owner (e.g. email_send)."
+        "description": "Name of the action that needs the owner (e.g. email_send, mcp__trello__update_card)."
        },
        "args": {
         "type": "object",

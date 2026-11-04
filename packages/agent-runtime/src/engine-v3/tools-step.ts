@@ -16,13 +16,13 @@ import { getToolMeta } from "../tools/registry/tool-meta.js";
 import { isSandboxTool } from "../tools/registry/sandbox-tools.js";
 import { dedupeLoginAsk, unattendedLoginOutcome } from "../engine-v2/login.js";
 import { TOOL_CALL_TOOL_NAME, TOOL_SEARCH_TOOL_NAME } from "../tools/tool-bridge.js";
-import { argProblems, coerceNumericText, unwrapEnvelope } from "./bridge.js";
-import { SKIPPED_FOR_APPROVAL, SKIPPED_FOR_PARK, SKIPPED_FOR_USER_MESSAGE, closestToolNames, honestError, invalidArgsMessage, missingRequiredArgs, unknownArgs, unknownArgsMessage, normalizeToolName, notOfferedMessage, toolSignature, unknownToolMessage } from "./failures.js";
+import { argProblems, coerceJsonText, coerceNumericText, jsonTextNote, unwrapEnvelope } from "./bridge.js";
+import { SKIPPED_FOR_APPROVAL, SKIPPED_FOR_PARK, SKIPPED_FOR_USER_MESSAGE, closestToolNames, honestError, invalidArgsMessage, missingRequiredArgs, unknownArgs, unknownArgsMessage, normalizeToolName, notOfferedMessage, toolSignatureWithShapes, unknownToolMessage } from "./failures.js";
 import { decideCall, deniedMessage, spanPolicyDecision } from "./policy.js";
 import { BLOCKED_REPEATED } from "./repetition.js";
 import { pollSteer } from "./steering.js";
 import { hasOwnApprovalCard, nativeApprovalGate } from "./approval.js";
-import { takeOwnerApprovedCall } from "./prepared.js";
+import { DRAFT_HINT, takeOwnerApprovedCall } from "./prepared.js";
 import { NO_DEADLINE_NOTE, OWNER_HAS_COMPUTER, WAIT_ARG, alreadyRefusedMessage, refusedToolKey, scheduleCardDeadline, takeWaitMinutes } from "./owner-wait.js";
 import type { ToolContextFactory } from "./tool-context.js";
 import type { V3Run } from "./state.js";
@@ -60,18 +60,23 @@ export function createToolsStep(run: V3Run, contextFor: ToolContextFactory) {
 	const toolOf = (name: string): ChatTool | undefined => run.catalog.entries.get(name)?.tool ?? run.tools.find((tool) => tool.function.name === name);
 	const resolveName = (name: string): string | undefined => (toolOf(name) ? name : toolOf(normalizeToolName(name)) ? normalizeToolName(name) : undefined);
 
-	/** Envelope repetido e número em texto (estrutural, sem ler texto do usuário): devolve os args prontos ou o erro com a assinatura. */
-	const normalizeArgs = (tool: ChatTool, args: Record<string, unknown>, acceptedNames: readonly string[]): { args: Record<string, unknown> } | { error: string } => {
+	/**
+	 * Envelope repetido, array/objeto mandado como texto JSON e número em texto (estrutural, sem ler texto do usuário):
+	 * devolve os args prontos (e os campos convertidos de texto JSON, para a nota) ou o erro com a assinatura.
+	 */
+	const normalizeArgs = (tool: ChatTool, args: Record<string, unknown>, acceptedNames: readonly string[]): { args: Record<string, unknown>; converted: string[] } | { error: string } => {
 		const unwrapped = unwrapEnvelope(tool, args, acceptedNames);
 		if ("error" in unwrapped) return { error: invalidArgsMessage(tool, unwrapped.error) };
-		return { args: coerceNumericText(tool, unwrapped.args) };
+		const json = coerceJsonText(tool, unwrapped.args);
+		if ("error" in json) return { error: invalidArgsMessage(tool, json.error) };
+		return { args: coerceNumericText(tool, json.args), converted: json.converted };
 	};
 
 	/**
 	 * `tool_call(name, args)`: troca pela chamada real (mesmo id) antes de tudo, então política, aprovação, journal,
 	 * eventos e cards veem o nome real. Nome ou args que não valem voltam como erro com a assinatura (ou nomes próximos).
 	 */
-	const unwrapBridge = (call: LlmToolCall): { call: LlmToolCall; error?: { name: string; summary: string } } => {
+	const unwrapBridge = (call: LlmToolCall): { call: LlmToolCall; error?: { name: string; summary: string }; converted?: string[] } => {
 		if (call.function.name !== TOOL_CALL_TOOL_NAME) return { call };
 		const bridge = toolOf(TOOL_CALL_TOOL_NAME)!;
 		let outer: Record<string, unknown>;
@@ -103,7 +108,7 @@ export function createToolsStep(run: V3Run, contextFor: ToolContextFactory) {
 		const { [WAIT_ARG]: _wait, ...declared } = normalized.args;
 		const problems = argProblems(toolOf(name)!, declared);
 		if (problems.length > 0) return { call, error: { name, summary: invalidArgsMessage(toolOf(name)!, problems.join("; ")) } };
-		return { call: { ...call, function: { name, arguments: JSON.stringify(normalized.args) } } };
+		return { call: { ...call, function: { name, arguments: JSON.stringify(normalized.args) } }, converted: normalized.converted };
 	};
 
 	const span = async (call: LlmToolCall, sub: number, name: string, ok: boolean, summary: string, decision: "allow" | "confirm" | "blocked", durationMs = 0, extra: Record<string, unknown> = {}) => {
@@ -138,12 +143,15 @@ export function createToolsStep(run: V3Run, contextFor: ToolContextFactory) {
 		const bridged = unwrapBridge(outerCall);
 		if (bridged.error) return await refuse(outerCall, sub, bridged.error.name, bridged.error.summary);
 		let call = bridged.call;
+		// Campos que chegaram como texto JSON e foram convertidos: a nota vai junto do resultado.
+		const converted = [...(bridged.converted ?? [])];
 		// --- nome: exato, normalizado, escondido pela política (motivo) ou desconhecido (até 3 próximos) ---
 		let name = call.function.name;
 		name = resolveName(name) ?? name;
 		// Continuação de um rascunho de `prepare_for_owner`: a ação escondida por falta de pessoa pode rodar UMA vez, se
 		// o dono aprovou exatamente esta chamada (conferido depois de validar os args, antes da política).
-		const heldTool = !toolOf(name) && run.continuesRunId ? run.heldBack.get(name) : undefined;
+		// Conector aprovado num rascunho já rodou pela API (uma vez, args exatos): a continuação nunca o executa de novo.
+		const heldTool = !toolOf(name) && run.continuesRunId && !run.entryOf(name) ? run.heldBack.get(name) : undefined;
 		if (!toolOf(name) && !heldTool) {
 			// Existe mas a política tirou do catálogo: o modelo recebe o motivo, não "não existe".
 			const hiddenEntry = run.entryOf(name);
@@ -151,7 +159,11 @@ export function createToolsStep(run: V3Run, contextFor: ToolContextFactory) {
 				let hiddenArgs: Record<string, unknown> = {};
 				try { hiddenArgs = parseArgs(call.function.arguments); } catch { /* o motivo da política vale sem os args */ }
 				const hidden = decideCall({ name, args: hiddenArgs, ...(hiddenEntry ? { entry: hiddenEntry } : {}), base: run.policy, autonomy: run.autonomy.get() });
-				if (hidden.decision === "deny" || hidden.decision === "hide") return await refuse(call, sub, name, deniedMessage(hidden.reason), { argsKey: toolArgsKey(name, hiddenArgs) });
+				if (hidden.decision === "deny" || hidden.decision === "hide") {
+					// Sem pessoa, o que precisa do dono sai como rascunho: a recusa diz o caminho (estrutural, pelo catálogo).
+					const draft = run.canPrepareForOwner && run.heldBack.has(name) ? ` ${DRAFT_HINT}` : "";
+					return await refuse(call, sub, name, `${deniedMessage(hidden.reason)}${draft}`, { argsKey: toolArgsKey(name, hiddenArgs) });
+				}
 			}
 			const near = closestToolNames(name, [...run.catalog.entries.keys()]);
 			return await refuse(call, sub, name, hiddenEntry || getToolMeta(name) ? notOfferedMessage(name, near) : unknownToolMessage(name, near));
@@ -166,6 +178,7 @@ export function createToolsStep(run: V3Run, contextFor: ToolContextFactory) {
 		}
 		const normalized = normalizeArgs(tool, args, [call.function.name, name]);
 		if ("error" in normalized) return await refuse(call, sub, name, normalized.error);
+		converted.push(...normalized.converted);
 		if (normalized.args !== args) {
 			args = normalized.args;
 			call = { ...call, function: { ...call.function, arguments: JSON.stringify(args) } };
@@ -309,7 +322,7 @@ export function createToolsStep(run: V3Run, contextFor: ToolContextFactory) {
 			if (isUntrustedContentTool(name)) await run.markUntrusted();
 			uncertain = error instanceof ToolEffectUncertainError;
 			summary = honestError(error);
-			if (!isSandboxTool(name) && classifyToolFailure(summary) === "argument") summary = `${summary}\nExpected: ${toolSignature(tool)}`;
+			if (!isSandboxTool(name) && classifyToolFailure(summary) === "argument") summary = `${summary}\nExpected: ${toolSignatureWithShapes(tool)}`;
 		}
 		const durationMs = Date.now() - startedAt;
 		await span(call, sub, name, ok, summary, decision, durationMs, {
@@ -330,7 +343,8 @@ export function createToolsStep(run: V3Run, contextFor: ToolContextFactory) {
 			await run.emit(human);
 		}
 		const { notes, final } = run.repetition.record({ argsKey, resultKey: toolResultKey(summary, ok), poll: meta?.poll === true, ok, ...(ok ? {} : { errorKey: `${errorTarget}\u0000${summary.slice(0, 200)}` }) });
-		const withNotes = notes.length > 0 ? `${summary}\n\n${notes.join("\n")}` : summary;
+		const allNotes = converted.length > 0 ? [jsonTextNote(converted), ...notes] : notes;
+		const withNotes = allNotes.length > 0 ? `${summary}\n\n${allNotes.join("\n")}` : summary;
 		return Object.assign({ call, name, ok, summary: withNotes, media }, awaiting ? { awaiting } : {}, login ? { login } : {}, final ? { final } : {}, meta?.endsTurn && ok ? { endsTurn: true } : {});
 	};
 

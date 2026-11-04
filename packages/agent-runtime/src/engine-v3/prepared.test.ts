@@ -5,6 +5,8 @@ import type { SandboxManager } from "@workspace/sandbox";
 import type { AgentRunCheckpoint, ComputerUseEvent, EffectiveAutonomy } from "@workspace/shared";
 import type { EmailRunContext } from "../email/tools.js";
 import type { ComputerUseParams } from "../run-types.js";
+import { buildMcpToolset } from "../mcp/registry.js";
+import type { McpRuntime } from "../mcp/runtime.js";
 import { COMPUTER_USE_TOOLS } from "../tools/catalog.js";
 import { PREPARE_FOR_OWNER_TOOL_NAME } from "../tools/prepare-for-owner.js";
 import { toolCallKey } from "./approval.js";
@@ -284,5 +286,160 @@ describe("prepare_for_owner: continuação que herdou turno humano de uma fala a
 		const again = await continuation([call("c1", "email_send", SEND), say("aguardando")]);
 		expect(again.results[0]!.summary).toMatch(/Card de confirmação enviado/);
 		expect(delivered.map(({ to }) => to)).toEqual(["ana@cliente.com"]);
+	});
+});
+
+describe("prepare_for_owner: escrita de conector como alvo (PR8e)", () => {
+	const trello = {
+		id: "conn-trello",
+		slug: "trello",
+		name: "Trello",
+		disabledTools: [],
+		tools: [
+			{ name: "get_card", description: "Reads a card", inputSchema: { type: "object", properties: { card_id: { type: "string" } }, required: ["card_id"] }, annotations: { readOnlyHint: true } },
+			{
+				name: "update_card",
+				description: "Moves or edits a card",
+				inputSchema: { type: "object", properties: { card_id: { type: "string" }, list: { type: "string" }, comment: { type: "string" } }, required: ["card_id"] },
+				annotations: { readOnlyHint: false, destructiveHint: false },
+			},
+		],
+	};
+	const readOnlyConnector = { id: "conn-docs", slug: "docs", name: "Docs", disabledTools: [], tools: [{ name: "search", description: "Search docs", inputSchema: { type: "object", properties: { q: { type: "string" } } }, annotations: { readOnlyHint: true } }] };
+	const UPDATE = "mcp__trello__update_card";
+	const ARGS = { card_id: "c-42", list: "Feito" };
+	const connectors = (list: Array<typeof trello | typeof readOnlyConnector> = [trello, readOnlyConnector]) => {
+		const mcpCall = vi.fn(async () => ({ ok: true, text: "ok", truncated: false }));
+		const mcp = { toolset: buildMcpToolset(list, { autonomy: BALANCED }), call: mcpCall } as unknown as McpRuntime;
+		return { mcp, mcpCall };
+	};
+	const routineText = { messages: [{ role: "user" as const, content: "Rotina: confira o quadro e mova o cartão c-42 para Feito" }] };
+
+	it("replay T5 do PR9: rotina só-leitura tenta escrever no Trello → rascunho → zero escrita sem clique", async () => {
+		const { mcp, mcpCall } = connectors();
+		const routine = await runV3(
+			[
+				call("c1", UPDATE, ARGS),
+				(params) => {
+					// A recusa diz o caminho: rascunho para o dono, com a mesma tool e os mesmos args.
+					const last = params.messages.at(-1);
+					expect(typeof last?.content === "string" ? last.content : "").toMatch(/call prepare_for_owner with this tool name and these exact args/);
+					return call("c2", "tool_search", { query: "trello update card" });
+				},
+				(params) => {
+					// A busca acha a escrita escondida, marcada como só-rascunho, com o exemplo do rascunho.
+					const last = params.messages.at(-1);
+					const text = typeof last?.content === "string" ? last.content : "";
+					expect(text).toMatch(/mcp__trello__update_card\(card_id: string, list\?: string, comment\?: string\) \[connector Trello; needs the owner: only as a draft via prepare_for_owner\]/);
+					expect(text).toContain('e.g. prepare_for_owner({"tool":"mcp__trello__update_card","args":{"card_id":"..."},"note":"..."})');
+					return call("c3", PREPARE_FOR_OWNER_TOOL_NAME, { tool: UPDATE, args: ARGS, note: "Mover o cartão c-42 para Feito." });
+				},
+				say("Deixei para você aprovar."),
+			],
+			{ mcp, autonomy: BALANCED, ...routineText },
+		);
+		// A rotina não vê a escrita (nem no array nem no manifesto): o prompt fixo não muda.
+		expect(offered(routine.requests[0]!)).not.toContain(UPDATE);
+		expect(JSON.stringify(routine.requests[0]!.messages)).not.toContain(UPDATE);
+		expect(routine.results[0]).toMatchObject({ name: UPDATE, ok: false });
+		expect(routine.results[2]).toMatchObject({ name: PREPARE_FOR_OWNER_TOOL_NAME, ok: true, summary: PREPARED_DRAFT_RESULT("Trello: update card") });
+		expect(routine.confirms).toHaveLength(1);
+		expect(routine.confirms[0]).toMatchObject({ title: "Trello: update card?", confirmLabel: "Permitir", cancelLabel: "Agora não", callKey: toolCallKey(UPDATE, ARGS) });
+		expect(routine.confirms[0]!.confirmId).toMatch(/^confirm-draft[0-9a-f]{8}-run-routine$/);
+		expect(routine.confirms[0]!.description).toContain("card_id: c-42");
+		// A intenção é a mesma `mcp-call` que a API executa no "Permitir", com os args exatos e marcada como rascunho.
+		expect(db.intents).toHaveLength(1);
+		expect(db.intents[0]!.payload).toMatchObject({
+			action: "mcp-call",
+			botId: "bot-a",
+			mcpCall: { connectionId: "conn-trello", connectorName: "Trello", toolName: "update_card", exposedName: UPDATE, args: ARGS, runId: "run-routine", prepared: true },
+		});
+		expect(mcpCall).not.toHaveBeenCalled();
+	});
+
+	it("args do rascunho validados pelo schema do conector: campo desconhecido falha com a lista dos aceitos; nada é criado", async () => {
+		const { mcp } = connectors();
+		const routine = await runV3([call("c1", PREPARE_FOR_OWNER_TOOL_NAME, { tool: UPDATE, args: { ...ARGS, color: "red" }, note: "n" }), call("c2", PREPARE_FOR_OWNER_TOOL_NAME, { tool: UPDATE, args: { list: "Feito" }, note: "n" }), say("não deu")], { mcp, autonomy: BALANCED, ...routineText });
+		expect(routine.results[0]).toMatchObject({ ok: false });
+		expect(routine.results[0]!.summary).toMatch(/unknown field color \(accepted: card_id, list, comment\)/);
+		expect(routine.results[1]!.summary).toMatch(/missing required card_id[\s\S]*Expected: mcp__trello__update_card\(card_id: string, list\?: string, comment\?: string\)/);
+		expect(db.intents).toHaveLength(0);
+		expect(routine.confirms).toHaveLength(0);
+	});
+
+	it("conector só-leitura não vira alvo; o filtro do run também vale", async () => {
+		const { mcp } = connectors();
+		const routine = await runV3([call("c1", PREPARE_FOR_OWNER_TOOL_NAME, { tool: "mcp__docs__search", args: { q: "x" }, note: "n" }), say("ok")], { mcp, autonomy: BALANCED, ...routineText });
+		expect(routine.results[0]!.summary).toMatch(/mcp__docs__search is available in this run; call it directly/);
+		const filtered = await runV3([call("c1", PREPARE_FOR_OWNER_TOOL_NAME, { tool: UPDATE, args: ARGS, note: "n" }), say("ok")], { mcp, autonomy: BALANCED, toolFilter: (name) => name !== UPDATE, ...routineText });
+		expect(filtered.results[0]!.summary).toMatch(/cannot be prepared: no action in this run needs the owner's approval/);
+		expect(db.intents).toHaveLength(0);
+	});
+
+	it("continuação depois do rascunho nunca executa o conector (a API já executou a aprovada, uma vez)", async () => {
+		const { mcp, mcpCall } = connectors();
+		const continuation = await runV3([call("c1", UPDATE, ARGS), call("c2", UPDATE, { ...ARGS, list: "Outra" }), say("feito")], {
+			mcp,
+			autonomy: BALANCED,
+			runId: "run-cont",
+			origin: "chat",
+			humanTurn: false,
+			restoredCheckpoint: { version: 2, messages: [{ role: "user", content: "[ok]" }], transcriptSeed: { fromRunId: "run-routine", resultContent: "x", shortContent: "x" } } as unknown as AgentRunCheckpoint,
+			messages: [{ role: "user", content: "[Ação confirmada pelo usuário e JÁ EXECUTADA pelo sistema]" }],
+		});
+		expect(continuation.results.map((result) => result.ok)).toEqual([false, false]);
+		expect(mcpCall).not.toHaveBeenCalled();
+	});
+});
+
+describe("rascunho descartado ou ignorado vira nota interna (PR8e)", () => {
+	const decisions = () => ({
+		list: vi.fn(async () => [
+			{ id: "m1", title: "Trello: update card?", decision: "dismissed" as const },
+			{ id: "m2", title: "Enviar esta mensagem?", decision: "ignored" as const },
+		]),
+		markNoted: vi.fn(async () => 2),
+	});
+	const chatTurn = { origin: "chat", humanTurn: true, runId: "run-chat", messages: [{ role: "user" as const, content: "E aí, o que ficou pendente?" }] };
+
+	it("o próximo run recebe a nota (sem balão) e só marca como dita depois que o modelo respondeu", async () => {
+		const draftDecisions = decisions();
+		const chat = await runV3(
+			[
+				() => {
+					// Na hora da 1ª chamada a nota está no contexto e ainda não foi marcada.
+					expect(draftDecisions.markNoted).not.toHaveBeenCalled();
+					return say("Certo.");
+				},
+			],
+			{ ...chatTurn, draftDecisions },
+		);
+		expect(chat.error).toBeUndefined();
+		const texts = chat.requests[0]!.messages.map((message) => (typeof message.content === "string" ? message.content : JSON.stringify(message.content)));
+		expect(texts.some((text) => text.includes('The owner dismissed draft(s) you left for approval: "Trello: update card"'))).toBe(true);
+		expect(texts.some((text) => text.includes('The owner did not answer the draft(s) you left for approval and sent another message instead: "Enviar esta mensagem"'))).toBe(true);
+		expect(draftDecisions.markNoted).toHaveBeenCalledTimes(1);
+		expect(draftDecisions.markNoted).toHaveBeenCalledWith(["m1", "m2"]);
+		expect(chat.events.filter((event) => event.type === "confirm")).toHaveLength(0);
+	});
+
+	it("run que falha antes da 1ª resposta do modelo não consome a nota", async () => {
+		const draftDecisions = decisions();
+		const failed = await runV3([() => { throw new Error("provedor fora do ar (400)"); }], { ...chatTurn, draftDecisions });
+		expect(failed.error).toBeDefined();
+		expect(draftDecisions.list).toHaveBeenCalledTimes(1);
+		expect(draftDecisions.markNoted).not.toHaveBeenCalled();
+	});
+
+	it("só chat e rotina da conversa leem a nota; e-mail recebido, webhook e outro bot não", async () => {
+		for (const origin of ["email", "webhook", "bot"]) {
+			const draftDecisions = decisions();
+			await runV3([say("ok")], { origin, humanTurn: false, draftDecisions });
+			expect(draftDecisions.list, origin).not.toHaveBeenCalled();
+		}
+		const routine = decisions();
+		await runV3([say("ok")], { draftDecisions: routine });
+		expect(routine.list).toHaveBeenCalledTimes(1);
+		expect(routine.markNoted).toHaveBeenCalledWith(["m1", "m2"]);
 	});
 });

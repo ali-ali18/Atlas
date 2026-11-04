@@ -83,6 +83,66 @@ export function toolSignature(tool: ChatTool): string {
 	return signature.length > 400 ? `${signature.slice(0, 397)}...` : signature;
 }
 
+/** Teto de uma linha de formato (um campo) e do bloco inteiro: entra no contexto a cada busca ou erro de argumento. */
+export const SHAPE_LINE_MAX_CHARS = 240;
+export const SHAPES_MAX_CHARS = 700;
+
+type ShapeSchema = { type?: unknown; enum?: unknown; items?: unknown; properties?: Record<string, unknown>; required?: unknown; description?: unknown };
+
+const typesOf = (schema: ShapeSchema): string[] => (Array.isArray(schema.type) ? schema.type.filter((type): type is string => typeof type === "string") : typeof schema.type === "string" ? [schema.type] : []);
+
+/** Formato compacto de um valor: `{name?: string, rows: unknown[][]}`; objeto dentro de objeto vira só `object` (2 níveis). */
+function shapeOf(schema: unknown, depth: number): string {
+	if (!schema || typeof schema !== "object") return "unknown";
+	const record = schema as ShapeSchema;
+	if (Array.isArray(record.enum)) return record.enum.slice(0, 6).map((value) => JSON.stringify(value)).join(" | ");
+	const types = typesOf(record);
+	if (types.includes("array")) return `${shapeOf(record.items, depth)}[]`;
+	const properties = record.properties && typeof record.properties === "object" ? Object.entries(record.properties) : [];
+	if (types.includes("object") && properties.length > 0 && depth < 2) {
+		const required = new Set(Array.isArray(record.required) ? record.required : []);
+		return `{${properties.slice(0, 10).map(([key, value]) => `${key}${required.has(key) ? "" : "?"}: ${shapeOf(value, depth + 1)}`).join(", ")}${properties.length > 10 ? ", ..." : ""}}`;
+	}
+	if (types.length === 0) return "unknown";
+	return types.map((type) => (type === "integer" ? "number" : type)).join(" | ");
+}
+
+const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0, max - 3)}...` : text);
+
+/**
+ * Formato dos campos de 1º nível que são array de objetos ou objeto com campos (o que a assinatura curta mostra só como
+ * `object[]`). Item sem campos declarados mostra o começo da descrição do campo, que é onde a tool os explica. Campos
+ * opcionais marcados com `?`. Vazio quando a tool não tem campo assim. Tamanho limitado por linha e no total.
+ */
+export function argShapes(tool: ChatTool): string[] {
+	const lines: string[] = [];
+	let size = 0;
+	for (const [key, raw] of Object.entries(tool.function.parameters.properties ?? {})) {
+		if (!raw || typeof raw !== "object") continue;
+		const schema = raw as ShapeSchema;
+		const types = typesOf(schema);
+		const items = (types.includes("array") ? schema.items : undefined) as ShapeSchema | undefined;
+		const objectItems = Boolean(items) && typesOf(items!).includes("object");
+		const objectField = types.includes("object") && !types.includes("array");
+		if (!objectItems && !objectField) continue;
+		const target = objectItems ? items! : schema;
+		const hasFields = Boolean(target.properties) && Object.keys(target.properties ?? {}).length > 0;
+		const description = typeof schema.description === "string" ? schema.description.replace(/\s+/g, " ").trim() : "";
+		const shape = hasFields ? shapeOf(schema, 0) : objectItems ? `object[] (each item: ${description || "see the tool description"})` : `object (${description || "see the tool description"})`;
+		const line = clip(`${key}: ${shape}`, SHAPE_LINE_MAX_CHARS);
+		if (size + line.length > SHAPES_MAX_CHARS) break;
+		lines.push(line);
+		size += line.length;
+	}
+	return lines;
+}
+
+/** Assinatura + formato dos arrays/objetos (quando há): o que o modelo precisa para montar os args certos. */
+export function toolSignatureWithShapes(tool: ChatTool): string {
+	const shapes = argShapes(tool);
+	return shapes.length > 0 ? `${toolSignature(tool)}; shapes (send real JSON arrays/objects, not text): ${shapes.join("; ")}` : toolSignature(tool);
+}
+
 /** Campos obrigatórios do schema ausentes nos args (só presença; o executor valida tipo e valor). */
 export function missingRequiredArgs(tool: ChatTool, args: Record<string, unknown>): string[] {
 	return (tool.function.parameters.required ?? []).filter((key) => args[key] === undefined || args[key] === null);
@@ -105,7 +165,7 @@ export function unknownArgsMessage(tool: ChatTool, unknown: readonly string[]): 
 }
 
 export function invalidArgsMessage(tool: ChatTool, reason: string): string {
-	return `Invalid arguments: ${reason.slice(0, 300)}. Expected: ${toolSignature(tool)}. Call it again with valid JSON arguments.`;
+	return `Invalid arguments: ${reason.slice(0, 300)}. Expected: ${toolSignatureWithShapes(tool)}. Call it again with valid JSON arguments.`;
 }
 
 export type TransportOptions = {

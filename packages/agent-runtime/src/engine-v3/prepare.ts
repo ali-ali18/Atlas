@@ -3,6 +3,8 @@ import type { LlmMessage } from "@workspace/llm";
 import {
 	DEFAULT_AUTONOMY_LEVEL,
 	buildPersonaBlock,
+	createNotebook,
+	draftDecisionsNote,
 	parseQuestionnaireAnsweredContent,
 	resolveReplyLanguage,
 	TRANSCRIPT_SLOT,
@@ -37,6 +39,7 @@ import { OWNER_WAIT_DEFINED } from "../tools/registry/handlers/owner-wait.js";
 import { ROUTINE_LIMITS_DEFINED } from "../tools/routine-limits.js";
 import { PREPARE_FOR_OWNER_DEFINED } from "../tools/prepare-for-owner.js";
 import { heldBackTools } from "./prepared.js";
+import { priorWorkContext } from "./prior-work.js";
 
 const ownerWaitTools = () => OWNER_WAIT_DEFINED.flatMap((tool) => (tool.definition ? [tool.definition] : []));
 import type { V3Run } from "./state.js";
@@ -54,6 +57,8 @@ function frozenUsage(raw: Readonly<Record<string, number>>): Record<string, numb
 export type EngineV3Options = {
 	/** Teto de passos que o DONO configurou (conta, bot ou pedido); ausente = 40 sem humano, 200 com humano. */
 	ownerSteps?: number;
+	/** Perfil de trabalho longo do bot (o mesmo `long_work` do v2): o caderno da tarefa entra no catálogo (PR8e). */
+	longWork?: boolean;
 };
 
 /**
@@ -84,6 +89,12 @@ export async function prepareRun(params: ComputerUseParams, options: EngineV3Opt
 	const botCount =
 		params.listBotRoster && params.botId && userId !== "default" && (origin === "chat" || origin === "bot") ? (await params.listBotRoster(userId).catch(() => [])).length : 0;
 	const imageIds = params.userImageArtifactIds ?? parsed?.userImageArtifactIds ?? [];
+	// Caderno (PR8e), como no v2: só no trabalho longo, fora do subagente. Fora dele nada muda (o "Bom dia" fica igual).
+	const longWork = options.longWork === true && origin !== "subagent";
+	const continuation = origin === "chat" && (params.autoContinued === true || params.continuedWork === true);
+	const notebook = longWork ? createNotebook(parsed?.notebook ?? (continuation ? params.priorNotebook : undefined)) : undefined;
+	// Só em run novo (retomada já tem a conversa e a lista no checkpoint); subagente não herda a tarefa da conversa.
+	const priorWork = parsed || origin === "subagent" ? { note: "" } : priorWorkContext(params);
 
 	// As ~10 tools de navegador do v1/v2 viram 4 (desenho 5); o resto do catálogo é o mesmo.
 	const natives = swapBrowserTools(eligibleNativeTools({
@@ -95,6 +106,7 @@ export async function prepareRun(params: ComputerUseParams, options: EngineV3Opt
 		apiConnector: Boolean(params.apiConnector),
 		email: params.email,
 		attachments: { present: params.attachments?.present === true },
+		longWork,
 		allowProfileUpdate: origin === "chat" && (!botProfile?.description?.trim() || isBotConfigEventObjective(params.objective ?? "") || isBotConfigEventObjective(lastUserMessage)),
 		setEngine: shouldExposeSetEngine({ origin, humanTurn, lastUserMessage }),
 		botMessaging: { botCount, decideForOtherBots: params.decideForOtherBots === true },
@@ -118,9 +130,14 @@ export async function prepareRun(params: ComputerUseParams, options: EngineV3Opt
 	if (canPrepareForOwner && PREPARE_FOR_OWNER_DEFINED.definition && (params.toolFilter?.(PREPARE_FOR_OWNER_DEFINED.name) ?? true)) natives.push(PREPARE_FOR_OWNER_DEFINED.definition);
 	const entryOf = (name: string) => mcp?.toolset.entries.get(name);
 	const hides = (name: string) => catalogHides({ name, entry: entryOf(name), base: policy, autonomy });
-	const heldBack = heldBackTools(natives, hides);
 	// Filtro do run (brief "Seu dia", conferência, ajudante): vale para nativa E conector, como no v2.
 	const allow = (name: string) => params.toolFilter?.(name) ?? true;
+	const connectorVisible = (name: string) => {
+		const entry = entryOf(name);
+		return Boolean(entry) && allow(name) && mcpToolVisible({ origin, autonomy, entry: entry! }) && !hides(name);
+	};
+	// Conector como alvo do rascunho (PR8e): só quando há rascunho possível; a escrita visível roda direto.
+	const heldBack = heldBackTools(natives, hides, canPrepareForOwner ? { mcp, autonomy, allow, visible: connectorVisible } : undefined);
 	// Catálogo congelado por conversa: o núcleo e o uso do run anterior (retomada ou turno seguinte) voltam iguais, então
 	// manifesto e busca saem com os mesmos bytes; o uso do bot só é lido de novo em conversa nova.
 	const v3State = parseV3State(parsed?.engineV3);
@@ -130,10 +147,7 @@ export async function prepareRun(params: ComputerUseParams, options: EngineV3Opt
 	);
 	const catalog = buildV3Catalog({
 		natives,
-		connectors: connectorEntries(mcp, (name) => {
-			const entry = entryOf(name);
-			return Boolean(entry) && allow(name) && mcpToolVisible({ origin, autonomy, entry: entry! }) && !hides(name);
-		}),
+		connectors: connectorEntries(mcp, connectorVisible),
 		visible: (name) => !hides(name),
 		vm: sandboxEnabled,
 		...(frozen?.length ? { frozen } : {}),
@@ -145,6 +159,7 @@ export async function prepareRun(params: ComputerUseParams, options: EngineV3Opt
 
 	// --- conversa: system estável, contexto, histórico, volátil e a fala atual ---
 	let conversation: LlmMessage[];
+	let draftNoteIds: string[] | undefined;
 	if (parsed?.llmMessages?.length) {
 		conversation = await hydrateLlmMessages(parsed.llmMessages);
 	} else {
@@ -161,8 +176,23 @@ export async function prepareRun(params: ComputerUseParams, options: EngineV3Opt
 		const notes = originSystemNotes({ origin, messages: params.messages, proactive: params.proactive ?? null, userPushMode: params.userPush?.mode, alertRun: params.alertRun });
 		const now = process.env.ATLAS_NOW_NOTE === "off" ? [] : [todayNote(new Date(), params.timeZone)];
 		// Retorno agendado ainda pendente: o modelo vê e não agenda de novo nem faz duas vezes (desenho "Volto depois").
+		// Itens abertos do run anterior (mensagem digitada) ou a lista que segue com a tarefa (continuação automática, plano).
+		if (priorWork.note) notes.push(priorWork.note);
+		// Continuação de trabalho longo: o índice do caderno herdado (títulos, não o conteúdo; o resto por `notebook_read`).
+		const notebookIndex = notebook?.index();
+		if (notebookIndex) notes.push(notebookIndex);
 		const returns = params.ownerWait ? await pendingReturnsTurnNote(params) : "";
 		if (returns) notes.push(returns);
+		// Rascunho que o dono descartou ("Agora não") ou deixou sem resposta: nota interna, nunca balão (decisão do dono,
+		// 04/11). Só em quem pode preparar de novo a ação na conversa (chat e rotina); marcada como dita depois da 1ª resposta.
+		if (params.draftDecisions && params.conversationId && userId !== "default" && (origin === "chat" || origin === "routine")) {
+			const decisions = await params.draftDecisions.list().catch(() => []);
+			const note = draftDecisionsNote(decisions);
+			if (note) {
+				notes.push(note);
+				draftNoteIds = decisions.map((item) => item.id);
+			}
+		}
 		conversation = assembleV3Conversation({
 			system,
 			contextFor: (snapshot) => buildV3ContextBlock({ manifest: catalog.manifest, skillIndex: params.skillIndex, canReadSkills: hasTool("skill_read"), snapshot }),
@@ -247,7 +277,9 @@ export async function prepareRun(params: ComputerUseParams, options: EngineV3Opt
 		activeMs: () => wall.baseMs + (Date.now() - wall.executionStartMs),
 		nudges: createNudges(v3State.nudges),
 		repetition: createRepetitionGuard(v3State.repetition),
-		...(v3State.ownTaskList ? { ownTaskList: v3State.ownTaskList, taskListItems: v3State.ownTaskList } : {}),
+		...(v3State.ownTaskList ? { ownTaskList: v3State.ownTaskList, taskListItems: v3State.ownTaskList } : priorWork.seed ? { taskListItems: priorWork.seed } : {}),
+		...(notebook ? { notebook } : {}),
+		...(draftNoteIds ? { draftNoteIds } : {}),
 		loginAsked: new Set(parsed?.loginAsked ?? []),
 		ownerRefused: new Set([...(v3State.ownerRefused ?? []), ...(parsed?.transcriptSeed?.refused ?? [])]),
 		...(parsed?.pendingLogin ? { pendingLogin: parsed.pendingLogin } : {}),
@@ -280,6 +312,7 @@ export async function prepareRun(params: ComputerUseParams, options: EngineV3Opt
 				untrustedSeen: run.mcpRun.untrustedSeen,
 				pendingLogin: run.pendingLogin,
 				activeElapsedMs: run.activeMs(),
+				...(run.notebook && run.notebook.count() > 0 ? { notebook: run.notebook.snapshot() } : {}),
 				loadedTools: [...run.catalog.core],
 				transcriptWatermark: parsed?.transcriptWatermark ?? params.transcriptWatermark,
 				carriedNotes: parsed?.carriedNotes ?? params.carriedNotes,

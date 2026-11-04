@@ -24,6 +24,7 @@ import {
 	parseSkillProposalCard,
 	serializeConversationCard,
 	SUPERSEDED_CARD_DETAIL,
+	DRAFT_DISMISSED_DETAIL,
 	OWNER_DECISION_ROLE,
 	ownerDecisionHistoryMessage,
 	parseLoginWaitOutcome,
@@ -1021,6 +1022,8 @@ export async function updateConfirmCardStatus(
 	ownerId?: string,
 	/** Resultado da chamada executada: fica no card para o agente não pedir a mesma de novo. */
 	outcome?: { ok: boolean; detail: string },
+	/** Rascunho do motor v3 decidido sem aprovar (vira nota interna do próximo run). */
+	extra?: { draftDecision?: "dismissed" | "ignored" },
 ): Promise<void> {
 	if (ownerId) {
 		const owned = await prisma.conversation.findFirst({
@@ -1046,7 +1049,7 @@ export async function updateConfirmCardStatus(
 	if (!current || current.kind !== "confirm") return;
 	await prisma.conversationMessage.update({
 		where: { id: match.id },
-		data: { content: serializeConversationCard({ ...current, status, ...(outcome ? { outcome: { ok: outcome.ok, detail: outcome.detail.slice(0, 2000) } } : {}) }) },
+		data: { content: serializeConversationCard({ ...current, status, ...(outcome ? { outcome: { ok: outcome.ok, detail: outcome.detail.slice(0, 2000) } } : {}), ...(extra?.draftDecision ? { draftDecision: extra.draftDecision } : {}) }) },
 	});
 }
 
@@ -1146,6 +1149,50 @@ export async function findExecutedConfirmCall(
 		if (card?.kind === "confirm" && card.callKey === callKey && card.outcome) return card.outcome;
 	}
 	return null;
+}
+
+/** Rascunho decidido sem aprovar, ainda não dito ao modelo (`id` = mensagem do cartão, para marcar depois). */
+export type PendingDraftDecision = { id: string; title: string; decision: "dismissed" | "ignored" };
+
+/**
+ * Rascunhos de `prepare_for_owner` que o dono descartou ("Agora não") ou deixou sem resposta (mandou outra mensagem) e
+ * que o modelo ainda não soube (motor v3, PR8e). Só LÊ: quem chama marca com `markDraftDecisionsNoted` depois que a
+ * nota de fato entrou numa chamada ao modelo (um run que falha antes não a consome). Só na conversa do dono
+ * (`conversation.userId`), nos 30 cartões mais recentes e dentro da janela (padrão 3 dias, o prazo do rascunho).
+ * Cartão antigo sem `draftDecision` vale pelo selo "Descartado" (só o rascunho o usa).
+ */
+export async function listPendingDraftDecisions(userId: string, conversationId: string, windowMs = 3 * 24 * 60 * 60_000): Promise<PendingDraftDecision[]> {
+	if (!userId || userId === "default" || !conversationId) return [];
+	const rows = await prisma.conversationMessage.findMany({
+		where: { conversationId, role: "confirm", conversation: { userId } },
+		orderBy: { createdAt: "desc" },
+		take: 30,
+	});
+	const out: PendingDraftDecision[] = [];
+	for (const row of rows) {
+		if (Date.now() - row.createdAt.getTime() > windowMs) break;
+		const card = parseConversationCard(row.content);
+		if (card?.kind !== "confirm" || card.status !== "rejected" || card.modelNoted) continue;
+		const decision = card.draftDecision ?? (card.outcome?.detail === DRAFT_DISMISSED_DETAIL ? "dismissed" : undefined);
+		if (decision) out.push({ id: row.id, title: card.title, decision });
+	}
+	return out.reverse();
+}
+
+/** Marca os cartões como ditos ao modelo (troca otimista por conteúdo: cartão mudado no meio não é tocado). Só do dono. */
+export async function markDraftDecisionsNoted(userId: string, conversationId: string, ids: readonly string[]): Promise<number> {
+	if (!userId || userId === "default" || !conversationId || ids.length === 0) return 0;
+	const rows = await prisma.conversationMessage.findMany({
+		where: { conversationId, role: "confirm", conversation: { userId }, id: { in: [...ids] } },
+	});
+	let marked = 0;
+	for (const row of rows) {
+		const card = parseConversationCard(row.content);
+		if (card?.kind !== "confirm" || card.modelNoted) continue;
+		const done = await prisma.conversationMessage.updateMany({ where: { id: row.id, content: row.content }, data: { content: serializeConversationCard({ ...card, modelNoted: true }) } });
+		marked += done.count;
+	}
+	return marked;
 }
 
 /** Detalhe gravado no cartão quando a chamada aprovada já rodou: a aprovação vale para UMA execução. */

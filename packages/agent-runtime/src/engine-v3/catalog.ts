@@ -17,6 +17,8 @@ import { firstSentence, type CatalogEntry } from "./bridge.js";
 export const BASE_CORE: readonly string[] = ["web_search", "web_extract", "memory", "update_task_list", "skill_read"];
 /** Sem pessoa (PR8b): o rascunho para o dono é a saída de tudo o que precisa dele, então vai sempre no núcleo. */
 export const UNATTENDED_CORE: readonly string[] = ["prepare_for_owner"];
+/** Trabalho longo (PR8e): o caderno só existe nele, e as regras de uso estão na descrição (então vai com o schema). */
+export const LONG_WORK_CORE: readonly string[] = ["notebook_write", "notebook_read"];
 /**
  * Com VM (decisão D8): o navegador inteiro, o shell e o login do cofre. O navegador são 4 tools (PR6: abrir, ver, agir,
  * abas; ler, achar, esperar e tela viraram `view`/`wait` delas), então não sobra navegador no manifesto e não existe
@@ -91,6 +93,7 @@ export function selectCore(input: {
 	for (const name of BASE_CORE) add(name);
 	if (input.vm) for (const name of VM_CORE) add(name);
 	for (const name of UNATTENDED_CORE) add(name);
+	for (const name of LONG_WORK_CORE) add(name);
 	const fixed = core.length;
 	const extras = input.frozen?.length
 		? [...input.frozen]

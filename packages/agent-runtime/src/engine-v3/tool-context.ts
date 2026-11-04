@@ -9,7 +9,7 @@ import type { ToolContext } from "../tools/registry/types.js";
 import { claimVision, createVisionClaimState } from "../tools/vision-fallback.js";
 import { rankTools, toolSearchText } from "./bridge.js";
 import type { V3Run } from "./state.js";
-import { prepareDraftForOwner } from "./prepared.js";
+import { heldBackSearchEntries, prepareDraftForOwner } from "./prepared.js";
 
 /**
  * O `ToolContext` que as tools do registro recebem (o mesmo executor do v1/v2: cofre, cartões, cards). Só o que o
@@ -57,7 +57,8 @@ export function createToolContextFactory(run: V3Run) {
 		apiConnector: params.apiConnector ?? null,
 		email: params.email ?? undefined,
 		toolResultMaxChars: params.toolResultMaxChars,
-		toolSearch: (query, limit) => toolSearchText(query, rankTools(query, [...run.catalog.entries.values()], run.toolUsage, limit)),
+		// Sem pessoa, a busca acha também o que só sai como rascunho (marcado), para o modelo saber o caminho.
+		toolSearch: (query, limit) => toolSearchText(query, rankTools(query, [...run.catalog.entries.values(), ...(run.canPrepareForOwner ? heldBackSearchEntries(run) : [])], run.toolUsage, limit)),
 		abortSignal: signal,
 		getSessionId: () => getSessionId(signal),
 		peekSessionId: params.peekSessionId,
@@ -109,6 +110,7 @@ export function createToolContextFactory(run: V3Run) {
 				}
 			: {}),
 		getOperationalSnapshot: () => ({ step: run.step, model: run.lastModel, messages: run.conversation.length, consumedInputs: [...run.consumedInputIds] }),
+		...(run.notebook ? { notebook: { writer: run.notebook.writer("coordinator"), reader: run.notebook } } : {}),
 		taskListStore: { get: () => run.taskListItems, set: (next) => { run.taskListItems = next; } },
 		emitTaskList: async (items) => {
 			// Só a lista que o MODELO manda neste run alimenta o empurrão E4 (sinal estrutural declarado por ele).

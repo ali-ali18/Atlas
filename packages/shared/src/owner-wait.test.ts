@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+	draftDecisionsNote,
 	OWNER_WAIT_CARD_DETAIL,
 	OWNER_WAIT_OUTCOMES,
 	SCHEDULE_RETURN_MAX_PENDING,
@@ -130,5 +131,14 @@ describe("marcador e prompt do retorno", () => {
 		expect(pendingReturnsNote([{ dueAt: now, reason: "x" }])).toContain("Do not schedule the same again");
 		expect(ownerWaitTimeoutJobId("confirm-toolabc-run1")).not.toContain(":");
 		expect(scheduledReturnJobId("r1")).toBe("return-r1");
+	});
+});
+
+describe("rascunho descartado ou ignorado (PR8e)", () => {
+	it("nota interna curta, com texto próprio para o ignorado; vazia sem rascunho", () => {
+		expect(draftDecisionsNote([])).toBe("");
+		expect(draftDecisionsNote([{ title: "Trello: update card?", decision: "dismissed" }])).toBe('The owner dismissed draft(s) you left for approval: "Trello: update card". None of them was done. Do not prepare them again unless the owner asks.');
+		expect(draftDecisionsNote([{ title: "A?", decision: "ignored" }])).toBe('The owner did not answer the draft(s) you left for approval and sent another message instead: "A". None of them was done. Do not prepare them again unless the owner asks.');
+		expect(draftDecisionsNote([{ title: "A?", decision: "dismissed" }, { title: "B?", decision: "ignored" }])).toMatch(/dismissed draft\(s\)[^.]*"A"\. The owner did not answer[^.]*"B"\./);
 	});
 });
