@@ -63,6 +63,12 @@ describe("applyRunEvent", () => {
 		expect(state.paused).toBe(true);
 		expect(state.items.map((item) => item.kind)).toEqual(["confirm", "questionnaire", "web-card", "web-card"]);
 	});
+	it("evento de imagens vira um cartão de imagens (sem repetir o mesmo conjunto)", () => {
+		const event = { type: "images", origin: "assistant", items: [{ artifactId: "a1", mime: "image/png", width: 8, height: 6, alt: "Gráfico" }], caption: "Pronto" } as ComputerUseEvent;
+		const state = apply([event, event]);
+		expect(state.items).toEqual([{ id: "images-r1-a1", kind: "images", origin: "assistant", images: [{ artifactId: "a1", mime: "image/png", width: 8, height: 6, alt: "Gráfico" }], caption: "Pronto" }]);
+		expect(apply([{ type: "images", origin: "assistant", items: [] } as ComputerUseEvent]).items).toEqual([]);
+	});
 	it("evento de arquivo guarda fileId, mime e tamanho no cartão (abre a folha do documento)", () => {
 		const state = apply([{ type: "file", artifactId: "f9", filename: "vm.md", mime: "text/markdown", size: 321, format: "markdown", version: 1 } as never]);
 		expect(state.items).toEqual([{ id: "file-f9", kind: "web-card", card: "file", title: "vm.md", key: "file:f9", fileId: "f9", mime: "text/markdown", size: 321 }]);

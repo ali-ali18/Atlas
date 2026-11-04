@@ -14,9 +14,11 @@ import {
 	Clock as LucideClock,
 	CodeXml as LucideCodeXml,
 	Copy as LucideCopy,
+	Download as LucideDownload,
 	Ellipsis as LucideEllipsis,
 	ExternalLink as LucideExternalLink,
 	File as LucideFile,
+	Forward as LucideForward,
 	FileSpreadsheet as LucideFileSpreadsheet,
 	FileText as LucideFileText,
 	Image as LucideImage,
@@ -338,4 +340,14 @@ export function ImageIcon({ size = 20, tone = "foreground" }: LineIconProps) {
 /** Lucide `File` (Arquivo sem tipo conhecido). */
 export function FileIcon({ size = 20, tone = "foreground" }: LineIconProps) {
 	return <LucideFile size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `Forward` (visualizador de imagens: Encaminhar). */
+export function ForwardIcon({ size = 20, tone = "foreground" }: LineIconProps) {
+	return <LucideForward size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `Download` (visualizador de imagens: Salvar). */
+export function DownloadIcon({ size = 20, tone = "foreground" }: LineIconProps) {
+	return <LucideDownload size={size} color={useStroke(tone)} strokeWidth={2} />;
 }

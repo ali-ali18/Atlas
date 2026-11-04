@@ -20,7 +20,9 @@ const TOKEN_FILES = new Set(["lib/surfaces.ts", "lib/color-tokens.ts"]);
  * - splash e mascote: o splash nativo é escuro e fixo nos dois temas (`app.json`), e o branco do mascote é marca;
  * - ícones e avatar: cores de desenho (olhos, estrela, formas), não de pele de tela;
  * - bot-avatar: laranja do selo do bot principal (cor de marca, igual ao web);
- * - bubble-tone: tons do balão do usuário na cor do bot (cálculo de cor do bot, não da pele).
+ * - bubble-tone: tons do balão do usuário na cor do bot (cálculo de cor do bot, não da pele);
+ * - chart-palette: paletas dos gráficos (cores de dado, espelham as do web, não da pele);
+ * - color-math: valores de teste/exemplo de contraste e mistura, não da pele.
  */
 const BASELINE: Record<string, number> = {
 	"components/home/bot-avatar.tsx": 4,
@@ -28,6 +30,8 @@ const BASELINE: Record<string, number> = {
 	"components/splash-screen.tsx": 2,
 	"components/ui/avatar.tsx": 2,
 	"lib/bubble-tone.ts": 4,
+	"lib/chart-palette.ts": 91,
+	"lib/color-math.ts": 2,
 	"lib/theme.ts": 1,
 };
 

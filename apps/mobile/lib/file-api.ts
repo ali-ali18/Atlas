@@ -12,6 +12,17 @@ import {
 	MAX_VIEW_BYTES,
 } from "./document-view";
 import type { ApiFetch } from "./home-sync";
+import { withTimeout } from "./with-timeout";
+
+/** O download passou do tempo combinado (a rede é abortada antes de rejeitar). */
+export class TimeoutError extends Error {
+	constructor(readonly ms: number) {
+		super("Tempo esgotado");
+	}
+}
+
+/** Teto de tempo de um download (conexão + corpo); passou disso, a rede é abortada e quem chamou mostra "demorou demais". */
+export const DOWNLOAD_TIMEOUT_MS = 30_000;
 
 /** O arquivo passa do teto de tamanho (`limit` em bytes, `size` real quando o servidor avisa). */
 export class FileTooLargeError extends Error {
@@ -69,8 +80,16 @@ async function readCapped(response: Response, limit: number): Promise<Uint8Array
  * Baixa os bytes, recusando acima de `limit`: pelo `Content-Length` antes de ler e, sem ele, lendo em stream e cortando
  * ao passar do teto (o `fetch` global do RN não expõe `body`; aí cai no `arrayBuffer`, e o servidor é o do próprio dono).
  */
-export async function downloadFile(apiFetch: ApiFetch, id: string, limit: number): Promise<{ bytes: Uint8Array; mime: string }> {
-	const response = await apiFetch(filePath(id));
+export function downloadFile(apiFetch: ApiFetch, id: string, limit: number, timeoutMs = DOWNLOAD_TIMEOUT_MS): Promise<{ bytes: Uint8Array; mime: string }> {
+	const controller = new AbortController();
+	return withTimeout(downloadWithSignal(apiFetch, id, limit, controller.signal), timeoutMs, () => {
+		controller.abort();
+		return new TimeoutError(timeoutMs);
+	});
+}
+
+async function downloadWithSignal(apiFetch: ApiFetch, id: string, limit: number, signal: AbortSignal): Promise<{ bytes: Uint8Array; mime: string }> {
+	const response = await apiFetch(filePath(id), { signal });
 	if (!response.ok) throw new ChatApiError(response.statusText || `HTTP ${response.status}`, response.status);
 	const declared = Number(response.headers.get("content-length"));
 	if (Number.isFinite(declared) && declared > limit) throw new FileTooLargeError(limit, declared);
@@ -107,6 +126,7 @@ export function fileErrorText(error: unknown): string {
 		return "Não consegui abrir este documento agora.";
 	}
 	if (error instanceof FileTooLargeError) return "Documento grande demais para abrir aqui.";
+	if (error instanceof TimeoutError) return "O servidor demorou para responder. Tente de novo.";
 	// Falha de rede no RN chega como TypeError: é "sem conexão", não erro do servidor.
 	return "Sem conexão com o seu servidor. Tente de novo.";
 }

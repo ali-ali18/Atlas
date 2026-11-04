@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { ChatApiError } from "./chat-api";
 import { MAX_IMAGE_BYTES, MAX_VIEW_BYTES } from "./document-view";
-import { downloadFile, downloadForShare, fetchDocument, fileErrorRetryable, fileErrorText, FileTooLargeError } from "./file-api";
+import { downloadFile, downloadForShare, fetchDocument, fileErrorRetryable, fileErrorText, FileTooLargeError, TimeoutError } from "./file-api";
 
 const reply = (body: BodyInit, headers: Record<string, string> = {}, status = 200) => new Response(body, { status, headers });
 
@@ -9,7 +9,7 @@ describe("fetchDocument", () => {
 	it("caminho feliz: baixa pelo id codificado e decodifica o UTF-8", async () => {
 		const apiFetch = vi.fn(async () => reply("# Olá, instalação", { "content-type": "text/markdown" }));
 		const content = await fetchDocument(apiFetch, { id: "f 1", filename: "vm-instalar-apps.md", mime: "text/markdown" });
-		expect(apiFetch).toHaveBeenCalledWith("/v1/files/f%201");
+		expect(apiFetch).toHaveBeenCalledWith("/v1/files/f%201", expect.objectContaining({ signal: expect.anything() }));
 		expect(content).toEqual({ type: "text", view: "markdown", text: "# Olá, instalação" });
 	});
 	it("cartão do chat (só o nome): a extensão decide o tipo", async () => {
@@ -92,5 +92,22 @@ describe("downloadForShare", () => {
 		const error = await downloadForShare(async () => reply("x", { "content-length": String(100 * 1024 * 1024) }), "f").catch((e: unknown) => e);
 		expect(error).toBeInstanceOf(FileTooLargeError);
 		expect(fileErrorText(error)).toBe("Documento grande demais para abrir aqui.");
+	});
+});
+
+describe("downloadFile: tempo e teto", () => {
+	it("aborta a rede e rejeita com TimeoutError quando o servidor não responde", async () => {
+		let signal: AbortSignal | undefined;
+		const hang = async (_path: string, init?: RequestInit) => {
+			signal = init?.signal ?? undefined;
+			return new Promise<Response>(() => undefined);
+		};
+		const error = await downloadFile(hang, "f", 10, 20).catch((e: unknown) => e);
+		expect(error).toBeInstanceOf(TimeoutError);
+		expect(signal?.aborted).toBe(true);
+	});
+	it("sem stream nem Content-Length, corpo acima do teto é rejeitado", async () => {
+		const big = async () => ({ ok: true, status: 200, statusText: "", headers: new Headers(), body: null, arrayBuffer: async () => new ArrayBuffer(20) }) as unknown as Response;
+		await expect(downloadFile(big, "f", 10)).rejects.toBeInstanceOf(FileTooLargeError);
 	});
 });
