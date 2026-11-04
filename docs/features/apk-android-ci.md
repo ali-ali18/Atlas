@@ -35,6 +35,15 @@ Sem o secret, o workflow falha logo no primeiro passo com a mensagem explicando.
 ## Custo
 Repositório público: minutos grátis. Privado: plano Free tem 2.000 min/mês (runner Linux); um build leva cerca de 20 a 40 min, com timeout de 60. O cache do Gradle reduz as próximas execuções.
 
+## Caches
+O build leva ~22 min, quase tudo no Gradle (C++ do React Native, reanimated, worklets, skia, expo-modules-core). Para as próximas execuções serem mais rápidas:
+- **Dependências do Gradle** (`~/.gradle/caches`): `gradle/actions/setup-gradle` com `cache-read-only: false`, o que também salva o cache em branches que não são o padrão.
+- **Build cache do Gradle** (`org.gradle.caching=true` em `~/.gradle/gradle.properties`, dentro de `~/.gradle/caches/build-cache-1`): reaproveita tarefas já executadas. Também liga `parallel`, `configureondemand` e `-Xmx6g`.
+- **ccache** (`~/.cache/ccache`, `actions/cache`, chave `ccache-android-<hash do pnpm-lock>-<run_id>` com restore-keys): reaproveita a compilação C++ via `CMAKE_*_COMPILER_LAUNCHER`. O passo "Estatísticas do ccache" mostra os acertos no log.
+- **Diretório de trabalho fixo** (`EAS_LOCAL_BUILD_WORKINGDIR=$RUNNER_TEMP/eas-build`, igual ao `CCACHE_BASEDIR`): sem ele o eas-cli usa um diretório com UUID novo a cada execução e os caches por caminho nunca acertam. Variável do runner local do EAS (não aparece no `--help`); não foi confirmada no código do eas-cli aqui. Se o log mostrar outro diretório em `eas-build-local-nodejs/<uuid>`, ela não surtiu efeito e só o ccache (com `CCACHE_NOHASHDIR`) continua ajudando.
+- **Primeiro build** (cache vazio) continua lento e enche os caches; os seguintes é que ganham tempo.
+- **Limpar:** Actions > Caches (ou `gh cache delete`), apagando as entradas `ccache-android-*` e as do Gradle.
+
 ## Cuidados
 - O APK é só `arm64-v8a`: não roda em emulador x86 nem em aparelho de 32 bits.
 - Dependência nativa nova ou alterada (pacote com código Android/iOS, mudança no `app.json`, SDK do Expo) pede APK novo. Mudança só de JavaScript e assets vai pelo ar no canal `preview` (`expo-updates`), sem build.

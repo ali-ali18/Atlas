@@ -71,6 +71,42 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # Cache de compilação (ver "Caches" em docs/features/apk-android-ci.md). O `eas build --local`
+      # copia o projeto para um diretório novo a cada execução; o diretório fixo e o CCACHE_BASEDIR
+      # fazem os caminhos coincidirem entre execuções. `~` não expande em `env:`, por isso o GITHUB_ENV.
+      - name: Preparar Gradle build cache e ccache
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ccache
+          mkdir -p "$HOME/.gradle" "$HOME/.cache/ccache" "$RUNNER_TEMP/eas-build"
+          {
+            echo "org.gradle.caching=true"
+            echo "org.gradle.parallel=true"
+            echo "org.gradle.configureondemand=true"
+            echo "org.gradle.jvmargs=-Xmx6g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8"
+          } >> "$HOME/.gradle/gradle.properties"
+          {
+            echo "EAS_LOCAL_BUILD_WORKINGDIR=$RUNNER_TEMP/eas-build"
+            echo "CMAKE_C_COMPILER_LAUNCHER=ccache"
+            echo "CMAKE_CXX_COMPILER_LAUNCHER=ccache"
+            echo "CCACHE_DIR=$HOME/.cache/ccache"
+            echo "CCACHE_BASEDIR=$RUNNER_TEMP/eas-build"
+            echo "CCACHE_NOHASHDIR=true"
+            echo "CCACHE_COMPILERCHECK=content"
+            echo "CCACHE_MAXSIZE=2G"
+            echo "CCACHE_SLOPPINESS=pch_defines,time_macros,include_file_mtime,include_file_ctime"
+          } >> "$GITHUB_ENV"
+          ccache --version | head -1
+
+      - name: Cache do ccache (C++ nativo)
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: ccache-android-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.run_id }}
+          restore-keys: |
+            ccache-android-${{ hashFiles('pnpm-lock.yaml') }}-
+            ccache-android-
+
       - name: Android SDK
         run: |
           echo "ANDROID_HOME=${ANDROID_HOME:-<não definido>}"
@@ -85,6 +121,10 @@ jobs:
           --profile "$PROFILE"
           --non-interactive
           --output "$GITHUB_WORKSPACE/atlas-$PROFILE.apk"
+
+      - name: Estatísticas do ccache
+        if: always()
+        run: ccache -s || true
 
       - uses: actions/upload-artifact@v4
         with:
