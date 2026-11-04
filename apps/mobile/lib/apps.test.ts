@@ -112,8 +112,9 @@ describe("buildAppsRows", () => {
 		expect(headers(rows)).toEqual(["Pesquisa web"]);
 		expect(appKeys(rows)).toEqual(["n:firecrawl"]);
 		const prod = buildAppsRows(base({ chip: "n:productivity" }));
-		expect(headers(prod)).toEqual(["Conectados", "Produtividade"]);
-		expect(appKeys(prod)).toEqual(["native:github", "n:notion"]);
+		expect(headers(prod)).toEqual(["Produtividade"]);
+		expect(appKeys(prod)).toEqual(["n:github", "n:notion"]);
+		expect(prod.find((row) => row.kind === "app" && row.key === "n:github")).toMatchObject({ item: { action: "connected" } });
 	});
 	it("chip Bots mostra só bots, todos (sem 'ver todos')", () => {
 		const rows = buildAppsRows(base({ chip: "bots", bots: Array.from({ length: 8 }, (_, i) => bot(`b${i}`)) }));
@@ -128,8 +129,23 @@ describe("buildAppsRows", () => {
 	});
 	it("categoria do Composio mostra só os apps", () => {
 		const rows = buildAppsRows(base({ chip: "c:crm" }));
-		expect(headers(rows)).toEqual(["Conectados", "Apps"]);
-		expect(appKeys(rows)).toEqual(["composio:slack_x", "c:asana", "c:trello"]);
+		expect(headers(rows)).toEqual(["Apps"]);
+		expect(appKeys(rows)).toEqual(["c:asana", "c:trello"]);
+	});
+	it("categoria do Composio: conectado da categoria aparece na lista como Conectado, sem duplicar; os de outras categorias não aparecem", () => {
+		const rows = buildAppsRows(base({ chip: "c:crm", composioConnections: [{ id: "k1", toolkit: "slack_x", toolkitName: "Slack X", noAuth: false }, { id: "k2", toolkit: "trello", toolkitName: "Trello", noAuth: false }] }));
+		expect(headers(rows)).not.toContain("Conectados");
+		expect(appKeys(rows)).toEqual(["c:asana", "c:trello"]);
+		const actions = rows.filter((row) => row.kind === "app").map((row) => (row as { item: { action: string } }).item.action);
+		expect(actions).toEqual(["connect", "connected"]);
+	});
+	it("ferramentas internas do Composio ficam fora de Conectados, da lista e da contagem", () => {
+		const internal = ["browser_tool", "codeinterpreter", "composio_search", "composio", "Browser-Tool"].map((toolkit, i) => ({ id: `i${i}`, toolkit, toolkitName: toolkit, noAuth: true }));
+		const input = base({ composioConnections: [...internal, { id: "k1", toolkit: "slack_x", toolkitName: "Slack X", noAuth: false }] });
+		expect(appKeys(buildAppsRows(input)).filter((key) => key.startsWith("composio:"))).toEqual(["composio:slack_x"]);
+		expect(connectedItems(input)).toHaveLength(3);
+		const listed = buildAppsRows(base({ chip: "c:crm", composio: { status: "ready", items: [toolkit("asana"), toolkit("codeinterpreter")], hasMore: false, loadingMore: false } }));
+		expect(appKeys(listed)).toEqual(["c:asana"]);
 	});
 	it("busca filtra nativos, conectados e bots no cliente, sem destaque nem categorias", () => {
 		const rows = buildAppsRows(base({ query: "GIT", composio: { status: "ready", items: [], hasMore: false, loadingMore: false }, bots: [bot("b1", { name: "Gitbot" }), bot("b2")] }));

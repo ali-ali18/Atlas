@@ -1,5 +1,6 @@
 // Tela "Aplicativos": estado do botão, rota do detalhe, chips de categoria e a montagem das seções (conectados, destaque,
 // nativos por categoria, apps do Composio e bots). Funções puras, testadas em apps.test.ts.
+import { isComposioMetaToolkit } from "@workspace/shared";
 import { MAX_COMPOSIO_CATEGORIES, type ComposioCategory, type ComposioConnection, type ComposioToolkit, type McpConnection, type NativeConnector } from "./apps-parse";
 import { type CatalogBot, filterCatalog, plain } from "./catalog";
 import { composioCategoryLabel, composioCategoryRank } from "./composio-category-labels";
@@ -168,6 +169,17 @@ export function composioDisplayName(slug: string, serverName: string): string {
 		.join(" ");
 }
 
+/**
+ * Ferramentas internas do Composio (Browser Tool, Codeinterpreter, Composio Search) não são apps: ficam fora de
+ * "Conectados", da contagem e das listas. O `isComposioMetaToolkit` do shared só cobre "composio"; a comparação aqui
+ * ignora caixa e separador (`browser_tool`, `browser-tool`, `BrowserTool`).
+ */
+const INTERNAL_TOOLKITS: ReadonlySet<string> = new Set(["browsertool", "codeinterpreter", "composiosearch"]);
+
+export function isInternalToolkit(slug: string): boolean {
+	return isComposioMetaToolkit(slug) || INTERNAL_TOOLKITS.has(slug.toLowerCase().replace(/[^a-z0-9]/g, ""));
+}
+
 /** Os conectados: nativos com conexão ativa, conectores próprios ativos e apps do Composio (com o logo da lista, se ela o trouxe). */
 export function connectedItems(input: { entries: readonly NativeConnector[]; connections: readonly McpConnection[]; composioConnections: readonly ComposioConnection[]; composioLogos?: ReadonlyMap<string, string | null> }): AppItem[] {
 	const items: AppItem[] = input.entries.filter((entry) => entry.status === "connected").map(nativeItem);
@@ -180,7 +192,7 @@ export function connectedItems(input: { entries: readonly NativeConnector[]; con
 	const seen = new Set<string>();
 	for (const connection of input.composioConnections) {
 		// Um app do Composio que também é nativo (ex.: GitHub) já aparece como o nativo; duas contas do mesmo app, uma linha.
-		if (nativeSlugs.has(connection.toolkit) || seen.has(connection.toolkit)) continue;
+		if (nativeSlugs.has(connection.toolkit) || seen.has(connection.toolkit) || isInternalToolkit(connection.toolkit)) continue;
 		seen.add(connection.toolkit);
 		items.push({ key: `composio:${connection.toolkit}`, ref: { kind: "composio", id: connection.toolkit }, name: composioDisplayName(connection.toolkit, connection.toolkitName), description: "", icon: input.composioLogos?.get(connection.toolkit) || composioLogoForSlug(connection.toolkit), action: "connected" });
 	}
@@ -225,18 +237,12 @@ export function buildAppsRows(input: SectionsInput): AppsRow[] {
 	const showBots = chip === "" || chip === BOTS_CHIP;
 	const rows: AppsRow[] = [];
 
-	const connected = showNatives || showComposio ? connectedItems(input).filter((item) => matches(item, words)) : [];
+	// "Conectados" só na visão "Todos". Com chip, os conectados da categoria entram na lista dela, com o botão "Conectado".
+	const connected = chip === "" ? connectedItems(input).filter((item) => matches(item, words)) : [];
 	const connectedNative = new Set(connected.filter((item) => item.ref.kind === "native").map((item) => item.ref.id));
-	const visibleConnected = connected.filter((item) => {
-		if (item.ref.kind === "composio") return showComposio;
-		if (item.ref.kind === "native" && nativeCategory !== null) return input.entries.find((entry) => entry.id === item.ref.id)?.category === nativeCategory;
-		// Conector próprio não tem categoria: só na visão geral.
-		if (item.ref.kind === "custom") return chip === "";
-		return showNatives;
-	});
-	if (visibleConnected.length > 0) {
+	if (connected.length > 0) {
 		rows.push({ kind: "header", key: "h:connected", label: "Conectados" });
-		for (const item of visibleConnected) rows.push({ kind: "app", key: item.key, item });
+		for (const item of connected) rows.push({ kind: "app", key: item.key, item });
 	}
 
 	if (showNatives) {
@@ -281,13 +287,14 @@ export function buildAppsRows(input: SectionsInput): AppsRow[] {
 			rows.push({ kind: "header", key: "h:composio", label });
 			rows.push({ kind: "note", key: "note:error", text: "Não consegui carregar os apps agora.", retry: true });
 		} else if (state.status === "ready") {
-			// Conectados (pelas conexões do dono) vão para "Conectados"; os que também são nativos aparecem como nativos.
+			// Em "Todos", os conectados (pelas conexões do dono) vão para "Conectados"; os que também são nativos aparecem como
+			// nativos. Na categoria não há "Conectados": ficam na lista, com o estado vindo das conexões do dono.
 			const connectedSlugs = new Set(input.composioConnections.map((connection) => connection.toolkit));
-			const shown = state.items.filter((item) => item.nativeCatalogId === null && !connectedSlugs.has(item.slug));
+			const shown = state.items.filter((item) => item.nativeCatalogId === null && !isInternalToolkit(item.slug) && (chip !== "" || !connectedSlugs.has(item.slug)));
 			// Página toda filtrada mas com mais páginas: o marcador de fim continua (a rolagem puxa a próxima página).
 			if (shown.length > 0 || state.hasMore) {
 				rows.push({ kind: "header", key: "h:composio", label });
-				for (const item of shown) rows.push({ kind: "app", key: `c:${item.slug}`, item: composioItem(item) });
+				for (const item of shown) rows.push({ kind: "app", key: `c:${item.slug}`, item: composioItem(item, connectedSlugs.has(item.slug)) });
 				if (state.hasMore) rows.push({ kind: "autoload", key: "more:composio", loading: state.loadingMore });
 			}
 		}
