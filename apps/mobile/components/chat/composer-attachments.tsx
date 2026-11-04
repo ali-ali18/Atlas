@@ -1,85 +1,97 @@
 import * as React from "react";
-import { Pressable, View } from "react-native";
+import { Pressable, ScrollView, View } from "react-native";
+import { X as LucideX } from "lucide-react-native";
 import { Image } from "expo-image";
-import { CloseIcon } from "@/components/icons";
-import { FileTile } from "@/components/ui/file-tile";
 import { Spinner } from "@/components/ui/spinner";
 import { Text } from "@/components/ui/text";
 import type { AttachmentDraft } from "@/lib/attachments";
 import { cn } from "@/lib/cn";
-import { fileCardKind, fileCardTitle, splitFileName } from "@/lib/file-card";
+import { fileCardTitle, splitFileName } from "@/lib/file-card";
 import { localImageUri } from "@/lib/image-viewer";
 import { useSurfaces } from "@/lib/use-surfaces";
 
-const THUMB = 44;
+const TILE = 104;
+const TILE_RADIUS = 16;
 
 function RemoveButton({ draft, onRemove }: { draft: AttachmentDraft; onRemove: (key: string) => void }) {
 	const surfaces = useSurfaces();
 	return (
 		<Pressable
 			role="button"
-			accessibilityLabel={`${draft.status === "uploading" ? "Cancelar" : "Remover"} ${draft.name}`}
+			accessibilityLabel="Remover anexo"
 			onPress={() => onRemove(draft.key)}
-			hitSlop={8}
-			style={{ backgroundColor: surfaces.chromeControl, borderColor: surfaces.chromeEdge }}
-			className="absolute -right-1.5 -top-1.5 size-5 items-center justify-center rounded-full border active:opacity-70"
+			hitSlop={6}
+			style={{ backgroundColor: surfaces.inverseFill }}
+			className="absolute right-1.5 top-1.5 size-7 items-center justify-center rounded-full active:opacity-70"
 		>
-			<CloseIcon size={10} tone="foreground" />
+			<LucideX size={14} color={surfaces.inverseInk} strokeWidth={2.5} />
 		</Pressable>
 	);
 }
 
-/** Miniatura de 44 px: a própria foto (local), com véu e spinner enquanto sobe e contorno destructive no erro. */
-function ImageChip({ draft, onRemove }: { draft: AttachmentDraft; onRemove: (key: string) => void }) {
+function statusLabel(draft: AttachmentDraft) {
+	return `${draft.name}${draft.status === "error" ? ", falhou" : draft.status === "uploading" ? ", enviando" : ""}`;
+}
+
+/** Véu escuro leve e spinner no centro enquanto o anexo sobe. */
+function UploadingVeil() {
+	return (
+		<View className="absolute inset-0 items-center justify-center bg-background/50">
+			<Spinner />
+		</View>
+	);
+}
+
+/** Casca quadrada comum: mesmo tamanho para foto e arquivo; contorno destructive no erro. */
+function Tile({ draft, onRemove, children, fill }: { draft: AttachmentDraft; onRemove: (key: string) => void; children: React.ReactNode; fill?: string }) {
 	const failed = draft.status === "error";
 	const surfaces = useSurfaces();
-	const source = localImageUri({ uri: draft.uri });
 	return (
-		<View style={{ width: THUMB, height: THUMB }} accessibilityLabel={`${draft.name}${failed ? ", falhou" : draft.status === "uploading" ? ", enviando" : ""}`}>
-			<View style={{ width: THUMB, height: THUMB, ...(failed ? null : { borderColor: surfaces.chromeEdge }) }} className={cn("overflow-hidden rounded-lg border bg-foreground/[0.06]", failed && "border-destructive")}>
-				{source ? <Image source={{ uri: source }} style={{ width: THUMB, height: THUMB }} contentFit="cover" accessibilityIgnoresInvertColors /> : null}
-				{draft.status === "uploading" ? (
-					<View className="absolute inset-0 items-center justify-center bg-background/60">
-						<Spinner />
-					</View>
-				) : null}
-				{failed ? <View className="absolute inset-0 bg-destructive/20" /> : null}
+		<View style={{ width: TILE, height: TILE }} accessibilityLabel={statusLabel(draft)}>
+			<View
+				style={{ width: TILE, height: TILE, borderRadius: TILE_RADIUS, backgroundColor: fill, ...(failed ? null : { borderColor: surfaces.chromeEdge }) }}
+				className={cn("overflow-hidden border", failed && "border-destructive")}
+			>
+				{children}
+				{draft.status === "uploading" ? <UploadingVeil /> : null}
 			</View>
 			<RemoveButton draft={draft} onRemove={onRemove} />
 		</View>
 	);
 }
 
-/** Arquivo: o ícone com faixa do tipo (`FileTile`) e o nome; o spinner troca o ícone enquanto sobe. */
-function FileChip({ draft, onRemove }: { draft: AttachmentDraft; onRemove: (key: string) => void }) {
-	const failed = draft.status === "error";
+/** Foto: a miniatura preenche o tile inteiro. */
+function ImageChip({ draft, onRemove }: { draft: AttachmentDraft; onRemove: (key: string) => void }) {
 	const surfaces = useSurfaces();
-	const kind = fileCardKind(draft.name, draft.mime);
+	const source = localImageUri({ uri: draft.uri });
+	return (
+		<Tile draft={draft} onRemove={onRemove} fill={surfaces.chromeControl}>
+			{source ? <Image source={{ uri: source }} style={{ width: TILE, height: TILE }} contentFit="cover" accessibilityIgnoresInvertColors /> : null}
+		</Tile>
+	);
+}
+
+/** Arquivo: selo da extensão em cima à esquerda e o nome sem extensão (até 2 linhas) embaixo. */
+function FileChip({ draft, onRemove }: { draft: AttachmentDraft; onRemove: (key: string) => void }) {
+	const surfaces = useSurfaces();
 	const { ext } = splitFileName(draft.name);
 	return (
-		<View accessibilityLabel={`${draft.name}${failed ? ", falhou" : draft.status === "uploading" ? ", enviando" : ""}`}>
-			<View style={{ height: THUMB, ...(failed ? null : { borderColor: surfaces.chromeEdge }) }} className={cn("max-w-[180px] flex-row items-center gap-2 overflow-hidden rounded-lg border bg-foreground/[0.06] pr-3", failed && "border-destructive")}>
-				<View className="items-center justify-center">
-					<FileTile glyph={kind.glyph} tone={kind.tone} className={cn("rounded-none", draft.status === "uploading" && "opacity-30")} />
-					{draft.status === "uploading" ? (
-						<View className="absolute inset-0 items-center justify-center">
-							<Spinner />
+		<Tile draft={draft} onRemove={onRemove} fill={surfaces.chromeControl}>
+			<View className="flex-1 justify-between p-3">
+				<View className="flex-row">
+					{ext ? (
+						<View style={{ borderColor: surfaces.chromeEdge }} className="rounded-full border px-2 py-0.5">
+							<Text numberOfLines={1} variant="caption" className="text-[10px] font-medium leading-[13px] text-foreground">
+								{ext}
+							</Text>
 						</View>
 					) : null}
 				</View>
-				<View className="min-w-0 shrink">
-					<Text numberOfLines={1} ellipsizeMode="middle" variant="caption" className="text-foreground">
-						{fileCardTitle(draft.name)}
-					</Text>
-					{ext ? (
-						<Text numberOfLines={1} variant="caption">
-							{ext}
-						</Text>
-					) : null}
-				</View>
+				<Text numberOfLines={2} ellipsizeMode="tail" variant="caption" className="text-left text-foreground">
+					{fileCardTitle(draft.name)}
+				</Text>
 			</View>
-			<RemoveButton draft={draft} onRemove={onRemove} />
-		</View>
+		</Tile>
 	);
 }
 
@@ -94,9 +106,9 @@ export function ComposerAttachments({ drafts, notice, onRemove }: { drafts: read
 	return (
 		<View className="gap-2 px-3 pb-1 pt-3">
 			{drafts.length > 0 ? (
-				<View className="flex-row flex-wrap gap-x-3 gap-y-3 pt-1.5">
+				<ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 8 }}>
 					{drafts.map((draft) => (draft.route === "image" ? <ImageChip key={draft.key} draft={draft} onRemove={onRemove} /> : <FileChip key={draft.key} draft={draft} onRemove={onRemove} />))}
-				</View>
+				</ScrollView>
 			) : null}
 			{message ? (
 				<Text variant="caption" accessibilityLiveRegion="polite" className={failure ? "text-destructive" : undefined}>

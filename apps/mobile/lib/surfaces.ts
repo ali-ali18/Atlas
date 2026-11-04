@@ -35,6 +35,10 @@ export type SurfaceColors = {
 	switchOff: string;
 	/** Bolinha do interruptor. */
 	switchThumb: string;
+	/** Círculo de remover anexo sobre foto ou tile: branco nos dois modos, para ler em cima de qualquer miniatura. */
+	inverseFill: string;
+	/** Traço (X) sobre `inverseFill`: quase preto nos dois modos. */
+	inverseInk: string;
 };
 
 const DARK: SurfaceColors = {
@@ -52,6 +56,8 @@ const DARK: SurfaceColors = {
 	link: "#136cd0",
 	switchOff: "#3a3a3c",
 	switchThumb: "#ffffff",
+	inverseFill: "#ffffff",
+	inverseInk: "#09090b",
 };
 
 export function surfaceColors(scheme: ColorScheme): SurfaceColors {
@@ -71,6 +77,8 @@ export function surfaceColors(scheme: ColorScheme): SurfaceColors {
 		link: themeColor(scheme, "info"),
 		switchOff: themeColor(scheme, "input"),
 		switchThumb: "#ffffff",
+		inverseFill: "#ffffff",
+		inverseInk: "#09090b",
 	};
 }
 

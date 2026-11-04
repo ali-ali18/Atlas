@@ -22,6 +22,8 @@ describe("surfaceColors", () => {
 			link: "#136cd0",
 			switchOff: "#3a3a3c",
 			switchThumb: "#ffffff",
+			inverseFill: "#ffffff",
+			inverseInk: "#09090b",
 		});
 	});
 
@@ -57,6 +59,13 @@ describe("surfaceColors", () => {
 		expect(Math.abs(lum(dark.chatCard) - lum(dark.bubble))).toBeLessThanOrEqual(6);
 		expect(lum(dark.chatCardControl) - lum(dark.chatCard)).toBeGreaterThanOrEqual(16);
 		expect(dark.chatCard).not.toBe(dark.surface);
+	});
+
+	it("o botão de remover anexo é branco com traço escuro nos dois modos", () => {
+		for (const scheme of ["light", "dark"] as const) {
+			expect(surfaceColors(scheme).inverseFill).toBe("#ffffff");
+			expect(surfaceColors(scheme).inverseInk).toBe("#09090b");
+		}
 	});
 
 	it("o raio do cartão é 21", () => {
