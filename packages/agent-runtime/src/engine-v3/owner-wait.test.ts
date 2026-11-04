@@ -140,11 +140,12 @@ describe("login/VM: cada saída do cartão chega ao modelo e o run continua", ()
 	});
 
 	it("Assumir: o modelo sabe que o dono está com a VM e as tools da VM não rodam neste turno", async () => {
-		const { requests, results } = await runV3([call("s", "screenshot", {}), say("Espero você terminar.")], { ...pausedAt("takeover"), sandboxEnabled: true });
+		// No v3 o navegador é browser_snapshot/act/navigate/tabs (PR6); `screenshot` nem é oferecida.
+		const { requests, results } = await runV3([call("s", "browser_snapshot", { view: "screenshot" }), say("Espero você terminar.")], { ...pausedAt("takeover"), sandboxEnabled: true });
 		expect(textOf(requests[0]!)).toContain("Owner has control of the computer");
-		const shot = results.find((event) => event.name === "screenshot");
+		const shot = results.find((event) => event.name === "browser_snapshot");
 		expect(shot).toMatchObject({ ok: false, summary: expect.stringContaining(OWNER_HAS_COMPUTER.slice(0, 40)) });
-		expect(executeTool).not.toHaveBeenCalledWith("screenshot", expect.anything(), expect.anything());
+		expect(executeTool).not.toHaveBeenCalledWith("browser_snapshot", expect.anything(), expect.anything());
 	});
 
 	it("prazo vencido: vira pulado (nunca feito) e o run segue", async () => {
