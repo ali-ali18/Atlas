@@ -77,8 +77,11 @@ export function parseLoginWaitOutcome(value: unknown): LoginWaitOutcome | undefi
 }
 
 /** Prazo de um cartão (ISO válido) lido do evento ou do cartão gravado; lixo = sem prazo. */
+/** Data e hora ISO 8601 completas, com fuso (`Z` ou `±hh:mm`): "1", "Mar 5" ou só a data não são prazo. */
+const ISO_DATE_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(?:Z|[+-]\d{2}:?\d{2})$/;
+
 export function parseOwnerWaitDeadline(value: unknown): string | undefined {
-	if (typeof value !== "string" || value.length > 40) return undefined;
+	if (typeof value !== "string" || value.length > 40 || !ISO_DATE_TIME.test(value)) return undefined;
 	const at = new Date(value);
 	return Number.isNaN(at.getTime()) ? undefined : at.toISOString();
 }

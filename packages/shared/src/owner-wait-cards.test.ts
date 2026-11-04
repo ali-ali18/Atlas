@@ -49,6 +49,11 @@ describe("cartões gravados do esperar o dono", () => {
 		expect(parseOwnerWaitDeadline(undefined)).toBeUndefined();
 		expect(parseOwnerWaitDeadline("x".repeat(50))).toBeUndefined();
 		expect(parseOwnerWaitDeadline("2026-11-04T14:30:00-03:00")).toBe(deadline);
+		expect(parseOwnerWaitDeadline("2026-11-04T17:30Z")).toBe(deadline);
+		// Auditoria do PR #131: `new Date` aceitava qualquer coisa parecida com data.
+		for (const junk of ["1", "Mar 5", "2026-11-04", "2026-11-04T17:30:00", "Wed Nov 04 2026 14:30:00 GMT-0300", "1730741400000"]) {
+			expect(parseOwnerWaitDeadline(junk), junk).toBeUndefined();
+		}
 		expect(parseStepLimitProgress({ steps: 0 })).toEqual({ steps: 0 });
 		expect(parseStepLimitProgress({ steps: 1.5 })).toBeUndefined();
 		expect(parseStepLimitProgress({ steps: 3, tasksDone: Array.from({ length: 20 }, (_, i) => `t${i}`) })?.tasksDone).toHaveLength(8);
