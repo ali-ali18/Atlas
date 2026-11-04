@@ -6,10 +6,7 @@ import { ARTIFACT_READ_TOOL } from "./artifact-read.js";
 import { CURRENT_TIME_TOOL } from "./current-time.js";
 import { LESSON_FEEDBACK_TOOL } from "./lesson-feedback.js";
 import { PREVIEW_SETUP_TOOL } from "./preview-setup/tool.js";
-import { SANDBOX_RELEASE_TOOL } from "./sandbox-release.js";
-import { SANDBOX_SHELL_TOOLS } from "./sandbox-shell.js";
 import { LOGIN_FILL_TOOL, ROUTINE_WEBHOOK_INFO_TOOL, SECRET_LIST_TOOL, SECRET_REQUEST_TOOL } from "./vault-tools.js";
-import { VIDEO_TRANSCRIPT_TOOL } from "./video-transcript.js";
 
 export { MCP_TOOL_SEARCH_TOOL, TOOL_SEARCH_WITH_BUILTINS } from "./mcp-tool-search.js";
 
@@ -34,9 +31,9 @@ export const COMPUTER_USE_TOOLS: ChatTool[] = [
 	...defined("browser_snapshot", "browser_act", "browser_wait"),
 	...defined("browser_read", "browser_find"),
 	...defined("browser_tabs"),
-	...SANDBOX_SHELL_TOOLS,
-	SANDBOX_RELEASE_TOOL,
-	VIDEO_TRANSCRIPT_TOOL,
+	...defined("sandbox_shell", "sandbox_shell_wait", "sandbox_read", "sandbox_list", "sandbox_download"),
+	...defined("sandbox_release"),
+	...defined("video_transcript"),
 	{
 		type: "function",
 		function: {

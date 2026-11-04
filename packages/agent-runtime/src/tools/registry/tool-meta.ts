@@ -25,14 +25,7 @@ export const TOOL_META: Readonly<Record<string, ToolMetaFields>> = {
 	// Navegador (VM)
 
 	// VM (shell e arquivos do computador do bot)
-	sandbox_shell: { effect: "write_internal" },
-	sandbox_shell_wait: { effect: "read", poll: true },
-	sandbox_read: { effect: "read" },
-	sandbox_list: { effect: "read" },
 	// Pior caso: baixa URL arbitrária enviando por padrão os cookies do Chrome da VM; sem a sessão é só escrita na VM.
-	sandbox_download: { effect: "credential", catalogEffect: "write_internal", effectForArgs: (args) => (args.use_browser_session === false ? "write_internal" : "credential") },
-	sandbox_release: { effect: "write_internal", needsHuman: true },
-	video_transcript: { effect: "read" },
 
 	// Web
 	web_search: { effect: "read" },

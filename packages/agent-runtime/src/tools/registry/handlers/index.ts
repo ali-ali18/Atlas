@@ -16,7 +16,7 @@ import { PAGES_TOOLS, PAGES_DEFINED } from "./pages.js";
 import { LONG_WORK_TOOLS } from "./long-work.js";
 import { connectorToolResolver } from "./connectors.js";
 import { devSessionResolver } from "./dev.js";
-import { SANDBOX_TOOLS } from "./sandbox.js";
+import { SANDBOX_TOOLS, SANDBOX_DEFINED } from "./sandbox.js";
 import { WEB_TOOLS } from "./web.js";
 
 /** Famílias de tools, na ordem de declaração (nome repetido entre famílias é erro). */
@@ -25,4 +25,4 @@ export const TOOL_FAMILIES: Array<() => ToolFamily> = [() => BROWSER_TOOLS, () =
 export const TOOL_RESOLVERS: ToolResolvers = { before: [() => devSessionResolver], after: [() => connectorToolResolver] };
 
 /** Toda tool nativa declarada com `defineTool`/`defineRawTool`, por família (o catálogo `COMPUTER_USE_TOOLS` lê as definições daqui). */
-export const ALL_DEFINED_TOOLS: readonly DefinedTool[] = [...SKILLS_DEFINED, ...BOTS_DEFINED, ...CONNECTORS_DEFINED, ...FILES_DEFINED, ...PAGES_DEFINED, ...ROUTINES_DEFINED, ...EMAIL_DEFINED, ...BROWSER_DEFINED];
+export const ALL_DEFINED_TOOLS: readonly DefinedTool[] = [...SANDBOX_DEFINED, ...SKILLS_DEFINED, ...BOTS_DEFINED, ...CONNECTORS_DEFINED, ...FILES_DEFINED, ...PAGES_DEFINED, ...ROUTINES_DEFINED, ...EMAIL_DEFINED, ...BROWSER_DEFINED];
