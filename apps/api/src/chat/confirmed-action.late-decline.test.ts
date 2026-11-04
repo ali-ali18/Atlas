@@ -40,6 +40,7 @@ function fakeDb(input: { engine: "v2" | "v3"; owner?: string; activeRun?: boolea
 		convFind: prisma.conversation.findFirst,
 		msgMany: prisma.conversationMessage.findMany,
 		msgUpdate: prisma.conversationMessage.update,
+		msgUpdateMany: prisma.conversationMessage.updateMany,
 		runFind: prisma.agentRun.findFirst,
 		runCreate: prisma.agentRun.create,
 		runUpdate: prisma.agentRun.update,
@@ -54,12 +55,15 @@ function fakeDb(input: { engine: "v2" | "v3"; owner?: string; activeRun?: boolea
 	prisma.skillPendingIntent.deleteMany = (async () => { state.intentDeleted = true; return { count: 1 }; }) as unknown as typeof prisma.skillPendingIntent.deleteMany;
 	prisma.conversation.findFirst = (async (args: { where: { userId?: string } }) => (args.where.userId === owner ? { id: CONV } : null)) as unknown as typeof prisma.conversation.findFirst;
 	prisma.conversationMessage.findMany = (async () => [{ id: "m1", role: "confirm", content: JSON.stringify({ v: 1, kind: "confirm", confirmId, title: 'Agenda: executar "create_event"?', status: state.cardStatus }), createdAt: new Date() }]) as unknown as typeof prisma.conversationMessage.findMany;
-	prisma.conversationMessage.update = (async (args: { data: { content: string } }) => {
+	const writeCard = async (args: { data: { content: string } }) => {
 		const next = JSON.parse(args.data.content) as { status: string; outcome?: { detail: string } };
 		state.cardStatus = next.status;
 		state.cardDetail = next.outcome?.detail;
-		return {};
-	}) as unknown as typeof prisma.conversationMessage.update;
+		return { count: 1 };
+	};
+	prisma.conversationMessage.update = writeCard as unknown as typeof prisma.conversationMessage.update;
+	// O fechamento do cartão pendente é condicional pelo conteúdo (`updateMany`).
+	prisma.conversationMessage.updateMany = writeCard as unknown as typeof prisma.conversationMessage.updateMany;
 	prisma.agentRun.findFirst = (async (args: { where: { userId?: string | { in: string[] } } }) => {
 		const who = typeof args.where.userId === "string" ? args.where.userId : args.where.userId?.in?.[0];
 		return input.activeRun === false || who !== USER ? null : activeRow;
@@ -89,7 +93,7 @@ function fakeDb(input: { engine: "v2" | "v3"; owner?: string; activeRun?: boolea
 		restore() {
 			Object.assign(prisma.skillPendingIntent, { findUnique: originals.intentFind, deleteMany: originals.intentDelete });
 			Object.assign(prisma.conversation, { findFirst: originals.convFind });
-			Object.assign(prisma.conversationMessage, { findMany: originals.msgMany, update: originals.msgUpdate });
+			Object.assign(prisma.conversationMessage, { findMany: originals.msgMany, update: originals.msgUpdate, updateMany: originals.msgUpdateMany });
 			Object.assign(prisma.agentRun, { findFirst: originals.runFind, create: originals.runCreate, update: originals.runUpdate, updateMany: originals.runUpdateMany });
 			Object.assign(prisma.runInput, { findFirst: originals.inputFind });
 			prisma.$transaction = originals.tx;
