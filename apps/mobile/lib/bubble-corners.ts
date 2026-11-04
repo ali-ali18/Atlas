@@ -45,3 +45,6 @@ export function cornersNextToTable(base: BubbleCorners, side: "left" | "right", 
 	if (hasBelow) corners[bottom] = BUBBLE_RADIUS;
 	return corners;
 }
+
+/** Largura máxima do balão do bot no fio (87% da lista). O cartão de arquivo usa a mesma, para nunca passar do balão. */
+export const BUBBLE_MAX_WIDTH_CLASS = "max-w-[87%]";

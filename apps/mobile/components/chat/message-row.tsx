@@ -2,7 +2,7 @@ import * as React from "react";
 import { Pressable, View } from "react-native";
 import Animated, { FadeIn, useReducedMotion } from "react-native-reanimated";
 import type { GroupPosition } from "@workspace/shared";
-import { bubbleCorners, cornersNextToTable } from "@/lib/bubble-corners";
+import { BUBBLE_MAX_WIDTH_CLASS, bubbleCorners, cornersNextToTable } from "@/lib/bubble-corners";
 import { Text } from "@/components/ui/text";
 import { taskCardActive } from "@/lib/chat-thread";
 import type { ChatItem, Reaction, ReplyQuote } from "@/lib/chat-types";
@@ -116,7 +116,7 @@ function BotBubble({ text, position, reactions, replyTo, onLongPress }: { text: 
 	// Tabela não vai dentro do balão: é um cartão só (como no Grok); o texto em volta vira balões.
 	const segments = React.useMemo(() => splitSegments(parseMarkdown(text)), [text]);
 	return (
-		<View className="max-w-[87%] gap-1.5 self-start">
+		<View className={`${BUBBLE_MAX_WIDTH_CLASS} gap-1.5 self-start`}>
 			{replyTo ? <ReplyPill quote={replyTo} align="start" spaced={position !== "single" && position !== "first"} /> : null}
 			{segments.map((segment, index) =>
 				segment.kind === "table" ? (
