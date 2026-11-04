@@ -211,11 +211,7 @@ export function QuestionnaireCard({
 			badge={{ tone: "pending", label: t("chat.questionnaire.needsYou") }}
 			className="max-w-xl"
 			headerAction={
-				skip ? (
-					<Button aria-label={t("ownerWait.skipQuestionnaire")} className="-my-1" data-slot="questionnaire-skip-all" onClick={() => skip(message)} size="sm" type="button" variant="secondary">
-						{t("ownerWait.skipAll")}
-					</Button>
-				) : onDismiss ? (
+				!skip && onDismiss ? (
 					<button
 						aria-label={t("chat.questionnaire.dismiss")}
 						className="-my-0.5 -mr-1 shrink-0 rounded-full p-1 text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
@@ -227,6 +223,14 @@ export function QuestionnaireCard({
 				) : null
 			}
 			leading={<MessageCircleQuestionIcon aria-hidden />}
+			trailing={
+				skip ? (
+					// Motor v3: pula o questionário inteiro (o "Pular" de cada pergunta continua no corpo).
+					<Button aria-label={t("ownerWait.skipQuestionnaire")} data-slot="questionnaire-skip-all" onClick={() => skip(message)} size="sm" type="button" variant="secondary">
+						{t("ownerWait.skipAll")}
+					</Button>
+				) : undefined
+			}
 			note={
 				deadline ? (
 					<span className="inline-flex items-center gap-1" data-slot="owner-wait-deadline">
