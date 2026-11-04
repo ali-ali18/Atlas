@@ -6,7 +6,7 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, test } from "node:test";
 import type { RunInputRecord } from "@workspace/shared";
-import { buildQueuedRunData, createFollowUpRun, getConversationInheritance, lastChatRunStoppedWithOpenWork, readRunHumanTurn, readRunInheritance } from "./runs.js";
+import { buildQueuedRunData, createFollowUpRun, inheritanceFromRun, getConversationInheritance, lastChatRunStoppedWithOpenWork, readRunHumanTurn, readRunInheritance } from "./runs.js";
 import { FakeTable, installFakes } from "./testing/fake-tables.js";
 
 let runs: FakeTable;
@@ -106,4 +106,14 @@ test("escopo: o estado 'parou com itens abertos' é do dono; o usuário B não h
 
 test("run do motor v3 passa o motor cru adiante (o worker decide de novo pela flag)", () => {
 	assert.deepEqual(readRunInheritance({ budgetJson: { engine: "v3", engineProfile: "chat", humanTurn: true } }), { humanTurn: true, engine: "v3", profile: "chat" });
+});
+
+test("retorno agendado (v3): herda motor e perfil do run que agendou, nunca o turno humano", () => {
+	const source = { budgetJson: { humanTurn: true, engine: "v3", engineProfile: "long_work" } };
+	assert.deepEqual(inheritanceFromRun(source), { humanTurn: true, engine: "v3", profile: "long_work" });
+	const inherited = inheritanceFromRun(source, false);
+	assert.deepEqual(inherited, { humanTurn: false, engine: "v3", profile: "long_work" });
+	const data = buildQueuedRunData({ request: request("[Scheduled return] x"), model: "m", userId: "u", conversationId: "conv-1", inherited });
+	assert.equal(readRunHumanTurn({ budgetJson: data.budgetJson }), false);
+	assert.equal((data.budgetJson as Record<string, unknown>).engine, "v3");
 });

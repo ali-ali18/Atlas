@@ -80,6 +80,7 @@ test("retorno agendado acorda a mesma conversa com contexto, herdando do run que
 	assert.equal(created[0]!.request.conversationId, "conv-1");
 	assert.equal(created[0]!.request.origin, "chat");
 	assert.equal(created[0]!.inheritFromRunId, "run1");
+	assert.equal(created[0]!.inheritHumanTurn, false, "ninguém presente: sem turno humano, só leitura");
 	assert.match(created[0]!.request.messages[0]!.content, /\[Scheduled return\].*ver o deploy.*post the result/);
 	assert.deepEqual(enqueued, ["new1"]);
 });
@@ -89,6 +90,7 @@ test("retorno silencioso só posta com novidade ([NO_UPDATE]) e é reconhecido p
 	await processOwnerWaitJob({ kind: "scheduled_return", userId: "user-a", returnId: "ret1" }, deps);
 	const content = created[0]!.request.messages[0]!.content;
 	assert.ok(content.startsWith(SILENT_RETURN_MARK));
+	assert.equal(created[0]!.inheritHumanTurn, false);
 	assert.match(content, /reply exactly \[NO_UPDATE\]/);
 	assert.equal(isSilentReturnObjective(content), true);
 	assert.equal(isSilentReturnObjective("[Scheduled return] visível"), false);

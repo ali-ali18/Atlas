@@ -386,6 +386,12 @@ export function buildQueuedRunData(input: {
  */
 export type RunInheritance = { humanTurn: boolean; engine?: RequestedEngine; profile?: RunProfile };
 
+/** Herança de um run específico; `humanTurn: false` = só motor e perfil (ninguém presente agora). */
+export function inheritanceFromRun(run: { budgetJson?: unknown } | null | undefined, humanTurn?: false): RunInheritance {
+	const inherited = readRunInheritance(run);
+	return humanTurn === false ? { ...inherited, humanTurn: false } : inherited;
+}
+
 export function readRunInheritance(run: { budgetJson?: unknown } | null | undefined): RunInheritance {
 	if (!run) return { humanTurn: false };
 	// Cru (com `v3`): a continuação de um run do v3 volta ao v3 se a flag ainda deixar (o worker decide).
@@ -470,6 +476,8 @@ export async function createAgentRun(input: {
 	inheritFromConversation?: boolean;
 	/** Motor v3 (prazo do cartão, retorno agendado): herda turno humano, motor e perfil DESTE run (do mesmo dono). */
 	inheritFromRunId?: string;
+	/** `false`: herda só motor e perfil (ninguém presente agora, ex.: retorno agendado): sem turno humano, só leitura. */
+	inheritHumanTurn?: false;
 }): Promise<AgentRun> {
 	const { request, model } = input;
 	const userId = input.userId?.trim();
@@ -505,7 +513,7 @@ export async function createAgentRun(input: {
 				model, userId, conversationId, contextLength: input.contextLength, modelAuto: input.modelAuto, humanTurn: input.humanTurn,
 				fileArtifactIds: fileCards.map((card) => card.artifactId),
 				...(input.inheritFromRunId
-					? { inherited: readRunInheritance(await prisma.agentRun.findFirst({ where: { id: input.inheritFromRunId, userId }, select: { budgetJson: true } })) }
+					? { inherited: inheritanceFromRun(await prisma.agentRun.findFirst({ where: { id: input.inheritFromRunId, userId }, select: { budgetJson: true } }), input.inheritHumanTurn) }
 					: input.inheritFromConversation ? { inherited: await getConversationInheritance(userId, conversationId) } : {}),
 			}),
 		});

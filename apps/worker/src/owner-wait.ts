@@ -120,7 +120,8 @@ export async function processCardTimeout(job: OwnerWaitTimeoutJobPayload, deps: 
 
 /**
  * Retorno agendado venceu: o run novo retoma a MESMA conversa com o contexto (transcript da conversa) e herda do run que
- * agendou o turno humano e o motor (sem humano, sem escrita). Origem sem humano vira run proativo (só leitura, silêncio).
+ * agendou só o motor e o perfil, nunca o turno humano (ninguém está presente: só leitura). Origem sem humano vira run
+ * proativo.
  */
 export async function processScheduledReturn(job: ScheduledReturnJobPayload, deps: OwnerWaitProcessorDeps): Promise<OwnerWaitJobResult> {
 	const due = await deps.claimDueReturn(job.userId, job.returnId);
@@ -137,6 +138,9 @@ export async function processScheduledReturn(job: ScheduledReturnJobPayload, dep
 			model: source.model,
 			userId: job.userId,
 			inheritFromRunId: due.sourceRunId,
+			// Ninguém está presente na hora do retorno (visível ou não): herda só motor e perfil, sem turno humano, então
+			// a política não deixa escrever nem pedir aprovação. O visível também: o bot volta sozinho, dias depois.
+			inheritHumanTurn: false,
 		});
 	} catch (error) {
 		// Sem run, o retorno volta a "pendente" e a nova tentativa do BullMQ dispara (senão ele se perdia).
