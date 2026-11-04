@@ -1203,9 +1203,13 @@ export async function takeToolCallApproval(
  * (`null` = não há). Serve para reconhecer um "Executar" repetido de um cartão
  * que já foi decidido: o clique duplicado não vira mensagem nem run novos.
  */
-/** Título do cartão de confirmação (`confirmId`, ou o mais recente) para a nota oculta da recusa. */
-export async function findConfirmCardTitle(conversationId: string, confirmId?: string): Promise<string | undefined> {
-	const rows = await prisma.conversationMessage.findMany({ where: { conversationId, role: "confirm" }, orderBy: { createdAt: "desc" }, take: 20 });
+/**
+ * Título do cartão de confirmação (`confirmId`, ou o mais recente) para a nota oculta da recusa. Só da conversa do
+ * dono (`ownerId` filtra a consulta): conversa de outro usuário = nada.
+ */
+export async function findConfirmCardTitle(conversationId: string, ownerId: string, confirmId?: string): Promise<string | undefined> {
+	if (!ownerId.trim() || ownerId === "default") return undefined;
+	const rows = await prisma.conversationMessage.findMany({ where: { conversationId, role: "confirm", conversation: { userId: ownerId } }, orderBy: { createdAt: "desc" }, take: 20 });
 	for (const row of rows) {
 		const card = parseConversationCard(row.content);
 		if (card?.kind === "confirm" && (!confirmId || card.confirmId === confirmId)) return card.title;

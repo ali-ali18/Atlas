@@ -903,7 +903,7 @@ export async function maybeHandleConfirmedAction(input: {
 			const userText = input.text.trim();
 			return { handled: false, followUp: { objective: userText, content: secretsDeclinedFollowUpContent(userText, secretsAsk), ...seedField(pending.payload, undefined, secretsDeclinedFollowUpContent("", secretsAsk), userText) } };
 		}
-		const declinedTitle = await findConfirmCardTitle(input.conversationId, pending.payload.confirmId).catch(() => undefined);
+		const declinedTitle = await findConfirmCardTitle(input.conversationId, userId, pending.payload.confirmId).catch(() => undefined);
 		await updateConfirmCardStatus(
 			input.conversationId,
 			"rejected",
