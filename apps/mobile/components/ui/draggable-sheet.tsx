@@ -1,13 +1,15 @@
 import * as React from "react";
-import { type AccessibilityActionEvent, Modal, PanResponder, Pressable, ScrollView, useWindowDimensions, View } from "react-native";
+import { type AccessibilityActionEvent, Modal, PanResponder, Pressable, type RefreshControlProps, ScrollView, useWindowDimensions, View } from "react-native";
 import Animated, { Easing, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ThemedModalRoot } from "@/components/home/themed-modal";
 import { useSurfaces } from "@/lib/use-surfaces";
-import { dragHeight, restHeight, settleSheet, type SheetRest } from "@/lib/sheet-drag";
+import { dragHeight, normalizeRest, restHeight, settleSheet, type SheetRest, tapRest } from "@/lib/sheet-drag";
 
 /** Folga entre o topo da gaveta expandida e a barra de status. */
 const TOP_GAP = 16;
+/** Folha de conteúdo: um pouco mais de folga, para a conversa aparecer numa faixa legível no topo. */
+const TOP_GAP_FULL = 40;
 /** A gaveta abre, no máximo, com 60% da tela. */
 const COLLAPSED_MAX = 0.6;
 const ANIMATION_MS = 220;
@@ -22,6 +24,14 @@ type Props = {
 	onRequestClose?: () => void;
 	/** Faixa fixa abaixo da alça que também arrasta (título, "voltar"). O conteúdo do corpo não arrasta, para não brigar com a rolagem. */
 	header?: React.ReactNode;
+	/** Folha de conteúdo (painel, documento): abre quase na tela toda e arrastar para baixo fecha (não há altura intermediária). */
+	fullHeight?: boolean;
+	/** Cor de fundo da folha (padrão: `popover`). */
+	backgroundColor?: string;
+	/** Margem lateral do corpo (padrão 16). */
+	bodyPadding?: number;
+	/** Puxar para atualizar no corpo (a folha de conteúdo usa; o menu não). */
+	refreshControl?: React.ReactElement<RefreshControlProps>;
 	children: React.ReactNode;
 };
 
@@ -31,19 +41,20 @@ type Props = {
  * inicial (distância ou arremesso) fecha. Toque no fundo escuro fecha. O corpo é um `ScrollView`.
  * O gesto é do `PanResponder` do RN só na alça e no cabeçalho; a decisão (onde assenta) é pura, em `lib/sheet-drag.ts`.
  */
-export function DraggableSheet({ visible, onClose, onRequestClose, header, children }: Props) {
+export function DraggableSheet({ visible, onClose, onRequestClose, header, fullHeight = false, backgroundColor, bodyPadding = 16, refreshControl, children }: Props) {
 	const insets = useSafeAreaInsets();
 	const surfaces = useSurfaces();
 	const { height: screenHeight } = useWindowDimensions();
 	const reducedMotion = useReducedMotion();
-	const expandedHeight = Math.max(0, screenHeight - insets.top - TOP_GAP);
+	const expandedHeight = Math.max(0, screenHeight - insets.top - (fullHeight ? TOP_GAP_FULL : TOP_GAP));
 	const [zoneHeight, setZoneHeight] = React.useState(0);
 	const [contentHeight, setContentHeight] = React.useState(0);
 	const [rest, setRest] = React.useState<SheetRest>("collapsed");
 	const measured = zoneHeight > 0 && contentHeight > 0;
 	// Antes de medir (ou se o Android nunca medir) a gaveta já aparece com esta altura: nunca fica invisível esperando `onLayout`.
-	const fallbackHeight = Math.round(screenHeight * COLLAPSED_MAX);
-	const collapsedHeight = measured ? Math.min(zoneHeight + contentHeight, fallbackHeight) : fallbackHeight;
+	// `fullHeight`: a altura inicial já é a máxima, então só existem "aberta" e "fechada" (arrastar para baixo fecha).
+	const fallbackHeight = fullHeight ? expandedHeight : Math.round(screenHeight * COLLAPSED_MAX);
+	const collapsedHeight = fullHeight ? expandedHeight : measured ? Math.min(zoneHeight + contentHeight, fallbackHeight) : fallbackHeight;
 	const [grace, setGrace] = React.useState(false);
 	const height = useSharedValue(0);
 	// 1 = gaveta toda fora da tela (embaixo), 0 = no lugar: a abertura sobe de baixo, não aparece no meio.
@@ -104,7 +115,8 @@ export function DraggableSheet({ visible, onClose, onRequestClose, header, child
 				live.current.onClose();
 				return;
 			}
-			setRest(next);
+			// Altura única (folha de conteúdo): o repouso é sempre "collapsed", para o arremesso seguinte fechar.
+			setRest(normalizeRest(next, { collapsed: live.current.collapsed, expanded: live.current.expanded }));
 			animateTo(target);
 		},
 		[animateTo],
@@ -125,7 +137,7 @@ export function DraggableSheet({ visible, onClose, onRequestClose, header, child
 			onPanResponderRelease: (_event, g) => {
 				if (Math.abs(g.dy) < TAP_SLOP && Math.abs(g.dx) < TAP_SLOP) {
 					// Toque na alça alterna entre as duas alturas.
-					const next: SheetRest = from === "collapsed" ? "expanded" : "collapsed";
+					const next = tapRest(from, heights());
 					settle(next, restHeight(next, heights()));
 					return;
 				}
@@ -143,7 +155,11 @@ export function DraggableSheet({ visible, onClose, onRequestClose, header, child
 	const onAccessibilityAction = (event: AccessibilityActionEvent) => {
 		const heights = { collapsed: collapsedHeight, expanded: expandedHeight };
 		if (event.nativeEvent.actionName === "expand") settle("expanded", restHeight("expanded", heights));
-		else if (event.nativeEvent.actionName === "collapse") settle("collapsed", restHeight("collapsed", heights));
+		// Folha de altura cheia não tem "recolher": a ação equivalente é fechar.
+		else if (event.nativeEvent.actionName === "collapse") {
+			if (fullHeight) settle("closed", 0);
+			else settle("collapsed", restHeight("collapsed", heights));
+		}
 		else if (event.nativeEvent.actionName === "dismiss") settle("closed", 0);
 	};
 
@@ -157,12 +173,12 @@ export function DraggableSheet({ visible, onClose, onRequestClose, header, child
 				<Pressable accessibilityLabel="Fechar" onPress={onClose} className="absolute inset-0 bg-black/50" />
 				<View pointerEvents="box-none" className="flex-1 justify-end">
 					<Animated.View style={[{ opacity: shown ? 1 : 0 }, sheetStyle]}>
-						<View style={{ backgroundColor: surfaces.sheet }} className="flex-1 overflow-hidden rounded-t-panel">
+						<View style={{ backgroundColor: backgroundColor ?? surfaces.sheet }} className="flex-1 overflow-hidden rounded-t-panel">
 							<View {...pan.panHandlers} onLayout={(event) => setZoneHeight(event.nativeEvent.layout.height)}>
 								<View
 									accessible
 									accessibilityRole="adjustable"
-									accessibilityLabel={rest === "expanded" ? "Arraste para baixo para recolher" : "Arraste para cima para expandir"}
+									accessibilityLabel={fullHeight ? "Arraste para baixo para fechar" : rest === "expanded" ? "Arraste para baixo para recolher" : "Arraste para cima para expandir"}
 									accessibilityActions={[
 										{ name: "expand", label: "Expandir" },
 										{ name: "collapse", label: "Recolher" },
@@ -173,13 +189,14 @@ export function DraggableSheet({ visible, onClose, onRequestClose, header, child
 								>
 									<View className="h-1 w-10 rounded-full bg-muted-foreground/40" />
 								</View>
-								{header ? <View className="px-4 pb-2">{header}</View> : null}
+								{header ? <View className="pb-2" style={{ paddingHorizontal: bodyPadding }}>{header}</View> : null}
 							</View>
 							<ScrollView
-								scrollEnabled={scrolls}
+								refreshControl={refreshControl}
+								scrollEnabled={scrolls || refreshControl !== undefined}
 								showsVerticalScrollIndicator={scrolls}
 								onContentSizeChange={(_w, h) => setContentHeight(h)}
-								contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: insets.bottom + 16, gap: 16 }}
+								contentContainerStyle={{ paddingHorizontal: bodyPadding, paddingBottom: insets.bottom + 16, gap: 16 }}
 							>
 								{children}
 							</ScrollView>

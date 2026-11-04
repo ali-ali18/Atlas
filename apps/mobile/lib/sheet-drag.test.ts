@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dragHeight, FLING_VELOCITY, restHeight, settleSheet } from "./sheet-drag";
+import { dragHeight, FLING_VELOCITY, isSingleHeight, normalizeRest, restHeight, settleSheet, tapRest } from "./sheet-drag";
 
 const h = { collapsed: 400, expanded: 760 };
 
@@ -65,5 +65,40 @@ describe("onde a gaveta assenta ao soltar", () => {
 	});
 	it("conteúdo menor que a folga ainda sobe até o topo (expandida é a altura da tela)", () => {
 		expect(settleSheet("collapsed", -400, 0, { collapsed: 200, expanded: 760 })).toEqual({ next: "expanded", height: 760 });
+	});
+});
+
+describe("folha de conteúdo (altura inicial = altura máxima)", () => {
+	const full = { collapsed: 760, expanded: 760 };
+	it("parada ou puxada para cima fica aberta", () => {
+		expect(settleSheet("collapsed", 0, 0, full)).toEqual({ next: "collapsed", height: 760 });
+		expect(settleSheet("collapsed", -80, 0, full).height).toBe(760);
+		expect(settleSheet("collapsed", -10, -FLING_VELOCITY, full)).toEqual({ next: "expanded", height: 760 });
+	});
+	it("arrastar para baixo além da metade ou arremessar fecha direto", () => {
+		expect(settleSheet("collapsed", 400, 0, full)).toEqual({ next: "closed", height: 0 });
+		expect(settleSheet("collapsed", 20, FLING_VELOCITY, full)).toEqual({ next: "closed", height: 0 });
+	});
+	it("arrasto curto para baixo volta para aberta", () => {
+		expect(settleSheet("collapsed", 120, 0, full)).toEqual({ next: "collapsed", height: 760 });
+	});
+});
+
+describe("folha de altura única: toque na alça e repouso", () => {
+	const full = { collapsed: 760, expanded: 760 };
+	it("toque na alça não muda o repouso (o arremesso seguinte ainda fecha)", () => {
+		expect(isSingleHeight(full)).toBe(true);
+		expect(tapRest("collapsed", full)).toBe("collapsed");
+		expect(settleSheet(tapRest("collapsed", full), 20, FLING_VELOCITY, full).next).toBe("closed");
+	});
+	it("arremesso para cima não deixa o repouso em 'expanded'", () => {
+		const next = settleSheet("collapsed", -10, -FLING_VELOCITY, full).next;
+		expect(normalizeRest(next === "closed" ? "collapsed" : next, full)).toBe("collapsed");
+	});
+	it("com duas alturas o toque alterna e o repouso é o pedido", () => {
+		expect(isSingleHeight(h)).toBe(false);
+		expect(tapRest("collapsed", h)).toBe("expanded");
+		expect(tapRest("expanded", h)).toBe("collapsed");
+		expect(normalizeRest("expanded", h)).toBe("expanded");
 	});
 });
