@@ -48,3 +48,6 @@ export function cornersNextToTable(base: BubbleCorners, side: "left" | "right", 
 
 /** Largura máxima do balão do bot no fio (87% da lista). O cartão de arquivo usa a mesma, para nunca passar do balão. */
 export const BUBBLE_MAX_WIDTH_CLASS = "max-w-[87%]";
+
+/** Mesmos 87% do balão (`BUBBLE_MAX_WIDTH_CLASS`), mas largura fixa: o cartão de arquivo não encolhe ao conteúdo. Mudou um, mude o outro. */
+export const BUBBLE_WIDTH_CLASS = "w-[87%]";
