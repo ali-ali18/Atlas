@@ -1,16 +1,12 @@
 import type { ChatTool } from "@workspace/llm";
-import { DAILY_BRIEF_TEMPLATE, GITHUB_SECURITY_REVIEW_TEMPLATE, GITHUB_TRIGGER_EVENTS } from "@workspace/shared";
 import { attachToolDefinitions } from "./registry/index.js";
 import { ALL_DEFINED_TOOLS } from "./registry/handlers/index.js";
-import { ALERT_RULE_SCHEMA } from "./alert-rule.js";
 import { APP_INFO_TOOL } from "./app-info.js";
 import { ARTIFACT_READ_TOOL } from "./artifact-read.js";
 import { CURRENT_TIME_TOOL } from "./current-time.js";
-import { FIND_PAGE_VALUE_TOOL } from "./find-page-value.js";
 import { LESSON_FEEDBACK_TOOL } from "./lesson-feedback.js";
 import { PREVIEW_SETUP_TOOL } from "./preview-setup/tool.js";
 import { PROPOSE_CONNECTOR_TOOL, PROPOSE_CUSTOM_MCP_TOOL } from "./propose-connector.js";
-import { ROUTINE_CONTROL_TOOL } from "./routine-control.js";
 import { SANDBOX_RELEASE_TOOL } from "./sandbox-release.js";
 import { SANDBOX_SHELL_TOOLS } from "./sandbox-shell.js";
 import { SKILL_CORE_TOOLS, SKILL_GROUP_TOOLS } from "./skills.js";
@@ -289,53 +285,10 @@ export const COMPUTER_USE_TOOLS: ChatTool[] = [
 	ROUTINE_WEBHOOK_INFO_TOOL,
 	SECRET_REQUEST_TOOL,
 	LOGIN_FILL_TOOL,
-	{
-		type: "function",
-		function: {
-			name: "list_routines",
-			description:
-				"Lista as rotinas deste bot em texto (sem card), com os alertas por condição (condição, frequência, se está avisando agora) e o modo de aviso. Use para consultar rotinas e alertas existentes, e antes de pausar, retomar, apagar ou editar uma. Não invente rotinas.",
-			parameters: {
-				type: "object",
-				properties: {
-					only_enabled: {
-						type: "boolean",
-						description: "Lista só ativas (padrão false = todas).",
-					},
-					only_alerts: {
-						type: "boolean",
-						description: "Lista só alertas por condição (\"quais alertas eu tenho?\"). Padrão false = todas.",
-					},
-				},
-			},
-		},
-	},
-	ROUTINE_CONTROL_TOOL,
-	FIND_PAGE_VALUE_TOOL,
-	{
-		type: "function",
-		function: {
-			name: "routine_group",
-			description:
-				"Pausa, retoma, renomeia ou desfaz um grupo de uma vez (o mesmo grupo reúne rotinas e painéis). delete só remove o grupo: rotinas e painéis continuam, sem grupo. group = nome ou id do grupo (aparece em list_routines e page_list). rename exige new_name. Para criar um grupo ou mover um painel, use o campo group de page_create/page_update.",
-			parameters: {
-				type: "object",
-				properties: {
-					action: {
-						type: "string",
-						enum: ["pause", "resume", "rename", "delete"],
-						description: "pause = pausa todas; resume = ativa todas; rename = muda o nome (new_name); delete = desfaz o grupo mantendo as rotinas.",
-					},
-					new_name: { type: "string", description: "Novo nome do grupo (só em rename, até 80 caracteres)." },
-					group: {
-						type: "string",
-						description: "Nome ou id do grupo.",
-					},
-				},
-				required: ["action", "group"],
-			},
-		},
-	},
+	...defined("list_routines"),
+	...defined("routine_control"),
+	...defined("find_page_value"),
+	...defined("routine_group"),
 	{
 		type: "function",
 		function: {
@@ -371,167 +324,7 @@ export const COMPUTER_USE_TOOLS: ChatTool[] = [
 			},
 		},
 	},
-	{
-		type: "function",
-		function: {
-			name: "propose_routine",
-			description:
-				"Create (action create) or edit (action edit) a routine. Card only on create. Create: title=name, detail=prompt to run on each trigger, trigger_type cron|interval|once|event|github. cron: needs schedule (5 fields), fixed clock times. interval: needs every_minutes (5-1440), exact \"every N minutes/hours\" counted from the last run (use for \"every 50 min\", including GitHub monitoring). once (\"remind me on 03/10 at 10h\"): needs run_at (ISO 8601; no offset = America/Sao_Paulo) for a clock time, or in_minutes for \"in N minutes/hours\" (the server adds it to the current time); never both; fires once and deletes itself; several times = one call per time. event: generic webhook (URL+secret). email: runs when an e-mail arrives in the bot's own inbox (\"toda vez que chegar e-mail de X\", \"quando o fornecedor mandar a NF\"); optional `email` filters from_contains / subject_contains; needs the bot's mailbox to be active (email_create_mailbox) and only allowed senders trigger it; the e-mail text reaches the run as untrusted data, and the e-mail is handled by the routine instead of a normal chat reply; the routine only replies or sends e-mail if `detail` explicitly says so. github: instant webhook, needs the `github` object (repo, events; use github_list_repos if the repo is not owner/name). The github trigger creates and manages the repository webhook AUTOMATICALLY (URL and secret are internal, using the user's GitHub from the Marketplace or Composio). NEVER create, edit or delete GitHub webhooks yourself via Composio or any other tool (e.g. GITHUB_CREATE_A_REPOSITORY_WEBHOOK): deliveries signed with any other secret are rejected. Never show secret or URL to assemble by hand. Webhook and interval can coexist for the same repo as two routines. Security review of a GitHub repo: set template=github_security_review and repo=owner/name (detail may be empty or hold an extra focus); combine with interval for periodic reviews. Morning brief (\"me prepara o dia às 7h30\", \"quero um resumo do meu dia toda manhã\"): set template=daily_brief (trigger_type cron; schedule only if the user gave a time/days, as a 5-field cron with ONE fixed time per day, e.g. \"30 7 * * 1-5\"; omit it for the default 07:30 Monday to Friday). It sends a short message in the chat (plus a push) at that time, no panel, only one per bot (asking again edits it), read-only on the user's sources, only the connected ones (state exactly the sources the tool result lists; never promise a portal, site or app that is not a connected source); detail is optional extra focus (\"não olhe o Slack\"). Change its time/days or pause it with action=edit target=\"Seu dia\". Edit: target=name or id (use the id if the message has '(id ...)'; never confuse with editing the bot profile); no card; trigger_type may change (switching to github needs repo+events, to once needs run_at, to interval needs every_minutes); enabled omitted keeps the current state. Use only when the user's latest message asks to schedule, monitor or change a recurring or timed job. Do not use when the user only thanks, praises or acknowledges (answer in one sentence instead), inside a routine run, or for a one-off task to do now. If a routine with the same name exists, edit instead of duplicating. Alert by condition (\"avisa se o estoque do produto X cair abaixo de 10\", \"se a venda do dia ficar abaixo da meta às 17h\", \"se chegar pedido acima de R$ 5 mil\"): create a routine with trigger_type interval (every N minutes) or cron (fixed times) plus the alert object. Each run only checks the condition with read tools and the user is notified only when it newly becomes true, so do not ask for a notification schedule. detail = how to check it (which connector/tool, product, field, threshold, and the date range: \"today\" for daily totals); alert.condition = the user's condition as a short phrase in their language that completes \"avisa se ...\"; alert.hint = optional pointer on where to look. Each check costs a model run, so pick few, well-placed check times instead of a short interval: business data only changes in business hours, so use trigger_type cron on weekdays (stock: a few times a day, e.g. \"0 10,14,17 * * 1-5\"; end-of-day target such as \"venda do dia abaixo da meta\": one check near the moment it matters, e.g. \"0 17 * * 1-5\"; new orders: every 2-4 hours in business hours, e.g. \"0 9-18/3 * * 1-5\"). An interval alert (every_minutes) must be at least 120 minutes unless the user explicitly asked for a more frequent check (then pass alert.frequent=true); the server widens a quiet alert's interval by itself. Never pick every 30 minutes on your own. Tell the user in one sentence what you will watch and when. Alert with `alert.rule` (exact value or new item on a public page or feed, no model cost): you choose the frequency (alert.rule.intervalMinutes, or every_minutes for interval) and the 120-minute minimum above does not apply; the rule is tested live on creation and the tool fails if it cannot read it. Only with trigger_type cron or interval; not for one-off reminders (use once) or instant events (use github/event). Edit: pass alert to change the condition, or alert.condition empty to turn it back into a normal routine. To keep a page up to date, pass page_id (from page_create or page_list) and write in detail how to rebuild it with fresh data (which sources to query, which sections to refresh); each run then updates that page in place instead of posting a new message.",
-			parameters: {
-				type: "object",
-				properties: {
-					action: {
-						type: "string",
-						enum: ["create", "edit"],
-						description: "Criar nova ou editar existente.",
-					},
-					title: {
-						type: "string",
-						description: "Nome curto da rotina (create) ou novo nome (edit).",
-					},
-					target: {
-						type: "string",
-						description:
-							"Para edit: nome OU id da rotina alvo. Se a mensagem do usuário trouxer '(id XYZ)' (prefill do botão Editar), use XYZ — não o nome.",
-					},
-					detail: {
-						type: "string",
-						description: "Prompt/instrução que o agente segue ao disparar.",
-					},
-					trigger_type: {
-						type: "string",
-						enum: ["cron", "once", "interval", "event", "github", "email"],
-						description: "email = quando chegar e-mail na caixa do bot (filtros opcionais em `email`); cron = agenda repetida; interval = a cada N minutos exatos (usa every_minutes); once = dispara uma vez só num horário e se apaga (usa run_at); event = webhook genérico; github = gatilho do GitHub (webhook instantâneo; para \"a cada N min\" use interval). Em edit, pode ser diferente do tipo atual da rotina — troca o gatilho.",
-					},
-					schedule: {
-						type: "string",
-						description: "Expressão cron de 5 campos (obrigatório se cron e enabled).",
-					},
-					run_at: {
-						type: "string",
-						description:
-							"Para trigger_type=once (create, ou edit trocando PRA once), use run_at OU in_minutes. Data/hora ISO 8601 do disparo único, ex.: 2026-10-03T10:00. Sem offset/'Z', interpreta no fuso de `timezone` (padrão America/Sao_Paulo). Precisa ser no futuro e no máximo 1 ano à frente. Um único horário por chamada — vários horários = várias chamadas.",
-					},
-					in_minutes: {
-						type: "integer",
-						minimum: 1,
-						maximum: 10080,
-						description:
-							"Alternative to run_at for trigger_type=once: fire N minutes from now (1-10080). Use for \"in 30 minutes\" / \"in 2 hours\" (120); use run_at for a clock time. Never both.",
-					},
-					every_minutes: {
-						type: "number",
-						description:
-							"Obrigatório se trigger_type=interval (create, ou edit trocando PRA interval). Inteiro de 5 a 1440 (ex.: 50 = a cada 50 minutos; 120 = a cada 2 h).",
-					},
-					template: {
-						type: "string",
-						enum: [GITHUB_SECURITY_REVIEW_TEMPLATE, DAILY_BRIEF_TEMPLATE],
-						description:
-							"Optional prompt template. github_security_review = periodic security review of a GitHub repo with a 0-10 score; requires repo. Replaces detail (detail becomes an optional extra focus). daily_brief = the morning brief \"Seu dia\" (agenda, e-mails that need the user, priorities) delivered as a chat message and a push, no panel; detail is optional extra focus.",
-					},
-					repo: {
-						type: "string",
-						description: "owner/name of the repository (only with template=github_security_review).",
-					},
-					timezone: {
-						type: "string",
-						description: "Fuso IANA (padrão America/Sao_Paulo). Também usado pra interpretar run_at (once) sem offset.",
-					},
-					enabled: {
-						type: "boolean",
-						description:
-							"Se a rotina fica ativa. Create: padrão true. Edit: omita pra manter o estado atual (ativa/pausada) — só informe quando o usuário pedir pra ativar/retomar/pausar.",
-					},
-					model: {
-						type: "string",
-						description: "Modelo OpenRouter opcional para esta rotina.",
-					},
-					notify: {
-						type: "string",
-						enum: ["always", "important"],
-						description:
-							"Aviso (push) ao fim de cada execução. always (padrão) = sempre avisa. important = a execução fica salva no chat sem aviso, e quem executa só avisa quando o resultado merece atenção agora. Use important para monitoramentos em que a maioria das execuções não traz nada novo. Em edit, omita para manter.",
-					},
-					alert: {
-						type: "object",
-						description:
-							"Turns the routine into an alert by condition (only trigger_type cron or interval): the routine checks on its schedule and the user is notified only when the condition becomes true (and again only after it stopped being true). `condition` is required unless `rule` is given (then it is generated from the rule). In edit, an empty condition removes the alert; omit to keep.",
-						properties: {
-							condition: {
-								type: "string",
-								description: "The condition as a short phrase in the user's language that completes \"avisa se ...\", e.g. \"o estoque da canela cair abaixo de 10\", \"a venda do dia ficar abaixo da meta\", \"chegar pedido acima de R$ 5 mil\".",
-							},
-							frequent: {
-								type: "boolean",
-								description: "true ONLY when the user explicitly asked for checks more often than every 2 hours (e.g. \"confere a cada 10 minutos\"). Never set it on your own.",
-							},
-							hint: {
-								type: "string",
-								description: "Optional pointer for the checker: connector/tool to use, product, field, threshold, date range.",
-							},
-							rule: ALERT_RULE_SCHEMA,
-						},
-					},
-					page_id: {
-						type: "string",
-						description:
-							"Id of a page of this bot (from page_create or page_list) that each run refreshes in place via page_update. Omit unless the user wants a page kept up to date. In edit, an empty string detaches the page; omit to keep.",
-					},
-					group: {
-						type: "string",
-						description:
-							"Nome do grupo da rotina. Rotinas da mesma tarefa usam o mesmo nome (curto e descritivo); um grupo com esse nome é reaproveitado, senão é criado. Em edit, string vazia tira a rotina do grupo; omita para manter.",
-					},
-					email: {
-						type: "object",
-						description:
-							"Only with trigger_type=email. Both filters are optional, case-insensitive \"contains\" matches; omit both for every e-mail from an allowed sender. In edit of an email routine, only the fields that change (empty string removes a filter).",
-						properties: {
-							from_contains: { type: "string", description: "Part of the sender address or domain, e.g. \"fornecedor@\" or \"@fornecedor.com\"." },
-							subject_contains: { type: "string", description: "Part of the subject, e.g. \"NF\"." },
-						},
-					},
-					github: {
-						type: "object",
-						description:
-							"Obrigatório (ao menos repo+events) quando trigger_type=github no create OU ao trocar de cron/event pra github no edit; em edit de uma rotina já github, só os campos que mudaram.",
-						properties: {
-							repo: {
-								type: "string",
-								description: "owner/name do repositório (aceita colar a URL do GitHub).",
-							},
-							events: {
-								type: "array",
-								items: { type: "string", enum: [...GITHUB_TRIGGER_EVENTS] },
-								description:
-									"Eventos do GitHub a observar. Para 'fica de olho no PR N' use o conjunto completo de babá de PR. Para 'acompanhar/toda mudança na branch X' use [push, pr_opened, pr_merged] + branch=X.",
-							},
-							pr_number: {
-								type: "number",
-								description: "Restringe a um PR específico (babá de PR: a rotina se apaga quando o PR fechar).",
-							},
-							users: {
-								type: "array",
-								items: { type: "string" },
-								description: "Filtro de autor/ator (login, com ou sem @); eventos ci_* são isentos.",
-							},
-							branch: {
-								type: "string",
-								description:
-									"Filtro de branch (sem pr_number): ci_* = branch do check suite (obrigatório se algum evento ci_* estiver selecionado); push = branch do push; pr_* = branch BASE/destino do PR. Aceita também `ci_branch` (alias antigo, mesmo campo).",
-							},
-							ci_branch: {
-								type: "string",
-								description: "Alias antigo de `branch` — mesmo campo, mantido por compatibilidade.",
-							},
-						},
-					},
-				},
-				required: ["action", "detail", "trigger_type"],
-			},
-		},
-	},
+	...defined("propose_routine"),
 	{
 		type: "function",
 		function: {

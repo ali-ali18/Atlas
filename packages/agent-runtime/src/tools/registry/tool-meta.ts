@@ -105,12 +105,6 @@ export const TOOL_META: Readonly<Record<string, ToolMetaFields>> = {
 	github_compare: { effect: "read" },
 
 	// Rotinas
-	list_routines: { effect: "read" },
-	routine_group: { effect: "write_external" },
-	routine_control: { effect: "write_internal" },
-	propose_routine: { effect: "write_external", ownCard: true },
-	report_alert: { effect: "write_internal", endsTurn: true },
-	find_page_value: { effect: "read" },
 
 	// Bots e configuração
 	propose_bot: { effect: "write_internal", ownCard: true, needsHuman: true, endsTurn: true },
