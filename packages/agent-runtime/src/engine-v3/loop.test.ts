@@ -34,7 +34,7 @@ const erp = {
 	name: "ERP",
 	disabledTools: [],
 	tools: [
-		{ name: "buscar_cliente", description: "Busca cliente", inputSchema: { type: "object", properties: { nome: { type: "string" } } }, annotations: { readOnlyHint: true } },
+		{ name: "buscar_cliente", description: "Busca cliente", inputSchema: { type: "object", properties: { nome: { type: "string" }, id: { type: "integer" } } }, annotations: { readOnlyHint: true } },
 		{ name: "criar_proposta", description: "Cria proposta", inputSchema: { type: "object", properties: { cliente: { type: "string" } } }, annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false } },
 	],
 };
@@ -194,7 +194,7 @@ describe("motor v3: empurrões estruturais", () => {
 		const { result, requests, results } = await runV3({ script: [say("", "tool_calls"), tools(call("bad", READ, "{nome: ")), say("ok")] });
 		expect(requests[1]!.texts.at(-1)).toMatch(/^\[runtime\] Your last reply announced a tool call/);
 		expect(results[0]).toMatchObject({ name: READ, ok: false });
-		expect(results[0]!.summary).toMatch(/Invalid arguments.*Expected: mcp__erp__buscar_cliente\(nome\?: string\)/s);
+		expect(results[0]!.summary).toMatch(/Invalid arguments.*Expected: mcp__erp__buscar_cliente\(nome\?: string, id\?: number\)/s);
 		expect(result.text).toBe("ok");
 	});
 
@@ -398,4 +398,37 @@ describe("motor v3: contrato e tracing", () => {
 	});
 
 
+});
+
+describe("motor v3: ponte tolerante (envelope repetido, número em texto, tool não oferecida)", () => {
+	it("chamada direta com {name, args} repetido executa com o objeto interno", async () => {
+		const { mcpCall, results } = await runV3({ script: [tools(call("e1", READ, { name: READ, args: { nome: "Acme" } })), say("ok")] });
+		expect(mcpCall).toHaveBeenCalledWith(READ, { nome: "Acme" }, expect.anything(), expect.anything());
+		expect(results[0]!.ok).toBe(true);
+	});
+
+	it("via tool_call, com o nome real ou o nome normalizado, também desembrulha e converte texto numérico", async () => {
+		const { mcpCall, results } = await runV3({ script: [tools(call("e2", "tool_call", { name: READ, args: { name: READ, args: { nome: "Acme", id: "48213" } } })), say("ok")] });
+		expect(mcpCall).toHaveBeenCalledWith(READ, { nome: "Acme", id: 48213 }, expect.anything(), expect.anything());
+		expect(results[0]!.ok).toBe(true);
+	});
+
+	it("envelope com outro nome é erro com a assinatura (não adivinha)", async () => {
+		const { mcpCall, results } = await runV3({ script: [tools(call("e3", READ, { name: WRITE, args: { nome: "Acme" } })), say("ok")] });
+		expect(mcpCall).not.toHaveBeenCalled();
+		expect(results[0]!.ok).toBe(false);
+		expect(results[0]!.summary).toMatch(/tool_call envelope[\s\S]*Expected: mcp__erp__buscar_cliente\(nome\?: string, id\?: number\)/);
+	});
+
+	it("texto numérico vira número na chamada direta; texto não numérico segue como veio (o erro é do executor)", async () => {
+		const { mcpCall } = await runV3({ script: [tools(call("n1", READ, { nome: "x", id: " 42 " }), call("n2", READ, { nome: "y", id: "4x" })), say("ok")] });
+		expect(mcpCall).toHaveBeenNthCalledWith(1, READ, { nome: "x", id: 42 }, expect.anything(), expect.anything());
+		expect(mcpCall).toHaveBeenNthCalledWith(2, READ, { nome: "y", id: "4x" }, expect.anything(), expect.anything());
+	});
+
+	it("tool que existe no sistema mas não é oferecida no run diz \"not offered in this run\"", async () => {
+		const { results } = await runV3({ script: [tools(call("o1", "sandbox_shell", { command: "ls" })), say("ok")] });
+		expect(results[0]!.ok).toBe(false);
+		expect(results[0]!.summary).toMatch(/^Tool "sandbox_shell" is not offered in this run\./);
+	});
 });

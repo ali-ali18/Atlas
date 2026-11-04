@@ -60,6 +60,12 @@ export function unknownToolMessage(name: string, suggestions: readonly string[])
 		: `Unknown tool "${clipped}". It does not exist in this run; use one of the tools you were given or tell the user it is not possible.`;
 }
 
+/** A tool existe no sistema, mas este run não a oferece (nem foi negada pela política): sem insistir. */
+export function notOfferedMessage(name: string, suggestions: readonly string[]): string {
+	const near = suggestions.length > 0 ? ` Closest available: ${suggestions.join(", ")}.` : "";
+	return `Tool "${name.slice(0, 80)}" is not offered in this run.${near} Do not retry it; continue without it or tell the user what you could not do.`;
+}
+
 function typeOf(schema: unknown): string {
 	if (!schema || typeof schema !== "object") return "unknown";
 	const record = schema as { type?: unknown; enum?: unknown; items?: unknown };
@@ -80,6 +86,22 @@ export function toolSignature(tool: ChatTool): string {
 /** Campos obrigatórios do schema ausentes nos args (só presença; o executor valida tipo e valor). */
 export function missingRequiredArgs(tool: ChatTool, args: Record<string, unknown>): string[] {
 	return (tool.function.parameters.required ?? []).filter((key) => args[key] === undefined || args[key] === null);
+}
+
+/**
+ * Campos que o schema não declara (regra do dono: campo desconhecido falha com a lista do que é aceito, nunca é
+ * descartado em silêncio). Só vale quando o schema lista propriedades e não abre `additionalProperties`.
+ */
+export function unknownArgs(tool: ChatTool, args: Record<string, unknown>): string[] {
+	const parameters = tool.function.parameters as { properties?: Record<string, unknown>; additionalProperties?: unknown };
+	const properties = parameters.properties ?? {};
+	if (Object.keys(properties).length === 0 || parameters.additionalProperties === true || typeof parameters.additionalProperties === "object") return [];
+	return Object.keys(args).filter((key) => !Object.hasOwn(properties, key));
+}
+
+export function unknownArgsMessage(tool: ChatTool, unknown: readonly string[]): string {
+	const accepted = Object.keys(tool.function.parameters.properties ?? {}).slice(0, 12).join(", ");
+	return invalidArgsMessage(tool, `unknown field${unknown.length > 1 ? "s" : ""} ${unknown.slice(0, 5).join(", ")} (accepted: ${accepted})`);
 }
 
 export function invalidArgsMessage(tool: ChatTool, reason: string): string {

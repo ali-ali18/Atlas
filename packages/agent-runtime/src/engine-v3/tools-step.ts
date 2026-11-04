@@ -16,8 +16,8 @@ import { getToolMeta } from "../tools/registry/tool-meta.js";
 import { isSandboxTool } from "../tools/registry/sandbox-tools.js";
 import { dedupeLoginAsk, unattendedLoginOutcome } from "../engine-v2/login.js";
 import { TOOL_CALL_TOOL_NAME, TOOL_SEARCH_TOOL_NAME } from "../tools/tool-bridge.js";
-import { argProblems } from "./bridge.js";
-import { SKIPPED_FOR_APPROVAL, SKIPPED_FOR_PARK, SKIPPED_FOR_USER_MESSAGE, closestToolNames, honestError, invalidArgsMessage, missingRequiredArgs, normalizeToolName, toolSignature, unknownToolMessage } from "./failures.js";
+import { argProblems, coerceNumericText, unwrapEnvelope } from "./bridge.js";
+import { SKIPPED_FOR_APPROVAL, SKIPPED_FOR_PARK, SKIPPED_FOR_USER_MESSAGE, closestToolNames, honestError, invalidArgsMessage, missingRequiredArgs, unknownArgs, unknownArgsMessage, normalizeToolName, notOfferedMessage, toolSignature, unknownToolMessage } from "./failures.js";
 import { decideCall, deniedMessage, spanPolicyDecision } from "./policy.js";
 import { BLOCKED_REPEATED } from "./repetition.js";
 import { pollSteer } from "./steering.js";
@@ -58,6 +58,13 @@ export function createToolsStep(run: V3Run, contextFor: ToolContextFactory) {
 	const toolOf = (name: string): ChatTool | undefined => run.catalog.entries.get(name)?.tool ?? run.tools.find((tool) => tool.function.name === name);
 	const resolveName = (name: string): string | undefined => (toolOf(name) ? name : toolOf(normalizeToolName(name)) ? normalizeToolName(name) : undefined);
 
+	/** Envelope repetido e número em texto (estrutural, sem ler texto do usuário): devolve os args prontos ou o erro com a assinatura. */
+	const normalizeArgs = (tool: ChatTool, args: Record<string, unknown>, acceptedNames: readonly string[]): { args: Record<string, unknown> } | { error: string } => {
+		const unwrapped = unwrapEnvelope(tool, args, acceptedNames);
+		if ("error" in unwrapped) return { error: invalidArgsMessage(tool, unwrapped.error) };
+		return { args: coerceNumericText(tool, unwrapped.args) };
+	};
+
 	/**
 	 * `tool_call(name, args)`: troca pela chamada real (mesmo id) antes de tudo, então política, aprovação, journal,
 	 * eventos e cards veem o nome real. Nome ou args que não valem voltam como erro com a assinatura (ou nomes próximos).
@@ -88,9 +95,11 @@ export function createToolsStep(run: V3Run, contextFor: ToolContextFactory) {
 			}
 		}
 		if (!inner || typeof inner !== "object" || Array.isArray(inner)) return { call, error: { name, summary: invalidArgsMessage(toolOf(name)!, "args must be a JSON object") } };
-		const problems = argProblems(toolOf(name)!, inner as Record<string, unknown>);
+		const normalized = normalizeArgs(toolOf(name)!, inner as Record<string, unknown>, [name, outer.name.trim()]);
+		if ("error" in normalized) return { call, error: { name, summary: normalized.error } };
+		const problems = argProblems(toolOf(name)!, normalized.args);
 		if (problems.length > 0) return { call, error: { name, summary: invalidArgsMessage(toolOf(name)!, problems.join("; ")) } };
-		return { call: { ...call, function: { name, arguments: JSON.stringify(inner) } } };
+		return { call: { ...call, function: { name, arguments: JSON.stringify(normalized.args) } } };
 	};
 
 	const span = async (call: LlmToolCall, sub: number, name: string, ok: boolean, summary: string, decision: "allow" | "confirm" | "blocked", durationMs = 0, extra: Record<string, unknown> = {}) => {
@@ -124,7 +133,7 @@ export function createToolsStep(run: V3Run, contextFor: ToolContextFactory) {
 	const processCall = async (outerCall: LlmToolCall, sub: number, batch: { parked: boolean }): Promise<CallOutcome> => {
 		const bridged = unwrapBridge(outerCall);
 		if (bridged.error) return await refuse(outerCall, sub, bridged.error.name, bridged.error.summary);
-		const call = bridged.call;
+		let call = bridged.call;
 		// --- nome: exato, normalizado, escondido pela política (motivo) ou desconhecido (até 3 próximos) ---
 		let name = call.function.name;
 		name = resolveName(name) ?? name;
@@ -137,7 +146,8 @@ export function createToolsStep(run: V3Run, contextFor: ToolContextFactory) {
 				const hidden = decideCall({ name, args: hiddenArgs, ...(hiddenEntry ? { entry: hiddenEntry } : {}), base: run.policy, autonomy: run.autonomy.get() });
 				if (hidden.decision === "deny" || hidden.decision === "hide") return await refuse(call, sub, name, deniedMessage(hidden.reason), { argsKey: toolArgsKey(name, hiddenArgs) });
 			}
-			return await refuse(call, sub, name, unknownToolMessage(name, closestToolNames(name, [...run.catalog.entries.keys()])));
+			const near = closestToolNames(name, [...run.catalog.entries.keys()]);
+			return await refuse(call, sub, name, hiddenEntry || getToolMeta(name) ? notOfferedMessage(name, near) : unknownToolMessage(name, near));
 		}
 		const tool = toolOf(name)!;
 		// --- args ---
@@ -147,9 +157,17 @@ export function createToolsStep(run: V3Run, contextFor: ToolContextFactory) {
 		} catch (error) {
 			return await refuse(call, sub, name, invalidArgsMessage(tool, honestError(error)));
 		}
+		const normalized = normalizeArgs(tool, args, [call.function.name, name]);
+		if ("error" in normalized) return await refuse(call, sub, name, normalized.error);
+		if (normalized.args !== args) {
+			args = normalized.args;
+			call = { ...call, function: { ...call.function, arguments: JSON.stringify(args) } };
+		}
 		const argsKey = toolArgsKey(name, args);
 		const missing = missingRequiredArgs(tool, args);
 		if (missing.length > 0) return await refuse(call, sub, name, invalidArgsMessage(tool, `missing required ${missing.join(", ")}`), { argsKey });
+		const unknown = unknownArgs(tool, args);
+		if (unknown.length > 0) return await refuse(call, sub, name, unknownArgsMessage(tool, unknown), { argsKey });
 		// --- política (decide de verdade) ---
 		const entry = run.entryOf(name);
 		const pre = run.preTools.run(name, args, entry);

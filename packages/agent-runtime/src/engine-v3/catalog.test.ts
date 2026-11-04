@@ -6,7 +6,7 @@ import { PROPOSE_BOT_TOOL } from "../tools/bot-proposal.js";
 import { CREATE_FILE_TOOL } from "../tools/create-file.js";
 import { PAGE_TOOLS } from "../tools/pages.js";
 import { UPDATE_TASK_LIST_TOOL_V2 } from "../tools/task-list.js";
-import { argProblems, firstSentence, rankTools, toolSearchText, type CatalogEntry } from "./bridge.js";
+import { NO_TOOL_FOUND_HINT, TOOL_SEARCH_MAX_CHARS, argProblems, coerceNumericText, exampleCall, firstSentence, rankTools, toolSearchText, unwrapEnvelope, type CatalogEntry } from "./bridge.js";
 import { BASE_CORE, CORE_SCHEMA_MAX_CHARS, MANIFEST_MAX_CHARS, USAGE_CORE_MAX, VM_CORE, buildManifest, buildV3Catalog, selectCore } from "./catalog.js";
 
 // Como o PREPARE monta: as tools de navegador de hoje viram as 4 do PR6.
@@ -124,7 +124,19 @@ describe("motor v3: tool_search (lexical, sem LLM)", () => {
 		expect(text).toMatch(/^Tools for "criar bot"/);
 		expect(text).toMatch(/propose_bot\(name: string, description: string, snippet\?: string/);
 		expect(text).toMatch(/\[built-in\]/);
-		expect(toolSearchText("tiktok", [])).toMatch(/No tool matches "tiktok".*not possible/);
+		expect(toolSearchText("tiktok", [])).toBe(`No tool matches "tiktok": ${NO_TOOL_FOUND_HINT}`);
+		expect(NO_TOOL_FOUND_HINT).toMatch(/tell the user it isn't available yet; propose_connector only if the user asked to connect a new app/);
+	});
+
+	it("cada tool mostra obrigatórios com tipo e um exemplo de chamada direta; o tamanho é limitado", () => {
+		const order = tool("mcp__vendas__getSalesOrder", "Busca um pedido.", { orderId: { type: "integer" }, mode: { type: "string", enum: ["full", "short"] }, note: { type: "string" } }, ["orderId", "mode"]);
+		const entry: CatalogEntry = { name: order.function.name, tool: order, source: "connector", connector: "Vendas", summary: "Busca um pedido" };
+		const text = toolSearchText("pedido", [entry]);
+		expect(text).toMatch(/directly by its exact name/);
+		expect(text).toContain('required: orderId (integer), mode ("full" | "short")');
+		expect(text).toContain('e.g. mcp__vendas__getSalesOrder({"orderId":1,"mode":"full"})');
+		const many = Array.from({ length: 8 }, (_, index) => ({ ...entry, name: `tool_${index}`, tool: tool(`tool_${index}`, "x".repeat(50), Object.fromEntries(Array.from({ length: 6 }, (_, key) => [`field_with_long_name_${key}`, { type: "string" }])), Array.from({ length: 6 }, (_, key) => `field_with_long_name_${key}`)) }));
+		expect(toolSearchText("x", many).length).toBeLessThanOrEqual(TOOL_SEARCH_MAX_CHARS + 120);
 	});
 });
 
@@ -139,5 +151,55 @@ describe("motor v3: args do tool_call pelo schema", () => {
 	it("primeira frase curta, sem o prefixo [Conector]", () => {
 		expect(firstSentence("[Bling] Lista pedidos de venda. Use filtros.")).toBe("Lista pedidos de venda");
 		expect(firstSentence("x".repeat(80)).length).toBeLessThanOrEqual(60);
+	});
+});
+
+describe("motor v3: envelope repetido e coerção numérica (puras)", () => {
+	const order = tool("getSalesOrder", "Pedido.", { orderId: { type: "integer" }, price: { type: "number" }, label: { type: "string" } }, ["orderId"]);
+	it("desembrulha {name, args} só com o nome certo e nenhum outro campo", () => {
+		expect(unwrapEnvelope(order, { name: "getSalesOrder", args: { orderId: 1 } }, ["getSalesOrder"])).toEqual({ args: { orderId: 1 } });
+		expect(unwrapEnvelope(order, { name: "getSalesOrder", args: '{"orderId":1}' }, ["getSalesOrder"])).toEqual({ args: { orderId: 1 } });
+		expect(unwrapEnvelope(order, { name: "outra", args: { orderId: 1 } }, ["getSalesOrder"])).toHaveProperty("error");
+		expect(unwrapEnvelope(order, { name: "getSalesOrder", args: [] }, ["getSalesOrder"])).toHaveProperty("error");
+		// outro campo junto, ou tool que declara `name`/`args`: passa intacto
+		const plain = { name: "getSalesOrder", args: { orderId: 1 }, orderId: 2 };
+		expect(unwrapEnvelope(order, plain, ["getSalesOrder"])).toEqual({ args: plain });
+		const named = tool("rename", "x", { name: { type: "string" }, args: { type: "object" } });
+		expect(unwrapEnvelope(named, { name: "rename", args: {} }, ["rename"])).toEqual({ args: { name: "rename", args: {} } });
+	});
+
+	it("converte só texto numérico válido para integer/number", () => {
+		expect(coerceNumericText(order, { orderId: "48213", price: "10.5", label: "007" })).toEqual({ orderId: 48213, price: 10.5, label: "007" });
+		expect(coerceNumericText(order, { orderId: "12.5" })).toEqual({ orderId: "12.5" });
+		expect(coerceNumericText(order, { orderId: "1e3", price: "abc" })).toEqual({ orderId: "1e3", price: "abc" });
+		expect(coerceNumericText(order, { orderId: "99999999999999999999" })).toEqual({ orderId: "99999999999999999999" });
+		const same = { orderId: 5 };
+		expect(coerceNumericText(order, same)).toBe(same);
+	});
+
+	it("exemplo mínimo usa só os obrigatórios", () => {
+		expect(exampleCall(order)).toBe('getSalesOrder({"orderId":1})');
+	});
+});
+
+describe("motor v3: campo desconhecido falha com a lista aceita", () => {
+	const order: ChatTool = {
+		type: "function",
+		function: { name: "getSalesOrder", description: "Get one sales order.", parameters: { type: "object", properties: { orderId: { type: "integer" } }, required: ["orderId"] } },
+	};
+	it("argProblems acusa o campo inventado e lista os aceitos", () => {
+		expect(argProblems(order, { orderId: 48213, id: "48213", salesOrderId: "48213" })).toEqual([
+			"unknown field id (accepted: orderId)",
+			"unknown field salesOrderId (accepted: orderId)",
+		]);
+	});
+	it("unknownArgs respeita additionalProperties aberto e schema sem propriedades", async () => {
+		const { unknownArgs, unknownArgsMessage } = await import("./failures.js");
+		expect(unknownArgs(order, { orderId: 1, extra: 2 })).toEqual(["extra"]);
+		expect(unknownArgsMessage(order, ["extra"])).toContain("unknown field extra (accepted: orderId)");
+		const open: ChatTool = { ...order, function: { ...order.function, parameters: { ...order.function.parameters, additionalProperties: true } } };
+		expect(unknownArgs(open, { orderId: 1, extra: 2 })).toEqual([]);
+		const loose: ChatTool = { ...order, function: { ...order.function, parameters: { type: "object", properties: {} } } };
+		expect(unknownArgs(loose, { anything: 1 })).toEqual([]);
 	});
 });
