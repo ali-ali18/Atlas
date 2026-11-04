@@ -1,5 +1,5 @@
 import * as React from "react";
-import { type AccessibilityActionEvent, Modal, PanResponder, Pressable, ScrollView, useWindowDimensions, View } from "react-native";
+import { type AccessibilityActionEvent, KeyboardAvoidingView, Modal, PanResponder, Platform, Pressable, ScrollView, useWindowDimensions, View } from "react-native";
 import Animated, { Easing, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ThemedModalRoot } from "@/components/home/themed-modal";
@@ -21,6 +21,10 @@ type Props = {
 	onRequestClose?: () => void;
 	/** Faixa fixa abaixo da alça que também arrasta (título, "voltar"). O conteúdo do corpo não arrasta, para não brigar com a rolagem. */
 	header?: React.ReactNode;
+	/** Cor de fundo própria (o padrão é o `popover` do tema). A gaveta do login usa a do "chrome" do chat. */
+	background?: string;
+	/** Gaveta com campo de texto: no iOS o teclado empurra a gaveta para cima. Desligado por padrão (as outras gavetas não mudam). */
+	avoidKeyboard?: boolean;
 	children: React.ReactNode;
 };
 
@@ -30,7 +34,7 @@ type Props = {
  * inicial (distância ou arremesso) fecha. Toque no fundo escuro fecha. O corpo é um `ScrollView`.
  * O gesto é do `PanResponder` do RN só na alça e no cabeçalho; a decisão (onde assenta) é pura, em `lib/sheet-drag.ts`.
  */
-export function DraggableSheet({ visible, onClose, onRequestClose, header, children }: Props) {
+export function DraggableSheet({ visible, onClose, onRequestClose, header, background, avoidKeyboard = false, children }: Props) {
 	const insets = useSafeAreaInsets();
 	const { height: screenHeight } = useWindowDimensions();
 	const reducedMotion = useReducedMotion();
@@ -153,9 +157,10 @@ export function DraggableSheet({ visible, onClose, onRequestClose, header, child
 		<Modal visible={visible} transparent animationType="fade" onRequestClose={onRequestClose ?? onClose} statusBarTranslucent>
 			<ThemedModalRoot>
 				<Pressable accessibilityLabel="Fechar" onPress={onClose} className="absolute inset-0 bg-black/50" />
-				<View pointerEvents="box-none" className="flex-1 justify-end">
+				{/* Gaveta com campo de texto: no iOS o teclado empurra a gaveta para cima em vez de cobri-la. */}
+				<KeyboardAvoidingView pointerEvents="box-none" enabled={avoidKeyboard} behavior={Platform.OS === "ios" ? "padding" : undefined} className="flex-1 justify-end">
 					<Animated.View style={[{ opacity: shown ? 1 : 0 }, sheetStyle]}>
-						<View className="flex-1 overflow-hidden rounded-t-panel bg-popover">
+						<View className={`flex-1 overflow-hidden rounded-t-panel ${background ? "" : "bg-popover"}`} style={background ? { backgroundColor: background } : undefined}>
 							<View {...pan.panHandlers} onLayout={(event) => setZoneHeight(event.nativeEvent.layout.height)}>
 								<View
 									accessible
@@ -183,7 +188,7 @@ export function DraggableSheet({ visible, onClose, onRequestClose, header, child
 							</ScrollView>
 						</View>
 					</Animated.View>
-				</View>
+				</KeyboardAvoidingView>
 			</ThemedModalRoot>
 		</Modal>
 	);

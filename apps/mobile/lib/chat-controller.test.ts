@@ -21,9 +21,9 @@ const delta = (text: string): ComputerUseEvent => ({ type: "assistant_delta", id
 
 type Script = (options: FollowOptions, runId: string) => Promise<FollowResult>;
 
-function setup(overrides: { api?: Partial<ChatApi>; follow?: Script; conversationId?: string | null; cache?: ChatDeps["cacheFor"] } = {}) {
+function setup(overrides: { api?: Partial<ChatApi>; follow?: Script; conversationId?: string | null; cache?: ChatDeps["cacheFor"]; connect?: ChatDeps["connect"] } = {}) {
 	let runCount = 0;
-	const calls = { createRun: [] as unknown[], createRunInput: [] as Array<[string, string]>, cancelRun: [] as string[], submit: [] as unknown[], reaction: [] as string[], unread: [] as string[], inputReplies: [] as Array<string | undefined>, fetchPage: [] as string[], createConversation: 0, unauthorized: 0 };
+	const calls = { createRun: [] as unknown[], createRunInput: [] as Array<[string, string]>, cancelRun: [] as string[], submit: [] as unknown[], reaction: [] as string[], unread: [] as string[], resume: [] as Array<[string, unknown]>, inputReplies: [] as Array<string | undefined>, fetchPage: [] as string[], createConversation: 0, unauthorized: 0 };
 	const api: ChatApi = {
 		fetchPage: async (conversationId) => (calls.fetchPage.push(conversationId), { messages: [row("m1", "user", "oi"), row("m2", "assistant", "olá, tudo bem por aí?", 1)], hasMore: false }),
 		createConversation: async () => (calls.createConversation++, "c-new"),
@@ -36,6 +36,7 @@ function setup(overrides: { api?: Partial<ChatApi>; follow?: Script; conversatio
 		setReaction: async (messageId, emoji) => void calls.reaction.push(`PUT ${messageId} ${emoji}`),
 		clearReaction: async (messageId) => void calls.reaction.push(`DELETE ${messageId}`),
 		markConversationUnread: async (conversationId) => void calls.unread.push(conversationId),
+		resumeRun: async (runId, options) => (calls.resume.push([runId, options]), { enqueued: true }),
 		...overrides.api,
 	};
 	let seq = 0;
@@ -44,6 +45,7 @@ function setup(overrides: { api?: Partial<ChatApi>; follow?: Script; conversatio
 		openRunStream: () => async () => Promise.reject(new Error("não usado")),
 		cacheFor: overrides.cache ?? (() => null),
 		onUnauthorized: () => void calls.unauthorized++,
+		...(overrides.connect ? { connect: overrides.connect } : {}),
 		follow: ((options: FollowOptions) => (overrides.follow ?? (async (opts) => (opts.onEvent(done), "boundary" as const)))(options, "?")) as never,
 		sleep: async () => undefined,
 		clientKey: () => `k${++seq}`,
@@ -344,6 +346,123 @@ describe("cartões: toque duplo", () => {
 		await flush();
 		expect(calls.submit).toHaveLength(1);
 		expect(deriveView(controller.getSnapshot()).items).toBeDefined();
+	});
+});
+
+describe("cartões de pedido: login e segredo", () => {
+	const login: Extract<ChatItem, { kind: "login" }> = { id: "l", kind: "login", loginId: "lg1", site: "github.com", url: "https://github.com/login", runId: "r9", status: "pending" };
+	it("retoma o run parado uma vez só e já mostra o login como resolvido", async () => {
+		const { controller, calls } = setup({ api: { getRunStatus: async () => "paused" }, follow: async () => new Promise<FollowResult>(() => undefined) });
+		await controller.open();
+		controller.resumeLogin(login);
+		controller.resumeLogin(login, { via: "vault" });
+		await flush();
+		expect(calls.resume).toEqual([["r9", {}]]);
+		expect(controller.getSnapshot().loginsDone).toEqual({ lg1: true });
+	});
+	it("o código segue ao servidor no resume (nunca vira fala nem input)", async () => {
+		const { controller, calls } = setup({ api: { getRunStatus: async () => "paused" }, follow: async () => new Promise<FollowResult>(() => undefined) });
+		await controller.open();
+		controller.resumeLogin(login, { via: "code", code: "123456" });
+		await flush();
+		expect(calls.resume).toEqual([["r9", { via: "code", code: "123456" }]]);
+		expect(calls.createRun).toHaveLength(0);
+		expect(calls.createRunInput).toHaveLength(0);
+	});
+	it("o run que já voltou sozinho só é acompanhado, sem novo resume", async () => {
+		const { controller, calls } = setup({ api: { getRunStatus: async () => "running" }, follow: async () => new Promise<FollowResult>(() => undefined) });
+		await controller.open();
+		controller.resumeLogin(login);
+		await flush();
+		expect(calls.resume).toEqual([]);
+		expect(controller.getSnapshot().following).toBe(true);
+	});
+	it("falha ao retomar libera o cartão e avisa em palavras simples; 401 encerra a sessão", async () => {
+		const { controller, calls } = setup({ api: { getRunStatus: async () => "paused", resumeRun: async () => { throw new ChatApiError("x", 401); } } });
+		await controller.open();
+		controller.resumeLogin(login);
+		await flush();
+		expect(controller.getSnapshot().loginsDone).toEqual({});
+		expect(calls.unauthorized).toBe(1);
+		expect(controller.getSnapshot().error).toMatch(/sessão/i);
+	});
+	it("sem o run do cartão e sem run seguido, não finge: avisa e libera", async () => {
+		const { controller } = setup();
+		await controller.open();
+		controller.resumeLogin({ ...login, runId: undefined });
+		await flush();
+		expect(controller.getSnapshot().loginsDone).toEqual({});
+		expect(controller.getSnapshot().error).toBeTruthy();
+	});
+	it("segredo salvo é aprovado pelo mesmo caminho da aprovação, sem balão do usuário", async () => {
+		const { controller, calls } = setup({ follow: async () => new Promise<FollowResult>(() => undefined) });
+		await controller.open();
+		controller.decide({ confirmId: "s1", title: "Chave da API", status: "pending" }, true);
+		await flush();
+		expect(calls.createRun[0]).toMatchObject({ content: "confirmado: Chave da API", decisionConfirmId: "s1" });
+	});
+	it("o login e o segredo resolvidos aqui valem na hora na tela", async () => {
+		const { controller } = setup({ api: { getRunStatus: async () => "paused" }, follow: async () => new Promise<FollowResult>(() => undefined) });
+		await controller.open();
+		controller.resumeLogin(login);
+		controller.decide({ confirmId: "s1", title: "x", status: "pending" }, false);
+		const snapshot = controller.getSnapshot();
+		const items = deriveView({ ...snapshot, persisted: [login, { id: "s", kind: "secrets", confirmId: "s1", title: "x", names: ["A"], status: "pending" }] }).items;
+		expect(items.find((item) => item.kind === "login")).toMatchObject({ status: "done" });
+		expect(items.find((item) => item.kind === "secrets")).toMatchObject({ status: "rejected" });
+	});
+});
+
+describe("conectar app: o fluxo é do controller, não do cartão", () => {
+	const connector = { kind: "composio", id: "gmail", name: "Gmail", description: "", icon: null } as const;
+	const login: Extract<ChatItem, { kind: "login" }> = { id: "l", kind: "login", loginId: "lg1", site: "Gmail", url: "https://x.com", runId: "r9", status: "pending", connector };
+	const paused = { getRunStatus: async () => "paused" };
+	it("conectou: retoma o run sem nenhum cartão montado (nada na tela chama o resume)", async () => {
+		const gate = deferred<{ outcome: "connected" }>();
+		const { controller, calls } = setup({ api: paused, connect: () => gate.promise, follow: async () => new Promise<FollowResult>(() => undefined) });
+		await controller.open();
+		controller.connectLogin(login);
+		controller.connectLogin(login);
+		expect(controller.getSnapshot().connects.lg1).toEqual({ busy: true, message: null });
+		// o cartão pode desmontar aqui: o fluxo segue
+		gate.resolve({ outcome: "connected" });
+		await flush();
+		expect(calls.resume).toEqual([["r9", {}]]);
+		expect(controller.getSnapshot().connects).toEqual({});
+		expect(controller.getSnapshot().loginsDone).toEqual({ lg1: true });
+	});
+	it("navegador fechado ou tempo esgotado: libera o botão com aviso simples e não retoma", async () => {
+		const { controller, calls } = setup({ api: paused, connect: async () => ({ outcome: "closed" }) });
+		await controller.open();
+		controller.connectLogin(login);
+		await flush();
+		expect(calls.resume).toEqual([]);
+		expect(controller.getSnapshot().connects.lg1).toMatchObject({ busy: false, message: expect.stringContaining("Autorizar") });
+	});
+	it("erro de conexão vira a frase dada; conector de API/MCP próprio não conecta aqui", async () => {
+		const { controller } = setup({ connect: async () => ({ error: "Ative os apps nas Configurações do site." }) });
+		await controller.open();
+		controller.connectLogin(login);
+		await flush();
+		expect(controller.getSnapshot().connects.lg1).toEqual({ busy: false, message: "Ative os apps nas Configurações do site." });
+		const calls: unknown[] = [];
+		const other = setup({ connect: async () => (calls.push(1), { outcome: "connected" }) });
+		await other.controller.open();
+		other.controller.connectLogin({ ...login, connector: { ...connector, kind: "api" } });
+		await flush();
+		expect(calls).toEqual([]);
+	});
+	it("sair do chat aborta o fluxo (o sinal do navegador) e não retoma depois", async () => {
+		const gate = deferred<{ outcome: "connected" }>();
+		let seen: { aborted: boolean } | null = null;
+		const { controller, calls } = setup({ api: paused, connect: (_connector, signal) => ((seen = signal), gate.promise) });
+		await controller.open();
+		controller.connectLogin(login);
+		controller.dispose();
+		expect(seen!.aborted).toBe(true);
+		gate.resolve({ outcome: "connected" });
+		await flush();
+		expect(calls.resume).toEqual([]);
 	});
 });
 

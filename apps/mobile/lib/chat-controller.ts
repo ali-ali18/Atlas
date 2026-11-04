@@ -3,7 +3,10 @@
 // defasada de render), e as dependências (API, stream, cache, relógio) entram por injeção para testar as corridas
 // (envio durante o fim do run, parar antes do `runId`, toque duplo em aprovação…). O hook só assina e desenha.
 import type { AgentActivity, ComputerUseEvent } from "@workspace/shared";
-import { ChatApiError, isNetworkError, isUnauthorized, sendErrorText, type CreateRunInput, type CreateRunResult } from "./chat-api";
+import type { LoginConnector } from "@workspace/shared";
+import type { ConnectResultView } from "./connect-app";
+import { connectorCanAuthorize, connectorOf } from "./request-cards";
+import { ChatApiError, isNetworkError, isUnauthorized, sendErrorText, type CreateRunInput, type CreateRunResult, type ResumeOptions } from "./chat-api";
 import { applyRunEvent, createLiveState, startLiveRun, type LiveState } from "./chat-live";
 import { followRun, type FollowOptions, type OpenStream } from "./chat-stream";
 import { initialSync, syncLine, syncReducer, type SyncAction, type SyncState } from "./chat-sync";
@@ -23,6 +26,7 @@ export type ChatApi = {
 	setReaction: (messageId: string, emoji: string) => Promise<void>;
 	clearReaction: (messageId: string) => Promise<void>;
 	markConversationUnread: (conversationId: string) => Promise<void>;
+	resumeRun: (runId: string, options: ResumeOptions) => Promise<{ enqueued: boolean }>;
 };
 
 export type ChatCache = { load: () => Promise<ChatItem[] | null>; save: (items: readonly ChatItem[]) => Promise<void> };
@@ -34,6 +38,8 @@ export type ChatDeps = {
 	/** Cache da conversa (chave por servidor + conta + conversa); `null` sem conta ou sem conversa. */
 	cacheFor: (conversationId: string) => ChatCache | null;
 	onUnauthorized: () => void;
+	/** Conecta o app de um cartão de conector (navegador + polling); vive no controller, não no cartão. */
+	connect?: (connector: LoginConnector, signal: { aborted: boolean }) => Promise<ConnectResultView>;
 	/** Troca o laço do stream (testes). */
 	follow?: typeof followRun;
 	sleep?: (ms: number) => Promise<void>;
@@ -58,15 +64,21 @@ export type ChatSnapshot = {
 	error: string | null;
 	decisions: Record<string, "approved" | "rejected">;
 	answered: Record<string, true>;
+	/** Logins já resolvidos neste aparelho (vale na hora, antes de o servidor gravar o novo estado). */
+	loginsDone: Record<string, true>;
+	/** Conexões em andamento (`busy`) ou que não fecharam (`message`), por pedido de login. */
+	connects: Record<string, { busy: boolean; message: string | null }>;
 };
 
+/** Fins de verdade do run (o "paused" não entra: é justamente o estado de quem espera o login). */
+const ENDED_RUN_STATUSES = new Set(["completed", "failed", "cancelled", "budget_exhausted"]);
 const ACTIVE_CONFLICT = "A conversa já tem uma tarefa em andamento";
 const DEFAULT_RETRY = [400, 1_000, 2_000] as const;
 
 type Queued = { text: string; optimisticId: string; replyToMessageId?: string };
 
 function initial(): ChatSnapshot {
-	return { persisted: [], live: createLiveState(), hasMore: false, loadingOlder: false, following: false, creating: false, ready: false, sync: initialSync, error: null, decisions: {}, answered: {} };
+	return { persisted: [], live: createLiveState(), hasMore: false, loadingOlder: false, following: false, creating: false, ready: false, sync: initialSync, error: null, decisions: {}, answered: {}, loginsDone: {}, connects: {} };
 }
 
 export class ChatController {
@@ -94,6 +106,7 @@ export class ChatController {
 	private abort: AbortController | null = null;
 	private stopRequested = false;
 	private queue: Queued[] = [];
+	private connectSignal = { aborted: false };
 
 	constructor(
 		private readonly deps: ChatDeps,
@@ -158,7 +171,7 @@ export class ChatController {
 		this.disposed = false; // (o React em desenvolvimento monta, desmonta e monta de novo)
 		const generation = ++this.generation;
 		this.stopFollowing();
-		this.state = { ...initial(), decisions: this.state.decisions, answered: this.state.answered };
+		this.state = { ...initial(), decisions: this.state.decisions, answered: this.state.answered, loginsDone: this.state.loginsDone, connects: this.state.connects };
 		this.publish();
 		const convId = this.conversationId;
 		const cache = convId ? this.deps.cacheFor(convId) : null;
@@ -192,6 +205,7 @@ export class ChatController {
 
 	dispose(): void {
 		this.disposed = true;
+		this.connectSignal.aborted = true;
 		this.generation += 1;
 		this.stopFollowing();
 		if (this.timer) clearTimeout(this.timer);
@@ -479,7 +493,7 @@ export class ChatController {
 	// ---- cartões ----------------------------------------------------------------------------------------
 
 	/** Clique de cartão: nunca vira fala nem input do run vivo; o servidor o resolve contra a intenção pendente. */
-	decide(item: Extract<ChatItem, { kind: "confirm" }>, approve: boolean): void {
+	decide(item: Pick<Extract<ChatItem, { kind: "confirm" }>, "confirmId" | "title" | "status">, approve: boolean): void {
 		// Segundo toque (ou cartão já decidido): ignora. A marca vale antes do `await`.
 		if (item.status !== "pending" || this.state.decisions[item.confirmId]) return;
 		this.set({ error: null, decisions: { ...this.state.decisions, [item.confirmId]: approve ? "approved" : "rejected" } });
@@ -494,6 +508,62 @@ export class ChatController {
 				this.fail(reason);
 				if (!this.disposed) this.set({ error: sendErrorText(reason) });
 			}
+		})();
+	}
+
+	/**
+	 * Resolve o pedido de login e retoma o run parado (como o `resumeRun` do web): "Terminei", "Entrar" pelo Cofre ou o
+	 * código digitado. Se o run já voltou sozinho (a conexão feita pelo navegador pode tê-lo retomado), só acompanha.
+	 */
+	resumeLogin(item: Pick<Extract<ChatItem, { kind: "login" }>, "loginId" | "runId" | "status">, options: ResumeOptions = {}): void {
+		if (item.status !== "pending" || this.state.loginsDone[item.loginId] || this.disposed) return;
+		const runId = item.runId ?? this.runId;
+		this.set({ error: null, loginsDone: { ...this.state.loginsDone, [item.loginId]: true } });
+		void (async () => {
+			try {
+				if (!runId) throw new ChatApiError("Não achei a tarefa para continuar.", 404);
+				const status = await this.deps.api.getRunStatus(runId).catch(() => null);
+				if (status && ENDED_RUN_STATUSES.has(status)) {
+					await this.syncTail(false);
+					return;
+				}
+				if (status !== "queued" && status !== "running" && status !== "retrying") {
+					const { enqueued } = await this.deps.api.resumeRun(runId, options);
+					if (!enqueued) throw new ChatApiError("Não deu para continuar agora.", 503);
+				}
+				void this.follow(runId);
+			} catch (reason) {
+				const { [item.loginId]: _removed, ...rest } = this.state.loginsDone;
+				this.set({ loginsDone: rest });
+				this.fail(reason);
+				if (!this.disposed) this.set({ error: isUnauthorized(reason) ? sendErrorText(reason) : "Não consegui continuar a tarefa agora. Tente de novo." });
+			}
+		})();
+	}
+
+	/**
+	 * "Autorizar": conecta o app pelo navegador e, conectado, retoma o run (`resumeLogin`). O fluxo é do controller:
+	 * rolar a lista (desmontar a linha) não o interrompe; sair do chat o aborta e fecha o navegador.
+	 */
+	connectLogin(item: Extract<ChatItem, { kind: "login" }>): void {
+		const connector = connectorOf(item);
+		const connect = this.deps.connect;
+		if (!connector || !connect || !connectorCanAuthorize(connector) || item.status !== "pending" || this.state.loginsDone[item.loginId] || this.state.connects[item.loginId]?.busy || this.disposed) return;
+		const setConnect = (value: { busy: boolean; message: string | null } | null) => {
+			const { [item.loginId]: _old, ...rest } = this.state.connects;
+			this.set({ connects: value ? { ...rest, [item.loginId]: value } : rest });
+		};
+		setConnect({ busy: true, message: null });
+		const signal = this.connectSignal;
+		void (async () => {
+			const result = await connect(connector, signal);
+			if (signal.aborted || this.disposed) return;
+			if ("error" in result) return setConnect({ busy: false, message: result.error });
+			if (result.outcome === "connected") {
+				setConnect(null);
+				return this.resumeLogin(item);
+			}
+			setConnect({ busy: false, message: result.outcome === "cancelled" ? null : "Não consegui confirmar a conexão. Toque em Autorizar para tentar de novo." });
 		})();
 	}
 
@@ -625,6 +695,8 @@ export function liveActivity(live: LiveState, running: boolean): AgentActivity {
 /** O toque no cartão vale na hora, antes de o servidor gravar o novo estado. */
 function withLocalDecisions(item: ChatItem, snapshot: ChatSnapshot): ChatItem {
 	if (item.kind === "confirm" && item.status === "pending" && snapshot.decisions[item.confirmId]) return { ...item, status: snapshot.decisions[item.confirmId]! };
+	if (item.kind === "secrets" && item.status === "pending" && snapshot.decisions[item.confirmId]) return { ...item, status: snapshot.decisions[item.confirmId]! };
+	if (item.kind === "login" && item.status === "pending" && snapshot.loginsDone[item.loginId]) return { ...item, status: "done" };
 	if (item.kind === "questionnaire" && item.status === "pending" && snapshot.answered[item.questionnaireId]) return { ...item, status: "submitted" };
 	return item;
 }

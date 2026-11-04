@@ -3,6 +3,7 @@ import {
 	ArrowUp as LucideArrowUp,
 	AtSign as LucideAtSign,
 	AudioLines as LucideAudioLines,
+	BadgeCheck as LucideBadgeCheck,
 	ChevronDown as LucideChevronDown,
 	ChevronLeft as LucideChevronLeft,
 	ChevronRight as LucideChevronRight,
@@ -15,8 +16,12 @@ import {
 	CodeXml as LucideCodeXml,
 	Copy as LucideCopy,
 	Ellipsis as LucideEllipsis,
+	Eye as LucideEye,
+	EyeOff as LucideEyeOff,
 	ExternalLink as LucideExternalLink,
+	Globe as LucideGlobe,
 	Hash as LucideHash,
+	KeyRound as LucideKeyRound,
 	LibraryBig as LucideLibraryBig,
 	Link as LucideLink,
 	MailOpen as LucideMailOpen,
@@ -33,6 +38,7 @@ import {
 	Search as LucideSearch,
 	Send as LucideSend,
 	Share as LucideShare,
+	ShieldCheck as LucideShieldCheck,
 	Square as LucideSquare,
 	Star as LucideStar,
 	TextCursorInput as LucideTextCursorInput,
@@ -272,4 +278,34 @@ export function FolderInputIcon({ size = 20, tone = "foreground" }: LineIconProp
 /** Lucide `FolderOutput` (menu da conversa: Tirar da seção). */
 export function FolderOutputIcon({ size = 20, tone = "foreground" }: LineIconProps) {
 	return <LucideFolderOutput size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `BadgeCheck` (selo de conector nativo verificado). */
+export function BadgeCheckIcon({ size = 16, tone = "info" }: LineIconProps) {
+	return <LucideBadgeCheck size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `Globe` (cabeçalho "Formulário"). */
+export function GlobeIcon({ size = 16, tone = "muted-foreground" }: LineIconProps) {
+	return <LucideGlobe size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `KeyRound` (cabeçalho "Segredos"). */
+export function KeyRoundIcon({ size = 16, tone = "muted-foreground" }: LineIconProps) {
+	return <LucideKeyRound size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `ShieldCheck` (nota "armazenado com segurança"). */
+export function ShieldCheckIcon({ size = 14, tone = "muted-foreground" }: LineIconProps) {
+	return <LucideShieldCheck size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `Eye`. */
+export function EyeIcon({ size = 18, tone = "muted-foreground" }: LineIconProps) {
+	return <LucideEye size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `EyeOff`. */
+export function EyeOffIcon({ size = 18, tone = "muted-foreground" }: LineIconProps) {
+	return <LucideEyeOff size={size} color={useStroke(tone)} strokeWidth={2} />;
 }

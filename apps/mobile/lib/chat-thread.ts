@@ -4,6 +4,7 @@
 import { BOT_LINK_ROLE, formatSourceMarker, isCardConfirmToken, type MessageSource, parseBotLinkCard, parseConversationCard, type PersistedConversationCard, type SessionMessage } from "@workspace/shared";
 import type { ChatItem, Reaction, TaskItem } from "./chat-types";
 import { parseReplyTo } from "./reply-quote";
+import { loginToItem, secretsToItem } from "./request-cards";
 
 const CARD_ROLES = new Set([
 	"skill", "confirm", "login", "file", "routine", "tool-budget", "jev-status", "provider-fallback", "subagents", "routine-proposal", "bot-proposal",
@@ -19,7 +20,11 @@ export function cardToItem(id: string, card: PersistedConversationCard, createdA
 	const base = { id, ...(createdAt ? { createdAt } : {}) };
 	switch (card.kind) {
 		case "confirm":
-			// Aprovação de comando, segredos, chave de e-mail e GitHub têm telas próprias no web.
+			// Segredo do Cofre tem cartão nativo; aprovação de comando, segredos de ambiente, chave de e-mail e GitHub ficam no web.
+			if (card.secretsRequest && !card.devApproval) {
+				const secrets = secretsToItem(id, card, createdAt);
+				if (secrets) return secrets;
+			}
 			if (card.devApproval || card.secretsRequest || card.emailKeyRequest || card.githubIdentity) {
 				return { ...base, kind: "web-card", card: "approval", title: card.title, key: `confirm:${card.confirmId}` };
 			}
@@ -57,7 +62,7 @@ export function cardToItem(id: string, card: PersistedConversationCard, createdA
 		case "routine":
 			return { ...base, kind: "web-card", card: "routine", title: card.title ?? "Rotina", key: `routine:${card.routineId ?? id}` };
 		case "login":
-			return { ...base, kind: "web-card", card: "login", title: `Entrar em ${card.site}`, key: `login:${card.loginId}` };
+			return loginToItem(id, card, createdAt);
 		case "images":
 			return { ...base, kind: "web-card", card: "images", title: "Imagens", key: `images:${id}` };
 		case "routine-proposal":
@@ -231,6 +236,11 @@ export function cardKey(item: ChatItem): string | null {
 			return `questionnaire|${item.questionnaireId}`;
 		case "task-list":
 			return `task-list|${item.runId}`;
+		case "login":
+			return `login|${item.loginId}`;
+		case "secrets":
+			// Mesma identidade do `confirm` (é o mesmo cartão do servidor, só que desenhado como segredo).
+			return `confirm|${item.confirmId}`;
 		case "web-card":
 			return item.key;
 		default:

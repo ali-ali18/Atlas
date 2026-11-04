@@ -6,10 +6,13 @@ import * as chatApi from "./chat-api";
 import type { MobileAvatarState } from "./avatar-activity";
 import { useAvatarLive } from "./use-avatar-live";
 import { chatCacheKey, createChatCacheWriter, loadChatCache } from "./chat-cache";
-import { ChatController, deriveView, type ChatApi, type ChatDeps } from "./chat-controller";
+import { ChatController, deriveView, type ChatApi, type ChatDeps, type ChatSnapshot } from "./chat-controller";
 import type { ChatItem, ReplyQuote } from "./chat-types";
 import { clearBotRun, setBotRun } from "./run-store";
 import { useAtlasSession } from "./atlas-session";
+import * as WebBrowser from "expo-web-browser";
+import { connectApp } from "./connect-app";
+import { clearRequestMemory } from "./request-memory";
 import { homeStorage } from "./home-storage";
 import type { HomeBot } from "./home-types";
 
@@ -30,7 +33,10 @@ export type ChatHook = ReturnType<typeof deriveView> & {
 	loadOlder: () => void;
 	send: (text: string, replyTo?: ReplyQuote) => void;
 	stop: () => void;
-	decide: (item: Extract<ChatItem, { kind: "confirm" }>, approve: boolean) => void;
+	decide: ChatController["decide"];
+	resumeLogin: ChatController["resumeLogin"];
+	connectLogin: ChatController["connectLogin"];
+	connects: ChatSnapshot["connects"];
 	answer: ChatController["answer"];
 	react: (messageId: string, emoji: string) => void;
 	markUnread: () => Promise<boolean>;
@@ -57,6 +63,7 @@ export function useChat(bot: HomeBot | undefined): ChatHook {
 			setReaction: (messageId, emoji) => chatApi.setReaction(latest.current.apiFetch, messageId, emoji),
 			clearReaction: (messageId) => chatApi.clearReaction(latest.current.apiFetch, messageId),
 			markConversationUnread: (conversationId) => chatApi.markConversationUnread(latest.current.apiFetch, conversationId),
+			resumeRun: (runId, options) => chatApi.resumeRun(latest.current.apiFetch, runId, options),
 		};
 		const deps: ChatDeps = {
 			api,
@@ -75,6 +82,26 @@ export function useChat(bot: HomeBot | undefined): ChatHook {
 				};
 			},
 			onUnauthorized: () => void latest.current.signOut(),
+			connect: (connector, signal) =>
+				connectApp(
+					{
+						apiFetch: latest.current.apiFetch,
+						serverUrl: latest.current.serverUrl,
+						open: (url) => WebBrowser.openBrowserAsync(url),
+						dismiss: () => WebBrowser.dismissBrowser(),
+						appState: {
+							subscribe: (listener) => {
+								const subscription = AppState.addEventListener("change", listener);
+								return () => subscription.remove();
+							},
+						},
+						now: Date.now,
+						sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+						onUnauthorized: () => void latest.current.signOut(),
+					},
+					connector,
+					signal,
+				),
 		};
 		return new ChatController(deps, { id: bot?.id ?? null, conversationId: bot?.conversationId ?? null });
 		// biome-ignore lint/correctness/useExhaustiveDependencies: um controlador por tela; o bot entra por `update`
@@ -95,6 +122,7 @@ export function useChat(bot: HomeBot | undefined): ChatHook {
 		() =>
 			onSignOut(() => {
 				chatCacheWriter.invalidate();
+				clearRequestMemory();
 				controller.dispose();
 			}),
 		[onSignOut, controller],
@@ -135,6 +163,9 @@ export function useChat(bot: HomeBot | undefined): ChatHook {
 		stop,
 		decide: (item, approve) => controller.decide(item, approve),
 		answer: (item, answers) => controller.answer(item, answers),
+		resumeLogin: (item, options) => controller.resumeLogin(item, options),
+		connectLogin: (item) => controller.connectLogin(item),
+		connects: snapshot.connects,
 		react: (messageId, emoji) => void controller.react(messageId, emoji),
 		markUnread: () => controller.markUnread(),
 		retry: () => void controller.retry(),
