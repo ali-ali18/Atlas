@@ -19,7 +19,7 @@ import type {
 	RunInputStatus,
 	RunUsage,
 } from "@workspace/shared";
-import { RUN_MAX_STEPS, stoppedWithOpenWork, sanitizeStopDetail, readRunProfile, readStoredRunEngine, withRunEngine, withRunPromotion, withRunCaps, type RunCaps, type RequestedEngine, type RunProfile } from "@workspace/shared";
+import { RUN_MAX_STEPS, parseStepLimitWait, stoppedWithOpenWork, sanitizeStopDetail, readRunProfile, readStoredRunEngine, withRunEngine, withRunPromotion, withRunCaps, type RunCaps, type RequestedEngine, type RunProfile } from "@workspace/shared";
 import type { RunStop } from "@workspace/shared";
 import { parseReasoningEffort, withReplyContext, type ReasoningEffort, type ReplyQuote } from "@workspace/shared";
 import { AGENT_RUNTIME_CHECKPOINT_VERSION, RUN_MAX_RECOVERIES, RUN_RECOVERY_LIMIT_MESSAGE, nextRunRecoveryState, buildMessageSource, LIVE_RUN_INPUT_MODES, isCardConfirmToken, isPersistedMessageOrigin, isTaskListDone, parseTaskList, normalizeRunInputMode, openItems, parseTaskLedger, parseToolCacheState, parseToolResultStatus, parseToolUsageCounts, redactSecrets, splitReplySegments } from "@workspace/shared";
@@ -916,6 +916,25 @@ export async function markPendingLoginOutcome(input: { runId: string; userId: st
 	if (updated.count !== 1) return null;
 	// O id do login volta para quem marcou cancelar o prazo daquele cartão.
 	return checkpoint.pendingLogin.loginId;
+}
+
+/**
+ * Motor v3: decisão do dono no cartão "Cheguei no limite. Continuo?" (`continue` | `stop`). Só grava quando o run do
+ * dono está parado nesse limite (`engineV3.limitWait`, `cardId` confere se informado) e ainda não há decisão. Escopado
+ * pelo dono; condicional pela versão lida. Quem chama grava ANTES de liberar o run, para o worker já ler a decisão.
+ */
+export async function markPendingLimitOutcome(input: { runId: string; userId: string; outcome: "continue" | "stop"; cardId?: string }): Promise<boolean> {
+	if (!input.userId.trim() || input.userId === "default") return false;
+	const row = await prisma.agentRun.findFirst({ where: { id: input.runId, userId: input.userId }, select: { checkpointJson: true, updatedAt: true } });
+	const checkpoint = row?.checkpointJson as AgentRunCheckpoint | null | undefined;
+	const engineV3 = checkpoint?.engineV3;
+	const wait = parseStepLimitWait(engineV3?.limitWait);
+	if (!row || !checkpoint || !engineV3 || !wait) return false;
+	if (input.cardId && wait.cardId !== input.cardId) return false;
+	if (wait.outcome) return false;
+	const next = { ...checkpoint, engineV3: { ...engineV3, limitWait: { ...wait, outcome: input.outcome } } };
+	const updated = await prisma.agentRun.updateMany({ where: { id: input.runId, userId: input.userId, updatedAt: row.updatedAt }, data: { checkpointJson: next as unknown as Prisma.InputJsonValue } });
+	return updated.count === 1;
 }
 
 export async function listActiveRunsForConversation(

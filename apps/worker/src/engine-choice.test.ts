@@ -515,3 +515,15 @@ test("runSelectedEngine: com o v3 resolvido roda o motor v3; sem ele, o v2 (mesm
 	assert.equal(v2.result.text, "olá");
 	assert.ok(v2.engines.includes("v2") && !v2.engines.includes("v3"), JSON.stringify(v2.engines));
 });
+
+test("motor v3 sem humano: sem relógio padrão (D4: valem os 40 passos e o US$ do dono); tempo fixado pelo dono continua valendo", async () => {
+	const none = { maxRunCostUsd: undefined };
+	const v3 = { engine: "v2" as const, resolved: "v3" as const, profile: "chat" as const };
+	for (const origin of ["routine", "webhook", "email", "proactive", "bot"] as const) {
+		assert.equal(resolveRunLimits({ choice: v3, origin, humanTurn: false, requestOrBotCap: undefined, snapshot: none, wallFixed: false }).wallMs, undefined, origin);
+	}
+	// O v2 sem humano continua com o limite de antes (rotina promovível: 30 min).
+	assert.equal(resolveRunLimits({ choice: { engine: "v2", profile: "chat" }, origin: "routine", humanTurn: false, requestOrBotCap: undefined, snapshot: none, wallFixed: false }).wallMs, 30 * 60_000);
+	// Tempo máximo da conta é do dono: vale também no v3 (o worker o passa no orçamento do run).
+	assert.equal(resolveRunLimits({ choice: v3, origin: "routine", humanTurn: false, requestOrBotCap: 0.5, snapshot: { maxRunCostUsd: undefined, maxWallMinutes: 20 }, wallFixed: false }).costCapUsd, 0.5);
+});

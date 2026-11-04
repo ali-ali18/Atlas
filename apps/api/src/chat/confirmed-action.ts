@@ -32,6 +32,7 @@ import { collectRefs, EmailServiceError, emailService, executeConfirmedMcpCall, 
 import { peekModelContextLength } from "../routes/models.js";
 import { loadEffectiveConfig } from "./account-config.js";
 import { cancelCardTimeout } from "./owner-wait.js";
+import { settleStepLimitCard } from "./step-limit-card.js";
 
 /** Conta única: userId vem da sessão (rotas); fallback "default" só para chamadas legadas sem sessão (retrocompatível, worker não usa este helper). */
 function effectiveUserId(userId?: string): string {
@@ -401,7 +402,8 @@ export type ConfirmedFollowUp = {
 };
 
 export type ConfirmedActionResult =
-	| { run: AgentRun; handled: true }
+	/** `resumed`: run pausado que o clique liberou (cartão do limite do motor v3); quem chama o põe na fila. */
+	| { run: AgentRun; handled: true; resumed?: true }
 	/** `duplicate`: clique repetido de um cartão de aprovação já decidido; não vira mensagem nem run. */
 	| { handled: false; followUp?: ConfirmedFollowUp; duplicate?: true };
 
@@ -718,6 +720,15 @@ export async function maybeHandleConfirmedAction(input: {
 	const userId = effectiveUserId(input.userId);
 	const commandText = stripCommandSofteners(input.text.trim());
 	const pending = await getSkillPendingIntent(userId, input.conversationId);
+	// Cartão "Cheguei no limite. Continuo?" (motor v3): o run que perguntou está PAUSADO nesta conversa, então vem antes da
+	// regra da recusa tardia (que trata qualquer run ativo como "outro trabalho em andamento"). Só o botão decide.
+	if (input.continueInAgent && pending?.kind === "confirm" && pending.payload.action === "step-limit" && (!input.confirmId || input.confirmId === pending.payload.confirmId)) {
+		const decision = isCardConfirmToken(commandText) && !parseDevApprovalReject(commandText) ? "continue" : isCardCancelToken(commandText) ? "stop" : null;
+		if (decision) {
+			const settled = await settleStepLimitCard({ userId, conversationId: input.conversationId, pending, decision });
+			return "run" in settled ? { run: settled.run, handled: true, resumed: true } : { handled: false, duplicate: true };
+		}
+	}
 	// Clique de cartão com um run ATIVO na conversa: nenhum run ativo espera cartão de confirmação (quem pergunta termina em
 	// `awaiting_confirmation`), então o cartão é atrasado ou substituído. Recusar não pode parar o trabalho em andamento.
 	if (isCardCancelToken(commandText) || parseDevApprovalReject(commandText)) {

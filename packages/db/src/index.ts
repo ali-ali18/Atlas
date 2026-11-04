@@ -193,6 +193,7 @@ export {
 	listActiveRunsForConversation,
 	findActiveConversationRun,
 	markPendingLoginOutcome,
+	markPendingLimitOutcome,
 	listRunsForConversation,
 	getLatestCompletedRunForConversation,
 	requestCancelAgentRun,

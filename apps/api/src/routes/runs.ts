@@ -49,7 +49,7 @@ import {
 import { noteBrowserLanguage } from "@workspace/db";
 import { pickLanguageFromAcceptLanguage } from "@workspace/shared";
 import { parseReasoningEffort, parseReplyToMessageId } from "@workspace/shared";
-import { demoteSteerInputToQueue, getOwnedConversation, markPendingLoginCode, markPendingLoginUseVault, markPendingLoginOutcome, dismissPendingQuestionnaireCard, promoteQueuedInputToSteer } from "@workspace/db";
+import { demoteSteerInputToQueue, getOwnedConversation, markPendingLoginCode, markPendingLoginUseVault, markPendingLoginOutcome, markPendingLimitOutcome, dismissPendingQuestionnaireCard, promoteQueuedInputToSteer } from "@workspace/db";
 import { scopeFor, type AuthEnv } from "../middleware/auth.js";
 import { isRunEventsSignalSubscribed, publishRunSignal as defaultPublishRunSignal, subscribeRunEventsSignal, type AgentRunQueue } from "@workspace/queue";
 import { runRunStream } from "./run-stream.js";
@@ -454,9 +454,9 @@ export function createRunRoutes(
 				const body: CreateAgentRunResponse = {
 					runId: confirmedAction.run.id,
 					status: confirmedAction.run.status,
-					// Run já concluído no servidor: true para não disparar o
-					// aviso de "fila indisponível" na UI.
-					enqueued: true,
+					// Run já concluído no servidor: true para não disparar o aviso de "fila indisponível" na UI. Run pausado
+					// que o clique liberou (limite do motor v3) volta para a fila.
+					enqueued: confirmedAction.resumed ? await enqueueAgentRunJob(config.agentRunQueue, confirmedAction.run.id) : true,
 				};
 				return c.json(body, 200);
 			}
@@ -803,6 +803,9 @@ export function createRunRoutes(
 		// liberar o run, para o worker (ou o reconcile) nunca pegar o run sem ela. v1/v2 ignoram o campo.
 		const loginOutcome = body?.via === "skip" ? "skipped" : body?.via === "takeover" ? "takeover" : "done";
 		const loginId = await markPendingLoginOutcome({ runId: owned.id, userId, outcome: loginOutcome }).catch(() => null);
+		// Motor v3 parado no limite de passos/US$: retomar é "Continuar" (sem `via`) ou "Agora não" (`via: "limit_stop"`).
+		// Sem espera de limite no checkpoint, não faz nada.
+		await markPendingLimitOutcome({ runId: owned.id, userId, outcome: body?.via === "limit_stop" ? "stop" : "continue" }).catch(() => false);
 		const run = await requestResumeAgentRun(c.req.param("id"));
 		if (loginId) await cancelCardTimeout(loginId);
 		if (!run) {

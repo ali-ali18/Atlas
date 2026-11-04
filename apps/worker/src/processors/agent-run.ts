@@ -117,6 +117,7 @@ import {
 	getRoutineContextForAgentRun,
 	getRoutineNotifyModeForAgentRun,
 	getRoutinePageIdForAgentRun,
+	getRoutineLimitsForAgentRun,
 	findRoutineRunByAgentRunId,
 	persistConversationCardFromEvent,
 	recordRoutineAlertState,
@@ -652,6 +653,8 @@ async function executeLeasedRun(ctx: {
 	// Rotina ligada a uma página: o run só pode atualizar essa página (o runtime trava as outras).
 	// O brief "Seu dia" nunca usa painel: sem pageId, o runtime não registra as tools de painel nem pré-carrega páginas.
 	const routinePageIdPromise = run.origin === "routine" && !isDetachedBriefRun(run) ? getRoutinePageIdForAgentRun(runId, runUserId).catch(() => null) : Promise.resolve(null);
+	// Limites próprios da rotina (passos e US$ por execução): só o motor v3 lê. Falha ao ler = padrão (40 passos, sem US$).
+	const routineLimitsPromise = run.origin === "routine" ? getRoutineLimitsForAgentRun(runId, runUserId).catch(() => null) : Promise.resolve(null);
 	// Modelo da rotina ("Seu dia"): trava de leitura no run e entrega fora da conversa. Falha ao ler = rotina comum.
 	// Rotina de alerta: o run só verifica a condição; o aviso (com debounce) é decidido depois do veredito.
 	const alertCtxPromise = run.origin === "routine" ? getRoutineAlertForAgentRun(runId, runUserId).catch(() => null) : Promise.resolve(null);
@@ -1013,6 +1016,7 @@ async function executeLeasedRun(ctx: {
 	});
 	const routineNotify = await routineNotifyPromise;
 	const routinePageId = await routinePageIdPromise;
+	const routineLimits = await routineLimitsPromise;
 	const userPushZone = (run.origin === "routine" && routineNotify === "important") || run.origin === "chat"
 		? (proactiveBot?.isPrimary === true ? accountTimezone : (await loadAccountConfig())?.general?.timezone)
 		: undefined;
@@ -1333,6 +1337,7 @@ async function executeLeasedRun(ctx: {
 			// Só a API grava (mensagem digitada pelo dono); run sem o campo (versões diferentes no deploy) = falso.
 			humanTurn: readRunHumanTurn(run),
 			...(routinePageId ? { routinePageId } : {}),
+			...(routineLimits ? { routineLimits } : {}),
 			objective: run.objective,
 			maxSteps: run.maxSteps,
 			// Janela gravada na criação (API); desconhecida = fallback 128k.
