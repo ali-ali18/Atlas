@@ -19,10 +19,10 @@ const TOKEN_FILES = new Set(["lib/surfaces.ts", "lib/color-tokens.ts"]);
  * Dívida permitida, com motivo:
  * - splash e mascote: o splash nativo é escuro e fixo nos dois temas (`app.json`), e o branco do mascote é marca;
  * - ícones e avatar: cores de desenho (olhos, estrela, formas), não de pele de tela;
+ * - bot-edit: o branco da paleta de cores do avatar do bot (cor de marca do bot, não de pele de tela);
  * - bot-avatar: laranja do selo do bot principal (cor de marca, igual ao web);
  * - bubble-tone: tons do balão do usuário na cor do bot (cálculo de cor do bot, não da pele);
  * - chart-palette: paletas dos gráficos (cores de dado, espelham as do web, não da pele);
- * - bot-edit: o branco da paleta do avatar (cor do bot, no lugar do preto do web), não de pele de tela;
  * - Computador (tela, menu, WebView, página do viewer e rota): a imagem da VM é preta e a tela é sempre escura nos dois
  *   temas (padrão do Grok), então branco/cinza/preto fixos são de desenho, não da pele; a página do viewer é HTML/CSS embutido;
  * - icons: o "G" do Google (4 cores de marca) e os ícones do Computador (branco/cinza fixos sobre a tela preta);

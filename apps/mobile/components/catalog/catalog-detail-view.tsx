@@ -1,7 +1,7 @@
 import * as React from "react";
 import { BackHandler, KeyboardAvoidingView, Platform, Pressable, ScrollView, TextInput, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
 import { Avatar } from "@/components/ui/avatar";
+import { ScreenFrame } from "@/components/ui/screen-frame";
 import { Button } from "@/components/ui/button";
 import { ScreenHeader } from "@/components/ui/screen-header";
 import { Spinner } from "@/components/ui/spinner";
@@ -193,7 +193,7 @@ export function CatalogDetailView({ load, modelName, alreadyInstalled, busy, err
 
 	const ready = load.status === "ready";
 	return (
-		<SafeAreaView className="flex-1 bg-background">
+		<ScreenFrame>
 			<KeyboardAvoidingView behavior="padding" className="flex-1">
 				<ScreenHeader title="Bot pronto" onBack={busy ? () => undefined : onBack} />
 				<ScrollView className="flex-1" keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
@@ -219,6 +219,6 @@ export function CatalogDetailView({ load, modelName, alreadyInstalled, busy, err
 					</View>
 				) : null}
 			</KeyboardAvoidingView>
-		</SafeAreaView>
+		</ScreenFrame>
 	);
 }

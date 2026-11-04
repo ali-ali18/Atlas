@@ -109,7 +109,7 @@ export default function HomeScreen() {
 				>
 					{body}
 				</ScrollView>
-				<SearchFooter query={query} onChange={setQuery} onGrid={() => router.push("/catalog" as never)} />
+				<SearchFooter query={query} onChange={setQuery} onGrid={() => router.push("/apps" as never)} />
 			</KeyboardAvoidingView>
 			<HomeBotMenu bot={menuBot} onClose={() => setMenuBot(null)} />
 		</ScreenFrame>
