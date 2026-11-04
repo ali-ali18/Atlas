@@ -1,6 +1,6 @@
 import type { QuestionnaireCardItem } from "@workspace/shared";
 import { describe, expect, it } from "vitest";
-import { buildAnswers, missingRequired, toggleChoice } from "./questionnaire";
+import { buildAnswers, choiceLetter, initialStepState, missingRequired, stepAnswered, stepFooter, stepReduce, stepSubtitle, toggleChoice, type StepAction, type StepState } from "./questionnaire";
 
 const items: QuestionnaireCardItem[] = [
 	{ name: "direction", prompt: "Direção?", required: true, choices: [{ value: "a" }, { value: "b" }] },
@@ -26,5 +26,79 @@ describe("questionário", () => {
 		expect(toggleChoice(["a"], "a", false)).toEqual([]);
 		expect(toggleChoice(["x"], "y", true)).toEqual(["x", "y"]);
 		expect(toggleChoice(["x", "y"], "x", true)).toEqual(["y"]);
+	});
+});
+
+describe("questionário em etapas", () => {
+	const steps = [
+		{ name: "a", prompt: "Qual?", required: true, choices: [{ value: "x" }, { value: "y" }] },
+		{ name: "b", prompt: "Quais?", multiple: true, choices: [{ value: "1" }, { value: "2" }] },
+		{ name: "c", prompt: "Mais algo?", input: { label: "Fale" } },
+	];
+	const run = (...actions: StepAction[]) => {
+		let state: StepState = initialStepState();
+		let submit: unknown = null;
+		for (const action of actions) {
+			const result = stepReduce(steps, state, action);
+			state = result.state;
+			submit = result.submit;
+		}
+		return { state, submit };
+	};
+	const pick = (name: string, value: string, multiple = false): StepAction => ({ type: "toggle", name, value, multiple });
+
+	it("obrigatória sem resposta não avança; com resposta avança", () => {
+		expect(run({ type: "next" }).state.index).toBe(0);
+		expect(run(pick("a", "x"), { type: "next" }).state.index).toBe(1);
+	});
+	it("rodapé: Voltar só a partir da 2ª, Pular só se não é obrigatória, Enviar só na última", () => {
+		expect(stepFooter(steps, initialStepState())).toEqual({ dots: 3, index: 0, back: false, skip: false, primary: "next", primaryEnabled: false });
+		const second = run(pick("a", "x"), { type: "next" }).state;
+		expect(stepFooter(steps, second)).toMatchObject({ back: true, skip: true, primary: "next", primaryEnabled: true });
+		const last = run(pick("a", "x"), { type: "next" }, { type: "next" }).state;
+		expect(stepFooter(steps, last)).toMatchObject({ index: 2, primary: "send", primaryEnabled: true });
+	});
+	it("voltar mantém as respostas e nunca passa da primeira", () => {
+		const back = run(pick("a", "y"), { type: "next" }, { type: "back" }, { type: "back" });
+		expect(back.state.index).toBe(0);
+		expect(back.state.selected.a).toEqual(["y"]);
+	});
+	it("multiple liga e desliga; única troca", () => {
+		expect(run(pick("b", "1", true), pick("b", "2", true)).state.selected.b).toEqual(["1", "2"]);
+		expect(run(pick("b", "1", true), pick("b", "1", true)).state.selected.b).toEqual([]);
+		expect(run(pick("a", "x"), pick("a", "y")).state.selected.a).toEqual(["y"]);
+	});
+	it("só envia no fim, com o mapa de respostas de sempre (escolha + texto livre)", () => {
+		const out = run(pick("a", "x"), { type: "next" }, pick("b", "1", true), pick("b", "2", true), { type: "next" }, { type: "free", name: "c", text: " tudo " }, { type: "next" });
+		expect(out.submit).toEqual({ a: "x", b: ["1", "2"], c: "tudo" });
+		// nenhuma ação antes do fim solta o envio
+		expect(run(pick("a", "x"), { type: "next" }, { type: "next" }).submit).toBeNull();
+	});
+	it("pular limpa a pergunta, avança, e na última envia sem ela", () => {
+		const skipped = run(pick("a", "x"), { type: "next" }, pick("b", "1", true), { type: "skip" });
+		expect(skipped.state.index).toBe(2);
+		expect(skipped.state.selected.b).toEqual([]);
+		const end = run(pick("a", "x"), { type: "next" }, { type: "skip" }, { type: "skip" });
+		expect(end.submit).toEqual({ a: "x" });
+	});
+	it("não pula pergunta obrigatória", () => {
+		const out = run({ type: "skip" });
+		expect(out.state.index).toBe(0);
+		expect(out.submit).toBeNull();
+	});
+	it("pergunta única obrigatória: Enviar só com resposta", () => {
+		const one = [{ name: "q", prompt: "?", required: true, choices: [{ value: "z" }] }];
+		expect(stepFooter(one, initialStepState())).toMatchObject({ primary: "send", primaryEnabled: false });
+		expect(stepReduce(one, initialStepState(), { type: "next" }).submit).toBeNull();
+		const chosen = stepReduce(one, initialStepState(), { type: "toggle", name: "q", value: "z", multiple: false }).state;
+		expect(stepReduce(one, chosen, { type: "next" }).submit).toEqual({ q: "z" });
+	});
+	it("resposta livre conta como respondida; letras e subtítulo", () => {
+		expect(stepAnswered(steps[2]!, { selected: {}, free: { c: "  " } })).toBe(false);
+		expect(stepAnswered(steps[2]!, { selected: {}, free: { c: "oi" } })).toBe(true);
+		expect([0, 1, 2, 25, 26, 27].map(choiceLetter)).toEqual(["A", "B", "C", "Z", "AA", "AB"]);
+		expect(stepSubtitle(steps[1]!)).toBe("Selecione todas as opções aplicáveis");
+		expect(stepSubtitle({ ...steps[0]!, description: "Escolha um" })).toBe("Escolha um");
+		expect(stepSubtitle(steps[0]!)).toBeNull();
 	});
 });
