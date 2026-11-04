@@ -43,3 +43,6 @@ Repositório público: minutos grátis. Privado: plano Free tem 2.000 min/mês (
 
 ## Riscos
 Não altera api, worker nem web. O `env` do perfil `preview` também vale para o build na nuvem do Expo (mesmo ajuste de ABI).
+
+## Disparo por commit `[apk]`
+Quem não pode criar tag (ex.: uma sessão de agente que só envia o próprio branch) dispara o build com um commit que tenha `[apk]` na mensagem, em qualquer branch. O workflow cria sozinho a tag `apk-<perfil>-<nº da execução>` naquele commit e publica a Release com o APK. Pushes sem a marca pulam o job.
