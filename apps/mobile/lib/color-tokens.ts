@@ -62,3 +62,7 @@ export const colorTokens = {
 
 export type ColorScheme = keyof typeof colorTokens;
 export type ColorToken = keyof (typeof colorTokens)["light"];
+
+export function themeColor(scheme: ColorScheme, token: ColorToken): string {
+	return colorTokens[scheme][token];
+}

@@ -73,6 +73,9 @@ function fixture() {
 		return { id: "run-a", error: null, resultText: null, cancelRequested: false, usageJson: null, createdAt: now, updatedAt: now, startedAt: null, finishedAt: null, sandboxSessionId: null, ...data };
 	});
 	stub(prisma.agentRun, "update", async () => ({}));
+	// Consultas de herança/estado do último run da conversa: sem banco, a conversa não tem run anterior.
+	stub(prisma.agentRun, "findFirst", async () => null);
+	stub(prisma.agentRun, "findMany", async () => []);
 
 	const config: Parameters<typeof createRunRoutes>[0] = {
 		port: 3001, hostname: "localhost", openRouterApiKey: "k", openRouterModel: "test/model", redisUrl: "", databaseUrl: undefined,

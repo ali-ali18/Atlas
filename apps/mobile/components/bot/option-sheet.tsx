@@ -2,14 +2,16 @@ import * as React from "react";
 import { Modal, Pressable, View } from "react-native";
 import { ThemedModalRoot } from "@/components/home/themed-modal";
 import { Text } from "@/components/ui/text";
+import { useSurfaces } from "@/lib/use-surfaces";
 
 /** Gaveta com uma lista de opções (uma escolhida): o seletor das linhas "Idioma" etc. */
 export function OptionSheet({ open, title, options, value, onPick, onClose }: { open: boolean; title: string; options: readonly { value: string; label: string }[]; value: string; onPick: (value: string) => void; onClose: () => void }) {
+	const surfaces = useSurfaces();
 	return (
 		<Modal visible={open} transparent animationType="fade" onRequestClose={onClose} statusBarTranslucent>
 			<ThemedModalRoot>
 				<Pressable accessibilityLabel="Fechar" onPress={onClose} className="flex-1 justify-end bg-black/50">
-					<Pressable accessible={false} className="rounded-t-panel bg-popover px-2 pb-8 pt-4">
+					<Pressable accessible={false} style={{ backgroundColor: surfaces.sheet }} className="rounded-t-panel px-2 pb-8 pt-4">
 						<Text variant="heading" className="px-4 pb-2">
 							{title}
 						</Text>

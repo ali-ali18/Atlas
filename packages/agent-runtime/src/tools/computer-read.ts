@@ -2,7 +2,7 @@ import type { ChatTool } from "@workspace/llm";
 import type { ControlFindResult, ControlReadResult } from "@workspace/sandbox";
 import { redactSecrets } from "../mcp/sanitize.js";
 import { UNTRUSTED_PAGE_NOTE } from "./computer-changes.js";
-import { checkLoginWall, type ComputerToolContext, type ComputerToolOutcome } from "./computer-refs.js";
+import { checkLoginWall, readLoginFields, type ComputerToolContext, type ComputerToolOutcome } from "./computer-refs.js";
 
 // V5 — leitura da página inteira (todos os frames, shadow DOM, expand) e busca.
 
@@ -161,7 +161,9 @@ export async function executeComputerReadTool(
 		case "browser_read": {
 			const parsed = parseReadToolArgs(args);
 			const result = await ctx.manager.execBrowserRead(await ctx.getSessionId(), parsed);
-			const login = checkLoginWall(ctx, { url: result.url, title: result.title, text: result.text });
+			const page = { url: result.url, title: result.title, text: result.text };
+			const fields = await readLoginFields(ctx.manager, await ctx.getSessionId(), page);
+			const login = checkLoginWall(ctx, { ...page, ...(fields ? { fields } : {}) });
 			return {
 				summary: redactSecrets(`${formatRead(result, parsed)}${login?.note ?? ""}`),
 				loginEvent: login?.loginEvent,

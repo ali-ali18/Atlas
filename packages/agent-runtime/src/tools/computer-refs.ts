@@ -8,7 +8,13 @@ import type {
 } from "@workspace/sandbox";
 import {
 	detectCaptchaWall,
+	detectLoginHint,
 	detectLoginWall,
+	hasFormInput,
+	hasOneTimeCodeField,
+	hasPasswordField,
+	isLoginPathUrl,
+	loginHintNote,
 	type CaptchaWallInput,
 	type ComputerUseEvent,
 	type LoginWallInput,
@@ -127,13 +133,22 @@ export function checkLoginWall(
 	input: LoginWallInput,
 ): { note: string; loginEvent?: LoginEvent } | null {
 	const wall = detectLoginWall(input);
-	if (!wall) return null;
+	if (!wall) {
+		// Sinal fraco (sessão expirada no texto, botões "Continue with…"): só uma nota, sem cartão e sem pausa.
+		// Uma nota por site e por run (chave `hint:` em `loginAsked`): não repete a cada snapshot.
+		const hint = detectLoginHint(input);
+		if (!hint) return null;
+		const hintKey = `hint:${hint.site}`;
+		if (ctx.loginAsked.has(hintKey)) return null;
+		ctx.loginAsked.add(hintKey);
+		return { note: loginHintNote(hint) };
+	}
 	if (ctx.loginAsked.has(wall.key)) {
 		return {
 			note:
 				`\nLOGIN STILL REQUIRED on ${wall.site}: the user was already asked once for this page. ` +
-				"Do NOT ask again and never type credentials. Tell the user the login did not take effect " +
-				"(or the session expired) and stop working on this site.",
+				"Do not ask again and never type credentials. Tell the user what you need (the login did not take effect, or the session expired) " +
+				"and continue with what you can do without it.",
 		};
 	}
 	ctx.loginAsked.add(wall.key);
@@ -152,6 +167,24 @@ export function checkLoginWall(
 			"Do not type credentials or call more tools; after the run resumes, call browser_snapshot and continue.",
 		loginEvent,
 	};
+}
+
+/**
+ * `browser_read`/`browser_text` não trazem o DOM: se a URL tem cara de login (ou o texto sugere), uma checagem barata
+ * do snapshot da tela diz se há campo de senha, de código de uso único e algum formulário. Sem snapshot, segue sem campos.
+ */
+export async function readLoginFields(
+	manager: Pick<SandboxManager, "execBrowserSnapshot">,
+	sessionId: string,
+	page: LoginWallInput,
+): Promise<LoginWallInput["fields"] | undefined> {
+	if (!isLoginPathUrl(page.url) && !detectLoginHint(page)) return undefined;
+	try {
+		const snapshot = await manager.execBrowserSnapshot(sessionId, { area: "viewport" });
+		return { password: hasPasswordField(snapshot.lines), oneTimeCode: hasOneTimeCodeField(snapshot.lines), input: hasFormInput(snapshot.lines) };
+	} catch {
+		return undefined;
+	}
 }
 
 /**

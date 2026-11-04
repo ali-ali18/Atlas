@@ -156,6 +156,25 @@ export const NATIVE_TOOL_GROUPS: Record<NativeToolGroup, GroupSpec> = {
 };
 
 const GROUP_ORDER = Object.keys(NATIVE_TOOL_GROUPS) as NativeToolGroup[];
+
+/**
+ * Grupos que viajam juntos: quem tem o navegador também tem `click`/`type`/`key`/`scroll` (desktop) e
+ * `browser_tabs` (tabs). Sem isso o modelo gasta um passo com "Tool click was not loaded" justo na hora
+ * de clicar. O catálogo fica estável depois que o grupo carrega: nada entra e sai a cada passo (o que
+ * já foi enviado segue igual e o prefixo em cache aguenta). `shell` já traz `sandbox_shell` com o resto.
+ */
+export const GROUP_COMPANIONS: Partial<Record<NativeToolGroup, readonly NativeToolGroup[]>> = {
+	browser: ["desktop", "tabs"],
+};
+
+/** Acrescenta aos grupos pedidos os acompanhantes obrigatórios (navegador -> desktop e abas). Muda e devolve o mesmo conjunto. */
+export function addCompanionGroups(groups: Set<ContextGroup>): Set<ContextGroup> {
+	for (const group of [...groups]) {
+		if (!isNativeToolGroup(group)) continue;
+		for (const companion of GROUP_COMPANIONS[group] ?? []) groups.add(companion);
+	}
+	return groups;
+}
 const TOOL_GROUP = new Map<string, NativeToolGroup>(
 	GROUP_ORDER.flatMap((group) => NATIVE_TOOL_GROUPS[group].tools.map((name) => [name, group] as const)),
 );

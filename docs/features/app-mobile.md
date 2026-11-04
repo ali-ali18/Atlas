@@ -307,7 +307,7 @@ Perfil do bot → **Rotinas** abre a lista nativa (`routines/[id]`): rotinas sol
 - **Dados:** os mesmos endpoints do web (`GET /v1/bots/:botId/routines` e `/routine-groups`, `PATCH …/routines/:routineId` com `{ enabled }`, `GET …/routines/:routineId/runs`). O servidor filtra por dono (404 para outro); o app só manda os ids. Estado em `lib/routines-store.ts`, compartilhado entre lista e detalhes, sem cache em disco; pausar/retomar muda na hora e volta atrás se o servidor recusar, sem toque duplo.
 - **Criar e editar é conversando:** "Pedir uma rotina ao bot" e "Editar rotina" abrem o chat com o campo já preenchido ("Quero mudar a rotina …: "). O app não edita gatilho (cron, webhook, GitHub, e-mail) nem mostra segredo.
 - **Fora por enquanto:** "Próxima execução" (o servidor não calcula), Testar (executar agora), excluir e ações de grupo.
-- **Visual:** cores medidas no app do Grok (`routineSurface`: tela `#1e1e1e`, cartão `#2c2c2e`, contorno `#373739`); interruptor próprio (`components/ui/toggle-switch.tsx`, trilho 56x34 na cor do bot).
+- **Visual:** a pele padrão do app (ver "Pele e peças" abaixo): mesmo fundo de tela, `SurfaceCard` e `ToggleSwitch` (trilho 56x34 na cor do bot) de todas as telas.
 
 ## Biblioteca
 
@@ -317,6 +317,7 @@ Perfil do bot → **Biblioteca** abre a lista nativa (`library/[id]`, `id` = bot
 - **Lógica pura (com testes):** `lib/library-items.ts` (`libraryItemKind` por mime, com a extensão só quando o mime é genérico; `mergeLibraryItems`), `lib/library-groups.ts` (`groupLibraryItems` e `formatLibraryAge`, com `now` injetado e dia do calendário local) e `lib/library-api.ts` (resposta inválida vira erro, rede vira "Sem conexão com o seu servidor"). Estado em `lib/use-library.ts`; se só uma das duas listas falha, a outra aparece e o erro vira um aviso.
 - **Estados:** carregando (Spinner), erro com "Tentar de novo", vazio ("Nada na Biblioteca ainda. Peça ao bot para criar um documento ou um painel.").
 - **Tocar numa linha abre a folha de conteúdo** (seção "Folha de conteúdo" abaixo), por cima da lista: painel ou documento, nunca mais o navegador (o arquivo exige a sessão, que o app manda no cabeçalho e o navegador do sistema não tem).
+- **Cuidados:** o cartão ao vivo só é comparado com o gravado (um por vez), então a mesma imagem em duas mensagens continua aparecendo nas duas; o cartão volta do cache offline (sem a `uri` local); durante o deslizar/`goTo` o índice não pisca, a rotação reposiciona o pager e, se a lista mudar com o visualizador aberto, o índice segue a imagem atual; toque duplo em Salvar/Compartilhar/Encaminhar é ignorado.
 - **Ainda não:** links com favicon e imagens enviadas (o servidor não tem listagem global nem de imagens e links), miniaturas (o ícone é o do tipo), rotinas na Biblioteca (têm tela própria) e busca.
 - **Só se confirma no aparelho:** a prévia foi gerada no Chromium (web); fonte, sombra e toque (`active:opacity`) no Android e no iOS podem diferir.
 
@@ -330,3 +331,37 @@ O painel e o documento abrem numa **folha que sobe de baixo por cima da tela atu
 - **Compartilhar o documento:** texto vai como texto (`Share.share`, cortado em 100 mil caracteres); imagem, PDF, Office e documento grande vão **como arquivo de verdade**: o app baixa (até 25 MB), grava no cache (`expo-file-system`) e abre a folha de compartilhar do sistema (`expo-sharing`). As duas bibliotecas estão no Expo Go do SDK 58 (`bundledNativeModules.json`), então não pedem build nativo (`lib/share-file.ts`).
 - **Cartão de arquivo do chat:** o cartão guarda `fileId`, `mime` e `size` (ao vivo e persistido); cartão gravado antes de o app guardar o id continua indo ao navegador.
 - **Só se confirma no aparelho:** o arraste e o toque no fundo (PanResponder dentro do `Modal`), o Voltar do Android, a folha de compartilhar (`expo-sharing`, gravação no cache) e o desempenho de um markdown de 300 KB. A prévia (Chromium, 411x860, escuro) não exercita o gesto nem o compartilhar.
+
+## Visualizador de imagens
+
+Tocar numa imagem do chat abre o visualizador em **tela cheia**, no estilo do Grok: fundo preto, a imagem inteira (contain) com cantos arredondados, **X** redondo à esquerda e **"…"** redondo à direita (`ChromeButton`), legenda curta embaixo e uma **tira de miniaturas** com todas as imagens da conversa, na ordem do fio (anexos do usuário e imagens do bot). Com poucas imagens a tira fica centralizada; com muitas ela rola e a atual se mantém visível. A atual tem borda clara; tocar numa miniatura troca a imagem, e deslizar para o lado também (pager horizontal paginado), com a miniatura acompanhando. É sempre escuro, qualquer que seja o tema do sistema (`SchemeOverrideContext` em `lib/use-theme.ts`).
+
+- **No fio:** o cartão `images` (role `images`, origem `user` ou `assistant`) deixou de ser "Abrir no navegador" e é um tipo do fio (`ChatItem.kind = "images"`): uma imagem grande na proporção dela, ou uma grade de quadrados (2 e 4 em duas colunas, 3 a 6 em três), do lado de quem enviou, com a legenda do cartão embaixo. O evento ao vivo `images` e o cartão gravado têm a mesma identidade (o conjunto de arquivos), então o merge nunca mostra os dois.
+- **De onde vem a legenda:** a descrição da imagem (`alt`); senão a legenda do cartão (`caption`, o texto que o bot mandou junto); senão, no anexo do usuário, o texto da fala colada ao cartão. Sem nada disso, sem legenda. Cortada em 160 caracteres, no máximo duas linhas (`lib/image-viewer.ts`).
+- **Dados:** a imagem é o arquivo do servidor (`GET /v1/files/:id`, o mesmo do web; o servidor filtra pelo dono). O app baixa com a sessão, mostra como `data:` URI e guarda as mais recentes em memória (`lib/image-source.ts`), então cartão, miniatura e visualizador não baixam a mesma imagem três vezes. O download tem timeout de 30 s (com `AbortController`) e a memória guarda no máximo 40 MB no total (por bytes; imagem maior que isso não entra). Uma `uri` local só é aceita se for `data:image/(png|jpeg|webp|gif)`, `file:` ou http(s) (`isSafeImageUri`); nunca vem do servidor.
+- **Menu do "…"** (`DropdownMenu` novo em `components/ui/dropdown-menu.tsx`: flutuante, escuro, ancorado logo abaixo do botão e alinhado à direita, medido com `measureInWindow`; fecha ao tocar fora, no Voltar do Android e ao escolher; pele `chromeFill` + `chromeEdge`), três itens com ícone:
+  - **Encaminhar:** hoje abre a folha de compartilhar do sistema com o **arquivo** da imagem (baixado com a sessão e gravado no cache; o temporário leva a hora no nome e é varrido, com mais de 10 min, na próxima vez que se compartilha, porque no Android o destino pode ler depois). O app ainda não tem anexo no composer nem rota de servidor para reenviar uma imagem a outro bot, então "mandar para outro bot" fica para quando houver anexo no app.
+  - **Compartilhar:** o mesmo caminho (`expo-sharing` + `expo-file-system`, já no Expo Go).
+  - **Salvar:** `expo-media-library` (nova dependência, `~58.0.13`, no Expo Go do SDK 58 e com o plugin no `app.json`), pedindo só a permissão de **escrever**; o aviso curto "Imagem salva" aparece em cima da legenda. No navegador não há galeria: o aviso manda usar Compartilhar. Sem permissão ou sem conexão, a frase diz o que houve (`lib/image-actions.ts`).
+- **Lógica pura (com testes):** `lib/image-viewer.ts` (coleta e dedupe na ordem do fio, legenda, índice inicial pela imagem tocada, índice pela rolagem, ajuste contain, nome do arquivo, grade), `lib/image-source.ts` (carregador com LRU) e `lib/image-actions.ts` (frases).
+- **Ainda não:** pinça para zoom (o pager horizontal e o gesto de pinça competem no RN sem teste no aparelho; fica para uma tarefa própria), "mandar para outro bot" no Encaminhar e arrastar para baixo para fechar.
+- **Só se confirma no aparelho:** o deslizar entre imagens (a prévia é o Chromium, que usa o scroll do navegador), a folha de compartilhar do sistema, o pedido de permissão e a gravação na galeria (Android e iOS) e o desempenho de imagens grandes em `data:` URI.
+
+## Pele e peças (consistência visual)
+
+Antes cada tela escolhia a sua cor (chat `#09090b`, Rotinas `#1e1e1e`, Perfil `bg-card`), a sua borda e até o seu interruptor (o `Switch` do RN no Perfil). Agora há um padrão só, em `lib/surfaces.ts` (`surfaceColors(scheme)` / `useSurfaces()`), com par claro/escuro:
+
+| Token | Escuro | Uso |
+|---|---|---|
+| `screen` | `#09090b` | fundo de TODAS as telas (o do chat; no claro, `background`) |
+| `surface` / `surfaceEdge` | `#2c2c2e` / `#373739` | cartão e grupo de linhas |
+| `divider` | `#373739` | divisor entre linhas, de ponta a ponta |
+| `chromeFill` / `chromeEdge` / `chromeControl` | `#2c2c2e` / `#4b4b4d` / `#3e3d42` | botões redondos, pílulas, campos, composer, menus |
+| `sheet` | `#1c1c1e` | fundo das folhas |
+| `bubble`, `link`, `switchOff`, `switchThumb` | `#202020`, `#136cd0`, `#3a3a3c`, `#ffffff` | balão do bot, azul de ação, interruptor |
+
+Peças em `components/ui/`: `ScreenFrame`, `ScreenHeader`, `SurfaceCard`/`SurfaceGroup`/`SurfaceRow`/`SurfaceDivider`, `ChromeButton`, `ChromePill`, `ChromeInput` (+ `InputGroup`, `Input`, `InputOTP`), `ToggleSwitch`, `ChatCard`. `lib/chat-surface.ts` só reexporta os nomes antigos (`chatSurface`, `chatChrome`, `routineSurface`). `lib/color-tokens.ts` guarda os tokens do tema (antes em `theme.ts`, que ficou com as variáveis do NativeWind).
+
+- **Mudou para quem usa:** Rotinas, Execuções e Perfil passam ao fundo do chat; cartões ganham a mesma cor e contorno em todas as telas (inclusive a tabela do chat e o `ChatCard`); voltar, fechar, pílula do bot, busca e nome têm o mesmo contorno do topo do chat; o interruptor de Notificações é o mesmo das Rotinas.
+- **Regra e guarda:** seção "App mobile (apps/mobile): pele e peças" em `.agents/rules/35-componentes.md`; `lib/visual-base-guard.test.ts` falha com hex novo fora dos tokens e com `Switch` do RN importado.
+- **Risco:** o `ToggleSwitch` perdeu a prop `offColor` e `RoundButton` virou alias do `ChromeButton`; branches em andamento que passam `offColor` ajustam na hora do merge.

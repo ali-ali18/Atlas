@@ -1,37 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { FILE_MAX_CONTENT_CHARS, type NotebookEntry } from "@workspace/shared";
-import { isFinalDeliverableCall, DOCUMENT_BUDGET_NOTE, DOCUMENT_DELIVERY_NOTE, DOC_WORDS_THRESHOLD, UNCONFIRMED_NOTE_MAX_LINES, asksForDocument, declinesDocument, countWords, needsDocumentDelivery, withNotebookAppendix } from "./delivery.js";
+import { isFinalDeliverableCall, DOCUMENT_BUDGET_NOTE, DOCUMENT_STOPPED_NOTE, UNCONFIRMED_NOTE_MAX_LINES, documentStopNote, withNotebookAppendix } from "./delivery.js";
 import { deliveryInstruction } from "./supervisor.js";
 
-const words = (n: number) => Array.from({ length: n }, (_, i) => `p${i}`).join(" ");
 const entry = (partial: Partial<NotebookEntry> & Pick<NotebookEntry, "id" | "title">): NotebookEntry => ({ kind: "finding", excerpt: "x", author: "coordinator", step: 0, ...partial });
 
-describe("entrega em documento", () => {
-	it("resposta acima de ~1.500 palavras vira documento; abaixo, só se o pedido for de relatório e o texto tiver tamanho razoável", () => {
-		expect(countWords(words(10))).toBe(10);
-		expect(needsDocumentDelivery({ text: words(DOC_WORDS_THRESHOLD + 1), request: "oi", hasFile: false })).toBe(true);
-		expect(needsDocumentDelivery({ text: words(DOC_WORDS_THRESHOLD), request: "oi", hasFile: false })).toBe(false);
-		expect(needsDocumentDelivery({ text: words(350), request: "Faça uma análise do mercado", hasFile: false })).toBe(true);
-		// resposta curta nunca vira documento só porque há caderno ou o pedido cita relatório
-		expect(needsDocumentDelivery({ text: words(50), request: "Faça um relatório de preços", hasFile: false })).toBe(false);
-		expect(needsDocumentDelivery({ text: words(20), request: "Faça um relatório de preços", hasFile: false })).toBe(false);
-	});
-
-	it("pedido para responder no chat desliga o portão, mesmo com texto longo", () => {
-		for (const request of ["Faça um relatório, responde aqui no chat", "estudo de mercado, mas não precisa de arquivo", "análise sem PDF por favor", "write a report here in the chat", "no file please, an analysis", "não quero um documento, só a análise"]) {
-			expect(declinesDocument(request), request).toBe(true);
-			expect(needsDocumentDelivery({ text: words(2000), request, hasFile: false }), request).toBe(false);
-		}
-		expect(declinesDocument("Faça um relatório completo em PDF")).toBe(false);
-	});
-
-	it("com arquivo já entregue nunca dispara de novo", () => {
-		expect(needsDocumentDelivery({ text: words(3000), request: "relatório", hasFile: true })).toBe(false);
-	});
-
-	it("reconhece o pedido de relatório, estudo e análise em pt, en e es", () => {
-		for (const request of ["Quero um RELATÓRIO", "um estudo de mercado", "faça a análise", "write a report", "a market study", "an analysis please", "necesito un análisis"]) expect(asksForDocument(request), request).toBe(true);
-		for (const request of ["Bom dia", "quanto custa o frete?", "me lembra amanhã"]) expect(asksForDocument(request), request).toBe(false);
+describe("regex fora do documento (decisão do dono, 03/11)", () => {
+	it("delivery.ts não exporta mais detector de pedido de documento nem portão por tamanho", async () => {
+		const module = (await import("./delivery.js")) as Record<string, unknown>;
+		for (const name of ["asksForDocument", "declinesDocument", "needsDocumentDelivery", "DOCUMENT_DELIVERY_NOTE", "DOC_WORDS_THRESHOLD"]) expect(name in module, name).toBe(false);
 	});
 });
 
@@ -88,8 +65,6 @@ describe("withNotebookAppendix", () => {
 	});
 
 	it("a instrução de entrega manda uma nota curta no fim, não 'não confirmado' item a item no corpo", () => {
-		expect(DOCUMENT_DELIVERY_NOTE).toMatch(/one short closing note at the end/);
-		expect(DOCUMENT_DELIVERY_NOTE).toMatch(/do not scatter/);
 		expect(DOCUMENT_BUDGET_NOTE).toMatch(/one short closing note at the end/);
 		expect(deliveryInstruction("budget_cost")).toMatch(/one short note at the end, not item by item/);
 	});
@@ -103,5 +78,15 @@ describe("isFinalDeliverableCall", () => {
 		expect(isFinalDeliverableCall({ filename: "r.pdf", content: "x", more: true })).toBe(false);
 		for (const aux of ["dados.csv", "grafico.png", "config.json", "script.py", ""]) expect(isFinalDeliverableCall({ filename: aux, content: "x" })).toBe(false);
 		expect(isFinalDeliverableCall({ filename: "sem-extensao", format: "docx", content: "x" })).toBe(true);
+	});
+});
+
+describe("nota de escrita do documento na parada, por motivo", () => {
+	it("só budget_* usa a nota de teto; os outros motivos não falam em budget, limit nem time", () => {
+		for (const reason of ["budget_cost", "budget_wall", "budget_steps"]) expect(documentStopNote(reason), reason).toBe(DOCUMENT_BUDGET_NOTE);
+		for (const reason of ["loop_repeat", "tool_failures"]) {
+			expect(documentStopNote(reason), reason).toBe(DOCUMENT_STOPPED_NOTE);
+			expect(documentStopNote(reason), reason).not.toMatch(/\b(budget|limit|time|cap)\b/i);
+		}
 	});
 });

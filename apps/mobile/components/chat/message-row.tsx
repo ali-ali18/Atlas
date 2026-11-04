@@ -7,10 +7,11 @@ import { Text } from "@/components/ui/text";
 import { taskCardActive } from "@/lib/chat-thread";
 import type { ChatItem, Reaction, ReplyQuote } from "@/lib/chat-types";
 import type { AnswerMap } from "@/lib/questionnaire";
+import { ImagesRow } from "./image-card";
 import { ConfirmCard, MarkerRow, QuestionnaireCard, WebCardRow } from "./cards";
 import { MarkdownBlocks, TableCard } from "./markdown-text";
 import { useAppColorScheme } from "@/lib/use-theme";
-import { chatSurface } from "@/lib/chat-surface";
+import { surfaceColors } from "@/lib/surfaces";
 import { parseMarkdown, splitSegments } from "@/lib/markdown";
 import { ReplyPill } from "./reply-pill";
 import { TaskSummary } from "./task-dock";
@@ -25,6 +26,8 @@ export type RowActions = {
 	onOpenWeb: (item: Extract<ChatItem, { kind: "web-card" }>) => void;
 	/** Painel com id: abre a tela nativa do painel. */
 	onOpenPage: (item: Extract<ChatItem, { kind: "web-card" }>) => void;
+	/** Toque numa imagem do fio: abre o visualizador nela. */
+	onOpenImage: (artifactId: string) => void;
 	/** Toque longo no balão: abre o menu da mensagem (só abre para fala já gravada; ver `messageMenuFor`). */
 	onOpenMenu: (item: ChatItem) => void;
 	/** Cor do bot para o balão do usuário (fundo e texto por cima dele). Sem ela, o balão usa o cinza neutro. */
@@ -84,7 +87,7 @@ function BotBubble({ text, position, reactions, replyTo, onLongPress }: { text: 
 				segment.kind === "table" ? (
 					<TableCard key={`table-${index}`} block={segment.block} scheme={scheme} onLongPress={onLongPress} />
 				) : (
-					<Pressable key={`bubble-${index}`} onLongPress={onLongPress} accessibilityHint="Segure para ver as ações da mensagem" style={[{ backgroundColor: chatSurface(scheme, "bubble") }, cornersNextToTable(bubbleCorners("left", position), "left", index > 0, index < segments.length - 1)]} className="px-3.5 py-3.5">
+					<Pressable key={`bubble-${index}`} onLongPress={onLongPress} accessibilityHint="Segure para ver as ações da mensagem" style={[{ backgroundColor: surfaceColors(scheme).bubble }, cornersNextToTable(bubbleCorners("left", position), "left", index > 0, index < segments.length - 1)]} className="px-3.5 py-3.5">
 						<MarkdownBlocks blocks={segment.blocks} />
 					</Pressable>
 				),
@@ -146,6 +149,8 @@ function RowContent({ item, actions, position }: { item: ChatItem; actions: RowA
 			return <QuestionnaireCard item={item} onAnswer={actions.onAnswer} />;
 		case "web-card":
 			return <WebCardRow item={item} onOpen={actions.onOpenWeb} onOpenPage={actions.onOpenPage} />;
+		case "images":
+			return <ImagesRow item={item} onOpen={actions.onOpenImage} />;
 		case "marker":
 			return <MarkerRow text={item.text} />;
 	}

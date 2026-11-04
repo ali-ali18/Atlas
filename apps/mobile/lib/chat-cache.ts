@@ -2,7 +2,7 @@
 // Mesma ideia do cache da home: a chave leva servidor + e-mail + conversa (trocar de conta nunca mostra o fio da
 // outra), só vai para o disco o que a tela desenha, e `clearChatCache` apaga tudo ao sair.
 import type { CacheStorage } from "./home-cache";
-import type { ChatItem, ConfirmStatus, QuestionnaireStatus, TaskItem } from "./chat-types";
+import type { ChatImage, ChatItem, ConfirmStatus, QuestionnaireStatus, TaskItem } from "./chat-types";
 
 export const CHAT_CACHE_VERSION = 1;
 const ALL_VERSIONS_PREFIX = "atlas.chat.";
@@ -69,6 +69,18 @@ export function pickItem(value: unknown): ChatItem | null {
 			// Respostas e perguntas inteiras não vão para o disco: o cartão reabre pelo servidor. Aqui fica só o que o fio desenha.
 			if (!isString(value.questionnaireId) || !isString(value.title) || !QUESTIONNAIRE.includes(value.status as QuestionnaireStatus)) return null;
 			return { ...base, kind: "questionnaire", questionnaireId: value.questionnaireId, title: value.title.slice(0, 300), items: [], status: value.status as QuestionnaireStatus };
+		case "images": {
+			// Só o que o fio desenha, sem `uri` (data URI grande não vai para o disco): a imagem volta do servidor.
+			if ((value.origin !== "user" && value.origin !== "assistant") || !Array.isArray(value.images)) return null;
+			const images: ChatImage[] = [];
+			for (const raw of value.images.slice(0, 6)) {
+				if (!isRecord(raw) || !isString(raw.artifactId) || raw.artifactId.length === 0 || raw.artifactId.length > 160 || !isString(raw.mime) || raw.mime.length > 120) continue;
+				if (typeof raw.width !== "number" || !Number.isFinite(raw.width) || raw.width <= 0 || typeof raw.height !== "number" || !Number.isFinite(raw.height) || raw.height <= 0) continue;
+				images.push({ artifactId: raw.artifactId, mime: raw.mime, width: raw.width, height: raw.height, ...(isString(raw.alt) && raw.alt ? { alt: raw.alt.slice(0, 200) } : {}), ...(isString(raw.name) && raw.name ? { name: raw.name.slice(0, 120) } : {}) });
+			}
+			if (images.length === 0) return null;
+			return { ...base, kind: "images", origin: value.origin, images, ...(isString(value.caption) && value.caption ? { caption: value.caption.slice(0, 300) } : {}) };
+		}
 		case "web-card":
 			if (!isString(value.title) || !isString(value.key) || !WEB_CARDS.includes(value.card as (typeof WEB_CARDS)[number])) return null;
 			// `pageId` só vale em painel e só se for texto curto: cache antigo (sem ele) cai no "Abrir no navegador".

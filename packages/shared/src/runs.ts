@@ -66,6 +66,10 @@ export type AgentRun = {
 	/** Orçamento resolvido e uso acumulado (observabilidade). */
 	budgetJson?: unknown;
 	usageJson?: unknown;
+	/** Por que o run terminou (vocabulário fechado de `RUN_STOP_REASONS`; `null` = ainda não terminou ou run antigo). */
+	stopReason?: string | null;
+	/** Detalhe curto e sanitizado do motivo (ex.: `delivered`, `after_note:items_open`). */
+	stopDetail?: string | null;
 	createdAt: string;
 	updatedAt: string;
 	startedAt: string | null;
@@ -373,8 +377,14 @@ export type AgentRunCheckpoint = {
 	llmMessages?: SerializedLlmMessage[];
 	/** Motor v2: o run foi promovido de chat a trabalho longo (a retomada reaplica mesmo que a gravação no budgetJson tenha falhado). */
 	promoted?: boolean;
+	/** Motor v2: o entregável que o MODELO declarou na lista de tarefas (a retomada mantém). */
+	deliverable?: "document" | "answer";
 	/** Motor v2: o aviso de fechamento (80% do orçamento) já foi enviado; a retomada não o reenvia. */
 	wrapUpSent?: boolean;
+	/** Motor v2: o aviso de passos (75% do teto efetivo) já foi enviado; a retomada não o repete. */
+	stepsNoticeSent?: boolean;
+	/** Motor v2: o aviso de janela de contexto (75%) já foi enviado; a retomada não o repete. */
+	contextWarned?: boolean;
 	/** Motor v2: tempo ativo (ms) em que a fração de tempo do orçamento recomeçou (mensagem nova do usuário no run). */
 	budgetBaseMs?: number;
 	/** Tools de conector/adiadas expostas ao fim do run: o próximo turno da conversa já as tem carregadas. */
@@ -456,6 +466,11 @@ export type AgentRunCheckpoint = {
 };
 
 /** Na recuperação de número N (N >= este valor) o run falha em vez de voltar à fila. */
+/**
+ * Passos máximos de UMA execução (rede de segurança contra laço, não orçamento): é o padrão do chat humano e o teto que a API aceita.
+ * Igual ao `MAX_STEPS_SAFETY` do motor v2 (antes a API gravava 100 e o v2 usava min(200, 100)).
+ */
+export const RUN_MAX_STEPS = 200;
 export const RUN_MAX_RECOVERIES = 3;
 export const RUN_RECOVERY_LIMIT_MESSAGE =
 	"Esta tarefa derrubou o processamento repetidas vezes e foi interrompida.";

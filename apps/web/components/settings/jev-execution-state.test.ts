@@ -113,7 +113,10 @@ test("Execução: tamanho da resposta, passos e tempo mostram o valor herdado", 
 	assert.deepEqual(out.slice(1).map((o) => o.label), ["2k tokens", "4k tokens", "8k tokens", "16k tokens", "32k tokens"]);
 	const fromEnv = numberOptions(MAX_OUTPUT_SPEC, { value: 8192, source: "env" }, "sem limite");
 	assert.equal(fromEnv[0]?.label, "Herdar (8k tokens)");
-	assert.equal(numberOptions(MAX_STEPS_SPEC, { value: undefined, source: "default" }, "")[0]?.label, "Herdar (300 passos)");
+	assert.equal(numberOptions(MAX_STEPS_SPEC, { value: undefined, source: "default" }, "")[0]?.label, "Herdar (200 passos)");
+	// Herdado acima do limite de segurança: mostra o que vale (200); os presets acima dele avisam.
+	assert.equal(numberOptions(MAX_STEPS_SPEC, { value: 300, source: "env" }, "")[0]?.label, "Herdar (200 passos)");
+	assert.deepEqual(numberOptions(MAX_STEPS_SPEC, { value: undefined, source: "default" }, "").slice(1).map((o) => o.label), ["100 passos", "200 passos", "300 passos (vale 200)", "500 passos (vale 200)"]);
 	assert.equal(numberOptions(MAX_WALL_SPEC, { value: undefined, source: "default" }, "")[0]?.label, "Herdar (30 min)");
 	assert.deepEqual(
 		numberOptions(MAX_WALL_SPEC, { value: undefined, source: "default" }, "")

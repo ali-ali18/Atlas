@@ -135,3 +135,19 @@ describe("cache do chat: cartão de arquivo", () => {
 		expect(bad?.items).toEqual([file(), file(), file({ fileId: "f1" }), { ...file(), card: "chart" }]);
 	});
 });
+
+describe("cache do chat: cartão de imagens", () => {
+	const card: ChatItem = { id: "i1", kind: "images", origin: "assistant", images: [{ artifactId: "a1", mime: "image/png", width: 8, height: 6, alt: "Gráfico", name: "g.png" }], caption: "Pronto" };
+	it("volta do cache offline, sem a uri local (data URI grande não vai para o disco)", () => {
+		const withUri: ChatItem = { ...card, images: [{ ...(card as Extract<ChatItem, { kind: "images" }>).images[0]!, uri: "data:image/png;base64,AAAA" }] };
+		const text = serializeChat([withUri], NOW);
+		expect(text).not.toContain("data:image");
+		expect(parseChat(text, NOW)?.items).toEqual([card]);
+	});
+	it("descarta imagem inválida e cartão sem nenhuma válida", () => {
+		const raw = (images: unknown[], origin = "user") => ({ id: "i", kind: "images", origin, images });
+		const ok = { artifactId: "a", mime: "image/png", width: 1, height: 1 };
+		const out = parseChat(JSON.stringify({ v: 1, savedAt: NOW, items: [raw([ok, { artifactId: 5, mime: "image/png", width: 1, height: 1 }, { ...ok, width: 0 }]), raw([{ ...ok, height: -1 }]), raw([ok], "bot"), raw([ok]), { id: "x", kind: "images", origin: "user" }] }), NOW);
+		expect(out?.items.map((item) => (item.kind === "images" ? item.images.length : -1))).toEqual([1, 1]);
+	});
+});

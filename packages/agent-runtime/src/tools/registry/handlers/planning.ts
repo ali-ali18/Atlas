@@ -29,7 +29,7 @@ async function handleProposePlan(args: Record<string, unknown>, ctx: ToolContext
 
 async function handleUpdateTaskList(args: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult> {
 	const outcome = executeUpdateTaskList(args, ctx);
-	await ctx.emitTaskList?.(outcome.items);
+	await ctx.emitTaskList?.(outcome.items, outcome.deliverable ? { deliverable: outcome.deliverable } : undefined);
 	return { summary: outcome.summary };
 }
 

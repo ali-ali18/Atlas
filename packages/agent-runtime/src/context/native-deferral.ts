@@ -1,5 +1,5 @@
 import type { ChatTool } from "@workspace/llm";
-import { NATIVE_TOOL_GROUPS, type DeferredNativeTool, type NativeToolGroup } from "./native-tools.js";
+import { GROUP_COMPANIONS, NATIVE_TOOL_GROUPS, type DeferredNativeTool, type NativeToolGroup } from "./native-tools.js";
 import { groupProcedureText, type ContextGroup } from "./prompt-blocks.js";
 
 /**
@@ -88,7 +88,15 @@ export function createNativeDeferral(input: {
 		load(names) {
 			const loaded: string[] = [];
 			const newGroups = new Set<ContextGroup>();
+			// Grupo com acompanhantes (navegador -> desktop e abas) leva todos de uma vez, no mesmo passo.
+			const requested = new Set(names);
 			for (const name of names) {
+				const group = deferred.get(name)?.group;
+				for (const companion of group ? (GROUP_COMPANIONS[group] ?? []) : []) {
+					for (const member of membersOf(companion)) requested.add(member);
+				}
+			}
+			for (const name of requested) {
 				const entry = deferred.get(name);
 				if (!entry) continue;
 				tools.push(entry.tool);

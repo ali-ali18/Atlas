@@ -5,11 +5,11 @@
  * continua sendo `completed`, mas com o conteúdo `DROPPED: <motivo>`: assim o contrato do cartão, do checkpoint e
  * do validador não muda. Quem decide se o modelo pode entregar é este portão, não o humor do modelo.
  */
-import type { BotLanguage, TaskListItem } from "@workspace/shared";
+import type { BotLanguage, RunStop, TaskListItem } from "@workspace/shared";
 
 export const DROPPED_PREFIX = "DROPPED:";
 /** Quantas vezes o portão devolve nota antes de deixar o modelo sair (e marcar no stop). */
-export const MAX_TASK_GATE_NOTES = 2;
+export const MAX_TASK_GATE_NOTES = 3;
 
 export function isDroppedItem(item: TaskListItem): boolean {
 	return item.status === "completed" && item.content.trim().toUpperCase().startsWith(DROPPED_PREFIX);
@@ -84,4 +84,13 @@ export function appendUnconfirmed(text: string, input: { dropped: readonly strin
 	const label = UNCONFIRMED_LABEL[input.language] ?? UNCONFIRMED_LABEL.default;
 	const lines = reasons.map((reason) => `- ${label}: ${reason}`).join("\n");
 	return `${text.trimEnd()}\n\n${lines}`;
+}
+
+/**
+ * Marca no detalhe da parada que o run terminou com itens abertos da lista DELE (a que o modelo atualizou ou recriou), seja qual
+ * for o motivo. É o sinal de estado que `stoppedWithOpenWork` lê; sem itens abertos deste run o stop passa intacto.
+ */
+export function withOpenItemsMarker(stop: RunStop, hasOpenItems: boolean): RunStop {
+	if (!hasOpenItems || stop.detail === "tasklist_open" || stop.detail?.includes("items_open")) return stop;
+	return { ...stop, detail: stop.detail ? `${stop.detail}:items_open` : "items_open" };
 }

@@ -214,6 +214,13 @@ describe("checkpoint: bloqueio de tool com validade", () => {
 describe("checkpoint: estado do supervisor v2 (renovação do tempo)", () => {
 	const base = { messages: [], conversation: [], nextStepIndex: 1, model: "m" };
 
+	it("grava e lê stepsNoticeSent; checkpoint antigo (sem o campo) segue válido", () => {
+		const saved = buildRuntimeCheckpoint({ ...base, stepsNoticeSent: true });
+		expect(parseRuntimeCheckpoint(saved)?.stepsNoticeSent).toBe(true);
+		expect(buildRuntimeCheckpoint(base)).not.toHaveProperty("stepsNoticeSent");
+		expect(parseRuntimeCheckpoint({ messages: [], stepsNoticeSent: "true" })).not.toHaveProperty("stepsNoticeSent");
+	});
+
 	it("grava e lê wrapUpSent e budgetBaseMs; checkpoint antigo (sem os campos) segue válido", () => {
 		const saved = buildRuntimeCheckpoint({ ...base, wrapUpSent: true, budgetBaseMs: 408_000.4 });
 		const back = parseRuntimeCheckpoint(JSON.parse(JSON.stringify(saved)));

@@ -4,7 +4,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
 import * as React from "react";
 import { FlatList, KeyboardAvoidingView, Pressable, View } from "react-native";
-import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ChevronDownIcon } from "@/components/icons";
 import { SoonSheet } from "@/components/home/soon-sheet";
 import { ChatMenu, type ChatMenuAction } from "@/components/chat/chat-menu";
@@ -17,6 +17,7 @@ import { grokBubbleColors } from "@/lib/bubble-tone";
 import { createNewItemTracker } from "@/lib/chat-appear";
 import { groupPositionAt, type GroupPosition } from "@workspace/shared";
 import { SyncLine, ThinkingLine } from "@/components/chat/sync-line";
+import { ScreenFrame } from "@/components/ui/screen-frame";
 import { Spinner } from "@/components/ui/spinner";
 import { Text } from "@/components/ui/text";
 import { useAtlasSession } from "@/lib/atlas-session";
@@ -24,8 +25,12 @@ import { botColors } from "@/lib/bot-color";
 import { themeColor } from "@/lib/theme";
 import { useAppColorScheme } from "@/lib/use-theme";
 import { type ViewerTarget, viewerTargetForCard } from "@/lib/viewer-target";
+import { ImageViewer } from "@/components/image-viewer/image-viewer";
+import { useImageActions } from "@/components/image-viewer/use-image-actions";
 import { ViewerSheet } from "@/components/viewer/viewer-sheet";
 import { webChatUrl } from "@/lib/chat-links";
+import { groupConsecutiveImages } from "@/lib/image-group";
+import { collectViewerImages, viewerStartIndex } from "@/lib/image-viewer";
 import type { ChatItem, ReplyQuote } from "@/lib/chat-types";
 import { containsTable } from "@/lib/markdown";
 import { replyQuoteFor } from "@/lib/reply-quote";
@@ -93,6 +98,14 @@ export default function ChatScreen() {
 		},
 		[openWeb],
 	);
+	// O que se desenha: imagens seguidas viram um leque só (pura, depois do merge; o dedupe segue por evento).
+	const shownItems = React.useMemo(() => groupConsecutiveImages(chat.items), [chat.items]);
+	// Visualizador de imagens: todas as imagens do fio, abrindo na tocada (o índice é fixado ao abrir).
+	const viewerImages = React.useMemo(() => collectViewerImages(shownItems), [shownItems]);
+	const [imageStart, setImageStart] = React.useState<number | null>(null);
+	const imageActions = useImageActions();
+	const openImage = React.useCallback((artifactId: string) => setImageStart(viewerStartIndex(viewerImages, artifactId)), [viewerImages]);
+	const closeImage = React.useCallback(() => setImageStart(null), []);
 	// "Responder": a mensagem citada fica no chip do composer até enviar ou cancelar.
 	const [replyTo, setReplyTo] = React.useState<ReplyQuote | null>(null);
 	const startReply = React.useCallback((item: ChatItem) => setReplyTo(replyQuoteFor(item)), []);
@@ -111,28 +124,29 @@ export default function ChatScreen() {
 			onOpenWeb: openWeb,
 			onOpenPage: openPage,
 			onOpenMenu: messageMenu.open,
+			onOpenImage: openImage,
 			activeRunId: chat.runTasks?.runId ?? null,
 			running: chat.running,
 			userBubble: userBubble,
 		}),
-		[chat.decide, chat.answer, openWeb, messageMenu.open, chat.running, chat.runTasks?.runId, userBubble],
+		[chat.decide, chat.answer, openWeb, openImage, messageMenu.open, chat.running, chat.runTasks?.runId, userBubble],
 	);
 
 	// A lista é invertida (o fim da conversa fica embaixo e o teclado não a desloca): mais novo primeiro.
-	const data = React.useMemo(() => [...chat.items].reverse(), [chat.items]);
-	const animateIds = useNewItemIds(chat.items, chat.ready);
-	const positions = React.useMemo(() => bubblePositions(chat.items), [chat.items]);
+	const data = React.useMemo(() => [...shownItems].reverse(), [shownItems]);
+	const animateIds = useNewItemIds(shownItems, chat.ready);
+	const positions = React.useMemo(() => bubblePositions(shownItems), [shownItems]);
 
 	if (!bot) {
 		return (
-			<SafeAreaView className="flex-1 items-center justify-center gap-4 bg-background px-8">
+			<ScreenFrame className="items-center justify-center gap-4 px-8">
 				<Text variant="muted" className="text-center text-control">
 					Não encontrei esta conversa.
 				</Text>
 				<Pressable role="button" onPress={goBack} className="min-h-11 justify-center rounded-full bg-secondary px-6 active:opacity-80">
 					<Text className="text-control font-semibold">Voltar</Text>
 				</Pressable>
-			</SafeAreaView>
+			</ScreenFrame>
 		);
 	}
 
@@ -146,7 +160,7 @@ export default function ChatScreen() {
 	};
 
 	return (
-		<SafeAreaView edges={["bottom", "left", "right"]} className="flex-1 bg-background">
+		<ScreenFrame edges={["bottom", "left", "right"]}>
 			<KeyboardAvoidingView behavior="padding" className="flex-1">
 				<FlatList
 					ref={listRef}
@@ -213,8 +227,9 @@ export default function ChatScreen() {
 			</KeyboardAvoidingView>
 			<ChatMenu open={menu} onClose={() => setMenu(false)} onPick={onMenuPick} />
 			<ViewerSheet target={viewer} onClose={closeViewer} apiFetch={apiFetch} />
+			<ImageViewer visible={imageStart !== null} images={viewerImages} startIndex={imageStart ?? 0} onClose={closeImage} actions={imageActions} />
 			{messageMenu.node}
 			<SoonSheet open={soon !== null} title={soon ? SOON_TITLE[soon] : ""} onClose={() => setSoon(null)} />
-		</SafeAreaView>
+		</ScreenFrame>
 	);
 }

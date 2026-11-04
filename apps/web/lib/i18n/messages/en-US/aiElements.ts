@@ -193,6 +193,7 @@ export const aiElements: NamespaceMessages<typeof ptBR> = {
 	"aiElements.inspector.view.model": "Model",
 	"aiElements.inspector.view.steps": "Steps",
 	"aiElements.inspector.view.tools": "Tools",
+	"aiElements.inspector.view.stopReason": "Stop reason",
 	"aiElements.inspector.view.withFailures": " ({count} failed)",
 	"aiElements.inspector.view.inOut": "Input / output",
 	"aiElements.inspector.view.cost": "Cost",

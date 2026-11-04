@@ -118,6 +118,11 @@ export function applyRunEvent(state: LiveState, event: ComputerUseEvent): LiveSt
 					...(event.description ? { description: event.description } : {}),
 				}),
 			};
+		case "images": {
+			const images = event.items.map(({ artifactId, mime, width, height, alt, name }) => ({ artifactId, mime, width, height, ...(alt ? { alt } : {}), ...(name ? { name } : {}) }));
+			if (images.length === 0) return state;
+			return { ...state, items: upsert(state.items, { id: `images-${state.runId ?? "local"}-${images.map((image) => image.artifactId).join("+")}`, kind: "images", origin: event.origin, images, ...(event.caption ? { caption: event.caption } : {}) }) };
+		}
 		case "chart":
 			return withWebCard(state, `chart-${event.chartId}`, "chart", "Gráfico", `chart:${event.chartId}`);
 		case "page":
