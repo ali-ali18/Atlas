@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CHAT_CACHE_MAX_AGE_MS, CHAT_CACHE_MAX_BYTES, CHAT_CACHE_MAX_TEXT, createChatCacheWriter, CHAT_CACHE_MAX_ITEMS, chatCacheKey, clearChatCache, loadChatCache, parseChat, saveChatCache, serializeChat } from "./chat-cache";
+import { CHAT_CACHE_VERSION, CHAT_CACHE_MAX_AGE_MS, CHAT_CACHE_MAX_BYTES, CHAT_CACHE_MAX_TEXT, createChatCacheWriter, CHAT_CACHE_MAX_ITEMS, chatCacheKey, clearChatCache, loadChatCache, parseChat, saveChatCache, serializeChat } from "./chat-cache";
 import type { ChatItem } from "./chat-types";
 import type { CacheStorage } from "./home-cache";
 
@@ -25,7 +25,7 @@ const msgs: ChatItem[] = [
 
 describe("cache do chat", () => {
 	it("a chave leva servidor, e-mail (sem caixa) e conversa", () => {
-		expect(chatCacheKey("https://a.test", "Dono@Ex.com", "c1")).toBe("atlas.chat.v1:https://a.test|dono@ex.com|c1");
+		expect(chatCacheKey("https://a.test", "Dono@Ex.com", "c1")).toBe("atlas.chat.v2:https://a.test|dono@ex.com|c1");
 		expect(chatCacheKey("https://a.test", "a@b.c", "c1")).not.toBe(chatCacheKey("https://a.test", "a@b.c", "c2"));
 		expect(chatCacheKey("https://a.test", "a@b.c", "c1")).not.toBe(chatCacheKey("https://a.test", "x@b.c", "c1"));
 	});
@@ -52,7 +52,7 @@ describe("cache do chat", () => {
 		expect(parsed.items.at(-1)?.id).toBe("m99");
 		const withExtra = JSON.parse(serializeChat(msgs, NOW));
 		expect(Object.keys(withExtra.items[0]).sort()).toEqual(["createdAt", "id", "kind", "text"]);
-		const raw = JSON.stringify({ v: 1, savedAt: NOW, items: [{ id: "1", kind: "user", text: "x", token: "segredo", cookie: "c" }] });
+		const raw = JSON.stringify({ v: CHAT_CACHE_VERSION, savedAt: NOW, items: [{ id: "1", kind: "user", text: "x", token: "segredo", cookie: "c" }] });
 		expect(JSON.stringify(parseChat(raw, NOW))).not.toContain("segredo");
 	});
 	it("o valor fica bem abaixo do limite do armazenamento", () => {
@@ -66,7 +66,7 @@ describe("cache do chat", () => {
 		expect(parseChat("não é json", NOW)).toBeNull();
 		expect(parseChat(JSON.stringify({ v: 99, savedAt: NOW, items: [] }), NOW)).toBeNull();
 		expect(parseChat(serializeChat(msgs, NOW), NOW + CHAT_CACHE_MAX_AGE_MS + 1)).toBeNull();
-		expect(parseChat(JSON.stringify({ v: 1, savedAt: NOW, items: [{ id: 3 }, null, { id: "a", kind: "nope" }] }), NOW)?.items).toEqual([]);
+		expect(parseChat(JSON.stringify({ v: CHAT_CACHE_VERSION, savedAt: NOW, items: [{ id: 3 }, null, { id: "a", kind: "nope" }] }), NOW)?.items).toEqual([]);
 	});
 	it("armazenamento que falha não derruba a tela", async () => {
 		const broken: CacheStorage = { getItem: async () => Promise.reject(new Error("x")), setItem: async () => Promise.reject(new Error("x")), removeItem: async () => undefined, getAllKeys: async () => Promise.reject(new Error("x")) };
@@ -75,7 +75,7 @@ describe("cache do chat", () => {
 		expect(await clearChatCache(broken)).toBe(false);
 	});
 	it("clearChatCache apaga o chat de todas as contas e versões, e só ele", async () => {
-		const storage = memoryStorage({ "atlas.chat.v1:s|a|c1": "1", "atlas.chat.v0:s|b|c2": "2", "atlas.home.v2:s|a": "3", outro: "4" });
+		const storage = memoryStorage({ "atlas.chat.v2:s|a|c1": "1", "atlas.chat.v0:s|b|c2": "2", "atlas.home.v2:s|a": "3", outro: "4" });
 		expect(await clearChatCache(storage)).toBe(true);
 		expect([...storage.data.keys()].sort()).toEqual(["atlas.home.v2:s|a", "outro"]);
 	});
@@ -104,5 +104,76 @@ describe("escritor do cache (época)", () => {
 		expect(parsed?.items[0]).toMatchObject({ kind: "assistant" });
 		expect((parsed?.items[0] as { text: string }).text).toHaveLength(CHAT_CACHE_MAX_TEXT);
 		expect(CHAT_CACHE_MAX_TEXT).toBe(4_000);
+	});
+});
+
+describe("cache do chat: cartão de painel", () => {
+	const page = (extra: Record<string, unknown> = {}) => ({ id: "p", kind: "web-card", card: "page", title: "Vendas", key: "page:p1", ...extra });
+	it("guarda pageId, revisão e fontes", () => {
+		const item: ChatItem = { id: "p", kind: "web-card", card: "page", title: "Vendas", key: "page:p1", pageId: "p1", revision: 3, sourceCount: 2 };
+		expect(parseChat(serializeChat([item], NOW), NOW)?.items).toEqual([item]);
+	});
+	it("cache antigo sem pageId continua válido e abre no navegador", () => {
+		const parsed = parseChat(JSON.stringify({ v: CHAT_CACHE_VERSION, savedAt: NOW, items: [page()] }), NOW);
+		expect(parsed?.items).toEqual([page()]);
+		expect(parsed?.items[0]).not.toHaveProperty("pageId");
+	});
+	it("descarta pageId inválido ou longo e campos de painel em outro tipo de cartão", () => {
+		const bad = parseChat(JSON.stringify({ v: CHAT_CACHE_VERSION, savedAt: NOW, items: [page({ pageId: 5, revision: "x", sourceCount: null }), page({ pageId: "x".repeat(200) }), { ...page({ pageId: "p1" }), card: "chart" }] }), NOW);
+		expect(bad?.items.map((item) => ("pageId" in item ? item.pageId : undefined))).toEqual([undefined, undefined, undefined]);
+	});
+});
+
+describe("cache do chat: cartão de arquivo", () => {
+	const file = (extra: Record<string, unknown> = {}) => ({ id: "f", kind: "web-card", card: "file", title: "a.md", key: "file:f1", ...extra });
+	it("guarda fileId, mime e tamanho (o cartão volta a abrir a folha)", () => {
+		const item: ChatItem = { id: "f", kind: "web-card", card: "file", title: "a.md", key: "file:f1", fileId: "f1", mime: "text/markdown", size: 120 };
+		expect(parseChat(serializeChat([item], NOW), NOW)?.items).toEqual([item]);
+	});
+	it("descarta id, mime e tamanho inválidos, e campos de arquivo em outro cartão", () => {
+		const bad = parseChat(JSON.stringify({ v: CHAT_CACHE_VERSION, savedAt: NOW, items: [file({ fileId: 5, mime: 1, size: "x" }), file({ fileId: "x".repeat(200) }), file({ fileId: "f1", mime: "m".repeat(200), size: -1 }), { ...file({ fileId: "f1" }), card: "chart" }] }), NOW);
+		expect(bad?.items).toEqual([file(), file(), file({ fileId: "f1" }), { ...file(), card: "chart" }]);
+	});
+});
+
+describe("cache do chat: cartão de imagens", () => {
+	const card: ChatItem = { id: "i1", kind: "images", origin: "assistant", images: [{ artifactId: "a1", mime: "image/png", width: 8, height: 6, alt: "Gráfico", name: "g.png" }], caption: "Pronto" };
+	it("volta do cache offline, sem a uri local (data URI grande não vai para o disco)", () => {
+		const withUri: ChatItem = { ...card, images: [{ ...(card as Extract<ChatItem, { kind: "images" }>).images[0]!, uri: "data:image/png;base64,AAAA" }] };
+		const text = serializeChat([withUri], NOW);
+		expect(text).not.toContain("data:image");
+		expect(parseChat(text, NOW)?.items).toEqual([card]);
+	});
+	it("descarta imagem inválida e cartão sem nenhuma válida", () => {
+		const raw = (images: unknown[], origin = "user") => ({ id: "i", kind: "images", origin, images });
+		const ok = { artifactId: "a", mime: "image/png", width: 1, height: 1 };
+		const out = parseChat(JSON.stringify({ v: CHAT_CACHE_VERSION, savedAt: NOW, items: [raw([ok, { artifactId: 5, mime: "image/png", width: 1, height: 1 }, { ...ok, width: 0 }]), raw([{ ...ok, height: -1 }]), raw([ok], "bot"), raw([ok]), { id: "x", kind: "images", origin: "user" }] }), NOW);
+		expect(out?.items.map((item) => (item.kind === "images" ? item.images.length : -1))).toEqual([1, 1]);
+	});
+});
+
+describe("cartões de proposta no cache", () => {
+	const proposal: ChatItem = { id: "m1", kind: "bot-proposal", proposalId: "p1", status: "approved", name: "Estoquinho", description: "Cuida do estoque", color: "#1084FE", shape: "hex", model: "a/b", skills: ["x-y"], firstTask: "Tarefa", botId: "bot-9" };
+	const profile: ChatItem = { id: "m2", kind: "bot-profile", proposalId: "pf1", botId: "bot1", status: "rejected", fields: ["name", "description"], before: { name: "A", snippet: "", description: null, openRouterModel: null }, after: { name: "B", description: "Nova" } };
+	it("o decidido vai e volta do disco; o pendente fica de fora (o estado de verdade vem do servidor)", () => {
+		const pending = { ...proposal, id: "m3", proposalId: "p2", status: "pending" } as ChatItem;
+		const loaded = parseChat(serializeChat([proposal, profile, pending], 1_000), 1_000)!;
+		expect(loaded.items).toEqual([proposal, profile]);
+	});
+	it("não guarda os campos do aparelho (applying, error) nem chave extra", () => {
+		const raw = serializeChat([{ ...proposal, applying: true, error: "x" } as ChatItem], 1_000);
+		expect(raw).not.toContain("applying");
+		expect(raw).not.toContain("\"error\"");
+	});
+	it("item torto no disco é descartado", () => {
+		const raw = JSON.stringify({ v: CHAT_CACHE_VERSION, savedAt: 1_000, items: [{ id: "x", kind: "bot-proposal", proposalId: "p" }, { id: "y", kind: "bot-profile", proposalId: "p", botId: "b", status: "pending", fields: ["zzz"], before: {}, after: {} }] });
+		expect(parseChat(raw, 1_000)!.items).toEqual([]);
+	});
+});
+
+describe("versão do cache", () => {
+	it("o cache da versão anterior (com web-card de proposta) é descartado", () => {
+		const old = JSON.stringify({ v: CHAT_CACHE_VERSION - 1, savedAt: NOW, items: [{ id: "1", kind: "web-card", card: "proposal", title: "Proposta de bot", key: "bot-proposal:1" }] });
+		expect(parseChat(old, NOW)).toBeNull();
 	});
 });

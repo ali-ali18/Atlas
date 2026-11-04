@@ -1,18 +1,17 @@
+import { resolveColor, resolveShape } from "@workspace/shared/avatar/identity";
 import { CHAT_CARD_COPY } from "@workspace/ui/lib/chat-card-copy";
-import * as React from "react";
-import { Pressable, TextInput, View } from "react-native";
-import { ExternalLinkIcon, ListChecksIcon } from "@/components/icons";
+import { Pressable, View } from "react-native";
+import { ExternalLinkIcon, LibraryIcon } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { ChatCard, ChatCardActions, ChatCardHeader, ChatCardLine } from "@/components/ui/chat-card";
+import { Avatar } from "@/components/ui/avatar";
 import { Text } from "@/components/ui/text";
-import { cn } from "@/lib/cn";
 import type { ChatItem } from "@/lib/chat-types";
-import { buildAnswers, missingRequired, toggleChoice, type AnswerMap } from "@/lib/questionnaire";
-import { themeColor } from "@/lib/theme";
-import { useAppColorScheme } from "@/lib/use-theme";
+import { viewerTargetForCard } from "@/lib/viewer-target";
+import { pageCardSummary } from "@/lib/web-card";
+import { findLinkedBot, type MentionBotRef } from "@/lib/message-text";
 
 type Confirm = Extract<ChatItem, { kind: "confirm" }>;
-type Questionnaire = Extract<ChatItem, { kind: "questionnaire" }>;
 type WebCard = Extract<ChatItem, { kind: "web-card" }>;
 
 const CONFIRM_BADGE: Record<Confirm["status"], { tone: "pending" | "success" | "muted" | "danger"; label: string }> = {
@@ -47,103 +46,31 @@ export function ConfirmCard({ item, onDecide }: { item: Confirm; onDecide: (item
 	);
 }
 
-/** Pergunta do bot: escolhas (uma ou várias) e texto livre; "Responder" envia o mapa de respostas do web. */
-export function QuestionnaireCard({ item, onAnswer }: { item: Questionnaire; onAnswer: (item: Questionnaire, answers: AnswerMap) => void }) {
-	const scheme = useAppColorScheme();
-	const [selected, setSelected] = React.useState<Record<string, string[]>>({});
-	const [free, setFree] = React.useState<Record<string, string>>({});
-	const [tried, setTried] = React.useState(false);
-	const pending = item.status === "pending";
-	const answers = buildAnswers(item.items, selected, free);
-	const missing = missingRequired(item.items, answers);
-	const submit = () => {
-		if (missing.length > 0) {
-			setTried(true);
-			return;
-		}
-		onAnswer(item, answers);
-	};
-	if (!pending || item.items.length === 0) {
-		return (
-			<ChatCard variant="activity" className="self-start">
-				<ChatCardLine leading={<ListChecksIcon />}>
-					<Text numberOfLines={1} className="text-sm font-medium">
-						{item.title}
-					</Text>
-				</ChatCardLine>
-			</ChatCard>
-		);
-	}
+/**
+ * Cartão sem tela nativa ainda (gráfico, arquivo, rotina…): título e "Abrir no navegador". Painel com `pageId` é o
+ * resumo (título, "Painel · 2 fontes") e abre a tela nativa ("Abrir painel"); sem `pageId` (gravado antes) vai ao navegador.
+ */
+export function WebCardRow({ item, onOpen, onOpenPage }: { item: WebCard; onOpen: (item: WebCard) => void; onOpenPage?: (item: WebCard) => void }) {
+	const target = viewerTargetForCard(item);
+	const native = onOpenPage && target ? onOpenPage : null;
+	const nativeLabel = target?.kind === "file" ? "Abrir documento" : "Abrir painel";
 	return (
-		<ChatCard className="max-w-[min(68ch,100%)] self-start">
-			<ChatCardHeader title={item.title} badge={{ tone: "pending", label: CHAT_CARD_COPY.needsYou }} />
-			{item.description ? (
-				<Text variant="muted" className="text-control">
-					{item.description}
-				</Text>
-			) : null}
-			{item.items.map((entry) => {
-				const invalid = tried && missing.includes(entry.name);
-				return (
-					<View key={entry.name} className="gap-2">
-						<Text className="text-control font-medium">{entry.prompt}</Text>
-						{entry.description ? (
-							<Text variant="caption" className="text-body">
-								{entry.description}
-							</Text>
-						) : null}
-						{(entry.choices ?? []).map((choice) => {
-							const on = (selected[entry.name] ?? []).includes(choice.value);
-							return (
-								<Pressable
-									key={choice.value}
-									role={entry.multiple ? "checkbox" : "radio"}
-									accessibilityState={{ checked: on }}
-									onPress={() => setSelected((previous) => ({ ...previous, [entry.name]: toggleChoice(previous[entry.name] ?? [], choice.value, entry.multiple === true) }))}
-									className={cn("min-h-11 justify-center rounded-xl px-3 py-2 active:opacity-80", on ? "bg-primary/15" : "bg-background/40", invalid && "border border-destructive")}
-								>
-									<Text className="text-control">{choice.label ?? choice.value}</Text>
-									{choice.description ? (
-										<Text variant="caption" className="text-body">
-											{choice.description}
-										</Text>
-									) : null}
-								</Pressable>
-							);
-						})}
-						{entry.input ? (
-							<TextInput
-								accessibilityLabel={entry.input.label}
-								placeholder={entry.input.placeholder ?? entry.input.label}
-								placeholderTextColor={themeColor(scheme, "muted-foreground")}
-								value={free[entry.name] ?? ""}
-								onChangeText={(text) => setFree((previous) => ({ ...previous, [entry.name]: text }))}
-								multiline
-								className={cn("min-h-11 rounded-xl bg-background/40 px-3 py-2 text-control text-foreground", invalid && "border border-destructive")}
-							/>
-						) : null}
-						{invalid ? <Text className="text-body text-destructive">Responda esta pergunta.</Text> : null}
-					</View>
-				);
-			})}
-			<ChatCardActions>
-				<Button size="sm" onPress={submit}>
-					<Text>Responder</Text>
-				</Button>
-			</ChatCardActions>
-		</ChatCard>
-	);
-}
-
-/** Cartão sem tela nativa ainda (gráfico, painel, arquivo, rotina…): título e "Abrir no navegador". */
-export function WebCardRow({ item, onOpen }: { item: WebCard; onOpen: (item: WebCard) => void }) {
-	return (
-		<Pressable role="button" accessibilityLabel={`${item.title}. Abrir no navegador`} onPress={() => onOpen(item)} className="self-start active:opacity-80">
+		<Pressable
+			role="button"
+			accessibilityLabel={native ? `${item.title}. ${nativeLabel}` : `${item.title}. Abrir no navegador`}
+			onPress={() => (native ? native(item) : onOpen(item))}
+			className="self-start active:opacity-80"
+		>
 			<ChatCard variant="activity" className="min-h-11 max-w-[min(68ch,100%)] justify-center">
-				<ChatCardLine leading={<ExternalLinkIcon />} trailing={<Text className="text-body font-medium text-info">Abrir no navegador</Text>}>
+				<ChatCardLine leading={native ? <LibraryIcon size={16} /> : <ExternalLinkIcon />} trailing={<Text className="text-body font-medium text-info">{native ? nativeLabel : "Abrir no navegador"}</Text>}>
 					<Text numberOfLines={1} className="text-sm font-medium">
 						{item.title}
 					</Text>
+					{native && target?.kind === "page" ? (
+						<Text variant="caption" numberOfLines={1}>
+							{pageCardSummary(item)}
+						</Text>
+					) : null}
 				</ChatCardLine>
 			</ChatCard>
 		</Pressable>
@@ -161,6 +88,36 @@ export function MarkerRow({ text }: { text: string }) {
 			<Text variant="caption" className="text-body">
 				{text}
 			</Text>
+		</View>
+	);
+}
+
+/**
+ * "Enviou mensagem para [avatar] Bobinho: prévia", como o `BotLinkMarker` do web: centralizado no fio (igual aos outros
+ * marcadores), com o avatar do bot antes do nome. A prévia vem logo depois e o texto todo quebra centralizado. Sem achar
+ * o bot (apagado), fica só o nome, sem avatar.
+ */
+export function BotLinkMarkerRow({ link, fallback, bots }: { link: { botId: string; botName: string; title: string }; fallback: string; bots?: readonly MentionBotRef[] }) {
+	const bot = bots ? findLinkedBot(bots, link) : undefined;
+	if (!link.botName.trim()) return <MarkerRow text={fallback} />;
+	const title = link.title.trim();
+	// Linha flexível (e não `Text` aninhado): o avatar fica no centro vertical das palavras em qualquer plataforma (num
+	// `Text` o View inline senta na linha de base e sobe/desce conforme a fonte). Quebrando, cada linha fica centralizada.
+	return (
+		<View className="flex-row flex-wrap items-center justify-center gap-x-1.5 px-4 py-2.5">
+			<Text variant="caption" className="text-body">
+				Enviou mensagem para
+			</Text>
+			{bot ? <Avatar color={resolveColor(bot.color, bot.id)} shape={resolveShape(bot.shape, bot.id)} size={16} animated={false} /> : null}
+			<Text variant="caption" className="text-body">
+				<Text className="text-body font-medium text-foreground">{link.botName.trim()}</Text>
+				{title ? ":" : ""}
+			</Text>
+			{title ? (
+				<Text variant="caption" numberOfLines={2} className="text-center text-body">
+					{title}
+				</Text>
+			) : null}
 		</View>
 	);
 }

@@ -2,13 +2,20 @@
 // para, responde cartões e pagina. Todo o estado vive aqui, lido e escrito de forma síncrona (nada de ref
 // defasada de render), e as dependências (API, stream, cache, relógio) entram por injeção para testar as corridas
 // (envio durante o fim do run, parar antes do `runId`, toque duplo em aprovação…). O hook só assina e desenha.
-import type { AgentActivity, ComputerUseEvent } from "@workspace/shared";
-import { ChatApiError, isNetworkError, isUnauthorized, sendErrorText, type CreateRunInput, type CreateRunResult } from "./chat-api";
+import type { AgentActivity, CompactConversationResponse, ComputerUseEvent, LoginConnector } from "@workspace/shared";
+import type { RunModelFields } from "./model-choice";
+import { proposalErrorText, type BotProfileResult, type BotProposalResult, type ResolveDecision } from "./card-api";
+import { ChatApiError, compactErrorText, isModelRejection, ModelUnavailableError, isNetworkError, isUnauthorized, sendErrorText, type CreateRunInput, type CreateRunResult, type ResumeOptions } from "./chat-api";
+import type { ConnectResultView } from "./connect-app";
+import { connectorCanAuthorize, connectorOf } from "./request-cards";
+import { homeBotFromProposal, withProposalResolution, type CardResolution } from "./bot-cards";
+import { groupBotItems } from "./bot-thread";
 import { applyRunEvent, createLiveState, startLiveRun, type LiveState } from "./chat-live";
 import { followRun, type FollowOptions, type OpenStream } from "./chat-stream";
 import { initialSync, syncLine, syncReducer, type SyncAction, type SyncState } from "./chat-sync";
-import { dockedTaskList, mergeTail, oldestCursor, PAGE_SIZE, prependOlder, reconcile, sessionMessageToItem, withSourceMarkers, type MessagePage, type PageCursor } from "./chat-thread";
+import { compactionMarkerText, dockedTaskList, mergeTail, oldestCursor, PAGE_SIZE, prependOlder, reconcile, sessionMessageToItem, withSourceMarkers, type MessagePage, type PageCursor } from "./chat-thread";
 import type { ChatItem, Reaction, ReplyQuote } from "./chat-types";
+import type { HomeBot } from "./home-types";
 import { myReaction, sameReactions, toggleUserReaction } from "./message-actions";
 
 export type ChatApi = {
@@ -23,6 +30,10 @@ export type ChatApi = {
 	setReaction: (messageId: string, emoji: string) => Promise<void>;
 	clearReaction: (messageId: string) => Promise<void>;
 	markConversationUnread: (conversationId: string) => Promise<void>;
+	compactConversation: (conversationId: string, focus?: string) => Promise<CompactConversationResponse>;
+	resolveBotProposal: (input: { conversationId: string; proposalId: string; decision: ResolveDecision }) => Promise<BotProposalResult>;
+	resolveBotProfile: (input: { conversationId: string; proposalId: string; decision: ResolveDecision }) => Promise<BotProfileResult>;
+	resumeRun: (runId: string, options: ResumeOptions) => Promise<{ enqueued: boolean }>;
 };
 
 export type ChatCache = { load: () => Promise<ChatItem[] | null>; save: (items: readonly ChatItem[]) => Promise<void> };
@@ -34,6 +45,12 @@ export type ChatDeps = {
 	/** Cache da conversa (chave por servidor + conta + conversa); `null` sem conta ou sem conversa. */
 	cacheFor: (conversationId: string) => ChatCache | null;
 	onUnauthorized: () => void;
+	/** Um agente foi criado pelo cartão do chat: a home o recebe já (e atualiza em segundo plano). */
+	onBotCreated?: (bot: HomeBot) => void | Promise<void>;
+	/** Um perfil proposto foi aplicado: a home mostra o que mudou (hoje, só o nome). */
+	onProfileApplied?: (botId: string, patch: { name?: string }) => void;
+	/** Conecta o app de um cartão de conector (navegador + polling); vive no controller, não no cartão. */
+	connect?: (connector: LoginConnector, signal: { aborted: boolean }) => Promise<ConnectResultView>;
 	/** Troca o laço do stream (testes). */
 	follow?: typeof followRun;
 	sleep?: (ms: number) => Promise<void>;
@@ -42,6 +59,12 @@ export type ChatDeps = {
 	/** Intervalo mínimo entre avisos à tela durante o texto chegando (o texto em si nunca se perde). */
 	throttleMs?: number;
 	retryDelays?: readonly number[];
+	/** Campos de modelo do run (escolha do seletor, lida na hora do envio). Ausente = o servidor decide. */
+	modelFields?: () => RunModelFields;
+	/** A conversa acabou de ser criada por um envio (chat novo): quem guarda a escolha de modelo passa a gravar nela. */
+	onConversationCreated?: (conversationId: string) => void;
+	/** O servidor recusou o modelo enviado: quem guarda a escolha a apaga (volta ao modelo do bot). */
+	onModelRejected?: () => void;
 };
 
 export type ChatSnapshot = {
@@ -56,17 +79,27 @@ export type ChatSnapshot = {
 	ready: boolean;
 	sync: SyncState;
 	error: string | null;
+	/** Um `/compact` rodando no servidor: a tela mostra "Compactando a conversa…" e segura novos envios. */
+	compacting: boolean;
 	decisions: Record<string, "approved" | "rejected">;
 	answered: Record<string, true>;
+	/** Cartões de proposta (chave `kind|proposalId`): a chamada em voo, a falha ou o resultado, antes do gravado chegar. */
+	cards: Record<string, CardResolution>;
+	/** Logins já resolvidos neste aparelho (vale na hora, antes de o servidor gravar o novo estado). */
+	loginsDone: Record<string, true>;
+	/** Conexões em andamento (`busy`) ou que não fecharam (`message`), por pedido de login. */
+	connects: Record<string, { busy: boolean; message: string | null }>;
 };
 
+/** Fins de verdade do run (o "paused" não entra: é justamente o estado de quem espera o login). */
+const ENDED_RUN_STATUSES = new Set(["completed", "failed", "cancelled", "budget_exhausted"]);
 const ACTIVE_CONFLICT = "A conversa já tem uma tarefa em andamento";
 const DEFAULT_RETRY = [400, 1_000, 2_000] as const;
 
 type Queued = { text: string; optimisticId: string; replyToMessageId?: string };
 
 function initial(): ChatSnapshot {
-	return { persisted: [], live: createLiveState(), hasMore: false, loadingOlder: false, following: false, creating: false, ready: false, sync: initialSync, error: null, decisions: {}, answered: {} };
+	return { persisted: [], live: createLiveState(), hasMore: false, loadingOlder: false, following: false, creating: false, ready: false, sync: initialSync, error: null, compacting: false, decisions: {}, answered: {}, cards: {}, loginsDone: {}, connects: {} };
 }
 
 export class ChatController {
@@ -77,6 +110,8 @@ export class ChatController {
 
 	private botId: string | null;
 	private conversationId: string | null;
+	/** Um `/compact` em andamento. */
+	private compacting = false;
 	/** A conversa foi criada por este controlador (um `conversationId` que chegue depois da home não a troca). */
 	private createdHere = false;
 	private oldest: PageCursor | null = null;
@@ -94,6 +129,7 @@ export class ChatController {
 	private abort: AbortController | null = null;
 	private stopRequested = false;
 	private queue: Queued[] = [];
+	private connectSignal = { aborted: false };
 
 	constructor(
 		private readonly deps: ChatDeps,
@@ -158,7 +194,7 @@ export class ChatController {
 		this.disposed = false; // (o React em desenvolvimento monta, desmonta e monta de novo)
 		const generation = ++this.generation;
 		this.stopFollowing();
-		this.state = { ...initial(), decisions: this.state.decisions, answered: this.state.answered };
+		this.state = { ...initial(), decisions: this.state.decisions, answered: this.state.answered, cards: this.state.cards, loginsDone: this.state.loginsDone, connects: this.state.connects };
 		this.publish();
 		const convId = this.conversationId;
 		const cache = convId ? this.deps.cacheFor(convId) : null;
@@ -192,6 +228,7 @@ export class ChatController {
 
 	dispose(): void {
 		this.disposed = true;
+		this.connectSignal.aborted = true;
 		this.generation += 1;
 		this.stopFollowing();
 		if (this.timer) clearTimeout(this.timer);
@@ -444,13 +481,19 @@ export class ChatController {
 		if (!this.conversationId) {
 			this.conversationId = await this.deps.api.createConversation();
 			this.createdHere = true;
+			this.deps.onConversationCreated?.(this.conversationId);
 		}
 		const delays = this.deps.retryDelays ?? DEFAULT_RETRY;
 		const sleep = this.deps.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
 		for (let attempt = 0; ; attempt += 1) {
+			const model = this.deps.modelFields?.() ?? {};
 			try {
-				return await this.deps.api.createRun({ content, conversationId: this.conversationId, botId, ...(decisionConfirmId ? { decisionConfirmId } : {}), ...(replyToMessageId ? { replyToMessageId } : {}), clientKey: this.newKey() });
+				return await this.deps.api.createRun({ content, conversationId: this.conversationId, botId, ...(decisionConfirmId ? { decisionConfirmId } : {}), ...(replyToMessageId ? { replyToMessageId } : {}), model, clientKey: this.newKey() });
 			} catch (reason) {
+				if (model.model && isModelRejection(reason)) {
+					this.deps.onModelRejected?.();
+					throw new ModelUnavailableError((reason as ChatApiError).status);
+				}
 				const delay = delays[attempt];
 				const conflict = reason instanceof ChatApiError && reason.status === 409 && reason.message.startsWith(ACTIVE_CONFLICT);
 				if (!conflict || delay === undefined) throw reason;
@@ -479,7 +522,7 @@ export class ChatController {
 	// ---- cartões ----------------------------------------------------------------------------------------
 
 	/** Clique de cartão: nunca vira fala nem input do run vivo; o servidor o resolve contra a intenção pendente. */
-	decide(item: Extract<ChatItem, { kind: "confirm" }>, approve: boolean): void {
+	decide(item: Pick<Extract<ChatItem, { kind: "confirm" }>, "confirmId" | "title" | "status">, approve: boolean): void {
 		// Segundo toque (ou cartão já decidido): ignora. A marca vale antes do `await`.
 		if (item.status !== "pending" || this.state.decisions[item.confirmId]) return;
 		this.set({ error: null, decisions: { ...this.state.decisions, [item.confirmId]: approve ? "approved" : "rejected" } });
@@ -494,6 +537,62 @@ export class ChatController {
 				this.fail(reason);
 				if (!this.disposed) this.set({ error: sendErrorText(reason) });
 			}
+		})();
+	}
+
+	/**
+	 * Resolve o pedido de login e retoma o run parado (como o `resumeRun` do web): "Terminei", "Entrar" pelo Cofre ou o
+	 * código digitado. Se o run já voltou sozinho (a conexão feita pelo navegador pode tê-lo retomado), só acompanha.
+	 */
+	resumeLogin(item: Pick<Extract<ChatItem, { kind: "login" }>, "loginId" | "runId" | "status">, options: ResumeOptions = {}): void {
+		if (item.status !== "pending" || this.state.loginsDone[item.loginId] || this.disposed) return;
+		const runId = item.runId ?? this.runId;
+		this.set({ error: null, loginsDone: { ...this.state.loginsDone, [item.loginId]: true } });
+		void (async () => {
+			try {
+				if (!runId) throw new ChatApiError("Não achei a tarefa para continuar.", 404);
+				const status = await this.deps.api.getRunStatus(runId).catch(() => null);
+				if (status && ENDED_RUN_STATUSES.has(status)) {
+					await this.syncTail(false);
+					return;
+				}
+				if (status !== "queued" && status !== "running" && status !== "retrying") {
+					const { enqueued } = await this.deps.api.resumeRun(runId, options);
+					if (!enqueued) throw new ChatApiError("Não deu para continuar agora.", 503);
+				}
+				void this.follow(runId);
+			} catch (reason) {
+				const { [item.loginId]: _removed, ...rest } = this.state.loginsDone;
+				this.set({ loginsDone: rest });
+				this.fail(reason);
+				if (!this.disposed) this.set({ error: isUnauthorized(reason) ? sendErrorText(reason) : "Não consegui continuar a tarefa agora. Tente de novo." });
+			}
+		})();
+	}
+
+	/**
+	 * "Autorizar": conecta o app pelo navegador e, conectado, retoma o run (`resumeLogin`). O fluxo é do controller:
+	 * rolar a lista (desmontar a linha) não o interrompe; sair do chat o aborta e fecha o navegador.
+	 */
+	connectLogin(item: Extract<ChatItem, { kind: "login" }>): void {
+		const connector = connectorOf(item);
+		const connect = this.deps.connect;
+		if (!connector || !connect || !connectorCanAuthorize(connector) || item.status !== "pending" || this.state.loginsDone[item.loginId] || this.state.connects[item.loginId]?.busy || this.disposed) return;
+		const setConnect = (value: { busy: boolean; message: string | null } | null) => {
+			const { [item.loginId]: _old, ...rest } = this.state.connects;
+			this.set({ connects: value ? { ...rest, [item.loginId]: value } : rest });
+		};
+		setConnect({ busy: true, message: null });
+		const signal = this.connectSignal;
+		void (async () => {
+			const result = await connect(connector, signal);
+			if (signal.aborted || this.disposed) return;
+			if ("error" in result) return setConnect({ busy: false, message: result.error });
+			if (result.outcome === "connected") {
+				setConnect(null);
+				return this.resumeLogin(item);
+			}
+			setConnect({ busy: false, message: result.outcome === "cancelled" ? null : "Não consegui confirmar a conexão. Toque em Autorizar para tentar de novo." });
 		})();
 	}
 
@@ -512,6 +611,44 @@ export class ChatController {
 				this.set({ answered: rest });
 				this.fail(reason);
 				if (!this.disposed) this.set({ error: sendErrorText(reason) });
+			}
+		})();
+	}
+
+	/**
+	 * "Criar agente" / "Atualizar perfil" e "Agora não" dos cartões de proposta. O toque trava o cartão na hora (um
+	 * segundo toque não chama de novo); o resultado vale na tela antes de o servidor gravar, e a home recebe o bot novo.
+	 */
+	resolveProposal(item: Extract<ChatItem, { kind: "bot-proposal" | "bot-profile" }>, decision: ResolveDecision): void {
+		const key = `${item.kind}|${item.proposalId}`;
+		const convId = this.conversationId;
+		const known = this.state.cards[key];
+		if (item.status !== "pending" || known?.phase === "applying" || known?.phase === "done" || (known?.phase === "error" && known.locked)) return;
+		const action = item.kind === "bot-proposal" ? "bot" : "profile";
+		if (!convId) {
+			this.set({ cards: { ...this.state.cards, [key]: { phase: "error", text: proposalErrorText(new ChatApiError("", 404), decision, action) } } });
+			return;
+		}
+		this.set({ cards: { ...this.state.cards, [key]: { phase: "applying" } } });
+		void (async () => {
+			try {
+				if (item.kind === "bot-proposal") {
+					const result = await this.deps.api.resolveBotProposal({ conversationId: convId, proposalId: item.proposalId, decision });
+					this.set({ cards: { ...this.state.cards, [key]: { phase: "done", status: result.status, ...(result.botId ? { botId: result.botId } : {}), name: result.name } } });
+					// Também quando `unchanged` (já criado antes): a home pode não ter o bot (outro aparelho, atualização perdida).
+					if (result.status === "approved" && result.botId) void this.deps.onBotCreated?.(homeBotFromProposal(item, { botId: result.botId, name: result.name }));
+				} else {
+					const result = await this.deps.api.resolveBotProfile({ conversationId: convId, proposalId: item.proposalId, decision });
+					this.set({ cards: { ...this.state.cards, [key]: { phase: "done", status: result.status } } });
+					if (result.status === "approved" && item.fields.includes("name") && item.after.name) this.deps.onProfileApplied?.(item.botId, { name: item.after.name });
+				}
+			} catch (reason) {
+				this.fail(reason);
+				if (this.disposed) return;
+				// 404/409: a proposta já foi decidida ou não existe mais. Trava os botões e traz o estado gravado.
+				const stale = reason instanceof ChatApiError && (reason.status === 404 || reason.status === 409);
+				this.set({ cards: { ...this.state.cards, [key]: { phase: "error", text: proposalErrorText(reason, decision, action), ...(stale ? { locked: true } : {}) } } });
+				if (stale) void this.syncTail(false);
 			}
 		})();
 	}
@@ -580,6 +717,40 @@ export class ChatController {
 		}
 	}
 
+	/**
+	 * `/compact [foco]`: resume a conversa levada. O cartão "Conversa compactada" entra no fim do fio (mesmo id do que o
+	 * servidor grava, então a releitura não duplica). Conversa curta ou recusa do servidor: aviso amigável. Um toque
+	 * duplo não dispara duas compactações. `true` = compactou.
+	 */
+	async compact(focus?: string): Promise<boolean> {
+		const convId = this.conversationId;
+		if (this.disposed || this.compacting) return false;
+		if (!convId) {
+			this.set({ error: "Ainda não há o que compactar nesta conversa." });
+			return false;
+		}
+		this.compacting = true;
+		this.set({ error: null, compacting: true });
+		try {
+			const result = await this.deps.api.compactConversation(convId, focus);
+			if (this.disposed || this.conversationId !== convId) return false;
+			if (result.status === "noop") {
+				this.set({ error: result.message });
+				return false;
+			}
+			const item: ChatItem = { id: result.messageId, kind: "marker", text: compactionMarkerText(result.before, result.after) };
+			if (!this.state.persisted.some((candidate) => candidate.id === item.id)) this.set({ persisted: [...this.state.persisted, item] });
+			return true;
+		} catch (reason) {
+			this.fail(reason);
+			if (!this.disposed) this.set({ error: compactErrorText(reason) });
+			return false;
+		} finally {
+			this.compacting = false;
+			if (!this.disposed) this.set({ compacting: false });
+		}
+	}
+
 	dismissError(): void {
 		this.set({ error: null });
 	}
@@ -625,8 +796,10 @@ export function liveActivity(live: LiveState, running: boolean): AgentActivity {
 /** O toque no cartão vale na hora, antes de o servidor gravar o novo estado. */
 function withLocalDecisions(item: ChatItem, snapshot: ChatSnapshot): ChatItem {
 	if (item.kind === "confirm" && item.status === "pending" && snapshot.decisions[item.confirmId]) return { ...item, status: snapshot.decisions[item.confirmId]! };
+	if (item.kind === "secrets" && item.status === "pending" && snapshot.decisions[item.confirmId]) return { ...item, status: snapshot.decisions[item.confirmId]! };
+	if (item.kind === "login" && item.status === "pending" && snapshot.loginsDone[item.loginId]) return { ...item, status: "done" };
 	if (item.kind === "questionnaire" && item.status === "pending" && snapshot.answered[item.questionnaireId]) return { ...item, status: "submitted" };
-	return item;
+	return withProposalResolution(item, snapshot.cards);
 }
 
 export function deriveView(snapshot: ChatSnapshot): ChatView {
@@ -640,7 +813,8 @@ export function deriveView(snapshot: ChatSnapshot): ChatView {
 	const runTasks = dockedTaskList(merged, running, snapshot.live.runId);
 	const lastTasks = [...merged].reverse().find((item): item is Extract<ChatItem, { kind: "task-list" }> => item.kind === "task-list" && item.items.length > 0) ?? null;
 	return {
-		items: withSourceMarkers(merged),
+		// Fala entre bots não é balão do usuário: vira a linha "N mensagens com X".
+		items: withSourceMarkers(groupBotItems(merged)),
 		runTasks,
 		lastTasks,
 		line: syncLine(snapshot.sync),

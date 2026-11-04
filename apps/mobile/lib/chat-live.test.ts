@@ -63,6 +63,30 @@ describe("applyRunEvent", () => {
 		expect(state.paused).toBe(true);
 		expect(state.items.map((item) => item.kind)).toEqual(["confirm", "questionnaire", "web-card", "web-card"]);
 	});
+	it("evento de imagens vira um cartão de imagens (sem repetir o mesmo conjunto)", () => {
+		const event = { type: "images", origin: "assistant", items: [{ artifactId: "a1", mime: "image/png", width: 8, height: 6, alt: "Gráfico" }], caption: "Pronto" } as ComputerUseEvent;
+		const state = apply([event, event]);
+		expect(state.items).toEqual([{ id: "images-r1-a1", kind: "images", origin: "assistant", images: [{ artifactId: "a1", mime: "image/png", width: 8, height: 6, alt: "Gráfico" }], caption: "Pronto" }]);
+		expect(apply([{ type: "images", origin: "assistant", items: [] } as ComputerUseEvent]).items).toEqual([]);
+	});
+	it("evento de arquivo guarda fileId, mime e tamanho no cartão (abre a folha do documento)", () => {
+		const state = apply([{ type: "file", artifactId: "f9", filename: "vm.md", mime: "text/markdown", size: 321, format: "markdown", version: 1 } as never]);
+		expect(state.items).toEqual([{ id: "file-f9", kind: "web-card", card: "file", title: "vm.md", key: "file:f9", fileId: "f9", mime: "text/markdown", size: 321 }]);
+	});
+	it("evento de painel guarda pageId, revisão e fontes no cartão (sem o spec)", () => {
+		const spec = { v: 2, title: "Vendas", root: { id: "r", type: "stack", props: {} } } as never;
+		const state = apply([{ type: "page", action: "created", pageId: "p1", revision: 1, title: "Vendas", spec, sourceCount: 2 }]);
+		expect(state.items).toEqual([{ id: "page-live-p1", kind: "web-card", card: "page", title: "Vendas", key: "page:p1", pageId: "p1", revision: 1, sourceCount: 2 }]);
+	});
+	it("painel atualizado (revisão maior) troca título, revisão e fontes no lugar; revisão antiga não desfaz", () => {
+		const spec = { v: 2, title: "Vendas", root: { id: "r", type: "stack", props: {} } } as never;
+		const state = apply([
+			{ type: "page", action: "created", pageId: "p1", revision: 1, title: "Vendas", spec, sourceCount: 2 },
+			{ type: "page", action: "updated", pageId: "p1", revision: 3, title: "Vendas de novembro", spec, sourceCount: 4 },
+			{ type: "page", action: "updated", pageId: "p1", revision: 2, title: "Atrasado", spec, sourceCount: 0 },
+		]);
+		expect(state.items).toEqual([{ id: "page-live-p1", kind: "web-card", card: "page", title: "Vendas de novembro", key: "page:p1", pageId: "p1", revision: 3, sourceCount: 4 }]);
+	});
 	it("aprovação de comando (dev) vira linha para o navegador", () => {
 		const state = apply([{ type: "confirm", confirmId: "k", title: "Rodar?", devApproval: {} as never }]);
 		expect(state.items[0]).toMatchObject({ kind: "web-card", card: "approval" });

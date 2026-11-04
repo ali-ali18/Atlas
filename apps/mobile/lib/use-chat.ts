@@ -2,16 +2,24 @@
 // `AppState`, e entrega o que a tela desenha. Toda chamada passa por `apiFetch`/`openRunStream` da sessão.
 import * as React from "react";
 import { AppState } from "react-native";
+import * as cardApi from "./card-api";
 import * as chatApi from "./chat-api";
 import type { MobileAvatarState } from "./avatar-activity";
 import { useAvatarLive } from "./use-avatar-live";
 import { chatCacheKey, createChatCacheWriter, loadChatCache } from "./chat-cache";
-import { ChatController, deriveView, type ChatApi, type ChatDeps } from "./chat-controller";
+import { ChatController, deriveView, type ChatApi, type ChatDeps, type ChatSnapshot } from "./chat-controller";
 import type { ChatItem, ReplyQuote } from "./chat-types";
 import { clearBotRun, setBotRun } from "./run-store";
 import { useAtlasSession } from "./atlas-session";
+import { ensureHomeBot } from "./ensure-bot";
+import { useHomeData } from "./home-data";
+import { fetchHomeBot } from "./home-sync";
+import * as WebBrowser from "expo-web-browser";
+import { connectApp } from "./connect-app";
+import { clearRequestMemory } from "./request-memory";
 import { homeStorage } from "./home-storage";
 import type { HomeBot } from "./home-types";
+import { useModelSelector, type ModelSelector } from "./use-model-selector";
 
 const RESUME_MIN_GAP_MS = 1_500;
 /** Um escritor para o app todo: sair da conta o invalida, e gravação em voo se desfaz sozinha. */
@@ -22,6 +30,8 @@ export type ChatHook = ReturnType<typeof deriveView> & {
 	paused: boolean;
 	notice: string | null;
 	error: string | null;
+	/** Um `/compact` rodando: a tela mostra "Compactando a conversa…". */
+	compacting: boolean;
 	hasMore: boolean;
 	loadingOlder: boolean;
 	ready: boolean;
@@ -30,19 +40,32 @@ export type ChatHook = ReturnType<typeof deriveView> & {
 	loadOlder: () => void;
 	send: (text: string, replyTo?: ReplyQuote) => void;
 	stop: () => void;
-	decide: (item: Extract<ChatItem, { kind: "confirm" }>, approve: boolean) => void;
+	decide: ChatController["decide"];
+	resumeLogin: ChatController["resumeLogin"];
+	connectLogin: ChatController["connectLogin"];
+	connects: ChatSnapshot["connects"];
 	answer: ChatController["answer"];
+	resolveProposal: ChatController["resolveProposal"];
 	react: (messageId: string, emoji: string) => void;
 	markUnread: () => Promise<boolean>;
+	/** `/compact [foco]`: resume a conversa levada. */
+	compact: (focus?: string) => Promise<boolean>;
 	retry: () => void;
 	dismissError: () => void;
+	/** Seletor de modelo do composer (escolha salva por conversa + catálogo). */
+	modelSelector: ModelSelector;
 };
 
 export function useChat(bot: HomeBot | undefined): ChatHook {
 	const { apiFetch, openRunStream, serverUrl, email, signOut, onSignOut } = useAtlasSession();
 	// Dependências que mudam a cada render: o controlador (um só) lê sempre as de agora.
-	const latest = React.useRef({ apiFetch, openRunStream, serverUrl, email, signOut });
-	latest.current = { apiFetch, openRunStream, serverUrl, email, signOut };
+	const { addBot, applyBotUpdate, refresh } = useHomeData();
+	const latest = React.useRef({ apiFetch, openRunStream, serverUrl, email, signOut, addBot, applyBotUpdate, refresh });
+	latest.current = { apiFetch, openRunStream, serverUrl, email, signOut, addBot, applyBotUpdate, refresh };
+	const modelSelector = useModelSelector(bot?.id ?? null, bot?.conversationId ?? null, () => void signOut());
+	// O controlador (um só) lê o seletor de agora na hora do envio.
+	const selectorRef = React.useRef(modelSelector);
+	selectorRef.current = modelSelector;
 
 	const controller = React.useMemo(() => {
 		const api: ChatApi = {
@@ -57,6 +80,10 @@ export function useChat(bot: HomeBot | undefined): ChatHook {
 			setReaction: (messageId, emoji) => chatApi.setReaction(latest.current.apiFetch, messageId, emoji),
 			clearReaction: (messageId) => chatApi.clearReaction(latest.current.apiFetch, messageId),
 			markConversationUnread: (conversationId) => chatApi.markConversationUnread(latest.current.apiFetch, conversationId),
+			compactConversation: (conversationId, focus) => chatApi.compactConversation(latest.current.apiFetch, conversationId, focus),
+			resolveBotProposal: (input) => cardApi.resolveBotProposal(latest.current.apiFetch, input),
+			resolveBotProfile: (input) => cardApi.resolveBotProfile(latest.current.apiFetch, input),
+			resumeRun: (runId, options) => chatApi.resumeRun(latest.current.apiFetch, runId, options),
 		};
 		const deps: ChatDeps = {
 			api,
@@ -75,6 +102,34 @@ export function useChat(bot: HomeBot | undefined): ChatHook {
 				};
 			},
 			onUnauthorized: () => void latest.current.signOut(),
+			modelFields: () => selectorRef.current.fields(),
+			onConversationCreated: (id) => selectorRef.current.onConversationCreated(id),
+			onModelRejected: () => selectorRef.current.onModelRejected(),
+			// O agente entra na home com a conversa de verdade (busca no servidor) e a atualização seguinte é nova.
+			onBotCreated: async (created) => {
+				await ensureHomeBot({ fetchBot: (botId) => fetchHomeBot(latest.current.apiFetch, botId), addBot: latest.current.addBot, refresh: latest.current.refresh }, created.id, created);
+			},
+			onProfileApplied: (botId, patch) => latest.current.applyBotUpdate(botId, patch),
+			connect: (connector, signal) =>
+				connectApp(
+					{
+						apiFetch: latest.current.apiFetch,
+						serverUrl: latest.current.serverUrl,
+						open: (url) => WebBrowser.openBrowserAsync(url),
+						dismiss: () => WebBrowser.dismissBrowser(),
+						appState: {
+							subscribe: (listener) => {
+								const subscription = AppState.addEventListener("change", listener);
+								return () => subscription.remove();
+							},
+						},
+						now: Date.now,
+						sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+						onUnauthorized: () => void latest.current.signOut(),
+					},
+					connector,
+					signal,
+				),
 		};
 		return new ChatController(deps, { id: bot?.id ?? null, conversationId: bot?.conversationId ?? null });
 		// biome-ignore lint/correctness/useExhaustiveDependencies: um controlador por tela; o bot entra por `update`
@@ -95,6 +150,7 @@ export function useChat(bot: HomeBot | undefined): ChatHook {
 		() =>
 			onSignOut(() => {
 				chatCacheWriter.invalidate();
+				clearRequestMemory();
 				controller.dispose();
 			}),
 		[onSignOut, controller],
@@ -127,6 +183,7 @@ export function useChat(bot: HomeBot | undefined): ChatHook {
 		paused: snapshot.live.paused,
 		notice: snapshot.live.notice,
 		error: snapshot.error,
+		compacting: snapshot.compacting,
 		hasMore: snapshot.hasMore,
 		loadingOlder: snapshot.loadingOlder,
 		ready: snapshot.ready,
@@ -135,9 +192,15 @@ export function useChat(bot: HomeBot | undefined): ChatHook {
 		stop,
 		decide: (item, approve) => controller.decide(item, approve),
 		answer: (item, answers) => controller.answer(item, answers),
+		resolveProposal: (item, decision) => controller.resolveProposal(item, decision),
+		resumeLogin: (item, options) => controller.resumeLogin(item, options),
+		connectLogin: (item) => controller.connectLogin(item),
+		connects: snapshot.connects,
 		react: (messageId, emoji) => void controller.react(messageId, emoji),
 		markUnread: () => controller.markUnread(),
+		compact: (focus) => controller.compact(focus),
 		retry: () => void controller.retry(),
 		dismissError: () => controller.dismissError(),
+		modelSelector,
 	};
 }

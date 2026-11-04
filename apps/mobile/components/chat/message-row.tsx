@@ -6,31 +6,70 @@ import { bubbleCorners, cornersNextToTable } from "@/lib/bubble-corners";
 import { Text } from "@/components/ui/text";
 import { taskCardActive } from "@/lib/chat-thread";
 import type { ChatItem, Reaction, ReplyQuote } from "@/lib/chat-types";
+import type { ResumeOptions } from "@/lib/chat-api";
 import type { AnswerMap } from "@/lib/questionnaire";
-import { ConfirmCard, MarkerRow, QuestionnaireCard, WebCardRow } from "./cards";
+import type { HomeBot } from "@/lib/home-types";
+import { BotExchangeMarker } from "./bot-exchange-marker";
+import { ImagesRow } from "./image-card";
+import { BotProfileCard, BotProposalCard } from "./bot-cards";
+import { BotLinkMarkerRow, ConfirmCard, MarkerRow, WebCardRow } from "./cards";
+import { loginVariant } from "@/lib/request-cards";
+import type { RequestActions } from "@/lib/use-request-actions";
+import { ConnectorCard } from "./connector-card";
+import { LoginCard } from "./login-card";
+import { QuestionnaireCard } from "./questionnaire-card";
+import { SecretsCard } from "./secrets-card";
 import { MarkdownBlocks, TableCard } from "./markdown-text";
 import { useAppColorScheme } from "@/lib/use-theme";
-import { chatSurface } from "@/lib/chat-surface";
+import { surfaceColors } from "@/lib/surfaces";
 import { parseMarkdown, splitSegments } from "@/lib/markdown";
+import { MentionText } from "./mention-text";
+import { isPlainMessage, splitMessageText, type MentionBotRef } from "@/lib/message-text";
 import { ReplyPill } from "./reply-pill";
 import { TaskSummary } from "./task-dock";
 
 export type RowActions = {
-	onDecide: (item: Extract<ChatItem, { kind: "confirm" }>, approve: boolean) => void;
+	onDecide: (item: Pick<Extract<ChatItem, { kind: "confirm" }>, "confirmId" | "title" | "status">, approve: boolean) => void;
 	onAnswer: (item: Extract<ChatItem, { kind: "questionnaire" }>, answers: AnswerMap) => void;
 	/** Run ativo (id): o cartão de tarefas desse run mostra a tarefa em execução. */
 	activeRunId: string | null;
 	/** Há um run em andamento (o cartão só é "ativo" durante um run). */
 	running: boolean;
+	/** "Criar agente" / "Aplicar" e "Agora não" dos cartões de proposta. */
+	onResolveProposal: (item: Extract<ChatItem, { kind: "bot-proposal" | "bot-profile" }>, decision: "approved" | "rejected") => void;
+	/** "Abrir conversa" do agente criado pelo cartão. */
+	onOpenBot: (botId: string) => void;
 	onOpenWeb: (item: Extract<ChatItem, { kind: "web-card" }>) => void;
+	/** Painel com id: abre a tela nativa do painel. */
+	onOpenPage: (item: Extract<ChatItem, { kind: "web-card" }>) => void;
+	/** Toque numa imagem do fio: abre o visualizador nela. */
+	onOpenImage: (artifactId: string) => void;
+	/** Cartões de pedido (conectar app, login, segredo): retomar o run, abrir a tela do bot e as chamadas à API. */
+	onResumeLogin: (item: Extract<ChatItem, { kind: "login" }>, options?: ResumeOptions) => void;
+	onOpenScreen: () => void;
+	/** "Autorizar" do conector e o estado das conexões em andamento (por `loginId`): o fluxo é do controller. */
+	onConnectLogin: (item: Extract<ChatItem, { kind: "login" }>) => void;
+	connects: Record<string, { busy: boolean; message: string | null }>;
+	request: RequestActions;
+	botName: string;
+	serverUrl: string | null;
 	/** Toque longo no balão: abre o menu da mensagem (só abre para fala já gravada; ver `messageMenuFor`). */
 	onOpenMenu: (item: ChatItem) => void;
+	/** Bot da lista da home pelo id (avatar da linha "N mensagens com X"); `undefined` = bot apagado. */
+	botFor: (id: string) => HomeBot | undefined;
+	/** Toque na linha de conversa entre bots: abre a conversa deles, somente leitura. */
+	onOpenExchange: (item: Extract<ChatItem, { kind: "bot-exchange" }>) => void;
 	/** Cor do bot para o balão do usuário (fundo e texto por cima dele). Sem ela, o balão usa o cinza neutro. */
 	userBubble?: { background: string; foreground: string };
+	/** Bots do usuário: o avatar da menção `@bot` no balão e o do marcador "Enviou mensagem para X". */
+	bots?: readonly MentionBotRef[];
+	/** Habilidades conhecidas (slugs): `/habilidade` no balão ganha o visual de marcador. */
+	skills?: ReadonlySet<string>;
 };
 
 /** Balão do usuário, à direita, na cor do bot (como no Grok); sem a cor, o cinza do `Bubble variant="muted"` do web. */
-function UserBubble({ text, position, reactions, replyTo, accent, onLongPress }: { text: string; position: GroupPosition; reactions?: Reaction[]; replyTo?: ReplyQuote; accent?: RowActions["userBubble"]; onLongPress: () => void }) {
+function UserBubble({ text, bots, skills, position, reactions, replyTo, accent, onLongPress }: { text: string; bots?: RowActions["bots"]; skills?: RowActions["skills"]; position: GroupPosition; reactions?: Reaction[]; replyTo?: ReplyQuote; accent?: RowActions["userBubble"]; onLongPress: () => void }) {
+	const parts = React.useMemo(() => splitMessageText(text, bots ?? [], skills), [text, bots, skills]);
 	return (
 		<View className="max-w-[87%] self-end">
 			{replyTo ? <ReplyPill quote={replyTo} align="end" spaced={position !== "single" && position !== "first"} /> : null}
@@ -42,7 +81,7 @@ function UserBubble({ text, position, reactions, replyTo, accent, onLongPress }:
 				className={`px-3.5 py-3.5 ${accent ? "" : "bg-muted"}`}
 			>
 				<Text className="text-base leading-snug" style={accent ? { color: accent.foreground } : undefined}>
-					{text}
+					{isPlainMessage(parts) ? text : <MentionText parts={parts} eyeColor={accent?.background} />}
 				</Text>
 			</Pressable>
 			<Reactions reactions={reactions} align="end" />
@@ -82,7 +121,7 @@ function BotBubble({ text, position, reactions, replyTo, onLongPress }: { text: 
 				segment.kind === "table" ? (
 					<TableCard key={`table-${index}`} block={segment.block} scheme={scheme} onLongPress={onLongPress} />
 				) : (
-					<Pressable key={`bubble-${index}`} onLongPress={onLongPress} accessibilityHint="Segure para ver as ações da mensagem" style={[{ backgroundColor: chatSurface(scheme, "bubble") }, cornersNextToTable(bubbleCorners("left", position), "left", index > 0, index < segments.length - 1)]} className="px-3.5 py-3.5">
+					<Pressable key={`bubble-${index}`} onLongPress={onLongPress} accessibilityHint="Segure para ver as ações da mensagem" style={[{ backgroundColor: surfaceColors(scheme).bubble }, cornersNextToTable(bubbleCorners("left", position), "left", index > 0, index < segments.length - 1)]} className="px-3.5 py-3.5">
 						<MarkdownBlocks blocks={segment.blocks} />
 					</Pressable>
 				),
@@ -133,7 +172,7 @@ export const MessageRow = React.memo(function MessageRow({
 function RowContent({ item, actions, position }: { item: ChatItem; actions: RowActions; position: GroupPosition }) {
 	switch (item.kind) {
 		case "user":
-			return <UserBubble text={item.text} position={position} reactions={item.reactions} replyTo={item.replyTo} accent={actions.userBubble} onLongPress={() => actions.onOpenMenu(item)} />;
+			return <UserBubble text={item.text} bots={actions.bots} skills={actions.skills} position={position} reactions={item.reactions} replyTo={item.replyTo} accent={actions.userBubble} onLongPress={() => actions.onOpenMenu(item)} />;
 		case "assistant":
 			return item.text.trim() ? <BotBubble text={item.text} position={position} reactions={item.reactions} replyTo={item.replyTo} onLongPress={() => actions.onOpenMenu(item)} /> : null;
 		case "task-list":
@@ -142,9 +181,25 @@ function RowContent({ item, actions, position }: { item: ChatItem; actions: RowA
 			return <ConfirmCard item={item} onDecide={actions.onDecide} />;
 		case "questionnaire":
 			return <QuestionnaireCard item={item} onAnswer={actions.onAnswer} />;
+		case "bot-proposal":
+			return <BotProposalCard item={item} onDecide={actions.onResolveProposal} onOpenBot={actions.onOpenBot} />;
+		case "bot-profile":
+			return <BotProfileCard item={item} onDecide={actions.onResolveProposal} />;
+		case "login":
+			return loginVariant(item) === "connector" ? (
+				<ConnectorCard item={item} botName={actions.botName} serverUrl={actions.serverUrl} connect={actions.connects[item.loginId]} onAuthorize={actions.onConnectLogin} onOpenWeb={actions.onOpenScreen} />
+			) : (
+				<LoginCard item={item} botName={actions.botName} onResume={actions.onResumeLogin} onSaveLogin={(login, username, password) => actions.request.saveLogin(login, username, password)} onOpenScreen={actions.onOpenScreen} />
+			);
+		case "secrets":
+			return <SecretsCard item={item} onSave={actions.request.saveSecrets} onDecide={actions.onDecide} />;
 		case "web-card":
-			return <WebCardRow item={item} onOpen={actions.onOpenWeb} />;
+			return <WebCardRow item={item} onOpen={actions.onOpenWeb} onOpenPage={actions.onOpenPage} />;
+		case "images":
+			return <ImagesRow item={item} onOpen={actions.onOpenImage} />;
 		case "marker":
-			return <MarkerRow text={item.text} />;
+			return item.link ? <BotLinkMarkerRow link={item.link} fallback={item.text} bots={actions.bots} /> : <MarkerRow text={item.text} />;
+		case "bot-exchange":
+			return <BotExchangeMarker item={item} botFor={actions.botFor} onOpen={actions.onOpenExchange} now={Date.now()} />;
 	}
 }

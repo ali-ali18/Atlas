@@ -4,31 +4,46 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
 import * as React from "react";
 import { FlatList, KeyboardAvoidingView, Pressable, View } from "react-native";
-import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ChevronDownIcon } from "@/components/icons";
 import { SoonSheet } from "@/components/home/soon-sheet";
 import { ChatMenu, type ChatMenuAction } from "@/components/chat/chat-menu";
 import { Fade } from "@/components/chat/fade";
 import { ChatTopBar, TOP_BAR_HEIGHT } from "@/components/chat/chat-top-bar";
 import { Composer } from "@/components/chat/composer";
+import { ModelSheet } from "@/components/chat/model-sheet";
+import { modelPill as buildModelPill } from "@/lib/model-pill";
 import { MessageRow, type RowActions } from "@/components/chat/message-row";
 import { useMessageMenu } from "@/components/chat/use-message-menu";
 import { grokBubbleColors } from "@/lib/bubble-tone";
 import { createNewItemTracker } from "@/lib/chat-appear";
-import { groupPositionAt, type GroupPosition } from "@workspace/shared";
+import { groupPositionAt, parseSlashSkills, type GroupPosition } from "@workspace/shared";
 import { SyncLine, ThinkingLine } from "@/components/chat/sync-line";
+import { ScreenFrame } from "@/components/ui/screen-frame";
 import { Spinner } from "@/components/ui/spinner";
 import { Text } from "@/components/ui/text";
 import { useAtlasSession } from "@/lib/atlas-session";
 import { botColors } from "@/lib/bot-color";
+import { exchangePeerId } from "@/lib/bot-thread";
 import { themeColor } from "@/lib/theme";
 import { useAppColorScheme } from "@/lib/use-theme";
+import { type ViewerTarget, viewerTargetForCard } from "@/lib/viewer-target";
+import { ImageViewer } from "@/components/image-viewer/image-viewer";
+import { useImageActions } from "@/components/image-viewer/use-image-actions";
+import { ViewerSheet } from "@/components/viewer/viewer-sheet";
 import { webChatUrl } from "@/lib/chat-links";
+import { groupConsecutiveImages } from "@/lib/image-group";
+import { collectViewerImages, viewerStartIndex } from "@/lib/image-viewer";
 import type { ChatItem, ReplyQuote } from "@/lib/chat-types";
 import { containsTable } from "@/lib/markdown";
 import { replyQuoteFor } from "@/lib/reply-quote";
 import { useChat } from "@/lib/use-chat";
+import { mentionableBots } from "@/lib/mention-input";
+import { useComposerSkills } from "@/lib/use-composer-skills";
+import { ensureHomeBot } from "@/lib/ensure-bot";
 import { useHomeData } from "@/lib/home-data";
+import { fetchHomeBot } from "@/lib/home-sync";
+import { useRequestActions } from "@/lib/use-request-actions";
 
 /** Rolou para cima além disto (px do fim): aparece o botão de voltar ao fim. */
 const JUMP_THRESHOLD = 360;
@@ -61,18 +76,42 @@ export default function ChatScreen() {
 	const scheme = useAppColorScheme();
 	const insets = useSafeAreaInsets();
 	const { id, draft } = useLocalSearchParams<{ id: string; draft?: string }>();
-	const { snapshot } = useHomeData();
-	const { serverUrl } = useAtlasSession();
+	const { snapshot, addBot, refresh } = useHomeData();
+	const { serverUrl, apiFetch } = useAtlasSession();
 	const bot = snapshot?.bots.find((item) => item.id === id);
 	const chat = useChat(bot);
+	// `@` oferece os outros bots (no grupo, os membros) e `/` as habilidades (só no 1:1, como no web).
+	const mentionBots = React.useMemo(() => mentionableBots(snapshot?.bots ?? [], bot), [snapshot?.bots, bot]);
+	const composerSkills = useComposerSkills();
+	// Avatares das menções e do marcador "Enviou mensagem para X": todos os bots do usuário. Habilidades: as já lidas.
+	const rowBots = React.useMemo(() => (snapshot?.bots ?? []).map((item) => ({ id: item.id, name: item.name, color: item.color, shape: item.shape })), [snapshot?.bots]);
+	// Há `/habilidade` numa fala do usuário: lê a lista (uma vez) para desenhar o marcador, sem esperar o `/` do composer.
+	const hasSlashText = React.useMemo(() => chat.items.some((item) => item.kind === "user" && parseSlashSkills(item.text).length > 0), [chat.items]);
+	const loadSkills = composerSkills.load;
+	React.useEffect(() => {
+		if (hasSlashText && bot && bot.memberIds.length === 0) loadSkills();
+	}, [hasSlashText, bot, loadSkills]);
+	const skillSet = React.useMemo(() => new Set(composerSkills.skills.map((skill) => skill.name)), [composerSkills.skills]);
 	const listRef = React.useRef<FlatList<ChatItem>>(null);
 	const [farFromEnd, setFarFromEnd] = React.useState(false);
 	const [menu, setMenu] = React.useState(false);
 	// Altura do composer (cresce com o texto): a lista passa por baixo dele e reserva esse espaço no fim.
 	const [composerHeight, setComposerHeight] = React.useState(64);
 	const [soon, setSoon] = React.useState<Soon>(null);
+	const [modelOpen, setModelOpen] = React.useState(false);
+	const modelPill = React.useMemo(() => buildModelPill(chat.modelSelector.choice, chat.modelSelector.catalog.catalog), [chat.modelSelector.choice, chat.modelSelector.catalog.catalog]);
 	const goBack = React.useCallback(() => (router.canGoBack() ? router.back() : router.replace("/")), [router]);
 	const openProfile = React.useCallback(() => router.push(`/profile/${encodeURIComponent(id)}` as never), [router, id]);
+	// Cartão já aprovado (em outro aparelho, ou a home perdeu o bot): busca o bot antes de abrir, senão a tela diria "Não encontrei esta conversa".
+	const botIds = snapshot?.bots;
+	const openBot = React.useCallback(
+		(botId: string) => {
+			const open = () => router.push(`/chat/${encodeURIComponent(botId)}` as never);
+			if (botIds?.some((item) => item.id === botId)) return open();
+			void ensureHomeBot({ fetchBot: (wanted) => fetchHomeBot(apiFetch, wanted), addBot, refresh }, botId).then(open);
+		},
+		[router, botIds, apiFetch, addBot, refresh],
+	);
 	const openWeb = React.useCallback(
 		(_item: Extract<ChatItem, { kind: "web-card" }>) => {
 			const url = webChatUrl(serverUrl, id);
@@ -80,6 +119,31 @@ export default function ChatScreen() {
 		},
 		[serverUrl, id],
 	);
+	// Painel e documento abrem numa folha por cima da conversa; o que não tem destino nativo continua no navegador.
+	const [viewer, setViewer] = React.useState<ViewerTarget | null>(null);
+	const closeViewer = React.useCallback(() => setViewer(null), []);
+	const openPage = React.useCallback(
+		(item: Extract<ChatItem, { kind: "web-card" }>) => {
+			const target = viewerTargetForCard(item);
+			if (target) setViewer(target);
+			else openWeb(item);
+		},
+		[openWeb],
+	);
+	// O que se desenha: imagens seguidas viram um leque só (pura, depois do merge; o dedupe segue por evento).
+	const shownItems = React.useMemo(() => groupConsecutiveImages(chat.items), [chat.items]);
+	// Visualizador de imagens: todas as imagens do fio, abrindo na tocada (o índice é fixado ao abrir).
+	const viewerImages = React.useMemo(() => collectViewerImages(shownItems), [shownItems]);
+	const [imageStart, setImageStart] = React.useState<number | null>(null);
+	const imageActions = useImageActions();
+	const openImage = React.useCallback((artifactId: string) => setImageStart(viewerStartIndex(viewerImages, artifactId)), [viewerImages]);
+	const closeImage = React.useCallback(() => setImageStart(null), []);
+	const request = useRequestActions();
+	// "Abrir a tela": o app ainda não tem o computador do bot; abre o chat no navegador, onde o web tem o viewer da VM.
+	const openScreen = React.useCallback(() => {
+		const url = webChatUrl(serverUrl, id);
+		if (url) void WebBrowser.openBrowserAsync(url).catch(() => undefined);
+	}, [serverUrl, id]);
 	// "Responder": a mensagem citada fica no chip do composer até enviar ou cancelar.
 	const [replyTo, setReplyTo] = React.useState<ReplyQuote | null>(null);
 	const startReply = React.useCallback((item: ChatItem) => setReplyTo(replyQuoteFor(item)), []);
@@ -91,34 +155,61 @@ export default function ChatScreen() {
 	);
 	// Balão do usuário na cor do bot, como no web (`grokBubbleColors`: o tom do Grok; texto branco, ou escuro em cor clara); sem cor válida, cinza.
 	const userBubble = React.useMemo(() => grokBubbleColors(bot?.color) ?? undefined, [bot?.color]);
+	// Conversa entre bots: a linha "N mensagens com X" abre a tela somente leitura (o servidor só entrega se os dois são do dono).
+	const bots = snapshot?.bots;
+	const botFor = React.useCallback((botId: string) => bots?.find((item) => item.id === botId), [bots]);
+	const openExchange = React.useCallback(
+		(item: Extract<ChatItem, { kind: "bot-exchange" }>) => {
+			const peer = exchangePeerId(item);
+			if (!peer) return;
+			const focus = item.focus ? `&focus=${encodeURIComponent(item.focus)}` : "";
+			router.push(`/bot-thread/${encodeURIComponent(id)}?peer=${encodeURIComponent(peer)}${focus}` as never);
+		},
+		[router, id],
+	);
 	const actions = React.useMemo<RowActions>(
 		() => ({
 			onDecide: chat.decide,
 			onAnswer: chat.answer,
+			onResolveProposal: chat.resolveProposal,
+			onOpenBot: openBot,
+			botFor,
+			onOpenExchange: openExchange,
 			onOpenWeb: openWeb,
+			onOpenPage: openPage,
+			onResumeLogin: chat.resumeLogin,
+			onOpenScreen: openScreen,
+			onConnectLogin: chat.connectLogin,
+			connects: chat.connects,
+			request,
+			botName: bot?.name ?? "bot",
+			serverUrl,
 			onOpenMenu: messageMenu.open,
+			onOpenImage: openImage,
 			activeRunId: chat.runTasks?.runId ?? null,
 			running: chat.running,
 			userBubble: userBubble,
+			bots: rowBots,
+			skills: skillSet,
 		}),
-		[chat.decide, chat.answer, openWeb, messageMenu.open, chat.running, chat.runTasks?.runId, userBubble],
+		[chat.decide, chat.answer, chat.resolveProposal, chat.resumeLogin, chat.connectLogin, chat.connects, openBot, botFor, openExchange, openWeb, openPage, openScreen, openImage, request, bot?.name, palette.accent, serverUrl, messageMenu.open, chat.running, chat.runTasks?.runId, userBubble, rowBots, skillSet],
 	);
 
 	// A lista é invertida (o fim da conversa fica embaixo e o teclado não a desloca): mais novo primeiro.
-	const data = React.useMemo(() => [...chat.items].reverse(), [chat.items]);
-	const animateIds = useNewItemIds(chat.items, chat.ready);
-	const positions = React.useMemo(() => bubblePositions(chat.items), [chat.items]);
+	const data = React.useMemo(() => [...shownItems].reverse(), [shownItems]);
+	const animateIds = useNewItemIds(shownItems, chat.ready);
+	const positions = React.useMemo(() => bubblePositions(shownItems), [shownItems]);
 
 	if (!bot) {
 		return (
-			<SafeAreaView className="flex-1 items-center justify-center gap-4 bg-background px-8">
+			<ScreenFrame className="items-center justify-center gap-4 px-8">
 				<Text variant="muted" className="text-center text-control">
 					Não encontrei esta conversa.
 				</Text>
 				<Pressable role="button" onPress={goBack} className="min-h-11 justify-center rounded-full bg-secondary px-6 active:opacity-80">
 					<Text className="text-control font-semibold">Voltar</Text>
 				</Pressable>
-			</SafeAreaView>
+			</ScreenFrame>
 		);
 	}
 
@@ -132,7 +223,7 @@ export default function ChatScreen() {
 	};
 
 	return (
-		<SafeAreaView edges={["bottom", "left", "right"]} className="flex-1 bg-background">
+		<ScreenFrame edges={["bottom", "left", "right"]}>
 			<KeyboardAvoidingView behavior="padding" className="flex-1">
 				<FlatList
 					ref={listRef}
@@ -153,6 +244,7 @@ export default function ChatScreen() {
 					ListHeaderComponent={
 						<View>
 							{showThinking ? <ThinkingLine bot={bot} avatar={chat.avatar} /> : null}
+							{chat.compacting && !showThinking ? <ThinkingLine bot={bot} avatar={{ state: "working", label: "Compactando a conversa…" }} /> : null}
 							{chat.line ? <SyncLine line={chat.line} color={color} /> : null}
 							{chat.notice ? (
 								<Text variant="muted" className="px-1 py-2 text-control">
@@ -191,15 +283,18 @@ export default function ChatScreen() {
 							<ChevronDownIcon size={22} tone="foreground" />
 						</Pressable>
 					) : null}
-					<Composer initialText={typeof draft === "string" ? draft : undefined} botName={bot.name} color={color} foreground={foreground} running={chat.running} onSend={(text) => {
+					<Composer onCompact={bot.memberIds.length > 0 ? undefined : (focus) => void chat.compact(focus)} mentionBots={mentionBots} skills={bot.memberIds.length > 0 ? null : composerSkills.skills} skillsLoading={composerSkills.loading} skillsFailed={composerSkills.failed} onSlash={composerSkills.load} initialText={typeof draft === "string" ? draft : undefined} botName={bot.name} color={color} foreground={foreground} running={chat.running} onSend={(text) => {
 							chat.send(text, replyTo ?? undefined);
 							setReplyTo(null);
-						}} onStop={chat.stop} onSoon={(what) => setSoon(what)} replyTo={replyTo} onCancelReply={() => setReplyTo(null)} />
+						}} onStop={chat.stop} onSoon={(what) => setSoon(what)} onModel={() => setModelOpen(true)} modelPill={modelPill} holdWriting={modelOpen} onWriting={chat.modelSelector.loadCatalog} replyTo={replyTo} onCancelReply={() => setReplyTo(null)} />
 				</View>
 			</KeyboardAvoidingView>
 			<ChatMenu open={menu} onClose={() => setMenu(false)} onPick={onMenuPick} />
+			<ViewerSheet target={viewer} onClose={closeViewer} apiFetch={apiFetch} />
+			<ImageViewer visible={imageStart !== null} images={viewerImages} startIndex={imageStart ?? 0} onClose={closeImage} actions={imageActions} />
 			{messageMenu.node}
+			<ModelSheet visible={modelOpen} onClose={() => setModelOpen(false)} selector={chat.modelSelector} />
 			<SoonSheet open={soon !== null} title={soon ? SOON_TITLE[soon] : ""} onClose={() => setSoon(null)} />
-		</SafeAreaView>
+		</ScreenFrame>
 	);
 }

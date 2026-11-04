@@ -1,7 +1,10 @@
 // Eventos ao vivo de um run (SSE) aplicados ao que só existe no aparelho: a fala chegando, a lista de tarefas e os
 // cartões do run. Porta enxuta de `applyLiveEvent` e dos handlers de `use-atlas-chat.ts` (web). Pura: sem React.
 import type { ComputerUseEvent } from "@workspace/shared";
+import { botProfileToItem, botProposalFromEvent, proposalKey } from "./bot-cards";
 import type { ChatItem, ChatPhase } from "./chat-types";
+import { fileRef, pageRef } from "./chat-thread";
+import { loginToItem, secretsToItem } from "./request-cards";
 
 export type LiveState = {
 	items: ChatItem[];
@@ -86,6 +89,8 @@ export function applyRunEvent(state: LiveState, event: ComputerUseEvent): LiveSt
 		}
 		case "confirm": {
 			const status = event.status === "approved" || event.status === "rejected" ? event.status : "pending";
+			const secrets = event.secretsRequest && !event.devApproval ? secretsToItem(`confirm-${event.confirmId}`, { ...event, status }) : null;
+			if (secrets) return { ...state, paused: status === "pending", items: upsert(state.items, secrets) };
 			if (event.devApproval || event.secretsRequest || event.emailKeyRequest || event.githubIdentity) {
 				return { ...state, paused: status === "pending", items: upsert(state.items, { id: `confirm-${event.confirmId}`, kind: "web-card", card: "approval", title: event.title, key: `confirm:${event.confirmId}` }) };
 			}
@@ -117,17 +122,30 @@ export function applyRunEvent(state: LiveState, event: ComputerUseEvent): LiveSt
 					...(event.description ? { description: event.description } : {}),
 				}),
 			};
+		case "images": {
+			const images = event.items.map(({ artifactId, mime, width, height, alt, name }) => ({ artifactId, mime, width, height, ...(alt ? { alt } : {}), ...(name ? { name } : {}) }));
+			if (images.length === 0) return state;
+			return { ...state, items: upsert(state.items, { id: `images-${state.runId ?? "local"}-${images.map((image) => image.artifactId).join("+")}`, kind: "images", origin: event.origin, images, ...(event.caption ? { caption: event.caption } : {}) }) };
+		}
 		case "chart":
 			return withWebCard(state, `chart-${event.chartId}`, "chart", "Gráfico", `chart:${event.chartId}`);
 		case "page":
-			return withWebCard(state, `page-live-${event.pageId}`, "page", event.title, `page:${event.pageId}`);
+			return withWebCard(state, `page-live-${event.pageId}`, "page", event.title, `page:${event.pageId}`, pageRef(event.pageId, event.revision, event.sourceCount));
 		case "file":
-			return withWebCard(state, `file-${event.artifactId}`, "file", event.filename, `file:${event.artifactId}`);
+			return withWebCard(state, `file-${event.artifactId}`, "file", event.filename, `file:${event.artifactId}`, fileRef(event.artifactId, event.mime, event.size));
 		case "routine":
 			if (!event.title) return state;
 			return withWebCard(state, `routine-${state.runId ?? "local"}-${event.routineId ?? event.title}`, "routine", event.title, `routine:${event.routineId ?? event.title}`);
 		case "login":
-			return withWebCard(state, `login-${event.loginId}`, "login", `Entrar em ${event.site}`, `login:${event.loginId}`);
+			// O replay do stream repete os eventos: um pedido já resolvido não volta a pendente.
+			if (state.items.some((item) => item.kind === "login" && item.loginId === event.loginId && item.status === "done")) return state;
+			return { ...state, items: upsert(state.items, loginToItem(`login-${event.loginId}`, event)) };
+		case "bot-proposal": {
+			const item = botProposalFromEvent(event);
+			return item ? withProposal(state, item) : state;
+		}
+		case "bot-profile":
+			return withProposal(state, botProfileToItem(`bot-profile-${event.proposalId}`, { v: 1, kind: "bot-profile", proposalId: event.proposalId, botId: event.botId, before: event.before, after: event.after, fields: event.fields, status: event.status ?? "pending" }));
 		case "paused":
 			return { ...state, paused: true, phase: "idle", tool: null };
 		case "cancelled":
@@ -147,9 +165,22 @@ export function applyRunEvent(state: LiveState, event: ComputerUseEvent): LiveSt
 	}
 }
 
-function withWebCard(state: LiveState, id: string, card: Extract<ChatItem, { kind: "web-card" }>["card"], title: string, key: string): LiveState {
-	if (state.items.some((item) => item.kind === "web-card" && item.key === key)) return state;
-	return { ...state, items: upsert(state.items, { id, kind: "web-card", card, title, key }) };
+/** Proposta ao vivo: uma por proposta; o evento repetido (pendente) não desfaz uma já decidida. */
+function withProposal(state: LiveState, item: Extract<ChatItem, { kind: "bot-proposal" | "bot-profile" }>): LiveState {
+	const key = proposalKey(item);
+	const known = state.items.find((candidate) => (candidate.kind === "bot-proposal" || candidate.kind === "bot-profile") && proposalKey(candidate) === key);
+	if (known && item.status === "pending") return state;
+	return { ...state, items: known ? state.items.map((candidate) => (candidate === known ? { ...item, id: known.id } : candidate)) : [...state.items, item] };
+}
+
+function withWebCard(state: LiveState, id: string, card: Extract<ChatItem, { kind: "web-card" }>["card"], title: string, key: string, extra: { pageId?: string; revision?: number; sourceCount?: number; fileId?: string; mime?: string; size?: number } = {}): LiveState {
+	const existing = state.items.find((item): item is Extract<ChatItem, { kind: "web-card" }> => item.kind === "web-card" && item.key === key);
+	if (existing) {
+		// Painel atualizado (mesmo pageId, revisão maior): troca título, revisão e fontes no lugar, sem cartão novo.
+		if (card === "page" && (extra.revision ?? 0) > (existing.revision ?? 0)) return { ...state, items: state.items.map((item) => (item === existing ? { id: existing.id, kind: "web-card", card, title, key, ...extra } : item)) };
+		return state;
+	}
+	return { ...state, items: upsert(state.items, { id, kind: "web-card", card, title, key, ...extra }) };
 }
 
 /** Eventos que encerram a conexão (o run acabou ou parou esperando a pessoa). */

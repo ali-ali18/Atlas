@@ -1,42 +1,69 @@
 import * as React from "react";
 import {
 	ArrowUp as LucideArrowUp,
+	ArrowDown as LucideArrowDown,
 	AtSign as LucideAtSign,
 	AudioLines as LucideAudioLines,
+	BadgeCheck as LucideBadgeCheck,
 	ChevronDown as LucideChevronDown,
 	ChevronLeft as LucideChevronLeft,
 	ChevronRight as LucideChevronRight,
 	ChevronUp as LucideChevronUp,
+	ChevronsDownUp as LucideChevronsDownUp,
 	ChevronsUpDown as LucideChevronsUpDown,
 	Circle as LucideCircle,
 	CircleCheck as LucideCircleCheck,
+	Check as LucideCheck,
 	CircleUserRound as LucideCircleUserRound,
 	Clock as LucideClock,
 	CodeXml as LucideCodeXml,
 	Copy as LucideCopy,
+	Download as LucideDownload,
 	Ellipsis as LucideEllipsis,
+	Eye as LucideEye,
+	EyeOff as LucideEyeOff,
 	ExternalLink as LucideExternalLink,
+	File as LucideFile,
+	Forward as LucideForward,
+	FileSpreadsheet as LucideFileSpreadsheet,
+	FileText as LucideFileText,
+	Image as LucideImage,
+	LayoutDashboard as LucideLayoutDashboard,
+	Presentation as LucidePresentation,
+	Globe as LucideGlobe,
 	Hash as LucideHash,
+	KeyRound as LucideKeyRound,
 	LibraryBig as LucideLibraryBig,
 	Link as LucideLink,
 	MailOpen as LucideMailOpen,
 	ListChecks as LucideListChecks,
 	Mic as LucideMic,
 	Monitor as LucideMonitor,
+	MousePointer2 as LucideMousePointer2,
 	Pencil as LucidePencil,
 	Pin as LucidePin,
 	PinOff as LucidePinOff,
+	Lock as LucideLock,
 	FolderInput as LucideFolderInput,
 	FolderOutput as LucideFolderOutput,
 	Plus as LucidePlus,
 	Reply as LucideReply,
 	Search as LucideSearch,
+	SlidersHorizontal as LucideSlidersHorizontal,
+	Sparkles as LucideSparkles,
 	Send as LucideSend,
 	Share as LucideShare,
+	ShieldCheck as LucideShieldCheck,
 	Square as LucideSquare,
 	Star as LucideStar,
 	TextCursorInput as LucideTextCursorInput,
+	UserRoundCog as LucideUserRoundCog,
+	UserRoundPlus as LucideUserRoundPlus,
+	Trash2 as LucideTrash2,
 	X as LucideX,
+	ClipboardPaste as LucideClipboardPaste,
+	CircleHelp as LucideCircleHelp,
+	Keyboard as LucideKeyboard,
 } from "lucide-react-native";
 import Svg, { Path, Rect } from "react-native-svg";
 import { themeColor, type ColorToken } from "@/lib/theme";
@@ -116,6 +143,16 @@ export function DotsIcon({ size = 22, tone = "foreground" }: LineIconProps) {
 	return <LucideEllipsis size={size} color={useStroke(tone)} strokeWidth={2} />;
 }
 
+/** Lucide `MousePointer2` (seta de cursor). Cor fixa: o menu do Computador é sempre escuro. */
+export function CursorIcon({ size = 22, color = "#a1a1aa" }: IconProps & { color?: string }) {
+	return <LucideMousePointer2 size={size} color={color} strokeWidth={2} />;
+}
+
+/** Lucide `Check`. Cor fixa, como `CursorIcon`. */
+export function CheckOnDarkIcon({ size = 20, color = "#ffffff" }: IconProps & { color?: string }) {
+	return <LucideCheck size={size} color={color} strokeWidth={2} />;
+}
+
 /** Lucide `Mic`. */
 export function MicIcon({ size = 20, tone = "muted-foreground" }: LineIconProps) {
 	return <LucideMic size={size} color={useStroke(tone)} strokeWidth={2} />;
@@ -186,6 +223,21 @@ export function PencilIcon({ size = 20, tone = "foreground" }: LineIconProps) {
 	return <LucidePencil size={size} color={useStroke(tone)} strokeWidth={2} />;
 }
 
+/** Lucide `Check` (item marcado numa lista). */
+export function CheckIcon({ size = 20, tone = "foreground" }: LineIconProps) {
+	return <LucideCheck size={size} color={useStroke(tone)} strokeWidth={2.25} />;
+}
+
+/** Lucide `SlidersHorizontal` (o seletor de modelo no composer). */
+export function SlidersIcon({ size = 18, tone = "foreground" }: LineIconProps) {
+	return <LucideSlidersHorizontal size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `Trash2` (excluir). */
+export function Trash2Icon({ size = 20, tone = "destructive" }: LineIconProps) {
+	return <LucideTrash2 size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
 /** Lucide `ChevronsUpDown` (seletor). */
 export function ChevronUpDownIcon({ size = 18, tone = "muted-foreground" }: LineIconProps) {
 	return <LucideChevronsUpDown size={size} color={useStroke(tone)} strokeWidth={2} />;
@@ -212,6 +264,11 @@ export function StarFilledIcon({ size = 14, color = "#ffffff" }: IconProps & { c
 /** Lucide `ArrowUp` (enviar). */
 export function ArrowUpIcon({ size = 20, color = "#ffffff" }: IconProps & { color?: string }) {
 	return <LucideArrowUp size={size} color={color} strokeWidth={2} />;
+}
+
+/** Lucide `ArrowDown`. */
+export function ArrowDownIcon({ size = 20, tone = "foreground" }: LineIconProps) {
+	return <LucideArrowDown size={size} color={useStroke(tone)} strokeWidth={2} />;
 }
 
 /** Lucide `Square` preenchido (parar), como o `SquareIcon className="fill-current"` do web. */
@@ -249,6 +306,16 @@ export function ReplyIcon({ size = 20, tone = "foreground" }: LineIconProps) {
 	return <LucideReply size={size} color={useStroke(tone)} strokeWidth={2} />;
 }
 
+/** Lucide `Sparkles` (a habilidade: o mesmo ícone do web nos chips e na lista do `/`). */
+export function SparklesIcon({ size = 16, tone = "muted-foreground" }: LineIconProps) {
+	return <LucideSparkles size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `ChevronsDownUp`: o comando `/compact` (comprimir a conversa). */
+export function CompactIcon({ size = 16, tone = "muted-foreground" }: LineIconProps) {
+	return <LucideChevronsDownUp size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
 /** Lucide `X`. */
 export function CloseIcon({ size = 16, tone = "muted-foreground" }: LineIconProps) {
 	return <LucideX size={size} color={useStroke(tone)} strokeWidth={2} />;
@@ -272,4 +339,104 @@ export function FolderInputIcon({ size = 20, tone = "foreground" }: LineIconProp
 /** Lucide `FolderOutput` (menu da conversa: Tirar da seção). */
 export function FolderOutputIcon({ size = 20, tone = "foreground" }: LineIconProps) {
 	return <LucideFolderOutput size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `ClipboardPaste` (Colar no computador). Cor fixa: a tela do Computador é sempre escura. */
+export function ClipboardPasteIcon({ size = 22, color = "#ffffff" }: IconProps & { color?: string }) {
+	return <LucideClipboardPaste size={size} color={color} strokeWidth={2} />;
+}
+
+/** Lucide `Keyboard`. */
+export function KeyboardIcon({ size = 22, color = "#ffffff" }: IconProps & { color?: string }) {
+	return <LucideKeyboard size={size} color={color} strokeWidth={2} />;
+}
+
+/** Lucide `CircleHelp` (o "?" do topo). */
+export function HelpIcon({ size = 22, tone = "foreground" }: LineIconProps) {
+	return <LucideCircleHelp size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `LayoutDashboard` (Painel, na Biblioteca). */
+export function LayoutDashboardIcon({ size = 20, tone = "foreground" }: LineIconProps) {
+	return <LucideLayoutDashboard size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `FileText` (Documento). */
+export function FileTextIcon({ size = 20, tone = "foreground" }: LineIconProps) {
+	return <LucideFileText size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `FileSpreadsheet` (Planilha). */
+export function FileSpreadsheetIcon({ size = 20, tone = "foreground" }: LineIconProps) {
+	return <LucideFileSpreadsheet size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `Presentation` (Apresentação). */
+export function PresentationIcon({ size = 20, tone = "foreground" }: LineIconProps) {
+	return <LucidePresentation size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `Image` (Imagem). */
+export function ImageIcon({ size = 20, tone = "foreground" }: LineIconProps) {
+	return <LucideImage size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `File` (Arquivo sem tipo conhecido). */
+export function FileIcon({ size = 20, tone = "foreground" }: LineIconProps) {
+	return <LucideFile size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `Forward` (visualizador de imagens: Encaminhar). */
+export function ForwardIcon({ size = 20, tone = "foreground" }: LineIconProps) {
+	return <LucideForward size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `Download` (visualizador de imagens: Salvar). */
+export function DownloadIcon({ size = 20, tone = "foreground" }: LineIconProps) {
+	return <LucideDownload size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `UserRoundPlus` (o cartão "Criar agente"). */
+export function UserPlusIcon({ size = 16, tone = "muted-foreground" }: LineIconProps) {
+	return <LucideUserRoundPlus size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `UserRoundCog` (o cartão de perfil do bot). */
+export function UserCogIcon({ size = 16, tone = "muted-foreground" }: LineIconProps) {
+	return <LucideUserRoundCog size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `Lock` (pílula "Somente leitura"). */
+export function LockIcon({ size = 14, tone = "muted-foreground" }: LineIconProps) {
+	return <LucideLock size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `BadgeCheck` (selo de conector nativo verificado). */
+export function BadgeCheckIcon({ size = 16, tone = "info" }: LineIconProps) {
+	return <LucideBadgeCheck size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `Globe` (cabeçalho "Formulário"). */
+export function GlobeIcon({ size = 16, tone = "muted-foreground" }: LineIconProps) {
+	return <LucideGlobe size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `KeyRound` (cabeçalho "Segredos"). */
+export function KeyRoundIcon({ size = 16, tone = "muted-foreground" }: LineIconProps) {
+	return <LucideKeyRound size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `ShieldCheck` (nota "armazenado com segurança"). */
+export function ShieldCheckIcon({ size = 14, tone = "muted-foreground" }: LineIconProps) {
+	return <LucideShieldCheck size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `Eye`. */
+export function EyeIcon({ size = 18, tone = "muted-foreground" }: LineIconProps) {
+	return <LucideEye size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `EyeOff`. */
+export function EyeOffIcon({ size = 18, tone = "muted-foreground" }: LineIconProps) {
+	return <LucideEyeOff size={size} color={useStroke(tone)} strokeWidth={2} />;
 }

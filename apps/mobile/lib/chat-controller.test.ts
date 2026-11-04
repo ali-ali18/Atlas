@@ -21,9 +21,9 @@ const delta = (text: string): ComputerUseEvent => ({ type: "assistant_delta", id
 
 type Script = (options: FollowOptions, runId: string) => Promise<FollowResult>;
 
-function setup(overrides: { api?: Partial<ChatApi>; follow?: Script; conversationId?: string | null; cache?: ChatDeps["cacheFor"] } = {}) {
+function setup(overrides: { api?: Partial<ChatApi>; follow?: Script; conversationId?: string | null; cache?: ChatDeps["cacheFor"]; deps?: Partial<ChatDeps>; connect?: ChatDeps["connect"] } = {}) {
 	let runCount = 0;
-	const calls = { createRun: [] as unknown[], createRunInput: [] as Array<[string, string]>, cancelRun: [] as string[], submit: [] as unknown[], reaction: [] as string[], unread: [] as string[], inputReplies: [] as Array<string | undefined>, fetchPage: [] as string[], createConversation: 0, unauthorized: 0 };
+	const calls = { createRun: [] as unknown[], createRunInput: [] as Array<[string, string]>, cancelRun: [] as string[], submit: [] as unknown[], reaction: [] as string[], unread: [] as string[], inputReplies: [] as Array<string | undefined>, resume: [] as Array<[string, unknown]>, proposal: [] as unknown[], profile: [] as unknown[], created: [] as unknown[], applied: [] as unknown[], fetchPage: [] as string[], createConversation: 0, unauthorized: 0 };
 	const api: ChatApi = {
 		fetchPage: async (conversationId) => (calls.fetchPage.push(conversationId), { messages: [row("m1", "user", "oi"), row("m2", "assistant", "olá, tudo bem por aí?", 1)], hasMore: false }),
 		createConversation: async () => (calls.createConversation++, "c-new"),
@@ -36,6 +36,10 @@ function setup(overrides: { api?: Partial<ChatApi>; follow?: Script; conversatio
 		setReaction: async (messageId, emoji) => void calls.reaction.push(`PUT ${messageId} ${emoji}`),
 		clearReaction: async (messageId) => void calls.reaction.push(`DELETE ${messageId}`),
 		markConversationUnread: async (conversationId) => void calls.unread.push(conversationId),
+		compactConversation: async () => ({ status: "noop", reason: "too_small", message: "Conversa curta." }),
+		resolveBotProposal: async (input) => (calls.proposal.push(input), { status: input.decision, name: "Estoquinho", botId: input.decision === "approved" ? "bot-new" : null, unchanged: false, warnings: [] }),
+		resolveBotProfile: async (input) => (calls.profile.push(input), { status: input.decision, fields: ["name"] }),
+		resumeRun: async (runId, options) => (calls.resume.push([runId, options]), { enqueued: true }),
 		...overrides.api,
 	};
 	let seq = 0;
@@ -44,10 +48,14 @@ function setup(overrides: { api?: Partial<ChatApi>; follow?: Script; conversatio
 		openRunStream: () => async () => Promise.reject(new Error("não usado")),
 		cacheFor: overrides.cache ?? (() => null),
 		onUnauthorized: () => void calls.unauthorized++,
+		...(overrides.connect ? { connect: overrides.connect } : {}),
 		follow: ((options: FollowOptions) => (overrides.follow ?? (async (opts) => (opts.onEvent(done), "boundary" as const)))(options, "?")) as never,
 		sleep: async () => undefined,
 		clientKey: () => `k${++seq}`,
 		throttleMs: 0,
+		onBotCreated: (bot) => void calls.created.push(bot),
+		onProfileApplied: (botId, patch) => void calls.applied.push([botId, patch]),
+		...overrides.deps,
 	};
 	const controller = new ChatController(deps, { id: "bot1", conversationId: overrides.conversationId === undefined ? "c1" : overrides.conversationId });
 	return { controller, calls };
@@ -88,6 +96,63 @@ describe("abertura e conversa", () => {
 		controller.update({ id: "bot1", conversationId: "c-outra" });
 		await flush();
 		expect(calls.fetchPage.includes("c-outra")).toBe(false);
+	});
+});
+
+describe("modelo do run (seletor do composer)", () => {
+	it("o envio leva os campos de modelo da escolha de agora; sem escolha o run não diz nada de modelo", async () => {
+		let fields: Record<string, unknown> = {};
+		const { controller, calls } = setup({ deps: { modelFields: () => fields } });
+		await controller.open();
+		controller.send("sem escolha");
+		await flush();
+		expect(calls.createRun[0]).toMatchObject({ model: {} });
+		fields = { model: "x/y", reasoningEffort: "high" };
+		controller.send("com escolha");
+		await flush();
+		expect(calls.createRun[1]).toMatchObject({ model: { model: "x/y", reasoningEffort: "high" } });
+	});
+	it("chat novo: a conversa criada pelo envio é avisada (a escolha feita antes passa a ser salva nela)", async () => {
+		const created: string[] = [];
+		const { controller, calls } = setup({ conversationId: null, deps: { modelFields: () => ({ modelAuto: true }), onConversationCreated: (id) => void created.push(id) } });
+		await controller.open();
+		controller.send("primeira");
+		await flush();
+		expect(created).toEqual(["c-new"]);
+		expect(calls.createRun[0]).toMatchObject({ conversationId: "c-new", model: { modelAuto: true } });
+	});
+	it("modelo recusado pelo servidor: apaga a escolha, avisa e NÃO reenvia com outro modelo", async () => {
+		let rejected = 0;
+		let attempts = 0;
+		const { controller } = setup({
+			api: { createRun: async () => (attempts++, Promise.reject(new ChatApiError("Modelo ChatGPT indisponível nesta conta", 400))) },
+			deps: { modelFields: () => ({ model: "chatgpt/luna" }), onModelRejected: () => void rejected++ },
+		});
+		await controller.open();
+		controller.send("oi");
+		await flush();
+		expect(rejected).toBe(1);
+		expect(attempts).toBe(1);
+		expect(controller.getSnapshot().error).toContain("voltei ao modelo do bot");
+	});
+	it("recusa sem modelo enviado não mexe na escolha", async () => {
+		let rejected = 0;
+		const { controller } = setup({
+			api: { createRun: async () => Promise.reject(new ChatApiError("Modelo inválido", 400)) },
+			deps: { modelFields: () => ({}), onModelRejected: () => void rejected++ },
+		});
+		await controller.open();
+		controller.send("oi");
+		await flush();
+		expect(rejected).toBe(0);
+	});
+	it("conversa que já existe não dispara o aviso", async () => {
+		const created: string[] = [];
+		const { controller } = setup({ deps: { onConversationCreated: (id) => void created.push(id) } });
+		await controller.open();
+		controller.send("oi");
+		await flush();
+		expect(created).toEqual([]);
 	});
 });
 
@@ -344,6 +409,123 @@ describe("cartões: toque duplo", () => {
 		await flush();
 		expect(calls.submit).toHaveLength(1);
 		expect(deriveView(controller.getSnapshot()).items).toBeDefined();
+	});
+});
+
+describe("cartões de pedido: login e segredo", () => {
+	const login: Extract<ChatItem, { kind: "login" }> = { id: "l", kind: "login", loginId: "lg1", site: "github.com", url: "https://github.com/login", runId: "r9", status: "pending" };
+	it("retoma o run parado uma vez só e já mostra o login como resolvido", async () => {
+		const { controller, calls } = setup({ api: { getRunStatus: async () => "paused" }, follow: async () => new Promise<FollowResult>(() => undefined) });
+		await controller.open();
+		controller.resumeLogin(login);
+		controller.resumeLogin(login, { via: "vault" });
+		await flush();
+		expect(calls.resume).toEqual([["r9", {}]]);
+		expect(controller.getSnapshot().loginsDone).toEqual({ lg1: true });
+	});
+	it("o código segue ao servidor no resume (nunca vira fala nem input)", async () => {
+		const { controller, calls } = setup({ api: { getRunStatus: async () => "paused" }, follow: async () => new Promise<FollowResult>(() => undefined) });
+		await controller.open();
+		controller.resumeLogin(login, { via: "code", code: "123456" });
+		await flush();
+		expect(calls.resume).toEqual([["r9", { via: "code", code: "123456" }]]);
+		expect(calls.createRun).toHaveLength(0);
+		expect(calls.createRunInput).toHaveLength(0);
+	});
+	it("o run que já voltou sozinho só é acompanhado, sem novo resume", async () => {
+		const { controller, calls } = setup({ api: { getRunStatus: async () => "running" }, follow: async () => new Promise<FollowResult>(() => undefined) });
+		await controller.open();
+		controller.resumeLogin(login);
+		await flush();
+		expect(calls.resume).toEqual([]);
+		expect(controller.getSnapshot().following).toBe(true);
+	});
+	it("falha ao retomar libera o cartão e avisa em palavras simples; 401 encerra a sessão", async () => {
+		const { controller, calls } = setup({ api: { getRunStatus: async () => "paused", resumeRun: async () => { throw new ChatApiError("x", 401); } } });
+		await controller.open();
+		controller.resumeLogin(login);
+		await flush();
+		expect(controller.getSnapshot().loginsDone).toEqual({});
+		expect(calls.unauthorized).toBe(1);
+		expect(controller.getSnapshot().error).toMatch(/sessão/i);
+	});
+	it("sem o run do cartão e sem run seguido, não finge: avisa e libera", async () => {
+		const { controller } = setup();
+		await controller.open();
+		controller.resumeLogin({ ...login, runId: undefined });
+		await flush();
+		expect(controller.getSnapshot().loginsDone).toEqual({});
+		expect(controller.getSnapshot().error).toBeTruthy();
+	});
+	it("segredo salvo é aprovado pelo mesmo caminho da aprovação, sem balão do usuário", async () => {
+		const { controller, calls } = setup({ follow: async () => new Promise<FollowResult>(() => undefined) });
+		await controller.open();
+		controller.decide({ confirmId: "s1", title: "Chave da API", status: "pending" }, true);
+		await flush();
+		expect(calls.createRun[0]).toMatchObject({ content: "confirmado: Chave da API", decisionConfirmId: "s1" });
+	});
+	it("o login e o segredo resolvidos aqui valem na hora na tela", async () => {
+		const { controller } = setup({ api: { getRunStatus: async () => "paused" }, follow: async () => new Promise<FollowResult>(() => undefined) });
+		await controller.open();
+		controller.resumeLogin(login);
+		controller.decide({ confirmId: "s1", title: "x", status: "pending" }, false);
+		const snapshot = controller.getSnapshot();
+		const items = deriveView({ ...snapshot, persisted: [login, { id: "s", kind: "secrets", confirmId: "s1", title: "x", names: ["A"], status: "pending" }] }).items;
+		expect(items.find((item) => item.kind === "login")).toMatchObject({ status: "done" });
+		expect(items.find((item) => item.kind === "secrets")).toMatchObject({ status: "rejected" });
+	});
+});
+
+describe("conectar app: o fluxo é do controller, não do cartão", () => {
+	const connector = { kind: "composio", id: "gmail", name: "Gmail", description: "", icon: null } as const;
+	const login: Extract<ChatItem, { kind: "login" }> = { id: "l", kind: "login", loginId: "lg1", site: "Gmail", url: "https://x.com", runId: "r9", status: "pending", connector };
+	const paused = { getRunStatus: async () => "paused" };
+	it("conectou: retoma o run sem nenhum cartão montado (nada na tela chama o resume)", async () => {
+		const gate = deferred<{ outcome: "connected" }>();
+		const { controller, calls } = setup({ api: paused, connect: () => gate.promise, follow: async () => new Promise<FollowResult>(() => undefined) });
+		await controller.open();
+		controller.connectLogin(login);
+		controller.connectLogin(login);
+		expect(controller.getSnapshot().connects.lg1).toEqual({ busy: true, message: null });
+		// o cartão pode desmontar aqui: o fluxo segue
+		gate.resolve({ outcome: "connected" });
+		await flush();
+		expect(calls.resume).toEqual([["r9", {}]]);
+		expect(controller.getSnapshot().connects).toEqual({});
+		expect(controller.getSnapshot().loginsDone).toEqual({ lg1: true });
+	});
+	it("navegador fechado ou tempo esgotado: libera o botão com aviso simples e não retoma", async () => {
+		const { controller, calls } = setup({ api: paused, connect: async () => ({ outcome: "closed" }) });
+		await controller.open();
+		controller.connectLogin(login);
+		await flush();
+		expect(calls.resume).toEqual([]);
+		expect(controller.getSnapshot().connects.lg1).toMatchObject({ busy: false, message: expect.stringContaining("Autorizar") });
+	});
+	it("erro de conexão vira a frase dada; conector de API/MCP próprio não conecta aqui", async () => {
+		const { controller } = setup({ connect: async () => ({ error: "Ative os apps nas Configurações do site." }) });
+		await controller.open();
+		controller.connectLogin(login);
+		await flush();
+		expect(controller.getSnapshot().connects.lg1).toEqual({ busy: false, message: "Ative os apps nas Configurações do site." });
+		const calls: unknown[] = [];
+		const other = setup({ connect: async () => (calls.push(1), { outcome: "connected" }) });
+		await other.controller.open();
+		other.controller.connectLogin({ ...login, connector: { ...connector, kind: "api" } });
+		await flush();
+		expect(calls).toEqual([]);
+	});
+	it("sair do chat aborta o fluxo (o sinal do navegador) e não retoma depois", async () => {
+		const gate = deferred<{ outcome: "connected" }>();
+		let seen: { aborted: boolean } | null = null;
+		const { controller, calls } = setup({ api: paused, connect: (_connector, signal) => ((seen = signal), gate.promise) });
+		await controller.open();
+		controller.connectLogin(login);
+		controller.dispose();
+		expect(seen!.aborted).toBe(true);
+		gate.resolve({ outcome: "connected" });
+		await flush();
+		expect(calls.resume).toEqual([]);
 	});
 });
 
@@ -639,5 +821,187 @@ describe("responder (replyTo)", () => {
 		await flush();
 		await flush();
 		expect(bubbles(controller)).toEqual([]);
+	});
+});
+
+describe("/compact", () => {
+	const compacted = { status: "compacted" as const, before: 48_200, after: 6_100, percent: 87, messageId: "cmp-1", card: { v: 1 as const, kind: "compaction" as const, before: 48_200, after: 6_100, summary: "resumo" } };
+	it("compacta a conversa atual e põe o marcador no fim do fio (uma vez, mesmo com toque duplo)", async () => {
+		const asked: Array<[string, string | undefined]> = [];
+		const { controller } = setup({ api: { compactConversation: async (id, focus) => (asked.push([id, focus]), compacted) } });
+		await controller.open();
+		const [first, second] = await Promise.all([controller.compact("foco"), controller.compact("foco")]);
+		expect([first, second]).toEqual([true, false]);
+		expect(asked).toEqual([["c1", "foco"]]);
+		const items = controller.getSnapshot().persisted;
+		expect(items[items.length - 1]).toMatchObject({ id: "cmp-1", kind: "marker", text: "Conversa compactada · 48,2 mil → 6,1 mil" });
+		await controller.compact();
+		expect(controller.getSnapshot().persisted.filter((item) => item.id === "cmp-1")).toHaveLength(1);
+	});
+	it("enquanto o servidor compacta, o estado diz `compacting` (a tela mostra \"Compactando a conversa…\"); ao terminar, volta", async () => {
+		let finish: (value: typeof compacted) => void = () => undefined;
+		const { controller } = setup({ api: { compactConversation: () => new Promise((resolve) => (finish = resolve)) } });
+		await controller.open();
+		expect(controller.getSnapshot().compacting).toBe(false);
+		const running = controller.compact();
+		expect(controller.getSnapshot().compacting).toBe(true);
+		finish(compacted);
+		await running;
+		expect(controller.getSnapshot().compacting).toBe(false);
+	});
+	it("conversa curta: aviso do servidor, sem marcador", async () => {
+		const { controller } = setup();
+		await controller.open();
+		expect(await controller.compact()).toBe(false);
+		expect(controller.getSnapshot().error).toBe("Conversa curta.");
+		expect(controller.getSnapshot().persisted.some((item) => item.kind === "marker")).toBe(false);
+	});
+	it("recusa do servidor: mensagem dele; proxy ou rede: aviso amigável", async () => {
+		const busy = setup({ api: { compactConversation: async () => Promise.reject(new ChatApiError("Há uma execução em andamento.", 409, true)) } });
+		await busy.controller.open();
+		await busy.controller.compact();
+		expect(busy.controller.getSnapshot().error).toBe("Há uma execução em andamento.");
+		const proxy = setup({ api: { compactConversation: async () => Promise.reject(new ChatApiError("Bad Gateway", 502)) } });
+		await proxy.controller.open();
+		await proxy.controller.compact();
+		expect(proxy.controller.getSnapshot().error).toBe("Não consegui compactar a conversa agora. Tente de novo em instantes.");
+	});
+	it("sem conversa ainda: aviso, sem chamar o servidor", async () => {
+		let called = 0;
+		const { controller } = setup({ conversationId: null, api: { compactConversation: async () => (called++, compacted) } });
+		await controller.open();
+		expect(await controller.compact()).toBe(false);
+		expect(called).toBe(0);
+		expect(controller.getSnapshot().error).toBe("Ainda não há o que compactar nesta conversa.");
+	});
+});
+
+describe("cartões de proposta (criar agente e perfil)", () => {
+	const proposal: Extract<ChatItem, { kind: "bot-proposal" }> = { id: "m9", kind: "bot-proposal", proposalId: "p1", status: "pending", name: "Estoquinho", description: "Cuida do estoque", color: "#1084FE", shape: "blob", model: null, skills: [], firstTask: null };
+	const profile: Extract<ChatItem, { kind: "bot-profile" }> = { id: "m8", kind: "bot-profile", proposalId: "pf1", botId: "bot1", status: "pending", fields: ["name"], before: { name: "Cookie", snippet: "", description: null, openRouterModel: null }, after: { name: "Biscoito" } };
+	const cardOf = (controller: ChatController, kind: string) => view(controller).items.find((item) => item.kind === kind) as never as Record<string, unknown>;
+	// a proposta ao vivo entra pelo estado ao vivo; aqui basta o gravado, que o deriveView já mostra
+	const withCards = (api: Partial<ChatApi> = {}, deps: Partial<ChatDeps> = {}) =>
+		setup({ api: { fetchPage: async () => ({ messages: [row("m9", "bot-proposal", JSON.stringify({ v: 1, kind: "bot-proposal", proposalId: "p1", status: "pending", name: "Estoquinho", description: "Cuida do estoque", color: "#1084FE", shape: "blob", model: null, skills: [], firstTask: null })), row("m8", "bot-profile", JSON.stringify({ v: 1, kind: "bot-profile", proposalId: "pf1", botId: "bot1", status: "pending", fields: ["name"], before: { name: "Cookie", snippet: "", description: null, openRouterModel: null }, after: { name: "Biscoito" } }), 1)], hasMore: false }), ...api }, deps });
+
+	it("aprovar chama a rota uma vez só (toque duplo), mostra Criado e entrega o bot novo à home", async () => {
+		const { controller, calls } = withCards();
+		await controller.open();
+		controller.resolveProposal(proposal, "approved");
+		controller.resolveProposal(proposal, "approved");
+		expect(cardOf(controller, "bot-proposal")).toMatchObject({ status: "pending", applying: true });
+		await flush();
+		expect(calls.proposal).toEqual([{ conversationId: "c1", proposalId: "p1", decision: "approved" }]);
+		expect(cardOf(controller, "bot-proposal")).toMatchObject({ status: "approved", botId: "bot-new" });
+		expect(calls.created).toEqual([expect.objectContaining({ id: "bot-new", name: "Estoquinho", color: "#1084FE", shape: "blob", conversationId: null })]);
+		// depois de decidido, tocar de novo não faz nada
+		controller.resolveProposal({ ...proposal, status: "approved" }, "approved");
+		await flush();
+		expect(calls.proposal).toHaveLength(1);
+	});
+	it("repetir a aprovação (unchanged) mostra Criado e ainda garante o bot na home", async () => {
+		const { controller, calls } = withCards({ resolveBotProposal: async () => ({ status: "approved", name: "Estoquinho", botId: "bot-new", unchanged: true, warnings: [] }) });
+		await controller.open();
+		controller.resolveProposal(proposal, "approved");
+		await flush();
+		expect(cardOf(controller, "bot-proposal")).toMatchObject({ status: "approved", botId: "bot-new" });
+		// o bot pode não estar na home (outro aparelho, atualização perdida): quem recebe garante (idempotente)
+		expect(calls.created).toEqual([expect.objectContaining({ id: "bot-new" })]);
+	});
+	it("Agora não dispensa sem criar bot", async () => {
+		const { controller, calls } = withCards();
+		await controller.open();
+		controller.resolveProposal(proposal, "rejected");
+		await flush();
+		expect(calls.proposal).toEqual([{ conversationId: "c1", proposalId: "p1", decision: "rejected" }]);
+		expect(cardOf(controller, "bot-proposal")).toMatchObject({ status: "rejected" });
+		expect(calls.created).toEqual([]);
+	});
+	it("404 e 409 travam os botões e recarregam o fio; rede e 503 deixam tentar de novo", async () => {
+		for (const [error, text] of [
+			[new ChatApiError("Proposta não encontrada.", 404), "Esta proposta não existe mais."],
+			[new ChatApiError("x", 409), "Esta proposta já foi recusada."],
+			[new Error("Network request failed"), "Sem conexão com o seu servidor. Tente de novo."],
+			[new ChatApiError("x", 503), "Não consegui criar o agente. Tente de novo."],
+		] as const) {
+			let fail = true;
+			let taps = 0;
+			const { controller, calls } = withCards({ resolveBotProposal: async () => (taps++, fail ? Promise.reject(error) : { status: "approved", name: "Estoquinho", botId: "bot-new", unchanged: false, warnings: [] }) });
+			await controller.open();
+			controller.resolveProposal(proposal, "approved");
+			await flush();
+			expect(cardOf(controller, "bot-proposal")).toMatchObject({ status: "pending", error: text });
+			expect(cardOf(controller, "bot-proposal").applying).toBeUndefined();
+			expect(calls.created).toEqual([]);
+			const stale = error instanceof ChatApiError && (error.status === 404 || error.status === 409);
+			expect(cardOf(controller, "bot-proposal").locked === true).toBe(stale);
+			fail = false;
+			controller.resolveProposal(proposal, "approved");
+			await flush();
+			// travado (404/409): o toque não chama a rota de novo; os outros erros deixam tentar
+			expect(cardOf(controller, "bot-proposal")).toMatchObject({ status: stale ? "pending" : "approved" });
+			expect(taps).toBe(stale ? 1 : 2);
+		}
+	});
+	it("404 e 409 recarregam o fio: o estado gravado (já decidido) substitui o cartão travado", async () => {
+		let decided = false;
+		const stored = (status: string) => row("m9", "bot-proposal", JSON.stringify({ v: 1, kind: "bot-proposal", proposalId: "p1", status, name: "Estoquinho", description: "Cuida do estoque", color: "#1084FE", shape: "blob", model: null, skills: [], firstTask: null, botId: "bot-9" }));
+		const { controller } = setup({ api: { fetchPage: async () => ({ messages: [stored(decided ? "approved" : "pending")], hasMore: false }), resolveBotProposal: async () => Promise.reject(new ChatApiError("x", 409)) } });
+		await controller.open();
+		decided = true;
+		controller.resolveProposal(proposal, "approved");
+		await flush();
+		expect(cardOf(controller, "bot-proposal")).toMatchObject({ status: "approved", botId: "bot-9" });
+	});
+	it("perfil: 404 (já resolvida) também trava", async () => {
+		const failing = withCards({ resolveBotProfile: async () => Promise.reject(new ChatApiError("Proposal not found or already resolved", 404)) });
+		await failing.controller.open();
+		failing.controller.resolveProposal(profile, "approved");
+		await flush();
+		expect(cardOf(failing.controller, "bot-profile")).toMatchObject({ error: "Esta proposta não existe mais.", locked: true });
+	});
+	it("401 encerra a sessão", async () => {
+		const { controller, calls } = withCards({ resolveBotProposal: async () => Promise.reject(new ChatApiError("x", 401)) });
+		await controller.open();
+		controller.resolveProposal(proposal, "approved");
+		await flush();
+		expect(calls.unauthorized).toBe(1);
+	});
+	it("sem conversa, avisa em vez de chamar a rota", async () => {
+		const { controller, calls } = setup({ conversationId: null });
+		await controller.open();
+		controller.resolveProposal(proposal, "approved");
+		expect(calls.proposal).toEqual([]);
+	});
+	it("perfil: Aplicar chama a rota do perfil e a home recebe o nome novo", async () => {
+		const { controller, calls } = withCards();
+		await controller.open();
+		controller.resolveProposal(profile, "approved");
+		controller.resolveProposal(profile, "approved");
+		await flush();
+		expect(calls.profile).toEqual([{ conversationId: "c1", proposalId: "pf1", decision: "approved" }]);
+		expect(cardOf(controller, "bot-profile")).toMatchObject({ status: "approved" });
+		expect(calls.applied).toEqual([["bot1", { name: "Biscoito" }]]);
+	});
+	it("perfil dispensado não muda a home; erro 404 usa a mesma frase", async () => {
+		const { controller, calls } = withCards();
+		await controller.open();
+		controller.resolveProposal(profile, "rejected");
+		await flush();
+		expect(cardOf(controller, "bot-profile")).toMatchObject({ status: "rejected" });
+		expect(calls.applied).toEqual([]);
+		const failing = withCards({ resolveBotProfile: async () => Promise.reject(new ChatApiError("Proposal not found or already resolved", 404)) });
+		await failing.controller.open();
+		failing.controller.resolveProposal(profile, "approved");
+		await flush();
+		expect(cardOf(failing.controller, "bot-profile")).toMatchObject({ status: "pending", error: "Esta proposta não existe mais." });
+	});
+	it("o resultado local sobrevive a reabrir o fio (o gravado ainda pode chegar pendente)", async () => {
+		const { controller } = withCards();
+		await controller.open();
+		controller.resolveProposal(proposal, "approved");
+		await flush();
+		await controller.open();
+		expect(cardOf(controller, "bot-proposal")).toMatchObject({ status: "approved", botId: "bot-new" });
 	});
 });

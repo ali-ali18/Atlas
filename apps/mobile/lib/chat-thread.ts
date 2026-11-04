@@ -1,9 +1,11 @@
 // Fio da conversa: do que o servidor grava (`SessionMessage`) ao que a tela desenha, e a junção do gravado com o
 // que só existe ao vivo (balão do usuário ainda não gravado, fala em andamento, cartões do run). Porta enxuta do
 // `use-atlas-chat.ts` / `thread-merge.ts` / `thread-live.ts` do web: o gravado manda, o ao vivo preenche o resto.
-import { BOT_LINK_ROLE, formatSourceMarker, isCardConfirmToken, type MessageSource, parseBotLinkCard, parseConversationCard, type PersistedConversationCard, type SessionMessage } from "@workspace/shared";
-import type { ChatItem, Reaction, TaskItem } from "./chat-types";
+import { BOT_LINK_ROLE, formatSourceMarker, formatTokensPt, isCardConfirmToken, type MessageSource, parseBotLinkCard, parseBotMessageContent, parseConversationCard, type PersistedConversationCard, type SessionMessage } from "@workspace/shared";
+import type { BotTag, ChatItem, Reaction, TaskItem } from "./chat-types";
+import { applyDecidedProposals, botProfileToItem, botProposalToItem, proposalKey } from "./bot-cards";
 import { parseReplyTo } from "./reply-quote";
+import { loginToItem, secretsToItem } from "./request-cards";
 
 const CARD_ROLES = new Set([
 	"skill", "confirm", "login", "file", "routine", "tool-budget", "jev-status", "provider-fallback", "subagents", "routine-proposal", "bot-proposal",
@@ -15,11 +17,25 @@ export function isCardProtocolText(text: string): boolean {
 	return isCardConfirmToken(text) || /^cancela isso$/i.test(text.trim());
 }
 
+/** Identidade do painel no cartão (abre a tela nativa): só o que cabe no fio, sem o spec (a tela busca no servidor). */
+export function pageRef(pageId: string, revision: number, sourceCount: number): { pageId: string; revision: number; sourceCount: number } {
+	return { pageId, revision, sourceCount };
+}
+
+/** Identidade do arquivo no cartão (abre a folha do documento): id, mime e tamanho, sem o conteúdo. */
+export function fileRef(artifactId: string, mime: string | undefined, size: number | undefined): { fileId: string; mime?: string; size?: number } {
+	return { fileId: artifactId, ...(mime ? { mime } : {}), ...(typeof size === "number" && Number.isFinite(size) ? { size } : {}) };
+}
+
 export function cardToItem(id: string, card: PersistedConversationCard, createdAt?: string): ChatItem | null {
 	const base = { id, ...(createdAt ? { createdAt } : {}) };
 	switch (card.kind) {
 		case "confirm":
-			// Aprovação de comando, segredos, chave de e-mail e GitHub têm telas próprias no web.
+			// Segredo do Cofre tem cartão nativo; aprovação de comando, segredos de ambiente, chave de e-mail e GitHub ficam no web.
+			if (card.secretsRequest && !card.devApproval) {
+				const secrets = secretsToItem(id, card, createdAt);
+				if (secrets) return secrets;
+			}
 			if (card.devApproval || card.secretsRequest || card.emailKeyRequest || card.githubIdentity) {
 				return { ...base, kind: "web-card", card: "approval", title: card.title, key: `confirm:${card.confirmId}` };
 			}
@@ -47,23 +63,25 @@ export function cardToItem(id: string, card: PersistedConversationCard, createdA
 		case "task-list":
 			return { ...base, kind: "task-list", runId: card.runId, items: card.items };
 		case "compaction":
-			return { ...base, kind: "marker", text: `Conversa compactada · ${card.before} → ${card.after}` };
+			return { ...base, kind: "marker", text: compactionMarkerText(card.before, card.after) };
 		case "chart":
 			return { ...base, kind: "web-card", card: "chart", title: "Gráfico", key: `chart:${card.chartId}` };
 		case "page":
-			return { ...base, kind: "web-card", card: "page", title: card.title, key: `page:${card.pageId}` };
+			return { ...base, kind: "web-card", card: "page", title: card.title, key: `page:${card.pageId}`, ...pageRef(card.pageId, card.revision, card.sourceCount) };
 		case "file":
-			return { ...base, kind: "web-card", card: "file", title: card.filename, key: `file:${card.artifactId}` };
+			return { ...base, kind: "web-card", card: "file", title: card.filename, key: `file:${card.artifactId}`, ...fileRef(card.artifactId, card.mime, card.size) };
 		case "routine":
 			return { ...base, kind: "web-card", card: "routine", title: card.title ?? "Rotina", key: `routine:${card.routineId ?? id}` };
 		case "login":
-			return { ...base, kind: "web-card", card: "login", title: `Entrar em ${card.site}`, key: `login:${card.loginId}` };
+			return loginToItem(id, card, createdAt);
 		case "images":
-			return { ...base, kind: "web-card", card: "images", title: "Imagens", key: `images:${id}` };
-		case "routine-proposal":
+			return { ...base, kind: "images", origin: card.origin, images: card.items.map(({ artifactId, mime, width, height, alt, name }) => ({ artifactId, mime, width, height, ...(alt ? { alt } : {}), ...(name ? { name } : {}) })), ...(card.caption ? { caption: card.caption } : {}) };
 		case "bot-proposal":
+			return botProposalToItem(id, card, createdAt);
 		case "bot-profile":
-			return { ...base, kind: "web-card", card: "proposal", title: card.kind === "routine-proposal" ? "Proposta de rotina" : card.kind === "bot-proposal" ? "Proposta de bot" : "Proposta de perfil", key: `${card.kind}:${id}` };
+			return botProfileToItem(id, card, createdAt);
+		case "routine-proposal":
+			return { ...base, kind: "web-card", card: "proposal", title: "Proposta de rotina", key: `${card.kind}:${id}` };
 		default:
 			// habilidade, subagentes, orçamento de ferramenta, revisão, execução de código: ficam só no web.
 			return null;
@@ -104,13 +122,30 @@ export function withSourceMarkers(items: readonly ChatItem[], timeZone?: string)
 	return out;
 }
 
+/** Marcador da conversa compactada: "Conversa compactada · 48,2 mil → 6,1 mil" (tokens estimados antes e depois). */
+export function compactionMarkerText(before: number, after: number): string {
+	return `Conversa compactada · ${formatTokensPt(before)} → ${formatTokensPt(after)}`;
+}
+
 /** Uma linha gravada do servidor vira o que a tela desenha; `null` = não aparece (protocolo de cartão, vazia, só do web). */
 export function sessionMessageToItem(message: SessionMessage): ChatItem | null {
 	const createdAt = message.createdAt;
 	const role = message.role as string;
 	if (role === BOT_LINK_ROLE) {
 		const link = parseBotLinkCard(message.content);
-		return link ? { id: message.id, kind: "marker", createdAt, text: `Enviou mensagem para ${link.botName}${link.title ? `: ${link.title}` : ""}` } : null;
+		return link ? { id: message.id, kind: "marker", createdAt, text: `Enviou mensagem para ${link.botName}${link.title ? `: ${link.title}` : ""}`, link: { botId: link.botId, botName: link.botName, title: link.title } } : null;
+	}
+	// Fala trocada entre bots (origem `bot`): não é do usuário. Fica marcada para o fio virar "N mensagens com X".
+	if (message.origin === "bot" && (role === "user" || role === "assistant")) {
+		const framed = role === "user" ? parseBotMessageContent(message.content) : null;
+		if (role === "assistant" && !message.content.trim()) return null;
+		const bot: BotTag = {
+			kind: role === "assistant" ? "answer" : (framed?.kind ?? "request"),
+			...(message.fromBotId ? { fromBotId: message.fromBotId } : {}),
+			...(message.fromBotName ? { fromBotName: message.fromBotName } : {}),
+			...(message.botMessageId ? { botMessageId: message.botMessageId } : {}),
+		};
+		return { id: message.id, kind: role, text: framed?.text ?? message.content, createdAt, bot };
 	}
 	const reactions = validReactions(message.reactions);
 	// `replyTo` é do contrato novo do servidor (pode faltar em servidor antigo): lido sem confiar no formato.
@@ -231,6 +266,14 @@ export function cardKey(item: ChatItem): string | null {
 			return `questionnaire|${item.questionnaireId}`;
 		case "task-list":
 			return `task-list|${item.runId}`;
+		case "bot-proposal":
+		case "bot-profile":
+			return proposalKey(item);
+		case "login":
+			return `login|${item.loginId}`;
+		case "secrets":
+			// Mesma identidade do `confirm` (é o mesmo cartão do servidor, só que desenhado como segredo).
+			return `confirm|${item.confirmId}`;
 		case "web-card":
 			return item.key;
 		default:
@@ -245,7 +288,11 @@ export function cardKey(item: ChatItem): string | null {
  * - cartão ao vivo com a identidade de um gravado: vale o gravado; só a lista de tarefas ao vivo do mesmo run
  *   substitui os passos do gravado (é a mais nova), no lugar dele.
  */
-export function reconcile(persisted: readonly ChatItem[], live: readonly ChatItem[]): ChatItem[] {
+export function reconcile(persistedRaw: readonly ChatItem[], liveRaw: readonly ChatItem[]): ChatItem[] {
+	// Proposta decidida em qualquer cópia (gravada ou ao vivo) vale nas duas: o decidido vence (como o web).
+	const decided = applyDecidedProposals([...persistedRaw, ...liveRaw]);
+	const persisted = decided.slice(0, persistedRaw.length);
+	const live = decided.slice(persistedRaw.length);
 	const persistedKeys = new Map<string, number>();
 	persisted.forEach((item, index) => {
 		const key = cardKey(item);
@@ -273,13 +320,32 @@ export function reconcile(persisted: readonly ChatItem[], live: readonly ChatIte
 		} else if (item.kind === "assistant") {
 			if (!item.text.trim()) continue;
 			if (normalize(item.text).length >= MIN_COVERED_LENGTH && persistedAssistantCovers(persisted, item.text)) continue;
+		} else if (item.kind === "images") {
+			// Ao vivo não há id de mensagem: o cartão gravado com os mesmos arquivos (um por vez) é o mesmo. Só o AO VIVO
+			// é comparado com o gravado; duas mensagens gravadas com o mesmo arquivo continuam sendo duas.
+			const same = imagesSignature(item);
+			const match = persisted.find((row) => row.kind === "images" && !consumed.has(row.id) && imagesSignature(row) === same);
+			if (match) {
+				consumed.add(match.id);
+				continue;
+			}
 		} else {
 			const key = cardKey(item);
-			if (key && persistedKeys.has(key)) continue;
+			const at = key ? persistedKeys.get(key) : undefined;
+			if (at !== undefined) {
+				// Painel atualizado ao vivo (revisão maior) antes de o servidor gravar a nova: vale a revisão mais nova, na posição do gravado.
+				result[at] = mergePageCard(result[at]!, item);
+				continue;
+			}
 		}
 		result.push(item);
 	}
 	return dedupeKeys(result);
+}
+
+/** Conjunto de arquivos de um cartão de imagens, na ordem (identidade do ao vivo contra o gravado). */
+export function imagesSignature(item: Extract<ChatItem, { kind: "images" }>): string {
+	return item.images.map((image) => image.artifactId).join(",");
 }
 
 function isOlderThan(row: ChatItem, optimistic: ChatItem): boolean {
@@ -289,18 +355,32 @@ function isOlderThan(row: ChatItem, optimistic: ChatItem): boolean {
 	return Number.isFinite(sent) && Number.isFinite(at) && at < sent - 60_000;
 }
 
-/** Cartões iguais (mesma identidade) aparecem uma vez, o primeiro; ids repetidos também. */
+type WebCardItem = Extract<ChatItem, { kind: "web-card" }>;
+
+/** Painel com revisão: o cartão de revisão mais nova segura o conteúdo (título, revisão, fontes), na posição e com o id do outro. */
+export function mergePageCard(keeper: ChatItem, other: ChatItem): ChatItem {
+	if (keeper.kind !== "web-card" || other.kind !== "web-card" || keeper.card !== "page" || other.card !== "page") return keeper;
+	if ((other.revision ?? 0) <= (keeper.revision ?? 0)) return keeper;
+	const merged: WebCardItem = { ...other, id: keeper.id, ...(keeper.createdAt ? { createdAt: keeper.createdAt } : {}) };
+	return merged;
+}
+
+/** Cartões iguais (mesma identidade) aparecem uma vez, o primeiro (painel: na posição do primeiro, com a revisão mais nova); ids repetidos também. */
 export function dedupeKeys(items: readonly ChatItem[]): ChatItem[] {
 	const ids = new Set<string>();
-	const keys = new Set<string>();
+	const keys = new Map<string, number>();
 	const out: ChatItem[] = [];
 	for (const item of items) {
 		if (ids.has(item.id)) continue;
 		ids.add(item.id);
 		const key = cardKey(item);
 		if (key) {
-			if (keys.has(key)) continue;
-			keys.add(key);
+			const at = keys.get(key);
+			if (at !== undefined) {
+				out[at] = mergePageCard(out[at]!, item);
+				continue;
+			}
+			keys.set(key, out.length);
 		}
 		out.push(item);
 	}

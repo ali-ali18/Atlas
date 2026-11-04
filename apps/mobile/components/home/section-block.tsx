@@ -3,7 +3,7 @@ import * as React from "react";
 import { Pressable, View } from "react-native";
 import { ChevronDownIcon, SendIcon } from "@/components/icons";
 import { Text } from "@/components/ui/text";
-import { formatListDate, type HomeSection } from "@/lib/home-list";
+import { formatListDate, NO_SECTION_KEY, type HomeSection } from "@/lib/home-list";
 import { BotAvatar } from "./bot-avatar";
 
 const ROW_BODY = 48;
@@ -34,7 +34,7 @@ export function ConversationRow({ bot, bots, now, onOpen, onMenu }: { bot: HomeB
 	);
 }
 
-/** Seção recolhível ("Codding ⌄") com as conversas dentro. Recolhida por toque no título. */
+/** Seção recolhível ("Codding ⌄") com as conversas dentro. Recolhida por toque no título; segurar abre o menu de edição. */
 export function SectionBlock({
 	section,
 	bots,
@@ -43,6 +43,7 @@ export function SectionBlock({
 	onToggle,
 	onOpen,
 	onMenu,
+	onSectionMenu,
 	showEmpty,
 }: {
 	section: HomeSection;
@@ -52,11 +53,23 @@ export function SectionBlock({
 	onToggle: () => void;
 	onOpen: (bot: HomeBot) => void;
 	onMenu: (bot: HomeBot) => void;
+	/** Só para seções reais (não "Sem sessão"). */
+	onSectionMenu?: (section: HomeSection) => void;
 	showEmpty: boolean;
 }) {
+	const editable = section.key !== NO_SECTION_KEY && Boolean(onSectionMenu);
 	return (
 		<View>
-			<Pressable role="button" accessibilityState={{ expanded: open }} accessibilityLabel={section.title} onPress={onToggle} className="min-h-11 flex-row items-center gap-1.5 self-start px-5 active:opacity-70">
+			<Pressable
+				role="button"
+				accessibilityState={{ expanded: open }}
+				accessibilityLabel={section.title}
+				accessibilityHint={editable ? "Toque para recolher ou expandir. Segure para editar a seção." : undefined}
+				onPress={onToggle}
+				onLongPress={editable ? () => onSectionMenu?.(section) : undefined}
+				delayLongPress={400}
+				className="min-h-11 flex-row items-center gap-1.5 self-start px-5 active:opacity-70"
+			>
 				<Text numberOfLines={1} className="shrink text-control text-muted-foreground">
 					{section.title}
 				</Text>

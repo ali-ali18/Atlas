@@ -2,17 +2,19 @@ import type { HomeBot, SectionRef } from "@/lib/home-types";
 import { useRouter } from "expo-router";
 import * as React from "react";
 import { KeyboardAvoidingView, RefreshControl, ScrollView, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
 import { HomeHeader } from "@/components/home/home-header";
 import { PinnedGrid } from "@/components/home/pinned-grid";
 import { SearchFooter } from "@/components/home/search-footer";
 import { SectionBlock } from "@/components/home/section-block";
+import { ScreenFrame } from "@/components/ui/screen-frame";
 import { HomeBotMenu } from "@/components/home/home-bot-menu";
-import { SoonSheet } from "@/components/home/soon-sheet";
+import { HomeSectionMenu, commitSectionRename, type SectionMenuTarget } from "@/components/home/home-section-menu";
+import { SectionRenameSheet } from "@/components/home/section-rename-sheet";
 import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
 import { useAtlasSession } from "@/lib/atlas-session";
 import { useHomeData } from "@/lib/home-data";
+import { NO_SECTION_KEY } from "@/lib/home-list";
 import { staleNotice } from "@/lib/home-copy";
 import { buildHome, buildSearchIndex } from "@/lib/home-list";
 import { themeColor } from "@/lib/theme";
@@ -21,8 +23,6 @@ import { useAppColorScheme } from "@/lib/use-theme";
 const NO_BOTS: readonly HomeBot[] = [];
 const NO_SECTIONS: readonly SectionRef[] = [];
 
-type Soon = "novo" | "apps" | null;
-
 /**
  * Home: fixados em grade, seções recolhíveis com as conversas, busca local no rodapé. Mesmo dado do web
  * (`GET /v1/bots` e `/v1/sections`), vindo do cache do aparelho e atualizado por cima (puxar para atualizar).
@@ -30,12 +30,13 @@ type Soon = "novo" | "apps" | null;
 export default function HomeScreen() {
 	const router = useRouter();
 	const scheme = useAppColorScheme();
-	const { name, email, image, signOut, changeServer } = useAtlasSession();
-	const { snapshot, refreshing, error, refresh } = useHomeData();
+	const { name, email, image, signOut, changeServer, apiFetch } = useAtlasSession();
+	const { snapshot, refreshing, error, refresh, applySectionUpdate } = useHomeData();
 	const [query, setQuery] = React.useState("");
 	const [collapsed, setCollapsed] = React.useState<Record<string, boolean>>({});
-	const [soon, setSoon] = React.useState<Soon>(null);
 	const [menuBot, setMenuBot] = React.useState<HomeBot | null>(null);
+	const [menuSection, setMenuSection] = React.useState<SectionMenuTarget | null>(null);
+	const [renamingSection, setRenamingSection] = React.useState<SectionMenuTarget | null>(null);
 	// "agora" muda com cada atualização: a data da linha ("agora", "14:05") acompanha.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: snapshot renova o relógio de propósito
 	const now = React.useMemo(() => new Date(), [snapshot]);
@@ -93,6 +94,11 @@ export default function HomeScreen() {
 						onToggle={() => setCollapsed((previous) => ({ ...previous, [section.key]: !previous[section.key] }))}
 						onOpen={open}
 						onMenu={setMenuBot}
+						onSectionMenu={
+							section.key === NO_SECTION_KEY
+								? undefined
+								: (target) => setMenuSection({ id: target.key, name: target.title })
+						}
 						showEmpty={!searching}
 					/>
 				))}
@@ -101,9 +107,9 @@ export default function HomeScreen() {
 	}
 
 	return (
-		<SafeAreaView className="flex-1 bg-background">
+		<ScreenFrame>
 			<KeyboardAvoidingView behavior="padding" className="flex-1">
-				<HomeHeader user={{ name, email, image }} onNew={() => setSoon("novo")} onSignOut={() => void signOut()} onChangeServer={() => void changeServer()} />
+				<HomeHeader user={{ name, email, image }} onNew={() => router.push("/new-bot" as never)} onSignOut={() => void signOut()} onChangeServer={() => void changeServer()} />
 				<ScrollView
 					className="flex-1"
 					contentContainerStyle={{ paddingBottom: 16 }}
@@ -113,10 +119,23 @@ export default function HomeScreen() {
 				>
 					{body}
 				</ScrollView>
-				<SearchFooter query={query} onChange={setQuery} onGrid={() => setSoon("apps")} />
+				<SearchFooter query={query} onChange={setQuery} onGrid={() => router.push("/apps" as never)} />
 			</KeyboardAvoidingView>
 			<HomeBotMenu bot={menuBot} onClose={() => setMenuBot(null)} />
-			<SoonSheet open={soon !== null} title={soon === "apps" ? "Apps" : "Novo chat"} onClose={() => setSoon(null)} />
-		</SafeAreaView>
+			<HomeSectionMenu
+				section={menuSection}
+				onClose={() => setMenuSection(null)}
+				onStartRename={setRenamingSection}
+			/>
+			<SectionRenameSheet
+				section={renamingSection}
+				onClose={() => setRenamingSection(null)}
+				onSave={(name) => {
+					const target = renamingSection;
+					setRenamingSection(null);
+					if (target) commitSectionRename(apiFetch, { applySectionUpdate, refresh }, target.id, target.name, name);
+				}}
+			/>
+		</ScreenFrame>
 	);
 }

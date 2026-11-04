@@ -145,6 +145,90 @@ describe("reconcile (gravado × ao vivo)", () => {
 	});
 });
 
+describe("painel com revisões no fio", () => {
+	const page = (id: string, revision: number, title = `Painel r${revision}`): ChatItem => ({ id, kind: "web-card", card: "page", title, key: "page:p1", pageId: "p1", revision, sourceCount: revision });
+	it("gravado antigo + ao vivo mais novo: fica o novo, na posição do gravado", () => {
+		const out = reconcile([user("u", "oi"), page("db-1", 1), bot("b", "pronto")], [page("page-live-p1", 2)]);
+		expect(out.map((item) => item.id)).toEqual(["u", "db-1", "b"]);
+		expect(out[1]).toMatchObject({ title: "Painel r2", revision: 2, sourceCount: 2 });
+	});
+	it("gravado mais novo que o ao vivo: vale o gravado", () => {
+		const out = reconcile([page("db-1", 3)], [page("page-live-p1", 2)]);
+		expect(out).toHaveLength(1);
+		expect(out[0]).toMatchObject({ revision: 3 });
+	});
+	it("dois gravados do mesmo painel: fica a maior revisão, na posição do primeiro", () => {
+		const out = dedupeKeys([page("db-1", 1), user("u", "x"), page("db-2", 4), page("db-3", 2)]);
+		expect(out.map((item) => item.id)).toEqual(["db-1", "u"]);
+		expect(out[0]).toMatchObject({ revision: 4, title: "Painel r4" });
+	});
+});
+
+describe("cartão de painel gravado", () => {
+	const pageRow = (extra: Record<string, unknown> = {}) => row("m1", "page", JSON.stringify({ v: 1, kind: "page", pageId: "p1", revision: 3, title: "Vendas", action: "created", sourceCount: 2, ...extra }));
+	it("guarda pageId, revisão e fontes (sem o spec) para abrir a tela nativa", () => {
+		expect(sessionMessageToItem(pageRow())).toEqual({ id: "m1", kind: "web-card", card: "page", title: "Vendas", key: "page:p1", pageId: "p1", revision: 3, sourceCount: 2, createdAt: "2026-11-01T10:00:00.000Z" });
+	});
+	it("mensagem de painel sem identidade válida é descartada, não vira cartão quebrado", () => {
+		expect(sessionMessageToItem(pageRow({ pageId: "" }))).toBeNull();
+		expect(sessionMessageToItem(pageRow({ revision: 0 }))).toBeNull();
+	});
+});
+
+describe("cartão de arquivo gravado", () => {
+	const fileRow = (extra: Record<string, unknown> = {}) => row("m2", "file", JSON.stringify({ v: 1, kind: "file", artifactId: "f1", filename: "vm.md", mime: "text/markdown", size: 321, format: "markdown", version: 1, ...extra }));
+	it("guarda fileId, mime e tamanho para abrir a folha do documento", () => {
+		expect(sessionMessageToItem(fileRow())).toEqual({ id: "m2", kind: "web-card", card: "file", title: "vm.md", key: "file:f1", fileId: "f1", mime: "text/markdown", size: 321, createdAt: "2026-11-01T10:00:00.000Z" });
+	});
+});
+
+describe("cartão de imagens gravado", () => {
+	const imagesRow = (origin: string, extra: Record<string, unknown> = {}, id = "m3") => row(id, "images", JSON.stringify({ v: 1, kind: "images", origin, items: [{ artifactId: "a1", mime: "image/png", width: 800, height: 600, alt: "Gaveta aberta", name: "gaveta.png" }, { artifactId: "a2", mime: "image/jpeg", width: 10, height: 10 }], ...extra }));
+	it("vira um cartão de imagens com a origem, as imagens e a legenda", () => {
+		expect(sessionMessageToItem(imagesRow("assistant", { caption: "Resultado" }))).toEqual({
+			id: "m3",
+			kind: "images",
+			origin: "assistant",
+			images: [
+				{ artifactId: "a1", mime: "image/png", width: 800, height: 600, alt: "Gaveta aberta", name: "gaveta.png" },
+				{ artifactId: "a2", mime: "image/jpeg", width: 10, height: 10 },
+			],
+			caption: "Resultado",
+			createdAt: "2026-11-01T10:00:00.000Z",
+		});
+	});
+	it("anexo do usuário mantém a origem e não inventa legenda", () => {
+		const item = sessionMessageToItem(imagesRow("user"));
+		expect(item).toMatchObject({ kind: "images", origin: "user" });
+		expect(item).not.toHaveProperty("caption");
+	});
+	it("o cartão ao vivo some quando o gravado tem os mesmos arquivos", () => {
+		const saved = sessionMessageToItem(imagesRow("assistant")) as ChatItem;
+		const live: ChatItem = { id: "images-r1-a1+a2", kind: "images", origin: "assistant", images: [{ artifactId: "a1", mime: "image/png", width: 800, height: 600 }, { artifactId: "a2", mime: "image/jpeg", width: 10, height: 10 }] };
+		expect(reconcile([saved], [live])).toEqual([saved]);
+		expect(reconcile([], [live])).toEqual([live]);
+	});
+	it("a mesma imagem em duas mensagens gravadas continua sendo duas (o histórico não perde cartão)", () => {
+		const first = sessionMessageToItem(imagesRow("assistant", {}, "m3")) as ChatItem;
+		const second = sessionMessageToItem(imagesRow("assistant", {}, "m4")) as ChatItem;
+		expect(dedupeKeys([first, second])).toHaveLength(2);
+		expect(reconcile([first, second], [])).toHaveLength(2);
+	});
+	it("o cartão ao vivo casa com um gravado por vez", () => {
+		const first = sessionMessageToItem(imagesRow("assistant", {}, "m3")) as ChatItem;
+		const second = sessionMessageToItem(imagesRow("assistant", {}, "m4")) as ChatItem;
+		const live = (id: string): ChatItem => ({ id, kind: "images", origin: "assistant", images: [{ artifactId: "a1", mime: "image/png", width: 800, height: 600 }, { artifactId: "a2", mime: "image/jpeg", width: 10, height: 10 }] });
+		expect(reconcile([first], [live("l1")])).toHaveLength(1);
+		expect(reconcile([first], [live("l1"), live("l2")])).toHaveLength(2);
+		expect(reconcile([first, second], [live("l1"), live("l2")])).toHaveLength(2);
+	});
+	it("arquivos diferentes são cartões diferentes", () => {
+		const saved = sessionMessageToItem(imagesRow("assistant")) as ChatItem;
+		const other: ChatItem = { id: "images-r2-z", kind: "images", origin: "assistant", images: [{ artifactId: "z", mime: "image/png", width: 1, height: 1 }] };
+		expect(reconcile([saved], [other])).toHaveLength(2);
+	});
+});
+
 describe("lista de tarefas", () => {
 	it("progresso, linha da doca e rótulo do fio", () => {
 		const items = tasks("r", "completed", "in_progress", "pending", "pending", "pending");
@@ -215,5 +299,16 @@ describe("citação (replyTo)", () => {
 		expect(out.map((item) => item.id)).toEqual(["db1"]);
 		expect(out[0]).toMatchObject({ replyTo: quote });
 		expect(persisted[0]).not.toHaveProperty("replyTo"); // não muda a lista recebida
+	});
+});
+
+describe("marcador de mensagem enviada a outro bot", () => {
+	it("guarda o bot destino (id e nome) e a prévia, para o avatar; o texto fica de reserva", () => {
+		const content = JSON.stringify({ v: 1, kind: "sent", botMessageId: "m9", botId: "b9", botName: "Bobinho", title: "Bobinho Apoio: criação não deu certo" });
+		expect(sessionMessageToItem(row("7", "bot-link", content))).toMatchObject({
+			kind: "marker",
+			text: "Enviou mensagem para Bobinho: Bobinho Apoio: criação não deu certo",
+			link: { botId: "b9", botName: "Bobinho", title: "Bobinho Apoio: criação não deu certo" },
+		});
 	});
 });

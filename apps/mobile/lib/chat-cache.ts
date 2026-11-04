@@ -2,9 +2,10 @@
 // Mesma ideia do cache da home: a chave leva servidor + e-mail + conversa (trocar de conta nunca mostra o fio da
 // outra), só vai para o disco o que a tela desenha, e `clearChatCache` apaga tudo ao sair.
 import type { CacheStorage } from "./home-cache";
-import type { ChatItem, ConfirmStatus, QuestionnaireStatus, TaskItem } from "./chat-types";
+import type { BotTag, ChatImage, ChatItem, ConfirmStatus, ProposalStatus, QuestionnaireStatus, TaskItem } from "./chat-types";
 
-export const CHAT_CACHE_VERSION = 1;
+// v2: cartões de proposta de bot passaram a ser nativos; o v1 guardava a linha "Abrir no navegador" e é descartado.
+export const CHAT_CACHE_VERSION = 2;
 const ALL_VERSIONS_PREFIX = "atlas.chat.";
 const PREFIX = `${ALL_VERSIONS_PREFIX}v${CHAT_CACHE_VERSION}:`;
 export const CHAT_CACHE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
@@ -26,6 +27,9 @@ const isString = (value: unknown): value is string => typeof value === "string";
 const CONFIRM: readonly ConfirmStatus[] = ["pending", "approved", "rejected", "failed"];
 const QUESTIONNAIRE: readonly QuestionnaireStatus[] = ["pending", "submitted", "dismissed"];
 const TASK: readonly TaskItem["status"][] = ["pending", "in_progress", "completed"];
+const PROPOSAL: readonly ProposalStatus[] = ["pending", "approved", "rejected"];
+const PROFILE_FIELDS = ["name", "snippet", "description", "openRouterModel"] as const;
+const BOT_KINDS: readonly BotTag["kind"][] = ["request", "reply", "answer"];
 const WEB_CARDS = ["chart", "page", "file", "routine", "login", "images", "proposal", "approval"] as const;
 
 function pickTasks(value: unknown): TaskItem[] | null {
@@ -38,15 +42,30 @@ function pickTasks(value: unknown): TaskItem[] | null {
 	return out;
 }
 
+/** Origem "outro bot" da fala: sem ela (cache antigo) a fala volta como balão comum e a rede corrige por cima. */
+function pickBotTag(value: unknown): BotTag | null {
+	if (!isRecord(value) || !BOT_KINDS.includes(value.kind as BotTag["kind"])) return null;
+	return {
+		kind: value.kind as BotTag["kind"],
+		...(isString(value.fromBotId) ? { fromBotId: value.fromBotId.slice(0, 100) } : {}),
+		...(isString(value.fromBotName) ? { fromBotName: value.fromBotName.slice(0, 100) } : {}),
+		...(isString(value.botMessageId) ? { botMessageId: value.botMessageId.slice(0, 100) } : {}),
+	};
+}
+
 /** Reconstrói campo a campo: qualquer chave a mais no disco não passa, e item estranho vira `null`. */
 export function pickItem(value: unknown): ChatItem | null {
 	if (!isRecord(value) || !isString(value.id) || !isString(value.kind)) return null;
 	const base = { id: value.id, ...(isString(value.createdAt) ? { createdAt: value.createdAt } : {}) };
 	switch (value.kind) {
-		case "user":
-			return isString(value.text) ? { ...base, kind: "user", text: value.text.slice(0, MAX_TEXT) } : null;
-		case "assistant":
-			return isString(value.text) ? { ...base, kind: "assistant", text: value.text.slice(0, MAX_TEXT), ...(isString(value.runId) ? { runId: value.runId } : {}) } : null;
+		case "user": {
+			const bot = pickBotTag(value.bot);
+			return isString(value.text) ? { ...base, kind: "user", text: value.text.slice(0, MAX_TEXT), ...(bot ? { bot } : {}) } : null;
+		}
+		case "assistant": {
+			const bot = pickBotTag(value.bot);
+			return isString(value.text) ? { ...base, kind: "assistant", text: value.text.slice(0, MAX_TEXT), ...(isString(value.runId) ? { runId: value.runId } : {}), ...(bot ? { bot } : {}) } : null;
+		}
 		case "marker":
 			return isString(value.text) ? { ...base, kind: "marker", text: value.text.slice(0, 200) } : null;
 		case "task-list": {
@@ -69,9 +88,86 @@ export function pickItem(value: unknown): ChatItem | null {
 			// Respostas e perguntas inteiras não vão para o disco: o cartão reabre pelo servidor. Aqui fica só o que o fio desenha.
 			if (!isString(value.questionnaireId) || !isString(value.title) || !QUESTIONNAIRE.includes(value.status as QuestionnaireStatus)) return null;
 			return { ...base, kind: "questionnaire", questionnaireId: value.questionnaireId, title: value.title.slice(0, 300), items: [], status: value.status as QuestionnaireStatus };
+		case "images": {
+			// Só o que o fio desenha, sem `uri` (data URI grande não vai para o disco): a imagem volta do servidor.
+			if ((value.origin !== "user" && value.origin !== "assistant") || !Array.isArray(value.images)) return null;
+			const images: ChatImage[] = [];
+			for (const raw of value.images.slice(0, 6)) {
+				if (!isRecord(raw) || !isString(raw.artifactId) || raw.artifactId.length === 0 || raw.artifactId.length > 160 || !isString(raw.mime) || raw.mime.length > 120) continue;
+				if (typeof raw.width !== "number" || !Number.isFinite(raw.width) || raw.width <= 0 || typeof raw.height !== "number" || !Number.isFinite(raw.height) || raw.height <= 0) continue;
+				images.push({ artifactId: raw.artifactId, mime: raw.mime, width: raw.width, height: raw.height, ...(isString(raw.alt) && raw.alt ? { alt: raw.alt.slice(0, 200) } : {}), ...(isString(raw.name) && raw.name ? { name: raw.name.slice(0, 120) } : {}) });
+			}
+			if (images.length === 0) return null;
+			return { ...base, kind: "images", origin: value.origin, images, ...(isString(value.caption) && value.caption ? { caption: value.caption.slice(0, 300) } : {}) };
+		}
+		case "bot-proposal": {
+			// Só o que o cartão desenha; o texto longo (briefing, primeira tarefa) é cortado.
+			if (!isString(value.proposalId) || !isString(value.name) || !isString(value.description) || !isString(value.color) || !isString(value.shape) || !PROPOSAL.includes(value.status as ProposalStatus)) return null;
+			return {
+				...base,
+				kind: "bot-proposal",
+				proposalId: value.proposalId,
+				status: value.status as ProposalStatus,
+				name: value.name.slice(0, 80),
+				description: value.description.slice(0, 600),
+				color: value.color.slice(0, 20),
+				shape: value.shape.slice(0, 40),
+				model: isString(value.model) ? value.model.slice(0, 120) : null,
+				skills: Array.isArray(value.skills) ? value.skills.filter(isString).slice(0, 5).map((skill) => skill.slice(0, 60)) : [],
+				firstTask: isString(value.firstTask) ? value.firstTask.slice(0, 600) : null,
+				...(isString(value.botId) ? { botId: value.botId } : {}),
+			};
+		}
+		case "bot-profile": {
+			if (!isString(value.proposalId) || !isString(value.botId) || !PROPOSAL.includes(value.status as ProposalStatus) || !Array.isArray(value.fields) || !isRecord(value.before) || !isRecord(value.after)) return null;
+			const fields = value.fields.filter((field): field is (typeof PROFILE_FIELDS)[number] => PROFILE_FIELDS.includes(field as (typeof PROFILE_FIELDS)[number]));
+			if (fields.length === 0) return null;
+			const text = (raw: unknown) => (isString(raw) ? raw.slice(0, 600) : null);
+			const before = { name: text(value.before.name) ?? "", snippet: text(value.before.snippet) ?? "", description: text(value.before.description), openRouterModel: text(value.before.openRouterModel) };
+			const after: Extract<ChatItem, { kind: "bot-profile" }>["after"] = {};
+			if (isString(value.after.name)) after.name = value.after.name.slice(0, 80);
+			if (isString(value.after.snippet)) after.snippet = value.after.snippet.slice(0, 200);
+			if (isString(value.after.description) || value.after.description === null) after.description = text(value.after.description);
+			if (isString(value.after.openRouterModel) || value.after.openRouterModel === null) after.openRouterModel = text(value.after.openRouterModel);
+			return { ...base, kind: "bot-profile", proposalId: value.proposalId, botId: value.botId, status: value.status as ProposalStatus, fields, before, after };
+		}
+		case "login": {
+			// Só o resolvido vai ao disco (o pendente reabre pelo servidor); nunca credencial, só o que o selo precisa.
+			if (!isString(value.loginId) || !isString(value.site) || !isString(value.url) || value.status !== "done") return null;
+			const connector = isRecord(value.connector) && isString(value.connector.id) && isString(value.connector.name) && (value.connector.kind === "native" || value.connector.kind === "composio" || value.connector.kind === "custom" || value.connector.kind === "api") ? value.connector : null;
+			return {
+				...base,
+				kind: "login",
+				loginId: value.loginId,
+				site: value.site.slice(0, 120),
+				url: value.url.slice(0, 500),
+				status: "done",
+				...(value.reason === "captcha" ? { reason: "captcha" as const } : {}),
+				...(connector ? { connector: { kind: connector.kind as "native" | "composio" | "custom" | "api", id: String(connector.id).slice(0, 80), name: String(connector.name).slice(0, 120), description: "", icon: isString(connector.icon) ? connector.icon.slice(0, 300) : null, ...(connector.noAuth === true ? { noAuth: true } : {}) } } : {}),
+			};
+		}
+		case "secrets": {
+			// Só os NOMES dos segredos e o desfecho: o valor nunca existe fora do campo.
+			if (!isString(value.confirmId) || !isString(value.title) || !Array.isArray(value.names) || !CONFIRM.includes(value.status as ConfirmStatus) || value.status === "pending") return null;
+			return { ...base, kind: "secrets", confirmId: value.confirmId, title: value.title.slice(0, 300), names: value.names.filter(isString).slice(0, 20).map((name) => name.slice(0, 64)), status: value.status as ConfirmStatus };
+		}
 		case "web-card":
 			if (!isString(value.title) || !isString(value.key) || !WEB_CARDS.includes(value.card as (typeof WEB_CARDS)[number])) return null;
-			return { ...base, kind: "web-card", card: value.card as (typeof WEB_CARDS)[number], title: value.title.slice(0, 200), key: value.key };
+			// `pageId` só vale em painel e só se for texto curto: cache antigo (sem ele) cai no "Abrir no navegador".
+			return {
+				...base,
+				kind: "web-card",
+				card: value.card as (typeof WEB_CARDS)[number],
+				title: value.title.slice(0, 200),
+				key: value.key,
+				...(value.card === "page" && isString(value.pageId) && value.pageId.length > 0 && value.pageId.length <= 160 ? { pageId: value.pageId } : {}),
+				...(value.card === "page" && typeof value.revision === "number" && Number.isFinite(value.revision) ? { revision: value.revision } : {}),
+				...(value.card === "page" && typeof value.sourceCount === "number" && Number.isFinite(value.sourceCount) ? { sourceCount: value.sourceCount } : {}),
+				// Arquivo: id curto, mime em texto curto e tamanho finito e não negativo; sem eles o cartão cai no navegador.
+				...(value.card === "file" && isString(value.fileId) && value.fileId.length > 0 && value.fileId.length <= 160 ? { fileId: value.fileId } : {}),
+				...(value.card === "file" && isString(value.fileId) && value.fileId.length > 0 && value.fileId.length <= 160 && isString(value.mime) && value.mime.length > 0 && value.mime.length <= 120 ? { mime: value.mime } : {}),
+				...(value.card === "file" && isString(value.fileId) && value.fileId.length > 0 && value.fileId.length <= 160 && typeof value.size === "number" && Number.isFinite(value.size) && value.size >= 0 ? { size: value.size } : {}),
+			};
 		default:
 			return null;
 	}
@@ -80,7 +176,7 @@ export function pickItem(value: unknown): ChatItem | null {
 export function serializeChat(items: readonly ChatItem[], now: number): string {
 	// Só o que o servidor gravou: balão otimista (`msg-*`) e fala em andamento (`cu-*`) não vão para o disco.
 	// Cartão que espera resposta (confirm/questionário pendente) fica de fora: o estado de verdade vem do servidor.
-	const settled = items.filter((item) => !item.id.startsWith("msg-") && !item.id.startsWith("cu-") && !(item.kind === "questionnaire" && item.status === "pending") && !(item.kind === "confirm" && item.status === "pending"));
+	const settled = items.filter((item) => !item.id.startsWith("msg-") && !item.id.startsWith("cu-") && !(item.kind === "questionnaire" && item.status === "pending") && !(item.kind === "confirm" && item.status === "pending") && !((item.kind === "bot-proposal" || item.kind === "bot-profile") && item.status === "pending") && !(item.kind === "secrets" && item.status === "pending") && !(item.kind === "login" && item.status === "pending"));
 	let picked = settled.slice(-CHAT_CACHE_MAX_ITEMS).map(pickItem).filter((item): item is ChatItem => item !== null);
 	let text = JSON.stringify({ v: CHAT_CACHE_VERSION, savedAt: now, items: picked });
 	while (text.length > CHAT_CACHE_MAX_BYTES && picked.length > 1) {
