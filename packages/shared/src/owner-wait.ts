@@ -99,6 +99,19 @@ export function lateOwnerDecisionNote(input: { outcome: OwnerWaitOutcome; what: 
 	return `[runtime] The owner ${verb} an earlier request at ${hhmm(input.at, input.timeZone)}: ${quote(input.what, 200)}. It is not what you are working on now; change your plan only if you depended on it. Do not ask for it again.`;
 }
 
+/** Selo do rascunho de `prepare_for_owner` que o dono descartou ("Agora não"): nada executa, nenhum run novo. */
+export const DRAFT_DISMISSED_DETAIL = "Descartado";
+
+/**
+ * Nota interna (nunca balão) para o próximo run da conversa: rascunhos que o dono descartou desde então. Sem ela o
+ * modelo, que só viu "rascunho esperando aprovação", tomaria o pedido como ainda pendente.
+ */
+export function dismissedDraftsNote(titles: readonly string[]): string {
+	if (titles.length === 0) return "";
+	const list = titles.slice(0, 5).map((title) => quote(title.replace(/\?$/, ""), 120)).join("; ");
+	return `The owner dismissed ${titles.length > 1 ? "these drafts" : "this draft"} you left for approval: ${list}. ${titles.length > 1 ? "They were" : "It was"} not done. Do not prepare ${titles.length > 1 ? "them" : "it"} again unless the owner asks.`;
+}
+
 // --- "Volto depois" (`schedule_return`) ---
 
 export const SCHEDULE_RETURN_MIN_MS = 60_000;

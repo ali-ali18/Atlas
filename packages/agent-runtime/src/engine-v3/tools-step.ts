@@ -22,7 +22,7 @@ import { decideCall, deniedMessage, spanPolicyDecision } from "./policy.js";
 import { BLOCKED_REPEATED } from "./repetition.js";
 import { pollSteer } from "./steering.js";
 import { hasOwnApprovalCard, nativeApprovalGate } from "./approval.js";
-import { takeOwnerApprovedCall } from "./prepared.js";
+import { DRAFT_HINT, takeOwnerApprovedCall } from "./prepared.js";
 import { NO_DEADLINE_NOTE, OWNER_HAS_COMPUTER, WAIT_ARG, alreadyRefusedMessage, refusedToolKey, scheduleCardDeadline, takeWaitMinutes } from "./owner-wait.js";
 import type { ToolContextFactory } from "./tool-context.js";
 import type { V3Run } from "./state.js";
@@ -150,7 +150,8 @@ export function createToolsStep(run: V3Run, contextFor: ToolContextFactory) {
 		name = resolveName(name) ?? name;
 		// Continuação de um rascunho de `prepare_for_owner`: a ação escondida por falta de pessoa pode rodar UMA vez, se
 		// o dono aprovou exatamente esta chamada (conferido depois de validar os args, antes da política).
-		const heldTool = !toolOf(name) && run.continuesRunId ? run.heldBack.get(name) : undefined;
+		// Conector aprovado num rascunho já rodou pela API (uma vez, args exatos): a continuação nunca o executa de novo.
+		const heldTool = !toolOf(name) && run.continuesRunId && !run.entryOf(name) ? run.heldBack.get(name) : undefined;
 		if (!toolOf(name) && !heldTool) {
 			// Existe mas a política tirou do catálogo: o modelo recebe o motivo, não "não existe".
 			const hiddenEntry = run.entryOf(name);
@@ -158,7 +159,11 @@ export function createToolsStep(run: V3Run, contextFor: ToolContextFactory) {
 				let hiddenArgs: Record<string, unknown> = {};
 				try { hiddenArgs = parseArgs(call.function.arguments); } catch { /* o motivo da política vale sem os args */ }
 				const hidden = decideCall({ name, args: hiddenArgs, ...(hiddenEntry ? { entry: hiddenEntry } : {}), base: run.policy, autonomy: run.autonomy.get() });
-				if (hidden.decision === "deny" || hidden.decision === "hide") return await refuse(call, sub, name, deniedMessage(hidden.reason), { argsKey: toolArgsKey(name, hiddenArgs) });
+				if (hidden.decision === "deny" || hidden.decision === "hide") {
+					// Sem pessoa, o que precisa do dono sai como rascunho: a recusa diz o caminho (estrutural, pelo catálogo).
+					const draft = run.canPrepareForOwner && run.heldBack.has(name) ? ` ${DRAFT_HINT}` : "";
+					return await refuse(call, sub, name, `${deniedMessage(hidden.reason)}${draft}`, { argsKey: toolArgsKey(name, hiddenArgs) });
+				}
 			}
 			const near = closestToolNames(name, [...run.catalog.entries.keys()]);
 			return await refuse(call, sub, name, hiddenEntry || getToolMeta(name) ? notOfferedMessage(name, near) : unknownToolMessage(name, near));

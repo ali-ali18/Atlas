@@ -3,6 +3,7 @@ import type { LlmMessage } from "@workspace/llm";
 import {
 	DEFAULT_AUTONOMY_LEVEL,
 	buildPersonaBlock,
+	dismissedDraftsNote,
 	parseQuestionnaireAnsweredContent,
 	resolveReplyLanguage,
 	TRANSCRIPT_SLOT,
@@ -118,9 +119,14 @@ export async function prepareRun(params: ComputerUseParams, options: EngineV3Opt
 	if (canPrepareForOwner && PREPARE_FOR_OWNER_DEFINED.definition && (params.toolFilter?.(PREPARE_FOR_OWNER_DEFINED.name) ?? true)) natives.push(PREPARE_FOR_OWNER_DEFINED.definition);
 	const entryOf = (name: string) => mcp?.toolset.entries.get(name);
 	const hides = (name: string) => catalogHides({ name, entry: entryOf(name), base: policy, autonomy });
-	const heldBack = heldBackTools(natives, hides);
 	// Filtro do run (brief "Seu dia", conferência, ajudante): vale para nativa E conector, como no v2.
 	const allow = (name: string) => params.toolFilter?.(name) ?? true;
+	const connectorVisible = (name: string) => {
+		const entry = entryOf(name);
+		return Boolean(entry) && allow(name) && mcpToolVisible({ origin, autonomy, entry: entry! }) && !hides(name);
+	};
+	// Conector como alvo do rascunho (PR8e): só quando há rascunho possível; a escrita visível roda direto.
+	const heldBack = heldBackTools(natives, hides, canPrepareForOwner ? { mcp, autonomy, allow, visible: connectorVisible } : undefined);
 	// Catálogo congelado por conversa: o núcleo e o uso do run anterior (retomada ou turno seguinte) voltam iguais, então
 	// manifesto e busca saem com os mesmos bytes; o uso do bot só é lido de novo em conversa nova.
 	const v3State = parseV3State(parsed?.engineV3);
@@ -130,10 +136,7 @@ export async function prepareRun(params: ComputerUseParams, options: EngineV3Opt
 	);
 	const catalog = buildV3Catalog({
 		natives,
-		connectors: connectorEntries(mcp, (name) => {
-			const entry = entryOf(name);
-			return Boolean(entry) && allow(name) && mcpToolVisible({ origin, autonomy, entry: entry! }) && !hides(name);
-		}),
+		connectors: connectorEntries(mcp, connectorVisible),
 		visible: (name) => !hides(name),
 		vm: sandboxEnabled,
 		...(frozen?.length ? { frozen } : {}),
@@ -163,6 +166,9 @@ export async function prepareRun(params: ComputerUseParams, options: EngineV3Opt
 		// Retorno agendado ainda pendente: o modelo vê e não agenda de novo nem faz duas vezes (desenho "Volto depois").
 		const returns = params.ownerWait ? await pendingReturnsTurnNote(params) : "";
 		if (returns) notes.push(returns);
+		// Rascunho que o dono descartou ("Agora não"): nota interna, nunca balão (decisão do dono, 04/11). Uma vez só.
+		const dismissed = params.loadDismissedDrafts && params.conversationId && userId !== "default" && origin !== "subagent" ? dismissedDraftsNote(await params.loadDismissedDrafts().catch(() => [])) : "";
+		if (dismissed) notes.push(dismissed);
 		conversation = assembleV3Conversation({
 			system,
 			contextFor: (snapshot) => buildV3ContextBlock({ manifest: catalog.manifest, skillIndex: params.skillIndex, canReadSkills: hasTool("skill_read"), snapshot }),

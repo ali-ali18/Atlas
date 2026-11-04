@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+	dismissedDraftsNote,
 	OWNER_WAIT_CARD_DETAIL,
 	OWNER_WAIT_OUTCOMES,
 	SCHEDULE_RETURN_MAX_PENDING,
@@ -130,5 +131,13 @@ describe("marcador e prompt do retorno", () => {
 		expect(pendingReturnsNote([{ dueAt: now, reason: "x" }])).toContain("Do not schedule the same again");
 		expect(ownerWaitTimeoutJobId("confirm-toolabc-run1")).not.toContain(":");
 		expect(scheduledReturnJobId("r1")).toBe("return-r1");
+	});
+});
+
+describe("rascunho descartado (PR8e)", () => {
+	it("nota interna curta, sem pedir de novo; vazia sem rascunho", () => {
+		expect(dismissedDraftsNote([])).toBe("");
+		expect(dismissedDraftsNote(["Trello: update card?"])).toBe('The owner dismissed this draft you left for approval: "Trello: update card". It was not done. Do not prepare it again unless the owner asks.');
+		expect(dismissedDraftsNote(["A?", "B?"])).toMatch(/these drafts you left for approval: "A"; "B"\. They were not done/);
 	});
 });

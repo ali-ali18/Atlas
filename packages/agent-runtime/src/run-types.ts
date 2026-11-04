@@ -318,6 +318,11 @@ export type ComputerUseParams = {
 	loadToolUsage?: () => Promise<Record<string, number>>;
 	/** Motor v3 (PR8a): filas do "esperar o dono" (prazo do cartão, `schedule_return`). v1 e v2 não leem. */
 	ownerWait?: OwnerWaitDeps;
+	/**
+	 * Motor v3 (PR8e): títulos dos rascunhos que o dono descartou desde o último run e que o modelo ainda não soube
+	 * (marca como ditos ao ler). Vira nota interna no começo do run; v1 e v2 não leem.
+	 */
+	loadDismissedDrafts?: () => Promise<string[]>;
 	/** Prazo da busca do código no e-mail (padrão 60 s). */
 	vaultEmailTimeoutMs?: number;
 	consumeSteerInputs?: () => Promise<

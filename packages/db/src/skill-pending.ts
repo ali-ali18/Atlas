@@ -23,6 +23,11 @@ export type SkillPendingMcpCall = {
 	untrustedSeen?: boolean;
 	/** Run que pediu a aprovação: o run seguinte continua a conversa dele. */
 	runId?: string;
+	/**
+	 * Rascunho de `prepare_for_owner` (motor v3, PR8e) de um run sem pessoa: o "Permitir" executa uma vez, com estes args,
+	 * sem "Sempre para…" nem aprovação por tarefa; "Agora não" só descarta (nenhum run novo).
+	 */
+	prepared?: true;
 };
 export type SkillPendingPayload = {
 	kind: SkillPendingKind;

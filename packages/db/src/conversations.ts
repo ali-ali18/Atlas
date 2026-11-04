@@ -24,6 +24,7 @@ import {
 	parseSkillProposalCard,
 	serializeConversationCard,
 	SUPERSEDED_CARD_DETAIL,
+	DRAFT_DISMISSED_DETAIL,
 	type PersistedBotProfileCard,
 	type PersistedSkillProposalCard,
 	type PersistedConversationCard,
@@ -1127,6 +1128,29 @@ export async function findExecutedConfirmCall(
 		if (card?.kind === "confirm" && card.callKey === callKey && card.outcome) return card.outcome;
 	}
 	return null;
+}
+
+/**
+ * Rascunhos de `prepare_for_owner` que o dono descartou ("Agora não") e que o modelo ainda não soube (motor v3, PR8e).
+ * Marca cada um como dito (troca otimista: dois runs não levam a mesma nota) e devolve os títulos. Só na conversa do
+ * dono (`conversation.userId`), nos 30 cartões mais recentes e dentro da janela (padrão 3 dias, o prazo do rascunho).
+ */
+export async function takeDismissedDraftTitles(userId: string, conversationId: string, windowMs = 3 * 24 * 60 * 60_000): Promise<string[]> {
+	if (!userId || userId === "default" || !conversationId) return [];
+	const rows = await prisma.conversationMessage.findMany({
+		where: { conversationId, role: "confirm", conversation: { userId } },
+		orderBy: { createdAt: "desc" },
+		take: 30,
+	});
+	const titles: string[] = [];
+	for (const row of rows) {
+		if (Date.now() - row.createdAt.getTime() > windowMs) break;
+		const card = parseConversationCard(row.content);
+		if (card?.kind !== "confirm" || card.status !== "rejected" || card.outcome?.detail !== DRAFT_DISMISSED_DETAIL || card.modelNoted) continue;
+		const noted = await prisma.conversationMessage.updateMany({ where: { id: row.id, content: row.content }, data: { content: serializeConversationCard({ ...card, modelNoted: true }) } });
+		if (noted.count === 1) titles.push(card.title);
+	}
+	return titles.reverse();
 }
 
 /** Detalhe gravado no cartão quando a chamada aprovada já rodou: a aprovação vale para UMA execução. */

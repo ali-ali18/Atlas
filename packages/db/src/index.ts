@@ -27,6 +27,7 @@ export {
 	findPendingQuestionnaireCard,
 	findExecutedConfirmCall,
 	takeToolCallApproval,
+	takeDismissedDraftTitles,
 	TOOL_CALL_CONSUMED_DETAIL,
 	TOOL_CALL_DECLINE_USED_DETAIL,
 	toolCardAskingRunId,

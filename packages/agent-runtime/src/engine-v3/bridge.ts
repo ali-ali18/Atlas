@@ -20,6 +20,8 @@ export type CatalogEntry = {
 	summary: string;
 	/** Termos extras de busca (palavras distintivas do grupo nativo, en/pt/es). */
 	keywords?: readonly string[];
+	/** Escondida por falta de pessoa: só sai como rascunho para o dono (`prepare_for_owner`), nunca chamada direto. */
+	draftOnly?: true;
 };
 
 export const TOOL_SEARCH_LIMIT = 8;
@@ -116,6 +118,15 @@ export function exampleCall(tool: ChatTool): string {
 	return text.length > EXAMPLE_MAX_CHARS ? `${tool.function.name}({...})` : text;
 }
 
+/** Exemplo do rascunho: `prepare_for_owner({"tool": "x", "args": {...}, "note": "..."})`. */
+function draftExampleCall(tool: ChatTool): string {
+	const properties = tool.function.parameters.properties ?? {};
+	const keys = (tool.function.parameters.required ?? []).slice(0, EXAMPLE_MAX_KEYS);
+	const args = JSON.stringify(Object.fromEntries(keys.map((key) => [key, exampleValue(properties[key])])));
+	const text = `prepare_for_owner({"tool":${JSON.stringify(tool.function.name)},"args":${args},"note":"..."})`;
+	return text.length > EXAMPLE_MAX_CHARS + 80 ? `prepare_for_owner({"tool":${JSON.stringify(tool.function.name)},"args":{...},"note":"..."})` : text;
+}
+
 /**
  * Texto que `tool_search` devolve ao modelo: para cada tool, o nome exato, a assinatura, os parâmetros obrigatórios
  * com tipo e um exemplo mínimo de chamada direta. Tamanho limitado (corta o que passar do teto, sem cortar no meio).
@@ -127,7 +138,7 @@ export function toolSearchText(query: string, results: readonly CatalogEntry[]):
 	const blocks: string[] = [];
 	let size = head.length;
 	for (const [index, entry] of results.entries()) {
-		const where = entry.source === "native" ? "built-in" : `connector ${entry.connector ?? ""}`.trim();
+		const where = `${entry.source === "native" ? "built-in" : `connector ${entry.connector ?? ""}`.trim()}${entry.draftOnly ? "; needs the owner: only as a draft via prepare_for_owner" : ""}`;
 		const properties = entry.tool.function.parameters.properties ?? {};
 		const required = (entry.tool.function.parameters.required ?? []).slice(0, EXAMPLE_MAX_KEYS).map((key) => `${key} (${schemaType(properties[key])})`);
 		const shapes = argShapes(entry.tool);
@@ -135,7 +146,7 @@ export function toolSearchText(query: string, results: readonly CatalogEntry[]):
 			`${index + 1}. ${toolSignature(entry.tool)} [${where}]: ${entry.summary}`,
 			`   required: ${required.length > 0 ? required.join(", ") : "none"}`,
 			...(shapes.length > 0 ? [`   shapes (real JSON, not text): ${shapes.join("; ")}`] : []),
-			`   e.g. ${exampleCall(entry.tool)}`,
+			`   e.g. ${entry.draftOnly ? draftExampleCall(entry.tool) : exampleCall(entry.tool)}`,
 		].join("\n");
 		if (blocks.length > 0 && size + block.length + 1 > TOOL_SEARCH_MAX_CHARS) {
 			blocks.push(`(+${results.length - index} more; narrow the query)`);

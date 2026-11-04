@@ -91,3 +91,21 @@ test("dois runs ao mesmo tempo: só um usa a aprovação", async () => {
 		restore();
 	}
 });
+
+test("rascunho descartado vira nota UMA vez, só na conversa do dono (PR8e)", async () => {
+	const { takeDismissedDraftTitles } = await import("./conversations.js");
+	const dismissed = serializeConversationCard({ v: 1, kind: "confirm", confirmId: "confirm-draftabcd1234-runR", title: "Trello: update card?", status: "rejected", outcome: { ok: false, detail: "Descartado" } } as Parameters<typeof serializeConversationCard>[0]);
+	const declinedOther = serializeConversationCard({ v: 1, kind: "confirm", confirmId: "confirm-toolabcd1234-run1", title: "Outro?", status: "rejected", outcome: { ok: false, detail: "não aprovado pelo usuário" } } as Parameters<typeof serializeConversationCard>[0]);
+	const rows = [row(dismissed), row(declinedOther, { id: "m2" })];
+	const restore = fake(rows);
+	try {
+		assert.deepEqual(await takeDismissedDraftTitles("user-b", "conv"), []);
+		assert.deepEqual(await takeDismissedDraftTitles("user-a", "conv"), ["Trello: update card?"]);
+		assert.match(rows[0]!.content, /"modelNoted":true/);
+		// O selo do cartão continua o mesmo ("Descartado") e a nota não volta.
+		assert.match(rows[0]!.content, /"detail":"Descartado"/);
+		assert.deepEqual(await takeDismissedDraftTitles("user-a", "conv"), []);
+	} finally {
+		restore();
+	}
+});

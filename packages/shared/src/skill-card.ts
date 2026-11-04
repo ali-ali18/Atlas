@@ -93,6 +93,8 @@ export type PersistedConfirmCard = {
 	outcome?: { ok: boolean; detail: string };
 	/** Aprovação por tarefa: quantas vezes a mesma ferramenta já rodou por este "Aprovado" (contador da UI). */
 	grantUses?: number;
+	/** Motor v3: o desfecho deste cartão (rascunho descartado) já foi dito ao modelo num run seguinte (uma vez só). */
+	modelNoted?: true;
 };
 
 /**
@@ -633,6 +635,7 @@ export function parseConversationCard(content: string): PersistedConversationCar
 				? { outcome: { ok: row.outcome.ok, detail: row.outcome.detail.slice(0, 2000) } }
 				: {}),
 			...(typeof row.grantUses === "number" && Number.isInteger(row.grantUses) && row.grantUses > 0 && row.grantUses <= 1000 ? { grantUses: row.grantUses } : {}),
+			...(row.modelNoted === true ? { modelNoted: true as const } : {}),
 		};
 	}
 	if (row.kind === "login") {

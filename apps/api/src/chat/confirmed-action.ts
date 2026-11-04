@@ -1,6 +1,6 @@
 import type { TranscriptSeed } from "@workspace/shared";
 import type { VaultService } from "@workspace/agent-runtime";
-import { OWNER_WAIT_CARD_DETAIL, lateOwnerDecisionNote, ownerWaitResultText, DEFAULT_COMMAND_ALLOWLIST, canGrantMcpTask, mcpTaskGrantName, hasExternalTargetArgs, PLAN_OUTCOME_ADJUSTED, hostOf, PLAN_OUTCOME_APPROVED, PLAN_OUTCOME_CANCELLED, SUPERSEDED_CARD_DETAIL, planAdjustResult, planApprovedResult, planToTaskList, VAULT_ENVIRONMENT_ID, isCardConfirmToken, labelCardProtocolMessage, parseDevApprovalReject, stripCommandSofteners } from "@workspace/shared";
+import { DRAFT_DISMISSED_DETAIL, OWNER_WAIT_CARD_DETAIL, lateOwnerDecisionNote, ownerWaitResultText, DEFAULT_COMMAND_ALLOWLIST, canGrantMcpTask, mcpTaskGrantName, hasExternalTargetArgs, PLAN_OUTCOME_ADJUSTED, hostOf, PLAN_OUTCOME_APPROVED, PLAN_OUTCOME_CANCELLED, SUPERSEDED_CARD_DETAIL, planAdjustResult, planApprovedResult, planToTaskList, VAULT_ENVIRONMENT_ID, isCardConfirmToken, labelCardProtocolMessage, parseDevApprovalReject, stripCommandSofteners } from "@workspace/shared";
 import type { AgentRun } from "@workspace/shared";
 import {
 	addBotAutonomyException,
@@ -176,6 +176,8 @@ async function executePendingMcp(input: {
 	conversationId: string;
 	payload: SkillPendingPayload;
 	always: boolean;
+	/** Executor do conector (teste injeta um dublê). */
+	execute?: typeof executeConfirmedMcpCall;
 }): Promise<PendingMcpResult> {
 	const call = input.payload.mcpCall;
 	const denied = (text: string) => ({ ok: false, text, truncated: false });
@@ -187,7 +189,7 @@ async function executePendingMcp(input: {
 	if (!conversation || (conversation.botId !== input.botId && !(await isGroupMember(input.userId, conversation.botId, input.botId)))) {
 		return denied("conversa não pertence a este usuário e bot");
 	}
-	const result = await executeConfirmedMcpCall({
+	const result = await (input.execute ?? executeConfirmedMcpCall)({
 		userId: input.userId,
 		botId: input.botId,
 		conversationId: input.conversationId,
@@ -196,11 +198,13 @@ async function executePendingMcp(input: {
 		exposedName: call.exposedName,
 		args: call.args,
 	});
+	// Rascunho de um run sem pessoa (`prepared`): a aprovação vale só para esta execução, nunca "sempre" nem por tarefa.
+	const always = input.always && call.prepared !== true;
 	// "Sempre para isto" vale também no cartão do Jev: a exceção deixa o Jev barrar só instrução vinda de fora.
-	if (result.ok && input.always) {
+	if (result.ok && always) {
 		await rememberAlwaysAllow({ userId: input.userId, botId: input.botId, call });
 	}
-	const grant = result.ok && !input.always
+	const grant = result.ok && !always && call.prepared !== true
 		? await grantAfterApproval({ userId: input.userId, conversationId: input.conversationId, call, confirmId: input.payload.confirmId })
 		: undefined;
 	return { ...result, ...(grant ? { grant } : {}) };
@@ -528,8 +532,8 @@ export function preparedApprovedFollowUpContent(userText: string, call: { tool: 
 	].join("\n");
 }
 
-/** Rascunho descartado pelo dono ("Agora não"): o cartão fecha, nada executa e nenhum run novo começa. */
-export const PREPARED_DISMISSED_DETAIL = "Descartado";
+/** Rascunho descartado pelo dono ("Agora não"): o cartão fecha, nada executa e nenhum run novo começa (o próximo run do v3 recebe a nota). */
+export const PREPARED_DISMISSED_DETAIL = DRAFT_DISMISSED_DETAIL;
 
 /** Nomes (nunca valores) que já estão salvos no ambiente, entre os pedidos. */
 export async function savedRequestedSecretNames(userId: string, request: { environmentId: string; names: string[] }): Promise<string[]> {
@@ -737,7 +741,7 @@ export async function maybeHandleConfirmedAction(input: {
 	 * Resolve `null` quando o Jev está indisponível (off/falha): aí vale o regex pt.
 	 */
 	jevIntent?: (text: string) => Promise<{ cancel: boolean; confirm: boolean } | null>;
-}): Promise<ConfirmedActionResult> {
+}, deps: { executeMcpCall?: typeof executeConfirmedMcpCall } = {}): Promise<ConfirmedActionResult> {
 	if (!input.botId || !input.conversationId) return { handled: false };
 	const userId = effectiveUserId(input.userId);
 	const commandText = stripCommandSofteners(input.text.trim());
@@ -789,6 +793,13 @@ export async function maybeHandleConfirmedAction(input: {
 	// Cartão genérico do motor v3 + o dono escreveu outra coisa (não clicou): ele IGNOROU o cartão. Sem Jev nem regex sobre
 	// a fala: o cartão vira "Dispensado", o prazo cai e o modelo recebe a fala nova como resultado da chamada que parou.
 	const ignoredToolCall = pending.payload.action === "tool-call" ? pending.payload.toolCall : undefined;
+	// Rascunho de escrita de conector (PR8e): só o botão decide; fala digitada dispensa, como no rascunho nativo.
+	const ignoredDraft = pending.payload.action === "mcp-call" && pending.payload.mcpCall?.prepared === true;
+	if (input.continueInAgent && ignoredDraft && commandText && !isCardConfirmToken(commandText) && !isCardCancelToken(commandText) && !parseDevApprovalReject(commandText)) {
+		if (!(await claimSkillPendingIntent(pending.id, userId, input.conversationId))) return { handled: false };
+		await updateConfirmCardStatus(input.conversationId, "rejected", pending.payload.confirmId, undefined, { ok: false, detail: OWNER_WAIT_CARD_DETAIL.ignored }).catch(() => undefined);
+		return { handled: false };
+	}
 	if (input.continueInAgent && ignoredToolCall && commandText && !isCardConfirmToken(commandText) && !isCardCancelToken(commandText) && !parseDevApprovalReject(commandText)) {
 		if (!(await claimSkillPendingIntent(pending.id, userId, input.conversationId))) return { handled: false };
 		await updateConfirmCardStatus(input.conversationId, "rejected", pending.payload.confirmId, undefined, { ok: false, detail: OWNER_WAIT_CARD_DETAIL.ignored }).catch(() => undefined);
@@ -845,6 +856,12 @@ export async function maybeHandleConfirmedAction(input: {
 			await updateConfirmCardStatus(input.conversationId, "rejected", pending.payload.confirmId, undefined, { ok: false, detail: "não aprovado pelo usuário" }).catch(() => undefined);
 			const userText = input.text.trim();
 			return { handled: false, followUp: { objective: userText, content: infraSetupFollowUpContent(userText, infraDeclined, "declined"), ...seedField(pending.payload, "preview_setup", infraSetupFollowUpContent("", infraDeclined, "declined"), userText) } };
+		}
+		// Rascunho de escrita de conector: "Agora não" só descarta (nada executa, nenhum run novo, nenhum balão).
+		if (input.continueInAgent && ignoredDraft) {
+			if (!(await claimSkillPendingIntent(pending.id, userId, input.conversationId))) return { handled: false, duplicate: true };
+			await updateConfirmCardStatus(input.conversationId, "rejected", pending.payload.confirmId, undefined, { ok: false, detail: PREPARED_DISMISSED_DETAIL }).catch(() => undefined);
+			return { handled: false, duplicate: true };
 		}
 		const toolCallDeclined = pending.payload.action === "tool-call" ? pending.payload.toolCall : undefined;
 		if (input.continueInAgent && toolCallDeclined) {
@@ -988,6 +1005,26 @@ export async function maybeHandleConfirmedAction(input: {
 			return { handled: false, followUp: { objective: input.text.trim(), content: outcome.followUp, ...seedField(pending.payload, pending.payload.action === "email-create-mailbox" ? "email_create_mailbox" : undefined, outcome.followUp, input.text.trim()) } };
 		}
 		const call = pending.payload.action === "mcp-call" ? pending.payload.mcpCall : undefined;
+		if (input.continueInAgent && call?.prepared) {
+			// Rascunho aprovado (PR8e): UMA execução, com os args exatos do rascunho, direto pelo conector do dono. Dois
+			// cliques ao mesmo tempo: só quem reserva a intenção executa. O resultado vira o retorno da chamada que preparou.
+			if (!(await claimSkillPendingIntent(pending.id, userId, input.conversationId))) return { handled: false, duplicate: true };
+			const result = await executePendingMcp({ userId, botId: input.botId, conversationId: input.conversationId, payload: pending.payload, always: false, ...(deps.executeMcpCall ? { execute: deps.executeMcpCall } : {}) });
+			await updateConfirmCardStatus(input.conversationId, result.ok ? "approved" : "failed", pending.payload.confirmId, undefined, { ok: result.ok, detail: result.text }).catch(() => undefined);
+			const userText = input.text.trim();
+			const preparedBy = call.runId ?? askingRunId(pending.payload.confirmId);
+			return {
+				handled: false,
+				followUp: {
+					objective: userText,
+					content: mcpFollowUpContent(userText, call, result, false),
+					...(preparedBy ? { inheritFromRunId: preparedBy } : {}),
+					...(preparedBy
+						? { transcript: { fromRunId: preparedBy, toolName: PREPARE_FOR_OWNER_TOOL_NAME, resultContent: mcpResultToolContent(call, result), shortContent: labelCardProtocolMessage(mcpFollowUpShortContent(userText, call, result, false)) } }
+						: {}),
+				},
+			};
+		}
 		if (input.continueInAgent && call) {
 			const result = await executePendingMcp({ userId, botId: input.botId, conversationId: input.conversationId, payload: pending.payload, always: isConfirmAlways(commandText) });
 			// O resultado fica no card: se o modelo pedir a MESMA chamada de novo, recebe isto em vez de outro card.
