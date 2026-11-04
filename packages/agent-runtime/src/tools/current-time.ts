@@ -1,6 +1,8 @@
 import type { ChatTool } from "@workspace/llm";
 import { isValidTimeZone } from "@workspace/shared";
+import { z } from "zod";
 import { localClock, resolveNoteTimeZone } from "../context/today-note.js";
+import { defineTool } from "./define-tool.js";
 
 /**
  * `current_time`: relógio local do usuário, sem LLM e sem rede. A hora já vai em cada pedido como contexto
@@ -10,14 +12,6 @@ import { localClock, resolveNoteTimeZone } from "../context/today-note.js";
  */
 export const CURRENT_TIME_TOOL_NAME = "current_time";
 
-export const CURRENT_TIME_TOOL: ChatTool = {
-	type: "function",
-	function: {
-		name: CURRENT_TIME_TOOL_NAME,
-		description: "Current local date and time. Use in long runs (context time may be stale), for deadlines or scheduling math. Do not call it when the message already carries the current time.",
-		parameters: { type: "object", properties: { timezone: { type: "string", description: "IANA zone; default: the user's" } } },
-	},
-};
 
 function offsetOf(now: Date, timeZone: string): string {
 	const raw = new Intl.DateTimeFormat("en-US", { timeZone, timeZoneName: "longOffset" }).formatToParts(now).find((part) => part.type === "timeZoneName")?.value ?? "GMT";
@@ -37,3 +31,15 @@ export function executeCurrentTime(args: Record<string, unknown>, context: { now
 	const iso = `${clock.date}T${clock.time}:${seconds}${offsetOf(context.now, timeZone)}`;
 	return { summary: `${clock.date} ${clock.time} (${clock.weekday}), timezone ${timeZone}. ISO: ${iso}` };
 }
+
+/** Definição, metadado e handler num lugar só (`defineTool`, harness v3 PR5). */
+export const currentTimeTool = defineTool({
+	name: CURRENT_TIME_TOOL_NAME,
+	description: "Current local date and time. Use in long runs (context time may be stale), for deadlines or scheduling math. Do not call it when the message already carries the current time.",
+	input: z.object({ timezone: z.string().describe("IANA zone; default: the user's").optional() }),
+	effect: "read",
+	group: "misc",
+	run: (args, ctx) => executeCurrentTime(args, { now: new Date(), timeZone: ctx.timeZone }),
+});
+
+export const CURRENT_TIME_TOOL: ChatTool = currentTimeTool.definition;

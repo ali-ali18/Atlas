@@ -43,8 +43,8 @@ function verdictFor(input: {
 }
 
 /**
- * Tira do catálogo, no lugar (o array é o mesmo que o carregamento adiado estende), toda tool que a política esconde.
- * Roda antes de cada chamada ao modelo: tool carregada no meio do run também passa por aqui. Devolve os nomes tirados.
+ * Tira do array, no lugar, toda tool que a política esconde. Roda antes de cada chamada ao modelo: se a autonomia
+ * mudou no meio do run, a tool sai do pedido (a execução nega de qualquer jeito). Devolve os nomes tirados.
  */
 export function applyCatalogPolicy(tools: ChatTool[], input: { base: PolicyBase; autonomy: EffectiveAutonomy; entryOf: (name: string) => McpToolEntry | undefined }): string[] {
 	const hidden: string[] = [];
@@ -56,6 +56,11 @@ export function applyCatalogPolicy(tools: ChatTool[], input: { base: PolicyBase;
 		hidden.push(name);
 	}
 	return hidden;
+}
+
+/** A política esconde esta tool na montagem do catálogo (some do núcleo e do manifesto). */
+export function catalogHides(input: { name: string; entry?: McpToolEntry; base: PolicyBase; autonomy: EffectiveAutonomy }): boolean {
+	return verdictFor({ name: input.name, ...(input.entry ? { entry: input.entry } : {}), base: input.base, autonomy: input.autonomy, stage: "catalog" }).decision === "hide";
 }
 
 /** Decisão antes de executar, com os args desta chamada (`hide` aqui já vem como `deny` com o motivo). */

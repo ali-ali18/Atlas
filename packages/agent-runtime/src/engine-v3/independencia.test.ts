@@ -13,6 +13,12 @@ describe("independência do motor v3", () => {
 		expect(sourceFiles().length).toBeGreaterThan(8);
 	});
 
+	it("sem roteador por regex, carga adiada nem grupos sticky no v3 (a ponte substitui)", () => {
+		const banned = /(^|\/)(intent-router|native-deferral|sticky-groups|economy)(\.js)?$/;
+		const offenders = sourceFiles().filter((name) => specifiers(readFileSync(join(dir, name), "utf8")).some((specifier) => banned.test(specifier)));
+		expect(offenders).toEqual([]);
+	});
+
 	it("nenhum arquivo de produção do engine-v3 importa de computer-use", () => {
 		const offenders = sourceFiles().filter((name) => specifiers(readFileSync(join(dir, name), "utf8")).some((specifier) => /(^|\/)computer-use(\.js)?$/.test(specifier)));
 		expect(offenders).toEqual([]);

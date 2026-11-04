@@ -145,7 +145,7 @@ import { earlyWallMs, engineDefaultFromEnv, pickRunEngine, resolveRunLimits, run
 import { isReadOnlyConnectorOrigin, budgetStopFallbackText, isBotConfigEventObjective, createReviewerClient, resolveMaintenanceCandidates } from "@workspace/agent-runtime";
 import { runToolFilter } from "../run-tool-filter.js";
 import { briefDeliveryDeps, deliverBriefFailure, deliverDailyBrief, findRoutineRunIdWithRetry, isDetachedBriefRun } from "../daily-brief.js";
-import { appendConversationMessage, getLanguageContext, listRecentLoginAsks } from "@workspace/db";
+import { appendConversationMessage, getLanguageContext, listBotToolUsage, listRecentLoginAsks } from "@workspace/db";
 import { resolveReplyLanguage, stopOfCompletion, systemMessages, type BotLanguage, type RunStop } from "@workspace/shared";
 import { stopOfBudgetError, stopOfFailure } from "../run-stop.js";
 import { runSystemLanguage } from "../system-language.js";
@@ -958,9 +958,9 @@ async function executeLeasedRun(ctx: {
 			await appendRunEvent(runId, "task_list", { type: "task_list", items: seededTaskList, runId }).catch(() => undefined);
 		}
 
-		return { planPending, messages, inputMessages, transcriptOutcome, priorTranscript: transcript?.priorTranscript, transcriptWatermark, carriedNotes, priorLoadedTools: transcript?.loadedTools, priorToolCache: transcript?.toolCache, priorCompaction: transcript?.compaction, historyImages, skillIndex, forcedConnectors, priorResearchNotes, priorTaskLedger, priorTaskList, openBotRequests, attachments: attachmentsForRun?.runtime };
+		return { planPending, messages, inputMessages, transcriptOutcome, priorTranscript: transcript?.priorTranscript, transcriptWatermark, carriedNotes, priorLoadedTools: transcript?.loadedTools, priorToolUsage: transcript?.toolUsage, priorToolCache: transcript?.toolCache, priorCompaction: transcript?.compaction, historyImages, skillIndex, forcedConnectors, priorResearchNotes, priorTaskLedger, priorTaskList, openBotRequests, attachments: attachmentsForRun?.runtime };
 	};
-	const [{ configSnapshot, runtimeConfig, providers, canSeeUserImages, imageVision }, { planPending, messages, inputMessages, transcriptOutcome, priorTranscript, transcriptWatermark, carriedNotes, priorLoadedTools, priorToolCache, priorCompaction, historyImages, skillIndex, forcedConnectors, priorResearchNotes, priorTaskLedger, priorTaskList, openBotRequests, attachments }] =
+	const [{ configSnapshot, runtimeConfig, providers, canSeeUserImages, imageVision }, { planPending, messages, inputMessages, transcriptOutcome, priorTranscript, transcriptWatermark, carriedNotes, priorLoadedTools, priorToolUsage, priorToolCache, priorCompaction, historyImages, skillIndex, forcedConnectors, priorResearchNotes, priorTaskLedger, priorTaskList, openBotRequests, attachments }] =
 		await Promise.all([configStage(), messagesStage()]);
 	// Inspetor: como o histórico deste turno foi montado (só metadados; nunca o texto).
 	if (transcriptOutcome) {
@@ -1360,6 +1360,7 @@ async function executeLeasedRun(ctx: {
 			transcriptWatermark,
 			carriedNotes,
 			priorLoadedTools,
+			...(priorToolUsage ? { priorToolUsage } : {}),
 			priorToolCache,
 			priorCompaction,
 			priorResearchNotes,
@@ -1389,6 +1390,8 @@ async function executeLeasedRun(ctx: {
 			// "Já pedi login neste site" e "o Cofre falhou aqui" valem por conversa (30 min), não só por run.
 			// Lido só quando uma tela de login aparece.
 			recentLoginAsks: () => (run.conversationId ? listRecentLoginAsks(runUserId, run.conversationId) : Promise.resolve({ asked: [], vaultTried: [] })),
+			// Núcleo por uso do motor v3: o v3 só lê ao abrir conversa nova; v1/v2 ignoram.
+			loadToolUsage: async () => (run.botId ? await listBotToolUsage({ userId: runUserId, botId: run.botId }) : {}),
 			onSandboxError: () => {
 				// Sessão pode ter morrido (reaper/container); força re-resolve
 				// (adopt-by-label ou cria nova) na próxima tool em vez de

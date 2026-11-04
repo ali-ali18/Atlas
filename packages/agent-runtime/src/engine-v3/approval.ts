@@ -7,31 +7,14 @@ import type { V3Run } from "./state.js";
 
 /**
  * `ask` em tool NATIVA no motor v3 (no conector o executor já mostra o cartão dele). Tool que já tem cartão próprio
- * (e-mail, propostas, imagem, PR, prévia, segredo, login) continua com o dela. As demais usam o cartão de confirmação
- * genérico: mesmo evento `confirm` e mesmo role do cartão de conector, com a intenção pendente `tool-call`.
+ * (metadado `ownCard`: e-mail, propostas, imagem, PR, prévia, segredo, login, sessão de código) continua com o dela.
+ * As demais usam o cartão de confirmação genérico: mesmo evento `confirm` e mesmo role do cartão de conector, com a
+ * intenção pendente `tool-call`.
  * Na resposta do dono, a API grava a decisão no cartão e o agente repete a MESMA chamada (chave tool + args): aprovada,
  * executa uma vez só (`takeToolCallApproval` marca como usada); recusada, volta erro honesto.
  */
-const OWN_CARD_TOOLS: ReadonlySet<string> = new Set([
-	"email_send",
-	"email_reply",
-	"email_create_mailbox",
-	"generate_image",
-	"preview_setup",
-	"dev_pr_create",
-	"request_secrets",
-	"secret_request",
-	"login_fill",
-	"set_primary_bot",
-	// Sessão de código: aprovação de comando/escrita própria (`dev-session.ts`).
-	"shell",
-	"write_file",
-	"edit_file",
-	"read_file",
-]);
-
 export function hasOwnApprovalCard(name: string): boolean {
-	return OWN_CARD_TOOLS.has(name) || name.startsWith("propose_");
+	return getToolMeta(name)?.ownCard === true;
 }
 
 /** Nome da ação para o dono (pt-BR, sem nome de tool). */

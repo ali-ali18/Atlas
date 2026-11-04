@@ -81,7 +81,7 @@ export type EngineV2Catalog = {
 	promoteToLongWork: () => string[];
 };
 
-export function buildEngineV2Catalog(input: {
+export type EngineV2CatalogInput = {
 	origin: string;
 	userId: string;
 	sandboxEnabled: boolean;
@@ -124,7 +124,19 @@ export function buildEngineV2Catalog(input: {
 	policyHumanTurn?: boolean;
 	/** Conversa entre bots (chat do dono e bot→bot): quantos bots o dono tem e se "decidir pelos outros bots" está ligado. */
 	botMessaging?: { botCount: number; decideForOtherBots: boolean };
-}): EngineV2Catalog {
+};
+
+/**
+ * Tools nativas que existem neste run (origem, autonomia, VM, filtro, anexos, e-mail, proativo...), na ordem do
+ * catálogo e antes de qualquer separação entre núcleo e adiadas. O motor v3 usa a mesma lista (o que existe é igual
+ * nos dois motores; muda só como o modelo enxerga).
+ */
+export type EligibleNativeInput = Pick<
+	EngineV2CatalogInput,
+	"origin" | "userId" | "sandboxEnabled" | "autonomy" | "toolFilter" | "apiConnector" | "email" | "attachments" | "allowProfileUpdate" | "longWork" | "helper" | "helpers" | "setEngine" | "routinePageId" | "proactive" | "userPush" | "alertRun" | "botMessaging"
+>;
+
+export function eligibleNativeTools(input: EligibleNativeInput): ChatTool[] {
 	const allow = (name: string) => input.toolFilter?.(name) ?? true;
 	const hostBlocked = (name: string) =>
 		(name === "propose_profile_update" && decideAction(input.autonomy, hostAutonomyMeta(name)) === "block") ||
@@ -204,6 +216,19 @@ export function buildEngineV2Catalog(input: {
 		add(NOTEBOOK_READ_TOOL);
 		if (input.helpers) add(DELEGATE_V2_TOOL);
 	}
+	return native;
+}
+
+/** Conector visível ao modelo pelas regras de hoje: autonomia não bloqueia, só leitura sem humano para aprovar. */
+export function mcpToolVisible(input: { origin: string; autonomy: EffectiveAutonomy; entry: McpToolEntry }): boolean {
+	const decision = decideAction(input.autonomy, input.entry.autonomyMeta);
+	// Sem humano para aprovar (rotina, webhook, e-mail, bot): conector só leitura, em qualquer autonomia.
+	return decision !== "block" && !(isReadOnlyConnectorOrigin(input.origin) && !input.entry.readOnly) && (!isUnattendedOrigin(input.origin) || decision === "allow");
+}
+
+export function buildEngineV2Catalog(input: EngineV2CatalogInput): EngineV2Catalog {
+	const allow = (name: string) => input.toolFilter?.(name) ?? true;
+	const native = eligibleNativeTools(input);
 
 	// Dica de pré-carga (nunca portão): grupos que o pedido sugere já vão carregados; o resto carrega por busca.
 	const routerText = economyRouterText({ origin: input.origin, objective: input.objective, messages: input.routerMessages, lastUserMessage: input.lastUserMessage });
@@ -232,9 +257,7 @@ export function buildEngineV2Catalog(input: {
 	const mcpTools = (mcp?.toolset.tools ?? []).filter((tool) => {
 		const entry = mcp?.toolset.entries.get(tool.function.name);
 		if (!entry || !allow(tool.function.name)) return false;
-		const decision = decideAction(input.autonomy, entry.autonomyMeta);
-		// Sem humano para aprovar (rotina, webhook, e-mail, bot): conector só leitura, em qualquer autonomia.
-		const visible = decision !== "block" && !(isReadOnlyConnectorOrigin(input.origin) && !entry.readOnly) && (!isUnattendedOrigin(input.origin) || decision === "allow");
+		const visible = mcpToolVisible({ origin: input.origin, autonomy: input.autonomy, entry });
 		shadowMcp.push({ name: tool.function.name, entry, visible });
 		return visible;
 	});

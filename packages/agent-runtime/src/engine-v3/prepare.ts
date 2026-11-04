@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { streamChatWithTools, type LlmContentPart, type LlmMessage } from "@workspace/llm";
+import type { LlmMessage } from "@workspace/llm";
 import {
 	DEFAULT_AUTONOMY_LEVEL,
 	buildPersonaBlock,
@@ -13,7 +13,6 @@ import { getBotProfile, getConversationUntrustedAt, markConversationUntrusted, m
 import { loadSandboxConfig } from "@workspace/sandbox";
 import { emptyUsage, resolveBudget, wallClockAnchors } from "../budget.js";
 import { buildRuntimeCheckpoint, hydrateLlmMessages, parseRuntimeCheckpoint } from "../checkpoint.js";
-import { connectorsPrompt } from "../connectors-prompt.js";
 import { todayNote } from "../context/today-note.js";
 import { isUnattendedOrigin } from "../autonomy-gate.js";
 import { createPreToolRunner } from "../hooks/pre-tool-runner.js";
@@ -22,16 +21,27 @@ import { createProviderHealth } from "../tools/provider-health.js";
 import { isBotConfigEventObjective } from "../tools/registry/helpers.js";
 import { shouldExposeSetEngine } from "../tools/set-engine.js";
 import type { ComputerUseParams } from "../run-types.js";
-import { buildEngineV2Catalog } from "../engine-v2/catalog.js";
-import { buildEngineV2SystemPrompt } from "../engine-v2/prompt.js";
+import { eligibleNativeTools, mcpToolVisible } from "../engine-v2/catalog.js";
 import { originSystemNotes } from "../engine-v2/origin-notes.js";
 import { estimateCostUsd, fallbackPricesFromEnv } from "../engine-v2/cost.js";
 import { parseV3State } from "./checkpoint.js";
 import { stepLimitFor } from "./limits.js";
 import { createNudges } from "./nudges.js";
-import { applyCatalogPolicy, policyBase } from "./policy.js";
+import { buildV3Catalog, connectorEntries } from "./catalog.js";
+import { applyCatalogPolicy, catalogHides, policyBase } from "./policy.js";
+import { assembleV3Conversation, attachToLastUser, buildV3ContextBlock, buildV3SystemPrompt } from "./prompt.js";
 import { createRepetitionGuard } from "./repetition.js";
 import type { V3Run } from "./state.js";
+
+/** Até 300 tools, as mais usadas (o que vai e volta pelo checkpoint é exatamente o que montou o catálogo). */
+function frozenUsage(raw: Readonly<Record<string, number>>): Record<string, number> {
+	return Object.fromEntries(
+		Object.entries(raw)
+			.filter(([name, count]) => name.length > 0 && name.length <= 128 && Number.isInteger(count) && count > 0)
+			.sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+			.slice(0, 300),
+	);
+}
 
 export type EngineV3Options = {
 	/** Teto de passos que o DONO configurou (conta, bot ou pedido); ausente = 40 sem humano, 200 com humano. */
@@ -40,8 +50,8 @@ export type EngineV3Options = {
 
 /**
  * PREPARE (desenho 2.1): carrega bot, política, catálogo, prompt e checkpoint. Sem chamada extra de LLM.
- * Por ora o prompt e o catálogo são os do v2 (o prompt de 3 blocos e a ponte `tool_search/tool_call` são o PR5); a
- * política v3 tira do catálogo o que esconde.
+ * Catálogo = núcleo + ponte no array e o resto no manifesto (o que existe é o mesmo do v2: `eligibleNativeTools`);
+ * a política tira dos dois o que esconde. Prompt em 3 blocos (`prompt.ts`).
  */
 export async function prepareRun(params: ComputerUseParams, options: EngineV3Options): Promise<{ run: V3Run; restored: AgentRunCheckpoint | null }> {
 	const parsed = parseRuntimeCheckpoint(params.restoredCheckpoint);
@@ -67,25 +77,16 @@ export async function prepareRun(params: ComputerUseParams, options: EngineV3Opt
 		params.listBotRoster && params.botId && userId !== "default" && (origin === "chat" || origin === "bot") ? (await params.listBotRoster(userId).catch(() => [])).length : 0;
 	const imageIds = params.userImageArtifactIds ?? parsed?.userImageArtifactIds ?? [];
 
-	const catalog = buildEngineV2Catalog({
+	const natives = eligibleNativeTools({
 		origin,
-		...(params.parentOrigin ? { policyParentOrigin: params.parentOrigin } : {}),
-		policyHumanTurn: humanTurn,
 		userId,
 		sandboxEnabled,
 		autonomy,
 		toolFilter: params.toolFilter,
-		mcp,
 		apiConnector: Boolean(params.apiConnector),
 		email: params.email,
 		attachments: { present: params.attachments?.present === true },
-		planMode: params.planMode,
 		allowProfileUpdate: origin === "chat" && (!botProfile?.description?.trim() || isBotConfigEventObjective(params.objective ?? "") || isBotConfigEventObjective(lastUserMessage)),
-		hasImageAttachments: imageIds.length > 0,
-		routerMessages: params.messages,
-		lastUserMessage,
-		objective: params.objective,
-		priorLoadedTools: params.priorLoadedTools ?? parsed?.loadedTools,
 		setEngine: shouldExposeSetEngine({ origin, humanTurn, lastUserMessage }),
 		botMessaging: { botCount, decideForOtherBots: params.decideForOtherBots === true },
 		...(origin === "routine" && params.routinePageId ? { routinePageId: params.routinePageId } : {}),
@@ -94,48 +95,57 @@ export async function prepareRun(params: ComputerUseParams, options: EngineV3Opt
 		...(origin === "routine" && params.alertRun ? { alertRun: true } : {}),
 	});
 	const entryOf = (name: string) => mcp?.toolset.entries.get(name);
-	applyCatalogPolicy(catalog.tools, { base: policy, autonomy, entryOf });
+	const hides = (name: string) => catalogHides({ name, entry: entryOf(name), base: policy, autonomy });
+	// Filtro do run (brief "Seu dia", conferência, ajudante): vale para nativa E conector, como no v2.
+	const allow = (name: string) => params.toolFilter?.(name) ?? true;
+	// Catálogo congelado por conversa: o núcleo e o uso do run anterior (retomada ou turno seguinte) voltam iguais, então
+	// manifesto e busca saem com os mesmos bytes; o uso do bot só é lido de novo em conversa nova.
+	const v3State = parseV3State(parsed?.engineV3);
+	const frozen = parsed?.loadedTools ?? params.priorLoadedTools;
+	const toolUsage = frozenUsage(
+		frozen?.length ? (v3State.toolUsage ?? params.priorToolUsage ?? {}) : ((await params.loadToolUsage?.().catch(() => ({}))) ?? {}),
+	);
+	const catalog = buildV3Catalog({
+		natives,
+		connectors: connectorEntries(mcp, (name) => {
+			const entry = entryOf(name);
+			return Boolean(entry) && allow(name) && mcpToolVisible({ origin, autonomy, entry: entry! }) && !hides(name);
+		}),
+		visible: (name) => !hides(name),
+		vm: sandboxEnabled,
+		...(frozen?.length ? { frozen } : {}),
+		usage: toolUsage,
+	});
 	const tools = catalog.tools;
-	const hasTool = (name: string) => tools.some((tool) => tool.function.name === name) || Boolean(catalog.deferral?.isDeferred(name));
+	applyCatalogPolicy(tools, { base: policy, autonomy, entryOf });
+	const hasTool = (name: string) => catalog.entries.has(name);
 
-	// --- conversa ---
+	// --- conversa: system estável, contexto, histórico, volátil e a fala atual ---
 	let conversation: LlmMessage[];
 	if (parsed?.llmMessages?.length) {
 		conversation = await hydrateLlmMessages(parsed.llmMessages);
 	} else {
-		const system = buildEngineV2SystemPrompt({
+		const system = buildV3SystemPrompt({
 			persona: buildPersonaBlock({ name: botProfile?.name, role: botProfile?.description, language: params.language ?? "pt-BR" }),
-			profile: "chat",
 			model: params.model,
-			connectors: mcp && mcp.toolset.entries.size > 0 ? `\n\n${connectorsPrompt(mcp.toolset)}` : "",
-			skillIndex: params.skillIndex,
-			toolIndex: catalog.index,
-			preloadedGroups: catalog.preloaded,
-			atlasUrl: process.env.ATLAS_URL,
-			taskList: hasTool("update_task_list"),
+			bridge: catalog.deferred.length > 0,
 			...(unattended ? { unattended: true } : {}),
 			...(origin === "routine" ? { routine: true } : {}),
 			...(origin === "email" && hasTool("email_reply") ? { emailRun: true } : {}),
 			languageInstruction: replyLanguage.instruction,
 		});
 		const priorHistory = params.priorTranscript?.length ? await hydrateLlmMessages(params.priorTranscript) : [];
-		const base = params.messages.map((message) => ({ role: message.role, content: message.content }) as LlmMessage);
-		const slot = base.findIndex((message) => message.role === "system" && message.content === TRANSCRIPT_SLOT);
-		const placed = slot < 0 ? base : [...base.slice(0, slot), ...priorHistory, ...base.slice(slot + 1)];
 		const notes = originSystemNotes({ origin, messages: params.messages, proactive: params.proactive ?? null, userPushMode: params.userPush?.mode, alertRun: params.alertRun });
 		const now = process.env.ATLAS_NOW_NOTE === "off" ? [] : [todayNote(new Date(), params.timeZone)];
-		// Tudo o que é `system` entra só aqui, no começo do run; no meio do run o runtime fala por `user` com `[runtime]`.
-		conversation = [{ role: "system", content: system }, ...[...notes, ...now].map((content) => ({ role: "system" as const, content })), ...placed];
-		const lastUser = [...conversation].reverse().find((message) => message.role === "user");
-		if (lastUser && (imageIds.length > 0 || params.attachments?.turnContext)) {
-			const parts: LlmContentPart[] = typeof lastUser.content === "string" ? [{ type: "text", text: lastUser.content }] : Array.isArray(lastUser.content) ? lastUser.content : [];
-			lastUser.content = [
-				...parts,
-				...imageIds.slice(0, 4).map((artifactId) => ({ type: "image_ref" as const, artifactId })),
-				...(params.attachments?.turnContext ? [{ type: "text" as const, text: params.attachments.turnContext }] : []),
-				...(params.attachments?.nativePdfs ?? []).map((pdf) => ({ type: "file_ref" as const, artifactId: pdf.id, filename: pdf.filename })),
-			];
-		}
+		conversation = assembleV3Conversation({
+			system,
+			contextFor: (snapshot) => buildV3ContextBlock({ manifest: catalog.manifest, skillIndex: params.skillIndex, canReadSkills: hasTool("skill_read"), snapshot }),
+			messages: params.messages,
+			priorHistory,
+			slot: TRANSCRIPT_SLOT,
+			volatile: [...now, ...notes],
+		});
+		attachToLastUser(conversation, { imageIds, turnContext: params.attachments?.turnContext, pdfs: params.attachments?.nativePdfs });
 	}
 
 	// --- orçamento: só tetos do dono; passos pela regra do desenho ---
@@ -143,7 +153,6 @@ export async function prepareRun(params: ComputerUseParams, options: EngineV3Opt
 	const wall = wallClockAnchors({ maxWallMs: limits.maxWallMs, now: Date.now(), runStartedAt: params.runStartedAt, restored: parsed });
 	const prices = fallbackPricesFromEnv();
 	const usage = parsed?.usageTotals ? { ...emptyUsage(), ...parsed.usageTotals } : emptyUsage();
-	const v3State = parseV3State(parsed?.engineV3);
 
 	const secrets = params.userId ? createSecretSession({ userId: params.userId, by: () => ({ actor: "bot", botId: params.botId, conversationId: params.conversationId }) }) : undefined;
 	let untrustedRead: Promise<boolean> | undefined;
@@ -170,6 +179,7 @@ export async function prepareRun(params: ComputerUseParams, options: EngineV3Opt
 		...(parsed?.transcriptSeed?.fromRunId ? { continuesRunId: parsed.transcriptSeed.fromRunId } : {}),
 		catalog,
 		tools,
+		toolUsage,
 		entryOf,
 		hasTool,
 		conversation,
@@ -227,13 +237,18 @@ export async function prepareRun(params: ComputerUseParams, options: EngineV3Opt
 				untrustedSeen: run.mcpRun.untrustedSeen,
 				pendingLogin: run.pendingLogin,
 				activeElapsedMs: run.activeMs(),
-				loadedTools: run.tools.map((tool) => tool.function.name),
+				loadedTools: [...run.catalog.core],
 				transcriptWatermark: parsed?.transcriptWatermark ?? params.transcriptWatermark,
 				carriedNotes: parsed?.carriedNotes ?? params.carriedNotes,
 				recoveries: parsed?.recoveries,
 				recoveredAtStep: parsed?.recoveredAtStep,
 				engine: "v3",
-				engineV3: { nudges: run.nudges.snapshot(), repetition: run.repetition.snapshot(), ...(run.ownTaskList ? { ownTaskList: run.ownTaskList } : {}) },
+				engineV3: {
+					nudges: run.nudges.snapshot(),
+					repetition: run.repetition.snapshot(),
+					...(run.ownTaskList ? { ownTaskList: run.ownTaskList } : {}),
+					...(Object.keys(run.toolUsage).length > 0 ? { toolUsage: run.toolUsage } : {}),
+				},
 			});
 			const write = checkpointTail.then(() => params.onCheckpoint!(snapshot));
 			checkpointTail = write.catch(() => undefined);

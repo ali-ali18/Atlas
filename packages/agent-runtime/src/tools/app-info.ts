@@ -1,5 +1,7 @@
 import type { ChatTool } from "@workspace/llm";
+import { z } from "zod";
 import { MCP_OAUTH_CALLBACK_PATH } from "../mcp/oauth-provider.js";
+import { defineTool } from "./define-tool.js";
 
 /**
  * `app_info`: fatos operacionais do sistema onde o agente roda (URLs de callback,
@@ -12,24 +14,6 @@ export const APP_INFO_TOOL_NAME = "app_info";
 export const APP_INFO_TOPICS = ["oauth", "mcp", "webhooks", "vault", "login", "settings", "models", "limits"] as const;
 export type AppInfoTopic = (typeof APP_INFO_TOPICS)[number];
 
-export const APP_INFO_TOOL: ChatTool = {
-	type: "function",
-	function: {
-		name: APP_INFO_TOOL_NAME,
-		description:
-			"Facts about THIS app and the server it runs on. Call it BEFORE answering any question about the app itself or its integrations: which URL to paste as the OAuth redirect/callback URL when connecting an MCP server or app (n8n, Notion, Slack...), how to add a custom MCP connector (with or without OAuth), the incoming webhook URL and how to authenticate it, the login callback, composio callback, where each setting lives in the UI, supported model providers and limits. Never guess these values: the answer comes from here. Returns no secrets.",
-		parameters: {
-			type: "object",
-			properties: {
-				topic: {
-					type: "string",
-					enum: [...APP_INFO_TOPICS],
-					description: "oauth (callback URL for MCP/OAuth), mcp (adding connectors), webhooks, vault (secrets and site logins), login, settings (where things are), models (providers), limits. Omit for everything.",
-				},
-			},
-		},
-	},
-};
 
 type Env = Readonly<Record<string, string | undefined>>;
 
@@ -134,3 +118,28 @@ export function appInfoText(topic?: unknown, env: Env = process.env): string {
 export async function executeAppInfo(args: Record<string, unknown>): Promise<{ summary: string }> {
 	return { summary: appInfoText(args.topic) };
 }
+
+/**
+ * Definição, metadado e handler num lugar só (`defineTool`, harness v3 PR5). `topic` fora da lista cai em "todos os
+ * assuntos" e maiúscula/espaço é tolerado (o mesmo de antes): o `preprocess` mantém a tool tolerante e o schema igual.
+ */
+export const appInfoTool = defineTool({
+	name: APP_INFO_TOOL_NAME,
+	description:
+		"Facts about THIS app and the server it runs on. Call it BEFORE answering any question about the app itself or its integrations: which URL to paste as the OAuth redirect/callback URL when connecting an MCP server or app (n8n, Notion, Slack...), how to add a custom MCP connector (with or without OAuth), the incoming webhook URL and how to authenticate it, the login callback, composio callback, where each setting lives in the UI, supported model providers and limits. Never guess these values: the answer comes from here. Returns no secrets.",
+	input: z.object({
+		// Mesma tolerância do texto: " MCP " vale "mcp"; fora da lista cai em todos os assuntos.
+		topic: z.preprocess(
+			(value) => (typeof value === "string" ? APP_INFO_TOPICS.find((topic) => topic === value.trim().toLowerCase()) : undefined),
+			z
+				.enum(APP_INFO_TOPICS)
+				.describe("oauth (callback URL for MCP/OAuth), mcp (adding connectors), webhooks, vault (secrets and site logins), login, settings (where things are), models (providers), limits. Omit for everything.")
+				.optional(),
+		),
+	}),
+	effect: "read",
+	group: "misc",
+	run: (args) => executeAppInfo(args),
+});
+
+export const APP_INFO_TOOL: ChatTool = appInfoTool.definition;

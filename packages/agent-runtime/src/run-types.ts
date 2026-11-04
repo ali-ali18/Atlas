@@ -272,6 +272,8 @@ export type ComputerUseParams = {
 	priorLoadedTools?: string[];
 	/** Grupos e ordem de tools congelados na conversa pelo turno anterior (cache de prompt; ver `context/sticky-groups.ts`). */
 	priorToolCache?: ToolCacheState;
+	/** Motor v3: uso das tools congelado com `priorLoadedTools` pelo turno anterior (manifesto e busca iguais). */
+	priorToolUsage?: Record<string, number>;
 	/** `/compact` aplicado à conversa antes deste turno: vira a ação "Conversa compactada" no inspetor do 1º passo. */
 	priorCompaction?: { before: number; after: number };
 	/** Marca d'água da conversa (última mensagem vista ao montar o histórico); vai em todo checkpoint do run. */
@@ -306,6 +308,11 @@ export type ComputerUseParams = {
 	 * Sem isto o guarda de "já pedi" só vale dentro do run e cada mensagem nova reabria o mesmo card.
 	 */
 	recentLoginAsks?: () => Promise<{ asked: readonly string[]; vaultTried: readonly string[] }>;
+	/**
+	 * Motor v3 (núcleo por uso, desenho 3.2): quantas vezes cada tool rodou nos runs deste bot nos últimos 30 dias.
+	 * Lido só ao abrir conversa nova (o catálogo fica congelado nas seguintes); v1 e v2 não leem.
+	 */
+	loadToolUsage?: () => Promise<Record<string, number>>;
 	/** Prazo da busca do código no e-mail (padrão 60 s). */
 	vaultEmailTimeoutMs?: number;
 	consumeSteerInputs?: () => Promise<

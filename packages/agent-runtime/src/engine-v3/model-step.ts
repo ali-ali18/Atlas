@@ -13,6 +13,7 @@ import { modelStepTelemetry } from "../telemetry/step-telemetry.js";
 import { toolsJsonCharsOf } from "../tools-json-size.js";
 import { callCostUsd, fallbackPricesFromEnv } from "../engine-v2/cost.js";
 import { withTransportRetry, type TransportOptions } from "./failures.js";
+import { isContextMessage } from "./prompt.js";
 import type { V3Run } from "./state.js";
 
 export type ModelReply = {
@@ -59,6 +60,7 @@ export function createModelStep(run: V3Run, deps: { sleep?: TransportOptions["sl
 			memo,
 		});
 		const reasoning = await pickReasoning(run.model);
+		const contextIndex = transport.findIndex(isContextMessage);
 		// A cadeia de fallback é do v3 (abaixo), não do transporte: `fallbackModels: []` evita trocar de modelo duas vezes.
 		// Com imagem no pedido, nenhum fallback (o catálogo de fallback não garante visão), como no transporte.
 		const hasImage = transport.some((message) => Array.isArray(message.content) && message.content.some((part) => part.type === "image_url" || part.type === "file"));
@@ -86,6 +88,8 @@ export function createModelStep(run: V3Run, deps: { sleep?: TransportOptions["sl
 						reasoningMaxTokens: params.reasoningMaxTokens,
 						...(reasoning ? { reasoningEffort: reasoning } : {}),
 						sessionId,
+						// Breakpoint de cache no fim do bloco de contexto (desenho 4.2): tools + system + contexto ficam no prefixo.
+						...(contextIndex >= 0 ? { cacheStableIndex: contextIndex } : {}),
 					},
 					{
 						onDelta: (delta) => {

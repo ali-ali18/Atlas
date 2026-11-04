@@ -95,7 +95,7 @@ export async function runEngineV3(params: ComputerUseParams, options: EngineV3Op
 			type: "checkpoint",
 			status: "completed",
 			idempotencyKey: `${run.runId}:offered-tools`,
-			outputJson: { offeredTools: run.tools.map((tool) => tool.function.name), ...(run.catalog.deferral ? { deferredTools: run.catalog.deferral.pending() } : {}), engine: "v3" },
+			outputJson: { offeredTools: run.tools.map((tool) => tool.function.name), ...(run.catalog.deferred.length > 0 ? { deferredTools: [...run.catalog.deferred] } : {}), engine: "v3" },
 		}),
 	).catch(() => undefined);
 
@@ -120,7 +120,7 @@ export async function runEngineV3(params: ComputerUseParams, options: EngineV3Op
 			if (await pollSteer(run)) flushSteer(run);
 			final ??= reachedCap({ step: run.step, limit: run.limit, spentUsd: run.spentUsd(), costCapUsd: params.budget?.maxCostUsd, activeMs: run.activeMs(), wallCapMs: params.budget?.maxWallMs }) ?? (run.repetition.reachedFinal() ? "repeated" : undefined);
 			if (final) return await finalStep(final);
-			// Tool carregada no meio do run (grupo adiado, conector) também passa pela política antes de ir ao modelo.
+			// Autonomia mudada no meio do run: o que a política passou a esconder sai do pedido.
 			applyCatalogPolicy(run.tools, { base: run.policy, autonomy: run.autonomy.get(), entryOf: run.entryOf });
 			await run.persistCheckpoint();
 

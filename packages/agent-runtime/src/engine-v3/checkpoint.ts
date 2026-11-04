@@ -1,12 +1,18 @@
 import type { LlmMessage } from "@workspace/llm";
-import { parseTaskList, type TaskListItem } from "@workspace/shared";
+import { parseTaskList, parseToolUsageCounts, type TaskListItem } from "@workspace/shared";
 import { completedToolCallIds } from "../checkpoint.js";
 import { UNKNOWN_STATUS_NOTE } from "./failures.js";
 import { NUDGE_CAPS, type NudgeKind, type NudgeState } from "./nudges.js";
 import type { RepetitionSnapshot } from "./repetition.js";
 
 /** Estado dos freios que vai no checkpoint (`engineV3`): a retomada não zera tetos de empurrão nem a rede de repetição. */
-export type V3CheckpointState = { nudges: NudgeState; repetition: RepetitionSnapshot; ownTaskList?: TaskListItem[] };
+export type V3CheckpointState = {
+	nudges: NudgeState;
+	repetition: RepetitionSnapshot;
+	ownTaskList?: TaskListItem[];
+	/** Uso das tools congelado com o catálogo (o turno seguinte da conversa recebe pelo transcript). */
+	toolUsage?: Record<string, number>;
+};
 
 const pairs = (value: unknown): Array<[string, number]> =>
 	Array.isArray(value)
@@ -29,7 +35,8 @@ export function parseV3State(raw: Record<string, unknown> | undefined): Partial<
 		history: Array.isArray(rep.history) ? rep.history.filter((key): key is string => typeof key === "string").slice(-12) : [],
 	};
 	const ownTaskList = parseTaskList(raw.ownTaskList);
-	return { nudges, repetition, ...(ownTaskList?.length ? { ownTaskList } : {}) };
+	const toolUsage = parseToolUsageCounts(raw.toolUsage);
+	return { nudges, repetition, ...(ownTaskList?.length ? { ownTaskList } : {}), ...(Object.keys(toolUsage).length > 0 ? { toolUsage } : {}) };
 }
 
 /**
