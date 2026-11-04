@@ -4,7 +4,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
 import * as React from "react";
 import { FlatList, KeyboardAvoidingView, Pressable, View } from "react-native";
-import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ChevronDownIcon } from "@/components/icons";
 import { SoonSheet } from "@/components/home/soon-sheet";
 import { ChatMenu, type ChatMenuAction } from "@/components/chat/chat-menu";
@@ -17,6 +17,7 @@ import { grokBubbleColors } from "@/lib/bubble-tone";
 import { createNewItemTracker } from "@/lib/chat-appear";
 import { groupPositionAt, type GroupPosition } from "@workspace/shared";
 import { SyncLine, ThinkingLine } from "@/components/chat/sync-line";
+import { ScreenFrame } from "@/components/ui/screen-frame";
 import { Spinner } from "@/components/ui/spinner";
 import { Text } from "@/components/ui/text";
 import { useAtlasSession } from "@/lib/atlas-session";
@@ -125,14 +126,14 @@ export default function ChatScreen() {
 
 	if (!bot) {
 		return (
-			<SafeAreaView className="flex-1 items-center justify-center gap-4 bg-background px-8">
+			<ScreenFrame className="items-center justify-center gap-4 px-8">
 				<Text variant="muted" className="text-center text-control">
 					Não encontrei esta conversa.
 				</Text>
 				<Pressable role="button" onPress={goBack} className="min-h-11 justify-center rounded-full bg-secondary px-6 active:opacity-80">
 					<Text className="text-control font-semibold">Voltar</Text>
 				</Pressable>
-			</SafeAreaView>
+			</ScreenFrame>
 		);
 	}
 
@@ -146,7 +147,7 @@ export default function ChatScreen() {
 	};
 
 	return (
-		<SafeAreaView edges={["bottom", "left", "right"]} className="flex-1 bg-background">
+		<ScreenFrame edges={["bottom", "left", "right"]}>
 			<KeyboardAvoidingView behavior="padding" className="flex-1">
 				<FlatList
 					ref={listRef}
@@ -214,6 +215,6 @@ export default function ChatScreen() {
 			<ChatMenu open={menu} onClose={() => setMenu(false)} onPick={onMenuPick} />
 			{messageMenu.node}
 			<SoonSheet open={soon !== null} title={soon ? SOON_TITLE[soon] : ""} onClose={() => setSoon(null)} />
-		</SafeAreaView>
+		</ScreenFrame>
 	);
 }

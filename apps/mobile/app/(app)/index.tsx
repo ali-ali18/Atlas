@@ -2,11 +2,11 @@ import type { HomeBot, SectionRef } from "@/lib/home-types";
 import { useRouter } from "expo-router";
 import * as React from "react";
 import { KeyboardAvoidingView, RefreshControl, ScrollView, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
 import { HomeHeader } from "@/components/home/home-header";
 import { PinnedGrid } from "@/components/home/pinned-grid";
 import { SearchFooter } from "@/components/home/search-footer";
 import { SectionBlock } from "@/components/home/section-block";
+import { ScreenFrame } from "@/components/ui/screen-frame";
 import { HomeBotMenu } from "@/components/home/home-bot-menu";
 import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
@@ -97,7 +97,7 @@ export default function HomeScreen() {
 	}
 
 	return (
-		<SafeAreaView className="flex-1 bg-background">
+		<ScreenFrame>
 			<KeyboardAvoidingView behavior="padding" className="flex-1">
 				<HomeHeader user={{ name, email, image }} onNew={() => router.push("/new-bot" as never)} onSignOut={() => void signOut()} onChangeServer={() => void changeServer()} />
 				<ScrollView
@@ -109,9 +109,9 @@ export default function HomeScreen() {
 				>
 					{body}
 				</ScrollView>
-				<SearchFooter query={query} onChange={setQuery} onGrid={() => router.push("/catalog" as never)} />
+				<SearchFooter query={query} onChange={setQuery} onGrid={() => router.push("/apps" as never)} />
 			</KeyboardAvoidingView>
 			<HomeBotMenu bot={menuBot} onClose={() => setMenuBot(null)} />
-		</SafeAreaView>
+		</ScreenFrame>
 	);
 }
