@@ -78,6 +78,8 @@ export type V3Run = {
 	activeMs: () => number;
 	nudges: Nudges;
 	repetition: RepetitionGuard;
+	/** Cartões de rascunho cuja nota está no contexto e ainda não foram marcados como ditos (só depois da 1ª resposta do modelo). */
+	draftNoteIds?: string[];
 	/** Caderno da tarefa (só no trabalho longo, como no v2; PR8e): vai no checkpoint e semeia a continuação. */
 	notebook?: Notebook;
 	/** Última lista que o MODELO enviou por `update_task_list` neste run (lista herdada não conta para o E4). */

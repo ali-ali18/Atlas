@@ -391,17 +391,54 @@ describe("prepare_for_owner: escrita de conector como alvo (PR8e)", () => {
 	});
 });
 
-describe("rascunho descartado vira nota interna (PR8e)", () => {
-	it("o próximo run recebe a nota (sem balão); sem rascunho descartado, nada muda", async () => {
-		const loadDismissedDrafts = vi.fn(async () => ["Trello: update card?"]);
-		const chat = await runV3([say("Certo.")], { origin: "chat", humanTurn: true, runId: "run-chat", messages: [{ role: "user", content: "E aí, o que ficou pendente?" }], loadDismissedDrafts });
+describe("rascunho descartado ou ignorado vira nota interna (PR8e)", () => {
+	const decisions = () => ({
+		list: vi.fn(async () => [
+			{ id: "m1", title: "Trello: update card?", decision: "dismissed" as const },
+			{ id: "m2", title: "Enviar esta mensagem?", decision: "ignored" as const },
+		]),
+		markNoted: vi.fn(async () => 2),
+	});
+	const chatTurn = { origin: "chat", humanTurn: true, runId: "run-chat", messages: [{ role: "user" as const, content: "E aí, o que ficou pendente?" }] };
+
+	it("o próximo run recebe a nota (sem balão) e só marca como dita depois que o modelo respondeu", async () => {
+		const draftDecisions = decisions();
+		const chat = await runV3(
+			[
+				() => {
+					// Na hora da 1ª chamada a nota está no contexto e ainda não foi marcada.
+					expect(draftDecisions.markNoted).not.toHaveBeenCalled();
+					return say("Certo.");
+				},
+			],
+			{ ...chatTurn, draftDecisions },
+		);
 		expect(chat.error).toBeUndefined();
-		expect(loadDismissedDrafts).toHaveBeenCalledTimes(1);
 		const texts = chat.requests[0]!.messages.map((message) => (typeof message.content === "string" ? message.content : JSON.stringify(message.content)));
-		expect(texts.some((text) => text.includes('The owner dismissed this draft you left for approval: "Trello: update card"'))).toBe(true);
-		// Nada vai ao chat além da resposta do modelo.
-		expect(chat.events.filter((event) => event.type === "assistant_delta" || event.type === "confirm")).toHaveLength(0);
-		const none = await runV3([say("Certo.")], { origin: "chat", humanTurn: true, runId: "run-chat", messages: [{ role: "user", content: "oi" }], loadDismissedDrafts: async () => [] });
-		expect(none.requests[0]!.messages.some((message) => typeof message.content === "string" && message.content.includes("dismissed"))).toBe(false);
+		expect(texts.some((text) => text.includes('The owner dismissed draft(s) you left for approval: "Trello: update card"'))).toBe(true);
+		expect(texts.some((text) => text.includes('The owner did not answer the draft(s) you left for approval and sent another message instead: "Enviar esta mensagem"'))).toBe(true);
+		expect(draftDecisions.markNoted).toHaveBeenCalledTimes(1);
+		expect(draftDecisions.markNoted).toHaveBeenCalledWith(["m1", "m2"]);
+		expect(chat.events.filter((event) => event.type === "confirm")).toHaveLength(0);
+	});
+
+	it("run que falha antes da 1ª resposta do modelo não consome a nota", async () => {
+		const draftDecisions = decisions();
+		const failed = await runV3([() => { throw new Error("provedor fora do ar (400)"); }], { ...chatTurn, draftDecisions });
+		expect(failed.error).toBeDefined();
+		expect(draftDecisions.list).toHaveBeenCalledTimes(1);
+		expect(draftDecisions.markNoted).not.toHaveBeenCalled();
+	});
+
+	it("só chat e rotina da conversa leem a nota; e-mail recebido, webhook e outro bot não", async () => {
+		for (const origin of ["email", "webhook", "bot"]) {
+			const draftDecisions = decisions();
+			await runV3([say("ok")], { origin, humanTurn: false, draftDecisions });
+			expect(draftDecisions.list, origin).not.toHaveBeenCalled();
+		}
+		const routine = decisions();
+		await runV3([say("ok")], { draftDecisions: routine });
+		expect(routine.list).toHaveBeenCalledTimes(1);
+		expect(routine.markNoted).toHaveBeenCalledWith(["m1", "m2"]);
 	});
 });

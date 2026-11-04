@@ -797,12 +797,12 @@ export async function maybeHandleConfirmedAction(input: {
 	const ignoredDraft = pending.payload.action === "mcp-call" && pending.payload.mcpCall?.prepared === true;
 	if (input.continueInAgent && ignoredDraft && commandText && !isCardConfirmToken(commandText) && !isCardCancelToken(commandText) && !parseDevApprovalReject(commandText)) {
 		if (!(await claimSkillPendingIntent(pending.id, userId, input.conversationId))) return { handled: false };
-		await updateConfirmCardStatus(input.conversationId, "rejected", pending.payload.confirmId, undefined, { ok: false, detail: OWNER_WAIT_CARD_DETAIL.ignored }).catch(() => undefined);
+		await updateConfirmCardStatus(input.conversationId, "rejected", pending.payload.confirmId, undefined, { ok: false, detail: OWNER_WAIT_CARD_DETAIL.ignored }, { draftDecision: "ignored" }).catch(() => undefined);
 		return { handled: false };
 	}
 	if (input.continueInAgent && ignoredToolCall && commandText && !isCardConfirmToken(commandText) && !isCardCancelToken(commandText) && !parseDevApprovalReject(commandText)) {
 		if (!(await claimSkillPendingIntent(pending.id, userId, input.conversationId))) return { handled: false };
-		await updateConfirmCardStatus(input.conversationId, "rejected", pending.payload.confirmId, undefined, { ok: false, detail: OWNER_WAIT_CARD_DETAIL.ignored }).catch(() => undefined);
+		await updateConfirmCardStatus(input.conversationId, "rejected", pending.payload.confirmId, undefined, { ok: false, detail: OWNER_WAIT_CARD_DETAIL.ignored }, ignoredToolCall.prepared ? { draftDecision: "ignored" } : undefined).catch(() => undefined);
 		await cancelCardTimeout(pending.payload.confirmId);
 		// Rascunho de um run sem pessoa (já terminado): a fala nova é conversa comum, sem semente naquele run.
 		if (ignoredToolCall.prepared) return { handled: false };
@@ -860,7 +860,7 @@ export async function maybeHandleConfirmedAction(input: {
 		// Rascunho de escrita de conector: "Agora não" só descarta (nada executa, nenhum run novo, nenhum balão).
 		if (input.continueInAgent && ignoredDraft) {
 			if (!(await claimSkillPendingIntent(pending.id, userId, input.conversationId))) return { handled: false, duplicate: true };
-			await updateConfirmCardStatus(input.conversationId, "rejected", pending.payload.confirmId, undefined, { ok: false, detail: PREPARED_DISMISSED_DETAIL }).catch(() => undefined);
+			await updateConfirmCardStatus(input.conversationId, "rejected", pending.payload.confirmId, undefined, { ok: false, detail: PREPARED_DISMISSED_DETAIL }, { draftDecision: "dismissed" }).catch(() => undefined);
 			return { handled: false, duplicate: true };
 		}
 		const toolCallDeclined = pending.payload.action === "tool-call" ? pending.payload.toolCall : undefined;
@@ -868,7 +868,7 @@ export async function maybeHandleConfirmedAction(input: {
 			if (!(await claimSkillPendingIntent(pending.id, userId, input.conversationId))) return { handled: false, duplicate: true };
 			// Rascunho de `prepare_for_owner`: "Agora não" só descarta (nada executa, nenhum run novo, nenhum custo).
 			if (toolCallDeclined.prepared) {
-				await updateConfirmCardStatus(input.conversationId, "rejected", pending.payload.confirmId, undefined, { ok: false, detail: PREPARED_DISMISSED_DETAIL }).catch(() => undefined);
+				await updateConfirmCardStatus(input.conversationId, "rejected", pending.payload.confirmId, undefined, { ok: false, detail: PREPARED_DISMISSED_DETAIL }, { draftDecision: "dismissed" }).catch(() => undefined);
 				return { handled: false, duplicate: true };
 			}
 			await updateConfirmCardStatus(input.conversationId, "rejected", pending.payload.confirmId, undefined, { ok: false, detail: "não aprovado pelo usuário" }).catch(() => undefined);

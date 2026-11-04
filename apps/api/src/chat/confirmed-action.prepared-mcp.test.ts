@@ -18,7 +18,7 @@ const ARGS = { card_id: "c-42", list: "Feito" };
  * intenção `mcp-call` com `prepared`. Banco em memória; o conector é um dublê que conta as execuções.
  */
 function fakeDb(owner = USER) {
-	const state = { intent: true, status: "pending", outcome: undefined as { ok: boolean; detail: string } | undefined };
+	const state = { intent: true, status: "pending", outcome: undefined as { ok: boolean; detail: string } | undefined, draftDecision: undefined as string | undefined };
 	const originals = {
 		find: prisma.skillPendingIntent.findUnique,
 		del: prisma.skillPendingIntent.deleteMany,
@@ -44,9 +44,10 @@ function fakeDb(owner = USER) {
 	}) as unknown as typeof prisma.skillPendingIntent.deleteMany;
 	prisma.conversationMessage.findMany = (async () => [{ id: "m1", content: JSON.stringify({ v: 1, kind: "confirm", confirmId: CARD, title: "Trello: update card?", status: state.status, ...(state.outcome ? { outcome: state.outcome } : {}) }), createdAt: new Date() }]) as unknown as typeof prisma.conversationMessage.findMany;
 	prisma.conversationMessage.update = (async (args: { data: { content: string } }) => {
-		const next = JSON.parse(args.data.content) as { status: string; outcome?: { ok: boolean; detail: string } };
+		const next = JSON.parse(args.data.content) as { status: string; outcome?: { ok: boolean; detail: string }; draftDecision?: string };
 		state.status = next.status;
 		state.outcome = next.outcome;
+		state.draftDecision = next.draftDecision;
 		return {};
 	}) as unknown as typeof prisma.conversationMessage.update;
 	// Conversa do dono com este bot (getStrictOwnedConversation filtra por userId na query).
@@ -115,6 +116,8 @@ test("Agora não no rascunho do conector: descarta, sem execução, sem run novo
 		assert.equal(trello.calls.length, 0);
 		assert.equal(db.state.status, "rejected");
 		assert.deepEqual(db.state.outcome, { ok: false, detail: PREPARED_DISMISSED_DETAIL });
+		// Vira nota interna do próximo run (descartado).
+		assert.equal(db.state.draftDecision, "dismissed");
 	} finally { db.restore(); }
 });
 
@@ -125,6 +128,8 @@ test("dono escreveu outra coisa: rascunho Dispensado e nada executa (nem um 'ok'
 		assert.deepEqual(await click("ok, e o clima amanhã?", trello.deps), { handled: false });
 		assert.equal(trello.calls.length, 0);
 		assert.deepEqual(db.state.outcome, { ok: false, detail: "Dispensado" });
+		// Ignorado também vira nota interna (texto próprio), para a rotina seguinte não recriar o rascunho às cegas.
+		assert.equal(db.state.draftDecision, "ignored");
 	} finally { db.restore(); }
 });
 

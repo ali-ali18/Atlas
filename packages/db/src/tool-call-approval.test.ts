@@ -92,20 +92,34 @@ test("dois runs ao mesmo tempo: só um usa a aprovação", async () => {
 	}
 });
 
-test("rascunho descartado vira nota UMA vez, só na conversa do dono (PR8e)", async () => {
-	const { takeDismissedDraftTitles } = await import("./conversations.js");
-	const dismissed = serializeConversationCard({ v: 1, kind: "confirm", confirmId: "confirm-draftabcd1234-runR", title: "Trello: update card?", status: "rejected", outcome: { ok: false, detail: "Descartado" } } as Parameters<typeof serializeConversationCard>[0]);
-	const declinedOther = serializeConversationCard({ v: 1, kind: "confirm", confirmId: "confirm-toolabcd1234-run1", title: "Outro?", status: "rejected", outcome: { ok: false, detail: "não aprovado pelo usuário" } } as Parameters<typeof serializeConversationCard>[0]);
-	const rows = [row(dismissed), row(declinedOther, { id: "m2" })];
+test("rascunho descartado ou ignorado: lido sem consumir, marcado só depois, só na conversa do dono (PR8e)", async () => {
+	const { listPendingDraftDecisions, markDraftDecisionsNoted } = await import("./conversations.js");
+	const confirm = (confirmId: string, title: string, detail: string, extra: Record<string, unknown> = {}) =>
+		serializeConversationCard({ v: 1, kind: "confirm", confirmId, title, status: "rejected", outcome: { ok: false, detail }, ...extra } as Parameters<typeof serializeConversationCard>[0]);
+	const rows = [
+		row(confirm("confirm-draftabcd1234-runR", "Trello: update card?", "Descartado"), { id: "m1", createdAt: new Date(Date.now() - 3_000) }),
+		row(confirm("confirm-toolabcd1234-runR", "Enviar esta mensagem?", "Dispensado", { draftDecision: "ignored" }), { id: "m2", createdAt: new Date(Date.now() - 2_000) }),
+		// Cartão comum ignorado (não é rascunho): o modelo já recebe a fala nova como resultado; não vira nota.
+		row(confirm("confirm-toolabcd1234-run1", "Outro?", "Dispensado"), { id: "m3", createdAt: new Date(Date.now() - 1_000) }),
+	];
 	const restore = fake(rows);
+	const original = prisma.conversationMessage.findMany;
 	try {
-		assert.deepEqual(await takeDismissedDraftTitles("user-b", "conv"), []);
-		assert.deepEqual(await takeDismissedDraftTitles("user-a", "conv"), ["Trello: update card?"]);
+		assert.deepEqual(await listPendingDraftDecisions("user-b", "conv"), []);
+		const pending = await listPendingDraftDecisions("user-a", "conv");
+		assert.deepEqual(pending, [{ id: "m1", title: "Trello: update card?", decision: "dismissed" }, { id: "m2", title: "Enviar esta mensagem?", decision: "ignored" }]);
+		// Ler não consome: um run que falha antes do passo 1 deixa a nota para o próximo.
+		assert.equal((await listPendingDraftDecisions("user-a", "conv")).length, 2);
+		const inIds = prisma.conversationMessage.findMany;
+		prisma.conversationMessage.findMany = (async (args: { where: { id?: { in: string[] } } }) => (await inIds(args as never)).filter((item: { id: string }) => !args.where.id || args.where.id.in.includes(item.id))) as unknown as typeof prisma.conversationMessage.findMany;
+		assert.equal(await markDraftDecisionsNoted("user-b", "conv", ["m1", "m2"]), 0);
+		assert.equal(await markDraftDecisionsNoted("user-a", "conv", ["m1", "m2"]), 2);
+		prisma.conversationMessage.findMany = inIds;
 		assert.match(rows[0]!.content, /"modelNoted":true/);
-		// O selo do cartão continua o mesmo ("Descartado") e a nota não volta.
 		assert.match(rows[0]!.content, /"detail":"Descartado"/);
-		assert.deepEqual(await takeDismissedDraftTitles("user-a", "conv"), []);
+		assert.deepEqual(await listPendingDraftDecisions("user-a", "conv"), []);
 	} finally {
+		prisma.conversationMessage.findMany = original;
 		restore();
 	}
 });

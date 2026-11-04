@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-	dismissedDraftsNote,
+	draftDecisionsNote,
 	OWNER_WAIT_CARD_DETAIL,
 	OWNER_WAIT_OUTCOMES,
 	SCHEDULE_RETURN_MAX_PENDING,
@@ -134,10 +134,11 @@ describe("marcador e prompt do retorno", () => {
 	});
 });
 
-describe("rascunho descartado (PR8e)", () => {
-	it("nota interna curta, sem pedir de novo; vazia sem rascunho", () => {
-		expect(dismissedDraftsNote([])).toBe("");
-		expect(dismissedDraftsNote(["Trello: update card?"])).toBe('The owner dismissed this draft you left for approval: "Trello: update card". It was not done. Do not prepare it again unless the owner asks.');
-		expect(dismissedDraftsNote(["A?", "B?"])).toMatch(/these drafts you left for approval: "A"; "B"\. They were not done/);
+describe("rascunho descartado ou ignorado (PR8e)", () => {
+	it("nota interna curta, com texto próprio para o ignorado; vazia sem rascunho", () => {
+		expect(draftDecisionsNote([])).toBe("");
+		expect(draftDecisionsNote([{ title: "Trello: update card?", decision: "dismissed" }])).toBe('The owner dismissed draft(s) you left for approval: "Trello: update card". None of them was done. Do not prepare them again unless the owner asks.');
+		expect(draftDecisionsNote([{ title: "A?", decision: "ignored" }])).toBe('The owner did not answer the draft(s) you left for approval and sent another message instead: "A". None of them was done. Do not prepare them again unless the owner asks.');
+		expect(draftDecisionsNote([{ title: "A?", decision: "dismissed" }, { title: "B?", decision: "ignored" }])).toMatch(/dismissed draft\(s\)[^.]*"A"\. The owner did not answer[^.]*"B"\./);
 	});
 });

@@ -4,7 +4,7 @@ import {
 	DEFAULT_AUTONOMY_LEVEL,
 	buildPersonaBlock,
 	createNotebook,
-	dismissedDraftsNote,
+	draftDecisionsNote,
 	parseQuestionnaireAnsweredContent,
 	resolveReplyLanguage,
 	TRANSCRIPT_SLOT,
@@ -159,6 +159,7 @@ export async function prepareRun(params: ComputerUseParams, options: EngineV3Opt
 
 	// --- conversa: system estável, contexto, histórico, volátil e a fala atual ---
 	let conversation: LlmMessage[];
+	let draftNoteIds: string[] | undefined;
 	if (parsed?.llmMessages?.length) {
 		conversation = await hydrateLlmMessages(parsed.llmMessages);
 	} else {
@@ -182,9 +183,16 @@ export async function prepareRun(params: ComputerUseParams, options: EngineV3Opt
 		if (notebookIndex) notes.push(notebookIndex);
 		const returns = params.ownerWait ? await pendingReturnsTurnNote(params) : "";
 		if (returns) notes.push(returns);
-		// Rascunho que o dono descartou ("Agora não"): nota interna, nunca balão (decisão do dono, 04/11). Uma vez só.
-		const dismissed = params.loadDismissedDrafts && params.conversationId && userId !== "default" && origin !== "subagent" ? dismissedDraftsNote(await params.loadDismissedDrafts().catch(() => [])) : "";
-		if (dismissed) notes.push(dismissed);
+		// Rascunho que o dono descartou ("Agora não") ou deixou sem resposta: nota interna, nunca balão (decisão do dono,
+		// 04/11). Só em quem pode preparar de novo a ação na conversa (chat e rotina); marcada como dita depois da 1ª resposta.
+		if (params.draftDecisions && params.conversationId && userId !== "default" && (origin === "chat" || origin === "routine")) {
+			const decisions = await params.draftDecisions.list().catch(() => []);
+			const note = draftDecisionsNote(decisions);
+			if (note) {
+				notes.push(note);
+				draftNoteIds = decisions.map((item) => item.id);
+			}
+		}
 		conversation = assembleV3Conversation({
 			system,
 			contextFor: (snapshot) => buildV3ContextBlock({ manifest: catalog.manifest, skillIndex: params.skillIndex, canReadSkills: hasTool("skill_read"), snapshot }),
@@ -271,6 +279,7 @@ export async function prepareRun(params: ComputerUseParams, options: EngineV3Opt
 		repetition: createRepetitionGuard(v3State.repetition),
 		...(v3State.ownTaskList ? { ownTaskList: v3State.ownTaskList, taskListItems: v3State.ownTaskList } : priorWork.seed ? { taskListItems: priorWork.seed } : {}),
 		...(notebook ? { notebook } : {}),
+		...(draftNoteIds ? { draftNoteIds } : {}),
 		loginAsked: new Set(parsed?.loginAsked ?? []),
 		ownerRefused: new Set([...(v3State.ownerRefused ?? []), ...(parsed?.transcriptSeed?.refused ?? [])]),
 		...(parsed?.pendingLogin ? { pendingLogin: parsed.pendingLogin } : {}),

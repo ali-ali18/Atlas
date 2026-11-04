@@ -147,7 +147,7 @@ import { earlyWallMs, engineDefaultFromEnv, lessonsInjectedByEngine, pickRunEngi
 import { isReadOnlyConnectorOrigin, budgetStopFallbackText, isBotConfigEventObjective, createReviewerClient, resolveMaintenanceCandidates } from "@workspace/agent-runtime";
 import { runToolFilter } from "../run-tool-filter.js";
 import { briefDeliveryDeps, deliverBriefFailure, deliverDailyBrief, findRoutineRunIdWithRetry, isDetachedBriefRun } from "../daily-brief.js";
-import { appendConversationMessage, getLanguageContext, listBotToolUsage, listRecentLoginAsks, takeDismissedDraftTitles } from "@workspace/db";
+import { appendConversationMessage, getLanguageContext, listBotToolUsage, listRecentLoginAsks, listPendingDraftDecisions, markDraftDecisionsNoted } from "@workspace/db";
 import { resolveReplyLanguage, stopOfCompletion, systemMessages, type BotLanguage, type RunStop } from "@workspace/shared";
 import { stopOfBudgetError, stopOfFailure } from "../run-stop.js";
 import { runSystemLanguage } from "../system-language.js";
@@ -1410,8 +1410,10 @@ async function executeLeasedRun(ctx: {
 			// Núcleo por uso do motor v3: o v3 só lê ao abrir conversa nova; v1/v2 ignoram.
 			loadToolUsage: async () => (run.botId ? await listBotToolUsage({ userId: runUserId, botId: run.botId }) : {}),
 			...(deps.ownerWait ? { ownerWait: deps.ownerWait } : {}),
-			// Rascunho descartado pelo dono vira nota interna do próximo run (só o v3 lê; marca como dito ao ler).
-			...(run.conversationId ? { loadDismissedDrafts: () => takeDismissedDraftTitles(runUserId, run.conversationId!) } : {}),
+			// Rascunho descartado/ignorado pelo dono vira nota interna do próximo run (só o v3 lê; marca depois da 1ª resposta).
+			...(run.conversationId
+				? { draftDecisions: { list: () => listPendingDraftDecisions(runUserId, run.conversationId!), markNoted: (ids: string[]) => markDraftDecisionsNoted(runUserId, run.conversationId!, ids) } }
+				: {}),
 			onSandboxError: () => {
 				// Sessão pode ter morrido (reaper/container); força re-resolve
 				// (adopt-by-label ou cria nova) na próxima tool em vez de
