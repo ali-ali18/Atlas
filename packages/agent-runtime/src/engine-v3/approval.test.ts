@@ -168,6 +168,17 @@ describe("motor v3: ask em tool nativa usa o cartão genérico", () => {
 		expect(pending[0]).toMatchObject({ toolCall: { waitMinutes: 30 } });
 	});
 
+	it("waitMinutes também passa pela ponte (tool_call) sem contar como campo desconhecido; campo inventado continua falhando", async () => {
+		const scheduleTimeout = vi.fn(async () => undefined);
+		const bridged = await runV3([call("a", "tool_call", { name: "page_share", args: { ...share, waitMinutes: 20 } }), say("x")], { ownerWait: { scheduleTimeout, scheduleReturn: vi.fn() } });
+		expect(bridged.cards).toHaveLength(1);
+		expect(bridged.cards[0]!.callKey).toBe(toolCallKey("page_share", share));
+		expect(scheduleTimeout).toHaveBeenCalledWith(expect.objectContaining({ minutes: 20 }));
+		const invented = await runV3([call("b", "tool_call", { name: "page_share", args: { ...share, deadline: 20 } }), say("x")]);
+		expect(invented.cards).toHaveLength(0);
+		expect(invented.results.at(-1)?.summary).toContain("unknown field deadline");
+	});
+
 	it("waitMinutes fora de 1–1440 falha com o aceito e não mostra cartão", async () => {
 		const { cards, results } = await runV3([...direct("page_share", { ...share, waitMinutes: 5000 }), say("x")]);
 		expect(cards).toHaveLength(0);

@@ -22,7 +22,7 @@ import { decideCall, deniedMessage, spanPolicyDecision } from "./policy.js";
 import { BLOCKED_REPEATED } from "./repetition.js";
 import { pollSteer } from "./steering.js";
 import { hasOwnApprovalCard, nativeApprovalGate } from "./approval.js";
-import { NO_DEADLINE_NOTE, OWNER_HAS_COMPUTER, alreadyRefusedMessage, refusedToolKey, scheduleCardDeadline, takeWaitMinutes } from "./owner-wait.js";
+import { NO_DEADLINE_NOTE, OWNER_HAS_COMPUTER, WAIT_ARG, alreadyRefusedMessage, refusedToolKey, scheduleCardDeadline, takeWaitMinutes } from "./owner-wait.js";
 import type { ToolContextFactory } from "./tool-context.js";
 import type { V3Run } from "./state.js";
 
@@ -98,7 +98,9 @@ export function createToolsStep(run: V3Run, contextFor: ToolContextFactory) {
 		if (!inner || typeof inner !== "object" || Array.isArray(inner)) return { call, error: { name, summary: invalidArgsMessage(toolOf(name)!, "args must be a JSON object") } };
 		const normalized = normalizeArgs(toolOf(name)!, inner as Record<string, unknown>, [name, outer.name.trim()]);
 		if ("error" in normalized) return { call, error: { name, summary: normalized.error } };
-		const problems = argProblems(toolOf(name)!, normalized.args);
+		// `waitMinutes` (prazo da espera pelo dono) não é campo da tool: segue na chamada e sai em `processCall`.
+		const { [WAIT_ARG]: _wait, ...declared } = normalized.args;
+		const problems = argProblems(toolOf(name)!, declared);
 		if (problems.length > 0) return { call, error: { name, summary: invalidArgsMessage(toolOf(name)!, problems.join("; ")) } };
 		return { call: { ...call, function: { name, arguments: JSON.stringify(normalized.args) } } };
 	};
