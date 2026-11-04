@@ -173,3 +173,34 @@ test("usuário B não fecha o cartão nem mexe no run do usuário A", async () =
 		db.restore();
 	}
 });
+
+test("recusa sem run ativo: o run termina sem balão (sem \"Ok, deixei pra lá\") e o registro vai no role oculto, sem prefixo", async () => {
+	const { finishDeclinedActivity } = await import("./confirmed-action.js");
+	const notes: Array<{ conversationId: string; ownerId: string; content: string }> = [];
+	const finished: string[] = [];
+	const run = { id: "run-activity", conversationId: CONV } as unknown as Parameters<typeof finishDeclinedActivity>[0]["run"];
+	const deps = {
+		appendNote: async (input: { conversationId: string; ownerId: string; content: string }) => { notes.push(input); },
+		finish: async (input: { run: typeof run; assistantText: string }) => { finished.push(input.assistantText); return input.run; },
+	};
+	await finishDeclinedActivity({ run, merged: false, conversationId: CONV, ownerId: USER, title: 'Agenda: executar "create_event"?' }, deps);
+	assert.deepEqual(finished, [""], "nenhum texto do assistente: nada vira balão");
+	assert.equal(notes.length, 1);
+	assert.equal(notes[0]!.ownerId, USER);
+	// Sem `[runtime]` gravado: quem monta o histórico formata uma vez (auditoria do PR #131: no v3 saía duplicado).
+	assert.match(notes[0]!.content, /^Owner declined: "Agenda: executar \\?"create_event\\?""\. It was not done\./);
+	assert.doesNotMatch(notes[0]!.content, /\[runtime\]/);
+});
+
+test("recusa que caiu num run ativo (corrida merged): o registro também fica, e o run não é concluído por nós", async () => {
+	const { finishDeclinedActivity } = await import("./confirmed-action.js");
+	const notes: string[] = [];
+	const merges: Array<boolean | undefined> = [];
+	const run = { id: "run-active", conversationId: CONV } as unknown as Parameters<typeof finishDeclinedActivity>[0]["run"];
+	await finishDeclinedActivity(
+		{ run, merged: true, conversationId: CONV, ownerId: USER, title: "Enviar esta mensagem?" },
+		{ appendNote: async (input) => { notes.push(input.content); }, finish: async (input) => { merges.push(input.merged); return input.run; } },
+	);
+	assert.equal(notes.length, 1, "antes da auditoria a corrida não deixava registro");
+	assert.deepEqual(merges, [true], "finishActivityRun recebe merged e não conclui o run de outro trabalho");
+});

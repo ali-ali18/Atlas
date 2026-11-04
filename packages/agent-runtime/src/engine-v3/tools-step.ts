@@ -271,7 +271,8 @@ export function createToolsStep(run: V3Run, contextFor: ToolContextFactory) {
 			if (outcome.botProposalEvent) { cards.push(outcome.botProposalEvent); if (pending(outcome.botProposalEvent)) awaiting ??= "skill_card"; }
 			if (outcome.routineEvent) cards.push(outcome.routineEvent);
 			if (outcome.questionnaireEvent) {
-				let questionnaire = outcome.questionnaireEvent;
+				// Motor v3: o questionário oferece "Pular" (o run segue sem a resposta).
+				let questionnaire = { ...outcome.questionnaireEvent, ownerWait: true as const };
 				if (waitMinutes) {
 					const deadlineAt = await scheduleCardDeadline(run, { card: "questionnaire", cardId: questionnaire.questionnaireId, toolName: name, what: questionnaire.title, minutes: waitMinutes });
 					if (deadlineAt) questionnaire = { ...questionnaire, deadlineAt };
@@ -321,7 +322,9 @@ export function createToolsStep(run: V3Run, contextFor: ToolContextFactory) {
 		}
 		if (login) {
 			// Nesta fase o login é sempre da pessoa (sem preenchimento automático do Cofre): o cartão vai sem a oferta.
-			const { vault: _offer, ...human } = login;
+			// Motor v3: o cartão oferece Pular · Terminei · Assumir.
+			const { vault: _offer, ...rest } = login;
+			const human = { ...rest, ownerWait: true as const };
 			login = human;
 			await persistConversationCardFromEvent(run.conversationId, human).catch(() => undefined);
 			await run.emit(human);

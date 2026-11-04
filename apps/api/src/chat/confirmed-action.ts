@@ -5,6 +5,7 @@ import type { AgentRun } from "@workspace/shared";
 import {
 	addBotAutonomyException,
 	addCommandPrefixesToRepo,
+	appendOwnerDecisionNote,
 	appendRunEvent,
 	clearSkillPendingIntent,
 	claimSkillPendingIntent,
@@ -18,6 +19,7 @@ import {
 	setConfirmCardGrantUses,
 	getDevEnvironment,
 	getLatestConfirmCardStatus,
+	findConfirmCardTitle,
 	getMailboxForBot,
 	prisma,
 	getSkillPendingIntent,
@@ -682,6 +684,35 @@ export function applyConfirmedFollowUp<T extends { role: string; content: string
 	return messages.map((message, i) => (i === index ? { ...message, content: labelCardProtocolMessage(followUp.content) } : message));
 }
 
+export type DeclinedActivityDeps = {
+	appendNote: (input: { conversationId: string; ownerId: string; content: string }) => Promise<unknown>;
+	finish: (input: { run: AgentRun; merged?: boolean; assistantText: string }) => Promise<AgentRun>;
+};
+
+const DECLINED_ACTIVITY_DEPS: DeclinedActivityDeps = {
+	appendNote: (input) => appendOwnerDecisionNote(input),
+	finish: (input) => finishActivityRun(input),
+};
+
+/**
+ * Pedido do dono (04/11): recusar um cartão é comunicação interna. O run de atividade termina SEM balão do assistente
+ * (antes: "Ok, deixei pra lá."), o cartão mostra o selo e o modelo recebe o registro numa linha de role oculto
+ * (`owner_decision`): fora da tela, da prévia e da busca, e no histórico do modelo como nota `[runtime]` na posição dela
+ * (nunca `system`). Vale também quando a recusa caiu num run ativo (`merged`): o registro fica, o run não é concluído.
+ */
+export async function finishDeclinedActivity(
+	input: { run: AgentRun; merged: boolean; conversationId?: string; ownerId: string; title?: string },
+	deps: DeclinedActivityDeps = DECLINED_ACTIVITY_DEPS,
+): Promise<AgentRun> {
+	if (input.conversationId) await deps.appendNote({ conversationId: input.conversationId, ownerId: input.ownerId, content: declinedCardNote(input.title) }).catch(() => undefined);
+	return await deps.finish({ run: input.run, merged: input.merged, assistantText: "" });
+}
+
+/** Registro da recusa, sem prefixo (quem monta o histórico do modelo formata). */
+export function declinedCardNote(title: string | undefined): string {
+	return ownerWaitResultText("declined", { what: (title ?? "the pending request").replace(/\?$/, "") });
+}
+
 /**
  * Recusa ("Agora não", "Recusar") de um cartão enquanto OUTRO run da conversa está ativo (bug do dono, 03/11: recusar um
  * cartão atrasado parava tudo). Antes, a recusa virava um run de atividade que, preso ao índice "um run ativo por
@@ -873,6 +904,7 @@ export async function maybeHandleConfirmedAction(input: {
 			const userText = input.text.trim();
 			return { handled: false, followUp: { objective: userText, content: secretsDeclinedFollowUpContent(userText, secretsAsk), ...seedField(pending.payload, undefined, secretsDeclinedFollowUpContent("", secretsAsk), userText) } };
 		}
+		const declinedTitle = await findConfirmCardTitle(input.conversationId, userId, pending.payload.confirmId).catch(() => undefined);
 		await updateConfirmCardStatus(
 			input.conversationId,
 			"rejected",
@@ -888,10 +920,7 @@ export async function maybeHandleConfirmedAction(input: {
 			model: input.model,
 			commandText: input.text.trim(),
 		});
-		return {
-			run: await finishActivityRun({ run, merged, assistantText: `Ok, deixei pra lá.` }),
-			handled: true,
-		};
+		return { run: await finishDeclinedActivity({ run, merged, conversationId: input.conversationId, ownerId: userId, title: declinedTitle }), handled: true };
 	}
 
 	// Plano pendente: o texto que não é aprovar nem cancelar é pedido de ajuste (ou outro assunto); o modelo decide com o desfecho como resultado da chamada.

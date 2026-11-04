@@ -24,6 +24,13 @@ import {
 	parseSkillProposalCard,
 	serializeConversationCard,
 	SUPERSEDED_CARD_DETAIL,
+	OWNER_DECISION_ROLE,
+	ownerDecisionHistoryMessage,
+	parseLoginWaitOutcome,
+	parseOwnerConfirmCardKind,
+	parseOwnerWaitDeadline,
+	parseStepLimitProgress,
+	type LoginWaitOutcome,
 	type PersistedBotProfileCard,
 	type PersistedSkillProposalCard,
 	type PersistedConversationCard,
@@ -160,6 +167,8 @@ export async function listConversationMessages(
 	const rows = await prisma.conversationMessage.findMany({
 		where: {
 			conversationId,
+			// Registro da decisão do dono (recusa, prazo): é para o modelo, nunca para a tela (web e app).
+			role: { not: OWNER_DECISION_ROLE },
 			...(cursor
 				? {
 						OR: [
@@ -440,7 +449,7 @@ export async function persistConversationCardFromEvent(
 		if (typeof event.loginId !== "string" || typeof event.site !== "string" || typeof event.url !== "string") return;
 		// Um card por loginId: o evento de "done" atualiza o existente.
 		if (event.status === "done") {
-			await markLoginCardDone(conversationId, event.loginId);
+			await markLoginCardDone(conversationId, event.loginId, parseLoginWaitOutcome(event.outcome));
 			return;
 		}
 		const existing = await findLoginCard(conversationId, event.loginId);
@@ -459,6 +468,8 @@ export async function persistConversationCardFromEvent(
 			...(parseLoginVaultOffer(event.vault) ? { vault: parseLoginVaultOffer(event.vault)! } : {}),
 			...(typeof event.vaultTried === "string" && event.vaultTried ? { vaultTried: event.vaultTried.slice(0, 400) } : {}),
 			...(event.codeField === true ? { codeField: true as const } : {}),
+			...(parseOwnerWaitDeadline(event.deadlineAt) ? { deadlineAt: parseOwnerWaitDeadline(event.deadlineAt)! } : {}),
+			...(event.ownerWait === true ? { ownerWait: true as const } : {}),
 		});
 		emitUserNeeded({ conversationId, cardId: event.loginId, detail: `Entrar em ${event.site}` });
 		return;
@@ -502,6 +513,9 @@ export async function persistConversationCardFromEvent(
 			...(parseEmailKeyRequestInfo(event.emailKeyRequest) ? { emailKeyRequest: parseEmailKeyRequestInfo(event.emailKeyRequest) } : {}),
 			...(parsePlanInfo(event.plan) ? { plan: parsePlanInfo(event.plan) } : {}),
 			...(parseGithubIdentityInfo(event.githubIdentity) ? { githubIdentity: parseGithubIdentityInfo(event.githubIdentity) } : {}),
+			...(parseOwnerWaitDeadline(event.deadlineAt) ? { deadlineAt: parseOwnerWaitDeadline(event.deadlineAt)! } : {}),
+			...(parseOwnerConfirmCardKind(event.ownerCard) ? { ownerCard: parseOwnerConfirmCardKind(event.ownerCard)! } : {}),
+			...(parseStepLimitProgress(event.limitProgress) ? { limitProgress: parseStepLimitProgress(event.limitProgress)! } : {}),
 		});
 		if (event.status !== "approved" && event.status !== "rejected" && event.status !== "failed") {
 			const dev = parseDevApprovalInfo(event.devApproval);
@@ -534,6 +548,8 @@ export async function persistConversationCardFromEvent(
 			...(typeof event.originalRequest === "string" && event.originalRequest.trim()
 				? { originalRequest: event.originalRequest.trim().slice(0, 500) }
 				: {}),
+			...(parseOwnerWaitDeadline(event.deadlineAt) ? { deadlineAt: parseOwnerWaitDeadline(event.deadlineAt)! } : {}),
+			...(event.ownerWait === true ? { ownerWait: true as const } : {}),
 		};
 		// Uma proposta por vez: substitui o pendente anterior do mesmo run
 		// (mesmo questionnaireId) em vez de empilhar um segundo card.
@@ -964,13 +980,16 @@ async function findLoginCard(conversationId: string, loginId: string) {
 	return null;
 }
 
-/** "Terminei": o card de login deixa de pedir ação (a retomada do run é do /resume). */
-export async function markLoginCardDone(conversationId: string, loginId: string): Promise<void> {
+/**
+ * "Terminei": o card de login deixa de pedir ação (a retomada do run é do /resume). Motor v3: guarda também a saída
+ * (Assumir, Pular, prazo vencido, ignorou) para o selo sobreviver ao reload. A primeira saída gravada vence.
+ */
+export async function markLoginCardDone(conversationId: string, loginId: string, outcome?: LoginWaitOutcome): Promise<void> {
 	const found = await findLoginCard(conversationId, loginId);
 	if (!found || found.card.status === "done") return;
 	await prisma.conversationMessage.update({
 		where: { id: found.row.id },
-		data: { content: serializeConversationCard({ ...found.card, status: "done" }) },
+		data: { content: serializeConversationCard({ ...found.card, status: "done", ...(outcome ? { outcome } : {}) }) },
 	});
 }
 
@@ -1188,6 +1207,20 @@ export async function takeToolCallApproval(
  * (`null` = não há). Serve para reconhecer um "Executar" repetido de um cartão
  * que já foi decidido: o clique duplicado não vira mensagem nem run novos.
  */
+/**
+ * Título do cartão de confirmação (`confirmId`, ou o mais recente) para a nota oculta da recusa. Só da conversa do
+ * dono (`ownerId` filtra a consulta): conversa de outro usuário = nada.
+ */
+export async function findConfirmCardTitle(conversationId: string, ownerId: string, confirmId?: string): Promise<string | undefined> {
+	if (!ownerId.trim() || ownerId === "default") return undefined;
+	const rows = await prisma.conversationMessage.findMany({ where: { conversationId, role: "confirm", conversation: { userId: ownerId } }, orderBy: { createdAt: "desc" }, take: 20 });
+	for (const row of rows) {
+		const card = parseConversationCard(row.content);
+		if (card?.kind === "confirm" && (!confirmId || card.confirmId === confirmId)) return card.title;
+	}
+	return undefined;
+}
+
 export async function getLatestConfirmCardStatus(
 	conversationId: string,
 ): Promise<{ confirmId: string; status: "pending" | "approved" | "rejected" | "failed"; dev: boolean } | null> {
@@ -1201,6 +1234,33 @@ export async function getLatestConfirmCardStatus(
 		if (card?.kind === "confirm") return { confirmId: card.confirmId, status: card.status, dev: Boolean(card.devApproval) };
 	}
 	return null;
+}
+
+/** Papéis que vão ao modelo: os do chat mais o registro oculto das decisões do dono. */
+const HISTORY_ROLES: string[] = [...LLM_CHAT_ROLES, OWNER_DECISION_ROLE];
+
+/**
+ * Linha do banco → mensagem do histórico do modelo. A decisão do dono entra NA POSIÇÃO em que ocorreu como nota curta
+ * `user` `[runtime]` (v3 e v1/v2 iguais): nunca `system`, que o v1/v2 sobe para o início como regra.
+ */
+function toHistoryMessage(row: Parameters<typeof toSessionMessage>[0]): SessionMessage {
+	const message = toSessionMessage(row);
+	return row.role === OWNER_DECISION_ROLE ? { ...message, ...ownerDecisionHistoryMessage(row.content) } : message;
+}
+
+/**
+ * Grava o registro de uma decisão do dono sobre um cartão (role oculto `owner_decision`), só na conversa do dono.
+ * Fica fora da tela, da prévia e da busca; entra no histórico do modelo (`toHistoryMessage`). Texto sem prefixo.
+ */
+export async function appendOwnerDecisionNote(input: { conversationId: string; ownerId: string; content: string }): Promise<boolean> {
+	const content = input.content.trim().slice(0, 2_000);
+	if (!content || !input.ownerId.trim() || input.ownerId === "default") return false;
+	const owned = await prisma.conversation.findFirst({ where: { id: input.conversationId, userId: input.ownerId }, select: { id: true } });
+	if (!owned) return false;
+	await prisma.conversationMessage.create({
+		data: { conversationId: input.conversationId, role: OWNER_DECISION_ROLE, content, ...(currentMessageRunId() ? { runId: currentMessageRunId() } : {}) },
+	});
+	return true;
 }
 
 /** Marca d'água da conversa: a última mensagem (qualquer papel) e quantas existem até ela. */
@@ -1246,7 +1306,7 @@ export async function loadMessagesAfterWatermark(
 	const rows = await prisma.conversationMessage.findMany({
 		where: {
 			conversationId,
-			role: { in: [...LLM_CHAT_ROLES] },
+			role: { in: HISTORY_ROLES },
 			AND: [
 				{ OR: [{ createdAt: { gt: anchor.createdAt } }, { createdAt: anchor.createdAt, id: { gt: anchor.id } }] },
 				{ OR: [{ runId: null }, { runId: { not: options.excludeRunId } }] },
@@ -1255,7 +1315,7 @@ export async function loadMessagesAfterWatermark(
 		orderBy: [{ createdAt: "asc" }, { id: "asc" }],
 		take: options.limit ?? 200,
 	});
-	return { ok: true, messages: foldAutomatedMessages(rows.map(toSessionMessage).filter((row) => isLlmChatRole(row.role))) };
+	return { ok: true, messages: foldAutomatedMessages(rows.map(toHistoryMessage).filter((row) => isLlmChatRole(row.role))) };
 }
 
 /**
@@ -1277,7 +1337,7 @@ export async function loadRecentConversationMessages(
 	const rows = await prisma.conversationMessage.findMany({
 		where: {
 			conversationId,
-			role: { in: [...LLM_CHAT_ROLES] },
+			role: { in: HISTORY_ROLES },
 			// Conversa entre bots (origin "bot") é histórico normal: não some quando o usuário fala depois.
 			...(lastUser ? { OR: [{ origin: null }, { origin: "bot" }, { createdAt: { gt: lastUser.createdAt } }] } : {}),
 		},
@@ -1286,6 +1346,6 @@ export async function loadRecentConversationMessages(
 	});
 
 	return foldAutomatedMessages(
-		rows.reverse().map(toSessionMessage).filter((row) => isLlmChatRole(row.role)),
+		rows.reverse().map(toHistoryMessage).filter((row) => isLlmChatRole(row.role)),
 	);
 }

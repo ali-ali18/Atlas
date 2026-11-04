@@ -70,6 +70,67 @@ export function ownerWaitResultText(outcome: OwnerWaitOutcome, input: { what: st
 	}
 }
 
+export const LOGIN_WAIT_OUTCOMES = ["done", "takeover", "skipped", "skipped_timeout", "ignored"] as const satisfies readonly LoginWaitOutcome[];
+
+export function parseLoginWaitOutcome(value: unknown): LoginWaitOutcome | undefined {
+	return typeof value === "string" && (LOGIN_WAIT_OUTCOMES as readonly string[]).includes(value) ? (value as LoginWaitOutcome) : undefined;
+}
+
+/** Prazo de um cartão (ISO válido) lido do evento ou do cartão gravado; lixo = sem prazo. */
+/** Data e hora ISO 8601 completas, com fuso (`Z` ou `±hh:mm`): "1", "Mar 5" ou só a data não são prazo. */
+const ISO_DATE_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(?:Z|[+-]\d{2}:?\d{2})$/;
+
+export function parseOwnerWaitDeadline(value: unknown): string | undefined {
+	if (typeof value !== "string" || value.length > 40 || !ISO_DATE_TIME.test(value)) return undefined;
+	const at = new Date(value);
+	return Number.isNaN(at.getTime()) ? undefined : at.toISOString();
+}
+
+/**
+ * Qual cartão de confirmação do "esperar o dono" é (motor v3): aprovação genérica de uma ação, rascunho que um run sem
+ * pessoa deixou para o dono (`prepare_for_owner`) ou "Cheguei no limite. Continuo?". A UI escolhe o desenho por aqui.
+ */
+export const OWNER_CONFIRM_CARD_KINDS = ["approval", "draft", "step-limit"] as const;
+export type OwnerConfirmCardKind = (typeof OWNER_CONFIRM_CARD_KINDS)[number];
+
+export function parseOwnerConfirmCardKind(value: unknown): OwnerConfirmCardKind | undefined {
+	return typeof value === "string" && (OWNER_CONFIRM_CARD_KINDS as readonly string[]).includes(value) ? (value as OwnerConfirmCardKind) : undefined;
+}
+
+/** Cartão do limite: o que o run já fez até parar (passos usados, gasto, tarefas concluídas). */
+export type StepLimitProgress = { steps: number; costUsd?: number; tasksDone?: string[]; tasksTotal?: number };
+
+export const STEP_LIMIT_PROGRESS_MAX_TASKS = 8;
+
+export function parseStepLimitProgress(raw: unknown): StepLimitProgress | undefined {
+	if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+	const record = raw as Record<string, unknown>;
+	if (typeof record.steps !== "number" || !Number.isInteger(record.steps) || record.steps < 0 || record.steps > 10_000) return undefined;
+	const costUsd = typeof record.costUsd === "number" && Number.isFinite(record.costUsd) && record.costUsd > 0 ? Math.round(record.costUsd * 100) / 100 : undefined;
+	const tasksDone = Array.isArray(record.tasksDone)
+		? record.tasksDone.filter((item): item is string => typeof item === "string" && item.trim().length > 0).slice(0, STEP_LIMIT_PROGRESS_MAX_TASKS).map((item) => item.trim().slice(0, 160))
+		: [];
+	const tasksTotal = typeof record.tasksTotal === "number" && Number.isInteger(record.tasksTotal) && record.tasksTotal > 0 && record.tasksTotal <= 1_000 ? record.tasksTotal : undefined;
+	return { steps: record.steps, ...(costUsd !== undefined ? { costUsd } : {}), ...(tasksDone.length > 0 ? { tasksDone } : {}), ...(tasksTotal !== undefined ? { tasksTotal } : {}) };
+}
+
+/**
+ * Decisão do dono sobre um cartão (recusa, prazo, ignorado) gravada na conversa como registro para o modelo (pedido
+ * do dono, 04/11: recusar é comunicação interna). Role próprio e oculto: fica fora da tela (web e app), da prévia da
+ * barra lateral e da busca, e nunca vira `system` (que `trimHistory`/`planSummary` do v1/v2 sobem para o início como
+ * regra). O texto é gravado SEM prefixo; quem monta o histórico do modelo usa `ownerDecisionHistoryMessage`.
+ */
+export const OWNER_DECISION_ROLE = "owner_decision";
+
+/** Prefixo das notas do runtime no histórico (o mesmo `[runtime]` do motor v3). */
+export const OWNER_DECISION_PREFIX = "[runtime]";
+
+/** A nota no histórico do modelo, na posição em que ocorreu: fala `user` curta com o prefixo, uma vez só. */
+export function ownerDecisionHistoryMessage(content: string): { role: "user"; content: string } {
+	const text = content.trim();
+	return { role: "user", content: text.startsWith(OWNER_DECISION_PREFIX) ? text : `${OWNER_DECISION_PREFIX} ${text}` };
+}
+
 /** Rótulo do cartão depois da decisão (pt-BR, para o dono). */
 export const OWNER_WAIT_CARD_DETAIL: Readonly<Record<OwnerWaitOutcome, string>> = {
 	done: "Feito",
