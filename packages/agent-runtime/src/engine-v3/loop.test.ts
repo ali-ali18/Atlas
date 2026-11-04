@@ -532,3 +532,44 @@ describe("motor v3: caderno no trabalho longo (PR8e)", () => {
 		expect(seen[0]).toContain("notebook_write");
 	});
 });
+
+describe("motor v3: itens abertos do run anterior (PR8e)", () => {
+	const prior = [
+		{ content: "Levantar preços", status: "completed" },
+		{ content: "Comparar fornecedores", status: "in_progress" },
+		{ content: "Montar o relatório", status: "pending" },
+	];
+
+	it("replay 'Continua': o 1º passo vê os itens abertos (não os concluídos) e o modelo retoma em vez de recomeçar", async () => {
+		const { requests, results, result } = await runV3({
+			text: "Continua",
+			params: { continuedWork: true, priorOpenItems: prior },
+			script: [
+				(request) => {
+					const note = request.texts.find((text) => text.includes("The previous task in this conversation stopped with open items"));
+					expect(note).toMatch(/1\. Comparar fornecedores\n2\. Montar o relatório/);
+					expect(note).not.toContain("Levantar preços");
+					return tools(call("t1", "update_task_list", { items: [{ content: "Levantar preços", status: "completed" }, { content: "Comparar fornecedores", status: "in_progress" }, { content: "Montar o relatório", status: "pending" }] }));
+				},
+				say("Retomei: estou comparando os fornecedores."),
+				// A lista do próprio modelo segue aberta: um empurrão estrutural (E4) e o turno acaba.
+				say("Sigo no próximo turno."),
+			],
+		});
+		expect(requests).toHaveLength(3);
+		expect(results[0]).toMatchObject({ name: "update_task_list", ok: true, summary: expect.stringMatching(/^Task list saved: 1\/3 completed/) });
+		expect(result.stop).toEqual({ reason: "answered", detail: "tasklist_open" });
+	});
+
+	it("continuação automática: a lista segue com a tarefa e a nota diz de onde continuar", async () => {
+		const { requests } = await runV3({ text: "[continuação]", params: { autoContinued: true, continuedWork: true, priorTaskList: prior }, script: [say("Seguindo do item 2.")] });
+		const note = requests[0]!.texts.find((text) => text.includes("Task list of this task, carried from its previous run"));
+		expect(note).toMatch(/- \[completed\] Levantar preços\n- \[in_progress\] Comparar fornecedores\n- \[pending\] Montar o relatório\nContinue from the first item that is not completed; do not redo completed ones/);
+	});
+
+	it("mensagem sem trabalho aberto antes (ou lista toda concluída): nenhuma nota", async () => {
+		const done = prior.map((item) => ({ ...item, status: "completed" }));
+		const { requests } = await runV3({ text: "Bom dia", params: { priorTaskList: done }, script: [say("Bom dia!")] });
+		expect(requests[0]!.texts.some((text) => text.includes("Task list of this task") || text.includes("stopped with open items"))).toBe(false);
+	});
+});

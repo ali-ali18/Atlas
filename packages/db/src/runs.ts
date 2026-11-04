@@ -2738,10 +2738,12 @@ export async function getConversationTaskList(
 	for (const row of rows) {
 		const raw = row.checkpointJson;
 		if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
-		const list = parseTaskList((raw as { taskState?: { taskList?: unknown } }).taskState?.taskList);
+		const state = raw as { taskState?: { taskList?: unknown }; engineV3?: { ownTaskList?: unknown } };
+		// Motor v3 (PR8e): a lista do run mora em `engineV3.ownTaskList` (o v3 não grava `taskState`).
+		const list = parseTaskList(state.taskState ? state.taskState.taskList : state.engineV3?.ownTaskList);
 		if (list && !isTaskListDone(list)) return list;
 		// O run mais recente que tinha estado de tarefa decide: sem lista nele, a lista foi encerrada.
-		if ((raw as { taskState?: unknown }).taskState) return null;
+		if (state.taskState || state.engineV3) return null;
 	}
 	return null;
 }

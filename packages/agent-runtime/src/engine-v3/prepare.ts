@@ -39,6 +39,7 @@ import { OWNER_WAIT_DEFINED } from "../tools/registry/handlers/owner-wait.js";
 import { ROUTINE_LIMITS_DEFINED } from "../tools/routine-limits.js";
 import { PREPARE_FOR_OWNER_DEFINED } from "../tools/prepare-for-owner.js";
 import { heldBackTools } from "./prepared.js";
+import { priorWorkContext } from "./prior-work.js";
 
 const ownerWaitTools = () => OWNER_WAIT_DEFINED.flatMap((tool) => (tool.definition ? [tool.definition] : []));
 import type { V3Run } from "./state.js";
@@ -92,6 +93,8 @@ export async function prepareRun(params: ComputerUseParams, options: EngineV3Opt
 	const longWork = options.longWork === true && origin !== "subagent";
 	const continuation = origin === "chat" && (params.autoContinued === true || params.continuedWork === true);
 	const notebook = longWork ? createNotebook(parsed?.notebook ?? (continuation ? params.priorNotebook : undefined)) : undefined;
+	// Só em run novo (retomada já tem a conversa e a lista no checkpoint); subagente não herda a tarefa da conversa.
+	const priorWork = parsed || origin === "subagent" ? { note: "" } : priorWorkContext(params);
 
 	// As ~10 tools de navegador do v1/v2 viram 4 (desenho 5); o resto do catálogo é o mesmo.
 	const natives = swapBrowserTools(eligibleNativeTools({
@@ -172,6 +175,8 @@ export async function prepareRun(params: ComputerUseParams, options: EngineV3Opt
 		const notes = originSystemNotes({ origin, messages: params.messages, proactive: params.proactive ?? null, userPushMode: params.userPush?.mode, alertRun: params.alertRun });
 		const now = process.env.ATLAS_NOW_NOTE === "off" ? [] : [todayNote(new Date(), params.timeZone)];
 		// Retorno agendado ainda pendente: o modelo vê e não agenda de novo nem faz duas vezes (desenho "Volto depois").
+		// Itens abertos do run anterior (mensagem digitada) ou a lista que segue com a tarefa (continuação automática, plano).
+		if (priorWork.note) notes.push(priorWork.note);
 		// Continuação de trabalho longo: o índice do caderno herdado (títulos, não o conteúdo; o resto por `notebook_read`).
 		const notebookIndex = notebook?.index();
 		if (notebookIndex) notes.push(notebookIndex);
@@ -264,7 +269,7 @@ export async function prepareRun(params: ComputerUseParams, options: EngineV3Opt
 		activeMs: () => wall.baseMs + (Date.now() - wall.executionStartMs),
 		nudges: createNudges(v3State.nudges),
 		repetition: createRepetitionGuard(v3State.repetition),
-		...(v3State.ownTaskList ? { ownTaskList: v3State.ownTaskList, taskListItems: v3State.ownTaskList } : {}),
+		...(v3State.ownTaskList ? { ownTaskList: v3State.ownTaskList, taskListItems: v3State.ownTaskList } : priorWork.seed ? { taskListItems: priorWork.seed } : {}),
 		...(notebook ? { notebook } : {}),
 		loginAsked: new Set(parsed?.loginAsked ?? []),
 		ownerRefused: new Set([...(v3State.ownerRefused ?? []), ...(parsed?.transcriptSeed?.refused ?? [])]),
