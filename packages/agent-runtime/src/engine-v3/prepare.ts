@@ -162,6 +162,10 @@ export async function prepareRun(params: ComputerUseParams, options: EngineV3Opt
 	}
 
 	// --- orçamento: só tetos do dono; passos pela regra do desenho ---
+	// Rotina (D4): passos e US$ próprios valem só na origem `routine`; US$ = o menor entre o da conta/bot e o da rotina.
+	const routineLimits = origin === "routine" ? params.routineLimits : undefined;
+	const costCaps = [params.budget?.maxCostUsd, routineLimits?.maxCostUsd].filter((cap): cap is number => typeof cap === "number" && Number.isFinite(cap) && cap > 0);
+	const costCapUsd = costCaps.length > 0 ? Math.min(...costCaps) : undefined;
 	const limits = resolveBudget({ maxSteps: params.maxSteps, policy: params.budget });
 	const wall = wallClockAnchors({ maxWallMs: limits.maxWallMs, now: Date.now(), runStartedAt: params.runStartedAt, restored: parsed });
 	const prices = fallbackPricesFromEnv();
@@ -212,7 +216,14 @@ export async function prepareRun(params: ComputerUseParams, options: EngineV3Opt
 		}),
 		...(secrets ? { secrets } : {}),
 		health: params.providerHealth ?? createProviderHealth(),
-		limit: stepLimitFor({ humanPresent: personWatching, ...(options.ownerSteps !== undefined ? { ownerSteps: options.ownerSteps } : {}) }),
+		limit: stepLimitFor({
+			humanPresent: personWatching,
+			...(options.ownerSteps !== undefined ? { ownerSteps: options.ownerSteps } : {}),
+			...(routineLimits?.maxSteps !== undefined ? { routineSteps: routineLimits.maxSteps } : {}),
+		}),
+		...(costCapUsd !== undefined ? { costCapUsd } : {}),
+		limitGrant: v3State.limitGrant ?? { steps: 0, usd: 0, waits: 0 },
+		...(v3State.limitWait ? { limitWait: v3State.limitWait } : {}),
 		step: parsed?.nextStepIndex ?? 0,
 		usage,
 		estimatedCostUsd: usage.costUsd === undefined && (usage.costUnknownCalls ?? 0) > 0 ? estimateCostUsd(usage, prices) : 0,
@@ -265,6 +276,8 @@ export async function prepareRun(params: ComputerUseParams, options: EngineV3Opt
 					...(run.ownTaskList ? { ownTaskList: run.ownTaskList } : {}),
 					...(Object.keys(run.toolUsage).length > 0 ? { toolUsage: run.toolUsage } : {}),
 					...(run.ownerRefused.size > 0 ? { ownerRefused: [...run.ownerRefused].slice(-50) } : {}),
+					...(run.limitWait ? { limitWait: run.limitWait } : {}),
+					...(run.limitGrant.steps > 0 || run.limitGrant.usd > 0 || run.limitGrant.waits > 0 ? { limitGrant: run.limitGrant } : {}),
 				},
 			});
 			const write = checkpointTail.then(() => params.onCheckpoint!(snapshot));

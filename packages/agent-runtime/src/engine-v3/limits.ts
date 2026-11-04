@@ -15,8 +15,16 @@ export type CapKind = "steps_unattended" | "steps_owner" | "steps_safety" | "cos
 
 export type StepLimit = { maxSteps: number; kind: Extract<CapKind, "steps_unattended" | "steps_owner" | "steps_safety"> };
 
-export function stepLimitFor(input: { humanPresent: boolean; ownerSteps?: number }): StepLimit {
-	const owner = input.ownerSteps !== undefined && Number.isFinite(input.ownerSteps) && input.ownerSteps >= 1 ? Math.floor(input.ownerSteps) : undefined;
+const positiveInt = (value: number | undefined) => (value !== undefined && Number.isFinite(value) && value >= 1 ? Math.floor(value) : undefined);
+
+/**
+ * `routineSteps`: passos que o dono configurou NA rotina (vale só sem humano e vence o teto da conta: é o mais
+ * específico). `ownerSteps`: teto de passos da conta/bot/pedido.
+ */
+export function stepLimitFor(input: { humanPresent: boolean; ownerSteps?: number; routineSteps?: number }): StepLimit {
+	const routine = positiveInt(input.routineSteps);
+	if (!input.humanPresent && routine !== undefined) return { maxSteps: Math.min(routine, MAX_STEPS_SAFETY), kind: "steps_unattended" };
+	const owner = positiveInt(input.ownerSteps);
 	// Teto do dono vale com ou sem humano, limitado aos 200 de segurança (dono com 300 não cai nos 40 sem humano).
 	if (owner !== undefined) return owner < MAX_STEPS_SAFETY ? { maxSteps: owner, kind: "steps_owner" } : { maxSteps: MAX_STEPS_SAFETY, kind: "steps_safety" };
 	if (!input.humanPresent) return { maxSteps: UNATTENDED_MAX_STEPS, kind: "steps_unattended" };
@@ -36,6 +44,27 @@ export function reachedCap(input: {
 	if (input.costCapUsd !== undefined && input.costCapUsd > 0 && input.spentUsd >= input.costCapUsd) return "cost";
 	if (input.wallCapMs !== undefined && input.wallCapMs > 0 && input.activeMs >= input.wallCapMs) return "wall";
 	return undefined;
+}
+
+/**
+ * Tetos em que o run SEM humano estaciona e pergunta ao dono "Continuo?" (decisão D4): passos e US$. O de segurança,
+ * tempo, repetição e contexto seguem no passo final honesto.
+ */
+export function parksAtLimit(kind: CapKind): kind is "steps_unattended" | "steps_owner" | "cost" {
+	return kind === "steps_unattended" || kind === "steps_owner" || kind === "cost";
+}
+
+/** Limite efetivo depois dos "Continuar" do dono (cada um soma de novo o limite base). */
+export function grantedLimit(base: StepLimit, grant: { steps: number }): StepLimit {
+	return grant.steps > 0 ? { ...base, maxSteps: base.maxSteps + grant.steps } : base;
+}
+
+/** O dono escolheu "Agora não" no cartão do limite: resposta final honesta, sem tools. */
+export const OWNER_STOPPED_NOTE = "The owner chose not to continue after the limit. Reply now with what you have done, what is missing, and what you could not confirm. Do not call tools.";
+
+export function ownerContinueNote(wait: { kind: "steps" | "cost"; steps: number; costUsd?: number }): string {
+	const more = wait.kind === "cost" && wait.costUsd !== undefined ? `US$ ${wait.costUsd.toFixed(2)} more to spend` : `${wait.steps} more steps`;
+	return `The owner said to continue after the limit: you have ${more}. Continue from where you stopped; do not redo finished work.`;
 }
 
 const LIMIT_LABEL: Record<CapKind, string> = {

@@ -206,10 +206,11 @@ describe("motor v3: empurrões estruturais", () => {
 });
 
 describe("motor v3: limites", () => {
-	it("rotina sem humano chega em 40 passos → FINAL_STEP com toolChoice none, tools mantidas, nada executado e resposta honesta", async () => {
+	it("rotina sem conversa para o cartão chega em 40 passos → FINAL_STEP com toolChoice none, tools mantidas, nada executado e resposta honesta", async () => {
+		// Com conversa, o limite estaciona com o cartão "Continuo?" (ver limit-wait.test.ts); sem ela, vale o passo final.
 		const script: ScriptItem[] = Array.from({ length: 40 }, (_, index) => read(index));
 		script.push(tools(call("late", READ, { nome: "tarde" })));
-		const { result, requests, results, checkpoints, mcpCall } = await runV3({ origin: "routine", text: "Confira os clientes", script: [...script.slice(0, 40), { ...say("Conferi 40 clientes; faltam os demais. Continuo?"), message: { role: "assistant", content: "Conferi 40 clientes; faltam os demais. Continuo?", tool_calls: [call("ignored", READ, { nome: "x" })] } }] });
+		const { result, requests, results, checkpoints, mcpCall } = await runV3({ origin: "routine", text: "Confira os clientes", params: { conversationId: undefined }, script: [...script.slice(0, 40), { ...say("Conferi 40 clientes; faltam os demais. Continuo?"), message: { role: "assistant", content: "Conferi 40 clientes; faltam os demais. Continuo?", tool_calls: [call("ignored", READ, { nome: "x" })] } }] });
 		expect(requests).toHaveLength(41);
 		const final = requests[40]!;
 		expect(final.params.toolChoice).toBe("none");
@@ -375,7 +376,7 @@ describe("motor v3: contrato e tracing", () => {
 		const runs = await Promise.all([
 			runV3({ script: [read(1), tools(call("t", "update_task_list", { items: [{ content: "a", status: "completed" }] })), say("x", "length"), say("y")] }),
 			runV3({ script: [tools(call("w", WRITE, { cliente: "A" }))] }),
-			runV3({ origin: "routine", options: { ownerSteps: 1 }, script: [read(1), say("")] }),
+			runV3({ origin: "routine", options: { ownerSteps: 1 }, params: { conversationId: undefined }, script: [read(1), say("")] }),
 		]);
 		const known = new Set<string>(RUN_EVENT_TYPES);
 		for (const { events } of runs) {

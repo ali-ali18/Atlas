@@ -209,6 +209,8 @@ export type ComputerUseParams = {
 	pageShareStore?: PageShareStore;
 	/** Run de rotina ligada a uma página: `page_update` só vale nela (e marca `refreshedAt`). */
 	routinePageId?: string;
+	/** Motor v3: limites próprios da rotina deste run (passos e US$ por execução; ausente = padrão). Só vale em origem `routine`. */
+	routineLimits?: { maxSteps?: number; maxCostUsd?: number };
 	maxSteps?: number;
 	/** Política de orçamento (soft/hard/wall/tokens/caps). */
 	budget?: AgentBudgetPolicy;

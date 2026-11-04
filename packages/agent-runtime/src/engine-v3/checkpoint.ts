@@ -1,5 +1,5 @@
 import type { LlmMessage } from "@workspace/llm";
-import { parseTaskList, parseToolUsageCounts, type TaskListItem } from "@workspace/shared";
+import { parseStepLimitWait, parseTaskList, parseToolUsageCounts, type StepLimitWait, type TaskListItem } from "@workspace/shared";
 import { completedToolCallIds } from "../checkpoint.js";
 import { UNKNOWN_STATUS_NOTE } from "./failures.js";
 import { NUDGE_CAPS, type NudgeKind, type NudgeState } from "./nudges.js";
@@ -14,7 +14,21 @@ export type V3CheckpointState = {
 	toolUsage?: Record<string, number>;
 	/** Pedidos recusados/pulados pelo dono neste trabalho (PR8a). */
 	ownerRefused?: string[];
+	/** Parado no limite de passos/US$ esperando o "Continuo?" do dono (PR8b). */
+	limitWait?: StepLimitWait;
+	/** O que os "Continuar" do dono já somaram ao limite base (passos, US$) e quantas vezes ele parou. */
+	limitGrant?: LimitGrant;
 };
+
+export type LimitGrant = { steps: number; usd: number; waits: number };
+
+function parseLimitGrant(raw: unknown): LimitGrant | undefined {
+	if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+	const record = raw as Record<string, unknown>;
+	const count = (value: unknown) => (typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : 0);
+	const grant = { steps: Math.floor(count(record.steps)), usd: count(record.usd), waits: Math.floor(count(record.waits)) };
+	return grant.steps > 0 || grant.usd > 0 || grant.waits > 0 ? grant : undefined;
+}
 
 const pairs = (value: unknown): Array<[string, number]> =>
 	Array.isArray(value)
@@ -39,7 +53,17 @@ export function parseV3State(raw: Record<string, unknown> | undefined): Partial<
 	const ownTaskList = parseTaskList(raw.ownTaskList);
 	const toolUsage = parseToolUsageCounts(raw.toolUsage);
 	const ownerRefused = Array.isArray(raw.ownerRefused) ? raw.ownerRefused.filter((key): key is string => typeof key === "string" && key.length > 0 && key.length <= 200).slice(-50) : [];
-	return { nudges, repetition, ...(ownTaskList?.length ? { ownTaskList } : {}), ...(Object.keys(toolUsage).length > 0 ? { toolUsage } : {}), ...(ownerRefused.length > 0 ? { ownerRefused } : {}) };
+	const limitWait = parseStepLimitWait(raw.limitWait);
+	const limitGrant = parseLimitGrant(raw.limitGrant);
+	return {
+		nudges,
+		repetition,
+		...(ownTaskList?.length ? { ownTaskList } : {}),
+		...(Object.keys(toolUsage).length > 0 ? { toolUsage } : {}),
+		...(ownerRefused.length > 0 ? { ownerRefused } : {}),
+		...(limitWait ? { limitWait } : {}),
+		...(limitGrant ? { limitGrant } : {}),
+	};
 }
 
 /**

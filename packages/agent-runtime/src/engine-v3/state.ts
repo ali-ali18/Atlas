@@ -1,5 +1,5 @@
 import type { ChatTool, LlmMessage } from "@workspace/llm";
-import type { AgentRunCheckpoint, BotLanguage, ComputerUseEvent, EffectiveAutonomy, TaskListItem } from "@workspace/shared";
+import type { AgentRunCheckpoint, BotLanguage, ComputerUseEvent, EffectiveAutonomy, StepLimitWait, TaskListItem } from "@workspace/shared";
 import type { TokenUsage } from "../budget.js";
 import type { McpToolEntry } from "../mcp/registry.js";
 import type { createPreToolRunner } from "../hooks/pre-tool-runner.js";
@@ -9,6 +9,7 @@ import type { ToolHandler } from "../tools/registry/types.js";
 import type { ComputerUseParams } from "../run-types.js";
 import type { V3Catalog } from "./catalog.js";
 import type { StepLimit } from "./limits.js";
+import type { LimitGrant } from "./checkpoint.js";
 import type { Nudges } from "./nudges.js";
 import type { PolicyBase } from "./policy.js";
 import type { RepetitionGuard } from "./repetition.js";
@@ -53,7 +54,14 @@ export type V3Run = {
 	preTools: ReturnType<typeof createPreToolRunner>;
 	secrets?: SecretSession;
 	health: ProviderHealth;
+	/** Limite BASE de passos (sem os "Continuar" do dono; o efetivo é `grantedLimit(limit, limitGrant)`). */
 	limit: StepLimit;
+	/** Teto em US$ do run (o menor entre o da conta/bot e o da rotina); ausente = sem teto em US$. */
+	costCapUsd?: number;
+	/** O que os "Continuar" do dono no cartão do limite já somaram (vai no checkpoint). */
+	limitGrant: LimitGrant;
+	/** Parado no limite esperando o "Continuo?" do dono (vai no checkpoint; a API grava a decisão nele). */
+	limitWait?: StepLimitWait;
 	step: number;
 	usage: TokenUsage;
 	estimatedCostUsd: number;
