@@ -120,3 +120,15 @@ describe.skipIf(!findChromium())("bench do navegador: roteiro (mock) na VM de ba
 		expect(v3.toolCalls).toBeLessThanOrEqual(legacy.toolCalls);
 	}, 600_000);
 });
+
+describe("bench do navegador: pedido real leva o endereço da página", () => {
+	it("cada tarefa diz ao modelo onde está a página (sem isso o modelo real ficava em about:blank)", async () => {
+		const { benchUserPrompt } = await import("./run.js");
+		const { BENCH_TASKS } = await import("./tasks.js");
+		for (const task of BENCH_TASKS) {
+			const prompt = benchUserPrompt(task, "http://127.0.0.1:9999");
+			expect(prompt.startsWith(task.prompt)).toBe(true);
+			expect(prompt).toContain(`Página: http://127.0.0.1:9999${task.path}`);
+		}
+	});
+});

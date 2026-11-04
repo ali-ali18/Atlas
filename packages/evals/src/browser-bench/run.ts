@@ -14,6 +14,15 @@ export const BENCH_SYSTEM =
 
 export const MAX_STEPS = 25;
 
+/**
+ * Pedido do usuário com o endereço da página. O navegador começa em about:blank e, sem a URL, o modelo real não
+ * tinha onde ir (1ª rodada real: 3/24 nos dois conjuntos, parando em 2-3 passos). Como numa conversa real, o
+ * usuário diz onde está a página; abrir e agir fica com o modelo.
+ */
+export function benchUserPrompt(task: BenchTask, origin: string): string {
+	return `${task.prompt}\n\nPágina: ${origin}${task.path}`;
+}
+
 export function legacyBrowserTools(): ChatTool[] {
 	return COMPUTER_USE_TOOLS.filter((tool) => V3_REPLACED_BROWSER_TOOLS.has(tool.function.name) && tool.function.name !== "computer");
 }
@@ -68,9 +77,9 @@ const silentIn = (text: string) => (text.match(/no visible change/gi) ?? []).len
 type Driver = (messages: LlmMessage[], tools: ChatTool[]) => Promise<CompleteChatWithToolsResult>;
 
 /** Laço mínimo do bench: modelo ↔ tools da VM de bancada, sem o motor (o bench mede as tools, não o laço). */
-async function loop(input: { task: BenchTask; mode: ToolMode; model: string; vm: BenchVm; driver: Driver; maxSteps: number }): Promise<Omit<RunMetrics, "completed" | "detail" | "durationMs" | "taskId" | "mode" | "model">> {
+async function loop(input: { task: BenchTask; mode: ToolMode; model: string; vm: BenchVm; driver: Driver; maxSteps: number; origin: string }): Promise<Omit<RunMetrics, "completed" | "detail" | "durationMs" | "taskId" | "mode" | "model">> {
 	const tools = toolsFor(input.mode);
-	const messages: LlmMessage[] = [{ role: "system", content: BENCH_SYSTEM }, { role: "user", content: input.task.prompt }];
+	const messages: LlmMessage[] = [{ role: "system", content: BENCH_SYSTEM }, { role: "user", content: benchUserPrompt(input.task, input.origin) }];
 	const out = { steps: 0, toolCalls: 0, toolErrors: 0, silentClicks: 0, promptTokens: 0, completionTokens: 0, costUsd: 0, finalText: "" };
 	for (let step = 0; step < input.maxSteps; step += 1) {
 		const response = await input.driver(messages, tools);
@@ -137,7 +146,7 @@ export async function runBenchTask(input: { task: BenchTask; mode: ToolMode; mod
 		const driver = input.driver ?? scriptedDriver(task, mode, fixtures.origin);
 		await vm.manager.execNavigate(vm.sessionId, "about:blank").catch(() => undefined);
 		const timeout = new Promise<never>((_, reject) => setTimeout(() => reject(new Error("tempo esgotado")), input.timeoutMs ?? 180_000).unref());
-		const measured = await Promise.race([loop({ task, mode, model: input.model, vm, driver, maxSteps: MAX_STEPS }), timeout]);
+		const measured = await Promise.race([loop({ task, mode, model: input.model, vm, driver, maxSteps: MAX_STEPS, origin: fixtures.origin }), timeout]);
 		const verdict = task.check({ events: fixtures.events, finalText: measured.finalText });
 		return { ...base, ...measured, completed: verdict.pass, detail: verdict.detail, durationMs: Date.now() - startedAt };
 	} catch (error) {
