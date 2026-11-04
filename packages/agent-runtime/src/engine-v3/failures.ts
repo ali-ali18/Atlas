@@ -88,6 +88,22 @@ export function missingRequiredArgs(tool: ChatTool, args: Record<string, unknown
 	return (tool.function.parameters.required ?? []).filter((key) => args[key] === undefined || args[key] === null);
 }
 
+/**
+ * Campos que o schema não declara (regra do dono: campo desconhecido falha com a lista do que é aceito, nunca é
+ * descartado em silêncio). Só vale quando o schema lista propriedades e não abre `additionalProperties`.
+ */
+export function unknownArgs(tool: ChatTool, args: Record<string, unknown>): string[] {
+	const parameters = tool.function.parameters as { properties?: Record<string, unknown>; additionalProperties?: unknown };
+	const properties = parameters.properties ?? {};
+	if (Object.keys(properties).length === 0 || parameters.additionalProperties === true || typeof parameters.additionalProperties === "object") return [];
+	return Object.keys(args).filter((key) => !Object.hasOwn(properties, key));
+}
+
+export function unknownArgsMessage(tool: ChatTool, unknown: readonly string[]): string {
+	const accepted = Object.keys(tool.function.parameters.properties ?? {}).slice(0, 12).join(", ");
+	return invalidArgsMessage(tool, `unknown field${unknown.length > 1 ? "s" : ""} ${unknown.slice(0, 5).join(", ")} (accepted: ${accepted})`);
+}
+
 export function invalidArgsMessage(tool: ChatTool, reason: string): string {
 	return `Invalid arguments: ${reason.slice(0, 300)}. Expected: ${toolSignature(tool)}. Call it again with valid JSON arguments.`;
 }
