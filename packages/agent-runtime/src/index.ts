@@ -521,6 +521,8 @@ export { MARKET_KEY_CATALOG_IDS, ownerMarketAccess, probeMarketKey, reportReject
 export { runEngineV2, type EngineV2Options } from "./engine-v2/index.js";
 export { runEngineV3, runEngineV3WithV2Options, type EngineV3Options } from "./engine-v3/index.js";
 export { type OwnerWaitDeps, SCHEDULE_RETURN_TOOL_NAME } from "./tools/schedule-return.js";
+export { PREPARE_FOR_OWNER_TOOL_NAME } from "./tools/prepare-for-owner.js";
+export { ROUTINE_LIMITS_TOOL_NAME } from "./tools/routine-limits.js";
 export { executeSetEngine, shouldExposeSetEngine, SET_ENGINE_TOOL, SET_ENGINE_TOOL_NAME } from "./tools/set-engine.js";
 export type { ComputerUseParams, RunComputerUseResult } from "./computer-use.js";
 // Bench do navegador (packages/evals): as 4 tools do v3 e o executor das tools atuais, para medir lado a lado.

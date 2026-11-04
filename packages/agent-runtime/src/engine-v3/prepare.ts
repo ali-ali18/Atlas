@@ -34,6 +34,9 @@ import { assembleV3Conversation, attachToLastUser, buildV3ContextBlock, buildV3S
 import { createRepetitionGuard } from "./repetition.js";
 import { pendingReturnsTurnNote } from "./owner-wait.js";
 import { OWNER_WAIT_DEFINED } from "../tools/registry/handlers/owner-wait.js";
+import { ROUTINE_LIMITS_DEFINED } from "../tools/routine-limits.js";
+import { PREPARE_FOR_OWNER_DEFINED } from "../tools/prepare-for-owner.js";
+import { heldBackTools } from "./prepared.js";
 
 const ownerWaitTools = () => OWNER_WAIT_DEFINED.flatMap((tool) => (tool.definition ? [tool.definition] : []));
 import type { V3Run } from "./state.js";
@@ -104,8 +107,18 @@ export async function prepareRun(params: ComputerUseParams, options: EngineV3Opt
 	if (params.ownerWait && params.conversationId && userId !== "default" && origin !== "subagent") {
 		for (const tool of ownerWaitTools()) if (params.toolFilter?.(tool.function.name) ?? true) natives.push(tool);
 	}
+	// Só no v3 (PR8b, D4): o dono muda os limites da rotina pelo chat. `needsHuman`: sem pessoa a política a esconde
+	// (a rotina nunca sobe o próprio teto).
+	if (origin === "chat" && params.botId && userId !== "default" && (params.toolFilter?.(ROUTINE_LIMITS_DEFINED.name) ?? true) && ROUTINE_LIMITS_DEFINED.definition) {
+		natives.push(ROUTINE_LIMITS_DEFINED.definition);
+	}
+	// Só no v3 (PR8b, desenho 7 regra 1): sem pessoa (rotina, webhook, proativo, e-mail recebido, outro bot), o que
+	// precisa do dono vira rascunho aprovável no chat dele. Subagente não posta cartão.
+	const canPrepareForOwner = !policy.humanPresent && origin !== "subagent" && Boolean(params.conversationId) && userId !== "default";
+	if (canPrepareForOwner && PREPARE_FOR_OWNER_DEFINED.definition && (params.toolFilter?.(PREPARE_FOR_OWNER_DEFINED.name) ?? true)) natives.push(PREPARE_FOR_OWNER_DEFINED.definition);
 	const entryOf = (name: string) => mcp?.toolset.entries.get(name);
 	const hides = (name: string) => catalogHides({ name, entry: entryOf(name), base: policy, autonomy });
+	const heldBack = heldBackTools(natives, hides);
 	// Filtro do run (brief "Seu dia", conferência, ajudante): vale para nativa E conector, como no v2.
 	const allow = (name: string) => params.toolFilter?.(name) ?? true;
 	// Catálogo congelado por conversa: o núcleo e o uso do run anterior (retomada ou turno seguinte) voltam iguais, então
@@ -162,6 +175,10 @@ export async function prepareRun(params: ComputerUseParams, options: EngineV3Opt
 	}
 
 	// --- orçamento: só tetos do dono; passos pela regra do desenho ---
+	// Rotina (D4): passos e US$ próprios valem só na origem `routine`; US$ = o menor entre o da conta/bot e o da rotina.
+	const routineLimits = origin === "routine" ? params.routineLimits : undefined;
+	const costCaps = [params.budget?.maxCostUsd, routineLimits?.maxCostUsd].filter((cap): cap is number => typeof cap === "number" && Number.isFinite(cap) && cap > 0);
+	const costCapUsd = costCaps.length > 0 ? Math.min(...costCaps) : undefined;
 	const limits = resolveBudget({ maxSteps: params.maxSteps, policy: params.budget });
 	const wall = wallClockAnchors({ maxWallMs: limits.maxWallMs, now: Date.now(), runStartedAt: params.runStartedAt, restored: parsed });
 	const prices = fallbackPricesFromEnv();
@@ -212,7 +229,17 @@ export async function prepareRun(params: ComputerUseParams, options: EngineV3Opt
 		}),
 		...(secrets ? { secrets } : {}),
 		health: params.providerHealth ?? createProviderHealth(),
-		limit: stepLimitFor({ humanPresent: personWatching, ...(options.ownerSteps !== undefined ? { ownerSteps: options.ownerSteps } : {}) }),
+		limit: stepLimitFor({
+			humanPresent: personWatching,
+			...(options.ownerSteps !== undefined ? { ownerSteps: options.ownerSteps } : {}),
+			...(routineLimits?.maxSteps !== undefined ? { routineSteps: routineLimits.maxSteps } : {}),
+		}),
+		...(costCapUsd !== undefined ? { costCapUsd } : {}),
+		limitGrant: v3State.limitGrant ?? { steps: 0, usd: 0, waits: 0 },
+		...(v3State.limitWait ? { limitWait: v3State.limitWait } : {}),
+		heldBack,
+		canPrepareForOwner: canPrepareForOwner && catalog.entries.has(PREPARE_FOR_OWNER_DEFINED.name),
+		draftsPrepared: v3State.draftsPrepared ?? 0,
 		step: parsed?.nextStepIndex ?? 0,
 		usage,
 		estimatedCostUsd: usage.costUsd === undefined && (usage.costUnknownCalls ?? 0) > 0 ? estimateCostUsd(usage, prices) : 0,
@@ -265,6 +292,9 @@ export async function prepareRun(params: ComputerUseParams, options: EngineV3Opt
 					...(run.ownTaskList ? { ownTaskList: run.ownTaskList } : {}),
 					...(Object.keys(run.toolUsage).length > 0 ? { toolUsage: run.toolUsage } : {}),
 					...(run.ownerRefused.size > 0 ? { ownerRefused: [...run.ownerRefused].slice(-50) } : {}),
+					...(run.limitWait ? { limitWait: run.limitWait } : {}),
+					...(run.limitGrant.steps > 0 || run.limitGrant.usd > 0 || run.limitGrant.waits > 0 ? { limitGrant: run.limitGrant } : {}),
+					...(run.draftsPrepared > 0 ? { draftsPrepared: run.draftsPrepared } : {}),
 				},
 			});
 			const write = checkpointTail.then(() => params.onCheckpoint!(snapshot));

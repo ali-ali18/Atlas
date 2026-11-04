@@ -213,6 +213,13 @@ export type ToolContext = {
 	markPlanPending?: (plan: { title: string }) => void;
 	/** Regra de lição `confirm_always` (hooks): força o cartão de confirmação mesmo que a autonomia deixasse. */
 	forceConfirm?: boolean;
+	/**
+	 * Motor v3 (PR8b): o dono aprovou EXATAMENTE esta chamada num rascunho de `prepare_for_owner` (a aprovação já foi
+	 * consumida). A tool executa sem mostrar o próprio cartão de novo (uma vez só, com o dono presente pelo clique).
+	 */
+	ownerApproved?: true;
+	/** Motor v3 (PR8b): cria o rascunho aprovável no chat do dono (`prepare_for_owner`); ausente = indisponível neste run. */
+	prepareForOwner?: (input: { tool: string; args: Record<string, unknown>; note: string }) => Promise<ToolResult>;
 	/** Cartão da lista de passos na thread: grava (um por run) e emite o evento. */
 	emitTaskList?: (items: Array<{ content: string; status: "pending" | "in_progress" | "completed" }>, meta?: { deliverable?: "document" | "answer" }) => Promise<void>;
 	/** V3: portão de entrega; lança com a nota ao modelo enquanto há itens abertos. */

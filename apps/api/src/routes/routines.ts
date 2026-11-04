@@ -12,6 +12,7 @@ import {
 	parseOnceRunAt,
 	parseIntervalEveryMinutes,
 	parseEmailTriggerInput,
+	parseRoutineLimitsInput,
 	type CreateRoutineInput,
 	type UpdateRoutineInput,
 } from "@workspace/shared";
@@ -254,6 +255,12 @@ export function parseUpdateBody(json: unknown): UpdateRoutineInput | { error: st
 	if (body.notify !== undefined) {
 		if (body.notify !== "always" && body.notify !== "important") return { error: "notify deve ser always ou important" };
 		patch.notify = body.notify;
+	}
+	// Limites por execução do motor v3 (passos, US$): faixa e campos validados em shared; `null` volta ao padrão.
+	if (body.limits !== undefined) {
+		const limits = parseRoutineLimitsInput(body.limits);
+		if (!limits.ok) return { error: limits.error };
+		patch.limits = limits.patch;
 	}
 	if (typeof body.name === "string") {
 		if (body.name.trim().length === 0) return { error: "Nome inválido" };

@@ -22,6 +22,7 @@ import { decideCall, deniedMessage, spanPolicyDecision } from "./policy.js";
 import { BLOCKED_REPEATED } from "./repetition.js";
 import { pollSteer } from "./steering.js";
 import { hasOwnApprovalCard, nativeApprovalGate } from "./approval.js";
+import { takeOwnerApprovedCall } from "./prepared.js";
 import { NO_DEADLINE_NOTE, OWNER_HAS_COMPUTER, WAIT_ARG, alreadyRefusedMessage, refusedToolKey, scheduleCardDeadline, takeWaitMinutes } from "./owner-wait.js";
 import type { ToolContextFactory } from "./tool-context.js";
 import type { V3Run } from "./state.js";
@@ -140,7 +141,10 @@ export function createToolsStep(run: V3Run, contextFor: ToolContextFactory) {
 		// --- nome: exato, normalizado, escondido pela política (motivo) ou desconhecido (até 3 próximos) ---
 		let name = call.function.name;
 		name = resolveName(name) ?? name;
-		if (!toolOf(name)) {
+		// Continuação de um rascunho de `prepare_for_owner`: a ação escondida por falta de pessoa pode rodar UMA vez, se
+		// o dono aprovou exatamente esta chamada (conferido depois de validar os args, antes da política).
+		const heldTool = !toolOf(name) && run.continuesRunId ? run.heldBack.get(name) : undefined;
+		if (!toolOf(name) && !heldTool) {
 			// Existe mas a política tirou do catálogo: o modelo recebe o motivo, não "não existe".
 			const hiddenEntry = run.entryOf(name);
 			if (hiddenEntry || getToolMeta(name)) {
@@ -152,7 +156,7 @@ export function createToolsStep(run: V3Run, contextFor: ToolContextFactory) {
 			const near = closestToolNames(name, [...run.catalog.entries.keys()]);
 			return await refuse(call, sub, name, hiddenEntry || getToolMeta(name) ? notOfferedMessage(name, near) : unknownToolMessage(name, near));
 		}
-		const tool = toolOf(name)!;
+		const tool = toolOf(name) ?? heldTool!;
 		// --- args ---
 		let args: Record<string, unknown>;
 		try {
@@ -183,14 +187,25 @@ export function createToolsStep(run: V3Run, contextFor: ToolContextFactory) {
 		const entry = run.entryOf(name);
 		const pre = run.preTools.run(name, args, entry);
 		if (pre.error) return await refuse(call, sub, name, pre.error, { argsKey });
-		const verdict = decideCall({ name, args, ...(entry ? { entry } : {}), base: run.policy, autonomy: run.autonomy.get(), confirmAlways: pre.forceConfirm });
+		// Ação aprovada pelo dono num rascunho: a política decide como se ele estivesse aqui (o clique foi a aprovação).
+		// Também com a tool visível (continuação que herdou turno humano, deploy com api antiga): tool com cartão próprio
+		// (e-mail) aprovada no rascunho roda pelo caminho exato, sem o segundo cartão. As demais nativas visíveis já usam a
+		// mesma aprovação no `nativeApprovalGate`.
+		const approvable = Boolean(run.continuesRunId) && !entry && (Boolean(heldTool) || hasOwnApprovalCard(name));
+		const ownerApproved = approvable ? await takeOwnerApprovedCall(run, name, args) : false;
+		if (heldTool && !ownerApproved) {
+			const hidden = decideCall({ name, args, base: run.policy, autonomy: run.autonomy.get() });
+			return await refuse(call, sub, name, deniedMessage(hidden.reason), { argsKey });
+		}
+		const base = ownerApproved ? { ...run.policy, humanPresent: true, humanTurn: true } : run.policy;
+		const verdict = decideCall({ name, args, ...(entry ? { entry } : {}), base, autonomy: run.autonomy.get(), confirmAlways: pre.forceConfirm });
 		if (verdict.decision === "deny" || verdict.decision === "hide") return await refuse(call, sub, name, deniedMessage(verdict.reason), { argsKey });
 		// --- rede de repetição ---
 		const meta = getToolMeta(name);
 		const errorTarget = `${name}|${targetOf(args)}`;
 		if (run.repetition.shouldBlock({ argsKey, poll: meta?.poll === true, errorTarget })) return await refuse(call, sub, name, BLOCKED_REPEATED, { argsKey, checked: true });
 		// --- `ask` em tool nativa: cartão genérico e o run estaciona (conector e tool com cartão próprio usam o deles) ---
-		const nativeAsk = verdict.decision === "ask" && !entry && !hasOwnApprovalCard(name);
+		const nativeAsk = !ownerApproved && verdict.decision === "ask" && !entry && !hasOwnApprovalCard(name);
 		if (nativeAsk) {
 			// Lote paralelo: a checagem e a marca acontecem antes de qualquer await, então só um cartão sai por lote.
 			if (batch.parked) {
@@ -243,7 +258,7 @@ export function createToolsStep(run: V3Run, contextFor: ToolContextFactory) {
 		try {
 			// `ask` com humano em conector: o executor mostra o cartão dele e o run estaciona. Nativa já aprovada roda aqui.
 			const outcome = await runSandboxOperation({ signal: params.abortSignal }, isSandboxTool(name) ? 180_000 : undefined, (signal) => {
-				const toolCtx = contextFor(call, signal, verdict.decision === "ask" && !nativeAsk);
+				const toolCtx = ownerApproved ? { ...contextFor(call, signal, false), ownerApproved: true as const } : contextFor(call, signal, verdict.decision === "ask" && !nativeAsk);
 				const own = run.toolHandlers.get(name);
 				return own ? executeTool(name, args, toolCtx, own) : executeTool(name, args, toolCtx);
 			});

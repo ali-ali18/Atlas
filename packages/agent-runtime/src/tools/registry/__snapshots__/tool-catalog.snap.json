@@ -2549,6 +2549,56 @@
    "effectBySample": []
   },
   {
+   "name": "prepare_for_owner",
+   "group": "misc",
+   "source": "registry",
+   "readOnly": false,
+   "definition": {
+    "type": "function",
+    "function": {
+     "name": "prepare_for_owner",
+     "description": "Leave an action that needs the owner (send, write outside Atlas, money, public link, credential) as a draft card in the owner's chat. The owner approves it (it then runs once) or dismisses it; nothing runs now. USE WHEN the task needs one of those actions and nobody is here to approve. DO NOT USE for actions available in this run, or to ask a question. One draft per run.",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "tool": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128,
+        "description": "Name of the action that needs the owner (e.g. email_send)."
+       },
+       "args": {
+        "type": "object",
+        "propertyNames": {
+         "type": "string"
+        },
+        "additionalProperties": {},
+        "description": "The exact arguments that action takes; the owner approves these and nothing else."
+       },
+       "note": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 500,
+        "description": "One or two plain sentences for the owner: what it does and why, in the reply language."
+       }
+      },
+      "required": [
+       "tool",
+       "args",
+       "note"
+      ]
+     }
+    }
+   },
+   "effect": "write_internal",
+   "catalogEffect": null,
+   "poll": null,
+   "endsTurn": null,
+   "needsHuman": null,
+   "ownCard": null,
+   "effectBySample": []
+  },
+  {
    "name": "preview_setup",
    "group": "misc",
    "source": "registry",
@@ -3790,6 +3840,59 @@
    "poll": null,
    "endsTurn": null,
    "needsHuman": null,
+   "ownCard": null,
+   "effectBySample": []
+  },
+  {
+   "name": "routine_limits",
+   "group": "routines",
+   "source": "registry",
+   "readOnly": false,
+   "definition": {
+    "type": "function",
+    "function": {
+     "name": "routine_limits",
+     "description": "Change how far one run of a routine may go before it stops and asks the owner \"continue?\": steps per run and an optional US$ cap. USE WHEN the owner asks to raise, lower or reset a routine's step or spending limit. DO NOT USE for the schedule, the instruction or pausing (use the routine tools).",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "target": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 200,
+        "description": "Routine name or id (from list_routines)."
+       },
+       "maxSteps": {
+        "description": "Steps per run (5 to 200). Default without it: 40.",
+        "type": "number"
+       },
+       "maxCostUsd": {
+        "description": "Max US$ per run (0.01 to 50). No default: without it there is no US$ cap.",
+        "type": "number"
+       },
+       "reset": {
+        "description": "Fields to put back to the default (maxSteps → 40 steps, maxCostUsd → no US$ cap).",
+        "type": "array",
+        "items": {
+         "type": "string",
+         "enum": [
+          "maxSteps",
+          "maxCostUsd"
+         ]
+        }
+       }
+      },
+      "required": [
+       "target"
+      ]
+     }
+    }
+   },
+   "effect": "write_internal",
+   "catalogEffect": null,
+   "poll": null,
+   "endsTurn": null,
+   "needsHuman": true,
    "ownCard": null,
    "effectBySample": []
   },

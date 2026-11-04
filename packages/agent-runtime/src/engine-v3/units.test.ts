@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ChatTool } from "@workspace/llm";
 import { closestToolNames, honestError, missingRequiredArgs, normalizeToolName, toolSignature, unknownToolMessage, withTransportRetry } from "./failures.js";
-import { MAX_STEPS_SAFETY, UNATTENDED_MAX_STEPS, capStop, finalStepNote, reachedCap, stepLimitFor } from "./limits.js";
+import { MAX_STEPS_SAFETY, UNATTENDED_MAX_STEPS, capStop, finalStepNote, grantedLimit, parksAtLimit, reachedCap, stepLimitFor, type CapKind } from "./limits.js";
 import { NUDGE_GLOBAL_CAP, createNudges, nudgeSignal, nudgeText } from "./nudges.js";
 import { BLOCKED_REPEATED, COMPACTION_REPEAT_NOTE, PING_PONG_NOTE, POLL_EXEMPT, REPEAT_NOTE, SAME_ERROR_NOTE, createRepetitionGuard } from "./repetition.js";
 
@@ -18,6 +18,15 @@ describe("motor v3: limites", () => {
 		expect(stepLimitFor({ humanPresent: false, ownerSteps: 300 })).toEqual({ maxSteps: MAX_STEPS_SAFETY, kind: "steps_safety" });
 		expect(stepLimitFor({ humanPresent: true, ownerSteps: 300 })).toEqual({ maxSteps: MAX_STEPS_SAFETY, kind: "steps_safety" });
 		expect(stepLimitFor({ humanPresent: false, ownerSteps: 0 }).maxSteps).toBe(UNATTENDED_MAX_STEPS);
+	});
+
+	it("limite próprio da rotina vale só sem humano e vence o teto da conta; passos e US$ estacionam, o resto não", () => {
+		expect(stepLimitFor({ humanPresent: false, routineSteps: 60, ownerSteps: 100 })).toEqual({ maxSteps: 60, kind: "steps_unattended" });
+		expect(stepLimitFor({ humanPresent: false, routineSteps: 500 })).toEqual({ maxSteps: MAX_STEPS_SAFETY, kind: "steps_unattended" });
+		expect(stepLimitFor({ humanPresent: true, routineSteps: 60 })).toEqual({ maxSteps: MAX_STEPS_SAFETY, kind: "steps_safety" });
+		expect((["steps_unattended", "steps_owner", "cost"] satisfies CapKind[]).every((kind) => parksAtLimit(kind))).toBe(true);
+		expect((["steps_safety", "wall", "repeated", "context"] satisfies CapKind[]).some((kind) => parksAtLimit(kind))).toBe(false);
+		expect(grantedLimit({ maxSteps: 40, kind: "steps_unattended" }, { steps: 80 })).toEqual({ maxSteps: 120, kind: "steps_unattended" });
 	});
 
 	it("US$ e tempo só contam se o dono configurou", () => {

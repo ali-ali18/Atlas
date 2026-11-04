@@ -19,7 +19,7 @@ import type {
 	RunInputStatus,
 	RunUsage,
 } from "@workspace/shared";
-import { RUN_MAX_STEPS, stoppedWithOpenWork, sanitizeStopDetail, readRunProfile, readStoredRunEngine, withRunEngine, withRunPromotion, withRunCaps, type RunCaps, type RequestedEngine, type RunProfile } from "@workspace/shared";
+import { RUN_MAX_STEPS, parseStepLimitWait, stoppedWithOpenWork, sanitizeStopDetail, readRunProfile, readStoredRunEngine, withRunEngine, withRunPromotion, withRunCaps, type RunCaps, type RequestedEngine, type RunProfile } from "@workspace/shared";
 import type { RunStop } from "@workspace/shared";
 import { parseReasoningEffort, withReplyContext, type ReasoningEffort, type ReplyQuote } from "@workspace/shared";
 import { AGENT_RUNTIME_CHECKPOINT_VERSION, RUN_MAX_RECOVERIES, RUN_RECOVERY_LIMIT_MESSAGE, nextRunRecoveryState, buildMessageSource, LIVE_RUN_INPUT_MODES, isCardConfirmToken, isPersistedMessageOrigin, isTaskListDone, parseTaskList, normalizeRunInputMode, openItems, parseTaskLedger, parseToolCacheState, parseToolResultStatus, parseToolUsageCounts, redactSecrets, splitReplySegments } from "@workspace/shared";
@@ -918,6 +918,27 @@ export async function markPendingLoginOutcome(input: { runId: string; userId: st
 	return checkpoint.pendingLogin.loginId;
 }
 
+/**
+ * Motor v3: decisão do dono no cartão "Cheguei no limite. Continuo?" (`continue` | `stop`). Só grava quando o run do
+ * dono está parado nesse limite (`engineV3.limitWait`, `cardId` confere se informado) e ainda não há decisão; a mesma
+ * decisão já gravada devolve `true` (idempotente), uma diferente devolve `false`. Escopado
+ * pelo dono; condicional pela versão lida. Quem chama grava ANTES de liberar o run, para o worker já ler a decisão.
+ */
+export async function markPendingLimitOutcome(input: { runId: string; userId: string; outcome: "continue" | "stop"; cardId?: string }): Promise<boolean> {
+	if (!input.userId.trim() || input.userId === "default") return false;
+	const row = await prisma.agentRun.findFirst({ where: { id: input.runId, userId: input.userId }, select: { checkpointJson: true, updatedAt: true } });
+	const checkpoint = row?.checkpointJson as AgentRunCheckpoint | null | undefined;
+	const engineV3 = checkpoint?.engineV3;
+	const wait = parseStepLimitWait(engineV3?.limitWait);
+	if (!row || !checkpoint || !engineV3 || !wait) return false;
+	if (input.cardId && wait.cardId !== input.cardId) return false;
+	// Mesma decisão já gravada (clique repetido depois de uma liberação que falhou): confere, para o run poder sair.
+	if (wait.outcome) return wait.outcome === input.outcome;
+	const next = { ...checkpoint, engineV3: { ...engineV3, limitWait: { ...wait, outcome: input.outcome } } };
+	const updated = await prisma.agentRun.updateMany({ where: { id: input.runId, userId: input.userId, updatedAt: row.updatedAt }, data: { checkpointJson: next as unknown as Prisma.InputJsonValue } });
+	return updated.count === 1;
+}
+
 export async function listActiveRunsForConversation(
 	conversationId: string,
 ): Promise<AgentRun[]> {
@@ -1495,6 +1516,18 @@ export async function setRunSandboxSession(
 	});
 }
 
+/**
+ * Uma gravação de checkpoint do worker que chega depois do clique no cartão do limite (motor v3) traz a espera SEM a
+ * decisão: a decisão já gravada pelo dono fica (mesmo cartão). Pura.
+ */
+export function carryLimitOutcome(incoming: AgentRunCheckpoint, stored: unknown): AgentRunCheckpoint {
+	const nextWait = parseStepLimitWait(incoming.engineV3?.limitWait);
+	if (!nextWait || nextWait.outcome) return incoming;
+	const storedWait = parseStepLimitWait((stored as AgentRunCheckpoint | null | undefined)?.engineV3?.limitWait);
+	if (!storedWait?.outcome || storedWait.cardId !== nextWait.cardId) return incoming;
+	return { ...incoming, engineV3: { ...incoming.engineV3, limitWait: { ...nextWait, outcome: storedWait.outcome } } };
+}
+
 export async function persistRunProgress(input: {
 	runId: string;
 	checkpoint: AgentRunCheckpoint;
@@ -1503,6 +1536,11 @@ export async function persistRunProgress(input: {
 	lease?: RunLease | null;
 }): Promise<void> {
 	await prisma.$transaction(async (tx) => {
+		// Só quando o checkpoint é de uma espera de limite sem decisão (raro): lê o gravado para não apagar o clique do dono.
+		if (parseStepLimitWait(input.checkpoint.engineV3?.limitWait) && !parseStepLimitWait(input.checkpoint.engineV3?.limitWait)?.outcome) {
+			const stored = await tx.agentRun.findUnique({ where: { id: input.runId }, select: { checkpointJson: true } });
+			input = { ...input, checkpoint: carryLimitOutcome(input.checkpoint, stored?.checkpointJson) };
+		}
 		if (input.lease) {
 			const owned = await tx.agentRun.updateMany({
 				where: {

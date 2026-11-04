@@ -1,3 +1,4 @@
+import type { RoutineLimits, RoutineLimitsPatch } from "./routine-limits.js";
 import type { EventEnvelope, RoutineHookInfo } from "./events/triggers.js";
 import type { RoutineAlert, RoutineAlertConfig } from "./routine-alert.js";
 import type { RoutineEmailTriggerView } from "./routine-email.js";
@@ -69,6 +70,8 @@ export type RoutineRecord = {
 	interval?: { everyMinutes: number };
 	/** Presente em rotinas de alerta (cron/interval): condição + estado da última verificação. */
 	alert?: RoutineAlert;
+	/** Limites próprios por execução (passos, US$); ausente = padrão do motor (motor v3). */
+	limits?: RoutineLimits;
 };
 
 export type RoutineGroupRecord = {
@@ -178,6 +181,8 @@ export type UpdateRoutineInput = {
 	notify?: RoutineNotifyMode;
 	/** Define/troca o alerta (condição nova rearma o estado) ou `null` para voltar a rotina comum. Omitido mantém. */
 	alert?: RoutineAlertConfig | null;
+	/** Limites por execução (motor v3): patch já validado; `null` volta ao padrão. Omitido mantém. */
+	limits?: RoutineLimitsPatch | null;
 	triggerType?: RoutineTriggerType;
 	schedule?: string | null;
 	enabled?: boolean;

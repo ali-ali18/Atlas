@@ -422,6 +422,22 @@ export type {
 } from "./routine-card.js";
 export { isPersistedRoutineCard } from "./routine-card.js";
 export { parseRoutineNotifyMode } from "./routines.js";
+export {
+	ROUTINE_MAX_COST_MAX_USD,
+	ROUTINE_MAX_COST_MIN_USD,
+	ROUTINE_MAX_STEPS_MAX,
+	ROUTINE_MAX_STEPS_MIN,
+	applyRoutineLimitsPatch,
+	formatRoutineLimitsSummary,
+	parseRoutineLimitsInput,
+	parseStepLimitWait,
+	parseStoredRoutineLimits,
+	stepLimitCardText,
+	type RoutineLimits,
+	type RoutineLimitsPatch,
+	type RoutineLimitsParse,
+	type StepLimitWait,
+} from "./routine-limits.js";
 export type {
 	RoutineNotifyMode,
 	RoutineTriggerType,

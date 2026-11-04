@@ -9,6 +9,7 @@ import type { ToolContext } from "../tools/registry/types.js";
 import { claimVision, createVisionClaimState } from "../tools/vision-fallback.js";
 import { rankTools, toolSearchText } from "./bridge.js";
 import type { V3Run } from "./state.js";
+import { prepareDraftForOwner } from "./prepared.js";
 
 /**
  * O `ToolContext` que as tools do registro recebem (o mesmo executor do v1/v2: cofre, cartões, cards). Só o que o
@@ -76,6 +77,7 @@ export function createToolContextFactory(run: V3Run) {
 		humanTurn: run.humanTurn,
 		jev: params.jev,
 		forceConfirm,
+		...(run.canPrepareForOwner ? { prepareForOwner: (input: { tool: string; args: Record<string, unknown>; note: string }) => prepareDraftForOwner(run, input) } : {}),
 		mcpRun: run.mcpRun,
 		objective: params.objective,
 		lastUserText: lastUserPlainText(run.conversation),

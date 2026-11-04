@@ -60,8 +60,13 @@ export type PolicyContext = {
 
 export type PolicyResult = { decision: PolicyDecision; reason: string };
 
-/** Ponto de extensão (PR futuro): cria um rascunho aprovável no chat do dono; é a única escrita permitida sem humano. */
+/** Cria um rascunho aprovável no chat do dono (PR8b); é a única "escrita externa" possível sem humano, e só prepara. */
 export const PREPARE_FOR_OWNER_TOOL = "prepare_for_owner";
+
+/** Efeito que, sem humano, a política esconde e `prepare_for_owner` pode deixar como rascunho para o dono. */
+export function needsOwnerWithoutHuman(effect: ToolEffect): boolean {
+	return EXTERNAL_EFFECTS.has(effect);
+}
 
 /** Efeitos que saem do Atlas ou tocam segredo: sem humano na conversa, nem aparecem. */
 const EXTERNAL_EFFECTS: ReadonlySet<ToolEffect> = new Set(["write_external", "send", "money", "public_link", "credential"]);
@@ -108,11 +113,13 @@ function explainStatic(tool: PolicyTool, ctx: PolicyContext): PolicyResult {
 
 	if (rules?.mode === "blocked") return result("hide", "blocked by the user");
 
-	// Rascunho aprovável para o dono: não escreve fora, só prepara. Vale em qualquer origem.
-	if (tool.name === PREPARE_FOR_OWNER_TOOL) return result("allow", "draft for the owner to approve");
-
 	// O filho herda a origem do pai (humano ou não); mas ele mesmo nunca mostra cartão, então `ask` vira `deny`.
 	const resolved = resolvePolicyOrigin(ctx);
+
+	// Rascunho aprovável para o dono: não escreve fora, só prepara. Só existe em origem sem pessoa (no chat o dono
+	// aprova o cartão da própria ação).
+	if (tool.name === PREPARE_FOR_OWNER_TOOL) return originHasHuman(resolved) ? result("hide", "a person is in the conversation: ask them directly") : result("allow", "draft for the owner to approve");
+
 	const human = ctx.humanPresent && ctx.humanTurn && originHasHuman(resolved);
 	const canAsk = human && ctx.origin !== "subagent";
 

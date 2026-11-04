@@ -4,6 +4,7 @@ import { publishRunSignal as defaultPublishRunSignal } from "@workspace/queue";
 import { notifyRunSignal, type PublishRunSignal } from "../run-signal.js";
 import { validateRunReferences } from "../chat/run-ownership.js";
 import { createRunObserver, closesRunStream } from "./run-observer.js";
+import { enqueueAgentRunJob } from "./runs.js";
 import { resolveRunModel } from "../chat/effective-model.js";
 import { scopeFor, type AuthEnv } from "../middleware/auth.js";
 import {
@@ -102,6 +103,8 @@ export function createComputerUseRoutes(
 		const lastUser =
 			[...request.messages].reverse().find((m) => m.role === "user")?.content ?? "";
 		let skillRun: AgentRun | null = null;
+		// Run pausado que o clique liberou (cartão do limite do motor v3): volta para a fila como um run novo.
+		let resumedRun = false;
 		let messages = request.messages;
 		let objective: string | undefined;
 		let transcriptSeed: import("@workspace/shared").TranscriptSeed | undefined;
@@ -115,7 +118,10 @@ export function createComputerUseRoutes(
 				model,
 				continueInAgent: true,
 			});
-			if (confirmedAction.handled) skillRun = confirmedAction.run;
+			if (confirmedAction.handled) {
+				skillRun = confirmedAction.run;
+				resumedRun = confirmedAction.resumed === true;
+			}
 			else if (confirmedAction.followUp) {
 				// Ação MCP confirmada já rodou: o agente continua com o resultado.
 				messages = applyConfirmedFollowUp(messages, confirmedAction.followUp);
@@ -150,7 +156,10 @@ export function createComputerUseRoutes(
 			throw error;
 		}
 
-		if (!skillRun) {
+		if (resumedRun) {
+			// O job terminal retido do run pausado bloquearia o re-add pelo mesmo jobId: o enfileirador da retomada o limpa.
+			await enqueueAgentRunJob(config.agentRunQueue, run.id);
+		} else if (!skillRun) {
 			await config.agentRunQueue.add(
 				ATLAS_JOB_NAMES.runAgent,
 				{ runId: run.id },

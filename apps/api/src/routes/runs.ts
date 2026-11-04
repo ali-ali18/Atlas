@@ -49,7 +49,7 @@ import {
 import { noteBrowserLanguage } from "@workspace/db";
 import { pickLanguageFromAcceptLanguage } from "@workspace/shared";
 import { parseReasoningEffort, parseReplyToMessageId } from "@workspace/shared";
-import { demoteSteerInputToQueue, getOwnedConversation, markPendingLoginCode, markPendingLoginUseVault, markPendingLoginOutcome, dismissPendingQuestionnaireCard, promoteQueuedInputToSteer } from "@workspace/db";
+import { demoteSteerInputToQueue, getOwnedConversation, markPendingLoginCode, markPendingLoginUseVault, markPendingLoginOutcome, markPendingLimitOutcome, dismissPendingQuestionnaireCard, promoteQueuedInputToSteer } from "@workspace/db";
 import { scopeFor, type AuthEnv } from "../middleware/auth.js";
 import { isRunEventsSignalSubscribed, publishRunSignal as defaultPublishRunSignal, subscribeRunEventsSignal, type AgentRunQueue } from "@workspace/queue";
 import { runRunStream } from "./run-stream.js";
@@ -161,6 +161,20 @@ function parseCreateBody(
  */
 export function isHumanTypedTurn(request: Pick<CreateAgentRunRequest, "origin" | "silent" | "compact" | "decisionConfirmId">, followUpFromConfirm: boolean): boolean {
 	return request.origin === "chat" && request.silent !== true && request.compact !== true && !request.decisionConfirmId && !followUpFromConfirm;
+}
+
+/**
+ * De onde o run novo herda motor, perfil e turno humano. Clique de cartão: do último run de chat da conversa (resposta
+ * humana dentro do trabalho do dono). Rascunho aprovado do motor v3: só motor e perfil do run que preparou, nunca o turno
+ * humano (a ação aprovada roda pelo caminho exato, uma vez).
+ */
+export function runInheritanceFor(
+	request: Pick<CreateAgentRunRequest, "origin" | "silent" | "compact" | "decisionConfirmId">,
+	followUpFromConfirm: boolean,
+	draftRunId: string | undefined,
+): { inheritFromRunId: string; inheritHumanTurn: false } | { inheritFromConversation: boolean } {
+	if (draftRunId) return { inheritFromRunId: draftRunId, inheritHumanTurn: false };
+	return { inheritFromConversation: request.origin === "chat" && !isHumanTypedTurn(request, followUpFromConfirm) };
 }
 
 function positiveBudgetNumber(value: unknown): number | undefined {
@@ -420,6 +434,8 @@ export function createRunRoutes(
 		const lastUser =
 			[...request.messages].reverse().find((m) => m.role === "user")?.content ?? "";
 		let followUpFromConfirm = false;
+		// Continuação de um rascunho aprovado (motor v3): herda só motor e perfil do run que preparou, sem turno humano.
+		let inheritFromDraftRunId: string | undefined;
 		try {
 			const confirmedAction = await maybeHandleConfirmedAction({
 				jevIntent: await buildJevIntentFor(scopeFor(c.get("session")).userId, config.openRouterApiKey, process.env, dependencies.getAccountConfig),
@@ -435,6 +451,7 @@ export function createRunRoutes(
 				// Ação MCP confirmada já rodou: o agente continua com o resultado. Cartão ignorado (o dono digitou outra
 				// coisa): a fala continua sendo turno humano.
 				followUpFromConfirm = confirmedAction.followUp.humanTyped !== true;
+				inheritFromDraftRunId = confirmedAction.followUp.inheritFromRunId;
 				request = {
 					...request,
 					messages: applyConfirmedFollowUp(request.messages, confirmedAction.followUp),
@@ -454,9 +471,9 @@ export function createRunRoutes(
 				const body: CreateAgentRunResponse = {
 					runId: confirmedAction.run.id,
 					status: confirmedAction.run.status,
-					// Run já concluído no servidor: true para não disparar o
-					// aviso de "fila indisponível" na UI.
-					enqueued: true,
+					// Run já concluído no servidor: true para não disparar o aviso de "fila indisponível" na UI. Run pausado
+					// que o clique liberou (limite do motor v3) volta para a fila.
+					enqueued: confirmedAction.resumed ? await enqueueAgentRunJob(config.agentRunQueue, confirmedAction.run.id) : true,
 				};
 				return c.json(body, 200);
 			}
@@ -486,7 +503,7 @@ export function createRunRoutes(
 				// Sinal explícito de "o dono digitou isto" (nunca vem do corpo): libera a marcação de ferramentas só aqui.
 				humanTurn: isHumanTypedTurn(request, followUpFromConfirm),
 				// Clique de cartão: é resposta humana dentro do trabalho do dono (herda turno humano, motor e perfil do último run).
-				inheritFromConversation: request.origin === "chat" && !isHumanTypedTurn(request, followUpFromConfirm),
+				...runInheritanceFor(request, followUpFromConfirm, inheritFromDraftRunId),
 				contextLength: peekModelContextLength(model),
 				onMergedIntoActiveRun: (runId) => notifyRunSignal(publish, runId, "input"),
 			});
@@ -803,6 +820,9 @@ export function createRunRoutes(
 		// liberar o run, para o worker (ou o reconcile) nunca pegar o run sem ela. v1/v2 ignoram o campo.
 		const loginOutcome = body?.via === "skip" ? "skipped" : body?.via === "takeover" ? "takeover" : "done";
 		const loginId = await markPendingLoginOutcome({ runId: owned.id, userId, outcome: loginOutcome }).catch(() => null);
+		// Motor v3 parado no limite de passos/US$: retomar é "Continuar" (sem `via`) ou "Agora não" (`via: "limit_stop"`).
+		// Sem espera de limite no checkpoint, não faz nada.
+		await markPendingLimitOutcome({ runId: owned.id, userId, outcome: body?.via === "limit_stop" ? "stop" : "continue" }).catch(() => false);
 		const run = await requestResumeAgentRun(c.req.param("id"));
 		if (loginId) await cancelCardTimeout(loginId);
 		if (!run) {

@@ -193,6 +193,8 @@ export {
 	listActiveRunsForConversation,
 	findActiveConversationRun,
 	markPendingLoginOutcome,
+	markPendingLimitOutcome,
+	carryLimitOutcome,
 	listRunsForConversation,
 	getLatestCompletedRunForConversation,
 	requestCancelAgentRun,
@@ -292,6 +294,7 @@ export { imageAttachmentsOf, loadUserImageHistory, parseImageAttachments, resolv
 export { loadUserFileHistory, loadUserFileMetas, resolveUserFileCards, userFileCardContent, userFileIdSet, type UserFileMeta } from "./file-attachments.js";
 export {
 	saveSkillPendingIntent,
+	saveSkillPendingIntentIfFree,
 	getSkillPendingIntent,
 	clearSkillPendingIntent,
 	claimSkillPendingIntent,
@@ -369,6 +372,7 @@ export {
 	getRoutineContextForAgentRun,
 	recordRoutineAlertState,
 	getRoutinePageIdForAgentRun,
+	getRoutineLimitsForAgentRun,
 	findRecentRoutineRunByIdempotency,
 	createRoutineRun,
 	markRoutineRunSkipped,
