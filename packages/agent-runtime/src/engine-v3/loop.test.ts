@@ -433,3 +433,41 @@ describe("motor v3: ponte tolerante (envelope repetido, número em texto, tool n
 		expect(results[0]!.summary).toMatch(/^Tool "sandbox_shell" is not offered in this run\./);
 	});
 });
+
+describe("motor v3: array mandado como texto JSON (PR8e)", () => {
+	const listing = {
+		id: "conn-erp",
+		slug: "erp",
+		name: "ERP",
+		disabledTools: [],
+		tools: [
+			{
+				name: "conferir_itens",
+				description: "Confere itens",
+				inputSchema: { type: "object", properties: { itens: { type: "array", items: { type: "object", properties: { sku: { type: "string" }, qtd: { type: "integer" } }, required: ["sku"] } } }, required: ["itens"] },
+				annotations: { readOnlyHint: true },
+			},
+		],
+	};
+	const TOOL = "mcp__erp__conferir_itens";
+	const mcpWith = (callFn: ReturnType<typeof vi.fn>) => ({ toolset: buildMcpToolset([listing], { autonomy: balanced }), call: callFn }) as unknown as McpRuntime;
+
+	it("texto JSON válido chega ao conector como array, uma vez, e o modelo recebe a nota", async () => {
+		const mcpCall = vi.fn(async () => ({ ok: true, text: "2 itens ok", truncated: false }));
+		const itens = [{ sku: "A1", qtd: 2 }, { sku: "B2" }];
+		const { results, requests } = await runV3({ script: [tools(call("c1", TOOL, { itens: JSON.stringify(itens) })), say("Conferido.")], params: { mcp: mcpWith(mcpCall) } });
+		expect(mcpCall).toHaveBeenCalledTimes(1);
+		expect(mcpCall.mock.calls[0]![1]).toEqual({ itens });
+		expect(results[0]).toMatchObject({ name: TOOL, ok: true });
+		// A nota vai ao modelo junto do resultado da tool.
+		expect(requests[1]!.texts.at(-1)).toMatch(/2 itens ok[\s\S]*Note: itens arrived as JSON text and was converted/);
+	});
+
+	it("texto que parece JSON mas é inválido: falha com a dica e o formato dos itens, sem chamar o conector", async () => {
+		const mcpCall = vi.fn(async () => ({ ok: true, text: "x", truncated: false }));
+		const { results } = await runV3({ script: [tools(call("c1", TOOL, { itens: '[{"sku": "A1"' })), say("Não deu.")], params: { mcp: mcpWith(mcpCall) } });
+		expect(mcpCall).not.toHaveBeenCalled();
+		expect(results[0]).toMatchObject({ name: TOOL, ok: false });
+		expect(results[0]!.summary).toMatch(/itens must be a JSON array, not text[\s\S]*shapes \(send real JSON arrays\/objects, not text\): itens: \{sku: string, qtd\?: number\}\[\]/);
+	});
+});

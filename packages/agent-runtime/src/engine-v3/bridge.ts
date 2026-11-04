@@ -1,5 +1,5 @@
 import type { ChatTool } from "@workspace/llm";
-import { toolSignature } from "./failures.js";
+import { argShapes, toolSignature } from "./failures.js";
 
 /**
  * Ponte do motor v3 (desenho 3.2): `tool_search` (ranking lexical determinístico, sem LLM) e a validação dos args de
@@ -130,9 +130,11 @@ export function toolSearchText(query: string, results: readonly CatalogEntry[]):
 		const where = entry.source === "native" ? "built-in" : `connector ${entry.connector ?? ""}`.trim();
 		const properties = entry.tool.function.parameters.properties ?? {};
 		const required = (entry.tool.function.parameters.required ?? []).slice(0, EXAMPLE_MAX_KEYS).map((key) => `${key} (${schemaType(properties[key])})`);
+		const shapes = argShapes(entry.tool);
 		const block = [
 			`${index + 1}. ${toolSignature(entry.tool)} [${where}]: ${entry.summary}`,
 			`   required: ${required.length > 0 ? required.join(", ") : "none"}`,
+			...(shapes.length > 0 ? [`   shapes (real JSON, not text): ${shapes.join("; ")}`] : []),
 			`   e.g. ${exampleCall(entry.tool)}`,
 		].join("\n");
 		if (blocks.length > 0 && size + block.length + 1 > TOOL_SEARCH_MAX_CHARS) {
@@ -198,6 +200,46 @@ export function coerceNumericText(tool: ChatTool, args: Record<string, unknown>)
 }
 
 type JsonSchema = { type?: unknown; enum?: unknown; items?: unknown };
+
+/**
+ * Array/objeto mandado como TEXTO JSON (`"slides": "[{...}]"`), erro comum de modelo fraco: converte quando é seguro e
+ * avisa o modelo. Seguro = o schema do campo aceita só array (ou só objeto), sem `string`, e o texto começa com `[`
+ * (ou `{`). Texto que começa assim mas não é JSON válido falha com a dica; texto que não começa assim fica como está
+ * (o executor decide, como antes). Puro.
+ */
+export function coerceJsonText(tool: ChatTool, args: Record<string, unknown>): { args: Record<string, unknown>; converted: string[] } | { error: string } {
+	const properties = tool.function.parameters.properties ?? {};
+	let changed: Record<string, unknown> | undefined;
+	const converted: string[] = [];
+	for (const [key, value] of Object.entries(args)) {
+		const schema = properties[key] as JsonSchema | undefined;
+		if (typeof value !== "string" || !schema) continue;
+		const types = Array.isArray(schema.type) ? schema.type : [schema.type];
+		if (types.includes("string")) continue;
+		const wants = types.includes("array") && !types.includes("object") ? "array" : types.includes("object") && !types.includes("array") ? "object" : null;
+		if (!wants) continue;
+		const text = value.trim();
+		if (!text.startsWith(wants === "array" ? "[" : "{")) continue;
+		let parsed: unknown;
+		try {
+			parsed = JSON.parse(text);
+		} catch (error) {
+			const reason = error instanceof Error ? error.message.slice(0, 120) : "invalid JSON";
+			return { error: `${key} must be a JSON ${wants}, not text; the text you sent is not valid JSON either (${reason})` };
+		}
+		const ok = wants === "array" ? Array.isArray(parsed) : Boolean(parsed) && typeof parsed === "object" && !Array.isArray(parsed);
+		if (!ok) continue;
+		changed ??= { ...args };
+		changed[key] = parsed;
+		converted.push(key);
+	}
+	return { args: changed ?? args, converted };
+}
+
+/** Nota curta ao modelo depois da conversão (vai junto do resultado da tool). */
+export function jsonTextNote(converted: readonly string[]): string {
+	return `Note: ${converted.join(", ")} arrived as JSON text and ${converted.length > 1 ? "were" : "was"} converted. Next time send ${converted.length > 1 ? "them" : "it"} as a real JSON array/object, not a string.`;
+}
 
 function typeMatches(schema: JsonSchema, value: unknown): boolean {
 	const types = Array.isArray(schema.type) ? schema.type : typeof schema.type === "string" ? [schema.type] : [];

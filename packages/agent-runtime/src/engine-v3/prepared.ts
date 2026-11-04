@@ -5,8 +5,8 @@ import { needsOwnerWithoutHuman } from "../policy/decide.js";
 import { getToolMeta } from "../tools/registry/tool-meta.js";
 import type { ToolResult } from "../tools/registry/types.js";
 import { actionLabel, approvalDetails, APPROVAL_MAX_DETAIL_CHARS, toolCallKey } from "./approval.js";
-import { argProblems, coerceNumericText } from "./bridge.js";
-import { unknownArgs, unknownArgsMessage, toolSignature } from "./failures.js";
+import { argProblems, coerceJsonText, coerceNumericText } from "./bridge.js";
+import { unknownArgs, unknownArgsMessage, toolSignatureWithShapes } from "./failures.js";
 import type { V3Run } from "./state.js";
 
 /**
@@ -53,9 +53,11 @@ function targetFor(run: V3Run, name: string): ChatTool {
 export function validatePreparedArgs(target: ChatTool, args: Record<string, unknown>): Record<string, unknown> {
 	const unknown = unknownArgs(target, args);
 	if (unknown.length > 0) throw draftError(unknownArgsMessage(target, unknown));
-	const normalized = coerceNumericText(target, args);
+	const json = coerceJsonText(target, args);
+	if ("error" in json) throw draftError(`invalid arguments for ${target.function.name}: ${json.error}. Expected: ${toolSignatureWithShapes(target)}.`);
+	const normalized = coerceNumericText(target, json.args);
 	const problems = argProblems(target, normalized);
-	if (problems.length > 0) throw draftError(`invalid arguments for ${target.function.name}: ${problems.join("; ")}. Expected: ${toolSignature(target)}.`);
+	if (problems.length > 0) throw draftError(`invalid arguments for ${target.function.name}: ${problems.join("; ")}. Expected: ${toolSignatureWithShapes(target)}.`);
 	return normalized;
 }
 
