@@ -42,3 +42,33 @@ test("upload: arquivo grande demais é recusado", async () => {
 	const fs = { realpath: (await import("node:fs/promises")).realpath, stat: async () => ({ isFile: () => true, size: 26 * 1024 * 1024 }) };
 	await assert.rejects(resolveUploadPath("a.txt", { root, fs }), /grande demais/);
 });
+
+import { readUploadFile } from "./upload-path.mjs";
+import { open as realOpen, realpath as realRealpath, stat as realStat, unlink } from "node:fs/promises";
+
+test("readUploadFile: devolve nome, tipo e CONTEÚDO (o navegador não recebe o caminho)", async () => {
+	const root = await workspace();
+	const file = await readUploadFile("a.txt", { root });
+	assert.equal(file.name, "a.txt");
+	assert.equal(file.mimeType, "text/plain");
+	assert.equal(file.buffer.toString(), "hello");
+});
+
+test("readUploadFile: arquivo trocado por link depois da validação (TOCTOU) não é enviado", async () => {
+	const root = await workspace();
+	const outside = join(root, "..", "outside.txt");
+	const fs = {
+		stat: realStat,
+		open: realOpen,
+		// Logo depois de resolver o caminho, o atacante troca o arquivo por um link para fora da pasta.
+		realpath: async (path) => {
+			const real = await realRealpath(path);
+			if (real.endsWith("a.txt")) {
+				await unlink(real);
+				await symlink(outside, real);
+			}
+			return real;
+		},
+	};
+	await assert.rejects(readUploadFile("a.txt", { root, fs }), /mudou durante o envio/);
+});

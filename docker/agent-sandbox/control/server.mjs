@@ -162,7 +162,8 @@ const { readPage, findText } = createPageReader({
 async function withPageState(result) {
 	const p = peekPage();
 	const pageState = p ? await readPageState(p) : undefined;
-	return pageState ? { ...result, pageState } : result;
+	// `secretGuard`: esta VM recusa digitar em campo de senha/código (secret-field.mjs); o runtime só confia na barreira se ela vier declarada.
+	return { ...result, ...(pageState ? { pageState } : {}), secretGuard: true };
 }
 
 function noteDomRefs() {

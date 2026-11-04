@@ -97,6 +97,8 @@ export type ControlNavigateResult = {
 	title: string;
 } & Pick<ControlActionEffect, "navigated" | "settled"> & {
 	pageState?: ControlPageState;
+	/** VM com a barreira de segredo (recusa digitar em senha/código): sem o campo, a imagem é antiga. */
+	secretGuard?: boolean;
 	/** O conteúdo apareceu e estabilizou dentro do teto (false: SPA ainda montando). */
 	ready?: boolean;
 	/** Tempo do `goto` e da espera de prontidão (ms). */
@@ -193,6 +195,8 @@ export type ControlSnapshotResult = {
 	/** Por que caiu no snapshot v1 (ex.: árvore passou de 4 s). */
 	note?: string;
 	pageState?: ControlPageState;
+	/** VM com a barreira de segredo (recusa digitar em senha/código): sem o campo, a imagem é antiga. */
+	secretGuard?: boolean;
 };
 
 export type ControlReadOptions = {
@@ -286,6 +290,8 @@ export type ControlActResult = ControlActionEffect & {
 	newElements: string[];
 	newTotal: number;
 	pageState?: ControlPageState;
+	/** VM com a barreira de segredo (recusa digitar em senha/código): sem o campo, a imagem é antiga. */
+	secretGuard?: boolean;
 };
 
 export type ControlWaitParams = {

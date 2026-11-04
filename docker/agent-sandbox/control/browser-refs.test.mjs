@@ -57,7 +57,8 @@ function fakePage(dom, { log = [], href = "https://erp.test/orcamentos.php#add" 
 				},
 				setChecked: async (v) => log.push(`check:${ref}=${v}`),
 				hover: async () => log.push(`hover:${ref}`),
-				evaluate: async () => ({ value: el.value ?? "", checked: undefined }),
+				// A barreira de segredo lê o elemento com `secretKindInPage`; o resto lê o valor do campo.
+				evaluate: async (fn) => (fn?.name === "secretKindInPage" ? (el.secretKind ?? "") : { value: el.value ?? "", checked: undefined }),
 			};
 			return loc;
 		},
@@ -204,4 +205,22 @@ test("browserWait: ok, timeout honesto e ref", async () => {
 	const timeout = await actions.browserWait({ for: "text", value: "nunca", timeoutMs: 100 });
 	assert.equal(timeout.met, false);
 	assert.match(timeout.reason, /Timeout 100ms/);
+});
+
+test("barreira de segredo na VM: type, select e press em campo de senha/código são recusados SEMPRE, sem digitar", async () => {
+	const log = [];
+	const { actions } = setup([
+		{ raw: { label: "Senha", value: "" }, secretKind: "password" },
+		{ raw: { label: "Código", value: "" }, secretKind: "code" },
+		{ raw: { label: "Usuário", value: "" } },
+	], { log });
+	await actions.browserSnapshot({ engine: "dom" });
+	for (const [ref, action, value] of [["e1", "type", "inventada"], ["e1", "press", "Enter"], ["e1", "select", "x"], ["e2", "type", "123456"], ["e2", "press", "1"]]) {
+		await assert.rejects(actions.browserAct({ ref, action, value }), /filled only via login_fill/, `${ref} ${action}`);
+	}
+	assert.deepEqual(log, []);
+	// Campo comum segue normal, e clicar/focar a senha não digita nada.
+	await actions.browserAct({ ref: "e3", action: "type", value: "joao" });
+	await actions.browserAct({ ref: "e1", action: "click" });
+	assert.deepEqual(log, ["fill:e3=joao", "click:e1"]);
 });

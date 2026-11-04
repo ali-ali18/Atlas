@@ -14,7 +14,8 @@ import { StaleRefError, createAxStore, resolveAxRef } from "./ax-refs.mjs";
 import { isTreeRef } from "./ax-ref-names.mjs";
 import { createAxEngine } from "./browser-ax.mjs";
 import { runExclusive } from "./page-lock.mjs";
-import { resolveUploadPath } from "./upload-path.mjs";
+import { readUploadFile } from "./upload-path.mjs";
+import { TYPING_ACTIONS, assertNotSecretField } from "./secret-field.mjs";
 
 // `upload` (v3) entra no fim: o caminho é validado por `upload-path.mjs` (pasta de trabalho do bot, sem oculto).
 export const ACT_ACTIONS = ["click", "type", "select", "check", "uncheck", "hover", "press", "clear", "upload"];
@@ -274,8 +275,9 @@ export function createRefActions({
 				case "press":
 					return await locator.press(value, { timeout: ACT_TIMEOUT_MS });
 				case "upload": {
-					const file = await resolveUploadPath(value);
+					const file = await readUploadFile(value);
 					const isFileInput = await locator.evaluate((el) => el.tagName === "INPUT" && el.type === "file").catch(() => false);
+					// O navegador recebe o CONTEÚDO já lido (nome, tipo, buffer), nunca o caminho.
 					if (isFileInput) return await locator.setInputFiles(file, { timeout: ACT_TIMEOUT_MS });
 					// Botão que abre o seletor de arquivos: clica e entrega o arquivo ao seletor.
 					const [chooser] = await Promise.all([page.waitForEvent("filechooser", { timeout: ACT_TIMEOUT_MS }), locator.click({ timeout: ACT_TIMEOUT_MS })]);
@@ -363,6 +365,8 @@ export function createRefActions({
 			if (needsEnabled && !(await locator.isEnabled())) {
 				throw new Error(`O elemento ${args.ref} está desabilitado. Preencha os campos obrigatórios antes ou escolha outro ref.`);
 			}
+			// Barreira de segredo: vale para qualquer ref (árvore ou DOM), antes de digitar.
+			if (TYPING_ACTIONS.has(args.action)) await assertNotSecretField(locator);
 			const pointer = await safePointer(() => locator);
 			const urlBefore = page.url();
 			const observed = await observeAction(page, () => perform(page, locator, args), { urlBefore, ax: useAx });
