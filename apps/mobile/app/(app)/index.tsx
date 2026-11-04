@@ -8,7 +8,6 @@ import { SearchFooter } from "@/components/home/search-footer";
 import { SectionBlock } from "@/components/home/section-block";
 import { ScreenFrame } from "@/components/ui/screen-frame";
 import { HomeBotMenu } from "@/components/home/home-bot-menu";
-import { SoonSheet } from "@/components/home/soon-sheet";
 import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
 import { useAtlasSession } from "@/lib/atlas-session";
@@ -21,8 +20,6 @@ import { useAppColorScheme } from "@/lib/use-theme";
 const NO_BOTS: readonly HomeBot[] = [];
 const NO_SECTIONS: readonly SectionRef[] = [];
 
-type Soon = "apps" | null;
-
 /**
  * Home: fixados em grade, seções recolhíveis com as conversas, busca local no rodapé. Mesmo dado do web
  * (`GET /v1/bots` e `/v1/sections`), vindo do cache do aparelho e atualizado por cima (puxar para atualizar).
@@ -34,7 +31,6 @@ export default function HomeScreen() {
 	const { snapshot, refreshing, error, refresh } = useHomeData();
 	const [query, setQuery] = React.useState("");
 	const [collapsed, setCollapsed] = React.useState<Record<string, boolean>>({});
-	const [soon, setSoon] = React.useState<Soon>(null);
 	const [menuBot, setMenuBot] = React.useState<HomeBot | null>(null);
 	// "agora" muda com cada atualização: a data da linha ("agora", "14:05") acompanha.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: snapshot renova o relógio de propósito
@@ -113,10 +109,9 @@ export default function HomeScreen() {
 				>
 					{body}
 				</ScrollView>
-				<SearchFooter query={query} onChange={setQuery} onGrid={() => setSoon("apps")} />
+				<SearchFooter query={query} onChange={setQuery} onGrid={() => router.push("/catalog" as never)} />
 			</KeyboardAvoidingView>
 			<HomeBotMenu bot={menuBot} onClose={() => setMenuBot(null)} />
-			<SoonSheet open={soon !== null} title="Apps" onClose={() => setSoon(null)} />
 		</ScreenFrame>
 	);
 }
