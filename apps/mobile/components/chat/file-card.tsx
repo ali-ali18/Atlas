@@ -32,7 +32,7 @@ export function FileCardRow({ item, onOpen, onOpenPage }: { item: WebCard; onOpe
 			<ChatCard className="flex-row items-center gap-3 px-4 py-3" style={chatCardSkin(scheme)}>
 				<FileTile glyph={kind.glyph} tone={kind.tone} />
 				<View className="min-w-0 flex-1 gap-0.5">
-					<Text numberOfLines={2} className="text-base font-medium">
+					<Text numberOfLines={1} ellipsizeMode="tail" className="text-base font-medium">
 						{fileCardTitle(item.title)}
 					</Text>
 					<Text variant="muted" numberOfLines={1} className="text-body">
