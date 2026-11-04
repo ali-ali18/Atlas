@@ -157,15 +157,15 @@ export function bridgeTasks(): BridgeTask[] {
 		}),
 		build({
 			id: "duas-em-sequencia",
-			title: "Duas tools em sequência (listSalesOrders e depois getSalesOrder com o id do resultado)",
-			user: "Pega o pedido de venda mais recente e me diz o cliente e o total.",
+			title: "Duas tools em sequência (listSalesOrders e depois getSalesOrder com o id do resultado; só o detalhe traz os itens)",
+			user: "Pega o pedido de venda mais recente e me diz quais produtos (SKU e quantidade) tem nele.",
 			kind: "call",
 			steps: [{ tool: VENDAS("listSalesOrders") }, { tool: VENDAS("getSalesOrder"), args: { orderId: { equals: WORLD.latestSalesOrder } } }],
 			forbid: [COMPRAS("*")],
 			minSteps: 2,
 			turns: {
-				v2: [load("listSalesOrders getSalesOrder"), direct(VENDAS("listSalesOrders"), { limit: 1 }), direct(VENDAS("getSalesOrder"), { orderId: WORLD.latestSalesOrder }), say(`O pedido mais recente é o ${WORLD.latestSalesOrder}, da ${WORLD.latestSalesCustomer}, no total de ${WORLD.latestSalesTotal}.`)],
-				v3: [search("sales orders"), viaBridge(VENDAS("listSalesOrders"), { limit: 1 }), viaBridge(VENDAS("getSalesOrder"), { orderId: WORLD.latestSalesOrder }), say(`O pedido mais recente é o ${WORLD.latestSalesOrder}, da ${WORLD.latestSalesCustomer}, no total de ${WORLD.latestSalesTotal}.`)],
+				v2: [load("listSalesOrders getSalesOrder"), direct(VENDAS("listSalesOrders"), { limit: 1 }), direct(VENDAS("getSalesOrder"), { orderId: WORLD.latestSalesOrder }), say(`O pedido mais recente é o ${WORLD.latestSalesOrder}, da ${WORLD.latestSalesCustomer}: 12 unidades do HRT-100.`)],
+				v3: [search("sales orders"), viaBridge(VENDAS("listSalesOrders"), { limit: 1 }), viaBridge(VENDAS("getSalesOrder"), { orderId: WORLD.latestSalesOrder }), say(`O pedido mais recente é o ${WORLD.latestSalesOrder}, da ${WORLD.latestSalesCustomer}: 12 unidades do HRT-100.`)],
 			},
 		}),
 		build({
