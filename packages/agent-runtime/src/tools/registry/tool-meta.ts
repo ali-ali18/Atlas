@@ -37,23 +37,13 @@ export const TOOL_META: Readonly<Record<string, ToolMetaFields>> = {
 	preview_setup: { effect: "write_internal", ownCard: true },
 
 	// Cofre
-	secret_list: { effect: "read" },
-	routine_webhook_info: { effect: "read" },
-	secret_request: { effect: "credential", ownCard: true, endsTurn: true },
-	login_fill: { effect: "credential", ownCard: true, endsTurn: true },
 
 	// Skills
 
 	// E-mail do bot
 
 	// Proativo
-	schedule_followup: { effect: "write_internal" },
-	list_followups: { effect: "read" },
-	cancel_followup: { effect: "write_internal" },
-	reschedule_followup: { effect: "write_internal" },
-	suggest_routine: { effect: "write_internal" },
 	// O destino é o próprio dono (push/aviso no app dele), não um terceiro: `write_internal` deixa a rotina avisar o dono.
-	notify_user: { effect: "write_internal" },
 
 	// Conectores
 	// Hoje o runtime só aceita operação GET/HEAD (api-connector/runtime.ts) e os args não trazem método: sem
@@ -64,17 +54,10 @@ export const TOOL_META: Readonly<Record<string, ToolMetaFields>> = {
 	// Bots e configuração
 
 	// Planejamento
-	research_note: { effect: "write_internal" },
-	propose_plan: { effect: "write_internal", ownCard: true, endsTurn: true },
-	update_task_list: { effect: "write_internal" },
-	track_items: { effect: "write_internal" },
 
 	// Painéis
 
 	// Trabalho longo (motor v2)
-	notebook_write: { effect: "write_internal" },
-	notebook_read: { effect: "read" },
-	delegate: { effect: "write_internal", needsHuman: true },
 
 	// Sessão de código (resolvedor `devSessionResolver`)
 	dev_session_start: { effect: "write_internal" },
