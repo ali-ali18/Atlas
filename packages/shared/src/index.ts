@@ -500,6 +500,7 @@ export * from "./memory-limits.js";
 export * from "./memory-scope.js";
 export * from "./memory-cleanup.js";
 export * from "./proactive-prompt.js";
+export * from "./owner-wait.js";
 export * from "./routine-proposal.js";
 export * from "./alert-rule.js";
 export * from "./alert-rule-eval.js";

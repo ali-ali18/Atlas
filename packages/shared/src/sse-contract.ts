@@ -53,6 +53,7 @@ export const RUN_EVENT_TYPES = [
 	"confirm",
 	"questionnaire",
 	"bot-profile",
+	"return_scheduled",
 ] as const satisfies readonly ComputerUseEvent["type"][];
 
 export type RunEventType = (typeof RUN_EVENT_TYPES)[number];

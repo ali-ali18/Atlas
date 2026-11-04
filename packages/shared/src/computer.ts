@@ -233,6 +233,21 @@ export type ComputerUseEvent =
 		vaultTried?: string;
 		/** O card pede o código recebido por e-mail/SMS num campo (o valor vai direto ao runtime, não ao modelo). */
 		codeField?: boolean;
+		/** Motor v3: como o dono respondeu (com `status: "done"`). */
+		outcome?: "done" | "takeover" | "skipped" | "skipped_timeout" | "ignored";
+		/** Motor v3: prazo da espera (ISO); vencido = "Tempo esgotado · segui sem isso". */
+		deadlineAt?: string;
+	  }
+	| {
+			/** Motor v3: "Volto às HH:MM" (`schedule_return` visível). Cancelável; `cancelled`/`done` fecham o marcador. */
+			type: "return_scheduled";
+			returnId: string;
+			/** ISO do horário da volta. */
+			at: string;
+			/** Texto do marcador (pt-BR), ex.: "Volto às 15:30". */
+			label: string;
+			reason: string;
+			status: "pending" | "cancelled" | "done";
 	  }
 	| {
 		type: "confirm";
@@ -257,6 +272,8 @@ export type ComputerUseEvent =
 		githubIdentity?: GithubIdentityCardInfo;
 		/** Card já decidido (ex.: resumo de autonomia): sem botões e não para o run. */
 		status?: "pending" | "approved" | "rejected";
+		/** Motor v3: prazo da espera (ISO); vencido = "Tempo esgotado · segui sem isso" (nunca aprova). */
+		deadlineAt?: string;
   }
 	| {
 			type: "questionnaire";
@@ -269,6 +286,8 @@ export type ComputerUseEvent =
 			purpose?: "task" | "onboarding";
 			/** Pedido original do usuário que gerou o questionário (`purpose: "task"`). */
 			originalRequest?: string;
+			/** Motor v3: prazo da espera (ISO). */
+			deadlineAt?: string;
 	  }
 	| {
 			type: "bot-profile";
