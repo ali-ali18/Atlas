@@ -35,6 +35,9 @@ export const V3_REPLACED_BROWSER_TOOLS: ReadonlySet<string> = new Set([
 	"computer",
 ]);
 
+/** Metadado das 4 no v3 (o do `browser_act` refina por args: `upload` é `write_external`); a política do v3 lê daqui, não do registro do v1/v2. */
+export const V3_BROWSER_META: ReadonlyMap<string, DefinedTool["meta"]> = new Map(V3_BROWSER_TOOLS.map((tool) => [tool.name, tool.meta]));
+
 /** O handler do v3 para uma das 4 tools (o mesmo nome do v1/v2 no registro global não é usado no v3). */
 export const V3_BROWSER_HANDLERS: ReadonlyMap<string, DefinedTool["handler"]> = new Map(V3_BROWSER_TOOLS.map((tool) => [tool.name, tool.handler]));
 

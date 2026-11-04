@@ -18,9 +18,9 @@ import { NATIVE_COMPUTER_TOOL_NAME, translateNativeComputerAction } from "./comp
  */
 
 /** Ações que mudam (ou deveriam mudar) a página sem observá-la. */
-const ACTION_TOOLS = new Set(["click", "type", "key", "scroll", "browser_click", "browser_type", "navigate", "browser_act"]);
+const ACTION_TOOLS = new Set(["click", "type", "key", "scroll", "browser_click", "browser_type", "navigate", "browser_navigate", "browser_act"]);
 /** Tools que devolvem a página e por isso ancoram o estado. */
-const PAGE_READ_TOOLS = new Set(["navigate", "browser_text", "browser_snapshot", "browser_read"]);
+const PAGE_READ_TOOLS = new Set(["navigate", "browser_navigate", "browser_text", "browser_snapshot", "browser_read"]);
 
 export type GuardCall = {
 	name: string;

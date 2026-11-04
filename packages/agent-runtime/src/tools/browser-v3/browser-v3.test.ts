@@ -5,13 +5,16 @@ import { getToolMeta, resolveToolEffect } from "../registry/tool-meta.js";
 import type { ToolContext } from "../registry/types.js";
 import { V3_BROWSER_TOOLS, browserActTool, browserNavigateTool, browserSnapshotTool, browserTabsTool, swapBrowserTools } from "./index.js";
 import { derivePageState, formatPageState } from "./page-state.js";
-import { forgetRefs } from "./ref-memory.js";
+import { decideCall, policyBase } from "../../engine-v3/policy.js";
+import { nativePolicyTool } from "../../policy/tool.js";
+import { V3_BROWSER_META } from "./index.js";
+import { noteSecretGuard, parseRefLine, resetRefMemory } from "./ref-memory.js";
 
 const SESSION = "vm-1";
 type Calls = Record<string, ReturnType<typeof vi.fn>>;
 
 /** Gerente falso: cada `exec*` é um mock; o teste só configura o que usa. */
-function world(overrides: Record<string, unknown> = {}, ctxExtra: Partial<ToolContext> = {}) {
+function world(overrides: Record<string, unknown> = {}, ctxExtra: Partial<ToolContext> = {}, options: { oldVm?: boolean } = {}) {
 	const manager: Calls = {
 		execNavigate: vi.fn(async () => ({ url: "https://site.test/", title: "Site", ready: true, settled: true })),
 		execBrowserSnapshot: vi.fn(async () => ({ url: "https://site.test/", title: "Site", total: 1, offset: 0, limit: 80, nextOffset: null, lines: ['button "Ok" [a1]'], engine: "ax", tree: 'button "Ok" [a1]', treeLength: 16 })),
@@ -29,7 +32,9 @@ function world(overrides: Record<string, unknown> = {}, ctxExtra: Partial<ToolCo
 		...overrides,
 	};
 	const ctx = { manager: manager as unknown as SandboxManager, getSessionId: async () => SESSION, runId: "r1", loginAsked: new Set<string>(), canSeeImages: true, ...ctxExtra } as unknown as ToolContext;
-	forgetRefs(SESSION);
+	// VM nova por padrão (declara a barreira de segredo); `oldVm` simula a imagem antiga, sem a barreira.
+	resetRefMemory(SESSION);
+	if (!options.oldVm) noteSecretGuard(SESSION, true);
 	return { manager, ctx };
 }
 
@@ -194,12 +199,92 @@ describe("browser_act", () => {
 		expect(manager.execBrowserAct).toHaveBeenCalledTimes(1);
 	});
 
-	it("navegar esquece os refs de senha (refs velhos não bloqueiam página nova)", async () => {
+	it("navegar esquece os refs marcados; com a barreira da VM um ref novo passa, sem ela exige snapshot da página nova", async () => {
 		const tree = 'textbox "Senha" [a2] (campo de senha: nunca preencha)';
-		const { ctx } = world({ execBrowserSnapshot: vi.fn(async () => ({ url: "https://app.test/x", title: "x", total: 1, offset: 0, limit: 80, nextOffset: null, lines: [tree], engine: "ax", tree, treeLength: tree.length })) });
+		const snapshot = vi.fn(async () => ({ url: "https://app.test/x", title: "x", total: 1, offset: 0, limit: 80, nextOffset: null, lines: [tree], engine: "ax", tree, treeLength: tree.length }));
+		const guarded = world({ execBrowserSnapshot: snapshot });
+		await browserSnapshotTool.handler({}, guarded.ctx);
+		await browserNavigateTool.handler({ url: "https://outro.test/" }, guarded.ctx);
+		await expect(browserActTool.handler({ actions: [{ do: "fill", ref: "a2", value: "x" }] }, guarded.ctx)).resolves.toBeDefined();
+		const old = world({ execBrowserSnapshot: snapshot }, {}, { oldVm: true });
+		await browserSnapshotTool.handler({}, old.ctx);
+		await browserNavigateTool.handler({ url: "https://outro.test/" }, old.ctx);
+		await expect(browserActTool.handler({ actions: [{ do: "fill", ref: "a2", value: "x" }] }, old.ctx)).rejects.toThrow(/was not seen in a browser_snapshot/);
+		expect(old.manager.execBrowserAct).not.toHaveBeenCalled();
+	});
+
+	it("press em campo de senha/código é recusado (também no meio de um lote), e select também", async () => {
+		const tree = 'textbox "Senha" [a2] (campo de senha: nunca preencha)\ncombobox "Código" [a4] (campo de código de uso único: nunca preencha)';
+		const { manager, ctx } = world({ execBrowserSnapshot: vi.fn(async () => ({ url: "https://app.test/x", title: "x", total: 2, offset: 0, limit: 80, nextOffset: null, lines: tree.split("\n"), engine: "ax", tree, treeLength: tree.length })) });
 		await browserSnapshotTool.handler({}, ctx);
-		await browserNavigateTool.handler({ url: "https://outro.test/" }, ctx);
-		await expect(browserActTool.handler({ actions: [{ do: "fill", ref: "a2", value: "x" }] }, ctx)).resolves.toBeDefined();
+		await expect(browserActTool.handler({ actions: [{ do: "press", ref: "a2", value: "Enter" }] }, ctx)).rejects.toThrow(/password or one-time-code/);
+		await expect(browserActTool.handler({ actions: [{ do: "hover", ref: "a9" }, { do: "select", ref: "a4", value: "1" }] }, ctx)).rejects.toThrow(/Action 2: a4 is a password/);
+		expect(manager.execBrowserAct).not.toHaveBeenCalled();
+	});
+
+	it("snapshot parcial (ref/offset/viewport) não apaga a marcação; só a página inteira substitui", async () => {
+		const full = 'textbox "Senha" [a2] (campo de senha: nunca preencha)\nbutton "Entrar" [a3]';
+		const partial = 'button "Entrar" [a3]';
+		let current = full;
+		const { manager, ctx } = world({ execBrowserSnapshot: vi.fn(async (_s: string, o: { area?: string }) => ({ url: "https://app.test/x", title: "x", total: 1, offset: 0, limit: 80, nextOffset: null, lines: current.split("\n"), engine: "ax", tree: current, treeLength: current.length, area: o.area })) });
+		await browserSnapshotTool.handler({}, ctx);
+		current = partial;
+		await browserSnapshotTool.handler({ offset: 0, limit: 50 }, ctx);
+		await browserSnapshotTool.handler({ ref: "a3" }, ctx);
+		await expect(browserActTool.handler({ actions: [{ do: "fill", ref: "a2", value: "x" }] }, ctx)).rejects.toThrow(/password/);
+		await browserSnapshotTool.handler({ area: "page" }, ctx); // página inteira, sem a senha: substitui
+		await browserActTool.handler({ actions: [{ do: "fill", ref: "a2", value: "x" }] }, ctx);
+		expect(manager.execBrowserAct).toHaveBeenCalledTimes(1);
+	});
+
+	it("nome malicioso (aria-label com [a999] ou com a frase da marca) não despista nem forja marcação", () => {
+		expect(parseRefLine('textbox "x [a999]" [a2] (campo de senha: nunca preencha)')).toEqual({ ref: "a2", secret: true });
+		expect(parseRefLine('textbox "uma \\" [a999] aspa" [a5] (campo de senha: nunca preencha)')).toEqual({ ref: "a5", secret: true });
+		expect(parseRefLine('textbox "(campo de senha: nunca preencha)" [a4]')).toEqual({ ref: "a4", secret: false });
+		expect(parseRefLine('+ textbox "Senha" [a9] (campo de senha: nunca preencha)')).toEqual({ ref: "a9", secret: true });
+		expect(parseRefLine('[e3] textbox "Código" (campo de código de uso único: nunca preencha)')).toEqual({ ref: "e3", secret: true });
+		expect(parseRefLine('2. [e7] textbox "Código"')).toEqual({ ref: "e7", secret: false });
+		expect(parseRefLine("Texto solto da página")).toBeUndefined();
+	});
+
+	it("modal de login que abre por um clique (newElements e diff da árvore) já vale para o resto do lote", async () => {
+		const { manager, ctx } = world({
+			execBrowserAct: vi.fn(async (_s: string, p: { ref: string; action: string }) => ({ ok: true, ref: p.ref, action: p.action, newElements: ['[e9] textbox "Senha" (campo de senha: nunca preencha)'], newTotal: 1, changes: { tree: ['+ textbox "Código" [a8] (campo de código de uso único: nunca preencha)'] } })),
+		});
+		const run = browserActTool.handler({ actions: [{ do: "click", ref: "a1" }, { do: "fill", ref: "e9", value: "inventada" }] }, ctx);
+		await expect(run).rejects.toThrow(/Action 2 \(fill\) failed: Action 2: e9 is a password/);
+		await expect(browserActTool.handler({ actions: [{ do: "type", ref: "a8", value: "123456" }] }, ctx)).rejects.toThrow(/a8 is a password/);
+		expect(manager.execBrowserAct).toHaveBeenCalledTimes(1);
+	});
+
+	it("VM sem a barreira declarada: só digita em ref visto (árvore, busca ou leitura); ao declarar a barreira o resto passa", async () => {
+		const { manager, ctx } = world({ execBrowserFind: vi.fn(async () => ({ url: "https://site.test/", title: "Site", query: "cod", total: 1, matches: [{ text: "Código", ref: "e7", role: "textbox" }], frames: 1, collapsed: 0 })) }, {}, { oldVm: true });
+		await expect(browserActTool.handler({ actions: [{ do: "fill", ref: "a1", value: "x" }] }, ctx)).rejects.toThrow(/was not seen/);
+		await browserSnapshotTool.handler({ view: "find", query: "cod" }, ctx);
+		await browserActTool.handler({ actions: [{ do: "fill", ref: "e7", value: "x" }] }, ctx);
+		await browserSnapshotTool.handler({}, ctx); // vê a1
+		await browserActTool.handler({ actions: [{ do: "fill", ref: "a1", value: "x" }] }, ctx);
+		expect(manager.execBrowserAct).toHaveBeenCalledTimes(2);
+		// Resposta da VM com a barreira declarada: ref que o runtime nunca viu passa (a VM confere o elemento).
+		noteSecretGuard(SESSION, true);
+		await browserActTool.handler({ actions: [{ do: "fill", ref: "a77", value: "x" }] }, ctx);
+		expect(manager.execBrowserAct).toHaveBeenCalledTimes(3);
+	});
+
+	it("upload no lote: efeito write_external (sem humano nega, com humano pede aprovação); o resto do navegador segue write_internal", () => {
+		const upload = { actions: [{ do: "click", ref: "a1" }, { do: "upload", ref: "a2", value: "relatorio.pdf" }] };
+		const plain = { actions: [{ do: "click", ref: "a1" }] };
+		expect(browserActTool.meta.effectForArgs?.(upload)).toBe("write_external");
+		expect(browserActTool.meta.effectForArgs?.(plain)).toBe("write_internal");
+		expect(browserActTool.meta.effectForArgs?.({ actions: "lixo" })).toBe("write_external"); // args inválidos: pior caso
+		expect(nativePolicyTool("browser_act", undefined, V3_BROWSER_META)?.effect).toBe("write_internal"); // catálogo: aparece
+		const autonomy = { level: "balanced", exceptions: [] } as never;
+		const routine = policyBase({ origin: "routine", humanTurn: false, planPending: false });
+		expect(decideCall({ name: "browser_act", args: upload, base: routine, autonomy }).decision).toBe("deny");
+		expect(decideCall({ name: "browser_act", args: plain, base: routine, autonomy }).decision).toBe("allow");
+		const chat = policyBase({ origin: "chat", humanTurn: true, planPending: false });
+		expect(decideCall({ name: "browser_act", args: upload, base: chat, autonomy }).decision).toBe("ask");
+		expect(decideCall({ name: "browser_act", args: plain, base: chat, autonomy }).decision).toBe("allow");
 	});
 
 	it("espera que não conclui é erro honesto (não sucesso falso)", async () => {

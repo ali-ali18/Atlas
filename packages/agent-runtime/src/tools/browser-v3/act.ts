@@ -7,7 +7,7 @@ import { formatBrowserClick } from "../computer-changes.js";
 import { defineTool } from "../define-tool.js";
 import type { ToolContext } from "../registry/types.js";
 import { derivePageState, formatPageState } from "./page-state.js";
-import { forgetRefs, isSecretRef } from "./ref-memory.js";
+import { checkTypeable, forgetRefs, noteSecretGuard, rememberLines } from "./ref-memory.js";
 import { MAY_HAVE_HAPPENED, REF_PATTERN, ensureTab, isTimeoutError } from "./shared.js";
 
 export const BROWSER_ACT_TOOL_NAME = "browser_act";
@@ -60,7 +60,7 @@ export function validateBatch(actions: readonly Action[]): void {
 }
 
 /** Resultado de uma ação: linha curta e o que o servidor devolveu. */
-type StepResult = { head: string; detail: string[]; navigated: boolean; pageState?: ControlPageState; url?: string; title?: string };
+type StepResult = { head: string; detail: string[]; navigated: boolean; pageState?: ControlPageState; url?: string; title?: string; /** Linhas com ref que a VM devolveu (elementos novos e diff da árvore): modal de login que abriu, por exemplo. */ lines?: string[]; secretGuard?: boolean };
 
 async function runAction(action: Action, ctx: ToolContext, sessionId: string): Promise<StepResult> {
 	const { manager } = ctx;
@@ -109,7 +109,7 @@ async function runAction(action: Action, ctx: ToolContext, sessionId: string): P
 
 function fromAct(result: ControlActResult, requested: string | undefined): StepResult {
 	const [head = "", ...detail] = formatAct(result, requested).split("\n");
-	return { head, detail, navigated: result.navigated === true, ...(result.pageState ? { pageState: result.pageState } : {}), ...(result.url ? { url: result.url } : {}), ...(result.title ? { title: result.title } : {}) };
+	return { head, detail, navigated: result.navigated === true, lines: [...(result.newElements ?? []), ...(result.changes?.tree ?? [])], ...(result.secretGuard ? { secretGuard: true } : {}), ...(result.pageState ? { pageState: result.pageState } : {}), ...(result.url ? { url: result.url } : {}), ...(result.title ? { title: result.title } : {}) };
 }
 
 /** Linhas de aviso (verificação, erros de formulário) que valem mesmo no meio do lote. */
@@ -128,24 +128,40 @@ export const browserActTool = defineTool({
 		actions: z.array(actionSchema).min(1).max(ACT_BATCH_MAX),
 		tab: z.number().int().min(1).max(99).optional(),
 	}),
-	effect: "write_internal",
+	// Pior caso: `upload` entrega um arquivo da VM a um site de terceiro (write_external: sem humano nega, com humano pede
+	// aprovação). O resto do navegador é da VM do próprio bot (write_internal); o catálogo usa o mais permissivo.
+	effect: "write_external",
+	catalogEffect: "write_internal",
+	effectForArgs: (args) => (args.actions.some((action) => action.do === "upload") ? "write_external" : "write_internal"),
 	group: "browser",
 	run: async (args, ctx) => {
 		validateBatch(args.actions);
 		await ensureTab(ctx, args.tab);
 		const sessionId = await ctx.getSessionId();
-		// Fail-closed: campo de senha/código nunca recebe texto do modelo (o valor nem chega à VM).
-		args.actions.forEach((action, index) => {
-			if ((action.do === "fill" || action.do === "type" || action.do === "select") && action.ref && isSecretRef(sessionId, action.ref)) {
-				throw new Error(`Action ${index + 1}: ${action.ref} is a password or one-time-code field; nothing was done. Never type credentials: use login_fill for a saved login, or let the user log in through the login card.`);
-			}
-		});
+		// Fail-closed (2ª camada; a 1ª é a barreira da VM): nenhuma ação que digita (fill, type, select, press) em campo de
+		// senha/código, nem em ref que nunca vimos quando a VM não declara a barreira.
+		const typing = (action: Action) => (action.do === "fill" || action.do === "type" || action.do === "select" || action.do === "press") && action.ref !== undefined;
+		const assertTypeable = (action: Action, index: number) => {
+			if (!typing(action)) return;
+			const check = checkTypeable(sessionId, action.ref!);
+			if (check.ok) return;
+			throw new Error(
+				check.reason === "secret"
+					? `Action ${index + 1}: ${action.ref} is a password or one-time-code field; nothing was done. Never type credentials: use login_fill for a saved login, or let the user log in through the login card.`
+					: `Action ${index + 1}: ${action.ref} was not seen in a browser_snapshot of this page, so I cannot rule out a password field; nothing was done. Take a browser_snapshot and use a ref from it.`,
+			);
+		};
+		args.actions.forEach(assertTypeable);
 		const done: StepResult[] = [];
 		let navigated = false;
 		for (const [index, action] of args.actions.entries()) {
 			try {
+				// De novo na hora: um passo anterior do lote pode ter aberto um modal de login.
+				assertTypeable(action, index);
 				const step = await runAction(action, ctx, sessionId);
 				done.push(step);
+				noteSecretGuard(sessionId, step.secretGuard);
+				if (step.lines?.length) rememberLines(sessionId, step.lines);
 				if (step.navigated) {
 					navigated = true;
 					forgetRefs(sessionId);

@@ -6,7 +6,7 @@ import { defineTool } from "../define-tool.js";
 import { captureModelScreenshot } from "../screenshot-model.js";
 import { attachVisionFallback } from "../vision-fallback.js";
 import { derivePageState, formatPageState } from "./page-state.js";
-import { rememberSecretRefs } from "./ref-memory.js";
+import { noteSecretGuard, rememberLines } from "./ref-memory.js";
 import { REF_PATTERN, computerCtx, ensureTab } from "./shared.js";
 
 export const BROWSER_SNAPSHOT_TOOL_NAME = "browser_snapshot";
@@ -42,11 +42,13 @@ export const browserSnapshotTool = defineTool({
 		if (view === "find") {
 			if (!args.query) throw new Error('view="find" needs `query` (a word, or a regex with regex=true).');
 			const outcome = await executeComputerReadTool("browser_find", { query: args.query, regex: args.regex === true }, cctx);
+			rememberLines(sessionId, outcome.summary.split("\n"));
 			// Busca vazia não anexa a tela sozinha no v3 (desenho: só árvore vazia ou desafio): o modelo pede view=screenshot.
 			return { summary: outcome.summary };
 		}
 		if (view === "text") {
 			const outcome = await executeComputerReadTool("browser_read", { view: "outline", ...(args.expand ? { expandAll: true } : {}), ...(args.offset !== undefined ? { offset: args.offset } : {}), ...(args.limit !== undefined ? { limit: args.limit } : {}) }, cctx);
+			rememberLines(sessionId, outcome.summary.split("\n"));
 			return { summary: outcome.summary.replace(/browser_read with offset=/g, "browser_snapshot view=text with offset="), ...(outcome.loginEvent ? { loginEvent: outcome.loginEvent } : {}) };
 		}
 		if (view === "screenshot") {
@@ -61,7 +63,9 @@ export const browserSnapshotTool = defineTool({
 			...(args.limit !== undefined ? { limit: args.limit } : {}),
 		});
 		const treeLines = typeof snapshot.tree === "string" ? snapshot.tree.split("\n") : [];
-		rememberSecretRefs(sessionId, [...snapshot.lines, ...treeLines]);
+		noteSecretGuard(sessionId, snapshot.secretGuard);
+		// Acumula (snapshot parcial não apaga marcação); só a página inteira de uma vez substitui.
+		rememberLines(sessionId, [...snapshot.lines, ...treeLines], { complete: args.area === "page" && !args.ref && (args.offset ?? 0) === 0 && snapshot.nextOffset === null });
 		const state = derivePageState({
 			url: snapshot.url,
 			title: snapshot.title,

@@ -4,7 +4,7 @@ import { navigateTimingTelemetry } from "../../telemetry/step-telemetry.js";
 import { formatReady, formatSettle } from "../computer.js";
 import { defineTool } from "../define-tool.js";
 import { derivePageState, formatPageState } from "./page-state.js";
-import { forgetRefs } from "./ref-memory.js";
+import { forgetRefs, noteSecretGuard } from "./ref-memory.js";
 import { ensureTab } from "./shared.js";
 
 export const BROWSER_NAVIGATE_TOOL_NAME = "browser_navigate";
@@ -25,6 +25,7 @@ export const browserNavigateTool = defineTool({
 		const sessionId = await ctx.getSessionId();
 		const result = await ctx.manager.execNavigate(sessionId, args.url);
 		forgetRefs(sessionId);
+		noteSecretGuard(sessionId, result.secretGuard);
 		const state = formatPageState(derivePageState({ url: result.url, title: result.title, ...(result.pageState ? { fromServer: result.pageState } : {}) }));
 		return {
 			summary: redactSecrets(`Opened ${result.url} (title: ${JSON.stringify(result.title)})${result.ready === false ? formatReady(result) : formatSettle(result)}${state ? `\n${state}` : ""}`),
