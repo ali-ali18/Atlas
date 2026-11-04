@@ -1,9 +1,12 @@
 import * as React from "react";
-import { Platform, Pressable, TextInput, useWindowDimensions, View } from "react-native";
+import { LayoutAnimation, Platform, Pressable, TextInput, useWindowDimensions, View } from "react-native";
+import { useReducedMotion } from "react-native-reanimated";
 
 import type { ReplyQuote } from "@/lib/chat-types";
 import { ReplyChip } from "./reply-chip";
 import { ArrowUpIcon, MicIcon, PlusIcon, StopIcon, WaveformIcon } from "@/components/icons";
+import { Text } from "@/components/ui/text";
+import { pillAccessibilityLabel, type ModelPill } from "@/lib/model-pill";
 import { themeColor } from "@/lib/theme";
 import { useSurfaces } from "@/lib/use-surfaces";
 import { useAppColorScheme } from "@/lib/use-theme";
@@ -31,6 +34,14 @@ type ComposerProps = {
 	onSend: (text: string) => void;
 	onStop: () => void;
 	onSoon: (what: "anexos" | "voz") => void;
+	/** Abre a folha "Selecionar modelo" (a pílula ao lado do "+"). */
+	onModel: () => void;
+	/** O modelo atual (nome curto + esforço) que a pílula mostra. */
+	modelPill: ModelPill;
+	/** Mantém o modo de escrita (a folha de modelo aberta tira o foco do campo, mas o composer não deve fechar atrás dela). */
+	holdWriting?: boolean;
+	/** O composer entrou no modo de escrita (foco ou texto): hora de ler o catálogo da pílula. */
+	onWriting?: () => void;
 	/** Mensagem que a próxima fala responde: vira o chip dentro do campo, com X para cancelar. */
 	replyTo?: ReplyQuote | null;
 	onCancelReply?: () => void;
@@ -45,7 +56,7 @@ type ComposerProps = {
  * Estrutura e borda como no `chat-composer` do web: uma View só, com `chromeEdge` e `chromeFill` (lib/surfaces.ts), colada na
  * pílula (sem respiro nem wrapper), com o raio total direto nela, nos dois formatos (pílula e retângulo).
  */
-export function Composer({ initialText, botName, color, foreground, running, onSend, onStop, onSoon, replyTo, onCancelReply }: ComposerProps) {
+export function Composer({ initialText, botName, color, foreground, running, onSend, onStop, onSoon, onModel, modelPill, holdWriting, onWriting, replyTo, onCancelReply }: ComposerProps) {
 	// `color` é o destaque do bot (`botAccent`): o primeiro plano é o que vem dele, sempre branco.
 	const onColor = foreground;
 	const scheme = useAppColorScheme();
@@ -59,11 +70,30 @@ export function Composer({ initialText, botName, color, foreground, running, onS
 		if (replyId) inputRef.current?.focus();
 	}, [replyId]);
 	const [stacked, setStacked] = React.useState(false);
+	const [focused, setFocused] = React.useState(false);
+	const reducedMotion = useReducedMotion();
+	// Modo de escrita: campo com foco ou com texto (ou a folha de modelo aberta). Só nele aparece a pílula e o composer
+	// vira duas linhas (campo em cima, "+" e pílula à esquerda, microfone/enviar à direita). Fora dele, a pílula de uma linha.
+	const writing = focused || hasText || holdWriting === true;
+	const open = stacked || writing;
+	const animate = () => {
+		if (!reducedMotion && Platform.OS !== "web") LayoutAnimation.configureNext(LayoutAnimation.create(180, LayoutAnimation.Types.easeInEaseOut, LayoutAnimation.Properties.opacity));
+	};
+	React.useEffect(() => {
+		if (writing) onWriting?.();
+		// biome-ignore lint/correctness/useExhaustiveDependencies: só quando entra no modo de escrita
+	}, [writing]);
+	// A folha de modelo fechou: o foco volta para o campo, como estava.
+	const held = React.useRef(false);
+	React.useEffect(() => {
+		if (held.current && !holdWriting) inputRef.current?.focus();
+		held.current = holdWriting === true;
+	}, [holdWriting]);
 	const baseline = React.useRef<number | null>(null);
 	const [webHeight, setWebHeight] = React.useState(0);
 	// O campo cresce com o texto até 40% da tela e rola por dentro depois disso.
 	const maxFieldHeight = Math.round(useWindowDimensions().height * 0.4);
-	// Largura do grupo da direita: microfone + botão da cor do bot (o microfone fica também com texto).
+	// Largura do grupo da direita: microfone + botão da cor do bot.
 	const rightWidth = BUTTON * 2 + 8;
 	const mode = hasText ? "send" : running ? "stop" : "voice";
 	const press = () => {
@@ -77,7 +107,7 @@ export function Composer({ initialText, botName, color, foreground, running, onS
 	};
 	return (
 		<View className="mb-2 gap-2" style={{ marginHorizontal: 19.5 }}>
-			<View className="overflow-hidden border" style={{ borderRadius: stacked || replyTo ? STACKED_RADIUS : PILL_RADIUS, borderColor: surfaces.chromeEdge, backgroundColor: surfaces.chromeFill }}>
+			<View className="overflow-hidden border" style={{ borderRadius: open || replyTo ? STACKED_RADIUS : PILL_RADIUS, borderColor: surfaces.chromeEdge, backgroundColor: surfaces.chromeFill }}>
 				{replyTo && onCancelReply ? <ReplyChip quote={replyTo} onCancel={onCancelReply} /> : null}
 				{/*
 				  Um só TextInput nos dois formatos (assim o foco e o teclado não se perdem na troca). Os botões ficam sempre
@@ -85,14 +115,23 @@ export function Composer({ initialText, botName, color, foreground, running, onS
 				  ocupa a largura toda e reserva uma faixa embaixo para a linha de botões ("+" à esquerda, microfone e botão
 				  da cor do bot à direita), como nas referências do dono.
 				*/}
-				<View style={{ paddingBottom: stacked ? BUTTON + STACKED_INSET * 2 : 0 }}>
+				<View style={{ paddingBottom: open ? BUTTON + STACKED_INSET * 2 : 0 }}>
 					<TextInput
 						ref={inputRef}
 						accessibilityLabel={`Perguntar a ${botName}`}
 						placeholder={`Perguntar a ${botName}`}
 						placeholderTextColor={themeColor(scheme, "muted-foreground")}
 						value={text}
+						onFocus={() => {
+							animate();
+							setFocused(true);
+						}}
+						onBlur={() => {
+							animate();
+							setFocused(false);
+						}}
 						onChangeText={(value) => {
+							if ((value.length > 0) !== hasText) animate();
 							setText(value);
 							if (value.length === 0) {
 								setStacked(false);
@@ -110,14 +149,14 @@ export function Composer({ initialText, botName, color, foreground, running, onS
 						}}
 						multiline
 						maxLength={20_000}
-						textAlignVertical={stacked ? "top" : "center"}
+						textAlignVertical={open ? "top" : "center"}
 						style={{
 							fontSize: 16,
 							lineHeight: LINE_HEIGHT,
 							paddingTop: (MIN_HEIGHT - LINE_HEIGHT) / 2,
-							paddingBottom: stacked ? 4 : (MIN_HEIGHT - LINE_HEIGHT) / 2,
-							paddingLeft: stacked ? 16 : INSET + BUTTON + 8,
-							paddingRight: stacked ? 16 : INSET + rightWidth + 8,
+							paddingBottom: open ? 4 : (MIN_HEIGHT - LINE_HEIGHT) / 2,
+							paddingLeft: open ? 16 : INSET + BUTTON + 8,
+							paddingRight: open ? 16 : INSET + rightWidth + 8,
 							minHeight: MIN_HEIGHT,
 							maxHeight: maxFieldHeight,
 							...(Platform.OS === "web" ? { height: Math.min(maxFieldHeight, Math.max(MIN_HEIGHT, webHeight)) } : {}),
@@ -131,16 +170,31 @@ export function Composer({ initialText, botName, color, foreground, running, onS
 					<View
 						className="absolute flex-row items-center justify-between"
 						style={
-							stacked
+							open
 								? { left: STACKED_INSET, right: STACKED_INSET, bottom: STACKED_INSET, height: BUTTON }
 								: { left: INSET, right: INSET, top: 0, bottom: 0 }
 						}
 						pointerEvents="box-none"
 					>
-						<Pressable role="button" accessibilityLabel="Adicionar" onPress={() => onSoon("anexos")} style={{ width: BUTTON, height: BUTTON, backgroundColor: surfaces.chromeControl }} className="items-center justify-center rounded-full active:opacity-70">
-							<PlusIcon size={18} />
-						</Pressable>
+						<View className="min-w-0 shrink flex-row items-center gap-2">
+							<Pressable role="button" accessibilityLabel="Adicionar" onPress={() => onSoon("anexos")} style={{ width: BUTTON, height: BUTTON, backgroundColor: surfaces.chromeControl }} className="items-center justify-center rounded-full active:opacity-70">
+								<PlusIcon size={18} />
+							</Pressable>
+							{writing ? (
+								<Pressable role="button" accessibilityLabel={pillAccessibilityLabel(modelPill)} onPress={onModel} style={{ height: BUTTON, backgroundColor: surfaces.chromeControl }} className="min-w-0 shrink flex-row items-center gap-1.5 rounded-full px-3 active:opacity-70">
+									<Text numberOfLines={1} className="shrink text-body">
+										{modelPill.name}
+									</Text>
+									{modelPill.effort ? (
+										<Text numberOfLines={1} variant="muted" className="shrink-0 text-body">
+											{modelPill.effort}
+										</Text>
+									) : null}
+								</Pressable>
+							) : null}
+						</View>
 						<View className="flex-row items-center gap-2">
+							
 							<Pressable role="button" accessibilityLabel="Microfone (em breve)" onPress={() => onSoon("voz")} style={{ width: BUTTON, height: BUTTON, backgroundColor: surfaces.chromeControl }} className="items-center justify-center rounded-full active:opacity-70">
 								<MicIcon size={18} />
 							</Pressable>

@@ -3,7 +3,8 @@
 // defasada de render), e as dependências (API, stream, cache, relógio) entram por injeção para testar as corridas
 // (envio durante o fim do run, parar antes do `runId`, toque duplo em aprovação…). O hook só assina e desenha.
 import type { AgentActivity, ComputerUseEvent } from "@workspace/shared";
-import { ChatApiError, isNetworkError, isUnauthorized, sendErrorText, type CreateRunInput, type CreateRunResult } from "./chat-api";
+import type { RunModelFields } from "./model-choice";
+import { ChatApiError, isModelRejection, ModelUnavailableError, isNetworkError, isUnauthorized, sendErrorText, type CreateRunInput, type CreateRunResult } from "./chat-api";
 import { applyRunEvent, createLiveState, startLiveRun, type LiveState } from "./chat-live";
 import { followRun, type FollowOptions, type OpenStream } from "./chat-stream";
 import { initialSync, syncLine, syncReducer, type SyncAction, type SyncState } from "./chat-sync";
@@ -42,6 +43,12 @@ export type ChatDeps = {
 	/** Intervalo mínimo entre avisos à tela durante o texto chegando (o texto em si nunca se perde). */
 	throttleMs?: number;
 	retryDelays?: readonly number[];
+	/** Campos de modelo do run (escolha do seletor, lida na hora do envio). Ausente = o servidor decide. */
+	modelFields?: () => RunModelFields;
+	/** A conversa acabou de ser criada por um envio (chat novo): quem guarda a escolha de modelo passa a gravar nela. */
+	onConversationCreated?: (conversationId: string) => void;
+	/** O servidor recusou o modelo enviado: quem guarda a escolha a apaga (volta ao modelo do bot). */
+	onModelRejected?: () => void;
 };
 
 export type ChatSnapshot = {
@@ -444,13 +451,19 @@ export class ChatController {
 		if (!this.conversationId) {
 			this.conversationId = await this.deps.api.createConversation();
 			this.createdHere = true;
+			this.deps.onConversationCreated?.(this.conversationId);
 		}
 		const delays = this.deps.retryDelays ?? DEFAULT_RETRY;
 		const sleep = this.deps.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
 		for (let attempt = 0; ; attempt += 1) {
+			const model = this.deps.modelFields?.() ?? {};
 			try {
-				return await this.deps.api.createRun({ content, conversationId: this.conversationId, botId, ...(decisionConfirmId ? { decisionConfirmId } : {}), ...(replyToMessageId ? { replyToMessageId } : {}), clientKey: this.newKey() });
+				return await this.deps.api.createRun({ content, conversationId: this.conversationId, botId, ...(decisionConfirmId ? { decisionConfirmId } : {}), ...(replyToMessageId ? { replyToMessageId } : {}), model, clientKey: this.newKey() });
 			} catch (reason) {
+				if (model.model && isModelRejection(reason)) {
+					this.deps.onModelRejected?.();
+					throw new ModelUnavailableError((reason as ChatApiError).status);
+				}
 				const delay = delays[attempt];
 				const conflict = reason instanceof ChatApiError && reason.status === 409 && reason.message.startsWith(ACTIVE_CONFLICT);
 				if (!conflict || delay === undefined) throw reason;

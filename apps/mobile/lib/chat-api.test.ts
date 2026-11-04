@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { ChatApiError, clearReaction, createRun, createRunInput, markConversationUnread, setReaction } from "./chat-api";
+import { ChatApiError, isModelRejection, MODEL_UNAVAILABLE_TEXT, ModelUnavailableError, sendErrorText, clearReaction, createRun, createRunInput, markConversationUnread, setReaction } from "./chat-api";
 import type { ApiFetch } from "./home-sync";
+import { runModelFields } from "./model-choice";
 
 type Call = { path: string; method: string | undefined; body: unknown };
 
@@ -18,7 +19,7 @@ describe("createRun e createRunInput: replyToMessageId", () => {
 	it("sem citação o corpo é o de sempre (sem a chave)", async () => {
 		const { apiFetch, calls } = fake();
 		await createRun(apiFetch, { ...base, clientKey: "k1" });
-		expect(calls[0]!.body).toEqual({ messages: [{ role: "user", content: "oi" }], conversationId: "c1", botId: "b1", modelAuto: true, clientKey: "k1" });
+		expect(calls[0]!.body).toEqual({ messages: [{ role: "user", content: "oi" }], conversationId: "c1", botId: "b1", clientKey: "k1" });
 		await createRunInput(apiFetch, "r1", "oi", "k2");
 		expect(calls[1]!.body).toEqual({ content: "oi", mode: "join", clientKey: "k2" });
 	});
@@ -28,6 +29,28 @@ describe("createRun e createRunInput: replyToMessageId", () => {
 		expect(calls[0]!.body).toMatchObject({ replyToMessageId: "m9" });
 		await createRunInput(apiFetch, "r1", "oi", "k2", "m9");
 		expect(calls[1]!.body).toEqual({ content: "oi", mode: "join", clientKey: "k2", replyToMessageId: "m9" });
+	});
+});
+
+describe("createRun: modelo da escolha do usuário", () => {
+	const base = { content: "oi", conversationId: "c1", botId: "b1", clientKey: "k1" };
+	it("bot com modelo fixo e sem escolha: NÃO manda modelAuto (a API respeitaria o modelo do bot)", async () => {
+		const { apiFetch, calls } = fake();
+		await createRun(apiFetch, { ...base, model: runModelFields(null) });
+		expect(calls[0]!.body).not.toHaveProperty("modelAuto");
+		expect(calls[0]!.body).not.toHaveProperty("model");
+		expect(calls[0]!.body).not.toHaveProperty("reasoningEffort");
+	});
+	it("Automático: modelAuto true e nenhum modelo", async () => {
+		const { apiFetch, calls } = fake();
+		await createRun(apiFetch, { ...base, model: runModelFields({ mode: "auto" }) });
+		expect(calls[0]!.body).toMatchObject({ modelAuto: true });
+		expect(calls[0]!.body).not.toHaveProperty("model");
+	});
+	it("modelo escolhido: model e reasoningEffort, sem modelAuto", async () => {
+		const { apiFetch, calls } = fake();
+		await createRun(apiFetch, { ...base, model: runModelFields({ mode: "model", model: "anthropic/claude-sonnet-5.5", effort: "high" }) });
+		expect(calls[0]!.body).toEqual({ messages: [{ role: "user", content: "oi" }], conversationId: "c1", botId: "b1", model: "anthropic/claude-sonnet-5.5", reasoningEffort: "high", clientKey: "k1" });
 	});
 });
 
@@ -47,5 +70,26 @@ describe("reação e não lida", () => {
 		const { apiFetch } = fake(404, { error: "Message not found" });
 		await expect(setReaction(apiFetch, "m1", "🔥")).rejects.toMatchObject({ status: 404 });
 		await expect(markConversationUnread(apiFetch, "c1")).rejects.toBeInstanceOf(ChatApiError);
+	});
+});
+
+describe("isModelRejection: o servidor recusou o modelo enviado", () => {
+	it("400/404/409 com motivo de modelo ou de provedor", () => {
+		expect(isModelRejection(new ChatApiError("Modelo ChatGPT indisponível nesta conta", 400))).toBe(true);
+		expect(isModelRejection(new ChatApiError("Referência de modelo inválida", 400))).toBe(true);
+		expect(isModelRejection(new ChatApiError("Conecte o ChatGPT em Configurações → Provedores", 400))).toBe(true);
+		expect(isModelRejection(new ChatApiError("Ative o plano ChatGPT em Configurações → Provedores para usar este modelo", 400))).toBe(true);
+	});
+	it("conversa ocupada, catálogo fora do ar, 5xx, 401 e rede não contam", () => {
+		expect(isModelRejection(new ChatApiError("A conversa já tem uma tarefa em andamento", 409))).toBe(false);
+		expect(isModelRejection(new ChatApiError("Catálogo ChatGPT indisponível. Tente novamente antes de iniciar a tarefa.", 409))).toBe(false);
+		expect(isModelRejection(new ChatApiError("model", 500))).toBe(false);
+		expect(isModelRejection(new ChatApiError("model", 401))).toBe(false);
+		expect(isModelRejection(new ChatApiError("Não encontrado", 404))).toBe(false);
+		expect(isModelRejection(new Error("model"))).toBe(false);
+	});
+	it("o aviso para o usuário é amigável", () => {
+		expect(sendErrorText(new ModelUnavailableError(400))).toBe(MODEL_UNAVAILABLE_TEXT);
+		expect(MODEL_UNAVAILABLE_TEXT).toContain("voltei ao modelo do bot");
 	});
 });
