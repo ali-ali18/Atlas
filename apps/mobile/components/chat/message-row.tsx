@@ -38,8 +38,6 @@ export type RowActions = {
 	connects: Record<string, { busy: boolean; message: string | null }>;
 	request: RequestActions;
 	botName: string;
-	/** Cor de destaque do bot (a mesma do botão do composer); sem cor própria, o destaque do app. */
-	botAccent: string;
 	serverUrl: string | null;
 	/** Toque longo no balão: abre o menu da mensagem (só abre para fala já gravada; ver `messageMenuFor`). */
 	onOpenMenu: (item: ChatItem) => void;
@@ -164,7 +162,7 @@ function RowContent({ item, actions, position }: { item: ChatItem; actions: RowA
 			return loginVariant(item) === "connector" ? (
 				<ConnectorCard item={item} botName={actions.botName} serverUrl={actions.serverUrl} connect={actions.connects[item.loginId]} onAuthorize={actions.onConnectLogin} onOpenWeb={actions.onOpenScreen} />
 			) : (
-				<LoginCard item={item} botName={actions.botName} accent={actions.botAccent} onResume={actions.onResumeLogin} onSaveLogin={(login, username, password) => actions.request.saveLogin(login, username, password)} onOpenScreen={actions.onOpenScreen} />
+				<LoginCard item={item} botName={actions.botName} onResume={actions.onResumeLogin} onSaveLogin={(login, username, password) => actions.request.saveLogin(login, username, password)} onOpenScreen={actions.onOpenScreen} />
 			);
 		case "secrets":
 			return <SecretsCard item={item} onSave={actions.request.saveSecrets} onDecide={actions.onDecide} />;

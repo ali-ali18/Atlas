@@ -54,7 +54,7 @@ function SheetField({ label, secure = false, ...props }: { label: string; secure
  * - "Abrir a tela" abre o computador do bot (hoje, o web) para entrar à mão; "Concluído" retoma o run.
  * Usuário, senha e código ficam só nos campos desta gaveta e somem ao fechar.
  */
-function LoginSheet({ item, botName, accent, visible, onClose, onResume, onSaveLogin, onOpenScreen }: { item: Login; botName: string; accent: string; visible: boolean; onClose: () => void; onResume: (options: ResumeOptions) => void; onSaveLogin: (username: string, password: string) => Promise<ActionResult>; onOpenScreen: () => void }) {
+function LoginSheet({ item, botName, visible, onClose, onResume, onSaveLogin, onOpenScreen }: { item: Login; botName: string; visible: boolean; onClose: () => void; onResume: (options: ResumeOptions) => void; onSaveLogin: (username: string, password: string) => Promise<ActionResult>; onOpenScreen: () => void }) {
 	const scheme = useAppColorScheme();
 	const chrome = chatChrome(scheme);
 	const blue = routineSurface(scheme).link;
@@ -136,9 +136,9 @@ function LoginSheet({ item, botName, accent, visible, onClose, onResume, onSaveL
 						Entrar no {site}
 					</Text>
 					<View className="min-w-24 items-end">
-						{/* Contorno e texto na cor do bot, sem preenchimento; mesma altura do Cancelar. */}
-						<Pressable role="button" accessibilityLabel="Concluído" accessibilityState={{ disabled: busy }} disabled={busy} onPress={() => void conclude()} style={{ borderColor: accent }} className="h-9 flex-row items-center justify-center rounded-full border px-4 active:opacity-70">
-							<Text className="text-control font-semibold" style={{ color: accent }}>
+						{/* Mesmo azul preenchido do Salvar; mesma altura do Cancelar. */}
+						<Pressable role="button" accessibilityLabel="Concluído" accessibilityState={{ disabled: busy }} disabled={busy} onPress={() => void conclude()} style={{ backgroundColor: blue }} className="h-9 flex-row items-center justify-center rounded-full px-4 active:opacity-80">
+							<Text className="text-control font-semibold" style={{ color: themeColor(scheme, scheme === "dark" ? "foreground" : "info-foreground") }}>
 								Concluído
 							</Text>
 						</Pressable>
@@ -205,7 +205,7 @@ function LoginSheet({ item, botName, accent, visible, onClose, onResume, onSaveL
  * Login de página (sem conector): cartão "Formulário" com o site e "Continuar", que abre a gaveta. Nunca carrega
  * credencial. Resolvido: um selo com o desfecho no lugar do botão.
  */
-export function LoginCard({ item, botName, accent, onResume, onSaveLogin, onOpenScreen, initialOpen = false }: { item: Login; botName: string; accent: string; onResume: (item: Login, options: ResumeOptions) => void; onSaveLogin: (item: Login, username: string, password: string) => Promise<ActionResult>; onOpenScreen: () => void; initialOpen?: boolean }) {
+export function LoginCard({ item, botName, onResume, onSaveLogin, onOpenScreen, initialOpen = false }: { item: Login; botName: string; onResume: (item: Login, options: ResumeOptions) => void; onSaveLogin: (item: Login, username: string, password: string) => Promise<ActionResult>; onOpenScreen: () => void; initialOpen?: boolean }) {
 	const [open, setOpen] = React.useState(initialOpen);
 	const captcha = item.reason === "captcha";
 	const site = siteName(item);
@@ -226,7 +226,7 @@ export function LoginCard({ item, botName, accent, onResume, onSaveLogin, onOpen
 					</View>
 				)}
 			</RequestShell>
-			{outcome ? null : <LoginSheet item={item} botName={botName} accent={accent} visible={open} onClose={() => setOpen(false)} onResume={(options) => onResume(item, options)} onSaveLogin={(username, password) => onSaveLogin(item, username, password)} onOpenScreen={onOpenScreen} />}
+			{outcome ? null : <LoginSheet item={item} botName={botName} visible={open} onClose={() => setOpen(false)} onResume={(options) => onResume(item, options)} onSaveLogin={(username, password) => onSaveLogin(item, username, password)} onOpenScreen={onOpenScreen} />}
 		</>
 	);
 }

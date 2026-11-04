@@ -109,7 +109,6 @@ export default function ChatScreen() {
 			connects: chat.connects,
 			request,
 			botName: bot?.name ?? "bot",
-			botAccent: palette.accent,
 			serverUrl,
 			onOpenMenu: messageMenu.open,
 			activeRunId: chat.runTasks?.runId ?? null,
