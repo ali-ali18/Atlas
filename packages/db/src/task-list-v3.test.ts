@@ -23,9 +23,11 @@ const OPEN = [{ content: "Levantar preços", status: "completed" }, { content: "
 test("motor v3 (PR8e): a lista aberta do run anterior vem do estado do v3, só para o dono", async () => {
 	const restore = fake([{ id: "r1", userId: "user-a", conversationId: "conv", createdAt: at(1), checkpointJson: { engine: "v3", engineV3: { ownTaskList: OPEN } } }]);
 	try {
-		assert.deepEqual((await getConversationTaskList("user-a", "conv"))?.map((item) => item.status), ["completed", "in_progress", "pending"]);
-		assert.equal(await getConversationTaskList("user-b", "conv"), null);
-		assert.equal(await getConversationTaskList("user-a", "conv", { excludeRunId: "r1" }), null);
+		assert.deepEqual((await getConversationTaskList("user-a", "conv", { engineV3: true }))?.map((item) => item.status), ["completed", "in_progress", "pending"]);
+		assert.equal(await getConversationTaskList("user-b", "conv", { engineV3: true }), null);
+		assert.equal(await getConversationTaskList("user-a", "conv", { excludeRunId: "r1", engineV3: true }), null);
+		// v1/v2 não herdam a lista de um run do v3 (conversa que trocou de motor).
+		assert.equal(await getConversationTaskList("user-a", "conv"), null);
 	} finally {
 		restore();
 	}
@@ -37,7 +39,9 @@ test("o run v3 mais recente decide: sem lista (ou com a lista concluída) a list
 		{ id: "new", userId: "user-a", conversationId: "conv", createdAt: at(2), checkpointJson: { engine: "v3", engineV3: { nudges: {} } } },
 	]);
 	try {
-		assert.equal(await getConversationTaskList("user-a", "conv"), null);
+		assert.equal(await getConversationTaskList("user-a", "conv", { engineV3: true }), null);
+		// Para v1/v2 o run v3 é invisível, como antes desta mudança: vale a lista do v2.
+		assert.equal((await getConversationTaskList("user-a", "conv"))?.length, 3);
 		// v2 continua igual: a lista do `taskState` vale quando é o run mais recente.
 		assert.equal((await getConversationTaskList("user-a", "conv", { excludeRunId: "new" }))?.length, 3);
 	} finally {

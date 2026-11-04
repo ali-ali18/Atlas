@@ -2721,7 +2721,8 @@ export async function getConversationTaskLedger(
 export async function getConversationTaskList(
 	userId: string,
 	conversationId: string,
-	options?: { excludeRunId?: string; limitRuns?: number; origin?: string },
+	/** `engineV3`: o run que lê é do motor v3 e também enxerga a lista de runs do v3 (v1/v2 nunca herdam a lista do v3). */
+	options?: { excludeRunId?: string; limitRuns?: number; origin?: string; engineV3?: boolean },
 ): Promise<TaskListItem[] | null> {
 	if (!userId || !conversationId) return null;
 	const rows = await prisma.agentRun.findMany({
@@ -2739,11 +2740,13 @@ export async function getConversationTaskList(
 		const raw = row.checkpointJson;
 		if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
 		const state = raw as { taskState?: { taskList?: unknown }; engineV3?: { ownTaskList?: unknown } };
-		// Motor v3 (PR8e): a lista do run mora em `engineV3.ownTaskList` (o v3 não grava `taskState`).
-		const list = parseTaskList(state.taskState ? state.taskState.taskList : state.engineV3?.ownTaskList);
+		// Motor v3 (PR8e): a lista do run mora em `engineV3.ownTaskList` (o v3 não grava `taskState`). Só quem é v3 lê; para
+		// v1/v2 o run v3 continua invisível, como antes.
+		const v3State = options?.engineV3 && !state.taskState ? state.engineV3 : undefined;
+		const list = parseTaskList(state.taskState ? state.taskState.taskList : v3State?.ownTaskList);
 		if (list && !isTaskListDone(list)) return list;
 		// O run mais recente que tinha estado de tarefa decide: sem lista nele, a lista foi encerrada.
-		if (state.taskState || state.engineV3) return null;
+		if (state.taskState || v3State) return null;
 	}
 	return null;
 }
