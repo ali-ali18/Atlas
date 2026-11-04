@@ -75,7 +75,7 @@ describe("cache do chat", () => {
 		expect(await clearChatCache(broken)).toBe(false);
 	});
 	it("clearChatCache apaga o chat de todas as contas e versões, e só ele", async () => {
-		const storage = memoryStorage({ "atlas.chat.v1:s|a|c1": "1", "atlas.chat.v0:s|b|c2": "2", "atlas.home.v2:s|a": "3", outro: "4" });
+		const storage = memoryStorage({ "atlas.chat.v2:s|a|c1": "1", "atlas.chat.v0:s|b|c2": "2", "atlas.home.v2:s|a": "3", outro: "4" });
 		expect(await clearChatCache(storage)).toBe(true);
 		expect([...storage.data.keys()].sort()).toEqual(["atlas.home.v2:s|a", "outro"]);
 	});

@@ -7,6 +7,8 @@ import { Text } from "@/components/ui/text";
 import { taskCardActive } from "@/lib/chat-thread";
 import type { ChatItem, Reaction, ReplyQuote } from "@/lib/chat-types";
 import type { AnswerMap } from "@/lib/questionnaire";
+import type { HomeBot } from "@/lib/home-types";
+import { BotExchangeMarker } from "./bot-exchange-marker";
 import { ImagesRow } from "./image-card";
 import { BotProfileCard, BotProposalCard } from "./bot-cards";
 import { BotLinkMarkerRow, ConfirmCard, MarkerRow, QuestionnaireCard, WebCardRow } from "./cards";
@@ -37,6 +39,10 @@ export type RowActions = {
 	onOpenImage: (artifactId: string) => void;
 	/** Toque longo no balão: abre o menu da mensagem (só abre para fala já gravada; ver `messageMenuFor`). */
 	onOpenMenu: (item: ChatItem) => void;
+	/** Bot da lista da home pelo id (avatar da linha "N mensagens com X"); `undefined` = bot apagado. */
+	botFor: (id: string) => HomeBot | undefined;
+	/** Toque na linha de conversa entre bots: abre a conversa deles, somente leitura. */
+	onOpenExchange: (item: Extract<ChatItem, { kind: "bot-exchange" }>) => void;
 	/** Cor do bot para o balão do usuário (fundo e texto por cima dele). Sem ela, o balão usa o cinza neutro. */
 	userBubble?: { background: string; foreground: string };
 	/** Bots do usuário: o avatar da menção `@bot` no balão e o do marcador "Enviou mensagem para X". */
@@ -169,5 +175,7 @@ function RowContent({ item, actions, position }: { item: ChatItem; actions: RowA
 			return <ImagesRow item={item} onOpen={actions.onOpenImage} />;
 		case "marker":
 			return item.link ? <BotLinkMarkerRow link={item.link} fallback={item.text} bots={actions.bots} /> : <MarkerRow text={item.text} />;
+		case "bot-exchange":
+			return <BotExchangeMarker item={item} botFor={actions.botFor} onOpen={actions.onOpenExchange} now={Date.now()} />;
 	}
 }

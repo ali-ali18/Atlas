@@ -24,10 +24,20 @@ type Base = { id: string; createdAt?: string };
  */
 export type ChatImage = { artifactId: string; mime: string; width: number; height: number; alt?: string; name?: string; uri?: string };
 
+/**
+ * Fala que veio de uma conversa entre bots (o texto trocado entre eles não é do usuário): `request` = pedido que
+ * chegou a este bot, `reply` = resposta que outro bot deu a um pedido deste, `answer` = fala deste bot ao atender.
+ * Mesmo molde do `BotTag` do web (`template-4/data.ts`).
+ */
+export type BotTag = { kind: "request" | "reply" | "answer"; fromBotId?: string; fromBotName?: string; botMessageId?: string };
+
+/** O outro bot de uma troca; `id` falta quando só se sabe o nome (a conversa não abre). */
+export type BotPartner = { id?: string; name: string };
+
 export type ChatItem =
-	| (Base & { kind: "user"; text: string; reactions?: Reaction[]; replyTo?: ReplyQuote })
+	| (Base & { kind: "user"; text: string; reactions?: Reaction[]; replyTo?: ReplyQuote; bot?: BotTag })
 	/** `source`: rotina, lembrete ou evento que produziu a fala (vira o marcador acima do balão). */
-	| (Base & { kind: "assistant"; text: string; runId?: string; reactions?: Reaction[]; source?: MessageSource; replyTo?: ReplyQuote })
+	| (Base & { kind: "assistant"; text: string; runId?: string; reactions?: Reaction[]; source?: MessageSource; replyTo?: ReplyQuote; bot?: BotTag })
 	| (Base & { kind: "task-list"; runId: string; items: TaskItem[] })
 	| (Base & { kind: "confirm"; confirmId: string; title: string; description?: string; confirmLabel?: string; cancelLabel?: string; status: ConfirmStatus })
 	| (Base & { kind: "questionnaire"; questionnaireId: string; title: string; description?: string; items: QuestionnaireCardItem[]; status: QuestionnaireStatus; answers?: Record<string, string | string[]> })
@@ -45,7 +55,12 @@ export type ChatItem =
 	| (Base & { kind: "images"; origin: "user" | "assistant"; images: ChatImage[]; caption?: string })
 	/** Marcador de uma linha no fio (conversa compactada, mensagem enviada a outro bot). */
 	/** `link`: marcador "Enviou mensagem para [bot]" (o texto fica como reserva; o avatar vem do bot pelo id ou nome). */
-	| (Base & { kind: "marker"; text: string; link?: { botId: string; botName: string; title: string } });
+	| (Base & { kind: "marker"; text: string; link?: { botId: string; botName: string; title: string } })
+	/**
+	 * Troca entre bots, resumida numa linha ("4 mensagens com Grok Bot"). Só nasce de `groupBotItems` na hora de
+	 * desenhar (nunca é gravada nem cacheada); tocar abre a conversa entre os dois, somente leitura.
+	 */
+	| (Base & { kind: "bot-exchange"; direction: "group" | "received"; count: number; partners: BotPartner[]; /** Fala a destacar ao abrir (`<id da troca>:req|reply`). */ focus?: string });
 
 export type WebCardKind = "chart" | "page" | "file" | "routine" | "login" | "images" | "proposal" | "approval";
 
