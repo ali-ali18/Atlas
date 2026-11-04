@@ -6,67 +6,13 @@ import { ARTIFACT_READ_TOOL } from "./artifact-read.js";
 import { CURRENT_TIME_TOOL } from "./current-time.js";
 import { LESSON_FEEDBACK_TOOL } from "./lesson-feedback.js";
 import { PREVIEW_SETUP_TOOL } from "./preview-setup/tool.js";
-import { PROPOSE_CONNECTOR_TOOL, PROPOSE_CUSTOM_MCP_TOOL } from "./propose-connector.js";
 import { SANDBOX_RELEASE_TOOL } from "./sandbox-release.js";
 import { SANDBOX_SHELL_TOOLS } from "./sandbox-shell.js";
 import { SKILL_CORE_TOOLS, SKILL_GROUP_TOOLS } from "./skills.js";
 import { LOGIN_FILL_TOOL, ROUTINE_WEBHOOK_INFO_TOOL, SECRET_LIST_TOOL, SECRET_REQUEST_TOOL } from "./vault-tools.js";
 import { VIDEO_TRANSCRIPT_TOOL } from "./video-transcript.js";
 
-/** Nome + descrição da tool host que carrega tools MCP sob demanda. */
-export const MCP_TOOL_SEARCH_TOOL: ChatTool = {
-	type: "function",
-	function: {
-		name: "mcp_tool_search",
-		description:
-			"Carrega tools de conectores (MCP) pelo nome ou pela necessidade. O " +
-			"índice no prompt do sistema lista o que existe em cada conector — " +
-			"use esta tool para carregar as que forem úteis antes de chamá-las; " +
-			"elas ficam chamáveis a partir do próximo passo.",
-		parameters: {
-			type: "object",
-			properties: {
-				query: {
-					type: "string",
-					description:
-						"Palavras-chave da necessidade, ou nome exato de uma ou mais tools " +
-						"(exposto ou original), separados por espaço ou vírgula.",
-				},
-				connector: {
-					type: "string",
-					description: "Filtra por conector: nome ou slug (ex.: 'Google Drive' ou 'google_drive').",
-				},
-				limit: {
-					type: "integer",
-					description: "Máximo de tools a carregar por busca (1-10, padrão 6).",
-				},
-			},
-			required: ["query"],
-		},
-	},
-};
-
-/**
- * Variante com as tools nativas adiadas (economia de contexto): o mesmo nome e os
- * mesmos argumentos, descrição em inglês curta.
- */
-export const TOOL_SEARCH_WITH_BUILTINS: ChatTool = {
-	type: "function",
-	function: {
-		name: MCP_TOOL_SEARCH_TOOL.function.name,
-		description:
-			"Loads tools on demand: built-in tools from the index in the system prompt and connector (MCP) tools, by name or by need. Loaded tools are callable from the next step.",
-		parameters: {
-			...MCP_TOOL_SEARCH_TOOL.function.parameters,
-			properties: {
-				...MCP_TOOL_SEARCH_TOOL.function.parameters.properties,
-				query: { type: "string", description: "Tool name(s) separated by space or comma, or keywords for the need." },
-				connector: { type: "string", description: "Only for connector tools: connector name or slug." },
-				limit: { type: "integer", description: "Maximum tools to load per search (1-10, default 6)." },
-			},
-		},
-	},
-};
+export { MCP_TOOL_SEARCH_TOOL, TOOL_SEARCH_WITH_BUILTINS } from "./mcp-tool-search.js";
 
 /** Definições das tools já declaradas com `defineTool`/`defineRawTool`, na ordem pedida. */
 function defined(...names: string[]): ChatTool[] {
@@ -78,8 +24,8 @@ function defined(...names: string[]): ChatTool[] {
 }
 
 export const COMPUTER_USE_TOOLS: ChatTool[] = [
-	PROPOSE_CONNECTOR_TOOL,
-	PROPOSE_CUSTOM_MCP_TOOL,
+	...defined("propose_connector"),
+	...defined("propose_custom_mcp"),
 	...defined("screenshot"),
 	...defined("navigate"),
 	...defined("click"),
@@ -289,41 +235,8 @@ export const COMPUTER_USE_TOOLS: ChatTool[] = [
 	...defined("routine_control"),
 	...defined("find_page_value"),
 	...defined("routine_group"),
-	{
-		type: "function",
-		function: {
-			name: "github_list_repos",
-			description:
-				"Lista os repositórios GitHub do usuário conectado no Marketplace (mais recentes primeiro). Use pra resolver um nome informado de forma vaga (ex.: 'meu-app') em 'owner/name' ANTES de chamar propose_routine com trigger_type=github, quando o usuário não deu o owner/repo completo. Se a conexão falhar, explique que precisa conectar o GitHub no Marketplace.",
-			parameters: {
-				type: "object",
-				properties: {
-					query: {
-						type: "string",
-						description: "Filtro por substring do nome (owner/name).",
-					},
-				},
-			},
-		},
-	},
-	{
-		type: "function",
-		function: {
-			name: "github_compare",
-			description:
-				"Compare two refs of a GitHub repository (base...head: branch, tag or SHA). Returns the COMPLETE paginated commit list (sha, author, subject, files per commit) plus per-file stats (+/-) and totals, never losing commits to truncation. Patches are omitted unless includePatch=true (only when at most 20 files, each cut). Use it to count or summarize pushes/PR ranges and to verify a commit count given by an event. Read-only. Works with the GitHub App installed on the repo or the user's GitHub connection.",
-			parameters: {
-				type: "object",
-				properties: {
-					repo: { type: "string", description: "owner/name" },
-					base: { type: "string", description: "Base ref/SHA (older side)." },
-					head: { type: "string", description: "Head ref/SHA (newer side)." },
-					includePatch: { type: "boolean", description: "Include cut patches (max 20 files). Default false." },
-				},
-				required: ["repo", "base", "head"],
-			},
-		},
-	},
+	...defined("github_list_repos"),
+	...defined("github_compare"),
 	...defined("propose_routine"),
 	{
 		type: "function",

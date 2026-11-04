@@ -56,6 +56,11 @@ import {
 } from "../../../mcp/activation.js";
 
 import type { ToolFamily, ToolResolver } from "../registry.js";
+import { defineRawTool, definedFamily, type DefinedTool } from "../../define-tool.js";
+import { PROPOSE_CONNECTOR_TOOL, PROPOSE_CUSTOM_MCP_TOOL } from "../../propose-connector.js";
+import { PROPOSE_API_CONNECTION_TOOL, API_SEARCH_TOOL, API_CALL_TOOL } from "../../../api-connector/tools.js";
+import { MCP_TOOL_SEARCH_TOOL } from "../../mcp-tool-search.js";
+import { SET_CONNECTOR_TOOL_MARKS_TOOL } from "../../connector-tool-marks.js";
 
 async function handleProposeConnector(args: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult> {
 	return proposeConnector(args, { userId: ctx.userId, runId: ctx.runId, origin: ctx.origin, loginAsked: ctx.loginAsked ?? new Set<string>() });
@@ -96,17 +101,119 @@ async function handleGithubCompare(args: Record<string, unknown>, ctx: ToolConte
 }
 
 /** Família `connectors`. */
-export const CONNECTORS_TOOLS: ToolFamily = {
-	"propose_connector": { group: "connectors", handler: handleProposeConnector },
-	"propose_api_connection": { group: "connectors", handler: handleProposeApiConnection },
-	"api_search": { group: "connectors", handler: handleApiSearch },
-	"api_call": { group: "connectors", handler: handleApiCall },
-	"propose_custom_mcp": { group: "connectors", handler: handleProposeCustomMcp },
-	"mcp_tool_search": { group: "connectors", handler: handleMcpToolSearch },
-	[SET_CONNECTOR_TOOL_MARKS_TOOL_NAME]: { group: "connectors", handler: handleSetConnectorToolMarks },
-	"github_list_repos": { group: "connectors", handler: handleGithubListRepos },
-	"github_compare": { group: "connectors", handler: handleGithubCompare },
-};
+/** `api_call`: o runtime só aceita GET/HEAD (api-connector/runtime.ts) e os args não trazem método, então sem `method` é leitura; se um dia houver escrita, ela traz o método e cai em write_external. */
+const READ_HTTP_METHODS = new Set(["GET", "HEAD"]);
+
+/** Família `connectors`: definição, metadado e handler de cada tool num lugar só (`defineRawTool`, harness v3 PR5b). */
+export const CONNECTORS_DEFINED: readonly DefinedTool[] = [
+	defineRawTool({
+		name: "propose_connector",
+		definition: PROPOSE_CONNECTOR_TOOL,
+		effect: "write_internal",
+		endsTurn: true,
+		ownCard: true,
+		group: "connectors",
+		run: handleProposeConnector,
+	}),
+	defineRawTool({
+		name: "propose_api_connection",
+		definition: PROPOSE_API_CONNECTION_TOOL,
+		effect: "write_internal",
+		endsTurn: true,
+		ownCard: true,
+		group: "connectors",
+		run: handleProposeApiConnection,
+	}),
+	defineRawTool({
+		name: "api_search",
+		definition: API_SEARCH_TOOL,
+		effect: "read",
+		group: "connectors",
+		run: handleApiSearch,
+	}),
+	defineRawTool({
+		name: "api_call",
+		definition: API_CALL_TOOL,
+		effect: "write_external",
+		effectForArgs: (args) => (typeof args.method === "string" && !READ_HTTP_METHODS.has(args.method.trim().toUpperCase()) ? "write_external" : "read"),
+		catalogEffect: "read",
+		group: "connectors",
+		run: handleApiCall,
+	}),
+	defineRawTool({
+		name: "propose_custom_mcp",
+		definition: PROPOSE_CUSTOM_MCP_TOOL,
+		effect: "write_internal",
+		endsTurn: true,
+		ownCard: true,
+		group: "connectors",
+		run: handleProposeCustomMcp,
+	}),
+	defineRawTool({
+		name: "mcp_tool_search",
+		definition: MCP_TOOL_SEARCH_TOOL,
+		effect: "read",
+		group: "connectors",
+		run: handleMcpToolSearch,
+	}),
+	defineRawTool({
+		name: "set_connector_tool_marks",
+		definition: SET_CONNECTOR_TOOL_MARKS_TOOL,
+		effect: "write_internal",
+		needsHuman: true,
+		group: "connectors",
+		run: handleSetConnectorToolMarks,
+	}),
+	defineRawTool({
+		name: "github_list_repos",
+		definition: {
+				type: "function",
+				function: {
+					name: "github_list_repos",
+					description:
+						"Lista os repositórios GitHub do usuário conectado no Marketplace (mais recentes primeiro). Use pra resolver um nome informado de forma vaga (ex.: 'meu-app') em 'owner/name' ANTES de chamar propose_routine com trigger_type=github, quando o usuário não deu o owner/repo completo. Se a conexão falhar, explique que precisa conectar o GitHub no Marketplace.",
+					parameters: {
+						type: "object",
+						properties: {
+							query: {
+								type: "string",
+								description: "Filtro por substring do nome (owner/name).",
+							},
+						},
+					},
+				},
+			},
+		effect: "read",
+		group: "connectors",
+		run: handleGithubListRepos,
+	}),
+	defineRawTool({
+		name: "github_compare",
+		definition: {
+				type: "function",
+				function: {
+					name: "github_compare",
+					description:
+						"Compare two refs of a GitHub repository (base...head: branch, tag or SHA). Returns the COMPLETE paginated commit list (sha, author, subject, files per commit) plus per-file stats (+/-) and totals, never losing commits to truncation. Patches are omitted unless includePatch=true (only when at most 20 files, each cut). Use it to count or summarize pushes/PR ranges and to verify a commit count given by an event. Read-only. Works with the GitHub App installed on the repo or the user's GitHub connection.",
+					parameters: {
+						type: "object",
+						properties: {
+							repo: { type: "string", description: "owner/name" },
+							base: { type: "string", description: "Base ref/SHA (older side)." },
+							head: { type: "string", description: "Head ref/SHA (newer side)." },
+							includePatch: { type: "boolean", description: "Include cut patches (max 20 files). Default false." },
+						},
+						required: ["repo", "base", "head"],
+					},
+				},
+			},
+		effect: "read",
+		group: "connectors",
+		run: handleGithubCompare,
+	}),
+];
+
+export const CONNECTORS_TOOLS: ToolFamily = definedFamily(CONNECTORS_DEFINED);
 
 export const GITHUB_REPO_PATTERN = new RegExp("^[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}$");
 

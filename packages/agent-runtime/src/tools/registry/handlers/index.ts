@@ -8,7 +8,7 @@ import { VAULT_TOOLS } from "./vault.js";
 import { SKILLS_TOOLS } from "./skills.js";
 import { EMAIL_TOOLS, EMAIL_DEFINED } from "./email.js";
 import { PROACTIVE_TOOLS } from "./proactive.js";
-import { CONNECTORS_TOOLS } from "./connectors.js";
+import { CONNECTORS_TOOLS, CONNECTORS_DEFINED } from "./connectors.js";
 import { ROUTINES_TOOLS, ROUTINES_DEFINED } from "./routines.js";
 import { BOTS_TOOLS } from "./bots.js";
 import { PLANNING_TOOLS } from "./planning.js";
@@ -25,4 +25,4 @@ export const TOOL_FAMILIES: Array<() => ToolFamily> = [() => BROWSER_TOOLS, () =
 export const TOOL_RESOLVERS: ToolResolvers = { before: [() => devSessionResolver], after: [() => connectorToolResolver] };
 
 /** Toda tool nativa declarada com `defineTool`/`defineRawTool`, por família (o catálogo `COMPUTER_USE_TOOLS` lê as definições daqui). */
-export const ALL_DEFINED_TOOLS: readonly DefinedTool[] = [...FILES_DEFINED, ...PAGES_DEFINED, ...ROUTINES_DEFINED, ...EMAIL_DEFINED, ...BROWSER_DEFINED];
+export const ALL_DEFINED_TOOLS: readonly DefinedTool[] = [...CONNECTORS_DEFINED, ...FILES_DEFINED, ...PAGES_DEFINED, ...ROUTINES_DEFINED, ...EMAIL_DEFINED, ...BROWSER_DEFINED];

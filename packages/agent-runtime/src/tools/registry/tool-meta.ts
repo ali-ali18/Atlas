@@ -1,8 +1,6 @@
 import { getToolRegistration } from "./index.js";
 import type { ToolEffect, ToolMetaFields, ToolRegistration } from "./types.js";
 
-const READ_HTTP_METHODS = new Set(["GET", "HEAD"]);
-
 /**
  * Metadado por tool (desenho do harness v3, seção 3/7): `effect`, `poll`, `endsTurn`. Tabela única em vez de
  * campo espalhado por 16 arquivos de handlers: o registro a aplica em cada tool de nome fixo e o teste
@@ -80,21 +78,8 @@ export const TOOL_META: Readonly<Record<string, ToolMetaFields>> = {
 	notify_user: { effect: "write_internal" },
 
 	// Conectores
-	propose_connector: { effect: "write_internal", ownCard: true, endsTurn: true },
-	propose_api_connection: { effect: "write_internal", ownCard: true, endsTurn: true },
-	propose_custom_mcp: { effect: "write_internal", ownCard: true, endsTurn: true },
-	api_search: { effect: "read" },
 	// Hoje o runtime só aceita operação GET/HEAD (api-connector/runtime.ts) e os args não trazem método: sem
 	// `method`, é leitura. Se um dia houver escrita, ela traz o método e cai em write_external.
-	api_call: {
-		effect: "write_external",
-		catalogEffect: "read",
-		effectForArgs: (args) => (typeof args.method === "string" && !READ_HTTP_METHODS.has(args.method.trim().toUpperCase()) ? "write_external" : "read"),
-	},
-	mcp_tool_search: { effect: "read" },
-	set_connector_tool_marks: { effect: "write_internal", needsHuman: true },
-	github_list_repos: { effect: "read" },
-	github_compare: { effect: "read" },
 
 	// Rotinas
 
