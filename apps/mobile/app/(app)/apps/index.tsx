@@ -1,6 +1,7 @@
 import { useFocusEffect, useRouter } from "expo-router";
 import * as React from "react";
 import { AppsView } from "@/components/apps/apps-view";
+import { deviceLanguage } from "@/lib/device-language";
 import { type AppItem, type ComposioState, appRouteParams, buildAppsRows, buildChips, composioCategoryOf, composioWantsMore, connectedItems } from "@/lib/apps";
 import { createEndReachedGate } from "@/lib/composio-paging";
 import { useAppsData, useComposioList, useDebounced } from "@/lib/use-apps-data";
@@ -31,7 +32,7 @@ export default function AppsScreen() {
 		() => buildAppsRows({ entries: data.entries, connections: data.connections, composioConnections: data.composioConnections, composioLogos: composio.logos, composio: composioState, bots: data.bots, query, chip }),
 		[data.entries, data.connections, data.composioConnections, data.bots, composio.logos, composioState, query, chip],
 	);
-	const chips = React.useMemo(() => buildChips(data.entries, data.composioCategories), [data.entries, data.composioCategories]);
+	const chips = React.useMemo(() => buildChips(data.entries, data.composioCategories, deviceLanguage()), [data.entries, data.composioCategories]);
 	const connectedCount = React.useMemo(() => connectedItems({ entries: data.entries, connections: data.connections, composioConnections: data.composioConnections }).length, [data.entries, data.connections, data.composioConnections]);
 
 	const close = React.useCallback(() => (router.canGoBack() ? router.back() : router.replace("/")), [router]);

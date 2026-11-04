@@ -35,6 +35,7 @@
     "expo-haptics": "~58.0.7",
     "expo-image": "~58.0.18",
     "expo-linking": "~58.0.15",
+    "expo-localization": "~58.0.5",
     "expo-media-library": "~58.0.13",
     "expo-network": "~58.0.4",
     "expo-router": "~58.0.29",

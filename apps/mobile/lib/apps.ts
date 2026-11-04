@@ -2,6 +2,7 @@
 // nativos por categoria, apps do Composio e bots). Funções puras, testadas em apps.test.ts.
 import { MAX_COMPOSIO_CATEGORIES, type ComposioCategory, type ComposioConnection, type ComposioToolkit, type McpConnection, type NativeConnector } from "./apps-parse";
 import { type CatalogBot, filterCatalog, plain } from "./catalog";
+import { composioCategoryLabel, composioCategoryRank } from "./composio-category-labels";
 
 // ---- estado do botão -----------------------------------------------------------------------------------------------
 
@@ -79,9 +80,15 @@ const COMPOSIO_PREFIX = "c:";
 export type Chip = { id: string; label: string };
 
 /** Chips: categorias dos nativos (as que existem), "Bots" e as categorias do Composio (quando ativo). O "Todos" é do componente. */
-export function buildChips(entries: readonly NativeConnector[], composio: readonly ComposioCategory[]): Chip[] {
+export function buildChips(entries: readonly NativeConnector[], composio: readonly ComposioCategory[], language = "pt"): Chip[] {
 	const natives = [...new Set(entries.filter((entry) => entry.category !== "custom").map((entry) => entry.category))].map((id) => ({ id: NATIVE_PREFIX + id, label: nativeCategoryLabel(id) })).sort((a, b) => a.label.localeCompare(b.label, "pt-BR"));
-	return [...natives, { id: BOTS_CHIP, label: "Bots" }, ...composio.slice(0, MAX_COMPOSIO_CATEGORIES).map((item) => ({ id: COMPOSIO_PREFIX + item.id, label: item.name }))];
+	// Teto primeiro (custo), depois "popular" na frente e "outros" no fim; o resto mantém a ordem da API. Nome pelo id, no idioma do aparelho.
+	const remote = composio
+		.slice(0, MAX_COMPOSIO_CATEGORIES)
+		.map((item, index) => ({ item, index, rank: composioCategoryRank(item.id, item.name) }))
+		.sort((a, b) => a.rank - b.rank || a.index - b.index)
+		.map(({ item }) => ({ id: COMPOSIO_PREFIX + item.id, label: composioCategoryLabel(item.id, item.name, language) }));
+	return [...natives, { id: BOTS_CHIP, label: "Bots" }, ...remote];
 }
 
 /** A categoria do Composio escolhida (vai em `?category=`), ou `null`. */
