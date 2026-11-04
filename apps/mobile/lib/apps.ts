@@ -1,6 +1,6 @@
 // Tela "Aplicativos": estado do botão, rota do detalhe, chips de categoria e a montagem das seções (conectados, destaque,
 // nativos por categoria, apps do Composio e bots). Funções puras, testadas em apps.test.ts.
-import type { ComposioCategory, ComposioConnection, ComposioToolkit, McpConnection, NativeConnector } from "./apps-parse";
+import { MAX_COMPOSIO_CATEGORIES, type ComposioCategory, type ComposioConnection, type ComposioToolkit, type McpConnection, type NativeConnector } from "./apps-parse";
 import { type CatalogBot, filterCatalog, plain } from "./catalog";
 
 // ---- estado do botão -----------------------------------------------------------------------------------------------
@@ -81,7 +81,7 @@ export type Chip = { id: string; label: string };
 /** Chips: categorias dos nativos (as que existem), "Bots" e as categorias do Composio (quando ativo). O "Todos" é do componente. */
 export function buildChips(entries: readonly NativeConnector[], composio: readonly ComposioCategory[]): Chip[] {
 	const natives = [...new Set(entries.filter((entry) => entry.category !== "custom").map((entry) => entry.category))].map((id) => ({ id: NATIVE_PREFIX + id, label: nativeCategoryLabel(id) })).sort((a, b) => a.label.localeCompare(b.label, "pt-BR"));
-	return [...natives, { id: BOTS_CHIP, label: "Bots" }, ...composio.map((item) => ({ id: COMPOSIO_PREFIX + item.id, label: item.name }))];
+	return [...natives, { id: BOTS_CHIP, label: "Bots" }, ...composio.slice(0, MAX_COMPOSIO_CATEGORIES).map((item) => ({ id: COMPOSIO_PREFIX + item.id, label: item.name }))];
 }
 
 /** A categoria do Composio escolhida (vai em `?category=`), ou `null`. */

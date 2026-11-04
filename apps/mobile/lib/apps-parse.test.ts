@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { allowsHttp, browserUrl, parseComposioCategories, parseComposioConfigured, parseComposioConnections, parseComposioPage, parseConnectResult, parseMcpCatalog, parseMcpConnections, pickBrowserUrl, safeLogoUrl } from "./apps-parse";
+import { allowsHttp, browserUrl, MAX_COMPOSIO_CATEGORIES, parseComposioCategories, parseComposioConfigured, parseComposioConnections, parseComposioPage, parseConnectResult, parseMcpCatalog, parseMcpConnections, pickBrowserUrl, safeLogoUrl } from "./apps-parse";
 
 const entry = { id: "github", name: "GitHub", description: "Repos", longDescription: "Repos e issues", category: "productivity", icon: "/connectors/github.svg", authType: "oauth", availability: "available", skills: [{ key: "a", title: "Ler issues", description: "x" }, { key: "b" }], oauthReady: true, connectionId: "c1", status: "connected", accountCount: 2 };
 
@@ -80,5 +80,29 @@ describe("endereço do navegador e resultado da conexão", () => {
 		expect(parseConnectResult({ enabled: true, toolCount: 3 })).toEqual({ kind: "connected" });
 		expect(parseConnectResult({ connection: { id: "c9", status: "pending_auth" }, authorizeUrl: null })).toBeNull();
 		expect(parseConnectResult("x")).toBeNull();
+	});
+});
+
+describe("parseComposioCategories com resposta gigante", () => {
+	const big = Array.from({ length: 63_508 }, (_, i) => ({ id: `cat-${i % 40_000}`, name: `Categoria ${i % 40_000}` }));
+
+	it("limita ao teto, com ids únicos e na ordem", () => {
+		const out = parseComposioCategories({ categories: [{ id: "cat-0", name: "Dup" }, ...big] });
+		expect(MAX_COMPOSIO_CATEGORIES).toBe(15);
+		expect(out).toHaveLength(15);
+		expect(new Set(out.map((c) => c.id)).size).toBe(15);
+		expect(out.map((c) => c.id)).toEqual(Array.from({ length: 15 }, (_, i) => `cat-${i}`));
+		expect(out[0]!.name).toBe("Dup");
+	});
+
+	it("repetidas não ocupam vaga do teto", () => {
+		const rep = Array.from({ length: 1000 }, () => ({ id: "a", name: "A" }));
+		expect(parseComposioCategories({ categories: [...rep, { id: "b", name: "B" }] }).map((c) => c.id)).toEqual(["a", "b"]);
+	});
+
+	it("custo proporcional ao teto (63 mil em menos de 50 ms)", () => {
+		const t = performance.now();
+		parseComposioCategories({ categories: big });
+		expect(performance.now() - t).toBeLessThan(50);
 	});
 });

@@ -133,14 +133,26 @@ export function parseComposioConfigured(body: unknown): boolean {
 	return isRecord(body) && body.configured === true;
 }
 
+/**
+ * Teto de categorias do Composio no app. A API devolveu 63.508 categorias (muitas repetidas) mesmo com limit=100, e
+ * cada uma virava um chip sem virtualização: a thread JS congelava e o app morria por memória. 15 (decisão do dono: 10 a 15, no máximo 15) cobre
+ * a faixa de chips (que rola na horizontal) sem pesar a tela.
+ */
+export const MAX_COMPOSIO_CATEGORIES = 15;
+
+/** Lê só até juntar `MAX_COMPOSIO_CATEGORIES` únicas (por id, na ordem): o custo não cresce com o tamanho da resposta. */
 export function parseComposioCategories(body: unknown): ComposioCategory[] {
 	if (!isRecord(body) || !Array.isArray(body.categories)) return [];
+	const seen = new Set<string>();
 	const out: ComposioCategory[] = [];
 	for (const raw of body.categories) {
+		if (out.length >= MAX_COMPOSIO_CATEGORIES) break;
 		if (!isRecord(raw)) continue;
 		const id = text(raw.id) || text(raw.slug);
 		const name = text(raw.name);
-		if (id && name) out.push({ id, name });
+		if (!id || !name || seen.has(id)) continue;
+		seen.add(id);
+		out.push({ id, name });
 	}
 	return out;
 }

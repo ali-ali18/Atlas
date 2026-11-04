@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { appRouteParams, isSvgUri, resolveIconUri, type AppsRow, buildAppsRows, buildChips, composioAction, composioCategoryOf, composioWantsMore, connectedCountText, connectedItems, customAction, initialOf, isFeatured, mergeToolkits, nativeAction, appRefId, parseAppRef, type SectionsInput } from "./apps";
 import type { ComposioToolkit, NativeConnector } from "./apps-parse";
+import { MAX_COMPOSIO_CATEGORIES } from "./apps-parse";
 import { applyPage, EMPTY_PAGING, MAX_ITEMS } from "./composio-paging";
 import type { CatalogBot } from "./catalog";
 
@@ -234,5 +235,16 @@ describe("chegada de uma página enorme do Composio (servidor que ignora limit=2
 		expect(appKeys(rows).filter((key) => key.startsWith("c:")).length).toBeLessThanOrEqual(MAX_ITEMS);
 		expect(rows.length).toBeLessThan(MAX_ITEMS + 40);
 		expect(elapsed).toBeLessThan(200);
+	});
+});
+
+describe("buildChips com muitas categorias do Composio", () => {
+	it("nunca passa do teto de categorias do Composio", () => {
+		const many = Array.from({ length: 63_508 }, (_, i) => ({ id: `c${i}`, name: `Cat ${i}` }));
+		const chips = buildChips([], many);
+		const composioChips = chips.filter((chip) => composioCategoryOf(chip.id) !== null);
+		expect(composioChips).toHaveLength(MAX_COMPOSIO_CATEGORIES);
+		expect(composioChips[0]!.label).toBe("Cat 0");
+		expect(composioCategoryOf(composioChips[0]!.id)).toBe("c0");
 	});
 });
