@@ -386,6 +386,12 @@ export function buildQueuedRunData(input: {
  */
 export type RunInheritance = { humanTurn: boolean; engine?: RequestedEngine; profile?: RunProfile };
 
+/** Herança de um run específico; `humanTurn: false` = só motor e perfil (ninguém presente agora). */
+export function inheritanceFromRun(run: { budgetJson?: unknown } | null | undefined, humanTurn?: false): RunInheritance {
+	const inherited = readRunInheritance(run);
+	return humanTurn === false ? { ...inherited, humanTurn: false } : inherited;
+}
+
 export function readRunInheritance(run: { budgetJson?: unknown } | null | undefined): RunInheritance {
 	if (!run) return { humanTurn: false };
 	// Cru (com `v3`): a continuação de um run do v3 volta ao v3 se a flag ainda deixar (o worker decide).
@@ -468,6 +474,10 @@ export async function createAgentRun(input: {
 	onMergedIntoActiveRun?: (runId: string) => void | Promise<void>;
 	/** Resposta de questionário/cartão dentro de um trabalho do dono: herda turno humano, motor e perfil do último run de chat da conversa. */
 	inheritFromConversation?: boolean;
+	/** Motor v3 (prazo do cartão, retorno agendado): herda turno humano, motor e perfil DESTE run (do mesmo dono). */
+	inheritFromRunId?: string;
+	/** `false`: herda só motor e perfil (ninguém presente agora, ex.: retorno agendado): sem turno humano, só leitura. */
+	inheritHumanTurn?: false;
 }): Promise<AgentRun> {
 	const { request, model } = input;
 	const userId = input.userId?.trim();
@@ -502,7 +512,9 @@ export async function createAgentRun(input: {
 				request: withReplyContextOnRequest(fileCards.length ? { ...request, attachments: await imageAttachmentsOf(request.attachments ?? [], userId) } : request, replyTo),
 				model, userId, conversationId, contextLength: input.contextLength, modelAuto: input.modelAuto, humanTurn: input.humanTurn,
 				fileArtifactIds: fileCards.map((card) => card.artifactId),
-				...(input.inheritFromConversation ? { inherited: await getConversationInheritance(userId, conversationId) } : {}),
+				...(input.inheritFromRunId
+					? { inherited: inheritanceFromRun(await prisma.agentRun.findFirst({ where: { id: input.inheritFromRunId, userId }, select: { budgetJson: true } }), input.inheritHumanTurn) }
+					: input.inheritFromConversation ? { inherited: await getConversationInheritance(userId, conversationId) } : {}),
 			}),
 		});
 		if (conversationId && origin !== "routine" && request.silent !== true) {
@@ -875,6 +887,35 @@ export async function markPendingLoginCode(runId: string, codeEnc: string): Prom
 	const next = { ...checkpoint, pendingLogin: { ...checkpoint.pendingLogin, codeEnc } };
 	await prisma.agentRun.update({ where: { id: runId }, data: { checkpointJson: next as unknown as Prisma.InputJsonValue } });
 	return true;
+}
+
+/** Run ativo da conversa, do dono (o "ocupado" de agora), com o motor gravado. */
+export async function findActiveConversationRun(userId: string, conversationId: string): Promise<{ run: AgentRun; engine: RequestedEngine | null } | null> {
+	if (!userId.trim() || userId === "default") return null;
+	const row = await prisma.agentRun.findFirst({ where: { conversationId, userId, status: { in: ACTIVE_STATUSES } }, orderBy: { createdAt: "desc" }, select: AGENT_RUN_SELECT });
+	if (!row) return null;
+	return { run: mapRun(row), engine: readStoredRunEngine(row.budgetJson) ?? null };
+}
+
+/**
+ * Motor v3: o que o dono escolheu no cartão de login/VM ("Terminei", "Assumir", "Pular"; o prazo vencido marca
+ * `skipped_timeout`). Só grava quando o run espera esse login (`loginId`, se informado, confere) e ainda não há saída
+ * gravada. Escopado pelo dono. Quem chama grava ANTES de liberar o run (resume), para o worker já ler a saída.
+ */
+export async function markPendingLoginOutcome(input: { runId: string; userId: string; outcome: NonNullable<NonNullable<AgentRunCheckpoint["pendingLogin"]>["outcome"]>; loginId?: string }): Promise<string | null> {
+	if (!input.userId.trim() || input.userId === "default") return null;
+	const row = await prisma.agentRun.findFirst({ where: { id: input.runId, userId: input.userId }, select: { checkpointJson: true, updatedAt: true } });
+	const checkpoint = row?.checkpointJson as AgentRunCheckpoint | null | undefined;
+	if (!row || !checkpoint?.pendingLogin) return null;
+	if (input.loginId && checkpoint.pendingLogin.loginId !== input.loginId) return null;
+	// A primeira saída vence: o prazo não sobrescreve o "Terminei" (nem o contrário).
+	if (checkpoint.pendingLogin.outcome) return null;
+	const next = { ...checkpoint, pendingLogin: { ...checkpoint.pendingLogin, outcome: input.outcome } };
+	// Condicional pela versão lida (`updatedAt`): quem gravou no meio (outra saída, o worker) ganha e esta desiste.
+	const updated = await prisma.agentRun.updateMany({ where: { id: input.runId, userId: input.userId, updatedAt: row.updatedAt }, data: { checkpointJson: next as unknown as Prisma.InputJsonValue } });
+	if (updated.count !== 1) return null;
+	// O id do login volta para quem marcou cancelar o prazo daquele cartão.
+	return checkpoint.pendingLogin.loginId;
 }
 
 export async function listActiveRunsForConversation(

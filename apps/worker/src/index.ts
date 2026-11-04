@@ -51,7 +51,14 @@ import {
 	subscribeRunSignals,
 	publishRunEventsSignal,
 	syncRoutineScheduler,
+	OWNER_WAIT_QUEUE_NAME,
+	createOwnerWaitQueue,
+	scheduleOwnerWaitTimeout,
+	scheduleReturnJob,
+	cancelReturnJob,
 } from "@workspace/queue";
+import { defaultOwnerWaitDeps, processOwnerWaitJob } from "./owner-wait.js";
+import type { OwnerWaitJobPayload, OwnerWaitJobResult } from "@workspace/shared";
 import {
 	appendConversationMessage,
 	createRoutineRun,
@@ -122,6 +129,13 @@ function traced<T, R>(fn: (job: Job<T, R>) => Promise<R>): (job: Job<T, R>) => P
 const chatQueue = createChatCompletionQueue(connection);
 const agentRunQueue = createAgentRunQueue(connection);
 const routineQueue = createRoutineQueue(connection);
+// Motor v3 (PR8a): prazo do cartão que espera o dono e "Volto depois" (jobs atrasados, sem varredura).
+const ownerWaitQueue = createOwnerWaitQueue(connection);
+const ownerWaitDeps = {
+	scheduleTimeout: (payload: Parameters<typeof scheduleOwnerWaitTimeout>[1]) => scheduleOwnerWaitTimeout(ownerWaitQueue, payload),
+	scheduleReturn: ({ userId, returnId, delayMs }: { userId: string; returnId: string; delayMs: number }) => scheduleReturnJob(ownerWaitQueue, { kind: "scheduled_return", userId, returnId }, delayMs),
+	cancelReturn: async (returnId: string) => { await cancelReturnJob(ownerWaitQueue, returnId); },
+};
 const leaseOwner = `worker-${randomUUID().slice(0, 8)}`;
 
 // Notificações push: só com as chaves VAPID. Sem elas o worker segue normal, sem avisos no celular.
@@ -316,6 +330,7 @@ const agentWorker = new Worker<AgentRunJobPayload, AgentRunJobResult>(
 				});
 			},
 			enqueueNextRun: enqueueChainedRun,
+			ownerWait: ownerWaitDeps,
 			onRoutineMutated: async (routine) => {
 				await syncRoutineScheduler(routineQueue, routine);
 			},
@@ -370,6 +385,12 @@ const routineWorker = new Worker<
 		connection,
 		concurrency: 2,
 	},
+);
+
+const ownerWaitWorker = new Worker<OwnerWaitJobPayload, OwnerWaitJobResult>(
+	OWNER_WAIT_QUEUE_NAME,
+	traced(async (job) => processOwnerWaitJob(job.data, defaultOwnerWaitDeps(enqueueChainedRun))),
+	{ connection, concurrency: 2 },
 );
 
 chatWorker.on("ready", () => {
@@ -443,6 +464,7 @@ async function handleAgentRunFailure(
 }
 
 chatWorker.on("failed", onFailed("chat"));
+ownerWaitWorker.on("failed", onFailed("owner-wait"));
 agentWorker.on("failed", (job, err) => {
 	void handleAgentRunFailure(job, err);
 });
@@ -771,11 +793,13 @@ async function shutdown() {
 		chatWorker.close(),
 		agentWorker.close(outcome === "timed-out"),
 		routineWorker.close(),
+		ownerWaitWorker.close(),
 	]);
 	await Promise.all([
 		chatQueue.close(),
 		agentRunQueue.close(),
 		routineQueue.close(),
+		ownerWaitQueue.close(),
 	]);
 	await closeSharedMcpPool().catch(() => undefined);
 	await shutdownSharedExtractor().catch(() => undefined);

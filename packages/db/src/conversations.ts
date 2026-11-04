@@ -760,6 +760,40 @@ export async function submitQuestionnaireCard(
 }
 
 /**
+ * Motor v3: fecha um questionário AINDA pendente sem resposta (dono pulou, prazo venceu, ou mandou outra mensagem).
+ * Sem `questionnaireId`, o pendente mais recente. Só conversa do dono. Devolve id e título do cartão fechado.
+ */
+export async function dismissPendingQuestionnaireCard(input: {
+	conversationId: string;
+	ownerId: string;
+	questionnaireId?: string;
+}): Promise<{ questionnaireId: string; title: string } | null> {
+	const owned = await prisma.conversation.findFirst({ where: { id: input.conversationId, userId: input.ownerId }, select: { id: true } });
+	if (!owned) return null;
+	const recent = await prisma.conversationMessage.findMany({ where: { conversationId: input.conversationId, role: "questionnaire" }, orderBy: { createdAt: "desc" }, take: 10 });
+	for (const row of recent) {
+		const current = parseConversationCard(row.content);
+		if (!current || current.kind !== "questionnaire" || current.status !== "pending") continue;
+		if (input.questionnaireId && current.questionnaireId !== input.questionnaireId) continue;
+		const updated = await prisma.conversationMessage.updateMany({ where: { id: row.id, content: row.content }, data: { content: serializeConversationCard({ ...current, status: "dismissed" }) } });
+		return updated.count === 1 ? { questionnaireId: current.questionnaireId, title: current.title } : null;
+	}
+	return null;
+}
+
+/** Motor v3: questionário pendente mais recente da conversa do dono (o run que perguntou vem do id `questionnaire-<runId>`). */
+export async function findPendingQuestionnaireCard(conversationId: string, ownerId: string): Promise<{ questionnaireId: string; title: string } | null> {
+	const owned = await prisma.conversation.findFirst({ where: { id: conversationId, userId: ownerId }, select: { id: true } });
+	if (!owned) return null;
+	const recent = await prisma.conversationMessage.findMany({ where: { conversationId, role: "questionnaire" }, orderBy: { createdAt: "desc" }, take: 10 });
+	for (const row of recent) {
+		const current = parseConversationCard(row.content);
+		if (current?.kind === "questionnaire" && current.status === "pending") return { questionnaireId: current.questionnaireId, title: current.title };
+	}
+	return null;
+}
+
+/**
  * Diz se há card de questionário pendente na conversa (para fallback de
  * boas-vindas: só garante pergunta padrão quando o agente não emitiu nenhuma).
  */
@@ -995,6 +1029,37 @@ export async function updateConfirmCardStatus(
 		where: { id: match.id },
 		data: { content: serializeConversationCard({ ...current, status, ...(outcome ? { outcome: { ok: outcome.ok, detail: outcome.detail.slice(0, 2000) } } : {}) }) },
 	});
+}
+
+/**
+ * Fecha um cartão de confirmação AINDA pendente (decisão atrasada, prazo vencido, dono que mandou outra mensagem).
+ * Cartão já decidido não muda: um clique repetido nunca troca "aprovado" por "recusado". Só conversa do dono.
+ * Devolve o cartão fechado (título e id) ou `null` quando não havia o que fechar.
+ */
+export async function closePendingConfirmCard(input: {
+	conversationId: string;
+	ownerId: string;
+	confirmId?: string;
+	status: "rejected" | "approved";
+	detail: string;
+}): Promise<{ confirmId: string; title: string; callKey?: string } | null> {
+	const owned = await prisma.conversation.findFirst({ where: { id: input.conversationId, userId: input.ownerId, bot: { is: { ownerId: input.ownerId } } }, select: { id: true } });
+	if (!owned) return null;
+	const rows = await prisma.conversationMessage.findMany({ where: { conversationId: input.conversationId, role: "confirm" }, orderBy: { createdAt: "desc" }, take: 20 });
+	for (const row of rows) {
+		const card = parseConversationCard(row.content);
+		if (!card || card.kind !== "confirm") continue;
+		if (input.confirmId ? card.confirmId !== input.confirmId : card.status !== "pending") continue;
+		if (card.status !== "pending") return null;
+		// Condicional pelo conteúdo lido: se o clique do dono (ou o prazo) decidiu o cartão no meio, ninguém sobrescreve.
+		const updated = await prisma.conversationMessage.updateMany({
+			where: { id: row.id, content: row.content },
+			data: { content: serializeConversationCard({ ...card, status: input.status, outcome: { ok: input.status === "approved", detail: input.detail.slice(0, 2000) } }) },
+		});
+		if (updated.count !== 1) return null;
+		return { confirmId: card.confirmId, title: card.title, ...(card.callKey ? { callKey: card.callKey } : {}) };
+	}
+	return null;
 }
 
 /** Janela do que o Jev vê como "já aprovado nesta conversa". */

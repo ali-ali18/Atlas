@@ -49,7 +49,7 @@ import {
 import { noteBrowserLanguage } from "@workspace/db";
 import { pickLanguageFromAcceptLanguage } from "@workspace/shared";
 import { parseReasoningEffort, parseReplyToMessageId } from "@workspace/shared";
-import { demoteSteerInputToQueue, getOwnedConversation, markPendingLoginCode, markPendingLoginUseVault, promoteQueuedInputToSteer } from "@workspace/db";
+import { demoteSteerInputToQueue, getOwnedConversation, markPendingLoginCode, markPendingLoginUseVault, markPendingLoginOutcome, dismissPendingQuestionnaireCard, promoteQueuedInputToSteer } from "@workspace/db";
 import { scopeFor, type AuthEnv } from "../middleware/auth.js";
 import { isRunEventsSignalSubscribed, publishRunSignal as defaultPublishRunSignal, subscribeRunEventsSignal, type AgentRunQueue } from "@workspace/queue";
 import { runRunStream } from "./run-stream.js";
@@ -58,6 +58,7 @@ import { notifyRunSignal, type PublishRunSignal } from "../run-signal.js";
 import type { RunQueue } from "./run-queue.js";
 import type { ApiConfig } from "../config.js";
 import { applyConfirmedFollowUp, maybeHandleConfirmedAction } from "../chat/confirmed-action.js";
+import { cancelCardTimeout, ignoredQuestionnaireSeed, skippedQuestionnaireSeed, SKIPPED_TURN_NOTE } from "../chat/owner-wait.js";
 import { buildJevIntentFor } from "../chat/jev-intent.js";
 import { resolveGroupRunTarget } from "../chat/group-run.js";
 import { peekModelContextLength } from "./models.js";
@@ -431,8 +432,9 @@ export function createRunRoutes(
 				confirmId: request.decisionConfirmId,
 			});
 			if (!confirmedAction.handled && confirmedAction.followUp) {
-				// Ação MCP confirmada já rodou: o agente continua com o resultado.
-				followUpFromConfirm = true;
+				// Ação MCP confirmada já rodou: o agente continua com o resultado. Cartão ignorado (o dono digitou outra
+				// coisa): a fala continua sendo turno humano.
+				followUpFromConfirm = confirmedAction.followUp.humanTyped !== true;
 				request = {
 					...request,
 					messages: applyConfirmedFollowUp(request.messages, confirmedAction.followUp),
@@ -462,6 +464,15 @@ export function createRunRoutes(
 			console.error("confirmed action failed; falling back to agent run", error);
 		}
 
+		// Questionário do motor v3 pendente e o dono mandou outra mensagem: o cartão vira "Dispensado" e o modelo recebe a
+		// fala nova como resultado da pergunta que parou (só fala digitada no chat; v1/v2 não mudam).
+		// O cartão só vira "Dispensado" depois que o run nasce (`commit` abaixo): se o create falhar, segue pendente.
+		let ignoredQuestionnaire: Awaited<ReturnType<typeof ignoredQuestionnaireSeed>> = null;
+		if (!followUpFromConfirm && !request.transcriptSeed && (request.origin ?? "chat") === "chat" && request.silent !== true && request.conversationId && lastUser.trim()) {
+			ignoredQuestionnaire = await ignoredQuestionnaireSeed({ userId: scopeFor(c.get("session")).userId, conversationId: request.conversationId, text: lastUser.trim() }).catch(() => null);
+			if (ignoredQuestionnaire) request = { ...request, transcriptSeed: ignoredQuestionnaire.seed };
+		}
+
 		let run;
 		try {
 			const { userId } = scopeFor(c.get("session"));
@@ -487,6 +498,7 @@ export function createRunRoutes(
 			return c.json({ error: message }, 400);
 		}
 
+		await ignoredQuestionnaire?.commit();
 		const enqueued = await enqueueAgentRunJob(config.agentRunQueue, run.id);
 
 		const body: CreateAgentRunResponse = {
@@ -571,6 +583,8 @@ export function createRunRoutes(
 			console.error("submit questionnaire card failed", error);
 			return c.json({ error: "Failed to submit questionnaire" }, 503);
 		}
+		// Respondeu antes do prazo (motor v3): o job do prazo não dispara mais.
+		await cancelCardTimeout(parsed.questionnaireId);
 
 		const submittedAt = new Date().toISOString();
 		const clientKey = (
@@ -631,6 +645,51 @@ export function createRunRoutes(
 			status: run.status,
 			enqueued,
 		};
+		return c.json(body, 202);
+	});
+
+	/**
+	 * POST /v1/questionnaire/skip — "Pular" no questionário do motor v3 (PR8a): `{ conversationId, questionnaireId }`.
+	 * O cartão fecha como dispensado e um run silencioso continua a tarefa SEM a resposta (o modelo recebe "owner skipped
+	 * this step; continue the rest of the task without it" e não pergunta de novo neste trabalho). Só o dono: conversa
+	 * ou cartão de outro usuário = 404. Pular nunca encerra a tarefa.
+	 */
+	app.post("/v1/questionnaire/skip", async (c) => {
+		if (!config.agentRunQueue) return c.json({ error: "Agent run queue unavailable" }, 503);
+		const json = (await c.req.json().catch(() => null)) as { conversationId?: unknown; questionnaireId?: unknown; botId?: unknown } | null;
+		const conversationId = typeof json?.conversationId === "string" ? json.conversationId.trim() : "";
+		const questionnaireId = typeof json?.questionnaireId === "string" ? json.questionnaireId.trim() : "";
+		if (!conversationId || !questionnaireId || conversationId.length > 200 || questionnaireId.length > 200) return c.json({ error: "Invalid body: expected { conversationId, questionnaireId }" }, 400);
+		const { userId } = scopeFor(c.get("session"));
+		if (!(await getOwnedConversation(conversationId, userId))) return c.json({ error: "Conversation not found" }, 404);
+		const botId = typeof json?.botId === "string" ? json.botId : undefined;
+		try { await validateRunReferences({ conversationId, ...(botId ? { botId } : {}) }, userId); }
+		catch (error) {
+			if (error instanceof ResourceOwnershipError) return c.json({ error: "Resource not found" }, 404);
+			throw error;
+		}
+		const dismissed = await dismissPendingQuestionnaireCard({ conversationId, ownerId: userId, questionnaireId });
+		if (!dismissed) return c.json({ error: "Questionnaire not found or already answered" }, 404);
+		await cancelCardTimeout(questionnaireId);
+		const seed = skippedQuestionnaireSeed(dismissed);
+		const model = await resolveRunModel({ botId, userId, envDefault: config.openRouterModel, getAccountConfig: dependencies.getAccountConfig });
+		let run;
+		try {
+			run = await createAgentRun({
+				request: { messages: [{ role: "user", content: SKIPPED_TURN_NOTE }], conversationId, ...(botId ? { botId } : {}), origin: "chat", objective: SKIPPED_TURN_NOTE, silent: true, ...(seed ? { transcriptSeed: seed } : {}) },
+				model,
+				userId,
+				contextLength: peekModelContextLength(model),
+				inheritFromConversation: true,
+				onMergedIntoActiveRun: (runId) => notifyRunSignal(publish, runId, "input"),
+			});
+		} catch (error) {
+			if (error instanceof ResourceOwnershipError) return c.json({ error: "Resource not found" }, 404);
+			if (isActiveRunConflict(error)) return c.json({ error: ACTIVE_RUN_CONFLICT_MESSAGE }, 409);
+			return c.json({ error: error instanceof Error ? error.message : "Falha ao criar run" }, 400);
+		}
+		const enqueued = await enqueueAgentRunJob(config.agentRunQueue, run.id);
+		const body: CreateAgentRunResponse = { runId: run.id, status: run.status, enqueued };
 		return c.json(body, 202);
 	});
 
@@ -740,7 +799,12 @@ export function createRunRoutes(
 		const body = (await c.req.json().catch(() => null)) as { via?: unknown; code?: unknown } | null;
 		const loginCode = body?.via === "code" && typeof body.code === "string" ? body.code.replace(/s+/g, "") : "";
 		if (body?.via === "code" && !/^[A-Za-z0-9-]{3,12}$/.test(loginCode)) return c.json({ error: "Código inválido" }, 400);
+		// Motor v3: a saída do cartão de login/VM ("Pular", "Assumir"; o resto = "Terminei") vai para o checkpoint ANTES de
+		// liberar o run, para o worker (ou o reconcile) nunca pegar o run sem ela. v1/v2 ignoram o campo.
+		const loginOutcome = body?.via === "skip" ? "skipped" : body?.via === "takeover" ? "takeover" : "done";
+		const loginId = await markPendingLoginOutcome({ runId: owned.id, userId, outcome: loginOutcome }).catch(() => null);
 		const run = await requestResumeAgentRun(c.req.param("id"));
+		if (loginId) await cancelCardTimeout(loginId);
 		if (!run) {
 			return c.json(
 				{ error: "O agente ainda está parando ou não pode ser retomado" },

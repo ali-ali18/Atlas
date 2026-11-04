@@ -1,6 +1,6 @@
 import type { TranscriptSeed } from "@workspace/shared";
 import type { VaultService } from "@workspace/agent-runtime";
-import { DEFAULT_COMMAND_ALLOWLIST, canGrantMcpTask, mcpTaskGrantName, hasExternalTargetArgs, PLAN_OUTCOME_ADJUSTED, hostOf, PLAN_OUTCOME_APPROVED, PLAN_OUTCOME_CANCELLED, SUPERSEDED_CARD_DETAIL, planAdjustResult, planApprovedResult, planToTaskList, VAULT_ENVIRONMENT_ID, isCardConfirmToken, labelCardProtocolMessage, parseDevApprovalReject, stripCommandSofteners } from "@workspace/shared";
+import { OWNER_WAIT_CARD_DETAIL, lateOwnerDecisionNote, ownerWaitResultText, DEFAULT_COMMAND_ALLOWLIST, canGrantMcpTask, mcpTaskGrantName, hasExternalTargetArgs, PLAN_OUTCOME_ADJUSTED, hostOf, PLAN_OUTCOME_APPROVED, PLAN_OUTCOME_CANCELLED, SUPERSEDED_CARD_DETAIL, planAdjustResult, planApprovedResult, planToTaskList, VAULT_ENVIRONMENT_ID, isCardConfirmToken, labelCardProtocolMessage, parseDevApprovalReject, stripCommandSofteners } from "@workspace/shared";
 import type { AgentRun } from "@workspace/shared";
 import {
 	addBotAutonomyException,
@@ -8,6 +8,9 @@ import {
 	appendRunEvent,
 	clearSkillPendingIntent,
 	claimSkillPendingIntent,
+	closePendingConfirmCard,
+	createRunInput,
+	findActiveConversationRun,
 	completeAgentRunAtomically,
 	createAgentRun,
 	getConversationRequesterBotId,
@@ -28,6 +31,7 @@ import {
 import { collectRefs, EmailServiceError, emailService, executeConfirmedMcpCall, getVaultService, executeGenerateImage, openSecrets, isSecretBoxConfigured, parseGenerateImageArgs, sanitizeErrorMessage } from "@workspace/agent-runtime";
 import { peekModelContextLength } from "../routes/models.js";
 import { loadEffectiveConfig } from "./account-config.js";
+import { cancelCardTimeout } from "./owner-wait.js";
 
 /** Conta única: userId vem da sessão (rotas); fallback "default" só para chamadas legadas sem sessão (retrocompatível, worker não usa este helper). */
 function effectiveUserId(userId?: string): string {
@@ -41,7 +45,8 @@ async function beginActivityRun(input: {
 	conversationId?: string;
 	model: string;
 	commandText: string;
-}): Promise<AgentRun> {
+}): Promise<{ run: AgentRun; merged: boolean }> {
+	let merged = false;
 	const run = await createAgentRun({
 		request: {
 			messages: [{ role: "user", content: input.commandText }],
@@ -53,11 +58,15 @@ async function beginActivityRun(input: {
 		model: input.model,
 		userId: effectiveUserId(input.userId),
 		contextLength: peekModelContextLength(input.model),
+		// A conversa já tinha run ativo: o create devolve ESSE run (a fala vira entrada nele). Ele não é nosso para concluir.
+		onMergedIntoActiveRun: () => { merged = true; },
 	});
-	return run;
+	return { run, merged };
 }
 
-async function finishActivityRun(input: { run: AgentRun; assistantText: string; costUsd?: number }): Promise<AgentRun> {
+async function finishActivityRun(input: { run: AgentRun; merged?: boolean; assistantText: string; costUsd?: number }): Promise<AgentRun> {
+	// Run ativo de outro trabalho (ver `beginActivityRun`): concluí-lo parava a tarefa em andamento.
+	if (input.merged) return input.run;
 	await completeAgentRunAtomically({
 		runId: input.run.id,
 		conversationId: input.run.conversationId,
@@ -288,8 +297,8 @@ async function resolvePendingIntent(input: {
 }): Promise<AgentRun | null> {
 	const pending = await getSkillPendingIntent(input.userId, input.conversationId);
 	if (!pending) return null;
-	const run = await beginActivityRun({ userId: input.userId, botId: input.botId, conversationId: input.conversationId, model: input.model, commandText: input.commandText });
-	const done = (assistantText: string, costUsd?: number) => finishActivityRun({ run, assistantText, costUsd });
+	const { run, merged } = await beginActivityRun({ userId: input.userId, botId: input.botId, conversationId: input.conversationId, model: input.model, commandText: input.commandText });
+	const done = (assistantText: string, costUsd?: number) => finishActivityRun({ run, merged, assistantText, costUsd });
 	const clear = () => clearSkillPendingIntent(input.userId, input.conversationId).catch(() => undefined);
 	if (pending.kind !== "confirm") {
 		await clear();
@@ -387,6 +396,8 @@ export type ConfirmedFollowUp = {
 	objective: string;
 	/** Aprovação de conector executada: o run seguinte a encaixa na conversa do run que perguntou (ver `TranscriptSeed`). */
 	transcript?: TranscriptSeed;
+	/** O texto é fala digitada pelo dono (ele ignorou o cartão e mandou outra mensagem): o run segue como turno humano. */
+	humanTyped?: true;
 };
 
 export type ConfirmedActionResult =
@@ -491,7 +502,7 @@ export function toolCallFollowUpContent(userText: string, call: { tool: string; 
 		"",
 		decision === "approved"
 			? `[The owner APPROVED: ${call.label}.] Call ${call.tool} again with EXACTLY the same arguments to run it now (the approval covers one run of that exact call). Then tell the result in 1-2 simple sentences.`
-			: `[The owner did NOT approve: ${call.label}.] Nothing was done. Do not retry it; say so in one sentence and offer an alternative if there is one.`,
+			: `[The owner did NOT approve: ${call.label}.] ${ownerWaitResultText("declined", { what: call.label })}`,
 		NO_RENARRATION,
 	].join("\n");
 }
@@ -618,11 +629,18 @@ export function seedField(
 	result: string,
 	userText: string,
 	taskList?: TranscriptSeed["taskList"],
+	/** Motor v3: pedidos recusados/pulados neste trabalho (não voltam na continuação). */
+	refused?: string[],
 ): { transcript?: TranscriptSeed } {
 	const fromRunId = askingRunId(payload.confirmId);
 	const resultContent = result.trim();
 	if (!fromRunId || !resultContent) return {};
-	return { transcript: { fromRunId, ...(toolName ? { toolName } : {}), resultContent, shortContent: labelCardProtocolMessage(userText), ...(taskList && taskList.length > 0 ? { taskList } : {}) } };
+	return { transcript: { fromRunId, ...(toolName ? { toolName } : {}), resultContent, shortContent: labelCardProtocolMessage(userText), ...(taskList && taskList.length > 0 ? { taskList } : {}), ...(refused && refused.length > 0 ? { refused } : {}) } };
+}
+
+/** Chaves recusadas que a continuação de um cartão genérico do v3 leva (as de antes + esta, se recusada). */
+function toolCallRefused(call: { callKey: string; refused?: string[] }, refusedNow: boolean): string[] {
+	return [...(call.refused ?? []), ...(refusedNow ? [`call:${call.callKey}`] : [])].slice(-50);
 }
 
 /** Turno do run que continua depois da decisão do plano: a fala do usuário e o desfecho (que também é o resultado da chamada). */
@@ -638,6 +656,38 @@ export function applyConfirmedFollowUp<T extends { role: string; content: string
 	const index = messages.map((message) => message.role).lastIndexOf("user");
 	if (index < 0) return [...messages, { role: "user", content: labelCardProtocolMessage(followUp.content) } as T];
 	return messages.map((message, i) => (i === index ? { ...message, content: labelCardProtocolMessage(followUp.content) } : message));
+}
+
+/**
+ * Recusa ("Agora não", "Recusar") de um cartão enquanto OUTRO run da conversa está ativo (bug do dono, 03/11: recusar um
+ * cartão atrasado parava tudo). Antes, a recusa virava um run de atividade que, preso ao índice "um run ativo por
+ * conversa", devolvia o run ativo e o CONCLUÍA com "Ok, deixei pra lá"; ou o "cancela isso" entrava como fala no run
+ * ativo e a triagem do v2 o lia como "parar". Agora: o cartão pendente fecha como recusado (registro na conversa, com o
+ * rótulo), a intenção pendente daquele cartão sai, e o run ativo segue. No motor v3 ele recebe ainda a nota no próximo
+ * limite, como steer silencioso (o v2 não recebe nada: a triagem dele responderia em voz alta). Só "Parar" cancela.
+ * `null` = não há run ativo: segue o fluxo normal.
+ */
+async function settleLateCardDecline(input: {
+	userId: string;
+	conversationId: string;
+	pending: Awaited<ReturnType<typeof getSkillPendingIntent>>;
+	confirmId?: string;
+}): Promise<AgentRun | null> {
+	const active = await findActiveConversationRun(input.userId, input.conversationId).catch(() => null);
+	if (!active) return null;
+	const pendingConfirmId = input.pending?.kind === "confirm" ? input.pending.payload.confirmId : undefined;
+	const target = input.confirmId ?? pendingConfirmId;
+	// A intenção só sai quando o clique é no cartão dela (ou não diz qual): clique num cartão velho não apaga a do novo.
+	if (input.pending && (!input.confirmId || input.confirmId === pendingConfirmId)) {
+		await claimSkillPendingIntent(input.pending.id, input.userId, input.conversationId).catch(() => false);
+	}
+	const closed = await closePendingConfirmCard({ conversationId: input.conversationId, ownerId: input.userId, ...(target ? { confirmId: target } : {}), status: "rejected", detail: OWNER_WAIT_CARD_DETAIL.declined }).catch(() => null);
+	if (closed) await cancelCardTimeout(closed.confirmId);
+	if (closed && active.engine === "v3") {
+		const note = lateOwnerDecisionNote({ outcome: "declined", what: closed.title.replace(/\?$/, ""), at: new Date() });
+		await createRunInput(active.run.id, { content: note, mode: "join", silent: true, author: "system" }, input.userId).catch(() => undefined);
+	}
+	return active.run;
 }
 
 /**
@@ -668,6 +718,12 @@ export async function maybeHandleConfirmedAction(input: {
 	const userId = effectiveUserId(input.userId);
 	const commandText = stripCommandSofteners(input.text.trim());
 	const pending = await getSkillPendingIntent(userId, input.conversationId);
+	// Clique de cartão com um run ATIVO na conversa: nenhum run ativo espera cartão de confirmação (quem pergunta termina em
+	// `awaiting_confirmation`), então o cartão é atrasado ou substituído. Recusar não pode parar o trabalho em andamento.
+	if (isCardCancelToken(commandText) || parseDevApprovalReject(commandText)) {
+		const late = await settleLateCardDecline({ userId, conversationId: input.conversationId, pending, confirmId: input.confirmId });
+		if (late) return { run: late, handled: true };
+	}
 	if (!pending && (isCardCancelToken(commandText) || parseDevApprovalReject(commandText))) {
 		// A intenção pendente expira (10 min) mas o card continua no chat: sem isto o
 		// "Cancelar" clicado depois disso ia só para o modelo e o card voltava a
@@ -685,15 +741,29 @@ export async function maybeHandleConfirmedAction(input: {
 	if (!pending && isCardConfirmToken(commandText) && !parseDevApprovalReject(commandText)) {
 		// "Executar" sem intenção viva (venceu ou foi consumida): o cartão não pode mais ser executado. Sem fechá-lo
 		// ele ficava "pendente" no banco e voltava a pedir autorização toda vez que o app era reaberto.
-		await updateConfirmCardStatus(input.conversationId, "rejected", input.confirmId, userId, { ok: false, detail: SUPERSEDED_CARD_DETAIL }).catch(() => undefined);
+		// Só fecha se ainda estiver pendente: um cartão já decidido (pelo dono ou pelo prazo) não troca de desfecho.
+		await closePendingConfirmCard({ conversationId: input.conversationId, ownerId: userId, ...(input.confirmId ? { confirmId: input.confirmId } : {}), status: "rejected", detail: SUPERSEDED_CARD_DETAIL }).catch(() => null);
 	}
 	if (!pending || pending.kind !== "confirm") return { handled: false };
 	if (input.confirmId && pending.payload.confirmId && input.confirmId !== pending.payload.confirmId) {
 		// Decisão de um cartão que um pedido mais novo já substituiu: não aprova (nem recusa) o comando novo.
 		if (isCardConfirmToken(commandText) || isCardCancelToken(commandText) || parseDevApprovalReject(commandText)) {
-			await updateConfirmCardStatus(input.conversationId, "rejected", input.confirmId, undefined, { ok: false, detail: SUPERSEDED_CARD_DETAIL }).catch(() => undefined);
+			await closePendingConfirmCard({ conversationId: input.conversationId, ownerId: userId, confirmId: input.confirmId, status: "rejected", detail: SUPERSEDED_CARD_DETAIL }).catch(() => null);
 			return { handled: false, duplicate: true };
 		}
+	}
+
+	// Cartão genérico do motor v3 + o dono escreveu outra coisa (não clicou): ele IGNOROU o cartão. Sem Jev nem regex sobre
+	// a fala: o cartão vira "Dispensado", o prazo cai e o modelo recebe a fala nova como resultado da chamada que parou.
+	const ignoredToolCall = pending.payload.action === "tool-call" ? pending.payload.toolCall : undefined;
+	if (input.continueInAgent && ignoredToolCall && commandText && !isCardConfirmToken(commandText) && !isCardCancelToken(commandText) && !parseDevApprovalReject(commandText)) {
+		if (!(await claimSkillPendingIntent(pending.id, userId, input.conversationId))) return { handled: false };
+		await updateConfirmCardStatus(input.conversationId, "rejected", pending.payload.confirmId, undefined, { ok: false, detail: OWNER_WAIT_CARD_DETAIL.ignored }).catch(() => undefined);
+		await cancelCardTimeout(pending.payload.confirmId);
+		const userText = input.text.trim();
+		const result = ownerWaitResultText("ignored", { what: ignoredToolCall.label, message: userText });
+		const seed = seedField(pending.payload, ignoredToolCall.tool, result, userText, undefined, toolCallRefused(ignoredToolCall, true));
+		return { handled: false, followUp: { objective: userText, content: userText, humanTyped: true, ...(seed.transcript ? { transcript: { ...seed.transcript, shortContent: userText } } : {}) } };
 	}
 
 	// Botão do card = token de protocolo (sem Jev). Texto digitado: o Jev decide em
@@ -745,8 +815,9 @@ export async function maybeHandleConfirmedAction(input: {
 		if (input.continueInAgent && toolCallDeclined) {
 			if (!(await claimSkillPendingIntent(pending.id, userId, input.conversationId))) return { handled: false, duplicate: true };
 			await updateConfirmCardStatus(input.conversationId, "rejected", pending.payload.confirmId, undefined, { ok: false, detail: "não aprovado pelo usuário" }).catch(() => undefined);
+			await cancelCardTimeout(pending.payload.confirmId);
 			const userText = input.text.trim();
-			return { handled: false, followUp: { objective: userText, content: toolCallFollowUpContent(userText, toolCallDeclined, "declined"), ...seedField(pending.payload, toolCallDeclined.tool, toolCallFollowUpContent("", toolCallDeclined, "declined"), userText) } };
+			return { handled: false, followUp: { objective: userText, content: toolCallFollowUpContent(userText, toolCallDeclined, "declined"), ...seedField(pending.payload, toolCallDeclined.tool, toolCallFollowUpContent("", toolCallDeclined, "declined"), userText, undefined, toolCallRefused(toolCallDeclined, true)) } };
 		}
 		const vaultUseDeclined = pending.payload.action === "vault-use" ? pending.payload.vaultUse : undefined;
 		if (input.continueInAgent && vaultUseDeclined) {
@@ -770,7 +841,7 @@ export async function maybeHandleConfirmedAction(input: {
 			pending.payload.action === "plan" ? { ok: false, detail: PLAN_OUTCOME_CANCELLED } : undefined,
 		).catch(() => undefined);
 		await clearSkillPendingIntent(userId, input.conversationId).catch(() => undefined);
-		const run = await beginActivityRun({
+		const { run, merged } = await beginActivityRun({
 			userId,
 			botId: input.botId,
 			conversationId: input.conversationId,
@@ -778,7 +849,7 @@ export async function maybeHandleConfirmedAction(input: {
 			commandText: input.text.trim(),
 		});
 		return {
-			run: await finishActivityRun({ run, assistantText: `Ok, deixei pra lá.` }),
+			run: await finishActivityRun({ run, merged, assistantText: `Ok, deixei pra lá.` }),
 			handled: true,
 		};
 	}
@@ -853,8 +924,9 @@ export async function maybeHandleConfirmedAction(input: {
 			// O aval fica no cartão (resultado ok): o runtime só executa quando acha esta chave aprovada, e uma vez só.
 			if (!(await claimSkillPendingIntent(pending.id, userId, input.conversationId))) return { handled: false, duplicate: true };
 			await updateConfirmCardStatus(input.conversationId, "approved", pending.payload.confirmId, undefined, { ok: true, detail: "aprovado pelo usuário" }).catch(() => undefined);
+			await cancelCardTimeout(pending.payload.confirmId);
 			const userText = input.text.trim();
-			return { handled: false, followUp: { objective: userText, content: toolCallFollowUpContent(userText, toolCallApproved, "approved"), ...seedField(pending.payload, toolCallApproved.tool, toolCallFollowUpContent("", toolCallApproved, "approved"), userText) } };
+			return { handled: false, followUp: { objective: userText, content: toolCallFollowUpContent(userText, toolCallApproved, "approved"), ...seedField(pending.payload, toolCallApproved.tool, toolCallFollowUpContent("", toolCallApproved, "approved"), userText, undefined, toolCallRefused(toolCallApproved, false)) } };
 		}
 		const prCreate = pending.payload.action === "dev-pr-create" ? pending.payload.devPrCreate : undefined;
 		if (input.continueInAgent && prCreate) {

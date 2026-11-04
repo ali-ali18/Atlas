@@ -1139,6 +1139,32 @@ model BotFollowup {
   @@map("bot_followups")
 }
 
+/// "Volto depois" do motor v3 (`schedule_return`): despertador de UMA vez que retoma a mesma conversa com o contexto.
+/// Não é rotina nem item da Biblioteca. O disparo é um job atrasado no BullMQ (fila atlas-owner-wait), sem varredura.
+model ConversationReturn {
+  id             String    @id @default(cuid())
+  userId         String
+  botId          String?
+  conversationId String
+  /// Run que agendou: o retorno herda dele a origem e o turno humano (sem humano, sem escrita).
+  sourceRunId    String
+  dueAt          DateTime
+  /// O que o bot vai conferir ou fazer ao voltar (texto do modelo, curto).
+  reason         String
+  /// true = prometido ao usuário (marcador "Volto às HH:MM"); false = silencioso, só posta se houver novidade.
+  visible        Boolean   @default(false)
+  /// pending | fired | cancelled
+  status         String    @default("pending")
+  /// Run criado quando venceu.
+  runId          String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([conversationId, status])
+  @@index([userId])
+  @@map("conversation_returns")
+}
+
 /// Registro curto do que o modo proativo fez (sem conteúdo): reflexão do dia, mensagens enviadas (teto diário).
 model ProactiveEvent {
   id        String   @id @default(cuid())

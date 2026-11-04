@@ -775,6 +775,39 @@
    "effectBySample": []
   },
   {
+   "name": "cancel_return",
+   "group": "proactive",
+   "source": "registry",
+   "readOnly": false,
+   "definition": {
+    "type": "function",
+    "function": {
+     "name": "cancel_return",
+     "description": "Cancel a pending return of this conversation (scheduled with schedule_return). USE WHEN the user asks to cancel it or it is no longer needed. DO NOT USE for routines or reminders.",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "returnId": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Id of the pending return (from schedule_return or the pending-returns note)."
+       }
+      },
+      "required": [
+       "returnId"
+      ]
+     }
+    }
+   },
+   "effect": "write_internal",
+   "catalogEffect": null,
+   "poll": null,
+   "endsTurn": null,
+   "needsHuman": null,
+   "ownCard": null,
+   "effectBySample": []
+  },
+  {
    "name": "checkpoint_read",
    "group": "memory",
    "source": "registry",
@@ -4120,6 +4153,50 @@
       },
       "required": [
        "note"
+      ]
+     }
+    }
+   },
+   "effect": "write_internal",
+   "catalogEffect": null,
+   "poll": null,
+   "endsTurn": null,
+   "needsHuman": null,
+   "ownCard": null,
+   "effectBySample": []
+  },
+  {
+   "name": "schedule_return",
+   "group": "proactive",
+   "source": "registry",
+   "readOnly": false,
+   "definition": {
+    "type": "function",
+    "function": {
+     "name": "schedule_return",
+     "description": "Come back to THIS conversation once, later, with its context (1 minute to 7 days; at most 3 pending per conversation). USE WHEN you promised the user to check back (visible=true), or to follow up once on something that finishes later (a deploy, a delivery, a reply) (visible=false: you post only if there is news). DO NOT USE for repeated checks or anything recurring (propose a routine), or to wait a few seconds (use the wait tools).",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "at": {
+        "description": "When to come back: ISO date-time with timezone offset (e.g. 2026-11-04T15:30:00-03:00). Use this OR inMinutes.",
+        "type": "string"
+       },
+       "inMinutes": {
+        "description": "Minutes from now (1 to 10080). Use this OR at.",
+        "type": "number"
+       },
+       "reason": {
+        "type": "string",
+        "description": "One short sentence: what you will check or do when you come back."
+       },
+       "visible": {
+        "description": "true when you promised the user to come back (shows 'back at HH:MM', the user can cancel); false (default) for a follow-up you decided yourself: you only post if there is news.",
+        "type": "boolean"
+       }
+      },
+      "required": [
+       "reason"
       ]
      }
     }

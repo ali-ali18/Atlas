@@ -33,6 +33,7 @@ import { type LedgerStore } from "../../tools/track-items.js";
 import { type TaskListStore } from "../../tools/task-list.js";
 import { type ProactiveToolContext, type UserPushContext } from "../../tools/proactive.js";
 import { type RunLessonsParam } from "../../lessons.js";
+import type { OwnerWaitDeps } from "../schedule-return.js";
 
 export type ConfirmEvent = Extract<ComputerUseEvent, { type: "confirm" }>;
 export type SkillEvent = Extract<ComputerUseEvent, { type: "skill" }>;
@@ -57,6 +58,8 @@ export type ToolResult = {
 	profileEvent?: BotProfileEvent;
 	loginEvent?: LoginEvent;
 	fileEvent?: FileEvent;
+	/** Motor v3: marcador "Volto às HH:MM" do `schedule_return` visível (ou o cancelamento dele). */
+	returnEvent?: Extract<ComputerUseEvent, { type: "return_scheduled" }>;
 	/** Imagens geradas (run_code) que o modelo deve ver no próximo turno; contam na higiene de imagens. */
 	visionArtifactIds?: string[];
 	jevAudit?: JevMcpAudit;
@@ -64,6 +67,8 @@ export type ToolResult = {
 
 export type ToolContext = {
 	manager: SandboxManager;
+	/** Motor v3: filas do "esperar o dono" (prazo do cartão e `schedule_return`); ausente = indisponível neste run. */
+	ownerWait?: OwnerWaitDeps;
 	/** Fuso IANA da conta (tool `current_time`). */
 	timeZone?: string;
 	/** Configuração da prévia completa (só administrador; ausente = a tool não existe neste run). */

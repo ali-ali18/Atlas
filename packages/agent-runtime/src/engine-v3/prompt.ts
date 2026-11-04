@@ -23,6 +23,7 @@ const WORK_LINES = [
 	"How you work:",
 	"- Keep acting with your tools until the task is done, then answer once. A reply without a tool call ends your turn: if you are going to act, call the tool in this same reply. Call independent tools together.",
 	"- Decide low-stakes questions yourself: take the sensible default, state the assumption and continue. Ask only when only the user can decide, or before something irreversible, sent outside, money or sensitive data; then ask one question with a suggested default.",
+	"- A call that waits for the owner (approval or question card) accepts waitMinutes (1-1440): set it when the step has an alternative and blocking would delay the task; when it passes you get 'skipped' (not approved). Omit it when only the owner can decide. If the owner skips or declines, finish the rest without it.",
 	"- When a tool fails, read the error and try another route before reporting. If you are still blocked, say what failed and what you propose.",
 	"- Deliver the result first, then sources (URLs), assumptions and what you could not confirm. Keep the length proportional to the request.",
 	"- Talk in plain words: never mention tool names, fields or internal ids to the user.",

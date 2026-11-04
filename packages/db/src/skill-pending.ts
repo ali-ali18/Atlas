@@ -53,7 +53,8 @@ export type SkillPendingPayload = {
 	/** Escrita de infraestrutura da prévia completa (DNS) aguardando o "confirmado"; o agente repete a chamada depois. Nenhum segredo aqui. */
 	infraSetup?: { callKey: string; label: string };
 	/** Chamada de tool nativa que a política do motor v3 pediu para o dono aprovar; o agente repete a chamada depois. Nenhum segredo aqui. */
-	toolCall?: { callKey: string; tool: string; label: string };
+	/** Motor v3: `refused` = pedidos já recusados/pulados neste trabalho (passam à continuação); `waitMinutes` = prazo pedido pelo modelo. */
+	toolCall?: { callKey: string; tool: string; label: string; refused?: string[]; waitMinutes?: number };
 	/** Plano proposto (`propose_plan`) aguardando "Aprovar plano"; aprovar não aprova escritas. */
 	plan?: PlanInfo;
 	/** Vínculo de um login do Cofre sem site a um host (a primeira vez); nenhum valor aqui. `linkHost` = hostname exato que o "Sim" grava no item. */

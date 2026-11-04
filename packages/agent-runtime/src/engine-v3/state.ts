@@ -65,6 +65,10 @@ export type V3Run = {
 	ownTaskList?: TaskListItem[];
 	taskListItems?: TaskListItem[];
 	loginAsked: Set<string>;
+	/** Pedidos que o dono recusou, pulou ou deixou sem resposta neste trabalho (`call:<chave>`, `tool:<nome>`): não voltam. */
+	ownerRefused: Set<string>;
+	/** O dono assumiu a VM ("Assumir"): neste run as tools da VM não rodam (o modelo segue com o resto). */
+	ownerHasComputer?: boolean;
 	pendingLogin?: AgentRunCheckpoint["pendingLogin"];
 	consumedInputIds: Set<string>;
 	/** Mensagens do usuário que chegaram no meio do lote: entram na conversa depois dos resultados. */

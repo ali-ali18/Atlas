@@ -70,3 +70,39 @@ test("o id do cartão genérico devolve o run que pediu", () => {
 	assert.equal(askingRunId("confirm-toolab12cd34-run9"), "run9");
 	assert.equal(seedField({ confirmId: "confirm-toolab12cd34-run9" }, "page_share", toolCallFollowUpContent("", { tool: "page_share", label: "x" }, "approved"), "ok").transcript?.toolName, "page_share");
 });
+
+const seedOf = (result: unknown) => (result as { followUp?: { humanTyped?: true; content: string; transcript?: { resultContent: string; refused?: string[]; shortContent: string } } }).followUp;
+
+test("dono ignorou o cartão e escreveu outra coisa: Dispensado, sem Jev/regex, e o modelo recebe a fala nova como resultado", async () => {
+	const db = fakeDb();
+	try {
+		// "sim" digitado não aprova o cartão genérico do v3: só o botão aprova.
+		const result = await maybeHandleConfirmedAction({ text: "sim, mas antes me manda o resumo", userId: USER, botId: "bot-1", conversationId: CONV, model: "m", continueInAgent: true, jevIntent: async () => ({ cancel: false, confirm: true }) });
+		const follow = seedOf(result)!;
+		assert.equal(follow.humanTyped, true);
+		assert.equal(follow.content, "sim, mas antes me manda o resumo");
+		assert.match(follow.transcript!.resultContent, /did not answer the previous request \("Criar um link público do painel"\) and sent: "sim, mas antes me manda o resumo"/);
+		assert.deepEqual(follow.transcript!.refused, ["call:k-share"]);
+		assert.equal(follow.transcript!.shortContent, "sim, mas antes me manda o resumo");
+		assert.equal(db.state.status, "rejected");
+		assert.deepEqual(db.state.outcome, { ok: false, detail: "Dispensado" });
+		assert.equal(db.state.cleared, true);
+	} finally { db.restore(); }
+});
+
+test("recusar leva a chave recusada para a continuação (não pede de novo) e diz para seguir com o resto", async () => {
+	const db = fakeDb();
+	try {
+		const follow = seedOf(await run("cancela isso"))!;
+		assert.deepEqual(follow.transcript!.refused, ["call:k-share"]);
+		assert.match(follow.transcript!.resultContent, /Continue the rest of the task without it/);
+	} finally { db.restore(); }
+});
+
+test("aprovar não marca a chave como recusada", async () => {
+	const db = fakeDb();
+	try {
+		const follow = seedOf(await run("confirmado: Criar um link público do painel?"))!;
+		assert.equal(follow.transcript!.refused, undefined);
+	} finally { db.restore(); }
+});

@@ -3,8 +3,11 @@ import type { CompleteChatWithToolsResult } from "@workspace/llm";
 import type { SandboxManager } from "@workspace/sandbox";
 import type { ComputerUseEvent } from "@workspace/shared";
 import type { ComputerUseParams } from "../run-types.js";
-import { APPROVAL_DECLINED, APPROVAL_MAX_DETAIL_CHARS, APPROVAL_PARKED, APPROVAL_TOO_LARGE, MASK, approvalDetails, hasOwnApprovalCard, toolCallKey } from "./approval.js";
+import { APPROVAL_MAX_DETAIL_CHARS, approvalDeclinedText, APPROVAL_PARKED, APPROVAL_TOO_LARGE, MASK, approvalDetails, hasOwnApprovalCard, toolCallKey } from "./approval.js";
 import { SKIPPED_FOR_APPROVAL } from "./failures.js";
+import { alreadyRefusedMessage, refusedCallKey } from "./owner-wait.js";
+
+const APPROVAL_DECLINED = approvalDeclinedText("Criar um link público do painel");
 import { runEngineV3 } from "./loop.js";
 
 // O executor real precisa de banco/VM: aqui só importa SE e QUANTAS vezes a tool nativa rodou.
@@ -128,12 +131,64 @@ describe("motor v3: ask em tool nativa usa o cartão genérico", () => {
 		expect(executeTool).not.toHaveBeenCalled();
 	});
 
-	it("recusa também vale uma vez: na 2ª tentativa o dono vê cartão novo", async () => {
+	it("recusado não encerra a tarefa: o modelo é mandado seguir sem aquilo e dizer em uma linha o que ficou de fora", () => {
+		expect(APPROVAL_DECLINED).toContain("Owner declined");
+		expect(APPROVAL_DECLINED).toContain("Continue the rest of the task without it");
+	});
+
+	it("recusa conta na rede do dono: no mesmo trabalho o pedido não volta (sem cartão novo), e segue para a próxima continuação", async () => {
 		decisions.set(toolCallKey("page_share", share), { decision: "declined", askingRunId: "run0" });
-		const { results, cards } = await runV3([...direct("page_share", share), call("c", "page_share", share), say("x")], continuation);
+		const checkpoints: Array<{ engineV3?: { ownerRefused?: string[] } }> = [];
+		const { results, cards } = await runV3([...direct("page_share", share), call("c", "page_share", share), say("Fiz o resto; o link público ficou de fora.")], {
+			...continuation,
+			onCheckpoint: async (snapshot) => { checkpoints.push(snapshot as { engineV3?: { ownerRefused?: string[] } }); },
+		});
 		expect(results.some((event) => event.summary === APPROVAL_DECLINED)).toBe(true);
-		expect(cards).toHaveLength(1);
+		expect(results.some((event) => event.summary.startsWith(alreadyRefusedMessage("Criar um link público do painel")))).toBe(true);
+		expect(cards).toHaveLength(0);
 		expect(executeTool).not.toHaveBeenCalled();
+		expect(checkpoints.at(-1)?.engineV3?.ownerRefused).toEqual([refusedCallKey(toolCallKey("page_share", share))]);
+	});
+
+	it("pedido recusado/pulado num cartão anterior (semente `refused`) não vira cartão de novo", async () => {
+		const seeded = { restoredCheckpoint: { version: 1, messages: [{ role: "user", content: "faz o resto" }], transcriptSeed: { fromRunId: "run0", resultContent: "skipped", shortContent: "ok", refused: [refusedCallKey(toolCallKey("page_share", share))] } } } as unknown as Partial<ComputerUseParams>;
+		const { cards, results } = await runV3([...direct("page_share", share), say("x")], seeded);
+		expect(cards).toHaveLength(0);
+		expect(results.at(-1)?.ok).toBe(false);
+		expect(pending).toHaveLength(0);
+	});
+
+	it("waitMinutes: sai da chamada (chave igual), agenda o prazo e o cartão mostra o fim; o pedido guarda o prazo", async () => {
+		const scheduleTimeout = vi.fn(async () => undefined);
+		const { cards } = await runV3([...direct("page_share", { ...share, waitMinutes: 30 }), say("x")], { ownerWait: { scheduleTimeout, scheduleReturn: vi.fn(), now: () => new Date("2026-11-04T12:00:00Z") } });
+		expect(cards).toHaveLength(1);
+		expect(cards[0]!.callKey).toBe(toolCallKey("page_share", share));
+		expect(cards[0]!.deadlineAt).toBe("2026-11-04T12:30:00.000Z");
+		expect(scheduleTimeout).toHaveBeenCalledWith(expect.objectContaining({ kind: "card_timeout", card: "tool-call", cardId: cards[0]!.confirmId, toolName: "page_share", minutes: 30, userId: "user-a", conversationId: "conv-1", runId: "run1" }));
+		expect(pending[0]).toMatchObject({ toolCall: { waitMinutes: 30 } });
+	});
+
+	it("waitMinutes também passa pela ponte (tool_call) sem contar como campo desconhecido; campo inventado continua falhando", async () => {
+		const scheduleTimeout = vi.fn(async () => undefined);
+		const bridged = await runV3([call("a", "tool_call", { name: "page_share", args: { ...share, waitMinutes: 20 } }), say("x")], { ownerWait: { scheduleTimeout, scheduleReturn: vi.fn() } });
+		expect(bridged.cards).toHaveLength(1);
+		expect(bridged.cards[0]!.callKey).toBe(toolCallKey("page_share", share));
+		expect(scheduleTimeout).toHaveBeenCalledWith(expect.objectContaining({ minutes: 20 }));
+		const invented = await runV3([call("b", "tool_call", { name: "page_share", args: { ...share, deadline: 20 } }), say("x")]);
+		expect(invented.cards).toHaveLength(0);
+		expect(invented.results.at(-1)?.summary).toContain("unknown field deadline");
+	});
+
+	it("waitMinutes fora de 1–1440 falha com o aceito e não mostra cartão", async () => {
+		const { cards, results } = await runV3([...direct("page_share", { ...share, waitMinutes: 5000 }), say("x")]);
+		expect(cards).toHaveLength(0);
+		expect(results.at(-1)).toMatchObject({ ok: false, summary: expect.stringContaining("1 to 1440") });
+	});
+
+	it("sem as filas o cartão espera sem prazo e o modelo é avisado", async () => {
+		const { cards, results } = await runV3([...direct("page_share", { ...share, waitMinutes: 10 }), say("x")]);
+		expect(cards[0]!.deadlineAt).toBeUndefined();
+		expect(results.at(-1)?.summary).toContain("No deadline could be set here");
 	});
 
 	it("o cartão mostra TODOS os args que a aprovação cobre, mascara campo sensível e redige antes de cortar", async () => {

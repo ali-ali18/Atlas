@@ -8,6 +8,7 @@ import type { ReasoningEffort } from "./reasoning-effort.js";
 import type { TaskListItem } from "./task-list.js";
 import type { ToolCacheState } from "./tool-cache.js";
 import type { LoginVaultOffer } from "./login-wall.js";
+import type { LoginWaitOutcome } from "./owner-wait.js";
 import type {
 	CapabilitySnapshot,
 	LedgerEffect,
@@ -103,6 +104,8 @@ export type TranscriptSeed = {
 	shortContent: string;
 	/** Plano aprovado: os passos semeiam a lista de tarefas do run novo. */
 	taskList?: TaskListItem[];
+	/** Motor v3: pedidos que o dono recusou, pulou ou deixou sem resposta neste trabalho (`call:<chave>`, `tool:<nome>`): não voltam. */
+	refused?: string[];
 };
 
 /** Nota de sistema de um turno que define uma tarefa em andamento (procedimento de skill, menção) e segue nos turnos seguintes. */
@@ -424,7 +427,7 @@ export type AgentRunCheckpoint = {
 	/** O run (ou um anterior da conversa) leu conteúdo que o usuário não escreveu: a aprovação por tarefa exige o Jev em cada uso. */
 	untrustedSeen?: boolean;
 	/** F12/B5: login pedido e ainda não confirmado; no resume vira o aviso "[login-complete]". */
-	pendingLogin?: { loginId: string; site: string; url: string; reason?: "login" | "captcha"; composioToolkit?: string; connector?: LoginConnector; vault?: LoginVaultOffer; vaultTried?: string; useVault?: boolean; codeField?: boolean; codeEnc?: string };
+	pendingLogin?: { loginId: string; site: string; url: string; reason?: "login" | "captcha"; composioToolkit?: string; connector?: LoginConnector; vault?: LoginVaultOffer; vaultTried?: string; useVault?: boolean; codeField?: boolean; codeEnc?: string; /** Motor v3: o que o dono escolheu no cartão (ausente = acordou por mensagem nova). */ outcome?: LoginWaitOutcome; /** Motor v3: o que o modelo pediu ao dono (texto para o modelo). */ what?: string; /** Motor v3: prazo pedido pelo modelo (minutos). */ waitMinutes?: number };
 	/** Disciplina de execução: livro-razão do run (ausente com a flag desligada). */
 	executionLedger?: ExecutionLedgerState;
 	/** Estado versionado da tarefa (K1): objetivo, critérios verificáveis, artefatos. */

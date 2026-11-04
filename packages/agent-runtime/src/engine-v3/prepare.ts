@@ -32,6 +32,10 @@ import { buildV3Catalog, connectorEntries } from "./catalog.js";
 import { applyCatalogPolicy, catalogHides, policyBase } from "./policy.js";
 import { assembleV3Conversation, attachToLastUser, buildV3ContextBlock, buildV3SystemPrompt } from "./prompt.js";
 import { createRepetitionGuard } from "./repetition.js";
+import { pendingReturnsTurnNote } from "./owner-wait.js";
+import { OWNER_WAIT_DEFINED } from "../tools/registry/handlers/owner-wait.js";
+
+const ownerWaitTools = () => OWNER_WAIT_DEFINED.flatMap((tool) => (tool.definition ? [tool.definition] : []));
 import type { V3Run } from "./state.js";
 
 /** Até 300 tools, as mais usadas (o que vai e volta pelo checkpoint é exatamente o que montou o catálogo). */
@@ -96,6 +100,10 @@ export async function prepareRun(params: ComputerUseParams, options: EngineV3Opt
 		...(params.userPush && (origin === "routine" || origin === "chat") ? { userPush: params.userPush.mode } : {}),
 		...(origin === "routine" && params.alertRun ? { alertRun: true } : {}),
 	}));
+	// Só no v3 (PR8a): "Volto depois" precisa das filas, de uma conversa e de um dono; subagente não agenda.
+	if (params.ownerWait && params.conversationId && userId !== "default" && origin !== "subagent") {
+		for (const tool of ownerWaitTools()) if (params.toolFilter?.(tool.function.name) ?? true) natives.push(tool);
+	}
 	const entryOf = (name: string) => mcp?.toolset.entries.get(name);
 	const hides = (name: string) => catalogHides({ name, entry: entryOf(name), base: policy, autonomy });
 	// Filtro do run (brief "Seu dia", conferência, ajudante): vale para nativa E conector, como no v2.
@@ -139,6 +147,9 @@ export async function prepareRun(params: ComputerUseParams, options: EngineV3Opt
 		const priorHistory = params.priorTranscript?.length ? await hydrateLlmMessages(params.priorTranscript) : [];
 		const notes = originSystemNotes({ origin, messages: params.messages, proactive: params.proactive ?? null, userPushMode: params.userPush?.mode, alertRun: params.alertRun });
 		const now = process.env.ATLAS_NOW_NOTE === "off" ? [] : [todayNote(new Date(), params.timeZone)];
+		// Retorno agendado ainda pendente: o modelo vê e não agenda de novo nem faz duas vezes (desenho "Volto depois").
+		const returns = params.ownerWait ? await pendingReturnsTurnNote(params) : "";
+		if (returns) notes.push(returns);
 		conversation = assembleV3Conversation({
 			system,
 			contextFor: (snapshot) => buildV3ContextBlock({ manifest: catalog.manifest, skillIndex: params.skillIndex, canReadSkills: hasTool("skill_read"), snapshot }),
@@ -211,6 +222,7 @@ export async function prepareRun(params: ComputerUseParams, options: EngineV3Opt
 		repetition: createRepetitionGuard(v3State.repetition),
 		...(v3State.ownTaskList ? { ownTaskList: v3State.ownTaskList, taskListItems: v3State.ownTaskList } : {}),
 		loginAsked: new Set(parsed?.loginAsked ?? []),
+		ownerRefused: new Set([...(v3State.ownerRefused ?? []), ...(parsed?.transcriptSeed?.refused ?? [])]),
 		...(parsed?.pendingLogin ? { pendingLogin: parsed.pendingLogin } : {}),
 		consumedInputIds: new Set(parsed?.consumedInputIds ?? []),
 		pendingSteer: [],
@@ -252,6 +264,7 @@ export async function prepareRun(params: ComputerUseParams, options: EngineV3Opt
 					repetition: run.repetition.snapshot(),
 					...(run.ownTaskList ? { ownTaskList: run.ownTaskList } : {}),
 					...(Object.keys(run.toolUsage).length > 0 ? { toolUsage: run.toolUsage } : {}),
+					...(run.ownerRefused.size > 0 ? { ownerRefused: [...run.ownerRefused].slice(-50) } : {}),
 				},
 			});
 			const write = checkpointTail.then(() => params.onCheckpoint!(snapshot));

@@ -53,3 +53,13 @@ export {
 	subscribeSweepSignals,
 	SWEEP_SIGNAL_CHANNEL,
 } from "./sweep-signals.js";
+export {
+	OWNER_WAIT_QUEUE_NAME,
+	createOwnerWaitQueue,
+	scheduleOwnerWaitTimeout,
+	cancelOwnerWaitTimeout,
+	scheduleReturnJob,
+	cancelReturnJob,
+	type OwnerWaitQueue,
+	type OwnerWaitJobName,
+} from "./owner-wait-queue.js";

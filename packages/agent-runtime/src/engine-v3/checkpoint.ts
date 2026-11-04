@@ -12,6 +12,8 @@ export type V3CheckpointState = {
 	ownTaskList?: TaskListItem[];
 	/** Uso das tools congelado com o catálogo (o turno seguinte da conversa recebe pelo transcript). */
 	toolUsage?: Record<string, number>;
+	/** Pedidos recusados/pulados pelo dono neste trabalho (PR8a). */
+	ownerRefused?: string[];
 };
 
 const pairs = (value: unknown): Array<[string, number]> =>
@@ -36,7 +38,8 @@ export function parseV3State(raw: Record<string, unknown> | undefined): Partial<
 	};
 	const ownTaskList = parseTaskList(raw.ownTaskList);
 	const toolUsage = parseToolUsageCounts(raw.toolUsage);
-	return { nudges, repetition, ...(ownTaskList?.length ? { ownTaskList } : {}), ...(Object.keys(toolUsage).length > 0 ? { toolUsage } : {}) };
+	const ownerRefused = Array.isArray(raw.ownerRefused) ? raw.ownerRefused.filter((key): key is string => typeof key === "string" && key.length > 0 && key.length <= 200).slice(-50) : [];
+	return { nudges, repetition, ...(ownTaskList?.length ? { ownTaskList } : {}), ...(Object.keys(toolUsage).length > 0 ? { toolUsage } : {}), ...(ownerRefused.length > 0 ? { ownerRefused } : {}) };
 }
 
 /**

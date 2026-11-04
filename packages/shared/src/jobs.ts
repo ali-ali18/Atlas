@@ -17,6 +17,10 @@ export const ATLAS_JOB_NAMES = {
 	skillReview: "skill.review",
 	/** Retenção diária (run_events antigos, execuções de rotina além das 50 mais recentes). */
 	dataRetention: "maintenance.retention",
+	/** Motor v3: prazo (`waitMinutes`) de um cartão que espera o dono venceu. */
+	ownerWaitTimeout: "owner-wait.timeout",
+	/** Motor v3: `schedule_return` chegou na hora. */
+	scheduledReturn: "owner-wait.return",
 } as const;
 
 /** Job diário de retenção: sem dados de entrada; devolve só contagens. */

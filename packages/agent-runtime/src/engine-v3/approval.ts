@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { DEV_APPROVAL_TTL_MS, persistConversationCardFromEvent, saveSkillPendingIntent, takeToolCallApproval } from "@workspace/db";
-import { redactSecrets, type ComputerUseEvent } from "@workspace/shared";
+import { ownerWaitResultText, redactSecrets, type ComputerUseEvent } from "@workspace/shared";
+import { NO_DEADLINE_NOTE, alreadyRefusedMessage, refusedCallKey, scheduleCardDeadline } from "./owner-wait.js";
 import { toolArgsKey } from "../progress.js";
 import { getToolMeta } from "../tools/registry/tool-meta.js";
 import type { V3Run } from "./state.js";
@@ -45,7 +46,8 @@ export function toolCallKey(name: string, args: Record<string, unknown>): string
 }
 
 export const APPROVAL_PARKED = "Approval card shown to the owner. Nothing was done yet: end your turn now and wait for their decision.";
-export const APPROVAL_DECLINED = "The owner declined this exact action. Do not retry it; tell the user it was not done and offer an alternative if there is one.";
+/** Recusa (ou prazo vencido / dono que mandou outra mensagem) consumida pela continuação: pular não encerra a tarefa. */
+export const approvalDeclinedText = (label: string) => ownerWaitResultText("declined", { what: label });
 export const APPROVAL_UNAVAILABLE = "Needs the owner's approval, and there is no conversation to show the approval card. Ask the owner in chat instead.";
 /** Teto do que o cartão mostra: acima disso o dono não teria como ler tudo o que aprova. */
 export const APPROVAL_MAX_DETAIL_CHARS = 4_000;
@@ -80,25 +82,38 @@ export function approvalDetails(args: Record<string, unknown>): string | null {
 
 export type ApprovalGate = { kind: "run" } | { kind: "refuse"; summary: string } | { kind: "parked"; summary: string; card: Extract<ComputerUseEvent, { type: "confirm" }> };
 
-export async function nativeApprovalGate(run: V3Run, name: string, args: Record<string, unknown>): Promise<ApprovalGate> {
+/**
+ * `waitMinutes`: prazo opcional pedido pelo modelo. Vencido, o cartão fecha como "Tempo esgotado · segui sem isso" e a
+ * continuação recebe "skipped" (NUNCA aprova: só o botão "Permitir" aprova). Sem prazo, espera indefinida e sem custo.
+ */
+export async function nativeApprovalGate(run: V3Run, name: string, args: Record<string, unknown>, waitMinutes?: number): Promise<ApprovalGate> {
 	if (!run.conversationId || run.userId === "default") return { kind: "refuse", summary: APPROVAL_UNAVAILABLE };
 	const callKey = toolCallKey(name, args);
+	const label = actionLabel(name);
 	// A decisão só vale no run de continuação que seguiu ao cartão (semente com o run que perguntou).
 	const decided = await takeToolCallApproval(run.userId, run.conversationId, callKey, run.continuesRunId).catch(() => null);
 	if (decided === "approved") return { kind: "run" };
-	if (decided === "declined") return { kind: "refuse", summary: APPROVAL_DECLINED };
+	if (decided === "declined") {
+		run.ownerRefused.add(refusedCallKey(callKey));
+		return { kind: "refuse", summary: approvalDeclinedText(label) };
+	}
+	// Recusado, pulado ou sem resposta antes neste trabalho: não pede de novo (rede de repetição do dono).
+	if (run.ownerRefused.has(refusedCallKey(callKey))) return { kind: "refuse", summary: alreadyRefusedMessage(label) };
 	const details = approvalDetails(args);
 	if (details === null) return { kind: "refuse", summary: APPROVAL_TOO_LARGE };
-	const label = actionLabel(name);
 	// O formato `confirm-tool<8 hex>-<runId>` liga a decisão ao run que perguntou (`askingRunId` na API).
 	const confirmId = `confirm-tool${callKey.slice(0, 8)}-${run.runId}`;
+	const refused = [...run.ownerRefused].slice(-50);
 	await saveSkillPendingIntent({
 		userId: run.userId,
 		conversationId: run.conversationId,
-		ttlMs: DEV_APPROVAL_TTL_MS,
-		payload: { kind: "confirm", action: "tool-call", confirmId, ...(run.botId ? { botId: run.botId } : {}), toolCall: { callKey, tool: name, label } },
+		// Prazo maior que a validade padrão: a intenção vive até o prazo (e um pouco depois, para o job a encontrar).
+		ttlMs: waitMinutes ? Math.max(DEV_APPROVAL_TTL_MS, (waitMinutes + 10) * 60_000) : DEV_APPROVAL_TTL_MS,
+		payload: { kind: "confirm", action: "tool-call", confirmId, ...(run.botId ? { botId: run.botId } : {}), toolCall: { callKey, tool: name, label, ...(refused.length > 0 ? { refused } : {}), ...(waitMinutes ? { waitMinutes } : {}) } },
 	});
-	const card = { type: "confirm" as const, confirmId, title: `${label}?`, description: details, confirmLabel: "Permitir", cancelLabel: "Agora não", callKey };
+	const deadlineAt = waitMinutes ? await scheduleCardDeadline(run, { card: "tool-call", cardId: confirmId, toolName: name, what: label, minutes: waitMinutes }) : undefined;
+	const card = { type: "confirm" as const, confirmId, title: `${label}?`, description: details, confirmLabel: "Permitir", cancelLabel: "Agora não", callKey, ...(deadlineAt ? { deadlineAt } : {}) };
 	await persistConversationCardFromEvent(run.conversationId, card).catch(() => undefined);
-	return { kind: "parked", summary: APPROVAL_PARKED, card };
+	const summary = waitMinutes && !deadlineAt ? `${APPROVAL_PARKED} ${NO_DEADLINE_NOTE}` : APPROVAL_PARKED;
+	return { kind: "parked", summary, card };
 }
