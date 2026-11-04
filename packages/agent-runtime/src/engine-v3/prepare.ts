@@ -173,6 +173,7 @@ export async function prepareRun(params: ComputerUseParams, options: EngineV3Opt
 		unattended,
 		personWatching,
 		language: replyLanguage.language,
+		languageInstruction: replyLanguage.instruction,
 		model: params.model,
 		lastModel: parsed?.model ?? params.model,
 		turnId: `t${Date.now().toString(36)}${randomBytes(4).toString("hex")}`,
