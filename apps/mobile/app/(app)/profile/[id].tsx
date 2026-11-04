@@ -31,7 +31,7 @@ const ROWS = [
 
 /**
  * Perfil do bot (tela simples): avatar grande com a estrela do bot principal, nome, "Editar" (em breve), o cartão
- * com Programação / Rotinas / Biblioteca / Computador (abrem o web no navegador por enquanto) e Notificações (em breve).
+ * com Execuções / Rotinas / Computador (telas do app) e Biblioteca (abre o web no navegador por enquanto) e Notificações (em breve).
  */
 export default function ProfileScreen() {
 	const router = useRouter();
@@ -62,7 +62,7 @@ export default function ProfileScreen() {
 					</Button>
 					<SurfaceGroup className="w-full">
 						{ROWS.map((row) => (
-							<SurfaceRow key={row.key} label={row.key === "executions" ? `${row.label}. ${runStatusLine(run)}` : row.key === "routines" ? row.label : `${row.label}. Abrir no navegador`} onPress={row.key === "executions" ? () => router.push(`/executions/${encodeURIComponent(id)}` as never) : row.key === "routines" ? () => router.push(`/routines/${encodeURIComponent(id)}` as never) : openWeb} className="min-h-16">
+							<SurfaceRow key={row.key} label={row.key === "executions" ? `${row.label}. ${runStatusLine(run)}` : row.key === "routines" || row.key === "computer" ? row.label : `${row.label}. Abrir no navegador`} onPress={row.key === "executions" ? () => router.push(`/executions/${encodeURIComponent(id)}` as never) : row.key === "routines" ? () => router.push(`/routines/${encodeURIComponent(id)}` as never) : row.key === "computer" ? () => router.push(`/computer/${encodeURIComponent(id)}` as never) : openWeb} className="min-h-16">
 								{row.icon}
 								<Text className="text-lg">{row.label}</Text>
 								<View className="min-w-0 flex-1 items-end">{row.key === "executions" ? <Text numberOfLines={1} variant="muted" className="text-control">{runStatusLine(run)}</Text> : null}</View>
