@@ -14,6 +14,14 @@ import { SET_ENGINE_TOOL_NAME, defaultSetEngineDeps, executeSetEngine } from "..
 import { executeSetReasoningEffort } from "../../set-reasoning-effort.js";
 
 import type { ToolFamily } from "../registry.js";
+import { defineRawTool, definedFamily, type DefinedTool } from "../../define-tool.js";
+import { PROPOSE_BOT_TOOL } from "../../bot-proposal.js";
+import { SEND_TO_BOT_TOOL, SET_PRIMARY_BOT_TOOL } from "../../bot-messaging.js";
+import { DECIDE_BOT_PENDING_TOOL } from "../../bot-pending.js";
+import { SET_AUTONOMY_TOOL } from "../../set-autonomy.js";
+import { SET_ENGINE_TOOL } from "../../set-engine.js";
+import { SET_REASONING_EFFORT_TOOL } from "../../set-reasoning-effort.js";
+import { DELEGATE_TASK_TOOL } from "../../delegate-task.js";
 
 async function handleProposeBot(args: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult> {
 	return executeProposeBot(args, {
@@ -80,19 +88,197 @@ async function handleProposeQuestionnaire(args: Record<string, unknown>, ctx: To
 	return executeProposeQuestionnaire(args, ctx);
 }
 
-/** Família `bots`. */
-export const BOTS_TOOLS: ToolFamily = {
-	"propose_bot": { group: "bots", handler: handleProposeBot },
-	"propose_profile_update": { group: "bots", handler: handleProposeProfileUpdate },
-	"send_to_bot": { group: "bots", handler: handleSendToBot },
-	"decide_bot_pending": { group: "bots", handler: handleDecideBotPending },
-	"set_primary_bot": { group: "bots", handler: handleSetPrimaryBot },
-	"set_autonomy": { group: "bots", handler: handleSetAutonomy },
-	[SET_ENGINE_TOOL_NAME]: { group: "bots", handler: handleSetEngine },
-	"set_reasoning_effort": { group: "bots", handler: handleSetReasoningEffort },
-	"delegate_task": { group: "bots", handler: handleDelegateTask },
-	"propose_questionnaire": { group: "bots", handler: handleProposeQuestionnaire },
-};
+/** Família `bots`: definição, metadado e handler de cada tool num lugar só (`defineRawTool`, harness v3 PR5b). */
+export const BOTS_DEFINED: readonly DefinedTool[] = [
+	defineRawTool({
+		name: "propose_bot",
+		definition: PROPOSE_BOT_TOOL,
+		effect: "write_internal",
+		endsTurn: true,
+		needsHuman: true,
+		ownCard: true,
+		group: "bots",
+		run: handleProposeBot,
+	}),
+	defineRawTool({
+		name: "propose_profile_update",
+		definition: {
+				type: "function",
+				function: {
+					name: "propose_profile_update",
+					description:
+						"Propõe atualizar o perfil do bot (nome, resumo, briefing) com gate humano: o frontend mostra antes/depois e só aplica no Aplicar. Use ao concluir o onboarding (briefing/snippet consolidados) ou quando o usuário pedir para mudar o bot. NUNCA edite o perfil diretamente — não existe tool de escrita, só proposta. Uma proposta por vez.",
+					parameters: {
+						type: "object",
+						properties: {
+							name: {
+								type: "string",
+								description: "Novo nome do bot (opcional).",
+							},
+							snippet: {
+								type: "string",
+								description: "Novo título/resumo curto, até 140 caracteres (opcional).",
+							},
+							description: {
+								type: "string",
+								description: "Novo briefing do bot, até 2000 caracteres (opcional).",
+							},
+						},
+					},
+				},
+			},
+		effect: "write_internal",
+		endsTurn: true,
+		ownCard: true,
+		group: "bots",
+		run: handleProposeProfileUpdate,
+	}),
+	defineRawTool({
+		name: "send_to_bot",
+		definition: SEND_TO_BOT_TOOL,
+		effect: "write_external",
+		group: "bots",
+		run: handleSendToBot,
+	}),
+	defineRawTool({
+		name: "decide_bot_pending",
+		definition: DECIDE_BOT_PENDING_TOOL,
+		effect: "write_external",
+		group: "bots",
+		run: handleDecideBotPending,
+	}),
+	defineRawTool({
+		name: "set_primary_bot",
+		definition: SET_PRIMARY_BOT_TOOL,
+		effect: "write_internal",
+		ownCard: true,
+		group: "bots",
+		run: handleSetPrimaryBot,
+	}),
+	defineRawTool({
+		name: "set_autonomy",
+		definition: SET_AUTONOMY_TOOL,
+		effect: "write_internal",
+		needsHuman: true,
+		group: "bots",
+		run: handleSetAutonomy,
+	}),
+	defineRawTool({
+		name: "set_engine",
+		definition: SET_ENGINE_TOOL,
+		effect: "write_internal",
+		needsHuman: true,
+		group: "bots",
+		run: handleSetEngine,
+	}),
+	defineRawTool({
+		name: "set_reasoning_effort",
+		definition: SET_REASONING_EFFORT_TOOL,
+		effect: "write_internal",
+		group: "bots",
+		run: handleSetReasoningEffort,
+	}),
+	defineRawTool({
+		name: "delegate_task",
+		definition: DELEGATE_TASK_TOOL,
+		effect: "write_internal",
+		needsHuman: true,
+		group: "bots",
+		run: handleDelegateTask,
+	}),
+	defineRawTool({
+		name: "propose_questionnaire",
+		definition: {
+				type: "function",
+				function: {
+					name: "propose_questionnaire",
+					description:
+						"Asks the user a question with fixed choices in a card. USE WHEN onboarding a new bot, or when you are blocked (the answer cannot be found with tools and the options lead to materially different, costly or irreversible actions) and the answer is one of 2-4 clear options. DO NOT USE for low-stakes choices (decide them yourself and say so), for anything a tool can look up, or when the request has a plausible reading: act on it. One item per call; wait for the answer. A new call replaces the pending one. Do not repeat the question in text.",
+					parameters: {
+						type: "object",
+						properties: {
+							purpose: {
+								type: "string",
+								enum: ["task", "onboarding"],
+								description:
+									"'task' (PADRÃO): as respostas completam um pedido do usuário; ao responder, executa o pedido e nunca muda o perfil. 'onboarding' SÓ no fluxo [bot-created] (a resposta pode consolidar o perfil); fora dele, NUNCA.",
+							},
+							title: {
+								type: "string",
+								description: "Título curto do questionário.",
+							},
+							description: {
+								type: "string",
+								description: "Contexto opcional exibido acima das perguntas.",
+							},
+							items: {
+								type: "array",
+								description:
+									"Perguntas (1 a 10): prompt + ao menos 1 choice ou input.",
+								items: {
+									type: "object",
+									properties: {
+										name: {
+											type: "string",
+											description: "Identificador curto e único (ex.: direction).",
+										},
+										prompt: {
+											type: "string",
+											description: "Pergunta exibida (QuestionnaireTitle).",
+										},
+										description: {
+											type: "string",
+											description: "Ajuda opcional (QuestionnaireDescription).",
+										},
+										required: {
+											type: "boolean",
+											description: "Se true, o Skip fica indisponível (padrão true).",
+										},
+										multiple: {
+											type: "boolean",
+											description: "Se true, permite marcar várias escolhas.",
+										},
+										choices: {
+											type: "array",
+											description: "Escolhas fixas (QuestionnaireChoice).",
+											items: {
+												type: "object",
+												properties: {
+													value: { type: "string" },
+													label: { type: "string" },
+													description: { type: "string" },
+												},
+												required: ["value"],
+											},
+										},
+										input: {
+											type: "object",
+											description: "Campo livre opcional (QuestionnaireInput).",
+											properties: {
+												label: { type: "string" },
+												placeholder: { type: "string" },
+											},
+											required: ["label"],
+										},
+									},
+									required: ["name", "prompt"],
+								},
+							},
+						},
+						required: ["title", "items"],
+					},
+				},
+			},
+		effect: "write_internal",
+		endsTurn: true,
+		needsHuman: true,
+		ownCard: true,
+		group: "bots",
+		run: handleProposeQuestionnaire,
+	}),
+];
+
+export const BOTS_TOOLS: ToolFamily = definedFamily(BOTS_DEFINED);
 
 export async function emitQuestionnaireCard(
 	ctx: ToolContext,

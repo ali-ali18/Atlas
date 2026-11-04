@@ -9,7 +9,7 @@ export { browserActTool, browserNavigateTool, browserSnapshotTool, browserTabsTo
 export { derivePageState, formatPageState, type PageStateInfo, type PageStateName } from "./page-state.js";
 
 /** As 4 tools do navegador do motor v3, na ordem do array (desenho 5). */
-export const V3_BROWSER_TOOLS: readonly DefinedTool[] = [browserNavigateTool, browserSnapshotTool, browserActTool, browserTabsTool];
+export const V3_BROWSER_TOOLS: ReadonlyArray<DefinedTool & { readonly definition: ChatTool }> = [browserNavigateTool, browserSnapshotTool, browserActTool, browserTabsTool];
 
 /**
  * Tools do navegador de hoje (v1/v2) que as 4 substituem no v3: `navigate`, ler, achar, esperar, tela, coordenadas e o

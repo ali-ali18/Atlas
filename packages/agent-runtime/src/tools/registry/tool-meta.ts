@@ -1,15 +1,15 @@
-import { DEFINED_TOOLS } from "../defined-tools.js";
-import type { ToolEffect, ToolMetaFields } from "./types.js";
-
-const READ_HTTP_METHODS = new Set(["GET", "HEAD"]);
+import { browserNavigateTool } from "../browser-v3/navigate.js";
+import { getResolvedDefinedTool, getToolRegistration } from "./index.js";
+import type { ToolEffect, ToolMetaFields, ToolRegistration } from "./types.js";
 
 /**
- * Metadado por tool (desenho do harness v3, seção 3/7): `effect`, `poll`, `endsTurn`. Tabela única em vez de
- * campo espalhado por 16 arquivos de handlers: o registro a aplica em cada tool de nome fixo e o teste
- * `tool-meta.test.ts` falha se uma tool do registro, do catálogo ou da sessão de código ficar sem efeito.
- * Só descreve; nenhum laço lê isto ainda (a política v3 e a rede de repetição vão ler).
+ * Metadado por tool (desenho do harness v3, seção 3/7): `effect`, `poll`, `endsTurn`, `needsHuman`, `ownCard`. Cada
+ * tool nativa declara o dela com `defineTool`/`defineRawTool`, ao lado da definição e do handler (família em
+ * `handlers/*.ts`); aqui só se lê (`getToolMeta`), do registro ou dos resolvedores (sessão de código). O teste
+ * `tool-meta.test.ts` falha se uma tool do registro, do catálogo ou da sessão de código ficar sem efeito, e
+ * `define-tool.test.ts` se alguma não vier de `defineTool`.
  *
- * Decisões que não são óbvias:
+ * Decisões que não são óbvias (valem para os `effect` declarados nas famílias):
  * - Navegador e VM são do próprio bot (`write_internal`): clique, digitação e shell não saem da VM por si.
  *   O que toca segredo é `login_fill`/`secret_request` (`credential`).
  * - `propose_*` só gera cartão de aprovação: `write_internal` (a escrita real acontece depois, na decisão).
@@ -19,173 +19,10 @@ const READ_HTTP_METHODS = new Set(["GET", "HEAD"]);
  *   `decide_bot_pending` aprova ação de outro bot: `write_external` (igual a `NATIVE_WRITE_TOOLS` do pre-tool).
  * - `endsTurn` = encerra o turno quando devolve cartão pendente (computer-use.ts, `stopFor*`).
  * - `ownCard` = a tool já mostra o cartão de aprovação dela (e-mail, propostas, imagem, PR, segredo, login, sessão de
- *   código): o motor v3 não põe o cartão genérico em cima (substitui a lista fixa `OWN_CARD_TOOLS` do approval.ts).
+ *   código): o motor v3 não põe o cartão genérico em cima.
  * - `needsHuman` = muda as próprias permissões (hoje com o portão `humanTurn`) ou só existe com humano hoje: questionário, `sandbox_release`,
  *   skills, `delegate*` e `propose_bot` (espelha os filtros por origem do catálogo v1/v2).
  */
-export const TOOL_META: Readonly<Record<string, ToolMetaFields>> = {
-	// Navegador (VM)
-	screenshot: { effect: "read" },
-	navigate: { effect: "read" },
-	click: { effect: "write_internal" },
-	type: { effect: "write_internal" },
-	key: { effect: "write_internal" },
-	scroll: { effect: "write_internal" },
-	browser_click: { effect: "write_internal" },
-	browser_type: { effect: "write_internal" },
-	browser_text: { effect: "read" },
-	browser_links: { effect: "read" },
-	browser_snapshot: { effect: "read" },
-	browser_act: { effect: "write_internal" },
-	browser_wait: { effect: "read", poll: true },
-	browser_tabs: { effect: "write_internal" },
-	browser_read: { effect: "read" },
-	browser_find: { effect: "read" },
-	computer: { effect: "write_internal" },
-
-	// VM (shell e arquivos do computador do bot)
-	sandbox_shell: { effect: "write_internal" },
-	sandbox_shell_wait: { effect: "read", poll: true },
-	sandbox_read: { effect: "read" },
-	sandbox_list: { effect: "read" },
-	// Pior caso: baixa URL arbitrária enviando por padrão os cookies do Chrome da VM; sem a sessão é só escrita na VM.
-	sandbox_download: { effect: "credential", catalogEffect: "write_internal", effectForArgs: (args) => (args.use_browser_session === false ? "write_internal" : "credential") },
-	sandbox_release: { effect: "write_internal", needsHuman: true },
-	video_transcript: { effect: "read" },
-
-	// Web
-	web_search: { effect: "read" },
-	web_extract: { effect: "read" },
-
-	// Arquivos e imagens
-	attachment_read: { effect: "read" },
-	attachment_list: { effect: "read" },
-	attachment_to_computer: { effect: "write_internal" },
-	generate_image: { effect: "write_internal", ownCard: true, endsTurn: true },
-	show_image: { effect: "read" },
-	create_file: { effect: "write_internal" },
-	inspect_presentation: { effect: "read" },
-	run_code: { effect: "write_internal" },
-
-	// Memória e leitura de contexto
-	memory: { effect: "write_internal" },
-	session_search: { effect: "read" },
-	memory_search: { effect: "read" },
-	checkpoint_read: { effect: "read" },
-	artifact_read: { effect: "read" },
-	lesson_feedback: { effect: "write_internal" },
-
-	// Misc (`app_info` e `current_time` migraram para `defineTool`)
-	preview_setup: { effect: "write_internal", ownCard: true },
-
-	// Cofre
-	secret_list: { effect: "read" },
-	routine_webhook_info: { effect: "read" },
-	secret_request: { effect: "credential", ownCard: true, endsTurn: true },
-	login_fill: { effect: "credential", ownCard: true, endsTurn: true },
-
-	// Skills
-	skill_read: { effect: "read" },
-	list_skills: { effect: "read", endsTurn: true },
-	show_skill: { effect: "read", endsTurn: true },
-	propose_skill: { effect: "write_internal", ownCard: true, needsHuman: true, endsTurn: true },
-	delete_skill: { effect: "write_internal", needsHuman: true, endsTurn: true },
-	propose_skill_change: { effect: "write_internal", ownCard: true, needsHuman: true, endsTurn: true },
-	propose_skill_delete: { effect: "write_internal", ownCard: true, needsHuman: true, endsTurn: true },
-
-	// E-mail do bot
-	email_list: { effect: "read" },
-	email_read: { effect: "read" },
-	email_reply: { effect: "send", ownCard: true },
-	email_send: { effect: "send", ownCard: true },
-	email_create_mailbox: { effect: "write_external", ownCard: true },
-
-	// Proativo
-	schedule_followup: { effect: "write_internal" },
-	list_followups: { effect: "read" },
-	cancel_followup: { effect: "write_internal" },
-	reschedule_followup: { effect: "write_internal" },
-	suggest_routine: { effect: "write_internal" },
-	// O destino é o próprio dono (push/aviso no app dele), não um terceiro: `write_internal` deixa a rotina avisar o dono.
-	notify_user: { effect: "write_internal" },
-
-	// Conectores
-	propose_connector: { effect: "write_internal", ownCard: true, endsTurn: true },
-	propose_api_connection: { effect: "write_internal", ownCard: true, endsTurn: true },
-	propose_custom_mcp: { effect: "write_internal", ownCard: true, endsTurn: true },
-	api_search: { effect: "read" },
-	// Hoje o runtime só aceita operação GET/HEAD (api-connector/runtime.ts) e os args não trazem método: sem
-	// `method`, é leitura. Se um dia houver escrita, ela traz o método e cai em write_external.
-	api_call: {
-		effect: "write_external",
-		catalogEffect: "read",
-		effectForArgs: (args) => (typeof args.method === "string" && !READ_HTTP_METHODS.has(args.method.trim().toUpperCase()) ? "write_external" : "read"),
-	},
-	mcp_tool_search: { effect: "read" },
-	set_connector_tool_marks: { effect: "write_internal", needsHuman: true },
-	github_list_repos: { effect: "read" },
-	github_compare: { effect: "read" },
-
-	// Rotinas
-	list_routines: { effect: "read" },
-	routine_group: { effect: "write_external" },
-	routine_control: { effect: "write_internal" },
-	propose_routine: { effect: "write_external", ownCard: true },
-	report_alert: { effect: "write_internal", endsTurn: true },
-	find_page_value: { effect: "read" },
-
-	// Bots e configuração
-	propose_bot: { effect: "write_internal", ownCard: true, needsHuman: true, endsTurn: true },
-	propose_profile_update: { effect: "write_internal", ownCard: true, endsTurn: true },
-	send_to_bot: { effect: "write_external" },
-	decide_bot_pending: { effect: "write_external" },
-	set_primary_bot: { effect: "write_internal", ownCard: true },
-	set_autonomy: { effect: "write_internal", needsHuman: true },
-	set_engine: { effect: "write_internal", needsHuman: true },
-	set_reasoning_effort: { effect: "write_internal" },
-	delegate_task: { effect: "write_internal", needsHuman: true },
-	propose_questionnaire: { effect: "write_internal", ownCard: true, needsHuman: true, endsTurn: true },
-
-	// Planejamento
-	research_note: { effect: "write_internal" },
-	propose_plan: { effect: "write_internal", ownCard: true, endsTurn: true },
-	update_task_list: { effect: "write_internal" },
-	track_items: { effect: "write_internal" },
-
-	// Painéis
-	page_create: { effect: "write_internal" },
-	page_update: { effect: "write_internal" },
-	page_read: { effect: "read" },
-	page_list: { effect: "read" },
-	page_share: { effect: "public_link" },
-
-	// Trabalho longo (motor v2)
-	notebook_write: { effect: "write_internal" },
-	notebook_read: { effect: "read" },
-	delegate: { effect: "write_internal", needsHuman: true },
-
-	// Sessão de código (resolvedor `devSessionResolver`)
-	dev_session_start: { effect: "write_internal" },
-	shell: { effect: "write_internal", ownCard: true },
-	shell_output: { effect: "read", poll: true },
-	shell_stdin: { effect: "write_internal" },
-	shell_kill: { effect: "write_internal" },
-	read_file: { effect: "read", ownCard: true },
-	write_file: { effect: "write_internal", ownCard: true },
-	edit_file: { effect: "write_internal", ownCard: true },
-	list_files: { effect: "read" },
-	grep: { effect: "read" },
-	todo_write: { effect: "write_internal" },
-	dev_environment_get: { effect: "read" },
-	dev_environment_update: { effect: "write_internal" },
-	request_secrets: { effect: "credential", ownCard: true },
-	dev_pr_create: { effect: "write_external", ownCard: true },
-	dev_pr_checkout: { effect: "write_internal" },
-	dev_ci_status: { effect: "read", poll: true },
-	dev_ci_logs: { effect: "read" },
-	preview_start: { effect: "write_internal" },
-	preview_stop: { effect: "write_internal" },
-};
 
 /** Efeito desta chamada: `effectForArgs` quando existe, senão o `effect` estático (pior caso). MCP/desconhecido: `undefined`. */
 export function resolveToolEffect(name: string, args: Record<string, unknown>): ToolEffect | undefined {
@@ -193,21 +30,40 @@ export function resolveToolEffect(name: string, args: Record<string, unknown>): 
 	return meta ? (meta.effectForArgs?.(args) ?? meta.effect) : undefined;
 }
 
-const DEFINED_META: ReadonlyMap<string, ToolMetaFields> = new Map(DEFINED_TOOLS.map((tool) => [tool.name, tool.meta]));
-
-/** Tool declarada com `defineTool` (o metadado vem dela, não da tabela). */
-export function isDefinedTool(name: string): boolean {
-	return DEFINED_META.has(name);
+/** Só o metadado do registro (sem handler, grupo nem definição). */
+function metaOf(registration: ToolRegistration): ToolMetaFields | undefined {
+	if (!registration.effect) return undefined;
+	const { effect, poll, endsTurn, needsHuman, ownCard, effectForArgs, catalogEffect } = registration;
+	return {
+		effect,
+		...(poll ? { poll } : {}),
+		...(endsTurn ? { endsTurn } : {}),
+		...(needsHuman ? { needsHuman } : {}),
+		...(ownCard ? { ownCard } : {}),
+		...(catalogEffect ? { catalogEffect } : {}),
+		...(effectForArgs ? { effectForArgs } : {}),
+	};
 }
 
 /**
- * Metadado da tool de nome fixo: primeiro o de `defineTool`, depois a tabela (fallback das tools que ainda não
- * migraram); `undefined` para MCP e nome desconhecido (ver `mcpToolEffect`).
+ * Tools que só existem no motor v3 (navegador novo, PR6): fora do registro global, então o catálogo e o retrato do
+ * v1/v2 não mudam. As outras 3 do navegador v3 repetem nomes do registro (mesmo efeito) e rodam por `V3Run.toolHandlers`.
  */
-export function getToolMeta(name: string): ToolMetaFields | undefined {
-	return DEFINED_META.get(name) ?? (Object.hasOwn(TOOL_META, name) ? TOOL_META[name] : undefined);
+const V3_ONLY_META: ReadonlyMap<string, ToolMetaFields> = new Map([[browserNavigateTool.name, browserNavigateTool.meta]]);
+
+/** Tool declarada com `defineTool`/`defineRawTool` (o metadado vem dela, não da tabela). */
+export function isDefinedTool(name: string): boolean {
+	return getToolRegistration(name)?.defined === true || getResolvedDefinedTool(name) !== undefined || V3_ONLY_META.has(name);
 }
 
+/**
+ * Metadado da tool de nome fixo: vem do registro (`defineTool`) ou do resolvedor da sessão de código.
+ * `undefined` para MCP e nome desconhecido (ver `mcpToolEffect`).
+ */
+export function getToolMeta(name: string): ToolMetaFields | undefined {
+	const registered = getToolRegistration(name);
+	return (registered && metaOf(registered)) ?? getResolvedDefinedTool(name)?.meta ?? V3_ONLY_META.get(name);
+}
 /**
  * Efeito de uma tool de conector MCP. Deriva da classificação que já existe
  * (`isReadOnlyMcpTool` em `@workspace/shared`, anotações do servidor + marcas do usuário) em vez de criar outra: leitura = `read`; o resto = `write_external` (escrita em terceiro).

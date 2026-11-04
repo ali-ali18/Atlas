@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { DEV_SESSION_TOOLS } from "./registry/handlers/dev.js";
 import type { DevClient, DevEndpoint, DevExecSnapshot, DevSandboxProvider } from "@workspace/sandbox";
 import { computeEnvCacheKey, loadDevSandboxConfig } from "@workspace/sandbox";
 import { CACHE_PROBE_SCRIPT, CACHE_RESTORE_SCRIPT, CACHE_SAVE_SCRIPT, CACHE_WIPE_SCRIPT } from "./dev-env-cache.js";
@@ -22,7 +23,6 @@ import {
 } from "./dev-session-args.js";
 import {
 	createDevSessionRuntime,
-	DEV_SESSION_TOOLS,
 	DEV_SESSION_TOOL_NAMES,
 	devSessionAllowedForOrigin,
 	devSessionAutonomyMeta,

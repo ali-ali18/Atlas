@@ -294,4 +294,6 @@ export type ToolRegistration = Partial<ToolMetaFields> & {
 	readOnly?: boolean;
 	/** Definição enviada ao modelo; preenchida a partir de `COMPUTER_USE_TOOLS` quando existe. */
 	definition?: ChatTool;
+	/** Veio de `defineTool`/`defineRawTool` (definição, metadado e handler num lugar só). */
+	defined?: true;
 };
