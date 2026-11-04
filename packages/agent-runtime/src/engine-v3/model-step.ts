@@ -3,17 +3,15 @@ import { readOpenRouterFallbackModels, streamChatWithTools, type CompleteChatWit
 import type { FinishReason } from "@workspace/shared";
 import { addUsage } from "../budget.js";
 import { resolveLlmMessagesForModel, createMediaMemo } from "../checkpoint.js";
-import { contextBudgetFor } from "../context/budget.js";
 import { namespaceToolCallId, renameProviderItemCallIds } from "../context/transcript.js";
-import { COLLAPSE_BATCH_MAX_CHARS, COLLAPSE_BATCH_SIZE, KEEP_RECENT_SCREENSHOTS, RECENT_TOOL_GROUPS_KEPT, applyPromptHygiene, omitOldScreenshots } from "../hygiene.js";
 import { createReasoningEffortPicker } from "../reasoning-effort.js";
 import { sanitizeAssistantText } from "../sanitize-assistant-text.js";
 import { modelUsage } from "../telemetry/model-usage.js";
 import { modelStepTelemetry } from "../telemetry/step-telemetry.js";
-import { toolsJsonCharsOf } from "../tools-json-size.js";
 import { callCostUsd, fallbackPricesFromEnv } from "../engine-v2/cost.js";
 import { withTransportRetry, type TransportOptions } from "./failures.js";
-import { isContextMessage } from "./prompt.js";
+import { pruneForModel } from "./compaction.js";
+import { asRuntimeNote, isContextMessage } from "./prompt.js";
 import type { V3Run } from "./state.js";
 
 export type ModelReply = {
@@ -40,17 +38,10 @@ export function createModelStep(run: V3Run, deps: { sleep?: TransportOptions["sl
 	const sessionId = run.conversationId ? `c${createHash("sha256").update(`${run.botId ?? ""}:${run.conversationId}`).digest("hex").slice(0, 31)}` : run.runId;
 
 	return async (input: { messageId: string; toolChoice: "auto" | "none" }): Promise<ModelReply> => {
-		const toolsChars = toolsJsonCharsOf(run.tools);
-		const hygiene = applyPromptHygiene(omitOldScreenshots(run.conversation, KEEP_RECENT_SCREENSHOTS), {
-			language: run.language,
-			contextLength: params.contextLength,
-			toolsJsonChars: toolsChars,
-			model: run.model,
-			contextBudget: params.contextBudget ?? contextBudgetFor(params.contextMemory, params.contextLength),
-			objectiveText: params.objective ?? "",
-			keepRecentGroups: RECENT_TOOL_GROUPS_KEPT,
-			collapseBatch: { size: COLLAPSE_BATCH_SIZE, maxPendingChars: COLLAPSE_BATCH_MAX_CHARS },
-		});
+		// Passo 1 da compactação (poda) na cópia enviada; o plano B (orçamento) só atua se nem o resumo resolveu.
+		// Nota `system` do plano B vira `user` `[runtime]`: nenhum `system` depois do primeiro.
+		const hygiene = pruneForModel(run, run.conversation, { planB: true });
+		hygiene.messages = hygiene.messages.map((message, index) => (index > 0 && message.role === "system" ? asRuntimeNote(message) : message));
 		const transport = await resolveLlmMessagesForModel(hygiene.messages, params.loadScreenshot, {
 			canSeeUserImages: params.canSeeUserImages,
 			canSeeScreenshots: params.canSeeUserImages !== false,

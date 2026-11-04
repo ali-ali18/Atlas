@@ -30,6 +30,8 @@ export type V3Run = {
 	/** Uma pessoa acompanha o run (chat com turno humano, inclusive resposta de cartão): sem o teto de 40 passos. */
 	personWatching: boolean;
 	language: BotLanguage;
+	/** Instrução de idioma de resposta (`languageInstruction`): o resumo da compactação sai no idioma do bot. */
+	languageInstruction: string;
 	model: string;
 	lastModel: string;
 	turnId: string;

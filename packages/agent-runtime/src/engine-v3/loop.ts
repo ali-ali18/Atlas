@@ -23,6 +23,7 @@ import { sanitizeAssistantText } from "../sanitize-assistant-text.js";
 import { OFFERED_TOOLS_SUB_INDEX, type ComputerUseParams, type RunComputerUseResult } from "../run-types.js";
 import { stopReasonPhrase } from "../engine-v2/delivery.js";
 import { repairUnansweredCalls } from "./checkpoint.js";
+import { createCompactor } from "./compaction.js";
 import { capStop, finalStepNote, reachedCap, type CapKind } from "./limits.js";
 import { createModelStep } from "./model-step.js";
 import { RUNTIME_PREFIX, nudgeSignal, nudgeText } from "./nudges.js";
@@ -56,7 +57,9 @@ function settle(run: V3Run, batch: BatchResult): void {
 export async function runEngineV3(params: ComputerUseParams, options: EngineV3Options = {}, deps: EngineV3Deps = {}): Promise<RunComputerUseResult> {
 	const { run, restored } = await prepareRun(params, options);
 	const modelStep = createModelStep(run, deps);
-	const toolsStep = createToolsStep(run, createToolContextFactory(run));
+	const contextFactory = createToolContextFactory(run);
+	const toolsStep = createToolsStep(run, contextFactory);
+	const compact = createCompactor(run, contextFactory);
 	const ensureRunning = async () => {
 		if (params.abortSignal?.aborted) throw errorFromAbortSignal(params.abortSignal);
 		if (params.shouldContinue && !(await params.shouldContinue())) throw new AgentRunCancelledError();
@@ -122,6 +125,8 @@ export async function runEngineV3(params: ComputerUseParams, options: EngineV3Op
 			if (final) return await finalStep(final);
 			// Autonomia mudada no meio do run: o que a política passou a esconder sai do pedido.
 			applyCatalogPolicy(run.tools, { base: run.policy, autonomy: run.autonomy.get(), entryOf: run.entryOf });
+			// Compactação (4.3): poda na cópia e, se ainda passar do teto, resumo. Falhou 3 vezes: FINAL_STEP honesto.
+			if ((await compact()) === "give_up") return await finalStep("context");
 			await run.persistCheckpoint();
 
 			// --- MODEL_STEP ---
