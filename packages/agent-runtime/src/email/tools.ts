@@ -242,7 +242,7 @@ async function createMailboxRequest(_name: string, args: Record<string, unknown>
 export async function executeEmailTool(
 	name: string,
 	args: Record<string, unknown>,
-	ctx: { email: EmailRunContext | undefined; userId: string | undefined; botId: string | undefined; conversationId?: string; runId?: string; origin?: string },
+	ctx: { email: EmailRunContext | undefined; userId: string | undefined; botId: string | undefined; conversationId?: string; runId?: string; origin?: string; ownerApproved?: true },
 	deps: EmailToolDeps = defaultDeps,
 ): Promise<{ summary: string; confirmEvent?: ConfirmEvent }> {
 	const email = ctx.email;
@@ -309,7 +309,9 @@ export async function executeEmailTool(
 		}
 		const decision = decideEmailSend(email.sendPolicy() ?? { level: DEFAULT_AUTONOMY_LEVEL, exceptions: [] }, name, prepared);
 		if (decision === "block") throw new Error("Envio de e-mail bloqueado pela autonomia do usuário.");
-		if (decision === "allow") {
+		// Motor v3: o dono aprovou EXATAMENTE este envio no rascunho de `prepare_for_owner` (aprovação já consumida): não
+		// pede o cartão de novo. Bloqueio pela autonomia continua valendo (acima).
+		if (decision === "allow" || (decision === "ask" && ctx.ownerApproved === true)) {
 			const key = createHash("sha256").update(`${ctx.runId ?? ""}|${mailbox.id}|${prepared.to}|${prepared.subject}|${prepared.body}`).digest("hex").slice(0, 40);
 			const sent = await email.service.deliver({ mailbox, prepared, idempotencyKey: key });
 			return { summary: JSON.stringify({ sent: true, to: sent.to, subject: sent.subject, thread_id: sent.threadId }) };

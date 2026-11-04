@@ -35,6 +35,8 @@ import { createRepetitionGuard } from "./repetition.js";
 import { pendingReturnsTurnNote } from "./owner-wait.js";
 import { OWNER_WAIT_DEFINED } from "../tools/registry/handlers/owner-wait.js";
 import { ROUTINE_LIMITS_DEFINED } from "../tools/routine-limits.js";
+import { PREPARE_FOR_OWNER_DEFINED } from "../tools/prepare-for-owner.js";
+import { heldBackTools } from "./prepared.js";
 
 const ownerWaitTools = () => OWNER_WAIT_DEFINED.flatMap((tool) => (tool.definition ? [tool.definition] : []));
 import type { V3Run } from "./state.js";
@@ -110,8 +112,13 @@ export async function prepareRun(params: ComputerUseParams, options: EngineV3Opt
 	if (origin === "chat" && params.botId && userId !== "default" && (params.toolFilter?.(ROUTINE_LIMITS_DEFINED.name) ?? true) && ROUTINE_LIMITS_DEFINED.definition) {
 		natives.push(ROUTINE_LIMITS_DEFINED.definition);
 	}
+	// Só no v3 (PR8b, desenho 7 regra 1): sem pessoa (rotina, webhook, proativo, e-mail recebido, outro bot), o que
+	// precisa do dono vira rascunho aprovável no chat dele. Subagente não posta cartão.
+	const canPrepareForOwner = !policy.humanPresent && origin !== "subagent" && Boolean(params.conversationId) && userId !== "default";
+	if (canPrepareForOwner && PREPARE_FOR_OWNER_DEFINED.definition && (params.toolFilter?.(PREPARE_FOR_OWNER_DEFINED.name) ?? true)) natives.push(PREPARE_FOR_OWNER_DEFINED.definition);
 	const entryOf = (name: string) => mcp?.toolset.entries.get(name);
 	const hides = (name: string) => catalogHides({ name, entry: entryOf(name), base: policy, autonomy });
+	const heldBack = heldBackTools(natives, hides);
 	// Filtro do run (brief "Seu dia", conferência, ajudante): vale para nativa E conector, como no v2.
 	const allow = (name: string) => params.toolFilter?.(name) ?? true;
 	// Catálogo congelado por conversa: o núcleo e o uso do run anterior (retomada ou turno seguinte) voltam iguais, então
@@ -230,6 +237,9 @@ export async function prepareRun(params: ComputerUseParams, options: EngineV3Opt
 		...(costCapUsd !== undefined ? { costCapUsd } : {}),
 		limitGrant: v3State.limitGrant ?? { steps: 0, usd: 0, waits: 0 },
 		...(v3State.limitWait ? { limitWait: v3State.limitWait } : {}),
+		heldBack,
+		canPrepareForOwner: canPrepareForOwner && catalog.entries.has(PREPARE_FOR_OWNER_DEFINED.name),
+		draftsPrepared: 0,
 		step: parsed?.nextStepIndex ?? 0,
 		usage,
 		estimatedCostUsd: usage.costUsd === undefined && (usage.costUnknownCalls ?? 0) > 0 ? estimateCostUsd(usage, prices) : 0,

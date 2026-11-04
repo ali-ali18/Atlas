@@ -169,10 +169,12 @@ describe("casos obrigatorios", () => {
 		}
 	});
 
-	it("prepare_for_owner e a unica escrita sem humano (ponto de extensao: a tool ainda nao existe)", () => {
-		for (const level of LEVELS) expect(decide({ name: PREPARE_FOR_OWNER_TOOL, effect: "write_internal" }, ctxFor("routine", level))).toBe("allow");
-		// PENDENTE (PR da tool prepare_for_owner): provar que o rascunho de e-mail/escrita em conector/publicacao
-		// aparece como cartao aprovavel no chat do dono e que so a aprovacao dele executa a escrita real.
+	it("prepare_for_owner e a unica escrita sem humano; com pessoa no chat ela some (o dono aprova a acao direto)", () => {
+		for (const level of LEVELS) {
+			for (const origin of ["routine", "webhook", "proactive", "email", "bot"]) expect(decide({ name: PREPARE_FOR_OWNER_TOOL, effect: "write_internal" }, ctxFor(origin, level)), `${origin}/${level}`).toBe("allow");
+			expect(decide({ name: PREPARE_FOR_OWNER_TOOL, effect: "write_internal" }, ctxFor("chat", level))).toBe("hide");
+		}
+		// O rascunho vira cartao aprovavel e so a aprovacao executa: engine-v3/prepared.test.ts.
 	});
 });
 

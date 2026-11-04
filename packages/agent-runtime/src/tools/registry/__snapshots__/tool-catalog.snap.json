@@ -2549,6 +2549,56 @@
    "effectBySample": []
   },
   {
+   "name": "prepare_for_owner",
+   "group": "misc",
+   "source": "registry",
+   "readOnly": false,
+   "definition": {
+    "type": "function",
+    "function": {
+     "name": "prepare_for_owner",
+     "description": "Leave an action that needs the owner (send, write outside Atlas, money, public link, credential) as a draft card in the owner's chat. The owner approves it (it then runs once) or dismisses it; nothing runs now. USE WHEN the task needs one of those actions and nobody is here to approve. DO NOT USE for actions available in this run, or to ask a question. One draft per run.",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "tool": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128,
+        "description": "Name of the action that needs the owner (e.g. email_send)."
+       },
+       "args": {
+        "type": "object",
+        "propertyNames": {
+         "type": "string"
+        },
+        "additionalProperties": {},
+        "description": "The exact arguments that action takes; the owner approves these and nothing else."
+       },
+       "note": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 500,
+        "description": "One or two plain sentences for the owner: what it does and why, in the reply language."
+       }
+      },
+      "required": [
+       "tool",
+       "args",
+       "note"
+      ]
+     }
+    }
+   },
+   "effect": "write_internal",
+   "catalogEffect": null,
+   "poll": null,
+   "endsTurn": null,
+   "needsHuman": null,
+   "ownCard": null,
+   "effectBySample": []
+  },
+  {
    "name": "preview_setup",
    "group": "misc",
    "source": "registry",

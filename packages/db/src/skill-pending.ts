@@ -53,8 +53,12 @@ export type SkillPendingPayload = {
 	/** Escrita de infraestrutura da prévia completa (DNS) aguardando o "confirmado"; o agente repete a chamada depois. Nenhum segredo aqui. */
 	infraSetup?: { callKey: string; label: string };
 	/** Chamada de tool nativa que a política do motor v3 pediu para o dono aprovar; o agente repete a chamada depois. Nenhum segredo aqui. */
-	/** Motor v3: `refused` = pedidos já recusados/pulados neste trabalho (passam à continuação); `waitMinutes` = prazo pedido pelo modelo. */
-	toolCall?: { callKey: string; tool: string; label: string; refused?: string[]; waitMinutes?: number };
+	/**
+	 * Motor v3: `refused` = pedidos já recusados/pulados neste trabalho (passam à continuação); `waitMinutes` = prazo pedido
+	 * pelo modelo; `prepared` = rascunho de `prepare_for_owner` de um run sem pessoa (aprovar abre a continuação que executa
+	 * a ação uma vez; "Agora não" só descarta, sem run novo).
+	 */
+	toolCall?: { callKey: string; tool: string; label: string; refused?: string[]; waitMinutes?: number; prepared?: true };
 	/** Motor v3: run sem humano parado no limite de passos/US$ ("Continuo?"); a decisão vai ao checkpoint e retoma o run. */
 	stepLimit?: { runId: string };
 	/** Plano proposto (`propose_plan`) aguardando "Aprovar plano"; aprovar não aprova escritas. */

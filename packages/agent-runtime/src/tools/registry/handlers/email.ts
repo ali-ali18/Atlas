@@ -8,7 +8,7 @@ import { defineRawTool, definedFamily, type DefinedTool } from "../../define-too
 import { EMAIL_LIST_TOOL, EMAIL_READ_TOOL, EMAIL_REPLY_TOOL, EMAIL_SEND_TOOL, EMAIL_CREATE_MAILBOX_TOOL } from "../../../email/tools.js";
 
 async function handleEmailListGroup(name: string, args: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult> {
-	return executeEmailTool(name, args, { email: ctx.email ?? undefined, userId: ctx.userId, botId: ctx.botId, conversationId: ctx.conversationId, runId: ctx.runId, origin: ctx.origin });
+	return executeEmailTool(name, args, { email: ctx.email ?? undefined, userId: ctx.userId, botId: ctx.botId, conversationId: ctx.conversationId, runId: ctx.runId, origin: ctx.origin, ...(ctx.ownerApproved ? { ownerApproved: true as const } : {}) });
 }
 
 /** Família `email`: definição, metadado e handler de cada tool num lugar só (`defineRawTool`, harness v3 PR5b). */

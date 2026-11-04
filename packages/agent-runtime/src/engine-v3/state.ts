@@ -62,6 +62,15 @@ export type V3Run = {
 	limitGrant: LimitGrant;
 	/** Parado no limite esperando o "Continuo?" do dono (vai no checkpoint; a API grava a decisão nele). */
 	limitWait?: StepLimitWait;
+	/**
+	 * Tools nativas que a política esconde neste run por falta de pessoa para aprovar (envio, escrita externa, dinheiro,
+	 * link público, credencial), com o schema: alvo do `prepare_for_owner` e da execução aprovada na continuação (PR8b).
+	 */
+	heldBack: ReadonlyMap<string, ChatTool>;
+	/** O run oferece `prepare_for_owner` (origem sem pessoa, com conversa e dono). */
+	canPrepareForOwner: boolean;
+	/** Rascunhos para o dono criados neste run (um por run: a conversa guarda um cartão pendente por vez). */
+	draftsPrepared: number;
 	step: number;
 	usage: TokenUsage;
 	estimatedCostUsd: number;

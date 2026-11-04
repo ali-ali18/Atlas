@@ -28,7 +28,7 @@ import {
 	updateConfirmCardStatus,
 	type SkillPendingPayload,
 } from "@workspace/db";
-import { collectRefs, EmailServiceError, emailService, executeConfirmedMcpCall, getVaultService, executeGenerateImage, openSecrets, isSecretBoxConfigured, parseGenerateImageArgs, sanitizeErrorMessage } from "@workspace/agent-runtime";
+import { PREPARE_FOR_OWNER_TOOL_NAME, collectRefs, EmailServiceError, emailService, executeConfirmedMcpCall, getVaultService, executeGenerateImage, openSecrets, isSecretBoxConfigured, parseGenerateImageArgs, sanitizeErrorMessage } from "@workspace/agent-runtime";
 import { peekModelContextLength } from "../routes/models.js";
 import { loadEffectiveConfig } from "./account-config.js";
 import { cancelCardTimeout } from "./owner-wait.js";
@@ -509,6 +509,22 @@ export function toolCallFollowUpContent(userText: string, call: { tool: string; 
 	].join("\n");
 }
 
+/**
+ * Rascunho de `prepare_for_owner` aprovado (motor v3, PR8b): o run que preparou não tinha pessoa e já terminou; o run de
+ * continuação chama a ação com os args do rascunho (o runtime confere tool + args e executa uma vez só).
+ */
+export function preparedApprovedFollowUpContent(userText: string, call: { tool: string; label: string }): string {
+	return [
+		userText,
+		"",
+		`[The owner APPROVED your draft: ${call.label}.] Call ${call.tool} now with EXACTLY the arguments of that draft (the approval covers one run of that exact call). Then tell the result in 1-2 simple sentences.`,
+		NO_RENARRATION,
+	].join("\n");
+}
+
+/** Rascunho descartado pelo dono ("Agora não"): o cartão fecha, nada executa e nenhum run novo começa. */
+export const PREPARED_DISMISSED_DETAIL = "Descartado";
+
 /** Nomes (nunca valores) que já estão salvos no ambiente, entre os pedidos. */
 export async function savedRequestedSecretNames(userId: string, request: { environmentId: string; names: string[] }): Promise<string[]> {
 	if (request.environmentId === VAULT_ENVIRONMENT_ID) {
@@ -771,6 +787,8 @@ export async function maybeHandleConfirmedAction(input: {
 		if (!(await claimSkillPendingIntent(pending.id, userId, input.conversationId))) return { handled: false };
 		await updateConfirmCardStatus(input.conversationId, "rejected", pending.payload.confirmId, undefined, { ok: false, detail: OWNER_WAIT_CARD_DETAIL.ignored }).catch(() => undefined);
 		await cancelCardTimeout(pending.payload.confirmId);
+		// Rascunho de um run sem pessoa (já terminado): a fala nova é conversa comum, sem semente naquele run.
+		if (ignoredToolCall.prepared) return { handled: false };
 		const userText = input.text.trim();
 		const result = ownerWaitResultText("ignored", { what: ignoredToolCall.label, message: userText });
 		const seed = seedField(pending.payload, ignoredToolCall.tool, result, userText, undefined, toolCallRefused(ignoredToolCall, true));
@@ -825,6 +843,11 @@ export async function maybeHandleConfirmedAction(input: {
 		const toolCallDeclined = pending.payload.action === "tool-call" ? pending.payload.toolCall : undefined;
 		if (input.continueInAgent && toolCallDeclined) {
 			if (!(await claimSkillPendingIntent(pending.id, userId, input.conversationId))) return { handled: false, duplicate: true };
+			// Rascunho de `prepare_for_owner`: "Agora não" só descarta (nada executa, nenhum run novo, nenhum custo).
+			if (toolCallDeclined.prepared) {
+				await updateConfirmCardStatus(input.conversationId, "rejected", pending.payload.confirmId, undefined, { ok: false, detail: PREPARED_DISMISSED_DETAIL }).catch(() => undefined);
+				return { handled: false, duplicate: true };
+			}
 			await updateConfirmCardStatus(input.conversationId, "rejected", pending.payload.confirmId, undefined, { ok: false, detail: "não aprovado pelo usuário" }).catch(() => undefined);
 			await cancelCardTimeout(pending.payload.confirmId);
 			const userText = input.text.trim();
@@ -937,6 +960,10 @@ export async function maybeHandleConfirmedAction(input: {
 			await updateConfirmCardStatus(input.conversationId, "approved", pending.payload.confirmId, undefined, { ok: true, detail: "aprovado pelo usuário" }).catch(() => undefined);
 			await cancelCardTimeout(pending.payload.confirmId);
 			const userText = input.text.trim();
+			// Rascunho de `prepare_for_owner`: o desfecho vira o resultado da chamada que preparou (no run sem pessoa).
+			if (toolCallApproved.prepared) {
+				return { handled: false, followUp: { objective: userText, content: preparedApprovedFollowUpContent(userText, toolCallApproved), ...seedField(pending.payload, PREPARE_FOR_OWNER_TOOL_NAME, preparedApprovedFollowUpContent("", toolCallApproved), userText, undefined, toolCallRefused(toolCallApproved, false)) } };
+			}
 			return { handled: false, followUp: { objective: userText, content: toolCallFollowUpContent(userText, toolCallApproved, "approved"), ...seedField(pending.payload, toolCallApproved.tool, toolCallFollowUpContent("", toolCallApproved, "approved"), userText, undefined, toolCallRefused(toolCallApproved, false)) } };
 		}
 		const prCreate = pending.payload.action === "dev-pr-create" ? pending.payload.devPrCreate : undefined;
