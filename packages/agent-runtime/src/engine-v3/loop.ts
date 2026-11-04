@@ -29,6 +29,7 @@ import { RUNTIME_PREFIX, nudgeSignal, nudgeText } from "./nudges.js";
 import { applyCatalogPolicy } from "./policy.js";
 import { prepareRun, type EngineV3Options } from "./prepare.js";
 import { flushSteer, pollSteer } from "./steering.js";
+import { loginResumeText } from "./owner-wait.js";
 import { createToolContextFactory } from "./tool-context.js";
 import { createToolsStep, type BatchResult } from "./tools-step.js";
 import type { V3Run } from "./state.js";
@@ -104,11 +105,20 @@ export async function runEngineV3(params: ComputerUseParams, options: EngineV3Op
 		if (run.pendingLogin) {
 			const resumed = run.pendingLogin;
 			run.pendingLogin = undefined;
-			run.conversation.push({
-				role: "user",
-				content: `${RUNTIME_PREFIX} The user says they finished ${resumed.reason === "captcha" ? "the verification" : "logging in"} on ${resumed.site}. Your next action must be browser_snapshot to re-read the page, then continue from where you stopped. Never type credentials.`,
-			});
-			const done = { type: "login" as const, loginId: resumed.loginId, site: resumed.site, url: resumed.url, runId: run.runId, status: "done" as const, ...(resumed.reason ? { reason: resumed.reason } : {}) };
+			// Saída do cartão (PR8a): o botão grava `outcome`; sem ele o run acordou por mensagem nova do dono = "ignorou".
+			// Sem botão nem mensagem (cliente antigo, retomada manual) vale o "Terminei" de sempre.
+			const outcome = resumed.outcome ?? ((await pollSteer(run)) ? "ignored" : "done");
+			if (outcome === "done") {
+				run.conversation.push({
+					role: "user",
+					content: `${RUNTIME_PREFIX} The user says they finished ${resumed.reason === "captcha" ? "the verification" : "logging in"} on ${resumed.site}. Your next action must be browser_snapshot to re-read the page, then continue from where you stopped. Never type credentials.`,
+				});
+			} else {
+				if (outcome === "takeover") run.ownerHasComputer = true;
+				const message = outcome === "ignored" ? run.pendingSteer.map((input) => input.content).join("\n").slice(0, 2_000) : undefined;
+				run.conversation.push({ role: "user", content: loginResumeText({ outcome, site: resumed.site, ...(resumed.what ? { what: resumed.what } : {}), ...(message !== undefined ? { message } : {}), ...(resumed.waitMinutes ? { minutes: resumed.waitMinutes } : {}) }) });
+			}
+			const done = { type: "login" as const, loginId: resumed.loginId, site: resumed.site, url: resumed.url, runId: run.runId, status: "done" as const, outcome, ...(resumed.reason ? { reason: resumed.reason } : {}) };
 			await persistConversationCardFromEvent(run.conversationId, done).catch(() => undefined);
 			await run.emit(done);
 		} else if (restored) repairUnansweredCalls(run.conversation);

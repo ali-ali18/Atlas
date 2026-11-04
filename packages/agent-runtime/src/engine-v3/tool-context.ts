@@ -33,6 +33,7 @@ export function createToolContextFactory(run: V3Run) {
 
 	return (call: LlmToolCall, signal: AbortSignal | undefined, forceConfirm: boolean): ToolContext => ({
 		loginAsked: run.loginAsked,
+		...(params.ownerWait ? { ownerWait: params.ownerWait } : {}),
 		secrets: run.secrets,
 		health: run.health,
 		hasTool: run.hasTool,

@@ -885,6 +885,21 @@ export async function findActiveConversationRun(userId: string, conversationId: 
 	return { run: mapRun(row), engine: readStoredRunEngine(row.budgetJson) ?? null };
 }
 
+/**
+ * Motor v3: o que o dono escolheu no cartão de login/VM ("Terminei", "Assumir", "Pular"; o prazo vencido marca
+ * `skipped_timeout`). Só grava quando o run espera esse login (`loginId`, se informado, confere). Escopado pelo dono.
+ */
+export async function markPendingLoginOutcome(input: { runId: string; userId: string; outcome: NonNullable<NonNullable<AgentRunCheckpoint["pendingLogin"]>["outcome"]>; loginId?: string }): Promise<boolean> {
+	if (!input.userId.trim() || input.userId === "default") return false;
+	const row = await prisma.agentRun.findFirst({ where: { id: input.runId, userId: input.userId }, select: { checkpointJson: true } });
+	const checkpoint = row?.checkpointJson as AgentRunCheckpoint | null | undefined;
+	if (!checkpoint?.pendingLogin) return false;
+	if (input.loginId && checkpoint.pendingLogin.loginId !== input.loginId) return false;
+	const next = { ...checkpoint, pendingLogin: { ...checkpoint.pendingLogin, outcome: input.outcome } };
+	await prisma.agentRun.updateMany({ where: { id: input.runId, userId: input.userId }, data: { checkpointJson: next as unknown as Prisma.InputJsonValue } });
+	return true;
+}
+
 export async function listActiveRunsForConversation(
 	conversationId: string,
 ): Promise<AgentRun[]> {

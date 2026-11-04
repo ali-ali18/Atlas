@@ -23,6 +23,8 @@ export {
 	touchBotProfileCard,
 	updateConfirmCardStatus,
 	closePendingConfirmCard,
+	dismissPendingQuestionnaireCard,
+	findPendingQuestionnaireCard,
 	findExecutedConfirmCall,
 	takeToolCallApproval,
 	TOOL_CALL_CONSUMED_DETAIL,
@@ -190,6 +192,7 @@ export {
 	markAgentRunRetrying,
 	listActiveRunsForConversation,
 	findActiveConversationRun,
+	markPendingLoginOutcome,
 	listRunsForConversation,
 	getLatestCompletedRunForConversation,
 	requestCancelAgentRun,
@@ -774,3 +777,12 @@ export {
 	type AutoBriefCandidate,
 	type AutoBriefSignals,
 } from "./brief-auto.js";
+export {
+	listPendingReturns,
+	createConversationReturn,
+	cancelConversationReturn,
+	claimDueReturn,
+	markReturnRun,
+	ConversationReturnLimitError,
+	type ConversationReturnRecord,
+} from "./conversation-returns.js";

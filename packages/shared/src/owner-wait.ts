@@ -9,6 +9,9 @@
 export const OWNER_WAIT_OUTCOMES = ["done", "takeover", "skipped", "skipped_timeout", "ignored", "declined", "approved"] as const;
 export type OwnerWaitOutcome = (typeof OWNER_WAIT_OUTCOMES)[number];
 
+/** Saídas do cartão de login/VM (aprovar e recusar são do cartão de aprovação). */
+export type LoginWaitOutcome = Exclude<OwnerWaitOutcome, "approved" | "declined">;
+
 export function isOwnerWaitOutcome(value: unknown): value is OwnerWaitOutcome {
 	return typeof value === "string" && (OWNER_WAIT_OUTCOMES as readonly string[]).includes(value);
 }

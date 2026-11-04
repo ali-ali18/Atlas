@@ -589,6 +589,10 @@ export function parseRuntimeCheckpoint(
 						...(value.pendingLogin.useVault === true ? { useVault: true } : {}),
 						...(value.pendingLogin.codeField === true ? { codeField: true } : {}),
 						...(typeof value.pendingLogin.codeEnc === "string" && value.pendingLogin.codeEnc.length < 2000 ? { codeEnc: value.pendingLogin.codeEnc } : {}),
+						// Motor v3 (PR8a): saída do cartão, pedido e prazo. v1/v2 não leem.
+						...(isLoginWaitOutcome(value.pendingLogin.outcome) ? { outcome: value.pendingLogin.outcome } : {}),
+						...(typeof value.pendingLogin.what === "string" && value.pendingLogin.what ? { what: value.pendingLogin.what.slice(0, 300) } : {}),
+						...(typeof value.pendingLogin.waitMinutes === "number" && Number.isInteger(value.pendingLogin.waitMinutes) && value.pendingLogin.waitMinutes >= 1 && value.pendingLogin.waitMinutes <= 1440 ? { waitMinutes: value.pendingLogin.waitMinutes } : {}),
 					}
 				: undefined,
 		executionLedger: value.executionLedger
@@ -637,12 +641,18 @@ function parseTranscriptWatermark(raw: unknown): AgentRunCheckpoint["transcriptW
 	return { messageId: mark.messageId, createdAt: mark.createdAt, count: Math.max(0, Math.floor(mark.count)) };
 }
 
+const LOGIN_WAIT_OUTCOMES: ReadonlySet<string> = new Set(["done", "takeover", "skipped", "skipped_timeout", "ignored"]);
+function isLoginWaitOutcome(value: unknown): value is NonNullable<NonNullable<AgentRunCheckpoint["pendingLogin"]>["outcome"]> {
+	return typeof value === "string" && LOGIN_WAIT_OUTCOMES.has(value);
+}
+
 function parseTranscriptSeed(raw: unknown): AgentRunCheckpoint["transcriptSeed"] {
 	if (!raw || typeof raw !== "object") return undefined;
 	const seed = raw as Record<string, unknown>;
 	if (typeof seed.fromRunId !== "string" || (seed.toolName !== undefined && typeof seed.toolName !== "string") || typeof seed.resultContent !== "string" || typeof seed.shortContent !== "string") return undefined;
 	const taskList = parseTaskList(seed.taskList);
-	return { fromRunId: seed.fromRunId, ...(typeof seed.toolName === "string" ? { toolName: seed.toolName } : {}), resultContent: seed.resultContent, shortContent: seed.shortContent, ...(taskList ? { taskList } : {}) };
+	const refused = Array.isArray(seed.refused) ? seed.refused.filter((key): key is string => typeof key === "string" && key.length > 0 && key.length <= 200).slice(-50) : [];
+	return { fromRunId: seed.fromRunId, ...(typeof seed.toolName === "string" ? { toolName: seed.toolName } : {}), resultContent: seed.resultContent, shortContent: seed.shortContent, ...(taskList ? { taskList } : {}), ...(refused.length > 0 ? { refused } : {}) };
 }
 
 function isModelTier(value: unknown): value is ModelTier {

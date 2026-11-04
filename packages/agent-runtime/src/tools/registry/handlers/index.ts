@@ -18,9 +18,10 @@ import { connectorToolResolver } from "./connectors.js";
 import { DEV_SESSION_DEFINED, devSessionResolver } from "./dev.js";
 import { SANDBOX_TOOLS, SANDBOX_DEFINED } from "./sandbox.js";
 import { WEB_TOOLS, WEB_DEFINED } from "./web.js";
+import { OWNER_WAIT_TOOLS, OWNER_WAIT_DEFINED } from "./owner-wait.js";
 
 /** Famílias de tools, na ordem de declaração (nome repetido entre famílias é erro). */
-export const TOOL_FAMILIES: Array<() => ToolFamily> = [() => BROWSER_TOOLS, () => SANDBOX_TOOLS, () => WEB_TOOLS, () => FILES_TOOLS, () => MEMORY_TOOLS, () => MISC_TOOLS, () => VAULT_TOOLS, () => SKILLS_TOOLS, () => EMAIL_TOOLS, () => PROACTIVE_TOOLS, () => CONNECTORS_TOOLS, () => ROUTINES_TOOLS, () => BOTS_TOOLS, () => PLANNING_TOOLS, () => PAGES_TOOLS, () => LONG_WORK_TOOLS];
+export const TOOL_FAMILIES: Array<() => ToolFamily> = [() => BROWSER_TOOLS, () => SANDBOX_TOOLS, () => WEB_TOOLS, () => FILES_TOOLS, () => MEMORY_TOOLS, () => MISC_TOOLS, () => VAULT_TOOLS, () => SKILLS_TOOLS, () => EMAIL_TOOLS, () => PROACTIVE_TOOLS, () => CONNECTORS_TOOLS, () => ROUTINES_TOOLS, () => BOTS_TOOLS, () => PLANNING_TOOLS, () => PAGES_TOOLS, () => LONG_WORK_TOOLS, () => OWNER_WAIT_TOOLS];
 
 export const TOOL_RESOLVERS: ToolResolvers = { before: [() => devSessionResolver], after: [() => connectorToolResolver], defined: [() => DEV_SESSION_DEFINED] };
 
@@ -30,5 +31,5 @@ export const TOOL_RESOLVERS: ToolResolvers = { before: [() => devSessionResolver
  * montar a lista no carregamento estouraria TDZ se uma família fosse o primeiro módulo importado.
  */
 export function allDefinedTools(): readonly DefinedTool[] {
-	return [...MISC_DEFINED, ...LONG_WORK_DEFINED, ...PLANNING_DEFINED, ...PROACTIVE_DEFINED, ...VAULT_DEFINED, ...MEMORY_DEFINED, ...WEB_DEFINED, ...SANDBOX_DEFINED, ...SKILLS_DEFINED, ...BOTS_DEFINED, ...CONNECTORS_DEFINED, ...FILES_DEFINED, ...PAGES_DEFINED, ...ROUTINES_DEFINED, ...EMAIL_DEFINED, ...BROWSER_DEFINED];
+	return [...MISC_DEFINED, ...LONG_WORK_DEFINED, ...PLANNING_DEFINED, ...PROACTIVE_DEFINED, ...VAULT_DEFINED, ...MEMORY_DEFINED, ...WEB_DEFINED, ...SANDBOX_DEFINED, ...SKILLS_DEFINED, ...BOTS_DEFINED, ...CONNECTORS_DEFINED, ...FILES_DEFINED, ...PAGES_DEFINED, ...ROUTINES_DEFINED, ...EMAIL_DEFINED, ...BROWSER_DEFINED, ...OWNER_WAIT_DEFINED];
 }

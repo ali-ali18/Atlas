@@ -18,6 +18,7 @@ import type { EmailRunContext } from "./email/tools.js";
 import type { SkillsStore } from "./tools/skills.js";
 import type { getBotProfile } from "@workspace/db";
 import type { RunCodeDeps } from "./tools/run-code.js";
+import type { OwnerWaitDeps } from "./tools/schedule-return.js";
 import type { PagesStore, PageShareStore } from "./tools/pages.js";
 import type { ResearchNotes } from "./tools/research-note.js";
 import type { AttachmentRuntime } from "./attachments/runtime.js";
@@ -313,6 +314,8 @@ export type ComputerUseParams = {
 	 * Lido só ao abrir conversa nova (o catálogo fica congelado nas seguintes); v1 e v2 não leem.
 	 */
 	loadToolUsage?: () => Promise<Record<string, number>>;
+	/** Motor v3 (PR8a): filas do "esperar o dono" (prazo do cartão, `schedule_return`). v1 e v2 não leem. */
+	ownerWait?: OwnerWaitDeps;
 	/** Prazo da busca do código no e-mail (padrão 60 s). */
 	vaultEmailTimeoutMs?: number;
 	consumeSteerInputs?: () => Promise<

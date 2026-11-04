@@ -760,6 +760,40 @@ export async function submitQuestionnaireCard(
 }
 
 /**
+ * Motor v3: fecha um questionário AINDA pendente sem resposta (dono pulou, prazo venceu, ou mandou outra mensagem).
+ * Sem `questionnaireId`, o pendente mais recente. Só conversa do dono. Devolve id e título do cartão fechado.
+ */
+export async function dismissPendingQuestionnaireCard(input: {
+	conversationId: string;
+	ownerId: string;
+	questionnaireId?: string;
+}): Promise<{ questionnaireId: string; title: string } | null> {
+	const owned = await prisma.conversation.findFirst({ where: { id: input.conversationId, userId: input.ownerId }, select: { id: true } });
+	if (!owned) return null;
+	const recent = await prisma.conversationMessage.findMany({ where: { conversationId: input.conversationId, role: "questionnaire" }, orderBy: { createdAt: "desc" }, take: 10 });
+	for (const row of recent) {
+		const current = parseConversationCard(row.content);
+		if (!current || current.kind !== "questionnaire" || current.status !== "pending") continue;
+		if (input.questionnaireId && current.questionnaireId !== input.questionnaireId) continue;
+		const updated = await prisma.conversationMessage.updateMany({ where: { id: row.id, content: row.content }, data: { content: serializeConversationCard({ ...current, status: "dismissed" }) } });
+		return updated.count === 1 ? { questionnaireId: current.questionnaireId, title: current.title } : null;
+	}
+	return null;
+}
+
+/** Motor v3: questionário pendente mais recente da conversa do dono (o run que perguntou vem do id `questionnaire-<runId>`). */
+export async function findPendingQuestionnaireCard(conversationId: string, ownerId: string): Promise<{ questionnaireId: string; title: string } | null> {
+	const owned = await prisma.conversation.findFirst({ where: { id: conversationId, userId: ownerId }, select: { id: true } });
+	if (!owned) return null;
+	const recent = await prisma.conversationMessage.findMany({ where: { conversationId, role: "questionnaire" }, orderBy: { createdAt: "desc" }, take: 10 });
+	for (const row of recent) {
+		const current = parseConversationCard(row.content);
+		if (current?.kind === "questionnaire" && current.status === "pending") return { questionnaireId: current.questionnaireId, title: current.title };
+	}
+	return null;
+}
+
+/**
  * Diz se há card de questionário pendente na conversa (para fallback de
  * boas-vindas: só garante pergunta padrão quando o agente não emitiu nenhuma).
  */

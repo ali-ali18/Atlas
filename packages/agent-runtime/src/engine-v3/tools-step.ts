@@ -22,6 +22,7 @@ import { decideCall, deniedMessage, spanPolicyDecision } from "./policy.js";
 import { BLOCKED_REPEATED } from "./repetition.js";
 import { pollSteer } from "./steering.js";
 import { hasOwnApprovalCard, nativeApprovalGate } from "./approval.js";
+import { NO_DEADLINE_NOTE, OWNER_HAS_COMPUTER, alreadyRefusedMessage, refusedToolKey, scheduleCardDeadline, takeWaitMinutes } from "./owner-wait.js";
 import type { ToolContextFactory } from "./tool-context.js";
 import type { V3Run } from "./state.js";
 
@@ -163,6 +164,14 @@ export function createToolsStep(run: V3Run, contextFor: ToolContextFactory) {
 			args = normalized.args;
 			call = { ...call, function: { ...call.function, arguments: JSON.stringify(args) } };
 		}
+		// Prazo da espera pelo dono (`waitMinutes`): metadado da chamada, sai antes da chave, da política e do executor.
+		const waited = takeWaitMinutes(tool, args);
+		if ("error" in waited) return await refuse(call, sub, name, waited.error);
+		const waitMinutes = waited.minutes;
+		if (waited.args !== args) {
+			args = waited.args;
+			call = { ...call, function: { ...call.function, arguments: JSON.stringify(args) } };
+		}
 		const argsKey = toolArgsKey(name, args);
 		const missing = missingRequiredArgs(tool, args);
 		if (missing.length > 0) return await refuse(call, sub, name, invalidArgsMessage(tool, `missing required ${missing.join(", ")}`), { argsKey });
@@ -185,7 +194,7 @@ export function createToolsStep(run: V3Run, contextFor: ToolContextFactory) {
 				return { call, name, ok: false, summary: SKIPPED_FOR_APPROVAL, skipped: true };
 			}
 			batch.parked = true;
-			const gate = await nativeApprovalGate(run, name, args);
+			const gate = await nativeApprovalGate(run, name, args, waitMinutes);
 			if (gate.kind !== "parked") batch.parked = false;
 			if (gate.kind === "refuse") return await refuse(call, sub, name, gate.summary, { argsKey });
 			if (gate.kind === "parked") {
@@ -196,6 +205,11 @@ export function createToolsStep(run: V3Run, contextFor: ToolContextFactory) {
 				return Object.assign({ call, name, ok: true, summary: gate.summary }, { awaiting: "confirm" as const });
 			}
 		}
+
+		// O dono está com o computador ("Assumir"): nada de navegador, tela ou shell da VM até ele devolver.
+		if (run.ownerHasComputer && isSandboxTool(name)) return await refuse(call, sub, name, OWNER_HAS_COMPUTER, { argsKey });
+		// Pergunta que o dono pulou ou deixou sem resposta neste trabalho não volta (decide com um padrão sensato).
+		if (meta?.needsHuman && run.ownerRefused.has(refusedToolKey(name))) return await refuse(call, sub, name, alreadyRefusedMessage("your previous question"), { argsKey });
 
 		// --- execução (mesmo executor do v1/v2; escrita externa com journal não repete) ---
 		const idempotencyKey = toolIdempotencyKey({ runId: run.runId, decisionIndex: run.step, toolCallId: call.id, toolName: name });
@@ -233,7 +247,17 @@ export function createToolsStep(run: V3Run, contextFor: ToolContextFactory) {
 			if (outcome.skillProposalEvent) { cards.push(outcome.skillProposalEvent); if (pending(outcome.skillProposalEvent)) awaiting ??= "skill_card"; }
 			if (outcome.botProposalEvent) { cards.push(outcome.botProposalEvent); if (pending(outcome.botProposalEvent)) awaiting ??= "skill_card"; }
 			if (outcome.routineEvent) cards.push(outcome.routineEvent);
-			if (outcome.questionnaireEvent) { cards.push(outcome.questionnaireEvent); awaiting ??= "questionnaire"; }
+			if (outcome.questionnaireEvent) {
+				let questionnaire = outcome.questionnaireEvent;
+				if (waitMinutes) {
+					const deadlineAt = await scheduleCardDeadline(run, { card: "questionnaire", cardId: questionnaire.questionnaireId, toolName: name, what: questionnaire.title, minutes: waitMinutes });
+					if (deadlineAt) questionnaire = { ...questionnaire, deadlineAt };
+					else summary = `${summary} ${NO_DEADLINE_NOTE}`;
+				}
+				cards.push(questionnaire);
+				awaiting ??= "questionnaire";
+			}
+			if (outcome.returnEvent) cards.push(outcome.returnEvent);
 			if (outcome.profileEvent) { cards.push(outcome.profileEvent); if (pending(outcome.profileEvent)) awaiting ??= "profile"; }
 			if (outcome.fileEvent) cards.push(outcome.fileEvent);
 			if (!pendingCard) run.preTools.noteSuccess(name, entry);
