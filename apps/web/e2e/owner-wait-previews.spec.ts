@@ -65,6 +65,18 @@ const SCENARIOS: Array<{ name: string; seeds: Seed[]; groups: Array<[string, str
     ],
     groups: [["06-questionario-com-pular", ["q1"]], ["07-aprovacao-com-prazo", ["p1"]]],
   },
+  {
+    // Pedido do dono (04/11): recusar é interno. O clique ("cancela isso") e a nota para o modelo não viram balão.
+    name: "recusado-so-selo",
+    seeds: [
+      text("u1", "user", "Compartilha o painel de vendas com o time."),
+      card("p2", "confirm", { confirmId: "confirm-toolee11ff22-run-b", title: "Criar um link público do painel?", description: "pageId: pg-1", status: "rejected", confirmLabel: "Permitir", cancelLabel: "Agora não", ownerCard: "approval", outcome: { ok: false, detail: "Agora não" } }),
+      text("u2", "user", "cancela isso"),
+      { id: "n1", role: "system", content: '[runtime] Owner declined: "Criar um link público do painel". It was not done.' },
+      card("p3", "confirm", { confirmId: "confirm-tool33445566-run-c", title: "Enviar esta mensagem?", description: "to: ana@cliente.com", status: "rejected", confirmLabel: "Permitir", cancelLabel: "Agora não", ownerCard: "approval", outcome: { ok: false, detail: "Tempo esgotado · segui sem isso" } }),
+    ],
+    groups: [["08-recusado-so-selo-sem-balao", ["u1", "p2", "p3"]]],
+  },
 ]
 
 const libraryHandler: MockHandler = ({ method, path }) =>

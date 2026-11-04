@@ -5,6 +5,7 @@ import type { AgentRun } from "@workspace/shared";
 import {
 	addBotAutonomyException,
 	addCommandPrefixesToRepo,
+	appendConversationMessage,
 	appendRunEvent,
 	clearSkillPendingIntent,
 	claimSkillPendingIntent,
@@ -18,6 +19,7 @@ import {
 	setConfirmCardGrantUses,
 	getDevEnvironment,
 	getLatestConfirmCardStatus,
+	findConfirmCardTitle,
 	getMailboxForBot,
 	prisma,
 	getSkillPendingIntent,
@@ -682,6 +684,34 @@ export function applyConfirmedFollowUp<T extends { role: string; content: string
 	return messages.map((message, i) => (i === index ? { ...message, content: labelCardProtocolMessage(followUp.content) } : message));
 }
 
+export type DeclinedActivityDeps = {
+	appendNote: (conversationId: string, content: string) => Promise<unknown>;
+	finish: (input: { run: AgentRun; merged?: boolean; assistantText: string }) => Promise<AgentRun>;
+};
+
+const DECLINED_ACTIVITY_DEPS: DeclinedActivityDeps = {
+	appendNote: (conversationId, content) => appendConversationMessage(conversationId, "system", content),
+	finish: (input) => finishActivityRun(input),
+};
+
+/**
+ * Pedido do dono (04/11): recusar um cartão é comunicação interna. O run de atividade termina SEM balão do assistente
+ * (antes: "Ok, deixei pra lá."), o cartão mostra o selo e o modelo recebe o registro como nota oculta (role `system`,
+ * que a tela não desenha). Run ativo de outro trabalho (`merged`): não é nosso, nada muda nele.
+ */
+export async function finishDeclinedActivity(
+	input: { run: AgentRun; merged: boolean; conversationId?: string; title?: string },
+	deps: DeclinedActivityDeps = DECLINED_ACTIVITY_DEPS,
+): Promise<AgentRun> {
+	if (!input.merged && input.conversationId) await deps.appendNote(input.conversationId, declinedCardNote(input.title)).catch(() => undefined);
+	return await deps.finish({ run: input.run, merged: input.merged, assistantText: "" });
+}
+
+/** Nota oculta (para o modelo) de um cartão recusado sem run ativo: o registro existe, mas não vira balão. */
+export function declinedCardNote(title: string | undefined): string {
+	return `[runtime] ${ownerWaitResultText("declined", { what: (title ?? "the pending request").replace(/\?$/, "") })}`;
+}
+
 /**
  * Recusa ("Agora não", "Recusar") de um cartão enquanto OUTRO run da conversa está ativo (bug do dono, 03/11: recusar um
  * cartão atrasado parava tudo). Antes, a recusa virava um run de atividade que, preso ao índice "um run ativo por
@@ -873,6 +903,7 @@ export async function maybeHandleConfirmedAction(input: {
 			const userText = input.text.trim();
 			return { handled: false, followUp: { objective: userText, content: secretsDeclinedFollowUpContent(userText, secretsAsk), ...seedField(pending.payload, undefined, secretsDeclinedFollowUpContent("", secretsAsk), userText) } };
 		}
+		const declinedTitle = await findConfirmCardTitle(input.conversationId, pending.payload.confirmId).catch(() => undefined);
 		await updateConfirmCardStatus(
 			input.conversationId,
 			"rejected",
@@ -888,10 +919,7 @@ export async function maybeHandleConfirmedAction(input: {
 			model: input.model,
 			commandText: input.text.trim(),
 		});
-		return {
-			run: await finishActivityRun({ run, merged, assistantText: `Ok, deixei pra lá.` }),
-			handled: true,
-		};
+		return { run: await finishDeclinedActivity({ run, merged, conversationId: input.conversationId, title: declinedTitle }), handled: true };
 	}
 
 	// Plano pendente: o texto que não é aprovar nem cancelar é pedido de ajuste (ou outro assunto); o modelo decide com o desfecho como resultado da chamada.
