@@ -1201,6 +1201,8 @@ async function executeLeasedRun(ctx: {
 		requestOrBotCap: budget.maxCostUsd,
 		snapshot: configSnapshot,
 		wallFixed: botPolicy.maxWallMs !== undefined || requestBudget.maxWallMs !== undefined,
+		// Mesma regra do `canParkAtLimit` do motor v3: só com conversa, dono real e fora de subagente há cartão "Continuo?".
+		canParkAtLimit: Boolean(run.conversationId) && run.origin !== "subagent" && Boolean(runUserId) && runUserId !== "default",
 	});
 	effectiveCostCap = runLimits.costCapUsd;
 	const runtimeBudget = runLimits.wallMs !== undefined ? { ...budget, maxWallMs: runLimits.wallMs } : budget;

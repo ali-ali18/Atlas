@@ -520,7 +520,7 @@ test("motor v3 sem humano: sem relógio padrão (D4: valem os 40 passos e o US$ 
 	const none = { maxRunCostUsd: undefined };
 	const v3 = { engine: "v2" as const, resolved: "v3" as const, profile: "chat" as const };
 	for (const origin of ["routine", "webhook", "email", "proactive", "bot"] as const) {
-		assert.equal(resolveRunLimits({ choice: v3, origin, humanTurn: false, requestOrBotCap: undefined, snapshot: none, wallFixed: false }).wallMs, undefined, origin);
+		assert.equal(resolveRunLimits({ choice: v3, origin, humanTurn: false, requestOrBotCap: undefined, snapshot: none, wallFixed: false, canParkAtLimit: true }).wallMs, undefined, origin);
 	}
 	// O v2 sem humano continua com o limite de antes (rotina promovível: 30 min).
 	assert.equal(resolveRunLimits({ choice: { engine: "v2", profile: "chat" }, origin: "routine", humanTurn: false, requestOrBotCap: undefined, snapshot: none, wallFixed: false }).wallMs, 30 * 60_000);
@@ -532,4 +532,13 @@ test("lessonsInjectedByEngine: o v3 não conta lição como injetada; v1 e v2 co
 	assert.deepEqual(lessonsInjectedByEngine({ resolved: "v3" }, ["l1", "l2"]), []);
 	assert.deepEqual(lessonsInjectedByEngine({ resolved: "v2" }, ["l1", "l2"]), ["l1", "l2"]);
 	assert.deepEqual(lessonsInjectedByEngine({}, ["l1"]), ["l1"]);
+});
+
+test("motor v3 sem humano e sem cartão possível (sem conversa, subagente, dono legado): o relógio de antes continua", () => {
+	const none = { maxRunCostUsd: undefined };
+	const v3 = { engine: "v2" as const, resolved: "v3" as const, profile: "chat" as const };
+	const v2Routine = resolveRunLimits({ choice: { engine: "v2", profile: "chat" }, origin: "routine", humanTurn: false, requestOrBotCap: undefined, snapshot: none, wallFixed: false }).wallMs;
+	assert.equal(resolveRunLimits({ choice: v3, origin: "routine", humanTurn: false, requestOrBotCap: undefined, snapshot: none, wallFixed: false, canParkAtLimit: false }).wallMs, v2Routine);
+	assert.equal(resolveRunLimits({ choice: v3, origin: "routine", humanTurn: false, requestOrBotCap: undefined, snapshot: none, wallFixed: false }).wallMs, v2Routine);
+	assert.ok(resolveRunLimits({ choice: v3, origin: "proactive", humanTurn: false, requestOrBotCap: undefined, snapshot: none, wallFixed: false, shortRun: true }).wallMs !== undefined);
 });

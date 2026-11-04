@@ -240,6 +240,11 @@ export function resolveRunLimits(input: {
 	wallFixed: boolean;
 	/** Verificação curta (alerta, brief, check, proativo, evento de configuração): nunca promove. */
 	shortRun?: boolean;
+	/**
+	 * Motor v3: o run tem onde mostrar o cartão "Continuo?" (conversa, dono real, não é subagente). Só aí o limite de
+	 * passos substitui o relógio padrão; sem cartão possível, o relógio de antes continua valendo. Ausente = não pode.
+	 */
+	canParkAtLimit?: boolean;
 }): { costCapUsd: number | undefined; wallMs?: number; canPromote: boolean } {
 	const owner = longWorkOwnerLimits(input.choice, { origin: input.origin, humanTurn: input.humanTurn, shortRun: input.shortRun });
 	// Só teto configurado: pedido/bot e conta (o menor). Sem nenhum, sem limite em US$.
@@ -251,9 +256,10 @@ export function resolveRunLimits(input: {
 	// Run sem humano que pode promover: vale desde o começo o teto de tempo do trabalho longo sem humano (no máximo 30 min),
 	// senão a promoção herdaria o teto curto do chat.
 	const unattendedChoice = owner.canPromote && !humanChat ? { ...input.choice, profile: "long_work" as const } : input.choice;
-	// Motor v3 (decisão D4 do dono): sem humano não há relógio padrão; valem os 40 passos e o US$ que o dono configurou.
-	const v3 = input.choice.resolved === "v3";
-	const wallMs = ownerFixedWall ? undefined : owner.wallMs ?? (humanChat || v3 ? undefined : unattendedWallMs(unattendedChoice));
+	// Motor v3 (decisão D4 do dono): sem humano e com o cartão "Continuo?" possível, não há relógio padrão; valem os 40
+	// passos e o US$ que o dono configurou. Sem conversa (ou subagente, dono legado) não há cartão: fica o relógio de antes.
+	const v3Parks = input.choice.resolved === "v3" && input.canParkAtLimit === true;
+	const wallMs = ownerFixedWall ? undefined : owner.wallMs ?? (humanChat || v3Parks ? undefined : unattendedWallMs(unattendedChoice));
 	return {
 		costCapUsd,
 		canPromote: owner.canPromote,
