@@ -25,23 +25,6 @@ const READ_HTTP_METHODS = new Set(["GET", "HEAD"]);
  */
 export const TOOL_META: Readonly<Record<string, ToolMetaFields>> = {
 	// Navegador (VM)
-	screenshot: { effect: "read" },
-	navigate: { effect: "read" },
-	click: { effect: "write_internal" },
-	type: { effect: "write_internal" },
-	key: { effect: "write_internal" },
-	scroll: { effect: "write_internal" },
-	browser_click: { effect: "write_internal" },
-	browser_type: { effect: "write_internal" },
-	browser_text: { effect: "read" },
-	browser_links: { effect: "read" },
-	browser_snapshot: { effect: "read" },
-	browser_act: { effect: "write_internal" },
-	browser_wait: { effect: "read", poll: true },
-	browser_tabs: { effect: "write_internal" },
-	browser_read: { effect: "read" },
-	browser_find: { effect: "read" },
-	computer: { effect: "write_internal" },
 
 	// VM (shell e arquivos do computador do bot)
 	sandbox_shell: { effect: "write_internal" },

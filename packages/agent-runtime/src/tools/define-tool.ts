@@ -16,8 +16,8 @@ export type DefinedTool = {
 	readonly definition?: ChatTool;
 	readonly meta: ToolMetaFields;
 	readonly group: ToolGroup;
-	/** Valida os args pelo schema e roda; arg inválido = erro honesto com a assinatura curta. */
-	readonly handler: (args: Record<string, unknown>, ctx: ToolContext) => Promise<ToolResult>;
+	/** `defineTool`: valida os args pelo schema e roda (arg inválido = erro honesto com a assinatura curta). `defineRawTool`: o handler da tool, que confere os próprios args. */
+	readonly handler: ToolHandler;
 };
 
 type Input = z.ZodObject<z.ZodRawShape>;
@@ -127,6 +127,7 @@ export type DefineRawToolSpec = {
 };
 
 export function defineRawTool(spec: DefineRawToolSpec): DefinedTool {
+	if ("definition" in spec && !spec.definition) throw new Error(`defineRawTool: a definição de "${spec.name}" chegou vazia (ciclo de importação?).`);
 	if (spec.definition && spec.definition.function.name !== spec.name) throw new Error(`defineRawTool: a definição é de "${spec.definition.function.name}", não de "${spec.name}".`);
 	const meta: ToolMetaFields = {
 		effect: spec.effect,
@@ -137,7 +138,14 @@ export function defineRawTool(spec: DefineRawToolSpec): DefinedTool {
 		...(spec.catalogEffect ? { catalogEffect: spec.catalogEffect } : {}),
 		...(spec.effectForArgs ? { effectForArgs: spec.effectForArgs } : {}),
 	};
-	return { name: spec.name, ...(spec.definition ? { definition: spec.definition } : {}), meta, group: spec.group, handler: async (args, ctx) => await spec.run(args, ctx) };
+	return { name: spec.name, ...(spec.definition ? { definition: spec.definition } : {}), meta, group: spec.group, handler: spec.run };
+}
+
+/** A definição de nome `name` dentro de uma lista de definições (as nativas antigas moram em arrays por módulo). */
+export function toolNamed(list: readonly ChatTool[], name: string): ChatTool {
+	const found = list.find((tool) => tool.function.name === name);
+	if (!found) throw new Error(`toolNamed: "${name}" não está na lista.`);
+	return found;
 }
 
 /** Registros do registro de tools (`ToolFamily`) a partir das tools definidas aqui. */

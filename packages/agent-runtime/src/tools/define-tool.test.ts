@@ -140,8 +140,9 @@ describe("guarda: tool nova usa defineTool", () => {
 	});
 
 	it("ownCard substitui a lista fixa do approval: propostas e cartões próprios marcados", () => {
-		const own = Object.entries(TOOL_META).filter(([, meta]) => meta.ownCard).map(([name]) => name).sort();
-		for (const name of Object.keys(TOOL_META).filter((key) => key.startsWith("propose_"))) expect(own, name).toContain(name);
+		const meta = [...new Set([...listRegisteredToolNames(), ...DEV_SESSION_TOOL_NAMES])].map((name) => [name, getToolMeta(name)!] as const);
+		const own = meta.filter(([, m]) => m.ownCard).map(([name]) => name).sort();
+		for (const [name] of meta.filter(([key]) => key.startsWith("propose_"))) expect(own, name).toContain(name);
 		expect(own).toEqual(expect.arrayContaining(["dev_pr_create", "edit_file", "email_create_mailbox", "email_reply", "email_send", "generate_image", "login_fill", "preview_setup", "read_file", "request_secrets", "secret_request", "set_primary_bot", "shell", "write_file"]));
 		expect(getToolMeta("page_share")?.ownCard).toBeUndefined();
 	});

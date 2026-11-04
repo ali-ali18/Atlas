@@ -9,6 +9,9 @@ import type { ToolEffect } from "./types.js";
 
 const EFFECTS: ToolEffect[] = ["read", "write_internal", "write_external", "send", "money", "public_link", "credential"];
 
+/** Metadado de toda tool nativa (registro + sessão de código), venha de `defineTool` ou da tabela de fallback. */
+const nativeMeta = () => [...new Set([...listRegisteredToolNames(), ...DEV_SESSION_TOOL_NAMES])].map((name) => [name, getToolMeta(name)!] as const);
+
 /** "readOnly" para o governor (não conta como efeito no run), mas escrita de fato: só anotam no estado do próprio run. */
 const READ_ONLY_FOR_GOVERNOR_BUT_WRITES = new Set(["notebook_write", "research_note"]);
 
@@ -57,13 +60,13 @@ describe("metadado das tools (effect, poll, endsTurn)", () => {
 	});
 
 	it("só as esperas e status de job são poll", () => {
-		const polls = Object.entries(TOOL_META).filter(([, meta]) => meta.poll).map(([name]) => name).sort();
+		const polls = nativeMeta().filter(([, meta]) => meta.poll).map(([name]) => name).sort();
 		expect(polls).toEqual(["browser_wait", "dev_ci_status", "sandbox_shell_wait", "shell_output"]);
 		for (const name of polls) expect(getToolMeta(name)?.effect, name).toBe("read");
 	});
 
 	it("endsTurn = tools que devolvem cartão pendente e param o run (computer-use.ts stopFor*)", () => {
-		const ends = Object.entries(TOOL_META).filter(([, meta]) => meta.endsTurn).map(([name]) => name).sort();
+		const ends = nativeMeta().filter(([, meta]) => meta.endsTurn).map(([name]) => name).sort();
 		expect(ends).toEqual([
 			"delete_skill", "generate_image", "list_skills", "login_fill", "propose_api_connection", "propose_bot", "propose_connector",
 			"propose_custom_mcp", "propose_plan", "propose_profile_update", "propose_questionnaire", "propose_skill", "propose_skill_change",
@@ -98,7 +101,7 @@ describe("metadado das tools (effect, poll, endsTurn)", () => {
 	});
 
 	it("needsHuman: tools que mudam as próprias permissões", () => {
-		const needs = Object.entries(TOOL_META).filter(([, meta]) => meta.needsHuman).map(([name]) => name).sort();
+		const needs = nativeMeta().filter(([, meta]) => meta.needsHuman).map(([name]) => name).sort();
 		expect(needs).toEqual([
 			"delegate",
 			"delegate_task",
@@ -126,7 +129,7 @@ describe("metadado das tools (effect, poll, endsTurn)", () => {
 		// Exceção com motivo: mudam só config do próprio bot/conta (preferência, autonomia, marcas), sem tocar terceiro.
 		const ownConfig = new Set(["set_primary_bot", "set_autonomy", "set_reasoning_effort", "set_connector_tool_marks"]);
 		let checked = 0;
-		for (const name of Object.keys(TOOL_META)) {
+		for (const [name] of nativeMeta()) {
 			if (!isNativeWriteTool(name)) continue;
 			checked++;
 			const effect = getToolMeta(name)?.effect;

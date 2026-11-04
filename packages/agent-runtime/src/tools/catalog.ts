@@ -1,12 +1,10 @@
 import type { ChatTool } from "@workspace/llm";
 import { DAILY_BRIEF_TEMPLATE, GITHUB_SECURITY_REVIEW_TEMPLATE, GITHUB_TRIGGER_EVENTS } from "@workspace/shared";
 import { attachToolDefinitions } from "./registry/index.js";
+import { ALL_DEFINED_TOOLS } from "./registry/handlers/index.js";
 import { ALERT_RULE_SCHEMA } from "./alert-rule.js";
 import { APP_INFO_TOOL } from "./app-info.js";
 import { ARTIFACT_READ_TOOL } from "./artifact-read.js";
-import { COMPUTER_READ_TOOLS } from "./computer-read.js";
-import { COMPUTER_REF_TOOLS } from "./computer-refs.js";
-import { COMPUTER_TABS_TOOL } from "./computer-tabs.js";
 import { CURRENT_TIME_TOOL } from "./current-time.js";
 import { FIND_PAGE_VALUE_TOOL } from "./find-page-value.js";
 import { LESSON_FEEDBACK_TOOL } from "./lesson-feedback.js";
@@ -74,107 +72,27 @@ export const TOOL_SEARCH_WITH_BUILTINS: ChatTool = {
 	},
 };
 
+/** Definições das tools já declaradas com `defineTool`/`defineRawTool`, na ordem pedida. */
+function defined(...names: string[]): ChatTool[] {
+	return names.map((name) => {
+		const definition = ALL_DEFINED_TOOLS.find((tool) => tool.name === name)?.definition;
+		if (!definition) throw new Error(`Catálogo: a tool "${name}" não está declarada com defineTool.`);
+		return definition;
+	});
+}
+
 export const COMPUTER_USE_TOOLS: ChatTool[] = [
 	PROPOSE_CONNECTOR_TOOL,
 	PROPOSE_CUSTOM_MCP_TOOL,
-	{
-		type: "function",
-		function: {
-			name: "screenshot",
-			description:
-				"Capture the screen as an image. USE for visual checks (canvas, charts, layout, other apps) and for what a read missed (side panel, chat answer, overlay). Do NOT use it for ordinary page text (browser_read). `region` zooms into the last image; `marks` draws each element's ref number (12 = e12) to click by ref.",
-			parameters: {
-				type: "object",
-				properties: {
-					region: {
-						type: "object",
-						description: "Zoom: rectangle in the coordinates of the last screenshot",
-						properties: {
-							x: { type: "number" },
-							y: { type: "number" },
-							width: { type: "number" },
-							height: { type: "number" },
-						},
-						required: ["x", "y", "width", "height"],
-					},
-					marks: { type: "boolean", description: "Draw the ref number over each visible interactive element" },
-				},
-			},
-		},
-	},
-	{
-		type: "function",
-		function: {
-			name: "navigate",
-			description:
-				"Open a URL in the VM browser; returns the final URL and title. USE to load a page you know. Do NOT use it to read the page or follow its links (browser_read, browser_act).",
-			parameters: {
-				type: "object",
-				properties: {
-					url: { type: "string", description: "Full URL (https://...)" },
-				},
-				required: ["url"],
-			},
-		},
-	},
-	{
-		type: "function",
-		function: {
-			name: "click",
-			description:
-				"Mouse click at screen coordinates (those of the latest screenshot). Desktop fallback: USE only for apps outside the browser, canvas, drag targets, or when browser_act failed twice. Do NOT use it for page elements that have a ref or visible text (use browser_act).",
-			parameters: {
-				type: "object",
-				properties: {
-					x: { type: "number" },
-					y: { type: "number" },
-				},
-				required: ["x", "y"],
-			},
-		},
-	},
-	{
-		type: "function",
-		function: {
-			name: "type",
-			description: "Type text into the element that has keyboard focus (desktop input). USE after a coordinate click in an app outside the browser. Do NOT use it for page fields (use browser_act type).",
-			parameters: {
-				type: "object",
-				properties: { text: { type: "string" } },
-				required: ["text"],
-			},
-		},
-	},
-	{
-		type: "function",
-		function: {
-			name: "key",
-			description:
-				"Press a key combo in xdotool format (e.g. 'ctrl+l', 'Return', 'ctrl+t'). Desktop fallback for shortcuts and apps outside the browser. In a page, use browser_act press with a ref.",
-			parameters: {
-				type: "object",
-				properties: { combo: { type: "string" } },
-				required: ["combo"],
-			},
-		},
-	},
-	{
-		type: "function",
-		function: {
-			name: "scroll",
-			description: "Scroll the screen by pixels (positive = down/right). Desktop fallback. To scroll a web page use browser_act scroll.",
-			parameters: {
-				type: "object",
-				properties: {
-					deltaX: { type: "number" },
-					deltaY: { type: "number" },
-				},
-			},
-		},
-	},
-	...COMPUTER_REF_TOOLS,
-	...COMPUTER_READ_TOOLS,
-	COMPUTER_TABS_TOOL,
+	...defined("screenshot"),
+	...defined("navigate"),
+	...defined("click"),
+	...defined("type"),
+	...defined("key"),
+	...defined("scroll"),
+	...defined("browser_snapshot", "browser_act", "browser_wait"),
+	...defined("browser_read", "browser_find"),
+	...defined("browser_tabs"),
 	...SANDBOX_SHELL_TOOLS,
 	SANDBOX_RELEASE_TOOL,
 	VIDEO_TRANSCRIPT_TOOL,
