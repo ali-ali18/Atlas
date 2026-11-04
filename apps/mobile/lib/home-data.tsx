@@ -4,7 +4,8 @@ import { homeStorage } from "@/lib/home-storage";
 import { HomeSyncController, type SyncDeps } from "@/lib/home-sync-controller";
 import { routinesStore } from "@/lib/routines-store";
 import { PendingBotPatches } from "@/lib/home-patches";
-import type { HomeBot } from "@/lib/home-types";
+import type { HomeBot, SectionRef } from "@/lib/home-types";
+import { snapshotWithoutSection } from "@/lib/section-actions";
 import { fetchHome, type HomeSnapshot, type SyncFailure } from "@/lib/home-sync";
 import { useAtlasSession } from "@/lib/atlas-session";
 
@@ -28,6 +29,12 @@ export type HomeData = {
 	 * estava em voo não o conhece e não o apaga (ver `PendingBotPatches.addBot`).
 	 */
 	addBot: (bot: HomeBot) => void;
+	/** Renomeia ou reordena uma seção na lista (e no cache) antes da resposta do servidor. */
+	applySectionUpdate: (sectionId: string, patch: Partial<Pick<SectionRef, "name" | "order">>) => void;
+	/** Troca o `order` de duas seções de uma vez (mover para cima/baixo). */
+	applySectionsReplace: (sections: SectionRef[]) => void;
+	/** Apaga a seção e solta os bots (`sectionId` -> null), como no web. */
+	applySectionRemoved: (sectionId: string) => void;
 };
 
 const Context = React.createContext<HomeData | null>(null);
@@ -130,11 +137,7 @@ export function HomeDataProvider({ children }: { children: React.ReactNode }) {
 
 	const snapshotRef = React.useRef(snapshot);
 	snapshotRef.current = snapshot;
-	const applyBotUpdate = React.useCallback<HomeData["applyBotUpdate"]>((botId, patch) => {
-		const current = snapshotRef.current;
-		if (!current) return;
-		pendingPatches.current.add(botId, patch);
-		const next = { ...current, bots: current.bots.map((bot) => (bot.id === botId ? { ...bot, ...patch } : bot)) };
+	const persistSnapshot = React.useCallback((next: HomeSnapshot) => {
 		snapshotRef.current = next;
 		setSnapshot(next);
 		const cacheKeyNow = keyRef.current;
@@ -145,13 +148,41 @@ export function HomeDataProvider({ children }: { children: React.ReactNode }) {
 		pendingPatches.current.addBot(created);
 		const current = snapshotRef.current;
 		if (!current) return;
-		const next = { ...current, bots: [created, ...current.bots.filter((bot) => bot.id !== created.id)] };
-		snapshotRef.current = next;
-		setSnapshot(next);
-		const cacheKeyNow = keyRef.current;
-		if (cacheKeyNow) void saveHomeCache(homeStorage, cacheKeyNow, next, Date.now());
-	}, []);
+		persistSnapshot({ ...current, bots: [created, ...current.bots.filter((bot) => bot.id !== created.id)] });
+	}, [persistSnapshot]);
 
-	const value = React.useMemo<HomeData>(() => ({ snapshot, refreshing, error, prepare, refresh, applyBotUpdate, addBot }), [snapshot, refreshing, error, prepare, refresh, applyBotUpdate, addBot]);
+	const applyBotUpdate = React.useCallback<HomeData["applyBotUpdate"]>((botId, patch) => {
+		const current = snapshotRef.current;
+		if (!current) return;
+		pendingPatches.current.add(botId, patch);
+		persistSnapshot({ ...current, bots: current.bots.map((bot) => (bot.id === botId ? { ...bot, ...patch } : bot)) });
+	}, [persistSnapshot]);
+
+	const applySectionUpdate = React.useCallback<HomeData["applySectionUpdate"]>((sectionId, patch) => {
+		const current = snapshotRef.current;
+		if (!current) return;
+		persistSnapshot({
+			...current,
+			sections: current.sections.map((section) => (section.id === sectionId ? { ...section, ...patch } : section)),
+		});
+	}, [persistSnapshot]);
+
+	const applySectionsReplace = React.useCallback<HomeData["applySectionsReplace"]>((sections) => {
+		const current = snapshotRef.current;
+		if (!current) return;
+		persistSnapshot({ ...current, sections: [...sections] });
+	}, [persistSnapshot]);
+
+	const applySectionRemoved = React.useCallback<HomeData["applySectionRemoved"]>((sectionId) => {
+		const current = snapshotRef.current;
+		if (!current) return;
+		const { sections, bots } = snapshotWithoutSection(current, sectionId);
+		persistSnapshot({ ...current, sections, bots: bots as HomeBot[] });
+	}, [persistSnapshot]);
+
+	const value = React.useMemo<HomeData>(
+		() => ({ snapshot, refreshing, error, prepare, refresh, applyBotUpdate, addBot, applySectionUpdate, applySectionsReplace, applySectionRemoved }),
+		[snapshot, refreshing, error, prepare, refresh, applyBotUpdate, addBot, applySectionUpdate, applySectionsReplace, applySectionRemoved],
+	);
 	return <Context.Provider value={value}>{children}</Context.Provider>;
 }

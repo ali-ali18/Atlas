@@ -6,6 +6,8 @@ Todas as mudanças relevantes do Atlas. Formato [Keep a Changelog](https://keepa
 
 ### Corrigido
 - **agent:** quem tem muitos conectores voltou a conseguir criar bot pelo chat: a busca de ferramentas achava algo parecido num conector (ex.: Figma, GitHub) e devolvia só isso, escondendo `propose_bot`. Grupo nativo pequeno (até 2 tools) que casa por palavra distintiva agora carrega junto. O índice e o resultado da carga lembram o modelo de não citar nome de ferramenta ao usuário.
+### Adicionado
+- **mobile:** menu ao segurar o título de uma seção na home (Renomear, Mover para cima/baixo, Excluir), com a mesma gaveta (`ActionSheet`) do menu da conversa; toque curto continua recolhendo/expandindo. Usa `PATCH`/`DELETE /v1/sections/:id`; ao excluir, os bots voltam para "Sem sessão". Ver `docs/features/app-mobile.md`.
 
 ### Alterado
 - **api, web:** o onboarding do bot recém-criado agora é disparado pelo servidor em `POST /v1/bots` (ADR 0004), num ponto só para web e celular. O web deixou de criar o run `[bot-created]` e de guardar o prompt. Só bot comum (grupo não); `onboarding:false` no corpo desliga. Repetição ou web antigo não duplicam: um onboarding por conversa, e `POST /v1/runs` devolve o existente. Instalação do catálogo e aprovação de proposta continuam sem onboarding. Falha ao enfileirar não derruba a criação (201).
