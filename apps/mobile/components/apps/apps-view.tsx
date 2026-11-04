@@ -1,5 +1,5 @@
 import * as React from "react";
-import { FlatList, KeyboardAvoidingView, Pressable, View } from "react-native";
+import { FlatList, KeyboardAvoidingView, View } from "react-native";
 import { CatalogRowView, CatalogSearchBar, CategoryFilters, CloseButton, ListRow, SectionHeader } from "@/components/catalog/catalog-parts";
 import { Button } from "@/components/ui/button";
 import { ChromePill } from "@/components/ui/chrome-pill";
@@ -39,8 +39,6 @@ export type AppsViewProps = {
 	/** O dedo arrastou/rolou a lista: libera a próxima página automática. */
 	onUserScroll: () => void;
 	onRetry: () => void;
-	/** DIAGNÓSTICO TEMPORÁRIO: segurar o título abre o registro da última vez. */
-	onTitleLongPress?: () => void;
 };
 
 /**
@@ -48,7 +46,7 @@ export type AppsViewProps = {
  * de categoria rolando de lado; as seções (Conectados, Em destaque, categorias, Apps, Bots) e a busca fixa embaixo.
  */
 export function AppsView(props: AppsViewProps) {
-	const { load, rows, chips, chip, onChip, query, onQuery, connectedCount, installed, composioLoading, onOpenConnected, onClose, onOpenApp, onOpenBot, onMore, onEndReached, onUserScroll, onRetry, onTitleLongPress } = props;
+	const { load, rows, chips, chip, onChip, query, onQuery, connectedCount, installed, composioLoading, onOpenConnected, onClose, onOpenApp, onOpenBot, onMore, onEndReached, onUserScroll, onRetry } = props;
 	const renderItem = React.useCallback(
 		({ item: row }: { item: AppsRow }) => {
 			switch (row.kind) {
@@ -84,7 +82,7 @@ export function AppsView(props: AppsViewProps) {
 					return <View className="h-14 items-center justify-center">{row.loading ? <Spinner label="Carregando mais apps" /> : null}</View>;
 				case "empty":
 					return (
-						<Text variant="muted" className="text-control px-8 pt-24 text-center">
+						<Text variant="muted" className="px-8 pt-24 text-center text-control">
 							{row.text}
 						</Text>
 					);
@@ -104,7 +102,7 @@ export function AppsView(props: AppsViewProps) {
 	} else if (load.status === "error") {
 		empty = (
 			<View className="items-center gap-4 px-8 pt-24">
-				<Text variant="muted" className="text-control text-center">
+				<Text variant="muted" className="text-center text-control">
 					{load.message}
 				</Text>
 				<Button variant="secondary" onPress={onRetry}>
@@ -125,11 +123,9 @@ export function AppsView(props: AppsViewProps) {
 			<KeyboardAvoidingView behavior="padding" className="flex-1">
 				<View className="flex-row items-center gap-3 px-4 pt-1.5">
 					<CloseButton onPress={onClose} />
-					<Pressable className="flex-1" onLongPress={onTitleLongPress} delayLongPress={600} accessible={false}>
-						<Text accessibilityRole="header" className="text-lg font-semibold">
-							Aplicativos
-						</Text>
-					</Pressable>
+					<Text accessibilityRole="header" className="flex-1 text-lg font-semibold">
+						Aplicativos
+					</Text>
 					{ready && connectedCount > 0 ? (
 						<ChromePill height={36} className="px-3.5" onPress={onOpenConnected} label={`${connectedCountText(connectedCount)}. Ver seus aplicativos`}>
 							<Text className="text-control font-medium">{connectedCountText(connectedCount)}</Text>
@@ -137,25 +133,7 @@ export function AppsView(props: AppsViewProps) {
 					) : null}
 				</View>
 				{ready ? <CategoryFilters categories={chips} value={chip} onChange={onChip} /> : null}
-				<FlatList
-					data={ready ? rows : []}
-					keyExtractor={(row) => row.key}
-					renderItem={renderItem}
-					ListEmptyComponent={empty}
-					ListFooterComponent={footer}
-					style={{ flex: 1 }}
-					contentContainerStyle={{ paddingBottom: 16 }}
-					keyboardShouldPersistTaps="handled"
-					keyboardDismissMode="on-drag"
-					onEndReached={onEndReached}
-					onEndReachedThreshold={0.6}
-					onScrollBeginDrag={onUserScroll}
-					onMomentumScrollBegin={onUserScroll}
-					initialNumToRender={14}
-					maxToRenderPerBatch={10}
-					windowSize={7}
-					removeClippedSubviews
-				/>
+				<FlatList data={ready ? rows : []} keyExtractor={(row) => row.key} renderItem={renderItem} ListEmptyComponent={empty} ListFooterComponent={footer} style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 16 }} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" onEndReached={onEndReached} onEndReachedThreshold={0.6} onScrollBeginDrag={onUserScroll} onMomentumScrollBegin={onUserScroll} initialNumToRender={14} maxToRenderPerBatch={10} windowSize={7} removeClippedSubviews />
 				<CatalogSearchBar query={query} onChange={onQuery} placeholder="Buscar aplicativos e bots" />
 			</KeyboardAvoidingView>
 		</ScreenFrame>

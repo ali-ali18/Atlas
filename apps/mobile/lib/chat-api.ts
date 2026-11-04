@@ -42,7 +42,7 @@ export const isUnauthorized = (error: unknown): boolean => (error instanceof Cha
 /** Sem resposta do servidor (rede, DNS, tempo): o app segue com o que tem. */
 export const isNetworkError = (error: unknown): boolean => !(error instanceof ChatApiError);
 
-export async function failure(response: Response): Promise<never> {
+async function failure(response: Response): Promise<never> {
 	let message = response.statusText || `HTTP ${response.status}`;
 	let fromServer = false;
 	try {
