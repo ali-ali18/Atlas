@@ -4,7 +4,7 @@
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { earlyWallMs, engineDefaultFromEnv, longWorkOwnerLimits, pickRunEngine, resolveRunLimits } from "./engine-choice.js";
+import { earlyWallMs, lessonsInjectedByEngine, engineDefaultFromEnv, longWorkOwnerLimits, pickRunEngine, resolveRunLimits } from "./engine-choice.js";
 import type { EngineDefault } from "@workspace/shared";
 import { effectiveCostCapUsd } from "./run-config.js";
 
@@ -514,4 +514,10 @@ test("runSelectedEngine: com o v3 resolvido roda o motor v3; sem ele, o v2 (mesm
 	const v2 = await run("v2");
 	assert.equal(v2.result.text, "olá");
 	assert.ok(v2.engines.includes("v2") && !v2.engines.includes("v3"), JSON.stringify(v2.engines));
+});
+
+test("lessonsInjectedByEngine: o v3 não conta lição como injetada; v1 e v2 contam", () => {
+	assert.deepEqual(lessonsInjectedByEngine({ resolved: "v3" }, ["l1", "l2"]), []);
+	assert.deepEqual(lessonsInjectedByEngine({ resolved: "v2" }, ["l1", "l2"]), ["l1", "l2"]);
+	assert.deepEqual(lessonsInjectedByEngine({}, ["l1"]), ["l1"]);
 });

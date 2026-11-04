@@ -142,7 +142,7 @@ import {
 	resolveBudget,
 	wallClockAnchors,
 } from "@workspace/agent-runtime";
-import { earlyWallMs, engineDefaultFromEnv, pickRunEngine, resolveRunLimits, runSelectedEngine } from "../engine-choice.js";
+import { earlyWallMs, engineDefaultFromEnv, lessonsInjectedByEngine, pickRunEngine, resolveRunLimits, runSelectedEngine } from "../engine-choice.js";
 import { isReadOnlyConnectorOrigin, budgetStopFallbackText, isBotConfigEventObjective, createReviewerClient, resolveMaintenanceCandidates } from "@workspace/agent-runtime";
 import { runToolFilter } from "../run-tool-filter.js";
 import { briefDeliveryDeps, deliverBriefFailure, deliverDailyBrief, findRoutineRunIdWithRetry, isDetachedBriefRun } from "../daily-brief.js";
@@ -974,23 +974,6 @@ async function executeLeasedRun(ctx: {
 	const emailContext = await emailContextPromise;
 	// Lições (playbook do bot): todas as ativas vão ao runtime (conector/tool entram ao carregar; `lesson_feedback` conta o uso).
 	const runLessons = await runLessonsPromise;
-	if (!checkpoint?.llmMessages?.length && (startLessonIds.length > 0 || run.conversationId)) {
-		// Inspetor: o que foi injetado no início e o resultado da última revisão de lições (ação "no run seguinte").
-		const last = await latestLessonReviewPromise;
-		const review = last && last.payload && typeof last.payload === "object" ? (last.payload as Record<string, unknown>) : null;
-		const reviewed = review && review.status && review.status !== "covered";
-		if (startLessonIds.length > 0 || reviewed) {
-			const payload: InspectLessonsPayload = {
-				type: "inspect_lessons",
-				injected: startLessonIds,
-				...(reviewed && last
-					? { review: { runId: last.runId, at: last.createdAt, status: String(review!.status), ...pickReviewCounts(review!) } }
-					: {}),
-			};
-			await appendRunEvent(runId, "inspect_lessons", payload).catch(() => undefined);
-		}
-	}
-
 	let cachedSessionId: string | null =
 		checkpoint?.sandboxSessionId ?? run.sandboxSessionId;
 	// Última sessão anunciada ao painel neste run: o reaproveitamento de uma sessão
@@ -1186,6 +1169,24 @@ async function executeLeasedRun(ctx: {
 		env: process.env,
 		record: (choice) => recordRunEngine(runId, choice),
 	});
+	// Inspetor de lições: depois de escolher o motor, porque o v3 não injeta o bloco que o worker montou (PR8c).
+	if (!checkpoint?.llmMessages?.length && (startLessonIds.length > 0 || run.conversationId)) {
+		// Inspetor: o que foi injetado no início e o resultado da última revisão de lições (ação "no run seguinte").
+		const last = await latestLessonReviewPromise;
+		const review = last && last.payload && typeof last.payload === "object" ? (last.payload as Record<string, unknown>) : null;
+		const reviewed = review && review.status && review.status !== "covered";
+		const injectedLessonIds = lessonsInjectedByEngine(engineChoice, startLessonIds);
+		if (injectedLessonIds.length > 0 || reviewed) {
+			const payload: InspectLessonsPayload = {
+				type: "inspect_lessons",
+				injected: injectedLessonIds,
+				...(reviewed && last
+					? { review: { runId: last.runId, at: last.createdAt, status: String(review!.status), ...pickReviewCounts(review!) } }
+					: {}),
+			};
+			await appendRunEvent(runId, "inspect_lessons", payload).catch(() => undefined);
+		}
+	}
 	// Trabalho longo no v2 com orçamento gravado no bot: o dono do bot vale mais que o teto por execução da conta.
 	const shortRunForLimits = Boolean(alertRun) || isDetachedBriefRun(run) || run.origin === "proactive" || (isBotConfigEventObjective(run.objective ?? "") && !readRunHumanTurn(run)) || isFollowupCheckObjective(run.origin, run.objective);
 	const runLimits = resolveRunLimits({

@@ -736,6 +736,17 @@ export {
 } from "./bot-lessons.js";
 export { chooseDuplicateLosers, pickEvictions, planLessonDeltas, resolveLesson, type DuplicatePair, type LessonOp, type LessonPlan, type PlanLesson } from "./lesson-deltas.js";
 export { countFailedToolResults } from "./run-inspect.js";
+export {
+	LESSON_MIGRATION_SOURCE,
+	applyLessonMigration,
+	buildLessonMigrationReport,
+	defaultLessonMigrationDeps,
+	parseLessonMigrationArgs,
+	type LessonApplyResult,
+	type LessonMigrationArgs,
+	type LessonMigrationDeps,
+	type LessonOwnerRef,
+} from "./lesson-migration.js";
 export { LESSON_REVIEW_EVENT, getLatestLessonReviewEvent, listRunsForLessonReview, runIdsAlreadyReviewed, type LessonReviewRun } from "./lesson-review-data.js";
 
 export {
