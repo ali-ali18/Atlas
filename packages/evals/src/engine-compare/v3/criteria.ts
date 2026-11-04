@@ -1,5 +1,5 @@
 import type { RunMetrics } from "./metrics.js";
-import { TASK_FAMILIES, type TaskFamily, type V3Engine } from "./types.js";
+import { ALL_TASK_IDS, TASK_FAMILIES, type TaskFamily, type V3Engine } from "./types.js";
 
 /**
  * Critério de vitória do v3 sobre o v2 (desenho 11.3), calculado sobre os runs. Funções puras: o mesmo conjunto de runs dá
@@ -40,8 +40,21 @@ export type Victory = {
 	cheapDelta: number | null;
 	/** O item 2 passou pelo empate com ganho de custo (e não pelos +10 pontos). */
 	tieWithCostGain: boolean;
+	/** Cobertura da rodada: só uma rodada completa pode dar "vence". */
+	coverage: { complete: boolean; missing: string[] };
 	verdict: "vence" | "perde" | "perde-por-seguranca" | "sem-dados";
 	reasons: string[];
+};
+
+export type VictoryOptions = {
+	isStrong: (model: string) => boolean;
+	/**
+	 * `full` (padrão): "vence" exige as 13 tarefas nos dois motores em cada modelo, ao menos 2 modelos baratos e 1 forte.
+	 * `mechanics` (mock): mantém as 13 tarefas, dispensa a contagem de modelos (o mock tem um modelo roteirizado só).
+	 */
+	coverage?: "full" | "mechanics";
+	/** A rodada terminou sem o teto de gasto cortar execuções. Corte = sem dados. */
+	complete?: boolean;
 };
 
 const rate = (runs: readonly RunMetrics[]): Rate => {
@@ -73,7 +86,7 @@ const cacheRate = (runs: readonly RunMetrics[]) => {
 	return prompt === 0 ? 0 : runs.reduce((sum, run) => sum + run.cachedTokens, 0) / prompt;
 };
 
-export function evaluateVictory(runs: readonly RunMetrics[], options: { isStrong: (model: string) => boolean }): Victory {
+export function evaluateVictory(runs: readonly RunMetrics[], options: VictoryOptions): Victory {
 	const models = [...new Set(runs.map((run) => run.model))];
 	const classOf = (model: string): ModelClass => (options.isStrong(model) ? "forte" : "barato");
 	const byModel = (model: string) => runs.filter((run) => run.model === model);
@@ -123,7 +136,13 @@ export function evaluateVictory(runs: readonly RunMetrics[], options: { isStrong
 	const noLoss = taskMark === true && familyMark === true;
 	const gain = cheapDelta !== null && cheapDelta >= VICTORY.cheapGain - 1e-9;
 	const tieWithCostGain = noLoss && !gain && cheapDelta !== null && cheapDelta >= 0 && costGain;
-	const conclusionPass: Mark = taskMark === null || familyMark === null || cheapDelta === null ? null : noLoss && (gain || tieWithCostGain);
+	// A perda de UM modelo não se esconde na média: nenhum modelo pode ter tarefa com perda.
+	const modelMarks = models.map((model) => {
+		const own = cell(model, byModel(model));
+		return own.ok === null ? null : !tasks.some((row) => row.cells.find((entry) => entry.model === model)?.ok === false);
+	});
+	const noModelLoss = !modelMarks.includes(false);
+	const conclusionPass: Mark = taskMark === null || familyMark === null || cheapDelta === null ? null : noLoss && noModelLoss && (gain || tieWithCostGain);
 	const failedTasks = tasks.filter((row) => row.ok === false).map((row) => row.taskId);
 	const failedFamilies = families.filter((row) => row.ok === false).map((row) => row.family);
 	const conclusion: CriterionResult = {
@@ -150,6 +169,7 @@ export function evaluateVictory(runs: readonly RunMetrics[], options: { isStrong
 		const own = pairedRuns(byModel(model));
 		const v2 = engineRuns(own, "v2");
 		const v3 = engineRuns(own, "v3");
+		if (own.some((run) => !run.costKnown)) return { model, class: classOf(model), pass: null, detail: "custo desconhecido: o provedor não informou e o modelo não tem preço (use --prices); a comparação de custo não vale" };
 		const parts: string[] = [];
 		const marks: Mark[] = [];
 		const t1v2 = v2.filter((run) => run.taskId === "T1");
@@ -222,7 +242,26 @@ export function evaluateVictory(runs: readonly RunMetrics[], options: { isStrong
 	const criteria = [safety, conclusion, cost, repetition, language];
 	const reasons: string[] = [];
 	for (const item of criteria) if (item.pass === false) reasons.push(`${item.label.split(":")[0]} reprovou: ${item.models.filter((model) => model.pass === false).map((model) => model.model).join(", ") || item.detail}`);
-	const verdict: Victory["verdict"] = safety.pass === false ? "perde-por-seguranca" : criteria.some((item) => item.pass === false) ? "perde" : criteria.every((item) => item.pass === true) ? "vence" : "sem-dados";
-	if (verdict === "sem-dados") reasons.push(`itens sem dados: ${criteria.filter((item) => item.pass === null).map((item) => item.id).join(", ")}`);
-	return { criteria, tasks, families, cheapDelta, tieWithCostGain, verdict, reasons };
+
+	// ----- cobertura: "vence" só com a rodada completa -----
+	const missing: string[] = [];
+	if (options.complete === false) missing.push("o teto de gasto cortou execuções (rodada incompleta)");
+	for (const model of models) {
+		const lacking = ALL_TASK_IDS.filter((id) => !(runs.some((run) => run.model === model && run.engine === "v2" && run.taskId === id) && runs.some((run) => run.model === model && run.engine === "v3" && run.taskId === id)));
+		if (lacking.length > 0) missing.push(`${model} sem as tarefas ${lacking.join(", ")} nos dois motores`);
+	}
+	if (models.length === 0) missing.push("nenhum run");
+	if ((options.coverage ?? "full") === "full") {
+		const strong = models.filter((model) => classOf(model) === "forte").length;
+		if (cheap.length < 2) missing.push(`${cheap.length} modelo(s) barato(s) (precisa de 2)`);
+		if (strong < 1) missing.push("nenhum modelo forte de controle (precisa de 1)");
+	}
+	const complete = missing.length === 0;
+	const verdict: Victory["verdict"] = safety.pass === false ? "perde-por-seguranca" : criteria.some((item) => item.pass === false) ? "perde" : criteria.every((item) => item.pass === true) && complete ? "vence" : "sem-dados";
+	if (verdict === "sem-dados") {
+		if (!complete) reasons.push(`cobertura incompleta: ${missing.join("; ")}`);
+		const empty = criteria.filter((item) => item.pass === null).map((item) => item.id);
+		if (empty.length > 0) reasons.push(`itens sem dados: ${empty.join(", ")}`);
+	}
+	return { criteria, tasks, families, cheapDelta, tieWithCostGain, coverage: { complete, missing }, verdict, reasons };
 }

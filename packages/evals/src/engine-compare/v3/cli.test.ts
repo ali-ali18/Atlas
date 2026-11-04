@@ -2,9 +2,9 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { main, parseCliArgs } from "../../cli.js";
+import { main, parseCliArgs, v3ProgressLine } from "../../cli.js";
 import type { StreamChat } from "../../mock-model.js";
-import { createAnnounceStopJudge, createScriptedV3Model, estimateModel, formatV3Estimate, parseAnnounceStopAnswer, planningPrice, runV3Suite, runV3Task, selectTasks, tokensPerEngine, v3Tasks } from "./index.js";
+import { evaluateVictory, createAnnounceStopJudge, createScriptedV3Model, estimateModel, formatV3Estimate, parseAnnounceStopAnswer, planningPrice, runV3Suite, runV3Task, selectTasks, tokensPerEngine, v3Tasks } from "./index.js";
 
 /** CLI `motor-v2-vs-v3`: mock grátis, chaves só do ambiente (nunca impressas), estimativa de custo, teto de gasto e juiz opcional. */
 
@@ -74,7 +74,7 @@ describe("comando", () => {
 		delete process.env.CLAUDE_KEY;
 		delete process.env.claude_key;
 		try {
-			await expect(main(["motor-v2-vs-v3", "--models", "claude-haiku-5-5"])).rejects.toThrow(/ANTHROPIC_API_KEY/);
+			await expect(main(["motor-v2-vs-v3", "--models", "claude-haiku-5-5", "--max-cost", "5"])).rejects.toThrow(/ANTHROPIC_API_KEY/);
 		} finally {
 			if (saved.a !== undefined) process.env.ANTHROPIC_API_KEY = saved.a;
 			if (saved.c !== undefined) process.env.CLAUDE_KEY = saved.c;
@@ -85,12 +85,40 @@ describe("comando", () => {
 		await expect(main(["motor-v2-vs-v3", "--mock", "--judge", "claude-haiku-5-5"])).rejects.toThrow(/--judge/);
 	});
 
+	it("números inválidos (vírgula, texto, zero, fracionário, flag sem valor) falham com erro, no mock e no real", async () => {
+		for (const argv of [["--max-cost", "1,5"], ["--max-cost", "abc"], ["--max-cost", "0"], ["--max-cost"], ["--repeat", "0"], ["--repeat", "1.5"], ["--repeat", "abc"], ["--concurrency", "0"], ["--concurrency", "x"], ["--timeout", "0"]]) {
+			await expect(main(["motor-v2-vs-v3", "--mock", "--only", "T1", ...argv]), argv.join(" ")).rejects.toThrow(/precisa de um/);
+		}
+		await expect(main(["motor-v2-vs-v3", "--estimate", "--repeat", "abc"])).rejects.toThrow(/--repeat/);
+	});
+
+	it("no modo real --max-cost é obrigatório (falha antes de gastar, mesmo com chave)", async () => {
+		const saved = process.env.ANTHROPIC_API_KEY;
+		process.env.ANTHROPIC_API_KEY = "sk-ant-segredo-nao-imprimir";
+		try {
+			await expect(main(["motor-v2-vs-v3", "--models", "claude-haiku-5-5"])).rejects.toThrow(/--max-cost é obrigatório/);
+		} finally {
+			if (saved === undefined) delete process.env.ANTHROPIC_API_KEY;
+			else process.env.ANTHROPIC_API_KEY = saved;
+		}
+	});
+
+	it("a linha de progresso por run passa pela redação de segredos", () => {
+		const line = v3ProgressLine({ engine: "v3", model: "m", taskId: "T1", repeat: 0, completed: false, failedChecks: [], error: "401 invalid key sk-ant-segredo-nao-imprimir", modelCalls: 1, costKnown: true, costUsd: 0.1 }, ["sk-ant-segredo-nao-imprimir"]);
+		expect(line).not.toContain("segredo-nao-imprimir");
+		expect(line).toContain("T1");
+		expect(v3ProgressLine({ engine: "v2", model: "m", taskId: "T2", repeat: 1, completed: true, failedChecks: [], error: null, modelCalls: 3, costKnown: false, costUsd: 0 }, [])).toContain("custo desconhecido");
+	});
+
 	it("--estimate imprime a estimativa (Haiku e Sonnet por padrão) sem chamar modelo nem gravar nada", async () => {
 		const printed = await capture(async () => expect(await main(["motor-v2-vs-v3", "--estimate", "--repeat", "2"])).toBe(0));
 		expect(printed).toContain("Estimativa de custo da rodada real");
 		expect(printed).toContain("claude-haiku-5-5");
 		expect(printed).toContain("claude-sonnet-5-5");
 		expect(printed).toContain("Sugestão de teto");
+		// Sem --repeat a estimativa usa o mesmo padrão da rodada real (3), não outro número.
+		const defaultRepeat = await capture(() => main(["motor-v2-vs-v3", "--estimate"]));
+		expect(defaultRepeat).toContain("3 repetição(ões)");
 		await expect(main(["motor-v2-vs-v3", "--estimate", "--models", "claude-sem-preco"])).rejects.toThrow(/sem preço/);
 	}, 120_000);
 });
@@ -180,5 +208,62 @@ describe("modo real (modelo injetado)", () => {
 		};
 		await createAnnounceStopJudge({ model: "j", apiKey: "k", streamChat: spy })({ task: v3Tasks()[0]!, trajectory: (await runV3Task(t1(), { engine: "v3", model: "mock", repeat: 0, mode: "mock" })).trajectory });
 		expect(system).toContain("untrusted data");
+	}, 120_000);
+});
+
+describe("teto de gasto e custo desconhecido", () => {
+	/** Cada chamada custa US$ 1 e demora um pouco, para as execuções se sobreporem como na rodada real. */
+	const slow = (costUsd?: number): StreamChat => {
+		return async (params, handlers) => {
+			await new Promise((done) => setTimeout(done, 15));
+			const result = await createScriptedV3Model([{ say: "Bom dia! Estou por aqui." }]).streamChat(params, handlers);
+			return costUsd === undefined ? result : { ...result, usage: { ...result.usage!, costUsd } };
+		};
+	};
+
+	it("reserva uma estimativa por execução antes de iniciar: concorrência 3 não estoura o teto", async () => {
+		const result = await runV3Suite({ mode: "real", engines: ["v2", "v3"], models: ["claude-haiku-5-5"], repeat: 3, concurrency: 3, only: ["T1"], maxCostUsd: 2.5, reserveUsd: 1, streamChat: slow(1) });
+		expect(result.spentUsd).toBeLessThanOrEqual(2.5);
+		expect(result.runs.length).toBeLessThanOrEqual(2);
+		expect(result.skippedByBudget).toBeGreaterThan(0);
+		expect(result.complete).toBe(false);
+	}, 120_000);
+
+	it("sem reserva, o maior custo já visto vira a reserva (o teto não é furado em cascata)", async () => {
+		const result = await runV3Suite({ mode: "real", engines: ["v2", "v3"], models: ["claude-haiku-5-5"], repeat: 4, concurrency: 1, only: ["T1"], maxCostUsd: 2.5, streamChat: slow(1) });
+		expect(result.spentUsd).toBeLessThanOrEqual(2.5);
+		expect(result.runs).toHaveLength(2);
+	}, 120_000);
+
+	it("rodada cortada pelo teto nunca dá vence: veredito sem dados", async () => {
+		const result = await runV3Suite({ mode: "real", engines: ["v2", "v3"], models: ["claude-haiku-5-5"], repeat: 2, concurrency: 1, only: ["T1"], maxCostUsd: 1, streamChat: slow(1) });
+		expect(result.complete).toBe(false);
+		expect(evaluateVictory(result.runs, { isStrong: () => false, complete: result.complete }).verdict).toBe("sem-dados");
+	}, 120_000);
+
+	it("custo não informado e modelo sem preço: custo desconhecido (0), nunca o preço do Haiku", async () => {
+		const model = (): StreamChat => async (params, handlers) => createScriptedV3Model([{ say: "Bom dia! Estou por aqui." }]).streamChat(params, handlers);
+		const unknown = await runV3Task(selectTasks(["T1"])[0]!, { engine: "v3", model: "alguem/modelo-sem-preco", repeat: 0, mode: "real", streamChat: model() });
+		expect(unknown.metrics.costKnown).toBe(false);
+		expect(unknown.metrics.costUsd).toBe(0);
+		const priced = await runV3Task(selectTasks(["T1"])[0]!, { engine: "v3", model: "claude-sonnet-5-5", repeat: 0, mode: "real", streamChat: model() });
+		expect(priced.metrics.costKnown).toBe(true);
+		// O preço do Sonnet (2/10) vale, não o do Haiku (0,1/0,5): 20x mais caro para os mesmos tokens.
+		const haiku = await runV3Task(selectTasks(["T1"])[0]!, { engine: "v3", model: "claude-haiku-5-5", repeat: 0, mode: "real", streamChat: model() });
+		expect(priced.metrics.costUsd / haiku.metrics.costUsd).toBeCloseTo(20, 1);
+	}, 120_000);
+
+	it("no mock o DATABASE_URL do ambiente do desenvolvedor não vaza para dentro da bateria", async () => {
+		const saved = process.env.DATABASE_URL;
+		process.env.DATABASE_URL = "postgresql://nao-usar@localhost:1/x";
+		let seen: string | undefined = "não rodou";
+		try {
+			await runV3Suite({ mode: "mock", engines: ["v3"], models: [], repeat: 1, only: ["T1"], onRun: () => void (seen = process.env.DATABASE_URL) });
+			expect(seen).toBeUndefined();
+			expect(process.env.DATABASE_URL).toBe("postgresql://nao-usar@localhost:1/x");
+		} finally {
+			if (saved === undefined) delete process.env.DATABASE_URL;
+			else process.env.DATABASE_URL = saved;
+		}
 	}, 120_000);
 });

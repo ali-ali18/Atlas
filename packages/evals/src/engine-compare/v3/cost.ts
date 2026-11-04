@@ -63,6 +63,11 @@ export function planningPrice(model: string, extra: readonly ModelPrice[] = []):
 	throw new Error(`sem preço para ${model} na estimativa: informe com --prices <arquivo.json>. Nada foi executado.`);
 }
 
+/** Custo esperado de UMA execução do modelo (o maior entre os motores): a reserva do teto de gasto antes de iniciar cada run. */
+export function reservePerRunUsd(price: ModelPrice, tokens: Record<V3Engine, EngineTokens>, engines: readonly V3Engine[]): number {
+	return Math.max(0, ...engines.filter((engine) => tokens[engine].runs > 0).map((engine) => estimateModel(price, tokens, { engines: [engine], repeat: 1 }).expectedUsd / tokens[engine].runs));
+}
+
 const usd = (value: number) => `US$ ${value.toFixed(2)}`;
 
 /** Markdown da estimativa (pt-BR). */

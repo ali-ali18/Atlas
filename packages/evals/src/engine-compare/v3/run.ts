@@ -30,6 +30,12 @@ export type V3RunOptions = {
 	/** Só estas tarefas (`T1`..`T13`). */
 	only?: readonly string[];
 	maxCostUsd?: number;
+	/**
+	 * Custo estimado de UMA execução, reservado no teto antes de iniciá-la (e devolvido quando termina, trocado pelo custo real).
+	 * Sem a reserva, `concurrency` execuções começam juntas com o gasto ainda em zero e o teto estoura. A reserva também sobe para o
+	 * maior custo real já visto na rodada.
+	 */
+	reserveUsd?: number;
 	timeoutMs?: number;
 	streamChat?: StreamChat;
 	apiKey?: string;
@@ -47,6 +53,8 @@ export type V3SuiteResult = {
 	runs: RunMetrics[];
 	spentUsd: number;
 	skippedByBudget: number;
+	/** O teto não cortou nada: só uma rodada completa pode dar "vence". */
+	complete: boolean;
 	judged: boolean;
 };
 
@@ -137,7 +145,7 @@ export async function runV3Task(task: V3Task, input: TaskRunInput): Promise<{ me
 		...(input.engine === "v3" ? { engineV3: {} } : { engineV2: v2Options }),
 	});
 	const judged = input.judge ? await input.judge({ task, trajectory }).catch(() => null) : null;
-	const metrics = measureV3Run({ engine: input.engine, model, repeat: input.repeat, task, trajectory, captures: captured.captures, ...(input.prices ? { prices: input.prices } : {}), announcedAndStopped: judged ? judged.announcedAndStopped : null });
+	const metrics = measureV3Run({ engine: input.engine, model, repeat: input.repeat, task, trajectory, captures: captured.captures, mode: input.mode, ...(input.prices ? { prices: input.prices } : {}), announcedAndStopped: judged ? judged.announcedAndStopped : null });
 	return { metrics, trajectory, captures: captured.captures, judgeCostUsd: judged?.costUsd ?? 0 };
 }
 
@@ -161,6 +169,8 @@ export async function runV3Suite(options: V3RunOptions): Promise<V3SuiteResult> 
 	const runs: RunMetrics[] = [];
 	let spent = 0;
 	let skippedByBudget = 0;
+	let reserved = 0;
+	let maxSeen = 0;
 	// Preço de reserva do v2 igual ao do relatório de custo, para o teto de US$ do trabalho longo e o custo medido falarem a mesma língua.
 	const env: Env = {
 		SANDBOX_ENABLED: "1",
@@ -168,29 +178,40 @@ export async function runV3Suite(options: V3RunOptions): Promise<V3SuiteResult> 
 		ATLAS_POLICY_SHADOW: "0",
 		ATLAS_V2_FALLBACK_PROMPT_USD_PER_MTOK: String(REFERENCE_PRICE.promptUsdPerMTok),
 		ATLAS_V2_FALLBACK_COMPLETION_USD_PER_MTOK: String(REFERENCE_PRICE.completionUsdPerMTok),
+		// Mock: nada toca o banco (um DATABASE_URL do ambiente do desenvolvedor não pode vazar para o eval).
+		...(mock ? { DATABASE_URL: undefined } : {}),
 	};
 	await withEnv(env, () =>
 		withoutDatabaseNoise(() =>
-		pool(jobs, options.concurrency ?? 3, async (job) => {
-			if (options.maxCostUsd !== undefined && spent >= options.maxCostUsd) {
-				skippedByBudget += 1;
-				return;
-			}
-			const { metrics, trajectory, judgeCostUsd } = await runV3Task(job.task, {
-				engine: job.engine,
-				model: job.model,
-				repeat: job.repeat,
-				mode: options.mode,
-				...(options.streamChat ? { streamChat: options.streamChat } : {}),
-				...(options.apiKey ? { apiKey: options.apiKey } : {}),
-				...(options.timeoutMs ? { timeoutMs: options.timeoutMs } : {}),
-				...(options.prices ? { prices: options.prices } : {}),
-				...(options.judge ? { judge: options.judge } : {}),
-			});
-			spent += metrics.costUsd + judgeCostUsd;
-			runs.push(metrics);
-			await options.onRun?.(metrics, trajectory);
-		}),
+			pool(jobs, options.concurrency ?? 3, async (job) => {
+				// Reserva síncrona (antes de qualquer await): a checagem e a marca acontecem sem outra execução entrar no meio.
+				const reserve = options.maxCostUsd === undefined ? 0 : Math.max(options.reserveUsd ?? 0, maxSeen);
+				if (options.maxCostUsd !== undefined && spent + reserved + reserve > options.maxCostUsd) {
+					skippedByBudget += 1;
+					return;
+				}
+				reserved += reserve;
+				try {
+					const { metrics, trajectory, judgeCostUsd } = await runV3Task(job.task, {
+						engine: job.engine,
+						model: job.model,
+						repeat: job.repeat,
+						mode: options.mode,
+						...(options.streamChat ? { streamChat: options.streamChat } : {}),
+						...(options.apiKey ? { apiKey: options.apiKey } : {}),
+						...(options.timeoutMs ? { timeoutMs: options.timeoutMs } : {}),
+						...(options.prices ? { prices: options.prices } : {}),
+						...(options.judge ? { judge: options.judge } : {}),
+					});
+					const cost = metrics.costUsd + judgeCostUsd;
+					spent += cost;
+					maxSeen = Math.max(maxSeen, cost);
+					runs.push(metrics);
+					await options.onRun?.(metrics, trajectory);
+				} finally {
+					reserved -= reserve;
+				}
+			}),
 		),
 	);
 	const order = (run: RunMetrics) => tasks.findIndex((task) => task.id === run.taskId) * 1_000_000 + models.indexOf(run.model) * 10_000 + options.engines.indexOf(run.engine) * 100 + run.repeat;
@@ -204,6 +225,7 @@ export async function runV3Suite(options: V3RunOptions): Promise<V3SuiteResult> 
 		runs,
 		spentUsd: spent,
 		skippedByBudget,
+		complete: skippedByBudget === 0,
 		judged: Boolean(options.judge),
 	};
 }

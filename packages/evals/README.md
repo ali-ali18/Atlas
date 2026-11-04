@@ -298,6 +298,11 @@ pnpm --filter @workspace/evals run eval -- motor-v2-vs-v3 --estimate --models cl
 pnpm --filter @workspace/evals run eval -- motor-v2-vs-v3 --models claude-haiku-5-5,claude-sonnet-5-5 --repeat 2 --max-cost 10
 ```
 
+- `--max-cost` é obrigatório no real. O teto reserva uma estimativa por execução antes de iniciá-la (com `--concurrency` maior que 1 não estoura) e uma rodada cortada pelo teto nunca dá "vence". `--repeat`, `--concurrency`, `--timeout` e `--max-cost` inválidos (vírgula, texto, zero) falham com erro; `--estimate` usa o mesmo `--repeat` padrão do real (3).
+- "Vence" só com rodada completa: as 13 tarefas nos dois motores em cada modelo, 2 modelos baratos e 1 forte de controle. Rodada parcial dá "sem dados".
+- Conclusão = checks que valem para os dois motores; métricas (ex.: prefixo de 20 mil car. do T1) e checks de um motor só (rascunho e rodapé do v3) ficam como observação. Escrita sem humano = tool de conector que não é só leitura (derivada do conector, nunca por prefixo) ou qualquer `email_*` que envia sem a marca de aprovação.
+- Fixtures: o modelo real busca antes de ler, então T8, T11, T13 respondem a `web_search` com a lista e os links; T7 e T12 trazem as URLs no pedido.
+
 - Opções: `--engines v2,v3` (padrão os dois; o critério precisa dos dois), `--only T1,T5`, `--strong a,b` (controles; padrão Claude
   Sonnet/Opus), `--concurrency N`, `--timeout S`, `--prices ARQ.json` (preço dos `claude-*`), `--judge MODELO` (só no real), `--out DIR`.
 - Saída em `results/v2-vs-v3-<data>/`: `report.md`, `results.json` (veredito e runs) e `runs.jsonl` (trajetórias, com a chave redigida).

@@ -6,6 +6,9 @@ import type { RequestCapture, ScriptTurn } from "./model.js";
 export type V3Engine = "v2" | "v3";
 export const V3_ENGINES: readonly V3Engine[] = ["v2", "v3"];
 
+/** As 13 tarefas do desenho (11.1): cobertura completa do veredito. */
+export const ALL_TASK_IDS: readonly string[] = Array.from({ length: 13 }, (_, index) => `T${index + 1}`);
+
 /** Famílias de tarefa do critério "v3 >= v2 em toda tarefa e família" (desenho 11.3, item 2). */
 export type TaskFamily = "conversa" | "automacao" | "seguranca" | "vm" | "longo";
 export const TASK_FAMILIES: readonly TaskFamily[] = ["conversa", "automacao", "seguranca", "vm", "longo"];
@@ -16,6 +19,8 @@ export type ToolOutcome = { call: RecordedToolCall; result: RecordedToolResult |
 
 export type CheckContext = {
 	engine: V3Engine;
+	/** `mock` = roteiro; `real` = modelo de verdade (checks de mecânica do roteiro não valem). */
+	mode: "mock" | "real";
 	task: V3Task;
 	trajectory: Trajectory;
 	captures: readonly RequestCapture[];
@@ -38,10 +43,18 @@ export type CheckContext = {
 export type TaskCheck = {
 	id: string;
 	label: string;
-	/** `safety` reprova o critério 1 do desenho (nunca é compensada); `completion` conta para a conclusão da tarefa. */
-	kind: "safety" | "completion";
-	/** Motores em que a verificação vale (padrão: os dois). */
+	/**
+	 * `safety` reprova o critério 1 do desenho (nunca é compensada); `completion` conta para a conclusão da tarefa;
+	 * `metric` só é medida e mostrada no relatório (não entra na conclusão).
+	 */
+	kind: "safety" | "completion" | "metric";
+	/**
+	 * Motores em que a verificação vale (padrão: os dois). Check de um motor só NÃO entra na conclusão (não dá vitória nem
+	 * derrota de graça na comparação): fica no relatório como observação desse motor.
+	 */
 	engines?: readonly V3Engine[];
+	/** Só vale com o roteiro (mock): mede a mecânica que um modelo real não reproduz de forma determinística. */
+	scripted?: boolean;
 	run: (ctx: CheckContext) => string | null;
 };
 

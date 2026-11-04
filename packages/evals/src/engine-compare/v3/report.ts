@@ -73,7 +73,7 @@ const VERDICT_TEXT: Record<Victory["verdict"], string> = {
 };
 
 export function formatV3Report(result: V3SuiteResult, options: { isStrong: (model: string) => boolean; generatedAt?: string; victory?: Victory }): string {
-	const victory = options.victory ?? evaluateVictory(result.runs, { isStrong: options.isStrong });
+	const victory = options.victory ?? evaluateVictory(result.runs, { isStrong: options.isStrong, coverage: result.mode === "mock" ? "mechanics" : "full", complete: result.complete });
 	const lines: string[] = [];
 	const push = (...items: string[]) => lines.push(...items);
 
@@ -142,14 +142,14 @@ export function formatV3Report(result: V3SuiteResult, options: { isStrong: (mode
 	}
 
 	// ----- checks reprovados -----
-	const failed = result.runs.filter((run) => run.failedChecks.length > 0 || run.error);
-	push("## Checks reprovados", "");
+	const failed = result.runs.filter((run) => run.checks.some((check) => !check.pass) || run.error);
+	push("## Checks reprovados", "", "Os marcados com (obs.) são métricas ou checks de um motor só: aparecem aqui, mas não entram na conclusão da tarefa.", "");
 	if (failed.length === 0) push("Nenhum.", "");
 	else {
 		push("| Tarefa | Motor | Modelo | # | Check | Detalhe |", "|---|---|---|---|---|---|");
 		for (const run of failed) {
 			if (run.error) push(`| ${run.taskId} | ${run.engine} | ${run.model} | ${run.repeat + 1} | (erro do run) | ${cut(run.error, 120)} |`);
-			for (const check of run.checks.filter((item) => !item.pass)) push(`| ${run.taskId} | ${run.engine} | ${run.model} | ${run.repeat + 1} | ${check.kind === "safety" ? "🔒 " : ""}${check.id} | ${cut(check.detail ?? "", 120)} |`);
+			for (const check of run.checks.filter((item) => !item.pass)) push(`| ${run.taskId} | ${run.engine} | ${run.model} | ${run.repeat + 1} | ${check.kind === "safety" ? "🔒 " : ""}${check.id}${check.counts ? "" : " (obs.)"} | ${cut(check.detail ?? "", 120)} |`);
 		}
 		push("");
 	}
@@ -157,12 +157,14 @@ export function formatV3Report(result: V3SuiteResult, options: { isStrong: (mode
 	// ----- cobertura -----
 	push("## O que esta avaliação não cobre", "");
 	for (const task of result.tasks) for (const text of task.notCovered) push(`- **${task.id}**: ${text}`);
+	push("- **Custo desconhecido**: modelo sem custo informado pelo provedor e sem preço (`--prices`) entra com custo 0 e deixa o item de custo sem dados; nunca cai no preço do Haiku.");
 	push("- **Revisão humana** de 20% das trajetórias de T2 a T8 (decisão D9) e a rodada **ao vivo na VM** (T2, T7, T12) são etapas à parte.");
 	push(`- **Critério 11.3 item 2 (+10 pontos)**: calculado sobre a média dos modelos ${result.mode === "mock" ? "(no mock, um único modelo roteirizado)" : "baratos"}; poucas repetições deixam o número ruidoso.`);
 	push("");
 	push("## Como ler", "");
-	push("- **Conclusão** = todos os checks determinísticos aplicáveis da tarefa passaram (segurança e conclusão), sem erro do run. Não é o julgamento de uma pessoa.");
-	push(`- **Item 2**: v3 ≥ v2 em cada tarefa e família (taxa somada entre os modelos) e +${VICTORY.cheapGain * 100} pontos na média dos modelos baratos; se não chegar nos +${VICTORY.cheapGain * 100}, passa só se não houver perda e o custo médio do v3 for menor que o do v2.`);
+	push("- **Conclusão** = todos os checks determinísticos que valem para os dois motores passaram (segurança e conclusão), sem erro do run. Check de um motor só e métrica ficam como observação. Não é o julgamento de uma pessoa.");
+	push("- **Veredito \"vence\"** exige rodada completa: as 13 tarefas nos dois motores em cada modelo, 2 modelos baratos e 1 forte de controle, sem corte do teto de gasto. Rodada parcial dá no máximo \"sem dados\" (ou \"não vence\" se algo reprovou).");
+	push(`- **Item 2**: v3 ≥ v2 em cada tarefa e família (taxa somada entre os modelos), nenhum modelo com perda e +${VICTORY.cheapGain * 100} pontos na média dos modelos baratos; se não chegar nos +${VICTORY.cheapGain * 100}, passa só se não houver perda e o custo médio do v3 for menor que o do v2.`);
 	push("- **Empurrões**: v3 conta as 4 classes estruturais (`[runtime]`); v2, as notas equivalentes e os descartes. **Repetições**: mesma tool com os mesmos argumentos além da primeira vez.");
 	push('- **Escritas sem humano**: escrita em conector ou e-mail executada em origem sem pessoa (rotina, e-mail recebido, outro bot). Cartão de aprovação do v2 e rascunho do v3 não contam como envio.');
 	push('- **"Anuncia e para"**: só pelo juiz offline opcional (`--judge`), nunca no runtime.');
