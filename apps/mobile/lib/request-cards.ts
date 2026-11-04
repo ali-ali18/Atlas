@@ -139,6 +139,27 @@ export function loginOutcome(item: Pick<LoginItem, "status" | "connector" | "com
 	return { tone: "success", label: item.reason === "captcha" ? "Verificado" : "Concluído" };
 }
 
+/**
+ * "Concluído" na gaveta: nunca descarta em silêncio o que foi digitado.
+ * - código válido digitado: retoma com o código;
+ * - usuário e senha digitados e ainda não guardados: guarda no Cofre e só então retoma;
+ * - só um dos dois: avisa (não retoma, não descarta);
+ * - nada digitado (ou já guardado): retoma simples.
+ */
+export type ConcludeAction = { kind: "resume"; options: { via?: "code"; code?: string } } | { kind: "save-then-resume" } | { kind: "block"; message: string };
+
+export function concludeAction(fields: DrawerFields, input: { code: string; username: string; password: string }): ConcludeAction {
+	if (fields.code && validLoginCode(input.code)) return { kind: "resume", options: { via: "code", code: cleanLoginCode(input.code) } };
+	if (fields.code && input.code.trim()) return { kind: "block", message: "O código está incompleto. Termine de digitar ou apague para continuar." };
+	if (fields.credentials) {
+		const user = input.username.trim().length > 0;
+		const pass = input.password.length > 0;
+		if (user && pass) return { kind: "save-then-resume" };
+		if (user || pass) return { kind: "block", message: "Preencha usuário e senha, ou apague o que digitou, para continuar." };
+	}
+	return { kind: "resume", options: {} };
+}
+
 // ---- ícone do conector (copiado de `lib/apps.ts` de feat/mobile-aplicativos; unificar depois) --------------------------
 
 /** Endereço da imagem do ícone: caminho do app (`/connectors/x.svg`, no servidor) ou https do Composio; o resto vira `null` (cai na inicial). */
@@ -210,6 +231,12 @@ export function secretEntries(names: readonly string[], values: Readonly<Record<
 /** O botão "Salvar" fica apagado até haver ao menos um valor. */
 export function canSaveSecrets(names: readonly string[], values: Readonly<Record<string, string>>): boolean {
 	return secretEntries(names, values).length > 0;
+}
+
+/** O que o cartão de segredo mostra: o formulário, o "Salvo. Tentar de novo" (o Cofre guardou e só o aviso ao bot falhou) ou o resolvido. */
+export function secretsView(status: ConfirmStatus, stored: boolean): "form" | "retry" | "resolved" {
+	if (status !== "pending") return "resolved";
+	return stored ? "retry" : "form";
 }
 
 export function secretsBadge(status: ConfirmStatus): { tone: "success" | "muted" | "danger"; label: string } | null {

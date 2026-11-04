@@ -24,7 +24,7 @@ export function RequestShell({
 	note,
 	noteIcon,
 	children,
-	accessibilityLabel,
+	groupLabel,
 }: {
 	icon?: React.ReactNode;
 	label?: string;
@@ -36,12 +36,13 @@ export function RequestShell({
 	note?: string;
 	noteIcon?: boolean;
 	children?: React.ReactNode;
-	accessibilityLabel?: string;
+	/** Rótulo do grupo para leitor de tela (`role="group"`, sem agrupar os botões de dentro). */
+	groupLabel?: string;
 }) {
 	const chrome = chatChrome(useAppColorScheme());
 	const hasHeader = !!(icon || label || badge || headerAction);
 	return (
-		<View className="w-full max-w-[min(68ch,100%)] gap-2 self-start" accessibilityLabel={accessibilityLabel}>
+		<View role="group" aria-label={groupLabel} className="w-full max-w-[min(68ch,100%)] gap-2 self-start">
 			<View className="gap-3 rounded-panel border p-4" style={{ backgroundColor: chrome.fill, borderColor: chrome.edge }}>
 				{hasHeader ? (
 					<View className="min-h-6 flex-row items-center gap-2">

@@ -21,7 +21,7 @@ const delta = (text: string): ComputerUseEvent => ({ type: "assistant_delta", id
 
 type Script = (options: FollowOptions, runId: string) => Promise<FollowResult>;
 
-function setup(overrides: { api?: Partial<ChatApi>; follow?: Script; conversationId?: string | null; cache?: ChatDeps["cacheFor"] } = {}) {
+function setup(overrides: { api?: Partial<ChatApi>; follow?: Script; conversationId?: string | null; cache?: ChatDeps["cacheFor"]; connect?: ChatDeps["connect"] } = {}) {
 	let runCount = 0;
 	const calls = { createRun: [] as unknown[], createRunInput: [] as Array<[string, string]>, cancelRun: [] as string[], submit: [] as unknown[], reaction: [] as string[], unread: [] as string[], resume: [] as Array<[string, unknown]>, inputReplies: [] as Array<string | undefined>, fetchPage: [] as string[], createConversation: 0, unauthorized: 0 };
 	const api: ChatApi = {
@@ -45,6 +45,7 @@ function setup(overrides: { api?: Partial<ChatApi>; follow?: Script; conversatio
 		openRunStream: () => async () => Promise.reject(new Error("não usado")),
 		cacheFor: overrides.cache ?? (() => null),
 		onUnauthorized: () => void calls.unauthorized++,
+		...(overrides.connect ? { connect: overrides.connect } : {}),
 		follow: ((options: FollowOptions) => (overrides.follow ?? (async (opts) => (opts.onEvent(done), "boundary" as const)))(options, "?")) as never,
 		sleep: async () => undefined,
 		clientKey: () => `k${++seq}`,
@@ -409,6 +410,59 @@ describe("cartões de pedido: login e segredo", () => {
 		const items = deriveView({ ...snapshot, persisted: [login, { id: "s", kind: "secrets", confirmId: "s1", title: "x", names: ["A"], status: "pending" }] }).items;
 		expect(items.find((item) => item.kind === "login")).toMatchObject({ status: "done" });
 		expect(items.find((item) => item.kind === "secrets")).toMatchObject({ status: "rejected" });
+	});
+});
+
+describe("conectar app: o fluxo é do controller, não do cartão", () => {
+	const connector = { kind: "composio", id: "gmail", name: "Gmail", description: "", icon: null } as const;
+	const login: Extract<ChatItem, { kind: "login" }> = { id: "l", kind: "login", loginId: "lg1", site: "Gmail", url: "https://x.com", runId: "r9", status: "pending", connector };
+	const paused = { getRunStatus: async () => "paused" };
+	it("conectou: retoma o run sem nenhum cartão montado (nada na tela chama o resume)", async () => {
+		const gate = deferred<{ outcome: "connected" }>();
+		const { controller, calls } = setup({ api: paused, connect: () => gate.promise, follow: async () => new Promise<FollowResult>(() => undefined) });
+		await controller.open();
+		controller.connectLogin(login);
+		controller.connectLogin(login);
+		expect(controller.getSnapshot().connects.lg1).toEqual({ busy: true, message: null });
+		// o cartão pode desmontar aqui: o fluxo segue
+		gate.resolve({ outcome: "connected" });
+		await flush();
+		expect(calls.resume).toEqual([["r9", {}]]);
+		expect(controller.getSnapshot().connects).toEqual({});
+		expect(controller.getSnapshot().loginsDone).toEqual({ lg1: true });
+	});
+	it("navegador fechado ou tempo esgotado: libera o botão com aviso simples e não retoma", async () => {
+		const { controller, calls } = setup({ api: paused, connect: async () => ({ outcome: "closed" }) });
+		await controller.open();
+		controller.connectLogin(login);
+		await flush();
+		expect(calls.resume).toEqual([]);
+		expect(controller.getSnapshot().connects.lg1).toMatchObject({ busy: false, message: expect.stringContaining("Autorizar") });
+	});
+	it("erro de conexão vira a frase dada; conector de API/MCP próprio não conecta aqui", async () => {
+		const { controller } = setup({ connect: async () => ({ error: "Ative os apps nas Configurações do site." }) });
+		await controller.open();
+		controller.connectLogin(login);
+		await flush();
+		expect(controller.getSnapshot().connects.lg1).toEqual({ busy: false, message: "Ative os apps nas Configurações do site." });
+		const calls: unknown[] = [];
+		const other = setup({ connect: async () => (calls.push(1), { outcome: "connected" }) });
+		await other.controller.open();
+		other.controller.connectLogin({ ...login, connector: { ...connector, kind: "api" } });
+		await flush();
+		expect(calls).toEqual([]);
+	});
+	it("sair do chat aborta o fluxo (o sinal do navegador) e não retoma depois", async () => {
+		const gate = deferred<{ outcome: "connected" }>();
+		let seen: { aborted: boolean } | null = null;
+		const { controller, calls } = setup({ api: paused, connect: (_connector, signal) => ((seen = signal), gate.promise) });
+		await controller.open();
+		controller.connectLogin(login);
+		controller.dispose();
+		expect(seen!.aborted).toBe(true);
+		gate.resolve({ outcome: "connected" });
+		await flush();
+		expect(calls.resume).toEqual([]);
 	});
 });
 

@@ -84,7 +84,7 @@ export function stepFooter(items: readonly QuestionnaireCardItem[], state: StepS
  * Um passo do cartão. `submit` vem preenchido quando a ação encerra o questionário (Enviar na última, ou Pular na
  * última): só então o mapa de respostas sai. Obrigatória sem resposta não avança.
  */
-export function stepReduce(items: readonly QuestionnaireCardItem[], state: StepState, action: StepAction): { state: StepState; submit: AnswerMap | null } {
+export function stepReduce(items: readonly QuestionnaireCardItem[], state: StepState, action: StepAction): { state: StepState; submit: AnswerMap | null; empty?: true } {
 	const item = items[state.index];
 	const last = state.index >= items.length - 1;
 	switch (action.type) {
@@ -97,8 +97,7 @@ export function stepReduce(items: readonly QuestionnaireCardItem[], state: StepS
 		case "next": {
 			if (!item || (item.required && !stepAnswered(item, state))) return { state, submit: null };
 			if (!last) return { state: { ...state, index: state.index + 1 }, submit: null };
-			const answers = buildAnswers(items, state.selected, state.free);
-			return { state, submit: missingRequired(items, answers).length === 0 ? answers : null };
+			return finish(items, state, state);
 		}
 		case "skip": {
 			if (!item || item.required) return { state, submit: null };
@@ -107,8 +106,19 @@ export function stepReduce(items: readonly QuestionnaireCardItem[], state: StepS
 			const free = { ...state.free, [item.name]: "" };
 			const next = { ...state, selected, free, index: last ? state.index : state.index + 1 };
 			if (!last) return { state: next, submit: null };
-			const answers = buildAnswers(items, selected, free);
-			return { state: next, submit: missingRequired(items, answers).length === 0 ? answers : null };
+			return finish(items, next, next);
 		}
 	}
 }
+
+/**
+ * Fim do questionário. O servidor recusa `answers` vazio (400: "ao menos 1 preenchido"), então pular tudo não envia:
+ * `empty` pede ao cartão uma mensagem clara. Não há endpoint de dispensar/pular o questionário.
+ */
+function finish(items: readonly QuestionnaireCardItem[], state: StepState, answersFrom: Pick<StepState, "selected" | "free">): { state: StepState; submit: AnswerMap | null; empty?: true } {
+	const answers = buildAnswers(items, answersFrom.selected, answersFrom.free);
+	if (Object.keys(answers).length === 0) return { state, submit: null, empty: true };
+	return { state, submit: missingRequired(items, answers).length === 0 ? answers : null };
+}
+
+export const EMPTY_QUESTIONNAIRE_NOTICE = "Responda ao menos uma pergunta para enviar.";

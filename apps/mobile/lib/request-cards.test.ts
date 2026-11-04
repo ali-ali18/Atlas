@@ -7,6 +7,7 @@ import type { ChatItem } from "./chat-types";
 import type { ApiFetch } from "./home-sync";
 import {
 	canSaveSecrets,
+	concludeAction,
 	connectorCanAuthorize,
 	connectorNote,
 	connectorOf,
@@ -261,5 +262,30 @@ describe("chamadas: contrato do web", () => {
 		const { apiFetch, calls } = fake(201, { item: {} });
 		await saveVaultLogin(apiFetch, vaultLoginBody(loginToItem("l", pageLogin), "ana", "s"));
 		expect(calls[0]).toMatchObject({ path: "/v1/vault", method: "POST", body: { kind: "login", username: "ana", password: "s" } });
+	});
+});
+
+describe("gaveta: Concluído não descarta o que foi digitado", () => {
+	const base = loginToItem("l", pageLogin);
+	const plain = drawerFields(base);
+	const withCode = drawerFields({ ...base, codeField: true });
+	const empty = { code: "", username: "", password: "" };
+	it("nada digitado retoma simples", () => {
+		expect(concludeAction(plain, empty)).toEqual({ kind: "resume", options: {} });
+	});
+	it("usuário e senha digitados e não guardados: guarda antes de retomar", () => {
+		expect(concludeAction(plain, { ...empty, username: "ana", password: "s" })).toEqual({ kind: "save-then-resume" });
+	});
+	it("só um dos dois: avisa em vez de descartar", () => {
+		expect(concludeAction(plain, { ...empty, username: "ana" })).toMatchObject({ kind: "block" });
+		expect(concludeAction(plain, { ...empty, password: "s" })).toMatchObject({ kind: "block" });
+	});
+	it("código válido retoma com o código; incompleto avisa", () => {
+		expect(concludeAction(withCode, { ...empty, code: "123 456" })).toEqual({ kind: "resume", options: { via: "code", code: "123456" } });
+		expect(concludeAction(withCode, { ...empty, code: "12" })).toMatchObject({ kind: "block" });
+	});
+	it("no captcha e no Cofre não há campo: retoma simples", () => {
+		expect(concludeAction(drawerFields({ ...base, reason: "captcha" }), { ...empty, username: "x" })).toEqual({ kind: "resume", options: {} });
+		expect(concludeAction(drawerFields({ ...base, vault: { name: "n", label: "", domain: "github.com" } }), empty)).toEqual({ kind: "resume", options: {} });
 	});
 });

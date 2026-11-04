@@ -8,7 +8,6 @@ import { Text } from "@/components/ui/text";
 import { chatChrome } from "@/lib/chat-surface";
 import type { ChatItem } from "@/lib/chat-types";
 import { connectorCanAuthorize, connectorNote, connectorOf, initialOf, isSvgUri, loginOutcome, resolveIconUri } from "@/lib/request-cards";
-import type { ConnectResultView } from "@/lib/use-request-actions";
 import { useAppColorScheme } from "@/lib/use-theme";
 import { RequestButton, RequestShell } from "./request-shell";
 
@@ -40,40 +39,21 @@ function ConnectorLogo({ connector, serverUrl }: { connector: LoginConnector; se
 
 /**
  * Pedido de "conectar app" do run. "Autorizar" conecta pelo navegador (o mesmo fluxo da tela Aplicativos: abre o login
- * do provedor e confere a conexão a cada segundo); ao conectar, retoma o run como o "Terminei" do web. Resolvido ou
+ * do provedor e confere a conexão a cada segundo); ao conectar, retoma o run como o "Terminei" do web. O fluxo roda
+ * no controller do chat (não no cartão): rolar a lista não o interrompe. Resolvido ou
  * recarregado: o selo "Conectado" no lugar do botão. Nunca recebe credencial.
  */
-export function ConnectorCard({ item, botName, serverUrl, onConnect, onDone, onOpenWeb }: { item: Login; botName: string; serverUrl: string | null; onConnect: (connector: LoginConnector, signal: { aborted: boolean }) => Promise<ConnectResultView>; onDone: (item: Login) => void; onOpenWeb: () => void }) {
+export function ConnectorCard({ item, botName, serverUrl, connect, onAuthorize, onOpenWeb }: { item: Login; botName: string; serverUrl: string | null; connect?: { busy: boolean; message: string | null }; onAuthorize: (item: Login) => void; onOpenWeb: () => void }) {
 	const connector = connectorOf(item);
-	const [busy, setBusy] = React.useState(false);
-	const [message, setMessage] = React.useState<string | null>(null);
-	const signal = React.useRef({ aborted: false });
-	React.useEffect(() => {
-		signal.current.aborted = false;
-		const current = signal.current;
-		return () => {
-			current.aborted = true;
-		};
-	}, []);
 	if (!connector) return null;
 	const outcome = loginOutcome(item);
 	const native = connector.kind === "native";
 	const canAuthorize = connectorCanAuthorize(connector);
-
-	const authorize = async () => {
-		if (busy) return;
-		setBusy(true);
-		setMessage(null);
-		const result = await onConnect(connector, signal.current);
-		if (signal.current.aborted) return;
-		setBusy(false);
-		if ("error" in result) setMessage(result.error);
-		else if (result.outcome === "connected") onDone(item);
-		else if (result.outcome === "closed" || result.outcome === "timeout") setMessage("Não consegui confirmar a conexão. Toque em Autorizar para tentar de novo.");
-	};
+	const busy = connect?.busy === true;
+	const message = connect?.message ?? null;
 
 	return (
-		<RequestShell note={connectorNote(botName)} accessibilityLabel={`Conectar ${connector.name}`}>
+		<RequestShell note={connectorNote(botName)} groupLabel={`Conectar ${connector.name}`}>
 			<View className="flex-row items-center gap-3">
 				<ConnectorLogo connector={connector} serverUrl={serverUrl} />
 				<View className="min-w-0 flex-1 gap-0.5">
@@ -90,7 +70,7 @@ export function ConnectorCard({ item, botName, serverUrl, onConnect, onDone, onO
 				{outcome ? (
 					<ChatCardBadge tone={outcome.tone} label={outcome.label} />
 				) : canAuthorize ? (
-					<RequestButton label="Autorizar" busy={busy} onPress={() => void authorize()} />
+					<RequestButton label="Autorizar" busy={busy} onPress={() => onAuthorize(item)} />
 				) : (
 					<RequestButton label="Abrir no navegador" variant="secondary" onPress={onOpenWeb} />
 				)}

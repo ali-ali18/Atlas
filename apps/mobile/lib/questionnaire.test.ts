@@ -101,4 +101,19 @@ describe("questionário em etapas", () => {
 		expect(stepSubtitle({ ...steps[0]!, description: "Escolha um" })).toBe("Escolha um");
 		expect(stepSubtitle(steps[0]!)).toBeNull();
 	});
+	it("pular tudo não envia (o servidor recusa respostas vazias): avisa com `empty`", () => {
+		const optional = [{ name: "a", prompt: "?", choices: [{ value: "x" }] }, { name: "b", prompt: "??", input: { label: "l" } }];
+		let result = stepReduce(optional, initialStepState(), { type: "skip" });
+		expect(result.submit).toBeNull();
+		result = stepReduce(optional, result.state, { type: "skip" });
+		expect(result).toMatchObject({ submit: null, empty: true });
+		// Enviar na última sem nada também não sai
+		const none = stepReduce(optional, { ...initialStepState(), index: 1 }, { type: "next" });
+		expect(none).toMatchObject({ submit: null, empty: true });
+		// com uma resposta antes, pular a última envia só ela
+		const first = stepReduce(optional, initialStepState(), { type: "toggle", name: "a", value: "x", multiple: false });
+		const second = stepReduce(optional, stepReduce(optional, first.state, { type: "next" }).state, { type: "skip" });
+		expect(second.submit).toEqual({ a: "x" });
+		expect(second.empty).toBeUndefined();
+	});
 });

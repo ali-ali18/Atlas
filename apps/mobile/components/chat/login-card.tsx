@@ -1,12 +1,13 @@
 import * as React from "react";
 import { Pressable, TextInput, View } from "react-native";
 import { EyeIcon, EyeOffIcon, GlobeIcon, ShieldCheckIcon } from "@/components/icons";
+import { Button } from "@/components/ui/button";
 import { DraggableSheet } from "@/components/ui/draggable-sheet";
 import { Text } from "@/components/ui/text";
 import type { ResumeOptions } from "@/lib/chat-api";
 import { chatChrome, routineSurface } from "@/lib/chat-surface";
 import type { ChatItem } from "@/lib/chat-types";
-import { cleanLoginCode, drawerFields, drawerSave, loginOutcome, siteDomains, siteName } from "@/lib/request-cards";
+import { cleanLoginCode, concludeAction, drawerFields, drawerSave, loginOutcome, siteDomains, siteName } from "@/lib/request-cards";
 import { themeColor } from "@/lib/theme";
 import type { ActionResult } from "@/lib/use-request-actions";
 import { useAppColorScheme } from "@/lib/use-theme";
@@ -53,7 +54,7 @@ function SheetField({ label, secure = false, ...props }: { label: string; secure
  * - "Abrir a tela" abre o computador do bot (hoje, o web) para entrar à mão; "Concluído" retoma o run.
  * Usuário, senha e código ficam só nos campos desta gaveta e somem ao fechar.
  */
-function LoginSheet({ item, botName, visible, onClose, onResume, onSaveLogin, onOpenScreen }: { item: Login; botName: string; visible: boolean; onClose: () => void; onResume: (options: ResumeOptions) => void; onSaveLogin: (username: string, password: string) => Promise<ActionResult>; onOpenScreen: () => void }) {
+function LoginSheet({ item, botName, accent, visible, onClose, onResume, onSaveLogin, onOpenScreen }: { item: Login; botName: string; accent: string; visible: boolean; onClose: () => void; onResume: (options: ResumeOptions) => void; onSaveLogin: (username: string, password: string) => Promise<ActionResult>; onOpenScreen: () => void }) {
 	const scheme = useAppColorScheme();
 	const chrome = chatChrome(scheme);
 	const blue = routineSurface(scheme).link;
@@ -62,57 +63,86 @@ function LoginSheet({ item, botName, visible, onClose, onResume, onSaveLogin, on
 	const [username, setUsername] = React.useState("");
 	const [password, setPassword] = React.useState("");
 	const [busy, setBusy] = React.useState(false);
+	// Guardado no Cofre nesta gaveta: o Salvar fica desativado (não guarda duas vezes) até mexer nos campos.
+	const [saved, setSaved] = React.useState(false);
 	const [feedback, setFeedback] = React.useState<{ tone: "ok" | "error"; text: string } | null>(null);
 	const site = siteName(item);
 	const domains = siteDomains(item).join(", ");
 	const save = drawerSave(fields, { code, username, password });
+	const edit = (set: (value: string) => void) => (value: string) => {
+		set(value);
+		setSaved(false);
+	};
 
 	const close = () => {
 		setCode("");
 		setUsername("");
 		setPassword("");
 		setFeedback(null);
+		setSaved(false);
 		onClose();
 	};
 	const resume = (options: ResumeOptions) => {
 		close();
 		onResume(options);
 	};
-	const submit = async () => {
-		if (!save.enabled || busy) return;
-		if (save.kind === "vault") return resume({ via: "vault" });
-		if (save.kind === "code") return resume({ via: "code", code: cleanLoginCode(code) });
-		if (save.kind !== "credentials") return;
+	// Guarda usuário e senha no Cofre; `true` se deu certo. A senha sai do estado na hora.
+	const storeLogin = async (): Promise<boolean> => {
 		setBusy(true);
 		setFeedback(null);
 		const result = await onSaveLogin(username, password);
 		setBusy(false);
-		if (!result.ok) return setFeedback({ tone: "error", text: result.error });
-		// Guardado: a senha sai do estado na hora.
+		if (!result.ok) {
+			setFeedback({ tone: "error", text: result.error });
+			return false;
+		}
 		setUsername("");
 		setPassword("");
+		setSaved(true);
 		setFeedback({ tone: "ok", text: "Salvo no Cofre. Da próxima vez eu entro sozinho." });
+		return true;
 	};
-	const saveLabel = save.kind === "vault" ? "Entrar" : "Salvar";
+	const conclude = async () => {
+		if (busy) return;
+		const action = concludeAction(fields, { code, username, password });
+		if (action.kind === "block") return setFeedback({ tone: "error", text: action.message });
+		if (action.kind === "save-then-resume" && !(await storeLogin())) return;
+		resume(action.kind === "resume" ? action.options : {});
+	};
+	const submit = async () => {
+		if (!save.enabled || busy || saved) return;
+		if (save.kind === "vault") return resume({ via: "vault" });
+		if (save.kind === "code") return resume({ via: "code", code: cleanLoginCode(code) });
+		if (save.kind !== "credentials") return;
+		await storeLogin();
+	};
+	const saveLabel = save.kind === "vault" ? "Entrar" : saved ? "Salvo no Cofre" : "Salvar";
+	const saveOff = !save.enabled || busy || saved;
 
 	return (
 		<DraggableSheet
 			visible={visible}
 			onClose={close}
 			background={chrome.fill}
+			avoidKeyboard
 			header={
-				<View className="min-h-11 flex-row items-center">
-					<Pressable role="button" accessibilityLabel="Cancelar" onPress={close} hitSlop={8} className="min-w-20 items-start active:opacity-60">
-						<Text className="text-control">Cancelar</Text>
-					</Pressable>
+				<View className="min-h-11 flex-row items-center gap-2">
+					<View className="min-w-24 items-start">
+						<Button size="sm" variant="secondary" accessibilityLabel="Cancelar" onPress={close}>
+							<Text>Cancelar</Text>
+						</Button>
+					</View>
 					<Text className="min-w-0 flex-1 text-center text-base font-semibold" numberOfLines={1}>
 						Entrar no {site}
 					</Text>
-					<Pressable role="button" accessibilityLabel="Concluído" onPress={() => resume({})} hitSlop={8} className="min-w-20 items-end active:opacity-60">
-						<Text className="text-control font-semibold" style={{ color: blue }}>
-							Concluído
-						</Text>
-					</Pressable>
+					<View className="min-w-24 items-end">
+						{/* Contorno e texto na cor do bot, sem preenchimento; mesma altura do Cancelar. */}
+						<Pressable role="button" accessibilityLabel="Concluído" accessibilityState={{ disabled: busy }} disabled={busy} onPress={() => void conclude()} style={{ borderColor: accent }} className="h-9 flex-row items-center justify-center rounded-full border px-4 active:opacity-70">
+							<Text className="text-control font-semibold" style={{ color: accent }}>
+								Concluído
+							</Text>
+						</Pressable>
+					</View>
 				</View>
 			}
 		>
@@ -135,11 +165,11 @@ function LoginSheet({ item, botName, visible, onClose, onResume, onSaveLogin, on
 					O login do Cofre já foi usado e o site pediu mais um passo. Abra a tela para terminar.
 				</Text>
 			) : null}
-			{fields.code ? <SheetField label="Código recebido" value={code} onChangeText={setCode} placeholder="000000" keyboardType="number-pad" maxLength={12} autoComplete="one-time-code" textContentType="oneTimeCode" /> : null}
+			{fields.code ? <SheetField label="Código recebido" value={code} onChangeText={edit(setCode)} placeholder="000000" keyboardType="number-pad" maxLength={12} autoComplete="one-time-code" textContentType="oneTimeCode" /> : null}
 			{fields.credentials ? (
 				<>
-					<SheetField label="Email ou usuário" value={username} onChangeText={setUsername} autoComplete="username" textContentType="username" keyboardType="email-address" />
-					<SheetField label="Senha" secure value={password} onChangeText={setPassword} autoComplete="current-password" textContentType="password" />
+					<SheetField label="Email ou usuário" value={username} onChangeText={edit(setUsername)} autoComplete="username" textContentType="username" keyboardType="email-address" />
+					<SheetField label="Senha" secure value={password} onChangeText={edit(setPassword)} autoComplete="current-password" textContentType="password" />
 					<View className="flex-row items-start gap-1.5 px-1">
 						<View className="pt-px">
 							<ShieldCheckIcon size={14} />
@@ -157,7 +187,7 @@ function LoginSheet({ item, botName, visible, onClose, onResume, onSaveLogin, on
 			) : null}
 			<View className="gap-2.5">
 				{save.kind !== "none" ? (
-					<Pressable role="button" accessibilityLabel={saveLabel} accessibilityState={{ disabled: !save.enabled || busy, busy }} disabled={!save.enabled || busy} onPress={() => void submit()} style={{ backgroundColor: blue, opacity: save.enabled ? 1 : 0.4 }} className="h-12 items-center justify-center rounded-full active:opacity-80">
+					<Pressable role="button" accessibilityLabel={saveLabel} accessibilityState={{ disabled: saveOff, busy }} disabled={saveOff} onPress={() => void submit()} style={{ backgroundColor: blue, opacity: saveOff && !busy ? 0.4 : 1 }} className="h-12 items-center justify-center rounded-full active:opacity-80">
 						<Text className="text-control font-semibold" style={{ color: themeColor(scheme, scheme === "dark" ? "foreground" : "info-foreground") }}>
 							{busy ? "Salvando…" : saveLabel}
 						</Text>
@@ -175,7 +205,7 @@ function LoginSheet({ item, botName, visible, onClose, onResume, onSaveLogin, on
  * Login de página (sem conector): cartão "Formulário" com o site e "Continuar", que abre a gaveta. Nunca carrega
  * credencial. Resolvido: um selo com o desfecho no lugar do botão.
  */
-export function LoginCard({ item, botName, onResume, onSaveLogin, onOpenScreen, initialOpen = false }: { item: Login; botName: string; onResume: (item: Login, options: ResumeOptions) => void; onSaveLogin: (item: Login, username: string, password: string) => Promise<ActionResult>; onOpenScreen: () => void; initialOpen?: boolean }) {
+export function LoginCard({ item, botName, accent, onResume, onSaveLogin, onOpenScreen, initialOpen = false }: { item: Login; botName: string; accent: string; onResume: (item: Login, options: ResumeOptions) => void; onSaveLogin: (item: Login, username: string, password: string) => Promise<ActionResult>; onOpenScreen: () => void; initialOpen?: boolean }) {
 	const [open, setOpen] = React.useState(initialOpen);
 	const captcha = item.reason === "captcha";
 	const site = siteName(item);
@@ -183,7 +213,7 @@ export function LoginCard({ item, botName, onResume, onSaveLogin, onOpenScreen, 
 	const domains = siteDomains(item).join(", ");
 	return (
 		<>
-			<RequestShell icon={<GlobeIcon />} label={captcha ? "Verificação" : "Formulário"} badge={outcome ?? undefined} accessibilityLabel={`Entrar no ${site}`}>
+			<RequestShell icon={<GlobeIcon />} label={captcha ? "Verificação" : "Formulário"} badge={outcome ?? undefined} groupLabel={`Entrar no ${site}`}>
 				<View className="gap-1">
 					<Text className="text-base font-semibold">{captcha ? `Verificação em ${site}` : `Entrar no ${site}`}</Text>
 					<Text variant="muted" className="text-body">
@@ -196,7 +226,7 @@ export function LoginCard({ item, botName, onResume, onSaveLogin, onOpenScreen, 
 					</View>
 				)}
 			</RequestShell>
-			{outcome ? null : <LoginSheet item={item} botName={botName} visible={open} onClose={() => setOpen(false)} onResume={(options) => onResume(item, options)} onSaveLogin={(username, password) => onSaveLogin(item, username, password)} onOpenScreen={onOpenScreen} />}
+			{outcome ? null : <LoginSheet item={item} botName={botName} accent={accent} visible={open} onClose={() => setOpen(false)} onResume={(options) => onResume(item, options)} onSaveLogin={(username, password) => onSaveLogin(item, username, password)} onOpenScreen={onOpenScreen} />}
 		</>
 	);
 }

@@ -4,7 +4,8 @@ import { EyeIcon, EyeOffIcon, KeyRoundIcon } from "@/components/icons";
 import { Text } from "@/components/ui/text";
 import { chatChrome } from "@/lib/chat-surface";
 import type { ChatItem } from "@/lib/chat-types";
-import { canSaveSecrets, secretEntries, secretsBadge } from "@/lib/request-cards";
+import { isSecretsStored, markSecretsStored } from "@/lib/request-memory";
+import { canSaveSecrets, secretEntries, secretsBadge, secretsView } from "@/lib/request-cards";
 import { themeColor } from "@/lib/theme";
 import type { ActionResult } from "@/lib/use-request-actions";
 import { useAppColorScheme } from "@/lib/use-theme";
@@ -54,6 +55,9 @@ export function SecretsCard({ item, onSave, onDecide }: { item: Secrets; onSave:
 	const [values, setValues] = React.useState<Record<string, string>>({});
 	const [busy, setBusy] = React.useState(false);
 	const [error, setError] = React.useState<string | null>(null);
+	// O Cofre já guardou (só o aviso ao bot falhou): não pede o valor de novo. Lembrado por id, fora da linha.
+	const [stored, setStored] = React.useState(() => isSecretsStored(item.confirmId));
+	const view = secretsView(item.status, stored);
 	const pending = item.status === "pending";
 	const badge = secretsBadge(item.status);
 
@@ -67,11 +71,13 @@ export function SecretsCard({ item, onSave, onDecide }: { item: Secrets; onSave:
 		if (!result.ok) return setError(result.error);
 		// Guardado: o valor sai do estado antes de qualquer outra coisa.
 		setValues({});
+		markSecretsStored(item.confirmId);
+		setStored(true);
 		onDecide(item, true);
 	};
 
 	return (
-		<RequestShell icon={<KeyRoundIcon />} label="Segredos" badge={badge ?? undefined} note={pending ? "Armazenado com segurança, nunca mostrado ao seu Bot." : undefined} noteIcon accessibilityLabel={item.title}>
+		<RequestShell icon={<KeyRoundIcon />} label="Segredos" badge={badge ?? undefined} note={pending ? "Armazenado com segurança, nunca mostrado ao seu Bot." : undefined} noteIcon groupLabel={item.title}>
 			<View className="gap-1">
 				<Text className="text-base font-semibold">{item.title}</Text>
 				{item.description ? (
@@ -80,7 +86,17 @@ export function SecretsCard({ item, onSave, onDecide }: { item: Secrets; onSave:
 					</Text>
 				) : null}
 			</View>
-			{pending ? (
+			{view === "retry" ? (
+				<>
+					<Text variant="muted" className="px-1 text-body">
+						Salvo no Cofre, mas não consegui avisar o bot. Toque para tentar de novo.
+					</Text>
+					<View className="flex-row items-center justify-end gap-1">
+						<RequestTextButton label={item.cancelLabel ?? "Agora não"} onPress={() => onDecide(item, false)} />
+						<RequestButton label="Tentar de novo" onPress={() => onDecide(item, true)} />
+					</View>
+				</>
+			) : view === "form" ? (
 				<>
 					{item.names.map((name) => (
 						<SecretField key={name} name={name} value={values[name] ?? ""} invalid={error !== null} onChange={(value) => { setValues((current) => ({ ...current, [name]: value })); setError(null); }} />

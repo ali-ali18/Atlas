@@ -5,7 +5,8 @@ import { ChatCard, ChatCardLine } from "@/components/ui/chat-card";
 import { Text } from "@/components/ui/text";
 import { chatChrome } from "@/lib/chat-surface";
 import type { ChatItem } from "@/lib/chat-types";
-import { choiceLetter, initialStepState, stepFooter, stepReduce, stepSubtitle, type AnswerMap, type StepAction } from "@/lib/questionnaire";
+import { choiceLetter, EMPTY_QUESTIONNAIRE_NOTICE, initialStepState, stepFooter, stepReduce, stepSubtitle, type AnswerMap, type StepAction } from "@/lib/questionnaire";
+import { clearQuestionnaireDraft, getQuestionnaireDraft, setQuestionnaireDraft } from "@/lib/request-memory";
 import { themeColor } from "@/lib/theme";
 import { useAppColorScheme } from "@/lib/use-theme";
 import { RequestButton, RequestShell, RequestTextButton } from "./request-shell";
@@ -31,7 +32,9 @@ function Dots({ count, index }: { count: number; index: number }) {
 export function QuestionnaireCard({ item, onAnswer }: { item: Questionnaire; onAnswer: (item: Questionnaire, answers: AnswerMap) => void }) {
 	const scheme = useAppColorScheme();
 	const chrome = chatChrome(scheme);
-	const [state, setState] = React.useState(initialStepState);
+	// O passo e as respostas ficam na memória por id (fora da linha): rolar a lista e voltar não perde nada.
+	const [state, setState] = React.useState(() => getQuestionnaireDraft(item.questionnaireId) ?? initialStepState());
+	const [notice, setNotice] = React.useState<string | null>(null);
 	const pending = item.status === "pending";
 	if (!pending || item.items.length === 0) {
 		return (
@@ -50,13 +53,17 @@ export function QuestionnaireCard({ item, onAnswer }: { item: Questionnaire; onA
 	const dispatch = (action: StepAction) => {
 		const result = stepReduce(item.items, state, action);
 		setState(result.state);
-		if (result.submit) onAnswer(item, result.submit);
+		setNotice(result.empty ? EMPTY_QUESTIONNAIRE_NOTICE : null);
+		if (result.submit) {
+			clearQuestionnaireDraft(item.questionnaireId);
+			onAnswer(item, result.submit);
+		} else setQuestionnaireDraft(item.questionnaireId, result.state);
 	};
 	const picked = state.selected[entry.name] ?? [];
 
 	return (
 		<RequestShell
-			accessibilityLabel={item.title}
+			groupLabel={item.title}
 			footer={
 				<View className="flex-row items-center justify-between gap-2">
 					<Dots count={footer.dots} index={footer.index} />
@@ -85,8 +92,7 @@ export function QuestionnaireCard({ item, onAnswer }: { item: Questionnaire; onA
 							role={entry.multiple ? "checkbox" : "radio"}
 							accessibilityState={{ checked: on }}
 							onPress={() => dispatch({ type: "toggle", name: entry.name, value: choice.value, multiple: entry.multiple === true })}
-							style={{ backgroundColor: chrome.control }}
-							className="min-h-12 flex-row items-center gap-3 rounded-2xl px-3 py-2 active:opacity-80"
+							className={on ? "min-h-12 flex-row items-center gap-3 rounded-2xl bg-foreground/[0.06] px-2 py-2 active:opacity-80" : "min-h-12 flex-row items-center gap-3 rounded-2xl px-2 py-2 active:opacity-80"}
 						>
 							<View className={on ? "size-7 items-center justify-center rounded-lg bg-primary" : "size-7 items-center justify-center rounded-lg border"} style={on ? undefined : { borderColor: chrome.edge }}>
 								<Text className={on ? "text-body font-semibold text-primary-foreground" : "text-body font-semibold text-muted-foreground"}>{choiceLetter(position)}</Text>
@@ -115,6 +121,11 @@ export function QuestionnaireCard({ item, onAnswer }: { item: Questionnaire; onA
 					/>
 				) : null}
 			</View>
+			{notice ? (
+				<Text variant="error" className="text-body" role="alert">
+					{notice}
+				</Text>
+			) : null}
 		</RequestShell>
 	);
 }
