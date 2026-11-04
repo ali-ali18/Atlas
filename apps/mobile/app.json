@@ -48,7 +48,14 @@
           "isAccessMediaLocationEnabled": false
         }
       ],
-      "expo-web-browser"
+      "expo-web-browser",
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "O Atlas usa o microfone para você ditar mensagens por voz.",
+          "speechRecognitionPermission": "O Atlas usa o reconhecimento de voz do iPhone para transformar sua fala em texto."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true
