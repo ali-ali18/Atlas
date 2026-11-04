@@ -1,16 +1,21 @@
 import * as React from "react";
 import { TextInput, View } from "react-native";
 import { cn } from "@/lib/cn";
-import { colorTokens } from "@/lib/theme";
+import { colorTokens } from "@/lib/color-tokens";
+import { useSurfaces } from "@/lib/use-surfaces";
 import { useAppColorScheme } from "@/lib/use-theme";
 
-// Mesmos nomes do input-group do web (InputGroup, InputGroupAddon, InputGroupInput) e a mesma pele:
-// `rounded-4xl bg-input/50`, com `h-11`, `pl-5` no ícone e texto 15. Sem foco/aria-invalid por CSS: `invalid` pinta a borda.
-export function InputGroup({ className, invalid, ...props }: React.ComponentProps<typeof View> & { invalid?: boolean }) {
+// Mesmos nomes do input-group do web (InputGroup, InputGroupAddon, InputGroupInput), com a pele de chrome do app
+// (`chromeFill`/`chromeEdge`, a mesma do topo do chat), `h-11`, pílula, `pl-5` no ícone e texto 15. Sem foco/aria-invalid
+// por CSS: `invalid` pinta a borda de vermelho.
+export function InputGroup({ className, invalid, style, ...props }: React.ComponentProps<typeof View> & { invalid?: boolean }) {
+	const surfaces = useSurfaces();
+	const scheme = useAppColorScheme();
 	return (
 		<View
 			role="group"
-			className={cn("h-11 w-full min-w-0 flex-row items-center rounded-full border border-transparent bg-input/50", invalid && "border-destructive", className)}
+			style={[{ backgroundColor: surfaces.chromeFill, borderColor: invalid ? colorTokens[scheme].destructive : surfaces.chromeEdge }, style]}
+			className={cn("h-11 w-full min-w-0 flex-row items-center rounded-full border", className)}
 			{...props}
 		/>
 	);
