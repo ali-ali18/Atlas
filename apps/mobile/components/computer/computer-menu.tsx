@@ -2,7 +2,7 @@ import * as React from "react";
 import { Modal, Pressable, View } from "react-native";
 import { TOP_BAR_CONTROL, TOP_BAR_SIDE } from "@/components/chat/chat-top-bar";
 import { ThemedModalRoot } from "@/components/home/themed-modal";
-import { CheckIcon, CursorIcon } from "@/components/icons";
+import { CheckOnDarkIcon, CursorIcon } from "@/components/icons";
 import { Text } from "@/components/ui/text";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -23,7 +23,7 @@ export function ComputerMenu({ open, trackpad, onClose, onToggleTrackpad }: { op
 							<Text numberOfLines={1} className="min-w-0 flex-1 text-control" style={{ color: "#ffffff" }}>
 								Modo trackpad
 							</Text>
-							{trackpad ? <CheckIcon /> : null}
+							{trackpad ? <CheckOnDarkIcon /> : null}
 						</Pressable>
 					</View>
 				</Pressable>

@@ -34,7 +34,6 @@ import {
 	Mic as LucideMic,
 	Monitor as LucideMonitor,
 	MousePointer2 as LucideMousePointer2,
-	Check as LucideCheck,
 	Pencil as LucidePencil,
 	Pin as LucidePin,
 	PinOff as LucidePinOff,
@@ -139,7 +138,7 @@ export function CursorIcon({ size = 22, color = "#a1a1aa" }: IconProps & { color
 }
 
 /** Lucide `Check`. Cor fixa, como `CursorIcon`. */
-export function CheckIcon({ size = 20, color = "#ffffff" }: IconProps & { color?: string }) {
+export function CheckOnDarkIcon({ size = 20, color = "#ffffff" }: IconProps & { color?: string }) {
 	return <LucideCheck size={size} color={color} strokeWidth={2} />;
 }
 
