@@ -29,6 +29,7 @@ import { ImageViewer } from "@/components/image-viewer/image-viewer";
 import { useImageActions } from "@/components/image-viewer/use-image-actions";
 import { ViewerSheet } from "@/components/viewer/viewer-sheet";
 import { webChatUrl } from "@/lib/chat-links";
+import { groupConsecutiveImages } from "@/lib/image-group";
 import { collectViewerImages, viewerStartIndex } from "@/lib/image-viewer";
 import type { ChatItem, ReplyQuote } from "@/lib/chat-types";
 import { containsTable } from "@/lib/markdown";
@@ -97,8 +98,10 @@ export default function ChatScreen() {
 		},
 		[openWeb],
 	);
+	// O que se desenha: imagens seguidas viram um leque só (pura, depois do merge; o dedupe segue por evento).
+	const shownItems = React.useMemo(() => groupConsecutiveImages(chat.items), [chat.items]);
 	// Visualizador de imagens: todas as imagens do fio, abrindo na tocada (o índice é fixado ao abrir).
-	const viewerImages = React.useMemo(() => collectViewerImages(chat.items), [chat.items]);
+	const viewerImages = React.useMemo(() => collectViewerImages(shownItems), [shownItems]);
 	const [imageStart, setImageStart] = React.useState<number | null>(null);
 	const imageActions = useImageActions();
 	const openImage = React.useCallback((artifactId: string) => setImageStart(viewerStartIndex(viewerImages, artifactId)), [viewerImages]);
@@ -130,9 +133,9 @@ export default function ChatScreen() {
 	);
 
 	// A lista é invertida (o fim da conversa fica embaixo e o teclado não a desloca): mais novo primeiro.
-	const data = React.useMemo(() => [...chat.items].reverse(), [chat.items]);
-	const animateIds = useNewItemIds(chat.items, chat.ready);
-	const positions = React.useMemo(() => bubblePositions(chat.items), [chat.items]);
+	const data = React.useMemo(() => [...shownItems].reverse(), [shownItems]);
+	const animateIds = useNewItemIds(shownItems, chat.ready);
+	const positions = React.useMemo(() => bubblePositions(shownItems), [shownItems]);
 
 	if (!bot) {
 		return (
