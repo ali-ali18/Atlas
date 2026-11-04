@@ -146,9 +146,12 @@ describe("motor v3: ask em tool nativa usa o cartão genérico", () => {
 		expect(text).not.toContain("hunter2");
 		expect(text).not.toContain("abcdefghijklmnop");
 		expect(text).not.toContain("0123456789abcdefABCDEF");
-		const { cards } = await runV3([...direct("sandbox_download", args), say("x")]);
-		expect(cards[0]!.description).toBe(text);
-		expect(cards[0]!.callKey).toBe(toolCallKey("sandbox_download", args));
+		// De ponta a ponta só com campos do schema (campo desconhecido agora é recusado antes da política).
+		const declared = { url: args.url, use_browser_session: true, path: "downloads/relatorio.pdf" };
+		const { cards } = await runV3([...direct("sandbox_download", declared), say("x")]);
+		expect(cards[0]!.description).toBe(approvalDetails(declared));
+		expect(cards[0]!.description).toContain("depois=INJETADO");
+		expect(cards[0]!.callKey).toBe(toolCallKey("sandbox_download", declared));
 	});
 
 	it("args grandes demais para mostrar: recusa com motivo, sem cartão cego", async () => {

@@ -17,7 +17,7 @@ import { isSandboxTool } from "../tools/registry/sandbox-tools.js";
 import { dedupeLoginAsk, unattendedLoginOutcome } from "../engine-v2/login.js";
 import { TOOL_CALL_TOOL_NAME, TOOL_SEARCH_TOOL_NAME } from "../tools/tool-bridge.js";
 import { argProblems, coerceNumericText, unwrapEnvelope } from "./bridge.js";
-import { SKIPPED_FOR_APPROVAL, SKIPPED_FOR_PARK, SKIPPED_FOR_USER_MESSAGE, closestToolNames, honestError, invalidArgsMessage, missingRequiredArgs, normalizeToolName, notOfferedMessage, toolSignature, unknownToolMessage } from "./failures.js";
+import { SKIPPED_FOR_APPROVAL, SKIPPED_FOR_PARK, SKIPPED_FOR_USER_MESSAGE, closestToolNames, honestError, invalidArgsMessage, missingRequiredArgs, unknownArgs, unknownArgsMessage, normalizeToolName, notOfferedMessage, toolSignature, unknownToolMessage } from "./failures.js";
 import { decideCall, deniedMessage, spanPolicyDecision } from "./policy.js";
 import { BLOCKED_REPEATED } from "./repetition.js";
 import { pollSteer } from "./steering.js";
@@ -166,6 +166,8 @@ export function createToolsStep(run: V3Run, contextFor: ToolContextFactory) {
 		const argsKey = toolArgsKey(name, args);
 		const missing = missingRequiredArgs(tool, args);
 		if (missing.length > 0) return await refuse(call, sub, name, invalidArgsMessage(tool, `missing required ${missing.join(", ")}`), { argsKey });
+		const unknown = unknownArgs(tool, args);
+		if (unknown.length > 0) return await refuse(call, sub, name, unknownArgsMessage(tool, unknown), { argsKey });
 		// --- política (decide de verdade) ---
 		const entry = run.entryOf(name);
 		const pre = run.preTools.run(name, args, entry);
