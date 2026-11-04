@@ -3,6 +3,7 @@ import { autonomyExceptionMode, type EffectiveAutonomy } from "@workspace/shared
 import type { McpToolEntry } from "../mcp/registry.js";
 import { explainDecision, humanPresentFor, unknownToolResult, type PolicyContext, type PolicyResult } from "../policy/decide.js";
 import { mcpPolicyTool, nativePolicyTool } from "../policy/tool.js";
+import { V3_BROWSER_META } from "../tools/browser-v3/index.js";
 
 /**
  * No v3 a política DECIDE (no v2 ela só roda em sombra). Mesma função pura (`policy/decide.ts`) nos dois pontos do
@@ -30,7 +31,7 @@ function verdictFor(input: {
 	stage: "catalog" | "execute";
 	confirmAlways?: boolean;
 }): PolicyResult {
-	const tool = input.entry ? mcpPolicyTool(input.name, input.entry) : nativePolicyTool(input.name, input.args);
+	const tool = input.entry ? mcpPolicyTool(input.name, input.entry) : nativePolicyTool(input.name, input.args, V3_BROWSER_META);
 	if (!tool) return unknownToolResult(input.stage);
 	const mode = input.entry ? autonomyExceptionMode(input.autonomy, input.entry.autonomyMeta) : undefined;
 	return explainDecision(tool, {

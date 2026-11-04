@@ -9,9 +9,14 @@ import type { ToolContext, ToolResult } from "./registry/types.js";
 // não achei, vou tirar um print". No máximo um por passo (o motor controla),
 // só com modelo que enxerga imagem, e nunca falha a tool que o chamou.
 
-export type VisionReason = "capped" | "silent-click" | "not-found";
+export type VisionReason = "capped" | "silent-click" | "not-found" | "empty" | "challenge";
 
 const NOTES: Record<VisionReason, string> = {
+	// Motor v3: só sinal estrutural (árvore vazia, desafio humano) anexa a tela sozinho.
+	empty:
+		"[Vision fallback: the page tree came back empty, so a screenshot of the screen is attached. The content may be canvas, a closed shadow root or still rendering: read it from the image, or look again with view=\"text\".]",
+	challenge:
+		"[Vision fallback: the page shows a human-verification challenge, so a screenshot is attached to describe it to the user. Do not try to solve it.]",
 	"not-found":
 		"[Vision fallback: nothing in the page text matched, so a screenshot of the screen is attached. The control may be an icon without text or inside a \"…\" menu: look for it in the image and act by its mark ref (screenshot with marks=true: 12 = e12).]",
 	capped:

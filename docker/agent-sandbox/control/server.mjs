@@ -17,6 +17,7 @@ import { createPageReader } from "./reader.mjs";
 import { parseScreenshotOptions, scrotPlan } from "./screenshot-options.mjs";
 import { withMarks } from "./marks.mjs";
 import { HttpError, readJsonBody } from "./request-body.mjs";
+import { readPageState } from "./page-state.mjs";
 import { countUserProcesses, countViewerClients, createActivityTracker } from "./activity.mjs";
 
 const PORT = Number.parseInt(process.env.SANDBOX_CONTROL_PORT ?? "3080", 10);
@@ -156,6 +157,14 @@ const { readPage, findText } = createPageReader({
 	observeAction,
 	clickElement: actions.clickElement,
 });
+
+// v3: estado estruturado da página (aditivo: imagem antiga não manda; o runtime calcula o seu). Nunca falha a rota.
+async function withPageState(result) {
+	const p = peekPage();
+	const pageState = p ? await readPageState(p) : undefined;
+	// `secretGuard`: esta VM recusa digitar em campo de senha/código (secret-field.mjs); o runtime só confia na barreira se ela vier declarada.
+	return { ...result, ...(pageState ? { pageState } : {}), secretGuard: true };
+}
 
 function noteDomRefs() {
 	const p = peekPage();
@@ -309,7 +318,7 @@ const handleControlRequest = async (req, res) => {
 				return;
 			}
 			// Espera o DOM acalmar (SPA): devolve url/título finais + settled.
-			sendJson(res, 200, await navigate(url));
+			sendJson(res, 200, await withPageState(await navigate(url)));
 			return;
 		}
 
@@ -405,12 +414,12 @@ const handleControlRequest = async (req, res) => {
 		}
 
 		if (req.method === "POST" && req.url === "/browser/snapshot") {
-			sendJson(res, 200, await browserSnapshot((await readJsonBody(req)) ?? {}));
+			sendJson(res, 200, await withPageState(await browserSnapshot((await readJsonBody(req)) ?? {})));
 			return;
 		}
 
 		if (req.method === "POST" && req.url === "/browser/act") {
-			sendJson(res, 200, await browserAct((await readJsonBody(req)) ?? {}));
+			sendJson(res, 200, await withPageState(await browserAct((await readJsonBody(req)) ?? {})));
 			return;
 		}
 

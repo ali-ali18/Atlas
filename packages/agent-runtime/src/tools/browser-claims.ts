@@ -8,7 +8,7 @@ import { isLoginPathUrl } from "@workspace/shared";
 /** Tools que LEEM a tela/página (valem como conferência). */
 const OBSERVE_TOOLS = new Set(["browser_snapshot", "browser_read", "browser_text", "browser_links", "browser_find", "screenshot"]);
 /** Tools que MEXEM no navegador (a tela pode ter mudado). */
-const ACT_TOOLS = new Set(["navigate", "browser_act", "browser_click", "browser_type", "browser_wait", "click", "type", "key", "scroll", "login_fill", "computer"]);
+const ACT_TOOLS = new Set(["navigate", "browser_navigate", "browser_act", "browser_click", "browser_type", "browser_wait", "click", "type", "key", "scroll", "login_fill", "computer"]);
 
 export type BrowserWatch = {
 	/** Registra uma chamada concluída. `summary` é o texto devolvido ao modelo. */

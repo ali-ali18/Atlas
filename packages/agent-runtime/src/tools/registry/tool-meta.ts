@@ -1,3 +1,4 @@
+import { browserNavigateTool } from "../browser-v3/navigate.js";
 import { getResolvedDefinedTool, getToolRegistration } from "./index.js";
 import type { ToolEffect, ToolMetaFields, ToolRegistration } from "./types.js";
 
@@ -44,9 +45,15 @@ function metaOf(registration: ToolRegistration): ToolMetaFields | undefined {
 	};
 }
 
+/**
+ * Tools que só existem no motor v3 (navegador novo, PR6): fora do registro global, então o catálogo e o retrato do
+ * v1/v2 não mudam. As outras 3 do navegador v3 repetem nomes do registro (mesmo efeito) e rodam por `V3Run.toolHandlers`.
+ */
+const V3_ONLY_META: ReadonlyMap<string, ToolMetaFields> = new Map([[browserNavigateTool.name, browserNavigateTool.meta]]);
+
 /** Tool declarada com `defineTool`/`defineRawTool` (o metadado vem dela, não da tabela). */
 export function isDefinedTool(name: string): boolean {
-	return getToolRegistration(name)?.defined === true || getResolvedDefinedTool(name) !== undefined;
+	return getToolRegistration(name)?.defined === true || getResolvedDefinedTool(name) !== undefined || V3_ONLY_META.has(name);
 }
 
 /**
@@ -55,7 +62,7 @@ export function isDefinedTool(name: string): boolean {
  */
 export function getToolMeta(name: string): ToolMetaFields | undefined {
 	const registered = getToolRegistration(name);
-	return (registered && metaOf(registered)) ?? getResolvedDefinedTool(name)?.meta;
+	return (registered && metaOf(registered)) ?? getResolvedDefinedTool(name)?.meta ?? V3_ONLY_META.get(name);
 }
 /**
  * Efeito de uma tool de conector MCP. Deriva da classificação que já existe

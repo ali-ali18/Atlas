@@ -10,6 +10,7 @@ import { redactSecrets } from "@workspace/shared";
  *   from-run      cenário a partir de um run de produção exportado (inspetor + eventos)
  *   list          cenários disponíveis
  *   motor-v1-vs-v2  motor atual × motor novo nas mesmas tarefas (roteiro; `--live` gasta tokens)
+ *   navegador     bench do navegador (8 páginas locais, 4 tools do v3 × tools atuais; roteiro grátis ou `--models claude-*`)
  *   bridge        avaliação da ponte tool_search/tool_call do v3 × "carrega e anexa" do v2 (`--mock` grátis; real gasta tokens)
  * A chave (`OPENROUTER_API_KEY`) vem do ambiente ou de `--env-file`; nunca é impressa nem gravada.
  */
@@ -39,7 +40,7 @@ export function parseCliArgs(argv: string[]): CliArgs {
 			index += 1;
 		}
 	}
-	const commands = new Set(["run", "compare", "from-run", "list", "motor-v1-vs-v2", "bridge"]);
+	const commands = new Set(["run", "compare", "from-run", "list", "motor-v1-vs-v2", "navegador", "bridge"]);
 	let command = positional[0] && commands.has(positional[0]) ? positional.shift()! : "run";
 	// `--suite bridge` é o mesmo que o comando `bridge`.
 	if (command === "run" && flags.suite === "bridge") command = "bridge";
@@ -90,6 +91,12 @@ motor-v1-vs-v2          compara o motor atual (v1) e o novo (v2) em 11 tarefas d
   --budget-usd N        orçamento do trabalho longo no v2 (0.05 a 20; padrão 0.50)   --minutes N  (1 a 120; padrão 20)
   --price-in N          US$/Mtok de entrada para o custo estimado (padrão 1)   --price-out N (padrão 5)
   --out ARQ             grava o relatório markdown (ex.: docs/ops/motor-v1-vs-v2.md); sem isto imprime
+navegador               bench do navegador: 8 páginas locais no Chromium, tarefas com checagem determinística do estado final
+  (padrão)              roteiro (mock): sem rede, sem chave, grátis; compara as 4 tools do v3 com as atuais
+  --models a,b          modelos reais (claude-* direto na Anthropic com ANTHROPIC_API_KEY/CLAUDE_KEY; outro id vai ao OpenRouter)
+  --tools v3,legacy     conjuntos de tools (padrão: os dois)   --tasks ids   --repeat N   --timeout S
+  --max-cost USD        não inicia novas execuções depois do teto   --prices ARQ  preços em JSON (promptUsdPerMTok/completionUsdPerMTok)
+  --estimate            só imprime a estimativa de custo (roda o mock para medir os tokens)   --out ARQ  grava o relatório
 
 bridge (ou run --suite bridge)   10 tarefas com a tool certa FORA do núcleo e 50 conectores falsos: ponte (v3) × carrega e anexa (v2)
   --engine v2|v3|both   motor(es) (padrão: both; o critério "não pior que o v2" precisa dos dois)
@@ -179,6 +186,39 @@ async function commandFromRun(args: CliArgs): Promise<number> {
 	console.log(`cenário gravado em ${resolve(out)} · redigidos: ${Object.entries(redactions).map(([kind, count]) => `${kind} ${count}`).join(", ")}`);
 	console.log("Revise o arquivo, ajuste o título e adicione as expectativas antes de commitar.");
 	return 0;
+}
+
+async function commandBrowserBench(args: CliArgs): Promise<number> {
+	const bench = await import("./browser-bench/index.js");
+	const models = list(flag(args, "models"));
+	const modes = list(flag(args, "tools"));
+	for (const mode of modes) if (mode !== "v3" && mode !== "legacy") throw new Error(`--tools aceita v3 e legacy (recebido: ${mode}).`);
+	const prices = flag(args, "prices") ? (JSON.parse(await readFile(resolve(flag(args, "prices")!), "utf8")) as import("./browser-bench/providers.js").ClaudePrice[]) : undefined;
+	const common = { ...(modes.length ? { modes: modes as Array<"v3" | "legacy"> } : {}), only: list(flag(args, "tasks")), ...(prices ? { prices } : {}) };
+	const print = (run: import("./browser-bench/index.js").RunMetrics) => console.log(`${run.completed ? "ok    " : "FALHOU"} ${run.taskId.padEnd(18)} ${run.mode.padEnd(6)} ${run.model} · ${run.steps} passos · ${run.promptTokens} tok · ${run.detail}${run.error ? ` · erro: ${run.error}` : ""}`);
+	if (args.flags.estimate === true) {
+		if (models.length) bench.assertKeysFor(models, process.env, prices);
+		const { runs } = await bench.runBrowserBench({ models: [], ...common });
+		console.log(bench.formatEstimate(runs, number(flag(args, "repeat"), 1)));
+		return 0;
+	}
+	if (models.length) console.log(`bench REAL: ${models.join(", ")} (gasta tokens${flag(args, "max-cost") ? `; teto US$ ${flag(args, "max-cost")}` : "; sem --max-cost"})`);
+	const { runs, stoppedByCost } = await bench.runBrowserBench({
+		models,
+		...common,
+		repeat: number(flag(args, "repeat"), 1),
+		timeoutMs: number(flag(args, "timeout"), 180) * 1000,
+		...(flag(args, "max-cost") ? { maxCostUsd: number(flag(args, "max-cost"), Number.POSITIVE_INFINITY) } : {}),
+		onProgress: print,
+	});
+	const report = bench.formatReport(runs, { title: models.length ? "Bench do navegador (modelos reais)" : "Bench do navegador (roteiro, grátis)", ...(stoppedByCost ? { note: "Parou no teto de custo (--max-cost): rodada incompleta." } : {}) });
+	const out = flag(args, "out");
+	if (out) {
+		await mkdir(dirname(resolve(out)), { recursive: true });
+		await writeFile(resolve(out), report);
+		console.log(`relatório gravado em ${resolve(out)}`);
+	} else console.log(`\n${report}`);
+	return runs.every((run) => run.completed) ? 0 : 1;
 }
 
 async function commandList(args: CliArgs): Promise<number> {
@@ -313,6 +353,7 @@ export async function main(argv: string[]): Promise<number> {
 	if (args.command === "from-run") return commandFromRun(args);
 	if (args.command === "list") return commandList(args);
 	if (args.command === "motor-v1-vs-v2") return commandEngineCompare(args);
+	if (args.command === "navegador") return commandBrowserBench(args);
 	if (args.command === "bridge") return commandBridge(args);
 	return commandRun(args);
 }
