@@ -76,7 +76,10 @@ export async function createConversation(apiFetch: ApiFetch): Promise<string> {
 	return body.id;
 }
 
-export type CreateRunInput = { content: string; conversationId: string; botId: string; decisionConfirmId?: string; clientKey?: string; replyToMessageId?: string; model?: RunModelFields };
+/** Anexo já enviado ao servidor (imagem ou arquivo, no mesmo array, como no web). */
+export type AttachmentRef = { artifactId: string };
+
+export type CreateRunInput = { content: string; conversationId: string; botId: string; decisionConfirmId?: string; clientKey?: string; replyToMessageId?: string; model?: RunModelFields; attachments?: AttachmentRef[] };
 export type CreateRunResult = { runId: string | null; status: string };
 
 /**
@@ -86,6 +89,7 @@ export type CreateRunResult = { runId: string | null; status: string };
 export async function createRun(apiFetch: ApiFetch, input: CreateRunInput): Promise<CreateRunResult> {
 	const body = {
 		messages: [{ role: "user", content: input.content }],
+		...(input.attachments?.length ? { attachments: input.attachments } : {}),
 		conversationId: input.conversationId,
 		botId: input.botId,
 		...(input.model?.model ? { model: input.model.model } : {}),
@@ -104,8 +108,8 @@ export async function createRun(apiFetch: ApiFetch, input: CreateRunInput): Prom
 }
 
 /** Fala enviada com o run em andamento: entra nele (`mode: "join"`), como no web. */
-export async function createRunInput(apiFetch: ApiFetch, runId: string, content: string, clientKey: string, replyToMessageId?: string): Promise<void> {
-	const body = { content, mode: "join", clientKey, ...(replyToMessageId ? { replyToMessageId } : {}) };
+export async function createRunInput(apiFetch: ApiFetch, runId: string, content: string, clientKey: string, replyToMessageId?: string, attachments?: AttachmentRef[]): Promise<void> {
+	const body = { content, mode: "join", clientKey, ...(replyToMessageId ? { replyToMessageId } : {}), ...(attachments?.length ? { attachments } : {}) };
 	await json(apiFetch, `/v1/runs/${encodeURIComponent(runId)}/inputs`, { method: "POST", body: JSON.stringify(body) });
 }
 

@@ -4,6 +4,12 @@ import { LayoutAnimation, Linking, Platform, Pressable, TextInput, useWindowDime
 import { useReducedMotion } from "react-native-reanimated";
 
 import type { ReplyQuote } from "@/lib/chat-types";
+import { AttachmentSheet, type AttachmentAction } from "./attachment-sheet";
+import { ComposerAttachments } from "./composer-attachments";
+import { pickDocuments, pickFromCamera, pickPhotos, type PickOutcome } from "@/lib/attachment-pickers";
+import type { OutgoingAttachment } from "@/lib/attachments";
+import type { ApiFetch } from "@/lib/home-sync";
+import { useAttachments } from "@/lib/use-attachments";
 import { DictationBar } from "./dictation-bar";
 import { MARKER_HEIGHT, MarkerChip } from "./marker-chip";
 import { MentionPopup } from "./mention-popup";
@@ -57,9 +63,12 @@ type ComposerProps = {
 	/** Primeiro plano sobre o destaque (ícones do botão). */
 	foreground: string;
 	running: boolean;
-	onSend: (text: string) => void;
+	/** Sessão para subir os anexos ao escolher (imagem e arquivo). */
+	apiFetch: ApiFetch;
+	/** `attachments`: os já enviados ao servidor (nunca chega com upload pendente); pode vir sem texto. */
+	onSend: (text: string, attachments?: OutgoingAttachment[]) => void;
 	onStop: () => void;
-	onSoon: (what: "anexos" | "voz") => void;
+	onSoon: (what: "voz") => void;
 	/** Abre a folha "Selecionar modelo" (a pílula ao lado do "+"). */
 	onModel: () => void;
 	/** O modelo atual (nome curto + esforço) que a pílula mostra. */
@@ -95,7 +104,7 @@ type ComposerProps = {
  * Estrutura e borda como no `chat-composer` do web: uma View só, com `chromeEdge` e `chromeFill` (lib/surfaces.ts), colada na
  * pílula (sem respiro nem wrapper), com o raio total direto nela, nos dois formatos (pílula e retângulo).
  */
-export function Composer({ initialText, botName, color, foreground, running, onSend, onStop, onSoon, onModel, modelPill, holdWriting, onWriting, replyTo, onCancelReply, mentionBots = NO_BOTS, skills = null, skillsLoading, skillsFailed, onSlash, initialMarkers, onCompact }: ComposerProps) {
+export function Composer({ initialText, botName, color, foreground, running, apiFetch, onSend, onStop, onSoon, onModel, modelPill, holdWriting, onWriting, replyTo, onCancelReply, mentionBots = NO_BOTS, skills = null, skillsLoading, skillsFailed, onSlash, initialMarkers, onCompact }: ComposerProps) {
 	// `color` é o destaque do bot (`botAccent`): o primeiro plano é o que vem dele, sempre branco.
 	const onColor = foreground;
 	const scheme = useAppColorScheme();
@@ -163,6 +172,29 @@ export function Composer({ initialText, botName, color, foreground, running, onS
 	}, [hasMarkers]);
 	const filled = hasContent(markers, text);
 	const hasText = filled;
+	// Anexos: sobem ao escolher; o envio só libera com tudo pronto. `attachmentsRef` é para o callback do ditado, que vive além de um render.
+	const attachments = useAttachments(apiFetch);
+	const attachmentsRef = React.useRef(attachments);
+	attachmentsRef.current = attachments;
+	const hasAttachments = attachments.drafts.length > 0;
+	const [sheetOpen, setSheetOpen] = React.useState(false);
+	const runPick = (outcome: PickOutcome) => {
+		if (outcome.kind === "picked") attachments.add(outcome.files);
+		else if (outcome.kind === "denied") setPickNotice(outcome.what === "camera" ? "Sem permissão para a câmera. Libere o acesso nas configurações." : "Sem permissão para as fotos. Libere o acesso nas configurações.");
+		else if (outcome.kind === "failed") setPickNotice("Não consegui abrir agora. Tente de novo.");
+	};
+	const [pickNotice, setPickNotice] = React.useState<string | null>(null);
+	const pickAttachment = (action: AttachmentAction) => {
+		setSheetOpen(false);
+		setPickNotice(null);
+		attachments.dismissNotice();
+		// O seletor nativo só abre depois que a folha terminou de fechar (no iOS, apresentar por cima de um Modal em saída falha).
+		setTimeout(() => {
+			if (action === "camera") void pickFromCamera().then(runPick);
+			else if (action === "photos") void pickPhotos(attachments.imageSlots).then(runPick);
+			else void pickDocuments().then(runPick);
+		}, 350);
+	};
 	const inputRef = React.useRef<React.ComponentRef<typeof TextInput>>(null);
 	const replyId = replyTo?.id;
 	// Tocou em "Responder": o teclado abre no campo, pronto para digitar.
@@ -174,7 +206,7 @@ export function Composer({ initialText, botName, color, foreground, running, onS
 	const reducedMotion = useReducedMotion();
 	// Modo de escrita: campo com foco ou com texto (ou a folha de modelo aberta). Só nele aparece a pílula e o composer
 	// vira duas linhas (campo em cima, "+" e pílula à esquerda, microfone/enviar à direita). Fora dele, a pílula de uma linha.
-	const writing = focused || hasText || holdWriting === true;
+	const writing = focused || hasText || hasAttachments || holdWriting === true;
 	const open = stacked || writing;
 	const animate = () => {
 		if (!reducedMotion && Platform.OS !== "web") LayoutAnimation.configureNext(LayoutAnimation.create(180, LayoutAnimation.Types.easeInEaseOut, LayoutAnimation.Properties.opacity));
@@ -195,7 +227,8 @@ export function Composer({ initialText, botName, color, foreground, running, onS
 	const maxFieldHeight = Math.round(useWindowDimensions().height * 0.4);
 	// Largura do grupo da direita: microfone + botão da cor do bot.
 	const rightWidth = BUTTON * 2 + 8;
-	const mode = hasText ? "send" : running ? "stop" : "voice";
+	const mode = hasText || hasAttachments ? "send" : running ? "stop" : "voice";
+	const sendBlocked = mode === "send" && !attachments.ready;
 	const clearField = () => {
 		setText("");
 		setMarkers([]);
@@ -211,8 +244,10 @@ export function Composer({ initialText, botName, color, foreground, running, onS
 		const now = latest.current;
 		const result = resolveDictation(outcome, now.text, spoken, fieldMaxLength(now.markers));
 		if (outcome === "cancel") return;
-		if (result.send) {
-			onSend(composeMessage(now.markers, result.text));
+		// Anexo ainda subindo: o falado fica no campo para revisar, em vez de enviar sem eles.
+		if (result.send && attachmentsRef.current.ready) {
+			onSend(composeMessage(now.markers, result.text), attachmentsRef.current.outgoing());
+			attachmentsRef.current.clear();
 			clearField();
 			return;
 		}
@@ -237,13 +272,15 @@ export function Composer({ initialText, botName, color, foreground, running, onS
 	const press = () => {
 		if (mode === "send") {
 			// `/compact [foco]` escrito à mão também é o comando (como no web); com o bot respondendo segue como texto.
-			const command = onCompact && !running && markers.length === 0 ? parseCompactCommand(text) : null;
+			if (!attachments.ready) return;
+			const command = onCompact && !running && markers.length === 0 && !hasAttachments ? parseCompactCommand(text) : null;
 			if (command) {
 				onCompact?.(command.focus);
 				clearField();
 				return;
 			}
-			onSend(composeMessage(markers, text));
+			onSend(composeMessage(markers, text), attachments.outgoing());
+			attachments.clear();
 			clearField();
 		} else if (mode === "stop") onStop();
 		else onSoon("voz");
@@ -281,8 +318,9 @@ export function Composer({ initialText, botName, color, foreground, running, onS
 		<View className="mb-2 gap-2" style={{ marginHorizontal: 19.5 }}>
 			{trigger ? <MentionPopup state={trigger} loading={skillsLoading} failed={skillsFailed} limitReached={skillLimit} onRetry={onSlash} onPick={pick} onPressChange={(down) => { pressing.current = down; }} commandBusy={running} /> : null}
 			{dictationNotice ? <DictationNotice problem={dictationNotice} /> : null}
-			<View className="overflow-hidden border" style={{ borderRadius: (open || replyTo) && !dictating ? STACKED_RADIUS : PILL_RADIUS, borderColor: surfaces.chromeEdge, backgroundColor: surfaces.chromeFill }}>
+			<View className="overflow-hidden border" style={{ borderRadius: (open || replyTo || hasAttachments) && !dictating ? STACKED_RADIUS : PILL_RADIUS, borderColor: surfaces.chromeEdge, backgroundColor: surfaces.chromeFill }}>
 				{replyTo && onCancelReply ? <ReplyChip quote={replyTo} onCancel={onCancelReply} /> : null}
+				{!dictating ? <ComposerAttachments drafts={attachments.drafts} notice={pickNotice ?? attachments.notice} onRemove={attachments.remove} /> : null}
 				{dictating ? (
 					<DictationBar spoken={dictation.spoken} level={dictation.level} color={color} foreground={onColor} busy={dictation.phase === "stopping"} onCancel={dictation.cancel} onStop={() => dictation.stop("review")} onSend={() => dictation.stop("send")} />
 				) : null}
@@ -393,7 +431,7 @@ export function Composer({ initialText, botName, color, foreground, running, onS
 						pointerEvents="box-none"
 					>
 						<View className="min-w-0 shrink flex-row items-center gap-2">
-							<Pressable role="button" accessibilityLabel="Adicionar" onPress={() => onSoon("anexos")} style={{ width: BUTTON, height: BUTTON, backgroundColor: surfaces.chromeControl }} className="items-center justify-center rounded-full active:opacity-70">
+							<Pressable role="button" accessibilityLabel="Adicionar" onPress={() => setSheetOpen(true)} style={{ width: BUTTON, height: BUTTON, backgroundColor: surfaces.chromeControl }} className="items-center justify-center rounded-full active:opacity-70">
 								<PlusIcon size={18} />
 							</Pressable>
 							{writing ? (
@@ -416,9 +454,11 @@ export function Composer({ initialText, botName, color, foreground, running, onS
 							</Pressable>
 							<Pressable
 								role="button"
-								accessibilityLabel={mode === "send" ? "Enviar" : mode === "stop" ? "Parar" : "Voz (em breve)"}
+								accessibilityLabel={sendBlocked ? "Enviar (aguardando os anexos)" : mode === "send" ? "Enviar" : mode === "stop" ? "Parar" : "Voz (em breve)"}
 								onPress={press}
-								style={{ backgroundColor: color, width: BUTTON, height: BUTTON }}
+								disabled={sendBlocked}
+								accessibilityState={{ disabled: sendBlocked }}
+								style={{ backgroundColor: color, width: BUTTON, height: BUTTON, opacity: sendBlocked ? 0.5 : 1 }}
 								className="items-center justify-center rounded-full active:opacity-80"
 							>
 								{mode === "send" ? <ArrowUpIcon size={18} color={onColor} /> : mode === "stop" ? <StopIcon size={16} color={onColor} /> : <WaveformIcon size={18} color={onColor} />}
@@ -427,6 +467,7 @@ export function Composer({ initialText, botName, color, foreground, running, onS
 					</View>
 				</View>
 			</View>
+			<AttachmentSheet open={sheetOpen} onPick={pickAttachment} onClose={() => setSheetOpen(false)} />
 		</View>
 	);
 }

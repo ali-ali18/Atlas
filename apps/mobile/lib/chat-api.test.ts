@@ -129,3 +129,18 @@ describe("compactConversation (/compact)", () => {
 		expect(compactErrorText(new ChatApiError("x", 401))).toBe("Sua sessão expirou. Entre de novo.");
 	});
 });
+
+describe("anexos no corpo", () => {
+	it("createRun manda attachments no topo; sem anexo a chave não existe", async () => {
+		const { apiFetch, calls } = fake();
+		await createRun(apiFetch, { content: "", conversationId: "c1", botId: "b1", attachments: [{ artifactId: "a1" }, { artifactId: "f1" }] });
+		expect(calls[0]!.body).toMatchObject({ attachments: [{ artifactId: "a1" }, { artifactId: "f1" }] });
+		await createRun(apiFetch, { content: "oi", conversationId: "c1", botId: "b1", attachments: [] });
+		expect(calls[1]!.body).not.toHaveProperty("attachments");
+	});
+	it("createRunInput também leva os anexos", async () => {
+		const { apiFetch, calls } = fake();
+		await createRunInput(apiFetch, "r1", "oi", "k", undefined, [{ artifactId: "a1" }]);
+		expect(calls[0]!.body).toEqual({ content: "oi", mode: "join", clientKey: "k", attachments: [{ artifactId: "a1" }] });
+	});
+});

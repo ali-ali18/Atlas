@@ -1033,3 +1033,39 @@ describe("marcar como lida ao ver a conversa", () => {
 		expect(seen.map((info) => info.lastMessageId)).toEqual(["m3"]);
 	});
 });
+
+describe("envio com anexos", () => {
+	const image = { artifactId: "a1", route: "image" as const, uri: "file:///c/a.jpg", name: "a.jpg", mime: "image/jpeg", width: 800, height: 600 };
+	const file = { artifactId: "f1", route: "file" as const, uri: "file:///c/r.pdf", name: "r.pdf", mime: "application/pdf", size: 10 };
+	it("o run leva imagens e arquivos no mesmo array e o fio mostra os cartões na hora", async () => {
+		const { controller, calls } = setup();
+		await controller.open();
+		controller.send("olha isso", undefined, [image, file]);
+		const live = controller.getSnapshot().live.items;
+		expect(live.map((item) => item.kind)).toEqual(["user", "images", "web-card"]);
+		await flush();
+		expect(calls.createRun[0]).toMatchObject({ content: "olha isso", attachments: [{ artifactId: "a1" }, { artifactId: "f1" }] });
+	});
+	it("só anexo, sem texto: envia e não cria balão vazio", async () => {
+		const { controller, calls } = setup();
+		await controller.open();
+		controller.send("   ", undefined, [file]);
+		expect(controller.getSnapshot().live.items.map((item) => item.kind)).toEqual(["web-card"]);
+		await flush();
+		expect(calls.createRun[0]).toMatchObject({ content: "", attachments: [{ artifactId: "f1" }] });
+	});
+	it("sem texto e sem anexo continua não enviando nada", async () => {
+		const { controller, calls } = setup();
+		await controller.open();
+		controller.send("  ");
+		await flush();
+		expect(calls.createRun).toHaveLength(0);
+	});
+	it("falha no envio tira os cartões otimistas junto com o balão", async () => {
+		const { controller } = setup({ api: { createRun: async () => Promise.reject(new ChatApiError("x", 500)) } });
+		await controller.open();
+		controller.send("oi", undefined, [image, file]);
+		await flush();
+		expect(controller.getSnapshot().live.items).toEqual([]);
+	});
+});

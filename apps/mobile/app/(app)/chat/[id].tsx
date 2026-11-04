@@ -53,8 +53,8 @@ const JUMP_THRESHOLD = 360;
 /** Respiro entre a última mensagem (ou a linha "Pensando…") e o composer que flutua sobre a lista. */
 const LAST_MESSAGE_GAP = 16;
 
-type Soon = "anexos" | "voz" | "compartilhar" | null;
-const SOON_TITLE: Record<NonNullable<Soon>, string> = { anexos: "Anexos", voz: "Voz", compartilhar: "Compartilhar como modelo" };
+type Soon = "voz" | "compartilhar" | null;
+const SOON_TITLE: Record<NonNullable<Soon>, string> = { voz: "Voz", compartilhar: "Compartilhar como modelo" };
 
 const NO_IDS: ReadonlySet<string> = new Set();
 
@@ -321,8 +321,8 @@ export default function ChatScreen() {
 					) : null}
 					{/* Escondido (não desmontado) durante a busca: o texto que o usuário digitava continua lá quando a barra fecha. */}
 					<View style={search.open ? { display: "none" } : undefined}>
-					<Composer onCompact={bot.memberIds.length > 0 ? undefined : (focus) => void chat.compact(focus)} mentionBots={mentionBots} skills={bot.memberIds.length > 0 ? null : composerSkills.skills} skillsLoading={composerSkills.loading} skillsFailed={composerSkills.failed} onSlash={composerSkills.load} initialText={typeof draft === "string" ? draft : undefined} botName={bot.name} color={color} foreground={foreground} running={chat.running} onSend={(text) => {
-							chat.send(text, replyTo ?? undefined);
+					<Composer onCompact={bot.memberIds.length > 0 ? undefined : (focus) => void chat.compact(focus)} mentionBots={mentionBots} skills={bot.memberIds.length > 0 ? null : composerSkills.skills} skillsLoading={composerSkills.loading} skillsFailed={composerSkills.failed} onSlash={composerSkills.load} initialText={typeof draft === "string" ? draft : undefined} botName={bot.name} color={color} foreground={foreground} running={chat.running} apiFetch={apiFetch} onSend={(text, attachments) => {
+							chat.send(text, replyTo ?? undefined, attachments);
 							setReplyTo(null);
 						}} onStop={chat.stop} onSoon={(what) => setSoon(what)} onModel={() => setModelOpen(true)} modelPill={modelPill} holdWriting={modelOpen} onWriting={chat.modelSelector.loadCatalog} replyTo={replyTo} onCancelReply={() => setReplyTo(null)} />
 					</View>

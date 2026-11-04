@@ -5,7 +5,9 @@
 import type { AgentActivity, CompactConversationResponse, ComputerUseEvent, LoginConnector } from "@workspace/shared";
 import type { RunModelFields } from "./model-choice";
 import { proposalErrorText, type BotProfileResult, type BotProposalResult, type ResolveDecision } from "./card-api";
-import { ChatApiError, compactErrorText, isModelRejection, ModelUnavailableError, isNetworkError, isUnauthorized, sendErrorText, type CreateRunInput, type CreateRunResult, type ResumeOptions } from "./chat-api";
+import { optimisticAttachmentItems } from "./attachment-items";
+import { toRefs, type OutgoingAttachment } from "./attachments";
+import { ChatApiError, compactErrorText, isModelRejection, ModelUnavailableError, isNetworkError, isUnauthorized, sendErrorText, type AttachmentRef, type CreateRunInput, type CreateRunResult, type ResumeOptions } from "./chat-api";
 import type { ConnectResultView } from "./connect-app";
 import { connectorCanAuthorize, connectorOf } from "./request-cards";
 import { homeBotFromProposal, withProposalResolution, type CardResolution } from "./bot-cards";
@@ -23,7 +25,7 @@ export type ChatApi = {
 	fetchPage: (conversationId: string, options: { limit?: number; before?: PageCursor | null }) => Promise<MessagePage>;
 	createConversation: () => Promise<string>;
 	createRun: (input: CreateRunInput) => Promise<CreateRunResult>;
-	createRunInput: (runId: string, content: string, clientKey: string, replyToMessageId?: string) => Promise<void>;
+	createRunInput: (runId: string, content: string, clientKey: string, replyToMessageId?: string, attachments?: AttachmentRef[]) => Promise<void>;
 	cancelRun: (runId: string) => Promise<void>;
 	getRunStatus: (runId: string) => Promise<string | null>;
 	listActiveRuns: (conversationId: string) => Promise<{ id: string; status: string }[]>;
@@ -101,7 +103,7 @@ const ENDED_RUN_STATUSES = new Set(["completed", "failed", "cancelled", "budget_
 const ACTIVE_CONFLICT = "A conversa já tem uma tarefa em andamento";
 const DEFAULT_RETRY = [400, 1_000, 2_000] as const;
 
-type Queued = { text: string; optimisticId: string; replyToMessageId?: string };
+type Queued = { text: string; optimisticIds: string[]; replyToMessageId?: string; attachments?: AttachmentRef[] };
 
 function initial(): ChatSnapshot {
 	return { persisted: [], live: createLiveState(), hasMore: false, loadingOlder: false, following: false, creating: false, ready: false, sync: initialSync, error: null, compacting: false, decisions: {}, answered: {}, cards: {}, loginsDone: {}, connects: {} };
@@ -399,40 +401,48 @@ export class ChatController {
 			return;
 		}
 		// O gravado assumiu: só o que ainda não foi gravado (balão do usuário, erro do run) fica ao vivo.
-		const keep = live.items.filter((item) => item.id === "cu-run-error" || (item.kind === "user" && item.id.startsWith("msg-")));
+		const keep = live.items.filter((item) => item.id === "cu-run-error" || ((item.kind === "user" || item.kind === "images" || item.kind === "web-card") && item.id.startsWith("msg-")));
 		this.set({ live: { ...live, items: keep, runId: null, phase: "idle", tool: null } });
 	}
 
 	// ---- envio ------------------------------------------------------------------------------------------
 
 	/** `replyTo`: a mensagem que esta responde; o balão otimista já mostra a citação e o servidor recebe só o id. */
-	send(text: string, replyTo?: ReplyQuote): void {
+	send(text: string, replyTo?: ReplyQuote, outgoing: readonly OutgoingAttachment[] = []): void {
 		const trimmed = text.trim();
-		if (!trimmed || this.disposed) return;
+		if ((!trimmed && outgoing.length === 0) || this.disposed) return;
 		this.set({ error: null });
-		const optimistic: ChatItem = { id: `msg-${this.now}-${Math.random().toString(36).slice(2, 7)}`, kind: "user", text: trimmed, createdAt: new Date(this.now).toISOString(), ...(replyTo ? { replyTo } : {}) };
+		const baseId = `msg-${this.now}-${Math.random().toString(36).slice(2, 7)}`;
+		const createdAt = new Date(this.now).toISOString();
+		// Só anexo, sem texto: não há balão de fala (como no web); os cartões bastam.
+		const optimistic: ChatItem[] = [
+			...(trimmed ? [{ id: baseId, kind: "user" as const, text: trimmed, createdAt, ...(replyTo ? { replyTo } : {}) }] : []),
+			...optimisticAttachmentItems(baseId, outgoing, createdAt),
+		];
+		const optimisticIds = optimistic.map((item) => item.id);
+		const attachments = toRefs(outgoing);
 		const live = this.state.live;
-		this.set({ live: { ...live, items: [...live.items, optimistic], phase: live.phase === "idle" ? "thinking" : live.phase } });
+		this.set({ live: { ...live, items: [...live.items, ...optimistic], phase: live.phase === "idle" ? "thinking" : live.phase } });
 		// Um envio ainda criando o run: a fala entra na fila (nada se perde) e segue como input do run assim que ele existir.
 		if (this.state.creating) {
-			this.queue.push({ text: trimmed, optimisticId: optimistic.id, ...(replyTo ? { replyToMessageId: replyTo.id } : {}) });
+			this.queue.push({ text: trimmed, optimisticIds, ...(replyTo ? { replyToMessageId: replyTo.id } : {}), ...(attachments.length ? { attachments } : {}) });
 			return;
 		}
-		void this.dispatch(trimmed, optimistic.id, replyTo?.id);
+		void this.dispatch(trimmed, optimisticIds, replyTo?.id, attachments);
 	}
 
-	private dropOptimistic(id: string): void {
+	private dropOptimistic(ids: readonly string[]): void {
 		const live = this.state.live;
-		this.set({ live: { ...live, items: live.items.filter((item) => item.id !== id), phase: this.abort ? live.phase : "idle" } });
+		this.set({ live: { ...live, items: live.items.filter((item) => !ids.includes(item.id)), phase: this.abort ? live.phase : "idle" } });
 	}
 
-	private async dispatch(text: string, optimisticId: string, replyToMessageId?: string): Promise<void> {
+	private async dispatch(text: string, optimisticIds: string[], replyToMessageId?: string, attachments: AttachmentRef[] = []): Promise<void> {
 		const generation = this.generation;
 		try {
 			const liveRun = this.abort ? this.runId : null;
 			if (liveRun) {
 				try {
-					await this.deps.api.createRunInput(liveRun, text, this.newKey(), replyToMessageId);
+					await this.deps.api.createRunInput(liveRun, text, this.newKey(), replyToMessageId, attachments);
 					return;
 				} catch (reason) {
 					// O run terminou entre o toque e o envio: cai no fluxo de run novo.
@@ -440,7 +450,7 @@ export class ChatController {
 				}
 			}
 			this.set({ creating: true });
-			const created = await this.startRun(text, undefined, replyToMessageId);
+			const created = await this.startRun(text, undefined, replyToMessageId, attachments);
 			if (generation !== this.generation) {
 				this.stopRequested = false;
 				return;
@@ -467,7 +477,7 @@ export class ChatController {
 		} catch (reason) {
 			this.set({ creating: false });
 			this.stopRequested = false;
-			this.dropOptimistic(optimisticId);
+			this.dropOptimistic(optimisticIds);
 			this.fail(reason);
 			if (!this.disposed) this.set({ error: sendErrorText(reason) });
 			await this.drainQueue(null);
@@ -482,14 +492,14 @@ export class ChatController {
 			const [first, ...rest] = queued;
 			if (!first) return;
 			this.queue.push(...rest);
-			await this.dispatch(first.text, first.optimisticId, first.replyToMessageId);
+			await this.dispatch(first.text, first.optimisticIds, first.replyToMessageId, first.attachments);
 			return;
 		}
 		for (const item of queued) {
 			try {
-				await this.deps.api.createRunInput(runId, item.text, this.newKey(), item.replyToMessageId);
+				await this.deps.api.createRunInput(runId, item.text, this.newKey(), item.replyToMessageId, item.attachments);
 			} catch (reason) {
-				this.dropOptimistic(item.optimisticId);
+				this.dropOptimistic(item.optimisticIds);
 				this.fail(reason);
 				this.set({ error: sendErrorText(reason) });
 			}
@@ -497,7 +507,7 @@ export class ChatController {
 	}
 
 	/** Cria o run; com a conversa ainda ocupada (409), espera um pouco e tenta de novo, como o web. */
-	private async startRun(content: string, decisionConfirmId?: string, replyToMessageId?: string): Promise<CreateRunResult> {
+	private async startRun(content: string, decisionConfirmId?: string, replyToMessageId?: string, attachments: AttachmentRef[] = []): Promise<CreateRunResult> {
 		const botId = this.botId;
 		if (!botId) throw new ChatApiError("Bot não encontrado.", 404);
 		if (!this.conversationId) {
@@ -510,7 +520,7 @@ export class ChatController {
 		for (let attempt = 0; ; attempt += 1) {
 			const model = this.deps.modelFields?.() ?? {};
 			try {
-				return await this.deps.api.createRun({ content, conversationId: this.conversationId, botId, ...(decisionConfirmId ? { decisionConfirmId } : {}), ...(replyToMessageId ? { replyToMessageId } : {}), model, clientKey: this.newKey() });
+				return await this.deps.api.createRun({ content, conversationId: this.conversationId, botId, ...(decisionConfirmId ? { decisionConfirmId } : {}), ...(replyToMessageId ? { replyToMessageId } : {}), ...(attachments.length ? { attachments } : {}), model, clientKey: this.newKey() });
 			} catch (reason) {
 				if (model.model && isModelRejection(reason)) {
 					this.deps.onModelRejected?.();

@@ -1,5 +1,6 @@
 // Hook do chat: monta o `ChatController` (lógica sem React, em `chat-controller.ts`) com a sessão, o cache e o
 // `AppState`, e entrega o que a tela desenha. Toda chamada passa por `apiFetch`/`openRunStream` da sessão.
+import type { OutgoingAttachment } from "./attachments";
 import * as React from "react";
 import { AppState } from "react-native";
 import * as cardApi from "./card-api";
@@ -38,7 +39,7 @@ export type ChatHook = ReturnType<typeof deriveView> & {
 	/** Estado do avatar já governado (permanência mínima) e o que o bot está fazendo, em pt-BR (`null` em repouso). */
 	avatar: { state: MobileAvatarState; label: string | null };
 	loadOlder: () => void;
-	send: (text: string, replyTo?: ReplyQuote) => void;
+	send: (text: string, replyTo?: ReplyQuote, attachments?: readonly OutgoingAttachment[]) => void;
 	stop: () => void;
 	decide: ChatController["decide"];
 	resumeLogin: ChatController["resumeLogin"];
@@ -72,7 +73,7 @@ export function useChat(bot: HomeBot | undefined): ChatHook {
 			fetchPage: (conversationId, options) => chatApi.fetchMessagePage(latest.current.apiFetch, conversationId, options),
 			createConversation: () => chatApi.createConversation(latest.current.apiFetch),
 			createRun: (input) => chatApi.createRun(latest.current.apiFetch, input),
-			createRunInput: (runId, content, key, replyToMessageId) => chatApi.createRunInput(latest.current.apiFetch, runId, content, key, replyToMessageId),
+			createRunInput: (runId, content, key, replyToMessageId, attachments) => chatApi.createRunInput(latest.current.apiFetch, runId, content, key, replyToMessageId, attachments),
 			cancelRun: (runId) => chatApi.cancelRun(latest.current.apiFetch, runId),
 			getRunStatus: (runId) => chatApi.getRunStatus(latest.current.apiFetch, runId),
 			listActiveRuns: (conversationId) => chatApi.listActiveRuns(latest.current.apiFetch, conversationId),
@@ -194,7 +195,7 @@ export function useChat(bot: HomeBot | undefined): ChatHook {
 		loadingOlder: snapshot.loadingOlder,
 		ready: snapshot.ready,
 		loadOlder: () => void controller.loadOlder(),
-		send: (text, replyTo) => controller.send(text, replyTo),
+		send: (text, replyTo, attachments) => controller.send(text, replyTo, attachments),
 		stop,
 		decide: (item, approve) => controller.decide(item, approve),
 		answer: (item, answers) => controller.answer(item, answers),

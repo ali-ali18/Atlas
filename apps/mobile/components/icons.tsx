@@ -1,6 +1,7 @@
 import * as React from "react";
 import {
 	ArrowUp as LucideArrowUp,
+	Camera as LucideCamera,
 	ArrowDown as LucideArrowDown,
 	AtSign as LucideAtSign,
 	AudioLines as LucideAudioLines,
@@ -439,4 +440,9 @@ export function EyeIcon({ size = 18, tone = "muted-foreground" }: LineIconProps)
 /** Lucide `EyeOff`. */
 export function EyeOffIcon({ size = 18, tone = "muted-foreground" }: LineIconProps) {
 	return <LucideEyeOff size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `Camera` (Câmera, no menu de anexos). */
+export function CameraIcon({ size = 20, tone = "foreground" }: LineIconProps) {
+	return <LucideCamera size={size} color={useStroke(tone)} strokeWidth={2} />;
 }
