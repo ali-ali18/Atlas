@@ -33,6 +33,16 @@ import { assembleV3Conversation, attachToLastUser, buildV3ContextBlock, buildV3S
 import { createRepetitionGuard } from "./repetition.js";
 import type { V3Run } from "./state.js";
 
+/** Até 300 tools, as mais usadas (o que vai e volta pelo checkpoint é exatamente o que montou o catálogo). */
+function frozenUsage(raw: Readonly<Record<string, number>>): Record<string, number> {
+	return Object.fromEntries(
+		Object.entries(raw)
+			.filter(([name, count]) => name.length > 0 && name.length <= 128 && Number.isInteger(count) && count > 0)
+			.sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+			.slice(0, 300),
+	);
+}
+
 export type EngineV3Options = {
 	/** Teto de passos que o DONO configurou (conta, bot ou pedido); ausente = 40 sem humano, 200 com humano. */
 	ownerSteps?: number;
@@ -86,15 +96,20 @@ export async function prepareRun(params: ComputerUseParams, options: EngineV3Opt
 	});
 	const entryOf = (name: string) => mcp?.toolset.entries.get(name);
 	const hides = (name: string) => catalogHides({ name, entry: entryOf(name), base: policy, autonomy });
-	// Catálogo congelado por conversa: o núcleo do run anterior (retomada ou turno seguinte) volta igual; o uso do bot
-	// só escolhe o núcleo de conversa nova.
+	// Filtro do run (brief "Seu dia", conferência, ajudante): vale para nativa E conector, como no v2.
+	const allow = (name: string) => params.toolFilter?.(name) ?? true;
+	// Catálogo congelado por conversa: o núcleo e o uso do run anterior (retomada ou turno seguinte) voltam iguais, então
+	// manifesto e busca saem com os mesmos bytes; o uso do bot só é lido de novo em conversa nova.
+	const v3State = parseV3State(parsed?.engineV3);
 	const frozen = parsed?.loadedTools ?? params.priorLoadedTools;
-	const toolUsage: Record<string, number> = frozen?.length ? {} : ((await params.loadToolUsage?.().catch(() => ({}))) ?? {});
+	const toolUsage = frozenUsage(
+		frozen?.length ? (v3State.toolUsage ?? params.priorToolUsage ?? {}) : ((await params.loadToolUsage?.().catch(() => ({}))) ?? {}),
+	);
 	const catalog = buildV3Catalog({
 		natives,
 		connectors: connectorEntries(mcp, (name) => {
 			const entry = entryOf(name);
-			return Boolean(entry) && mcpToolVisible({ origin, autonomy, entry: entry! }) && !hides(name);
+			return Boolean(entry) && allow(name) && mcpToolVisible({ origin, autonomy, entry: entry! }) && !hides(name);
 		}),
 		visible: (name) => !hides(name),
 		vm: sandboxEnabled,
@@ -138,7 +153,6 @@ export async function prepareRun(params: ComputerUseParams, options: EngineV3Opt
 	const wall = wallClockAnchors({ maxWallMs: limits.maxWallMs, now: Date.now(), runStartedAt: params.runStartedAt, restored: parsed });
 	const prices = fallbackPricesFromEnv();
 	const usage = parsed?.usageTotals ? { ...emptyUsage(), ...parsed.usageTotals } : emptyUsage();
-	const v3State = parseV3State(parsed?.engineV3);
 
 	const secrets = params.userId ? createSecretSession({ userId: params.userId, by: () => ({ actor: "bot", botId: params.botId, conversationId: params.conversationId }) }) : undefined;
 	let untrustedRead: Promise<boolean> | undefined;
@@ -229,7 +243,12 @@ export async function prepareRun(params: ComputerUseParams, options: EngineV3Opt
 				recoveries: parsed?.recoveries,
 				recoveredAtStep: parsed?.recoveredAtStep,
 				engine: "v3",
-				engineV3: { nudges: run.nudges.snapshot(), repetition: run.repetition.snapshot(), ...(run.ownTaskList ? { ownTaskList: run.ownTaskList } : {}) },
+				engineV3: {
+					nudges: run.nudges.snapshot(),
+					repetition: run.repetition.snapshot(),
+					...(run.ownTaskList ? { ownTaskList: run.ownTaskList } : {}),
+					...(Object.keys(run.toolUsage).length > 0 ? { toolUsage: run.toolUsage } : {}),
+				},
 			});
 			const write = checkpointTail.then(() => params.onCheckpoint!(snapshot));
 			checkpointTail = write.catch(() => undefined);

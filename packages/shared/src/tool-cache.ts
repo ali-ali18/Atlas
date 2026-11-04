@@ -39,3 +39,18 @@ export function parseToolCacheState(raw: unknown): ToolCacheState | undefined {
 	}
 	return { turn: value.turn, at: value.at, segments, lastUsed, toolOrder: strings(value.toolOrder, MAX_TOOLS) };
 }
+
+const MAX_USAGE_TOOLS = 400;
+
+/**
+ * Uso das tools pelo bot (motor v3: núcleo por uso e desempate da busca), como gravado no checkpoint (`engineV3.toolUsage`).
+ * Só nome válido e contagem inteira positiva; `{}` quando ausente ou malformado. Fica congelado com o catálogo da conversa.
+ */
+export function parseToolUsageCounts(raw: unknown): Record<string, number> {
+	if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+	const out: Record<string, number> = {};
+	for (const [name, count] of Object.entries(raw as Record<string, unknown>).slice(0, MAX_USAGE_TOOLS)) {
+		if (name.length > 0 && name.length <= 128 && typeof count === "number" && Number.isInteger(count) && count > 0) out[name] = count;
+	}
+	return out;
+}

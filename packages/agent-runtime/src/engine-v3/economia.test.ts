@@ -12,6 +12,7 @@ import { buildMcpToolset, type McpToolsetConnection } from "../mcp/registry.js";
 import type { McpRuntime } from "../mcp/runtime.js";
 import type { ComputerUseParams } from "../run-types.js";
 import { runEngineV2 } from "../engine-v2/run.js";
+import { briefToolFilter } from "../tools/daily-brief.js";
 import { runEngineV3 } from "./loop.js";
 import { CONTEXT_HEADER } from "./prompt.js";
 
@@ -54,9 +55,12 @@ const textOf = (message: LlmMessage) => (typeof message.content === "string" ? m
 
 type Seen = { params: CompleteChatWithToolsParams; system: string; context: string; toolsChars: number; names: string[] };
 
+const mcpCall = vi.fn(async () => ({ ok: true, text: "ok", truncated: false }));
+const mcpOf = (connections: McpToolsetConnection[]) => ({ toolset: buildMcpToolset(connections, { autonomy: balanced }), call: mcpCall }) as unknown as McpRuntime;
+
 function baseParams(input: { text: string; script: CompleteChatWithToolsResult[]; seen: Seen[]; events: ComputerUseEvent[]; checkpoints?: AgentRunCheckpoint[]; extra?: Partial<ComputerUseParams> }): ComputerUseParams {
 	const queue = [...input.script];
-	const mcp = { toolset: buildMcpToolset(fiftyConnectors, { autonomy: balanced }), call: vi.fn(async () => ({ ok: true, text: "ok", truncated: false })) } as unknown as McpRuntime;
+	const mcp = mcpOf(fiftyConnectors);
 	return {
 		manager: {} as SandboxManager,
 		getSessionId: async () => "session-1",
@@ -241,5 +245,63 @@ describe("motor v3: catálogo congelado por conversa e núcleo por uso", () => {
 		expect(messages.filter((message) => textOf(message).startsWith(CONTEXT_HEADER))).toHaveLength(1);
 		expect(messages.filter((message) => message.role === "system")).toHaveLength(1);
 		expect(messages.some((message) => message.role === "user" && textOf(message) === "[runtime] nota antiga do v2")).toBe(true);
+	});
+});
+
+describe("motor v3: filtro de tools do run vale para conector (como no v2)", () => {
+	it("brief \"Seu dia\" (só leitura): conector de escrita fora do manifesto e a chamada é recusada sem executar", async () => {
+		const mcp = mcpOf(fiftyConnectors);
+		const { seen, results } = await v3({
+			text: "Seu dia",
+			script: [tools(call("w1", "tool_call", { name: "mcp__svc3__send_message", args: { channel: "c", text: "oi" } }), call("w2", "mcp__svc3__create_bot", { name: "x" })), say("Pronto.")],
+			extra: { mcp, toolFilter: briefToolFilter(mcp) },
+		});
+		expect(seen[0]!.context).not.toMatch(/send_message|create_bot|create_page/);
+		expect(seen[0]!.context).toMatch(/list_items/);
+		expect(results.map((result) => [result.name, result.ok])).toEqual([["mcp__svc3__send_message", false], ["mcp__svc3__create_bot", false]]);
+		expect(mcpCall).not.toHaveBeenCalled();
+	});
+
+	it("ajudante com filtro: só o que o filtro deixa aparece e roda; o resto é recusado", async () => {
+		const allowed = new Set(["web_search", "mcp__svc1__list_items"]);
+		const { seen, results } = await v3({
+			text: "pesquise",
+			script: [tools(call("h1", "tool_call", { name: "mcp__svc2__list_items", args: {} }), call("h2", "mcp__svc1__list_items", {})), say("ok")],
+			extra: { toolFilter: (name) => allowed.has(name) },
+		});
+		expect(seen[0]!.context).toContain("mcp__svc1__list_items");
+		expect(seen[0]!.context).not.toContain("svc2");
+		expect(results[0]).toMatchObject({ name: "mcp__svc2__list_items", ok: false });
+		expect(results[1]).toMatchObject({ name: "mcp__svc1__list_items", ok: true });
+		expect(mcpCall).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe("motor v3: manifesto degradado (modo top) estável entre turnos", () => {
+	/** 120 conectores x 6 tools: nem com só os nomes cabe no teto, então cada conector mostra as 5 mais usadas. */
+	const many: McpToolsetConnection[] = Array.from({ length: 120 }, (_, index) => ({ ...fiftyConnectors[index % 50]!, id: `big-${index}`, slug: `big${index}`, name: `Grande ${index}` }));
+	// Abaixo de 3 chamadas: nada sobe ao núcleo, o uso só ordena o manifesto e desempata a busca.
+	const usage = { mcp__big7__send_message: 2, mcp__big7__search: 1, mcp__big9__get_item: 1 };
+
+	it("o uso congelado com o catálogo faz o [context] do turno 2 sair com os mesmos bytes (e a busca com o mesmo desempate)", async () => {
+		const first = await v3({ text: "Bom dia", script: [say("Oi")], extra: { mcp: mcpOf(many), loadToolUsage: vi.fn(async () => usage) } });
+		const context = first.seen[0]!.context;
+		expect(context).toMatch(/only the most used are listed/);
+		expect(context).toMatch(/- Grande 7 \(6 tools, prefix mcp__big7__\): send_message, search, /);
+		const checkpoint = first.checkpoints.at(-1)!;
+		expect((checkpoint.engineV3 as { toolUsage?: unknown }).toolUsage).toEqual(usage);
+
+		// Turno 2: o worker devolve o núcleo (`loadedTools`) e o uso (`engineV3.toolUsage`) do transcript; o uso NÃO é relido.
+		const reload = vi.fn(async () => ({ mcp__big1__search: 99 }));
+		const next = await v3({
+			text: "E aí?",
+			script: [tools(call("s1", "tool_search", { query: "send message" })), say("ok")],
+			extra: { mcp: mcpOf(many), loadToolUsage: reload, priorLoadedTools: checkpoint.loadedTools, priorToolUsage: (checkpoint.engineV3 as { toolUsage: Record<string, number> }).toolUsage },
+		});
+		expect(reload).not.toHaveBeenCalled();
+		expect(next.seen[0]!.context).toBe(context);
+		expect(JSON.stringify(next.seen[0]!.params.tools)).toBe(JSON.stringify(first.seen[0]!.params.tools));
+		// Desempate da busca pelo uso congelado: entre 120 send_message de conector, o mais usado vem primeiro.
+		expect(next.results[0]!.summary.split("\n")[1]).toMatch(/^1\. mcp__big7__send_message\(/);
 	});
 });
