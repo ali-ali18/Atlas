@@ -69,6 +69,26 @@ export function pickItem(value: unknown): ChatItem | null {
 			// Respostas e perguntas inteiras não vão para o disco: o cartão reabre pelo servidor. Aqui fica só o que o fio desenha.
 			if (!isString(value.questionnaireId) || !isString(value.title) || !QUESTIONNAIRE.includes(value.status as QuestionnaireStatus)) return null;
 			return { ...base, kind: "questionnaire", questionnaireId: value.questionnaireId, title: value.title.slice(0, 300), items: [], status: value.status as QuestionnaireStatus };
+		case "login": {
+			// Só o resolvido vai ao disco (o pendente reabre pelo servidor); nunca credencial, só o que o selo precisa.
+			if (!isString(value.loginId) || !isString(value.site) || !isString(value.url) || value.status !== "done") return null;
+			const connector = isRecord(value.connector) && isString(value.connector.id) && isString(value.connector.name) && (value.connector.kind === "native" || value.connector.kind === "composio" || value.connector.kind === "custom" || value.connector.kind === "api") ? value.connector : null;
+			return {
+				...base,
+				kind: "login",
+				loginId: value.loginId,
+				site: value.site.slice(0, 120),
+				url: value.url.slice(0, 500),
+				status: "done",
+				...(value.reason === "captcha" ? { reason: "captcha" as const } : {}),
+				...(connector ? { connector: { kind: connector.kind as "native" | "composio" | "custom" | "api", id: String(connector.id).slice(0, 80), name: String(connector.name).slice(0, 120), description: "", icon: isString(connector.icon) ? connector.icon.slice(0, 300) : null, ...(connector.noAuth === true ? { noAuth: true } : {}) } } : {}),
+			};
+		}
+		case "secrets": {
+			// Só os NOMES dos segredos e o desfecho: o valor nunca existe fora do campo.
+			if (!isString(value.confirmId) || !isString(value.title) || !Array.isArray(value.names) || !CONFIRM.includes(value.status as ConfirmStatus) || value.status === "pending") return null;
+			return { ...base, kind: "secrets", confirmId: value.confirmId, title: value.title.slice(0, 300), names: value.names.filter(isString).slice(0, 20).map((name) => name.slice(0, 64)), status: value.status as ConfirmStatus };
+		}
 		case "web-card":
 			if (!isString(value.title) || !isString(value.key) || !WEB_CARDS.includes(value.card as (typeof WEB_CARDS)[number])) return null;
 			return { ...base, kind: "web-card", card: value.card as (typeof WEB_CARDS)[number], title: value.title.slice(0, 200), key: value.key };
@@ -80,7 +100,7 @@ export function pickItem(value: unknown): ChatItem | null {
 export function serializeChat(items: readonly ChatItem[], now: number): string {
 	// Só o que o servidor gravou: balão otimista (`msg-*`) e fala em andamento (`cu-*`) não vão para o disco.
 	// Cartão que espera resposta (confirm/questionário pendente) fica de fora: o estado de verdade vem do servidor.
-	const settled = items.filter((item) => !item.id.startsWith("msg-") && !item.id.startsWith("cu-") && !(item.kind === "questionnaire" && item.status === "pending") && !(item.kind === "confirm" && item.status === "pending"));
+	const settled = items.filter((item) => !item.id.startsWith("msg-") && !item.id.startsWith("cu-") && !(item.kind === "questionnaire" && item.status === "pending") && !(item.kind === "confirm" && item.status === "pending") && !(item.kind === "secrets" && item.status === "pending") && !(item.kind === "login" && item.status === "pending"));
 	let picked = settled.slice(-CHAT_CACHE_MAX_ITEMS).map(pickItem).filter((item): item is ChatItem => item !== null);
 	let text = JSON.stringify({ v: CHAT_CACHE_VERSION, savedAt: now, items: picked });
 	while (text.length > CHAT_CACHE_MAX_BYTES && picked.length > 1) {

@@ -30,7 +30,8 @@ export type ChatHook = ReturnType<typeof deriveView> & {
 	loadOlder: () => void;
 	send: (text: string, replyTo?: ReplyQuote) => void;
 	stop: () => void;
-	decide: (item: Extract<ChatItem, { kind: "confirm" }>, approve: boolean) => void;
+	decide: ChatController["decide"];
+	resumeLogin: ChatController["resumeLogin"];
 	answer: ChatController["answer"];
 	react: (messageId: string, emoji: string) => void;
 	markUnread: () => Promise<boolean>;
@@ -57,6 +58,7 @@ export function useChat(bot: HomeBot | undefined): ChatHook {
 			setReaction: (messageId, emoji) => chatApi.setReaction(latest.current.apiFetch, messageId, emoji),
 			clearReaction: (messageId) => chatApi.clearReaction(latest.current.apiFetch, messageId),
 			markConversationUnread: (conversationId) => chatApi.markConversationUnread(latest.current.apiFetch, conversationId),
+			resumeRun: (runId, options) => chatApi.resumeRun(latest.current.apiFetch, runId, options),
 		};
 		const deps: ChatDeps = {
 			api,
@@ -135,6 +137,7 @@ export function useChat(bot: HomeBot | undefined): ChatHook {
 		stop,
 		decide: (item, approve) => controller.decide(item, approve),
 		answer: (item, answers) => controller.answer(item, answers),
+		resumeLogin: (item, options) => controller.resumeLogin(item, options),
 		react: (messageId, emoji) => void controller.react(messageId, emoji),
 		markUnread: () => controller.markUnread(),
 		retry: () => void controller.retry(),

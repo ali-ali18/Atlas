@@ -29,6 +29,7 @@ import { containsTable } from "@/lib/markdown";
 import { replyQuoteFor } from "@/lib/reply-quote";
 import { useChat } from "@/lib/use-chat";
 import { useHomeData } from "@/lib/home-data";
+import { useRequestActions } from "@/lib/use-request-actions";
 
 /** Rolou para cima além disto (px do fim): aparece o botão de voltar ao fim. */
 const JUMP_THRESHOLD = 360;
@@ -80,6 +81,12 @@ export default function ChatScreen() {
 		},
 		[serverUrl, id],
 	);
+	const request = useRequestActions();
+	// "Abrir a tela": o app ainda não tem o computador do bot; abre o chat no navegador, onde o web tem o viewer da VM.
+	const openScreen = React.useCallback(() => {
+		const url = webChatUrl(serverUrl, id);
+		if (url) void WebBrowser.openBrowserAsync(url).catch(() => undefined);
+	}, [serverUrl, id]);
 	// "Responder": a mensagem citada fica no chip do composer até enviar ou cancelar.
 	const [replyTo, setReplyTo] = React.useState<ReplyQuote | null>(null);
 	const startReply = React.useCallback((item: ChatItem) => setReplyTo(replyQuoteFor(item)), []);
@@ -96,12 +103,17 @@ export default function ChatScreen() {
 			onDecide: chat.decide,
 			onAnswer: chat.answer,
 			onOpenWeb: openWeb,
+			onResumeLogin: chat.resumeLogin,
+			onOpenScreen: openScreen,
+			request,
+			botName: bot?.name ?? "bot",
+			serverUrl,
 			onOpenMenu: messageMenu.open,
 			activeRunId: chat.runTasks?.runId ?? null,
 			running: chat.running,
 			userBubble: userBubble,
 		}),
-		[chat.decide, chat.answer, openWeb, messageMenu.open, chat.running, chat.runTasks?.runId, userBubble],
+		[chat.decide, chat.answer, chat.resumeLogin, openWeb, openScreen, request, bot?.name, serverUrl, messageMenu.open, chat.running, chat.runTasks?.runId, userBubble],
 	);
 
 	// A lista é invertida (o fim da conversa fica embaixo e o teclado não a desloca): mais novo primeiro.

@@ -6,9 +6,15 @@ import { bubbleCorners, cornersNextToTable } from "@/lib/bubble-corners";
 import { Text } from "@/components/ui/text";
 import { taskCardActive } from "@/lib/chat-thread";
 import type { ChatItem, Reaction, ReplyQuote } from "@/lib/chat-types";
+import type { ResumeOptions } from "@/lib/chat-api";
 import type { AnswerMap } from "@/lib/questionnaire";
+import { loginVariant } from "@/lib/request-cards";
+import type { RequestActions } from "@/lib/use-request-actions";
 import { ConfirmCard, MarkerRow, WebCardRow } from "./cards";
+import { ConnectorCard } from "./connector-card";
+import { LoginCard } from "./login-card";
 import { QuestionnaireCard } from "./questionnaire-card";
+import { SecretsCard } from "./secrets-card";
 import { MarkdownBlocks, TableCard } from "./markdown-text";
 import { useAppColorScheme } from "@/lib/use-theme";
 import { chatSurface } from "@/lib/chat-surface";
@@ -17,13 +23,19 @@ import { ReplyPill } from "./reply-pill";
 import { TaskSummary } from "./task-dock";
 
 export type RowActions = {
-	onDecide: (item: Extract<ChatItem, { kind: "confirm" }>, approve: boolean) => void;
+	onDecide: (item: Pick<Extract<ChatItem, { kind: "confirm" }>, "confirmId" | "title" | "status">, approve: boolean) => void;
 	onAnswer: (item: Extract<ChatItem, { kind: "questionnaire" }>, answers: AnswerMap) => void;
 	/** Run ativo (id): o cartão de tarefas desse run mostra a tarefa em execução. */
 	activeRunId: string | null;
 	/** Há um run em andamento (o cartão só é "ativo" durante um run). */
 	running: boolean;
 	onOpenWeb: (item: Extract<ChatItem, { kind: "web-card" }>) => void;
+	/** Cartões de pedido (conectar app, login, segredo): retomar o run, abrir a tela do bot e as chamadas à API. */
+	onResumeLogin: (item: Extract<ChatItem, { kind: "login" }>, options?: ResumeOptions) => void;
+	onOpenScreen: () => void;
+	request: RequestActions;
+	botName: string;
+	serverUrl: string | null;
 	/** Toque longo no balão: abre o menu da mensagem (só abre para fala já gravada; ver `messageMenuFor`). */
 	onOpenMenu: (item: ChatItem) => void;
 	/** Cor do bot para o balão do usuário (fundo e texto por cima dele). Sem ela, o balão usa o cinza neutro. */
@@ -143,6 +155,14 @@ function RowContent({ item, actions, position }: { item: ChatItem; actions: RowA
 			return <ConfirmCard item={item} onDecide={actions.onDecide} />;
 		case "questionnaire":
 			return <QuestionnaireCard item={item} onAnswer={actions.onAnswer} />;
+		case "login":
+			return loginVariant(item) === "connector" ? (
+				<ConnectorCard item={item} botName={actions.botName} serverUrl={actions.serverUrl} onConnect={actions.request.connectApp} onDone={(login) => actions.onResumeLogin(login)} onOpenWeb={actions.onOpenScreen} />
+			) : (
+				<LoginCard item={item} botName={actions.botName} onResume={actions.onResumeLogin} onSaveLogin={(login, username, password) => actions.request.saveLogin(login, username, password)} onOpenScreen={actions.onOpenScreen} />
+			);
+		case "secrets":
+			return <SecretsCard item={item} onSave={actions.request.saveSecrets} onDecide={actions.onDecide} />;
 		case "web-card":
 			return <WebCardRow item={item} onOpen={actions.onOpenWeb} />;
 		case "marker":

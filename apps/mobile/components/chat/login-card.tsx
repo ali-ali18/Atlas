@@ -1,0 +1,202 @@
+import * as React from "react";
+import { Pressable, TextInput, View } from "react-native";
+import { EyeIcon, EyeOffIcon, GlobeIcon, ShieldCheckIcon } from "@/components/icons";
+import { DraggableSheet } from "@/components/ui/draggable-sheet";
+import { Text } from "@/components/ui/text";
+import type { ResumeOptions } from "@/lib/chat-api";
+import { chatChrome, routineSurface } from "@/lib/chat-surface";
+import type { ChatItem } from "@/lib/chat-types";
+import { cleanLoginCode, drawerFields, drawerSave, loginOutcome, siteDomains, siteName } from "@/lib/request-cards";
+import { themeColor } from "@/lib/theme";
+import type { ActionResult } from "@/lib/use-request-actions";
+import { useAppColorScheme } from "@/lib/use-theme";
+import { RequestButton, RequestShell } from "./request-shell";
+
+type Login = Extract<ChatItem, { kind: "login" }>;
+
+/** Campo da gaveta: mesmo fundo dos controles do chat. Senha com olho para mostrar/ocultar. */
+function SheetField({ label, secure = false, ...props }: { label: string; secure?: boolean } & React.ComponentProps<typeof TextInput>) {
+	const scheme = useAppColorScheme();
+	const chrome = chatChrome(scheme);
+	const [shown, setShown] = React.useState(false);
+	return (
+		<View className="gap-1.5">
+			<Text variant="muted" className="px-1 text-body font-medium">
+				{label}
+			</Text>
+			<View className="h-12 flex-row items-center rounded-2xl px-4" style={{ backgroundColor: chrome.control }}>
+				<TextInput
+					accessibilityLabel={label}
+					placeholderTextColor={themeColor(scheme, "muted-foreground")}
+					secureTextEntry={secure && !shown}
+					autoCapitalize="none"
+					autoCorrect={false}
+					spellCheck={false}
+					className="min-w-0 flex-1 text-control text-foreground"
+					{...props}
+				/>
+				{secure ? (
+					<Pressable role="button" accessibilityLabel={shown ? "Ocultar senha" : "Mostrar senha"} onPress={() => setShown((value) => !value)} hitSlop={8} className="pl-2 active:opacity-60">
+						{shown ? <EyeOffIcon /> : <EyeIcon />}
+					</Pressable>
+				) : null}
+			</View>
+		</View>
+	);
+}
+
+/**
+ * Gaveta do login (Cancelar · Entrar no {site} · Concluído). Só oferece o que o contrato aceita:
+ * - código (`codeField`): vai selado ao runtime pelo "retomar" (nunca ao modelo);
+ * - login do Cofre que já casa com o site: "Entrar" retoma usando o cofre, sem digitar nada;
+ * - sem login no Cofre: usuário e senha do site são guardados no Cofre (`POST /v1/vault`) para as próximas vezes;
+ * - "Abrir a tela" abre o computador do bot (hoje, o web) para entrar à mão; "Concluído" retoma o run.
+ * Usuário, senha e código ficam só nos campos desta gaveta e somem ao fechar.
+ */
+function LoginSheet({ item, botName, visible, onClose, onResume, onSaveLogin, onOpenScreen }: { item: Login; botName: string; visible: boolean; onClose: () => void; onResume: (options: ResumeOptions) => void; onSaveLogin: (username: string, password: string) => Promise<ActionResult>; onOpenScreen: () => void }) {
+	const scheme = useAppColorScheme();
+	const chrome = chatChrome(scheme);
+	const blue = routineSurface(scheme).link;
+	const fields = drawerFields(item);
+	const [code, setCode] = React.useState("");
+	const [username, setUsername] = React.useState("");
+	const [password, setPassword] = React.useState("");
+	const [busy, setBusy] = React.useState(false);
+	const [feedback, setFeedback] = React.useState<{ tone: "ok" | "error"; text: string } | null>(null);
+	const site = siteName(item);
+	const domains = siteDomains(item).join(", ");
+	const save = drawerSave(fields, { code, username, password });
+
+	const close = () => {
+		setCode("");
+		setUsername("");
+		setPassword("");
+		setFeedback(null);
+		onClose();
+	};
+	const resume = (options: ResumeOptions) => {
+		close();
+		onResume(options);
+	};
+	const submit = async () => {
+		if (!save.enabled || busy) return;
+		if (save.kind === "vault") return resume({ via: "vault" });
+		if (save.kind === "code") return resume({ via: "code", code: cleanLoginCode(code) });
+		if (save.kind !== "credentials") return;
+		setBusy(true);
+		setFeedback(null);
+		const result = await onSaveLogin(username, password);
+		setBusy(false);
+		if (!result.ok) return setFeedback({ tone: "error", text: result.error });
+		// Guardado: a senha sai do estado na hora.
+		setUsername("");
+		setPassword("");
+		setFeedback({ tone: "ok", text: "Salvo no Cofre. Da próxima vez eu entro sozinho." });
+	};
+	const saveLabel = save.kind === "vault" ? "Entrar" : "Salvar";
+
+	return (
+		<DraggableSheet
+			visible={visible}
+			onClose={close}
+			background={chrome.fill}
+			header={
+				<View className="min-h-11 flex-row items-center">
+					<Pressable role="button" accessibilityLabel="Cancelar" onPress={close} hitSlop={8} className="min-w-20 items-start active:opacity-60">
+						<Text className="text-control">Cancelar</Text>
+					</Pressable>
+					<Text className="min-w-0 flex-1 text-center text-base font-semibold" numberOfLines={1}>
+						Entrar no {site}
+					</Text>
+					<Pressable role="button" accessibilityLabel="Concluído" onPress={() => resume({})} hitSlop={8} className="min-w-20 items-end active:opacity-60">
+						<Text className="text-control font-semibold" style={{ color: blue }}>
+							Concluído
+						</Text>
+					</Pressable>
+				</View>
+			}
+		>
+			{fields.captcha ? (
+				<Text variant="muted" className="text-control">
+					O site pediu uma verificação para confirmar que é você. Abra a tela, resolva e toque em Concluído.
+				</Text>
+			) : null}
+			{fields.vault ? (
+				<View className="gap-1 rounded-2xl p-4" style={{ backgroundColor: chrome.control }}>
+					<Text className="text-control font-semibold">{fields.vault.label || fields.vault.name}</Text>
+					<Text variant="muted" className="text-body">
+						{fields.vault.username ? `${fields.vault.username} · ` : ""}
+						{fields.vault.emailCode ? `Busco o código no ${fields.vault.emailCode}.` : "Já está guardado no seu Cofre."}
+					</Text>
+				</View>
+			) : null}
+			{item.vaultTried ? (
+				<Text variant="muted" className="text-control">
+					O login do Cofre já foi usado e o site pediu mais um passo. Abra a tela para terminar.
+				</Text>
+			) : null}
+			{fields.code ? <SheetField label="Código recebido" value={code} onChangeText={setCode} placeholder="000000" keyboardType="number-pad" maxLength={12} autoComplete="one-time-code" textContentType="oneTimeCode" /> : null}
+			{fields.credentials ? (
+				<>
+					<SheetField label="Email ou usuário" value={username} onChangeText={setUsername} autoComplete="username" textContentType="username" keyboardType="email-address" />
+					<SheetField label="Senha" secure value={password} onChangeText={setPassword} autoComplete="current-password" textContentType="password" />
+					<View className="flex-row items-start gap-1.5 px-1">
+						<View className="pt-px">
+							<ShieldCheckIcon size={14} />
+						</View>
+						<Text variant="caption" className="min-w-0 flex-1 text-caption">
+							Preenchido apenas em {domains}. Nunca é mostrado ao {botName}.
+						</Text>
+					</View>
+				</>
+			) : null}
+			{feedback ? (
+				<Text variant={feedback.tone === "error" ? "error" : "muted"} className="px-1 text-body" role={feedback.tone === "error" ? "alert" : undefined}>
+					{feedback.text}
+				</Text>
+			) : null}
+			<View className="gap-2.5">
+				{save.kind !== "none" ? (
+					<Pressable role="button" accessibilityLabel={saveLabel} accessibilityState={{ disabled: !save.enabled || busy, busy }} disabled={!save.enabled || busy} onPress={() => void submit()} style={{ backgroundColor: blue, opacity: save.enabled ? 1 : 0.4 }} className="h-12 items-center justify-center rounded-full active:opacity-80">
+						<Text className="text-control font-semibold" style={{ color: themeColor(scheme, scheme === "dark" ? "foreground" : "info-foreground") }}>
+							{busy ? "Salvando…" : saveLabel}
+						</Text>
+					</Pressable>
+				) : null}
+				<Pressable role="button" accessibilityLabel="Abrir a tela" onPress={onOpenScreen} style={{ backgroundColor: chrome.control }} className="h-12 items-center justify-center rounded-full active:opacity-80">
+					<Text className="text-control font-semibold">Abrir a tela</Text>
+				</Pressable>
+			</View>
+		</DraggableSheet>
+	);
+}
+
+/**
+ * Login de página (sem conector): cartão "Formulário" com o site e "Continuar", que abre a gaveta. Nunca carrega
+ * credencial. Resolvido: um selo com o desfecho no lugar do botão.
+ */
+export function LoginCard({ item, botName, onResume, onSaveLogin, onOpenScreen, initialOpen = false }: { item: Login; botName: string; onResume: (item: Login, options: ResumeOptions) => void; onSaveLogin: (item: Login, username: string, password: string) => Promise<ActionResult>; onOpenScreen: () => void; initialOpen?: boolean }) {
+	const [open, setOpen] = React.useState(initialOpen);
+	const captcha = item.reason === "captcha";
+	const site = siteName(item);
+	const outcome = loginOutcome(item);
+	const domains = siteDomains(item).join(", ");
+	return (
+		<>
+			<RequestShell icon={<GlobeIcon />} label={captcha ? "Verificação" : "Formulário"} badge={outcome ?? undefined} accessibilityLabel={`Entrar no ${site}`}>
+				<View className="gap-1">
+					<Text className="text-base font-semibold">{captcha ? `Verificação em ${site}` : `Entrar no ${site}`}</Text>
+					<Text variant="muted" className="text-body">
+						{captcha ? "O site pediu uma verificação para confirmar que é você." : `Nunca é mostrado ao seu Bot. Preenchido apenas em ${domains}.`}
+					</Text>
+				</View>
+				{outcome ? null : (
+					<View className="flex-row justify-end">
+						<RequestButton label="Continuar" onPress={() => setOpen(true)} />
+					</View>
+				)}
+			</RequestShell>
+			{outcome ? null : <LoginSheet item={item} botName={botName} visible={open} onClose={() => setOpen(false)} onResume={(options) => onResume(item, options)} onSaveLogin={(username, password) => onSaveLogin(item, username, password)} onOpenScreen={onOpenScreen} />}
+		</>
+	);
+}

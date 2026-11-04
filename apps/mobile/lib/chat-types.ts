@@ -1,6 +1,6 @@
 // O que a tela do chat desenha. Menor que o `Message` do web (`template-4/data.ts`): só os tipos que o app
 // mostra por enquanto; o resto vira uma linha "Abrir no navegador" (`web-card`) ou some.
-import type { MessageSource, QuestionnaireCardItem } from "@workspace/shared";
+import type { LoginConnector, LoginVaultOffer, MessageSource, QuestionnaireCardItem } from "@workspace/shared";
 
 /** Reação no balão (no máximo uma por ator): o bot reage à fala do usuário e vice-versa. */
 export type Reaction = { actor: "user" | "bot"; emoji: string };
@@ -22,6 +22,10 @@ export type ChatItem =
 	| (Base & { kind: "task-list"; runId: string; items: TaskItem[] })
 	| (Base & { kind: "confirm"; confirmId: string; title: string; description?: string; confirmLabel?: string; cancelLabel?: string; status: ConfirmStatus })
 	| (Base & { kind: "questionnaire"; questionnaireId: string; title: string; description?: string; items: QuestionnaireCardItem[]; status: QuestionnaireStatus; answers?: Record<string, string | string[]> })
+	/** Pedido de login do run (conector ou página): nunca carrega credencial. `status: "done"` = resolvido. */
+	| (Base & { kind: "login"; loginId: string; site: string; url: string; runId?: string; status: "pending" | "done"; reason?: "login" | "captcha"; composioToolkit?: string; connector?: LoginConnector; vault?: LoginVaultOffer; vaultTried?: string; codeField?: boolean })
+	/** Pedido de segredo do Cofre (`secretsRequest` com `environmentId: "vault"`): só os NOMES; o valor vive no campo e some ao enviar. */
+	| (Base & { kind: "secrets"; confirmId: string; title: string; description?: string; names: string[]; confirmLabel?: string; cancelLabel?: string; status: ConfirmStatus })
 	/** Cartão que ainda não tem tela nativa (gráfico, painel, arquivo, rotina…): uma linha com "Abrir no navegador". */
 	| (Base & { kind: "web-card"; card: WebCardKind; title: string; key: string })
 	/** Marcador de uma linha no fio (conversa compactada, mensagem enviada a outro bot). */
