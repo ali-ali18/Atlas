@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { appRouteParams, isSvgUri, resolveIconUri, type AppsRow, buildAppsRows, buildChips, composioAction, composioCategoryOf, composioWantsMore, connectedCountText, connectedItems, customAction, initialOf, isFeatured, mergeToolkits, nativeAction, appRefId, parseAppRef, type SectionsInput } from "./apps";
+import { appRouteParams, composioDisplayName, composioLogoForSlug, isSvgUri, resolveIconUri, type AppsRow, buildAppsRows, buildChips, composioAction, composioCategoryOf, composioWantsMore, connectedCountText, connectedItems, customAction, initialOf, isFeatured, mergeToolkits, nativeAction, appRefId, parseAppRef, type SectionsInput } from "./apps";
 import type { ComposioToolkit, NativeConnector } from "./apps-parse";
 import { MAX_COMPOSIO_CATEGORIES } from "./apps-parse";
 import { applyPage, EMPTY_PAGING, MAX_ITEMS } from "./composio-paging";
@@ -246,5 +246,28 @@ describe("buildChips com muitas categorias do Composio", () => {
 		expect(composioChips).toHaveLength(MAX_COMPOSIO_CATEGORIES);
 		expect(composioChips[0]!.label).toBe("Cat 0");
 		expect(composioCategoryOf(composioChips[0]!.id)).toBe("c0");
+	});
+});
+
+describe("logo e nome de conexão do Composio", () => {
+	const connection = (toolkit: string, toolkitName: string) => ({ id: toolkit, toolkit, toolkitName, noAuth: false });
+	it("deriva o logo do slug quando o mapa não tem", () => {
+		expect(composioLogoForSlug("googledocs")).toBe("https://logos.composio.dev/api/googledocs");
+		expect(composioLogoForSlug("Google_Drive")).toBe("https://logos.composio.dev/api/google_drive");
+		expect(composioLogoForSlug("../x")).toBeNull();
+		expect(composioLogoForSlug("a b")).toBeNull();
+		expect(composioLogoForSlug("")).toBeNull();
+	});
+	it("separa marca composta e restaura a caixa", () => {
+		expect(composioDisplayName("googledocs", "Googledocs")).toBe("Google Docs");
+		expect(composioDisplayName("googlecalendar", "Googlecalendar")).toBe("Google Calendar");
+		expect(composioDisplayName("github", "Github")).toBe("GitHub");
+		expect(composioDisplayName("browser_tool", "Browser tool")).toBe("Browser Tool");
+		expect(composioDisplayName("linear", "Linear")).toBe("Linear");
+		expect(composioDisplayName("googlecalendar", "Calendário")).toBe("Calendário");
+	});
+	it("conexão sem logo no mapa ganha o logo pelo slug; o do mapa tem prioridade", () => {
+		const items = connectedItems({ entries: [], connections: [], composioConnections: [connection("googledocs", "Googledocs"), connection("x", "X")], composioLogos: new Map([["x", "https://l/x.png"], ["googledocs", null]]) });
+		expect(items.map((item) => [item.name, item.icon])).toEqual([["Google Docs", "https://logos.composio.dev/api/googledocs"], ["X", "https://l/x.png"]]);
 	});
 });

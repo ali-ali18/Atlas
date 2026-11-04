@@ -126,6 +126,41 @@ export function composioItem(toolkit: ComposioToolkit, connected = false): AppIt
 	return { key: `composio:${toolkit.slug}`, ref: { kind: "composio", id: toolkit.slug }, name: toolkit.name, description: toolkit.description, icon: toolkit.logo, action: composioAction({ connected }) };
 }
 
+// ---- logo e nome de app do Composio -------------------------------------------------------------------------------
+
+/** CDN pública de logos do Composio: responde SVG por slug (sem extensão). O web não deriva isso: lê `logo` da lista. */
+const COMPOSIO_LOGO_BASE = "https://logos.composio.dev/api/";
+
+/** Logo de um toolkit do Composio pelo slug, quando a lista paginada ainda não o trouxe. Slug fora do padrão: `null`. */
+export function composioLogoForSlug(slug: string): string | null {
+	const clean = slug.trim().toLowerCase();
+	return /^[a-z0-9][a-z0-9_-]{0,63}$/.test(clean) ? COMPOSIO_LOGO_BASE + clean : null;
+}
+
+const BRAND_NAMES: Record<string, string> = { github: "GitHub", gitlab: "GitLab", linkedin: "LinkedIn", youtube: "YouTube", hubspot: "HubSpot", gmail: "Gmail", openai: "OpenAI", clickup: "ClickUp", whatsapp: "WhatsApp" };
+const BRAND_PREFIXES: Record<string, string> = { google: "Google", microsoft: "Microsoft", zoho: "Zoho", ms: "MS" };
+
+/**
+ * Nome de exibição de uma conexão do Composio. O servidor só tem o slug (`titleFromSlug`: "Googledocs", "Github") e o
+ * web mostra esse mesmo nome; aqui, quando o nome é só o slug capitalizado, separa marca composta ("Google Docs") e
+ * restaura a caixa de marcas conhecidas. Nome que o servidor já mandou diferente disso fica como veio.
+ */
+export function composioDisplayName(slug: string, serverName: string): string {
+	const key = slug.trim().toLowerCase();
+	const plainName = key.charAt(0).toUpperCase() + key.slice(1).replace(/[_-]+/g, " ");
+	const given = serverName.trim();
+	if (given && given.toLowerCase() !== plainName.toLowerCase()) return given;
+	if (Object.hasOwn(BRAND_NAMES, key)) return BRAND_NAMES[key]!;
+	for (const prefix of Object.keys(BRAND_PREFIXES)) {
+		const rest = key.slice(prefix.length);
+		if (key.startsWith(prefix) && /^[a-z]{2,}$/.test(rest)) return `${BRAND_PREFIXES[prefix]} ${rest.charAt(0).toUpperCase()}${rest.slice(1)}`;
+	}
+	return plainName
+		.split(" ")
+		.map((word) => (word ? word.charAt(0).toUpperCase() + word.slice(1) : word))
+		.join(" ");
+}
+
 /** Os conectados: nativos com conexão ativa, conectores próprios ativos e apps do Composio (com o logo da lista, se ela o trouxe). */
 export function connectedItems(input: { entries: readonly NativeConnector[]; connections: readonly McpConnection[]; composioConnections: readonly ComposioConnection[]; composioLogos?: ReadonlyMap<string, string | null> }): AppItem[] {
 	const items: AppItem[] = input.entries.filter((entry) => entry.status === "connected").map(nativeItem);
@@ -140,7 +175,7 @@ export function connectedItems(input: { entries: readonly NativeConnector[]; con
 		// Um app do Composio que também é nativo (ex.: GitHub) já aparece como o nativo; duas contas do mesmo app, uma linha.
 		if (nativeSlugs.has(connection.toolkit) || seen.has(connection.toolkit)) continue;
 		seen.add(connection.toolkit);
-		items.push({ key: `composio:${connection.toolkit}`, ref: { kind: "composio", id: connection.toolkit }, name: connection.toolkitName, description: "", icon: input.composioLogos?.get(connection.toolkit) ?? null, action: "connected" });
+		items.push({ key: `composio:${connection.toolkit}`, ref: { kind: "composio", id: connection.toolkit }, name: composioDisplayName(connection.toolkit, connection.toolkitName), description: "", icon: input.composioLogos?.get(connection.toolkit) || composioLogoForSlug(connection.toolkit), action: "connected" });
 	}
 	return items;
 }
