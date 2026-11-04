@@ -32,7 +32,7 @@ export const WEB_SEARCH_API_PROVIDER = "api:web_search";
 
 /** Alternativas que existem NESTE run (a dica nunca cita tool que o modelo não tem). */
 export function availableWebFallbacks(hasTool: (name: string) => boolean): string[] {
-	return ["web_search", "web_extract", "navigate"].filter(hasTool);
+	return ["web_search", "web_extract", "navigate", "browser_navigate"].filter(hasTool);
 }
 
 function alternativesClause(alternatives: readonly string[]): string {

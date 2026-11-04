@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ChatTool } from "@workspace/llm";
 import { COMPUTER_USE_TOOLS } from "../tools/catalog.js";
+import { swapBrowserTools } from "../tools/browser-v3/index.js";
 import { PROPOSE_BOT_TOOL } from "../tools/bot-proposal.js";
 import { CREATE_FILE_TOOL } from "../tools/create-file.js";
 import { PAGE_TOOLS } from "../tools/pages.js";
@@ -8,7 +9,8 @@ import { UPDATE_TASK_LIST_TOOL_V2 } from "../tools/task-list.js";
 import { NO_TOOL_FOUND_HINT, TOOL_SEARCH_MAX_CHARS, argProblems, coerceNumericText, exampleCall, firstSentence, rankTools, toolSearchText, unwrapEnvelope, type CatalogEntry } from "./bridge.js";
 import { BASE_CORE, CORE_SCHEMA_MAX_CHARS, MANIFEST_MAX_CHARS, USAGE_CORE_MAX, VM_CORE, buildManifest, buildV3Catalog, selectCore } from "./catalog.js";
 
-const natives: ChatTool[] = [...COMPUTER_USE_TOOLS, PROPOSE_BOT_TOOL, CREATE_FILE_TOOL, UPDATE_TASK_LIST_TOOL_V2, ...PAGE_TOOLS];
+// Como o PREPARE monta: as tools de navegador de hoje viram as 4 do PR6.
+const natives: ChatTool[] = swapBrowserTools([...COMPUTER_USE_TOOLS, PROPOSE_BOT_TOOL, CREATE_FILE_TOOL, UPDATE_TASK_LIST_TOOL_V2, ...PAGE_TOOLS]);
 const tool = (name: string, description: string, properties: Record<string, unknown> = {}, required: string[] = []): ChatTool => ({
 	type: "function",
 	function: { name, description, parameters: { type: "object", properties, ...(required.length ? { required } : {}) } },
@@ -177,5 +179,27 @@ describe("motor v3: envelope repetido e coerção numérica (puras)", () => {
 
 	it("exemplo mínimo usa só os obrigatórios", () => {
 		expect(exampleCall(order)).toBe('getSalesOrder({"orderId":1})');
+	});
+});
+
+describe("motor v3: campo desconhecido falha com a lista aceita", () => {
+	const order: ChatTool = {
+		type: "function",
+		function: { name: "getSalesOrder", description: "Get one sales order.", parameters: { type: "object", properties: { orderId: { type: "integer" } }, required: ["orderId"] } },
+	};
+	it("argProblems acusa o campo inventado e lista os aceitos", () => {
+		expect(argProblems(order, { orderId: 48213, id: "48213", salesOrderId: "48213" })).toEqual([
+			"unknown field id (accepted: orderId)",
+			"unknown field salesOrderId (accepted: orderId)",
+		]);
+	});
+	it("unknownArgs respeita additionalProperties aberto e schema sem propriedades", async () => {
+		const { unknownArgs, unknownArgsMessage } = await import("./failures.js");
+		expect(unknownArgs(order, { orderId: 1, extra: 2 })).toEqual(["extra"]);
+		expect(unknownArgsMessage(order, ["extra"])).toContain("unknown field extra (accepted: orderId)");
+		const open: ChatTool = { ...order, function: { ...order.function, parameters: { ...order.function.parameters, additionalProperties: true } } };
+		expect(unknownArgs(open, { orderId: 1, extra: 2 })).toEqual([]);
+		const loose: ChatTool = { ...order, function: { ...order.function, parameters: { type: "object", properties: {} } } };
+		expect(unknownArgs(loose, { anything: 1 })).toEqual([]);
 	});
 });

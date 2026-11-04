@@ -23,6 +23,7 @@ const DENY_TOOLS = new Set([
 	"web_search",
 	"web_extract",
 	"navigate",
+	"browser_navigate",
 	"browser_snapshot",
 	"browser_act",
 	"browser_read",

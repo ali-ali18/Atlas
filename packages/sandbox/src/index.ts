@@ -14,6 +14,7 @@ export type {
 	ControlPageChanges,
 	ControlPointer,
 	ControlActionResult,
+	ControlPageState,
 	ControlBrowserClickResult,
 	ControlBrowserLinksResult,
 	ControlBrowserTextOptions,

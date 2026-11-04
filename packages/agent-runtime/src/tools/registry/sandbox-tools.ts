@@ -11,6 +11,7 @@ import { VIDEO_TRANSCRIPT_TOOL_NAME } from "../video-transcript.js";
 export const SANDBOX_TOOL_NAMES = new Set([
 	"screenshot",
 	"navigate",
+	"browser_navigate",
 	"click",
 	"type",
 	"key",

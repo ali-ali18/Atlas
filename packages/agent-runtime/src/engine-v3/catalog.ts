@@ -16,11 +16,11 @@ import { firstSentence, type CatalogEntry } from "./bridge.js";
 /** Sempre no núcleo, se existir no run (pesquisa, memória, lista de tarefas, skills). */
 export const BASE_CORE: readonly string[] = ["web_search", "web_extract", "memory", "update_task_list", "skill_read"];
 /**
- * Com VM (decisão D8): o navegador inteiro (ler, agir, esperar, abas, tela), o shell e o login do cofre. As leituras
- * alternativas (`browser_read`, `browser_find`) e o desktop por coordenadas ficam no manifesto: chamá-las pelo nome
- * funciona sem carga, então não existe mais "tool não carregada" (o incidente que motivou o D8).
+ * Com VM (decisão D8): o navegador inteiro, o shell e o login do cofre. O navegador são 4 tools (PR6: abrir, ver, agir,
+ * abas; ler, achar, esperar e tela viraram `view`/`wait` delas), então não sobra navegador no manifesto e não existe
+ * "tool não carregada" (o incidente que motivou o D8).
  */
-export const VM_CORE: readonly string[] = ["navigate", "browser_snapshot", "browser_act", "browser_wait", "browser_tabs", "screenshot", "sandbox_shell", "login_fill"];
+export const VM_CORE: readonly string[] = ["browser_navigate", "browser_snapshot", "browser_act", "browser_tabs", "sandbox_shell", "login_fill"];
 /** Tools adiadas mais usadas pelo bot que sobem ao núcleo numa conversa nova (desenho 3.2: até 5). */
 export const USAGE_CORE_MAX = 5;
 /** Uso mínimo (30 dias) para uma tool adiada subir ao núcleo. */

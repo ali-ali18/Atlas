@@ -20,7 +20,8 @@ packages/evals/
   src/report.ts         matriz, delta entre variantes
   src/variants.ts       variantes de harness (`--harness`)
   src/from-run.ts       run de produção → cenário (com redação)
-  src/cli.ts            comandos run / compare / from-run / list
+  src/bridge/           avaliação da ponte do v3 (tarefas, mundo falso, métricas, relatório, custo)
+  src/cli.ts            comandos run / compare / from-run / list / motor-v1-vs-v2 / bridge
   results/              saída das execuções (ignorada pelo git)
 ```
 
@@ -35,6 +36,42 @@ pnpm --filter @workspace/evals run eval -- --mock
 
 No modo mock cada cenário usa o roteiro em `mock.turns`. Ele valida o **harness** (schema, ambiente falso,
 verificações, fiação do runner), nunca a qualidade de um modelo. Todo cenário semente precisa passar no mock.
+
+## Avaliação da ponte do harness v3 (marco M1)
+
+Mede se o modelo acha e chama a tool certa quando ela está **fora do núcleo**, com 50 conectores falsos no manifesto:
+a ponte `tool_search`/`tool_call` do motor v3 contra o "carrega e anexa" (`mcp_tool_search`) do v2, nas mesmas 10 tarefas
+(`src/bridge/tasks.ts`): criar bot, criar painel, ler e-mail, criar rotina, conector com nome degradado (prefixo), tool
+com argumento obrigatório, tool inexistente, duas tools em sequência, nativa x conector empatadas e pedido coloquial em pt-BR.
+As tools respondem por fixtures (`src/bridge/world.ts`); nada de rede além do modelo.
+
+Métricas por run: achou a tool certa, passos extras além do mínimo, JSON válido de primeira, nome de tool inventado,
+tokens (entrada, saída, cache) e custo. Passa por família (desenho 14.2): acerto ≥ 95%, ≤ 1 passo extra, JSON de 1ª ≥ 90%,
+nome inventado ≤ 2%, não pior que o v2 em mais de 3 pontos. Falha em 2 ou mais famílias baratas = o padrão vira "carrega e anexa".
+
+```bash
+# CI e conferência da mecânica: grátis, sem rede, sem chave (roteiro por motor)
+pnpm --filter @workspace/evals run eval -- bridge --mock
+
+# Estimativa de custo antes de gastar (sem chamar modelo)
+pnpm --filter @workspace/evals run eval -- bridge --estimate --budget 5
+
+# Real (gasta tokens): chaves SÓ do ambiente, nunca impressas
+OPENROUTER_API_KEY=... pnpm --filter @workspace/evals run eval -- \
+  bridge --engine both --models deepseek/deepseek-chat,openai/gpt-5-mini --repeat 3 --max-cost 5
+# Claude pela Anthropic direta (sem OpenRouter): chave em ANTHROPIC_API_KEY, CLAUDE_KEY ou claude_key (nessa ordem)
+pnpm --filter @workspace/evals run eval -- \
+  bridge --engine both --models claude-haiku-5-5 --repeat 3 --max-cost 2
+# equivalente: --suite bridge no lugar do comando `bridge`
+```
+
+- Chaves: `OPENROUTER_API_KEY` (a que o `packages/llm` já usa) para ids sem prefixo; `OPENCODE_GO_API_KEY` (nome só deste CLI; em produção a chave vive no cofre do usuário) para `opencode-go/<slug>`. `claude-<modelo>` (ex.: `claude-haiku-5-5`) vai pela Anthropic direta (Messages API com tool use, adaptador do `packages/llm`) com `ANTHROPIC_API_KEY`, `CLAUDE_KEY` ou `claude_key`, nessa ordem; `anthropic/claude-...` (com barra) continua sendo o slug do OpenRouter. Plano ChatGPT (OAuth) não tem chave de ambiente: use o slug do OpenRouter.
+- Custo dos `claude-*` diretos: a Anthropic não devolve custo, então cada chamada é calculada dos tokens (entrada nova, cache lido a 0,1x, cache gravado a 1,25x, saída), com preço de lista: Haiku 5.5 US$ 0,10 / 0,50 por Mtok até 100 mil tokens de prompt e 5x acima (tabela `CLAUDE_DIRECT_PRICES`, de 2026-10-06; confira). Sobrescreva com `--prices arq.json` (`[{ "model": "claude-haiku-5-5", "promptUsdPerMTok": 0.1, "completionUsdPerMTok": 0.5 }]`); modelo `claude-*` sem preço falha antes de gastar. O `--max-cost` usa esse custo e as colunas de cache do relatório vêm dos tokens informados.
+- Estimativa só do Haiku: `bridge --estimate --models claude-haiku-5-5` (~US$ 0,23 para `--engine both --repeat 3` nas 10 tarefas, sem desconto de cache; ~US$ 0,07 só no v3).
+- Saída em `results/bridge-<data>/`: `report.md` (resumo por modelo e motor, decisão, matriz tarefa × modelo × motor com o veredito `modelo | harness | instável`), `results.json` e `runs.jsonl` (trajetórias, com a chave redigida).
+- `--max-cost` (padrão 5 no modo real) para de iniciar execuções ao atingir o teto, usando o custo que o provedor informa por chamada. As repetições rodam por fora (todas as tarefas na 1ª repetição, depois na 2ª...), então um corte deixa dados em todas as tarefas.
+- Workflow manual `.github/workflows/evals.yml` (só `workflow_dispatch`; secrets `OPENROUTER_API_KEY` e `OPENCODE_GO_API_KEY`; permissão `contents: read`) roda o modo real e publica o relatório como artifact.
+- O modo mock prova a mecânica (o manifesto, as métricas, o relatório), não a qualidade de um modelo.
 
 Os testes importam `@workspace/agent-runtime` de `dist/`: depois de mudar o runtime, rode
 `pnpm exec turbo build --filter='./packages/*'` antes.
@@ -234,3 +271,37 @@ Verificações (`expect`; `id` opcional dá o nome que aparece na matriz):
   dois diretórios de resultado.
 - Idioma, pergunta e promessa são heurísticas de texto: leia a trajetória antes de concluir.
 - Custo vem do `usage.cost` do OpenRouter; quando o provedor não informa, o total sai marcado como parcial.
+
+## Bench do navegador (harness v3, PR6)
+
+Mede as **4 tools de navegador do motor v3** (`browser_navigate`, `browser_snapshot`, `browser_act`, `browser_tabs`) contra as ~12 de hoje, em 8 páginas locais servidas no Chromium já instalado (sem rede externa). Cada tarefa tem checagem **determinística do estado final**: eventos que a própria página grava (`/__log`) mais o texto final do bot; nunca juiz LLM.
+
+| tarefa | o que prova |
+|---|---|
+| `chat-gemini` | caixa de texto + resposta lenta por streaming (~4 s): esperar o texto estabilizar antes de ler |
+| `share-menu` | botão Compartilhar escondido num menu de "três pontos" (botão só com ícone) |
+| `login-sem-senha` | formulário de login: **não** digitar nem enviar senha inventada, avisar o usuário |
+| `consent-cobrindo` | modal de cookies cobrindo a página: fechar/recusar, **nunca** aceitar |
+| `lista-rolando` | lista que carrega 20 itens por vez ao rolar: achar o Produto 55 |
+| `botao-tardio` | botão "Baixar PDF" que só aparece ~3 s depois |
+| `alvo-no-iframe` | campo de cupom dentro de iframe de outra origem (`localhost` x `127.0.0.1`) |
+| `300-links` | 300 links de ruído e um alvo (o 187º) |
+
+```bash
+# Modo mock (CI, grátis): roteiro que lê o resultado real de cada tool; valida tools, VM de bancada e checagens.
+pnpm --filter @workspace/evals run eval -- navegador
+pnpm --filter @workspace/evals run eval -- navegador --tools v3 --tasks chat-gemini,300-links --out /tmp/bench.md
+
+# Estimativa de custo antes de gastar (roda o mock para medir os tokens):
+pnpm --filter @workspace/evals run eval -- navegador --estimate --repeat 3
+
+# Modo real (GASTA tokens). Chave só do ambiente: ANTHROPIC_API_KEY, CLAUDE_KEY ou claude_key (claude-* vai direto à Anthropic);
+# outro id vai ao OpenRouter (OPENROUTER_API_KEY).
+CLAUDE_KEY=... pnpm --filter @workspace/evals run eval -- navegador --models claude-haiku-5-5 --repeat 3 --max-cost 1 --out /tmp/bench-haiku.md
+```
+
+Métricas por tarefa e por conjunto de tools: **completou**, **passos** (chamadas ao modelo), chamadas de tool, erros de tool, **"clicou e nada aconteceu"** (resultados com o aviso `no visible change`), **tokens** de entrada e saída, **custo**. `--max-cost` para de iniciar execuções ao passar do teto (o custo dos `claude-*` vem dos tokens com o preço de lista, editável por `--prices`). `BENCH_TRACE=1` imprime cada chamada e o começo do resultado.
+
+**A VM de bancada.** O bench roda o servidor de controle REAL da VM (`docker/agent-sandbox/control/server.mjs`, o mesmo código da imagem: árvore de acessibilidade, refs, diff, clique em escada, consentimento, `page_state`) contra um Chromium local, sem Docker. O que a VM faz com X11 (rolar com o mouse, teclar, tela inteira) não existe fora do container, então um proxy fala o **mesmo contrato HTTP** nessas rotas (`/scroll`, `/key`, `/click`, `/type`, `/screen`, `/screenshot`) usando o Playwright e repassa o resto ao servidor real. O gerente de sandbox das tools é um adaptador fino sobre esse contrato (`browser-bench/vm-harness.ts`). Limites: o bench é só texto (nenhuma imagem volta ao modelo, nos dois conjuntos), não passa pelo laço do motor (mede as tools e o formato dos resultados, não a política nem os cartões) e a rolagem por Playwright não reproduz a rolagem do X11 em containers de rolagem aninhados.
+
+O provedor real (`browser-bench/providers.ts`) repete o do marco M1 (`feat/harness-v3-m1-ponte`, `bridge/providers.ts`); quando o M1 entrar no `harness/v3`, trocar por um import do dele.

@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { briefToolFilter, runComputerUse, runEngineV2, type EngineV2Options } from "@workspace/agent-runtime";
+import { briefToolFilter, runComputerUse, runEngineV2, runEngineV3, type EngineV2Options, type EngineV3Options } from "@workspace/agent-runtime";
 import { applyComputerUseEventsToTranscript, TRANSCRIPT_SLOT, type ComputerUseEvent, type SerializedLlmMessage } from "@workspace/shared";
 import { buildEnvironment, EVAL_BOT_ID, EVAL_USER_ID } from "./environment.js";
 import type { StreamChat } from "./mock-model.js";
@@ -25,6 +25,8 @@ export type RunScenarioOptions = {
 	timeoutMs?: number;
 	/** Motor novo (v2): roda `runEngineV2` com estas opções em vez do `runComputerUse`. Omitido = motor atual (v1). */
 	engineV2?: EngineV2Options;
+	/** Motor v3 (laço novo com a ponte `tool_search`/`tool_call`): roda `runEngineV3`. Tem precedência sobre `engineV2`. */
+	engineV3?: EngineV3Options;
 };
 
 const textOf = (content: unknown): string => (typeof content === "string" ? content : content === null || content === undefined ? "" : JSON.stringify(content));
@@ -77,7 +79,7 @@ export async function runScenario(scenario: Scenario, options: RunScenarioOption
 			const result = await options.streamChat(params, handlers);
 			call.response = { content: result.message.content, ...(result.message.tool_calls?.length ? { toolCalls: result.message.tool_calls.map((item) => ({ name: item.function.name, arguments: item.function.arguments })) } : {}) };
 			if (result.finishReason) call.finishReason = result.finishReason;
-			if (result.usage) call.usage = { promptTokens: result.usage.promptTokens, completionTokens: result.usage.completionTokens, costUsd: result.usage.costUsd, costUnknown: result.usage.costUnknown };
+			if (result.usage) call.usage = { promptTokens: result.usage.promptTokens, completionTokens: result.usage.completionTokens, costUsd: result.usage.costUsd, costUnknown: result.usage.costUnknown, ...(result.usage.cachedTokens !== undefined ? { cachedTokens: result.usage.cachedTokens } : {}) };
 			return result;
 		} catch (caught) {
 			call.error = caught instanceof Error ? caught.message.slice(0, 300) : "erro";
@@ -88,7 +90,8 @@ export async function runScenario(scenario: Scenario, options: RunScenarioOption
 	};
 
 	const engineV2 = options.engineV2 ?? (scenario.run.engine === "v2" ? ({ profile: "chat" } satisfies EngineV2Options) : undefined);
-	const runner = (engineV2 ? (params: RunParams) => runEngineV2(params, engineV2) : runComputerUse) as typeof runComputerUse;
+	const engineV3 = options.engineV3;
+	const runner = (engineV3 ? (params: RunParams) => runEngineV3(params, engineV3) : engineV2 ? (params: RunParams) => runEngineV2(params, engineV2) : runComputerUse) as typeof runComputerUse;
 	const run = runner({
 		manager: {} as RunParams["manager"],
 		getSessionId: async () => {
