@@ -60,6 +60,12 @@ export function unknownToolMessage(name: string, suggestions: readonly string[])
 		: `Unknown tool "${clipped}". It does not exist in this run; use one of the tools you were given or tell the user it is not possible.`;
 }
 
+/** A tool existe no sistema, mas este run não a oferece (nem foi negada pela política): sem insistir. */
+export function notOfferedMessage(name: string, suggestions: readonly string[]): string {
+	const near = suggestions.length > 0 ? ` Closest available: ${suggestions.join(", ")}.` : "";
+	return `Tool "${name.slice(0, 80)}" is not offered in this run.${near} Do not retry it; continue without it or tell the user what you could not do.`;
+}
+
 function typeOf(schema: unknown): string {
 	if (!schema || typeof schema !== "object") return "unknown";
 	const record = schema as { type?: unknown; enum?: unknown; items?: unknown };
