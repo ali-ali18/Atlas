@@ -10,8 +10,8 @@ import { fileCardTitle, splitFileName } from "@/lib/file-card";
 import { localImageUri } from "@/lib/image-viewer";
 import { useSurfaces } from "@/lib/use-surfaces";
 
-const TILE = 104;
-const TILE_RADIUS = 16;
+const TILE = 88;
+const TILE_RADIUS = 14;
 
 function RemoveButton({ draft, onRemove }: { draft: AttachmentDraft; onRemove: (key: string) => void }) {
 	const surfaces = useSurfaces();
@@ -22,9 +22,9 @@ function RemoveButton({ draft, onRemove }: { draft: AttachmentDraft; onRemove: (
 			onPress={() => onRemove(draft.key)}
 			hitSlop={6}
 			style={{ backgroundColor: surfaces.inverseFill }}
-			className="absolute right-1.5 top-1.5 size-7 items-center justify-center rounded-full active:opacity-70"
+			className="absolute right-[5px] top-[5px] size-6 items-center justify-center rounded-full active:opacity-70"
 		>
-			<LucideX size={14} color={surfaces.inverseInk} strokeWidth={2.5} />
+			<LucideX size={12} color={surfaces.inverseInk} strokeWidth={2.5} />
 		</Pressable>
 	);
 }
@@ -77,11 +77,11 @@ function FileChip({ draft, onRemove }: { draft: AttachmentDraft; onRemove: (key:
 	const { ext } = splitFileName(draft.name);
 	return (
 		<Tile draft={draft} onRemove={onRemove} fill={surfaces.chromeControl}>
-			<View className="flex-1 justify-between p-3">
+			<View className="flex-1 justify-between p-2.5">
 				<View className="flex-row">
 					{ext ? (
-						<View style={{ borderColor: surfaces.chromeEdge }} className="rounded-full border px-2 py-0.5">
-							<Text numberOfLines={1} variant="caption" className="text-[10px] font-medium leading-[13px] text-foreground">
+						<View style={{ borderColor: surfaces.chromeEdge }} className="rounded-full border px-1.5 py-px">
+							<Text numberOfLines={1} variant="caption" className="text-[9px] font-medium leading-[12px] text-foreground">
 								{ext}
 							</Text>
 						</View>
@@ -104,7 +104,7 @@ export function ComposerAttachments({ drafts, notice, onRemove }: { drafts: read
 	const failure = drafts.find((draft) => draft.status === "error")?.error ?? null;
 	const message = failure ?? notice;
 	return (
-		<View className="gap-2 px-3 pb-1 pt-3">
+		<View className="gap-2 px-3 pb-3 pt-3">
 			{drafts.length > 0 ? (
 				<ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 8 }}>
 					{drafts.map((draft) => (draft.route === "image" ? <ImageChip key={draft.key} draft={draft} onRemove={onRemove} /> : <FileChip key={draft.key} draft={draft} onRemove={onRemove} />))}
