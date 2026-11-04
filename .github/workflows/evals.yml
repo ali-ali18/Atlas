@@ -1,0 +1,87 @@
+name: Evals (ponte do harness v3)
+
+# Só manual: gasta tokens de verdade. Nunca roda em push nem em pull request.
+on:
+  workflow_dispatch:
+    inputs:
+      models:
+        description: "Modelos (ids do OpenRouter, ou opencode-go/<slug>), separados por vírgula"
+        required: true
+        default: "deepseek/deepseek-chat,moonshotai/kimi-k2,qwen/qwen3-coder,openai/gpt-5-mini,google/gemini-2.5-flash"
+      engine:
+        description: "Motor: both (ponte x carrega e anexa), v3 ou v2"
+        required: true
+        type: choice
+        default: both
+        options: [both, v3, v2]
+      repeat:
+        description: "Repetições por tarefa, modelo e motor"
+        required: true
+        default: "3"
+      max_cost:
+        description: "Teto de gasto em US$ (para de iniciar execuções depois dele)"
+        required: true
+        default: "5"
+
+# Menor permissão possível: o job só lê o repositório e publica um artifact.
+permissions:
+  contents: read
+
+concurrency:
+  group: evals
+  cancel-in-progress: false
+
+jobs:
+  bridge:
+    name: Avaliação da ponte (modelos reais)
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      NODE_ENV: test
+      ATLAS_HOOK_PEPPER: ci-test-pepper
+      TURBO_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @workspace/db exec prisma generate
+      - name: Build das dependências do evals
+        run: pnpm exec turbo build --filter=@workspace/evals^...
+      - name: Avaliação da ponte
+        # As entradas passam por variáveis de ambiente (nunca interpoladas no script) e são validadas antes de gastar qualquer token.
+        # Os nomes das chaves são os do packages/llm: OPENROUTER_API_KEY; OPENCODE_GO_API_KEY só para ids opencode-go/...
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENCODE_GO_API_KEY: ${{ secrets.OPENCODE_GO_API_KEY }}
+          EVAL_MODELS: ${{ inputs.models }}
+          EVAL_ENGINE: ${{ inputs.engine }}
+          EVAL_REPEAT: ${{ inputs.repeat }}
+          EVAL_MAX_COST: ${{ inputs.max_cost }}
+        run: |
+          set -euo pipefail
+          [[ "$EVAL_REPEAT" =~ ^[0-9]+$ ]] && [ "$EVAL_REPEAT" -ge 1 ] && [ "$EVAL_REPEAT" -le 10 ] || { echo "repeat deve ser um inteiro de 1 a 10"; exit 2; }
+          [[ "$EVAL_MAX_COST" =~ ^[0-9]+(\.[0-9]+)?$ ]] || { echo "max_cost deve ser um número em US\$"; exit 2; }
+          [[ "$EVAL_MODELS" =~ ^[A-Za-z0-9._:/,-]+$ ]] || { echo "models tem caracteres inválidos"; exit 2; }
+          pnpm --filter @workspace/evals run eval -- bridge --engine "$EVAL_ENGINE" --models "$EVAL_MODELS" --repeat "$EVAL_REPEAT" --max-cost "$EVAL_MAX_COST" --out results/bridge
+      - name: Relatório no resumo do job
+        if: ${{ !cancelled() }}
+        run: |
+          if [ -f packages/evals/results/bridge/report.md ]; then cat packages/evals/results/bridge/report.md >> "$GITHUB_STEP_SUMMARY"; fi
+      - name: Publica o relatório (artifact)
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: evals-ponte
+          path: |
+            packages/evals/results/bridge/report.md
+            packages/evals/results/bridge/results.json
+            packages/evals/results/bridge/runs.jsonl
+          if-no-files-found: warn
+          retention-days: 30

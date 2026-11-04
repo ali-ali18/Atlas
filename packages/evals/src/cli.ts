@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { redactSecrets } from "@workspace/shared";
@@ -10,6 +10,7 @@ import { redactSecrets } from "@workspace/shared";
  *   from-run      cenário a partir de um run de produção exportado (inspetor + eventos)
  *   list          cenários disponíveis
  *   motor-v1-vs-v2  motor atual × motor novo nas mesmas tarefas (roteiro; `--live` gasta tokens)
+ *   bridge        avaliação da ponte tool_search/tool_call do v3 × "carrega e anexa" do v2 (`--mock` grátis; real gasta tokens)
  * A chave (`OPENROUTER_API_KEY`) vem do ambiente ou de `--env-file`; nunca é impressa nem gravada.
  */
 
@@ -17,7 +18,7 @@ const PACKAGE_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 export type CliArgs = { command: string; positional: string[]; flags: Record<string, string | true> };
 
-const BOOLEAN_FLAGS = new Set(["mock", "help", "live", "reference"]);
+const BOOLEAN_FLAGS = new Set(["mock", "help", "live", "reference", "estimate"]);
 
 export function parseCliArgs(argv: string[]): CliArgs {
 	const args = argv[0] === "--" ? argv.slice(1) : argv;
@@ -38,8 +39,10 @@ export function parseCliArgs(argv: string[]): CliArgs {
 			index += 1;
 		}
 	}
-	const commands = new Set(["run", "compare", "from-run", "list", "motor-v1-vs-v2"]);
-	const command = positional[0] && commands.has(positional[0]) ? positional.shift()! : "run";
+	const commands = new Set(["run", "compare", "from-run", "list", "motor-v1-vs-v2", "bridge"]);
+	let command = positional[0] && commands.has(positional[0]) ? positional.shift()! : "run";
+	// `--suite bridge` é o mesmo que o comando `bridge`.
+	if (command === "run" && flags.suite === "bridge") command = "bridge";
 	return { command, positional, flags };
 }
 
@@ -86,7 +89,19 @@ motor-v1-vs-v2          compara o motor atual (v1) e o novo (v2) em 11 tarefas d
   --only ids            só estas tarefas
   --budget-usd N        orçamento do trabalho longo no v2 (0.05 a 20; padrão 0.50)   --minutes N  (1 a 120; padrão 20)
   --price-in N          US$/Mtok de entrada para o custo estimado (padrão 1)   --price-out N (padrão 5)
-  --out ARQ             grava o relatório markdown (ex.: docs/ops/motor-v1-vs-v2.md); sem isto imprime`;
+  --out ARQ             grava o relatório markdown (ex.: docs/ops/motor-v1-vs-v2.md); sem isto imprime
+
+bridge (ou run --suite bridge)   10 tarefas com a tool certa FORA do núcleo e 50 conectores falsos: ponte (v3) × carrega e anexa (v2)
+  --engine v2|v3|both   motor(es) (padrão: both; o critério "não pior que o v2" precisa dos dois)
+  --models a,b          ids do OpenRouter (sem prefixo), opencode-go/<slug> ou claude-<modelo> (Anthropic direta; obrigatório sem --mock)
+  --repeat N            repetições por tarefa, modelo e motor (padrão: 3)
+  --max-cost USD        para de iniciar execuções depois do teto (padrão no modo real: 5)
+  --concurrency N       execuções simultâneas (padrão: 3)   --timeout S  segundos por execução (padrão: 180)
+  --only ids            só estas tarefas   --strong a,b  modelos de controle (padrão: Claude Sonnet/Opus)
+  --mock                roteiro por motor (sem rede, sem chave, grátis): prova a mecânica
+  --estimate            só imprime a estimativa de custo (sem chamar modelo); --budget USD (padrão 5)  --prices ARQ.json (no modo real: preço dos claude-*)
+  --out DIR             pasta de saída: report.md, results.json, runs.jsonl (padrão: results/bridge-<data-hora>)
+  Chaves só do ambiente (nunca impressas): OPENROUTER_API_KEY; OPENCODE_GO_API_KEY para opencode-go/...; ANTHROPIC_API_KEY (ou CLAUDE_KEY, claude_key) para claude-*; ou --env-file.`;
 
 async function loadAll(args: CliArgs) {
 	const { loadScenarios, selectScenarios } = await import("./scenario.js");
@@ -209,6 +224,80 @@ async function commandEngineCompare(args: CliArgs): Promise<number> {
 	return 0;
 }
 
+async function commandBridge(args: CliArgs): Promise<number> {
+	const { runBridgeSuite, buildBridgeReport, formatBridgeReport, formatEstimate, tokensPerEngine, assertKeysFor, createRealModel, PRICE_ASSUMPTIONS, CLAUDE_DIRECT_PRICES } = await import("./bridge/index.js");
+	const { strongMatcher } = await import("./verdict.js");
+	const { redactSecrets: redact } = await import("@workspace/shared");
+	const { z } = await import("zod");
+	const mock = args.flags.mock === true;
+	const engineFlag = flag(args, "engine") ?? "both";
+	if (!["v2", "v3", "both"].includes(engineFlag)) throw new Error(`--engine deve ser v2, v3 ou both (recebido: ${engineFlag})`);
+	const engines = engineFlag === "both" ? (["v2", "v3"] as const) : ([engineFlag] as ["v2" | "v3"]);
+	const only = list(flag(args, "only"));
+
+	// --prices vale para a estimativa (lista de ModelPrice) e para o modo real (preço dos claude-* diretos, que a Anthropic não devolve).
+	const priceSchema = z.array(z.object({ model: z.string().min(1), label: z.string().min(1), promptUsdPerMTok: z.number().positive(), completionUsdPerMTok: z.number().positive(), extraOutputPerStep: z.number().min(0), strong: z.boolean().optional() }).strict()).min(1);
+	const pricesFile = flag(args, "prices");
+	const pricesRaw: unknown = pricesFile ? JSON.parse(await readFile(resolve(pricesFile), "utf8")) : undefined;
+	const wanted = list(flag(args, "models"));
+
+	if (args.flags.estimate === true) {
+		const probe = await runBridgeSuite({ mode: "mock", engines: ["v2", "v3"], models: [], repeat: 1, concurrency: 1, only });
+		let prices = pricesRaw ? priceSchema.parse(pricesRaw) : [...PRICE_ASSUMPTIONS];
+		if (wanted.length > 0) {
+			// Com --models, só esses modelos; `claude-*` entra pelo preço da Anthropic direta (~300 tokens de raciocínio por passo: thinking adaptativo ligado).
+			const direct = CLAUDE_DIRECT_PRICES.map((item) => ({ model: item.model, label: `${item.model} (Anthropic direta)`, promptUsdPerMTok: item.promptUsdPerMTok, completionUsdPerMTok: item.completionUsdPerMTok, extraOutputPerStep: 300 }));
+			const pool = [...prices, ...direct.filter((item) => !prices.some((known) => known.model === item.model))];
+			prices = wanted.map((model) => {
+				const found = pool.find((item) => item.model === model);
+				if (!found) throw new Error(`sem preço para ${model} na estimativa: informe com --prices <arquivo.json>`);
+				return found;
+			});
+		}
+		console.log(formatEstimate(tokensPerEngine(probe.runs), { budgetUsd: strictNumber("--budget", flag(args, "budget") ?? "5"), prices }));
+		return 0;
+	}
+
+	const models = list(flag(args, "models"));
+	if (!mock && models.length === 0) throw new Error("informe --models (ou use --mock)");
+	// No modo real, --prices é [{ model, promptUsdPerMTok, completionUsdPerMTok }] (campos extras são ignorados): preço dos claude-* diretos.
+	const directPrices = Array.isArray(pricesRaw) ? z.array(z.object({ model: z.string().min(1), promptUsdPerMTok: z.number().positive(), completionUsdPerMTok: z.number().positive() }).passthrough()).parse(pricesRaw) : undefined;
+	if (!mock) assertKeysFor(models, process.env, directPrices ?? CLAUDE_DIRECT_PRICES);
+	const real = mock ? undefined : createRealModel(process.env, directPrices ? { prices: directPrices } : {});
+	const repeat = number(flag(args, "repeat"), mock ? 1 : 3);
+	const maxCostUsd = mock ? undefined : number(flag(args, "max-cost"), 5);
+	const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+	const outDir = resolve(flag(args, "out") ?? join(PACKAGE_DIR, "results", `bridge-${stamp}`));
+	await mkdir(outDir, { recursive: true });
+	const secrets = real?.secrets ?? [];
+	const runsFile = join(outDir, "runs.jsonl");
+	await writeFile(runsFile, "");
+	console.log(`bridge: ${mock ? "mock" : models.length + " modelo(s)"} × ${engines.join("+")} × ${repeat} repetição(ões)${maxCostUsd !== undefined ? ` · teto US$ ${maxCostUsd}` : ""} → ${outDir}`);
+	const result = await runBridgeSuite({
+		mode: mock ? "mock" : "real",
+		engines,
+		models,
+		repeat,
+		concurrency: number(flag(args, "concurrency"), 3),
+		timeoutMs: number(flag(args, "timeout"), 180) * 1000,
+		only,
+		...(maxCostUsd !== undefined ? { maxCostUsd } : {}),
+		...(real ? { streamChat: real.streamChat, apiKey: real.apiKey } : {}),
+		onRun: async (metrics, trajectory) => {
+			await appendFile(runsFile, `${redact(JSON.stringify({ metrics, trajectory }), secrets)}\n`);
+			console.log(`[${metrics.engine}] ${metrics.model} ${metrics.taskId} #${metrics.repeat + 1}: ${metrics.found ? "achou" : `falhou (${metrics.failure})`} · ${metrics.modelCalls} cham. · US$ ${metrics.costUsd.toFixed(4)}`);
+		},
+	});
+	// Controle forte = Claude por padrão: "GPT mini" e "Gemini Flash" são famílias baratas (o padrão geral do `run` trataria GPT-5 mini como forte).
+	const strongList = list(flag(args, "strong"));
+	const report = buildBridgeReport(result, { isStrong: strongList.length > 0 ? strongMatcher(strongList) : (model) => /(anthropic\/)?claude-(opus|sonnet|fable)/i.test(model) });
+	const markdown = redact(formatBridgeReport(report), secrets);
+	await writeFile(join(outDir, "report.md"), markdown);
+	await writeFile(join(outDir, "results.json"), `${redact(JSON.stringify({ report, runs: result.runs }, null, 2), secrets)}\n`);
+	console.log(`\n${markdown}\nsaída: ${outDir}`);
+	return mock || report.decision.kind === "ponte-aprovada" ? 0 : 1;
+}
+
 export async function main(argv: string[]): Promise<number> {
 	const args = parseCliArgs(argv);
 	if (args.flags.help) {
@@ -224,6 +313,7 @@ export async function main(argv: string[]): Promise<number> {
 	if (args.command === "from-run") return commandFromRun(args);
 	if (args.command === "list") return commandList(args);
 	if (args.command === "motor-v1-vs-v2") return commandEngineCompare(args);
+	if (args.command === "bridge") return commandBridge(args);
 	return commandRun(args);
 }
 
