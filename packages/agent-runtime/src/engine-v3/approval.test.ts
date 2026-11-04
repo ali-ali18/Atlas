@@ -164,6 +164,7 @@ describe("motor v3: ask em tool nativa usa o cartão genérico", () => {
 		expect(cards).toHaveLength(1);
 		expect(cards[0]!.callKey).toBe(toolCallKey("page_share", share));
 		expect(cards[0]!.deadlineAt).toBe("2026-11-04T12:30:00.000Z");
+		expect(cards[0]!.ownerCard).toBe("approval");
 		expect(scheduleTimeout).toHaveBeenCalledWith(expect.objectContaining({ kind: "card_timeout", card: "tool-call", cardId: cards[0]!.confirmId, toolName: "page_share", minutes: 30, userId: "user-a", conversationId: "conv-1", runId: "run1" }));
 		expect(pending[0]).toMatchObject({ toolCall: { waitMinutes: 30 } });
 	});

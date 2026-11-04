@@ -112,7 +112,7 @@ export async function nativeApprovalGate(run: V3Run, name: string, args: Record<
 		payload: { kind: "confirm", action: "tool-call", confirmId, ...(run.botId ? { botId: run.botId } : {}), toolCall: { callKey, tool: name, label, ...(refused.length > 0 ? { refused } : {}), ...(waitMinutes ? { waitMinutes } : {}) } },
 	});
 	const deadlineAt = waitMinutes ? await scheduleCardDeadline(run, { card: "tool-call", cardId: confirmId, toolName: name, what: label, minutes: waitMinutes }) : undefined;
-	const card = { type: "confirm" as const, confirmId, title: `${label}?`, description: details, confirmLabel: "Permitir", cancelLabel: "Agora não", callKey, ...(deadlineAt ? { deadlineAt } : {}) };
+	const card = { type: "confirm" as const, confirmId, title: `${label}?`, description: details, confirmLabel: "Permitir", cancelLabel: "Agora não", callKey, ownerCard: "approval" as const, ...(deadlineAt ? { deadlineAt } : {}) };
 	await persistConversationCardFromEvent(run.conversationId, card).catch(() => undefined);
 	const summary = waitMinutes && !deadlineAt ? `${APPROVAL_PARKED} ${NO_DEADLINE_NOTE}` : APPROVAL_PARKED;
 	return { kind: "parked", summary, card };

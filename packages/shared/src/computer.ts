@@ -14,6 +14,7 @@ import type { SkillProposalEvent } from "./skill-proposal.js";
 import type { BotProposalEvent } from "./bot-proposal.js";
 import type { LoginConnector } from "./login-connector.js";
 import type { LoginVaultOffer } from "./login-wall.js";
+import type { OwnerConfirmCardKind, StepLimitProgress } from "./owner-wait.js";
 import type { AgentPointerEvent } from "./agent-pointer.js";
 import type { ContextCompactedEvent, ContextUsageEvent, DevSessionEvent, DevTimingEvent } from "./dev-session.js";
 
@@ -237,6 +238,8 @@ export type ComputerUseEvent =
 		outcome?: "done" | "takeover" | "skipped" | "skipped_timeout" | "ignored";
 		/** Motor v3: prazo da espera (ISO); vencido = "Tempo esgotado · segui sem isso". */
 		deadlineAt?: string;
+		/** Motor v3: o cartão oferece Pular · Terminei · Assumir (o v1/v2 só tem "Terminei"). */
+		ownerWait?: true;
 	  }
 	| {
 			/** Motor v3: "Volto às HH:MM" (`schedule_return` visível). Cancelável; `cancelled`/`done` fecham o marcador. */
@@ -274,6 +277,10 @@ export type ComputerUseEvent =
 		status?: "pending" | "approved" | "rejected";
 		/** Motor v3: prazo da espera (ISO); vencido = "Tempo esgotado · segui sem isso" (nunca aprova). */
 		deadlineAt?: string;
+		/** Motor v3: qual cartão do "esperar o dono" é (aprovação genérica, rascunho de rotina, limite de passos). */
+		ownerCard?: OwnerConfirmCardKind;
+		/** Motor v3, cartão do limite: o que o run já fez até parar (para o dono decidir). */
+		limitProgress?: StepLimitProgress;
   }
 	| {
 			type: "questionnaire";
@@ -288,6 +295,8 @@ export type ComputerUseEvent =
 			originalRequest?: string;
 			/** Motor v3: prazo da espera (ISO). */
 			deadlineAt?: string;
+			/** Motor v3: o cartão oferece "Pular" (o run segue sem a resposta). */
+			ownerWait?: true;
 	  }
 	| {
 			type: "bot-profile";
