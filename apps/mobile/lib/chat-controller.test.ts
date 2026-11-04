@@ -1005,3 +1005,31 @@ describe("cartões de proposta (criar agente e perfil)", () => {
 		expect(cardOf(controller, "bot-proposal")).toMatchObject({ status: "approved", botId: "bot-new" });
 	});
 });
+
+describe("marcar como lida ao ver a conversa", () => {
+	it("abre uma conversa não lida: avisa com o id da última mensagem, uma vez só", async () => {
+		const seen: unknown[] = [];
+		const { controller } = setup({ deps: { isUnread: () => true, onSeen: (info) => void seen.push(info) } });
+		await controller.open();
+		await controller.syncTail(false);
+		expect(seen).toEqual([{ botId: "bot1", conversationId: "c1", lastMessageId: "m2" }]);
+	});
+	it("conversa já lida não chama o servidor ao abrir", async () => {
+		const seen: unknown[] = [];
+		const { controller } = setup({ deps: { isUnread: () => false, onSeen: (info) => void seen.push(info) } });
+		await controller.open();
+		expect(seen).toEqual([]);
+	});
+	it("mensagem nova com a conversa aberta marca de novo", async () => {
+		const seen: Array<{ lastMessageId: string }> = [];
+		let last = "m2";
+		const { controller } = setup({
+			api: { fetchPage: async () => ({ messages: [row("m1", "user", "oi"), row(last, "assistant", "olá, tudo bem por aí?", 1)], hasMore: false }) },
+			deps: { isUnread: () => false, onSeen: (info) => void seen.push(info) },
+		});
+		await controller.open();
+		last = "m3";
+		await controller.syncTail(false);
+		expect(seen.map((info) => info.lastMessageId)).toEqual(["m3"]);
+	});
+});

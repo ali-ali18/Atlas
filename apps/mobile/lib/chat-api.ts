@@ -165,6 +165,21 @@ export async function markConversationUnread(apiFetch: ApiFetch, conversationId:
 }
 
 /**
+ * `POST /v1/conversations/:id/read`: marca como lida até a mensagem (o mesmo do web). Mensagem que o servidor não
+ * conhece (404) cai em "até agora", como no web.
+ */
+export async function markConversationRead(apiFetch: ApiFetch, conversationId: string, upToMessageId?: string): Promise<void> {
+	const path = `/v1/conversations/${encodeURIComponent(conversationId)}/read`;
+	const send = (body: Record<string, string>) => json(apiFetch, path, { method: "POST", body: JSON.stringify(body) });
+	try {
+		await send(upToMessageId ? { upToMessageId } : {});
+	} catch (reason) {
+		if (upToMessageId && reason instanceof ChatApiError && reason.status === 404) await send({});
+		else throw reason;
+	}
+}
+
+/**
  * `/compact`: resume a conversa levada (`POST /v1/conversations/:id/compact`, o mesmo do web). A resposta traz o cartão
  * (conversa compactada) ou o aviso de que nada foi feito (conversa curta); execução em andamento ou aprovação pendente
  * voltam como 409 com a mensagem.

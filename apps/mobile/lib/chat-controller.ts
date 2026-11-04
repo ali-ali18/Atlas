@@ -16,6 +16,7 @@ import { initialSync, syncLine, syncReducer, type SyncAction, type SyncState } f
 import { compactionMarkerText, dockedTaskList, mergeTail, oldestCursor, PAGE_SIZE, prependOlder, reconcile, sessionMessageToItem, withSourceMarkers, type MessagePage, type PageCursor } from "./chat-thread";
 import type { ChatItem, Reaction, ReplyQuote } from "./chat-types";
 import type { HomeBot } from "./home-types";
+import { shouldMarkSeen } from "./read-state";
 import { myReaction, sameReactions, toggleUserReaction } from "./message-actions";
 
 export type ChatApi = {
@@ -65,6 +66,10 @@ export type ChatDeps = {
 	onConversationCreated?: (conversationId: string) => void;
 	/** O servidor recusou o modelo enviado: quem guarda a escolha a apaga (volta ao modelo do bot). */
 	onModelRejected?: () => void;
+	/** A home mostra esta conversa como não lida (lido na hora da conferência). */
+	isUnread?: () => boolean;
+	/** A última mensagem está à vista e há o que limpar: quem implementa avisa o servidor e a home. */
+	onSeen?: (seen: { botId: string | null; conversationId: string; lastMessageId: string }) => void;
 };
 
 export type ChatSnapshot = {
@@ -115,6 +120,9 @@ export class ChatController {
 	/** A conversa foi criada por este controlador (um `conversationId` que chegue depois da home não a troca). */
 	private createdHere = false;
 	private oldest: PageCursor | null = null;
+	/** Leitura: último id enviado como lido e último visto numa conferência (por abertura). */
+	private seenSentId: string | null = null;
+	private seenBaselineId: string | null = null;
 	/** Muda a cada abertura e ao descartar: respostas de uma geração velha são ignoradas. */
 	private generation = 0;
 	private disposed = false;
@@ -194,6 +202,8 @@ export class ChatController {
 		this.disposed = false; // (o React em desenvolvimento monta, desmonta e monta de novo)
 		const generation = ++this.generation;
 		this.stopFollowing();
+		this.seenSentId = null;
+		this.seenBaselineId = null;
 		this.state = { ...initial(), decisions: this.state.decisions, answered: this.state.answered, cards: this.state.cards, loginsDone: this.state.loginsDone, connects: this.state.connects };
 		this.publish();
 		const convId = this.conversationId;
@@ -269,12 +279,24 @@ export class ChatController {
 			this.set({ persisted: merged.items });
 			this.persist(merged.items, generation);
 			this.dispatchSync({ type: "success" });
+			this.markSeen(convId, page.messages.at(-1)?.id ?? null);
 			return true;
 		} catch (reason) {
 			if (generation === this.generation) this.dispatchSync({ type: isNetworkError(reason) ? "network-failure" : "failure" });
 			this.fail(reason);
 			return false;
 		}
+	}
+
+	/** Última mensagem do servidor à vista: avisa que foi lida (some o marcador da home), uma vez por mensagem. */
+	private markSeen(conversationId: string, lastId: string | null): void {
+		if (this.disposed || !this.deps.onSeen) return;
+		const baselineId = this.seenBaselineId;
+		this.seenBaselineId = lastId;
+		const unread = this.deps.isUnread?.() ?? false;
+		if (!lastId || !shouldMarkSeen({ unread, lastId, lastSentId: this.seenSentId, baselineId })) return;
+		this.seenSentId = lastId;
+		this.deps.onSeen({ botId: this.botId, conversationId, lastMessageId: lastId });
 	}
 
 	/** Voltou do segundo plano: confere de novo (o run pode ter terminado ou ter mensagem nova). */

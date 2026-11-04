@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ChatApiError, COMPACT_FAILED_TEXT, compactConversation, compactErrorText, isModelRejection, MODEL_UNAVAILABLE_TEXT, ModelUnavailableError, sendErrorText, clearReaction, createRun, createRunInput, markConversationUnread, setReaction } from "./chat-api";
+import { ChatApiError, COMPACT_FAILED_TEXT, compactConversation, compactErrorText, isModelRejection, MODEL_UNAVAILABLE_TEXT, ModelUnavailableError, sendErrorText, clearReaction, createRun, createRunInput, markConversationRead, markConversationUnread, setReaction } from "./chat-api";
 import type { ApiFetch } from "./home-sync";
 import { runModelFields } from "./model-choice";
 
@@ -70,6 +70,24 @@ describe("reação e não lida", () => {
 		const { apiFetch } = fake(404, { error: "Message not found" });
 		await expect(setReaction(apiFetch, "m1", "🔥")).rejects.toMatchObject({ status: 404 });
 		await expect(markConversationUnread(apiFetch, "c1")).rejects.toBeInstanceOf(ChatApiError);
+	});
+});
+
+describe("markConversationRead", () => {
+	it("manda o id da última mensagem para a rota de leitura", async () => {
+		const { apiFetch, calls } = fake(200, {});
+		await markConversationRead(apiFetch, "c/1", "m9");
+		expect(calls).toEqual([{ path: "/v1/conversations/c%2F1/read", method: "POST", body: { upToMessageId: "m9" } }]);
+	});
+	it("mensagem desconhecida (404) cai em 'até agora', como no web", async () => {
+		const calls: Call[] = [];
+		const apiFetch: ApiFetch = async (path, init) => {
+			const body = typeof init?.body === "string" ? JSON.parse(init.body) : undefined;
+			calls.push({ path, method: init?.method, body });
+			return new Response(JSON.stringify({}), { status: body?.upToMessageId ? 404 : 200 });
+		};
+		await markConversationRead(apiFetch, "c1", "m9");
+		expect(calls.map((call) => call.body)).toEqual([{ upToMessageId: "m9" }, {}]);
 	});
 });
 

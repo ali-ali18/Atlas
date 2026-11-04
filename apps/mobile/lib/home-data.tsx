@@ -23,7 +23,7 @@ export type HomeData = {
 	/** `fresh`: descarta a atualização em voo e busca de novo (use depois de criar algo no servidor). */
 	refresh: (options?: { fresh?: boolean }) => Promise<void>;
 	/** Aplica na lista (e no cache do aparelho) o que acabou de ser salvo no servidor, sem esperar a próxima atualização. */
-	applyBotUpdate: (botId: string, patch: Partial<Pick<HomeBot, "name" | "color" | "shape" | "language" | "pinned" | "pinOrder" | "sectionId">>) => void;
+	applyBotUpdate: (botId: string, patch: Partial<Pick<HomeBot, "name" | "color" | "shape" | "language" | "pinned" | "pinOrder" | "sectionId" | "unread">>) => void;
 	/**
 	 * Insere no topo da lista (e no cache do aparelho) um bot que acabou de ser criado no servidor. Uma atualização que já
 	 * estava em voo não o conhece e não o apaga (ver `PendingBotPatches.addBot`).

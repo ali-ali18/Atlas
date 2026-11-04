@@ -60,8 +60,8 @@ export function useChat(bot: HomeBot | undefined): ChatHook {
 	const { apiFetch, openRunStream, serverUrl, email, signOut, onSignOut } = useAtlasSession();
 	// Dependências que mudam a cada render: o controlador (um só) lê sempre as de agora.
 	const { addBot, applyBotUpdate, refresh } = useHomeData();
-	const latest = React.useRef({ apiFetch, openRunStream, serverUrl, email, signOut, addBot, applyBotUpdate, refresh });
-	latest.current = { apiFetch, openRunStream, serverUrl, email, signOut, addBot, applyBotUpdate, refresh };
+	const latest = React.useRef({ unread: bot?.unread === true, apiFetch, openRunStream, serverUrl, email, signOut, addBot, applyBotUpdate, refresh });
+	latest.current = { unread: bot?.unread === true, apiFetch, openRunStream, serverUrl, email, signOut, addBot, applyBotUpdate, refresh };
 	const modelSelector = useModelSelector(bot?.id ?? null, bot?.conversationId ?? null, () => void signOut());
 	// O controlador (um só) lê o seletor de agora na hora do envio.
 	const selectorRef = React.useRef(modelSelector);
@@ -110,6 +110,12 @@ export function useChat(bot: HomeBot | undefined): ChatHook {
 				await ensureHomeBot({ fetchBot: (botId) => fetchHomeBot(latest.current.apiFetch, botId), addBot: latest.current.addBot, refresh: latest.current.refresh }, created.id, created);
 			},
 			onProfileApplied: (botId, patch) => latest.current.applyBotUpdate(botId, patch),
+			isUnread: () => latest.current.unread,
+			// Leu: o marcador some da home na hora (e fica no cache); o servidor guarda para os outros aparelhos.
+			onSeen: ({ botId: seenBotId, conversationId: seenConversationId, lastMessageId }) => {
+				if (seenBotId) latest.current.applyBotUpdate(seenBotId, { unread: false });
+				void chatApi.markConversationRead(latest.current.apiFetch, seenConversationId, lastMessageId).catch(() => undefined);
+			},
 			connect: (connector, signal) =>
 				connectApp(
 					{
