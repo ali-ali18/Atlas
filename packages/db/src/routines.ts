@@ -2,6 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import type {
 	RoutineAlert,
+	RoutineLimits,
 	RoutineNotifyMode,
 	CreateRoutineInput,
 	EmailTriggerJson,
@@ -25,6 +26,8 @@ import {
 	alertSupportsTrigger,
 	applyAlertConfig,
 	parseRoutineAlert,
+	parseStoredRoutineLimits,
+	applyRoutineLimitsPatch,
 	parseRoutineAlertInput,
 	parseRoutineNotifyMode,
 	parseEmailTriggerInput,
@@ -319,6 +322,7 @@ function toRoutine(
 		once: onceInfoFromTriggerJson(row.triggerJson),
 		interval: intervalInfoFromTriggerJson(row.triggerJson),
 		alert: parseRoutineAlert(row.alertJson) ?? undefined,
+		...(parseStoredRoutineLimits(row.limitsJson) ? { limits: parseStoredRoutineLimits(row.limitsJson) } : {}),
 	};
 }
 
@@ -892,10 +896,16 @@ export async function updateRoutine(
 	if (!userId?.trim() || userId === LEGACY_OWNER_ID) return null;
 	const existing = await prisma.routine.findFirst({
 		where: { id: routineId, botId, userId },
-		select: { id: true, userId: true, triggerType: true, triggerJson: true, schedule: true, alertJson: true, template: true, enabled: true },
+		select: { id: true, userId: true, triggerType: true, triggerJson: true, schedule: true, alertJson: true, limitsJson: true, template: true, enabled: true },
 	});
 	if (!existing) return null;
 	if (!isOwnerAllowed(existing.userId, userId)) return null;
+	// Limites do motor v3 (patch já validado em shared): `null` limpa a coluna, ausente mantém.
+	let limitsPatch: Prisma.InputJsonValue | typeof Prisma.DbNull | undefined;
+	if (input.limits !== undefined) {
+		const next = applyRoutineLimitsPatch(parseStoredRoutineLimits(existing.limitsJson), input.limits);
+		limitsPatch = next ? (next as Prisma.InputJsonValue) : Prisma.DbNull;
+	}
 
 	const nextType =
 		input.triggerType !== undefined
@@ -921,6 +931,7 @@ export async function updateRoutine(
 
 	const data: Prisma.RoutineUpdateInput = {
 		...(alertPatch !== undefined ? { alertJson: alertPatch } : {}),
+		...(limitsPatch !== undefined ? { limitsJson: limitsPatch } : {}),
 		...(input.name !== undefined ? { name: input.name.trim() } : {}),
 		...(input.groupId === null ? { group: { disconnect: true } } : {}),
 		...(input.groupId ? { group: { connect: { id: await assertGroupUsable(userId, botId, input.groupId) } } } : {}),
@@ -1322,6 +1333,21 @@ export async function getRoutinePageIdForAgentRun(agentRunId: string, userId: st
 		select: { routine: { select: { pageId: true } } },
 	});
 	return row?.routine?.pageId ?? null;
+}
+
+/**
+ * Limites próprios da rotina que originou este run (motor v3). Só se a rotina é do dono do run; `null` = sem limites
+ * próprios (vale o padrão do motor).
+ */
+export async function getRoutineLimitsForAgentRun(agentRunId: string, userId: string | undefined): Promise<RoutineLimits | null> {
+	const owners = ownerIds(userId);
+	if (owners.length === 0) return null;
+	const row = await prisma.routineRun.findFirst({
+		where: { agentRunId, routine: { userId: { in: owners } } },
+		orderBy: { createdAt: "desc" },
+		select: { routine: { select: { limitsJson: true } } },
+	});
+	return parseStoredRoutineLimits(row?.routine?.limitsJson) ?? null;
 }
 
 /** Alerta da rotina que originou este run (só se a rotina é do usuário; null = não é rotina de alerta). */

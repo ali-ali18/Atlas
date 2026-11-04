@@ -369,6 +369,7 @@ export {
 	getRoutineContextForAgentRun,
 	recordRoutineAlertState,
 	getRoutinePageIdForAgentRun,
+	getRoutineLimitsForAgentRun,
 	findRecentRoutineRunByIdempotency,
 	createRoutineRun,
 	markRoutineRunSkipped,
