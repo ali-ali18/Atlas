@@ -7,6 +7,7 @@ import { ChatCard, ChatCardActions, ChatCardHeader, ChatCardLine } from "@/compo
 import { Avatar } from "@/components/ui/avatar";
 import { Text } from "@/components/ui/text";
 import type { ChatItem } from "@/lib/chat-types";
+import { FileCardRow } from "./file-card";
 import { viewerTargetForCard } from "@/lib/viewer-target";
 import { pageCardSummary } from "@/lib/web-card";
 import { findLinkedBot, type MentionBotRef } from "@/lib/message-text";
@@ -47,13 +48,14 @@ export function ConfirmCard({ item, onDecide }: { item: Confirm; onDecide: (item
 }
 
 /**
- * Cartão sem tela nativa ainda (gráfico, arquivo, rotina…): título e "Abrir no navegador". Painel com `pageId` é o
+ * Cartão sem tela nativa ainda (gráfico, rotina…): título e "Abrir no navegador". Painel com `pageId` é o
  * resumo (título, "Painel · 2 fontes") e abre a tela nativa ("Abrir painel"); sem `pageId` (gravado antes) vai ao navegador.
  */
 export function WebCardRow({ item, onOpen, onOpenPage }: { item: WebCard; onOpen: (item: WebCard) => void; onOpenPage?: (item: WebCard) => void }) {
+	if (item.card === "file") return <FileCardRow item={item} onOpen={onOpen} onOpenPage={onOpenPage} />;
 	const target = viewerTargetForCard(item);
 	const native = onOpenPage && target ? onOpenPage : null;
-	const nativeLabel = target?.kind === "file" ? "Abrir documento" : "Abrir painel";
+	const nativeLabel = "Abrir painel";
 	return (
 		<Pressable
 			role="button"
@@ -66,7 +68,7 @@ export function WebCardRow({ item, onOpen, onOpenPage }: { item: WebCard; onOpen
 					<Text numberOfLines={1} className="text-sm font-medium">
 						{item.title}
 					</Text>
-					{native && target?.kind === "page" ? (
+					{native && target ? (
 						<Text variant="caption" numberOfLines={1}>
 							{pageCardSummary(item)}
 						</Text>
