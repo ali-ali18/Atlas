@@ -14,7 +14,7 @@ export function ConversationRow({ bot, bots, now, onOpen, onMenu }: { bot: HomeB
 	const unread = bot.unread;
 	return (
 		<Pressable role="button" accessibilityLabel={`${bot.name}. ${bot.preview}`} onPress={() => onOpen(bot)} onLongPress={() => onMenu(bot)} accessibilityHint="Segure para ver as ações da conversa" className="min-h-20 flex-row items-center gap-4 px-6 py-3 active:bg-muted/60">
-			<BotAvatar bot={bot} bots={bots} body={ROW_BODY} />
+			<BotAvatar bot={bot} bots={bots} body={ROW_BODY} unread={unread} />
 			<View className="min-w-0 flex-1 gap-0.5">
 				<View className="flex-row items-center gap-2">
 					<Text numberOfLines={1} ellipsizeMode="tail" className="min-w-0 flex-1 text-control font-bold">
@@ -27,7 +27,6 @@ export function ConversationRow({ bot, bots, now, onOpen, onMenu }: { bot: HomeB
 					<Text numberOfLines={1} ellipsizeMode="tail" className={`min-w-0 flex-1 text-control ${unread ? "text-foreground" : "text-muted-foreground"}`}>
 						{bot.preview || "Sem mensagens ainda"}
 					</Text>
-					{unread ? <View accessibilityLabel="Não lida" className="size-2.5 rounded-full bg-info" /> : null}
 				</View>
 			</View>
 		</Pressable>

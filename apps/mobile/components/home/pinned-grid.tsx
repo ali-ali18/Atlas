@@ -25,8 +25,8 @@ export function PinnedGrid({ pinned, bots, onOpen, onMenu }: { pinned: readonly 
 					style={{ width: "33.3333%" }}
 				>
 					<View style={{ width: BODY + 8, height: BODY + 8, alignItems: "center", justifyContent: "center" }}>
-						<BotAvatar bot={bot} bots={bots} body={BODY} />
-						{bot.isPrimary ? <PrimaryBadge /> : null}
+						<BotAvatar bot={bot} bots={bots} body={BODY} unread={bot.unread} />
+						{bot.isPrimary && !bot.unread ? <PrimaryBadge /> : null}
 					</View>
 					<Text numberOfLines={1} ellipsizeMode="tail" className="mt-2 max-w-full text-center text-control">
 						{bot.name}
