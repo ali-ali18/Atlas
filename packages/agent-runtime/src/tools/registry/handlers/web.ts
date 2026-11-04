@@ -6,6 +6,7 @@ import type { ToolContext, ToolResult } from "../types.js";
 import { isApiProviderExhausted, WEB_EXTRACT_API_PROVIDER, WEB_SEARCH_API_PROVIDER } from "../../provider-health.js";
 
 import type { ToolFamily } from "../registry.js";
+import { defineRawTool, definedFamily, type DefinedTool } from "../../define-tool.js";
 
 async function handleWebSearch(args: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult> {
 	const query = String(args.query ?? "").trim();
@@ -121,8 +122,78 @@ async function handleWebExtract(args: Record<string, unknown>, ctx: ToolContext)
 	}
 }
 
-/** Família `web`. */
-export const WEB_TOOLS: ToolFamily = {
-	"web_search": { group: "web", handler: handleWebSearch },
-	"web_extract": { group: "web", handler: handleWebExtract },
-};
+/** Família `web`: definição, metadado e handler de cada tool num lugar só (`defineRawTool`, harness v3 PR5b). */
+export const WEB_DEFINED: readonly DefinedTool[] = [
+	defineRawTool({
+		name: "web_search",
+		definition: {
+				type: "function",
+				function: {
+					name: "web_search",
+					description:
+						"Busca web para DESCOBRIR páginas (API configurada ou busca nativa sem chave). Devolve [{url, title, snippet, source}]. Prefira a `navigate`/Google. Erros trazem code + escalateHint com o próximo degrau.",
+					parameters: {
+						type: "object",
+						properties: {
+							query: { type: "string", description: "Consulta de busca" },
+							num: {
+								type: "number",
+								description: "Resultados (1-10, padrão 8)",
+							},
+							locale: {
+								type: "string",
+								description: "Idioma/região (padrão pt-BR)",
+							},
+							recency: {
+								type: "string",
+								description: "Recência best-effort (day|week|month|year)",
+							},
+						},
+						required: ["query"],
+					},
+				},
+			},
+		effect: "read",
+		group: "web",
+		run: handleWebSearch,
+	}),
+	defineRawTool({
+		name: "web_extract",
+		definition: {
+				type: "function",
+				function: {
+					name: "web_extract",
+					description:
+						"Lê 1-5 URLs em paralelo e devolve texto limpo (ou JSON com schema, quando há API de extração). Devolve [{url, title, fetchedAt, content|data, truncated, error?}]. Erros trazem code (blocked|needs_login|empty|timeout) + escalateHint com o próximo degrau (ex.: páginas com JS/login → navegador).",
+					parameters: {
+						type: "object",
+						properties: {
+							urls: {
+								type: "array",
+								items: { type: "string" },
+								description: "Até 5 URLs por chamada",
+							},
+							schema: {
+								type: "object",
+								description: "Schema JSON para extração estruturada (ex.: {store, product, price, currency, availability, url})",
+							},
+							prompt: {
+								type: "string",
+								description: "Instrução de extração (modo schema)",
+							},
+							maxChars: {
+								type: "number",
+								description: "Teto de chars por conteúdo (padrão 8000; o total da chamada é 20000, dividido entre as URLs)",
+							},
+						},
+						required: ["urls"],
+					},
+				},
+			},
+		effect: "read",
+		group: "web",
+		run: handleWebExtract,
+	}),
+];
+
+export const WEB_TOOLS: ToolFamily = definedFamily(WEB_DEFINED);

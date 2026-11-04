@@ -5,6 +5,8 @@ export { executeDevSessionTool } from "../../registry/handlers/dev.js";
 
 
 import type { ToolFamily } from "../registry.js";
+import { defineRawTool, definedFamily, type DefinedTool } from "../../define-tool.js";
+import { SECRET_LIST_TOOL, ROUTINE_WEBHOOK_INFO_TOOL, SECRET_REQUEST_TOOL, LOGIN_FILL_TOOL } from "../../vault-tools.js";
 
 async function handleSecretList(args: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult> {
 	return executeSecretList(vaultToolContext(ctx));
@@ -22,13 +24,43 @@ async function handleLoginFill(args: Record<string, unknown>, ctx: ToolContext):
 	return (await executeLoginFill(args, vaultToolContext(ctx))) as ToolResult;
 }
 
-/** Família `vault`. */
-export const VAULT_TOOLS: ToolFamily = {
-	"secret_list": { group: "vault", handler: handleSecretList },
-	"routine_webhook_info": { group: "vault", handler: handleRoutineWebhookInfo },
-	"secret_request": { group: "vault", handler: handleSecretRequest },
-	"login_fill": { group: "vault", handler: handleLoginFill },
-};
+/** Família `vault`: definição, metadado e handler de cada tool num lugar só (`defineRawTool`, harness v3 PR5b). */
+export const VAULT_DEFINED: readonly DefinedTool[] = [
+	defineRawTool({
+		name: "secret_list",
+		definition: SECRET_LIST_TOOL,
+		effect: "read",
+		group: "vault",
+		run: handleSecretList,
+	}),
+	defineRawTool({
+		name: "routine_webhook_info",
+		definition: ROUTINE_WEBHOOK_INFO_TOOL,
+		effect: "read",
+		group: "vault",
+		run: handleRoutineWebhookInfo,
+	}),
+	defineRawTool({
+		name: "secret_request",
+		definition: SECRET_REQUEST_TOOL,
+		effect: "credential",
+		endsTurn: true,
+		ownCard: true,
+		group: "vault",
+		run: handleSecretRequest,
+	}),
+	defineRawTool({
+		name: "login_fill",
+		definition: LOGIN_FILL_TOOL,
+		effect: "credential",
+		endsTurn: true,
+		ownCard: true,
+		group: "vault",
+		run: handleLoginFill,
+	}),
+];
+
+export const VAULT_TOOLS: ToolFamily = definedFamily(VAULT_DEFINED);
 
 export function vaultToolContext(ctx: Pick<ToolContext, "userId" | "botId" | "conversationId" | "runId" | "origin" | "manager" | "getSessionId">): VaultToolContext {
 	return {
