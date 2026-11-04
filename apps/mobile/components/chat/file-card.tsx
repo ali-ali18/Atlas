@@ -28,7 +28,7 @@ export function FileCardRow({ item, onOpen, onOpenPage }: { item: WebCard; onOpe
 			onPress={() => (native ? native(item) : onOpen(item))}
 			className="w-full max-w-[min(68ch,100%)] self-start active:opacity-80"
 		>
-			<ChatCard className="flex-row items-center gap-3 p-4" style={chatCardSkin(scheme)}>
+			<ChatCard className="flex-row items-center gap-3 px-4 py-3" style={chatCardSkin(scheme)}>
 				<FileTile glyph={kind.glyph} tone={kind.tone} />
 				<View className="min-w-0 flex-1 gap-0.5">
 					<Text numberOfLines={2} className="text-base font-medium">
