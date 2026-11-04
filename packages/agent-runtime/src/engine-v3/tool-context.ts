@@ -75,7 +75,6 @@ export function createToolContextFactory(run: V3Run) {
 		userRequestText: [...params.messages].reverse().find((message) => message.role === "user")?.content ?? "",
 		humanTurn: run.humanTurn,
 		jev: params.jev,
-		lessonFeedback: params.lessons?.recordFeedback,
 		forceConfirm,
 		mcpRun: run.mcpRun,
 		objective: params.objective,

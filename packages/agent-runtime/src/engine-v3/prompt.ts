@@ -95,7 +95,7 @@ export function assembleV3Conversation(input: {
 		if (message.role === "system") {
 			if (message.content === input.slot) {
 				for (const prior of input.priorHistory) {
-					if (isContextMessage(prior)) continue;
+					if (isContextMessage(prior) || isLessonsBlock(prior)) continue;
 					body.push(prior.role === "system" ? asRuntimeNote(prior) : prior);
 				}
 				continue;
@@ -117,6 +117,13 @@ export function assembleV3Conversation(input: {
 	}
 	const context = input.contextFor(snapshot);
 	return [{ role: "system", content: input.system }, ...(context ? [{ role: "user" as const, content: context }] : []), ...body];
+}
+
+/** Bloco de lições (v1/v2) no histórico: como `system` ou já convertido em `[runtime]`. Marca do runtime, não texto do usuário. */
+function isLessonsBlock(message: LlmMessage): boolean {
+	const first = typeof message.content === "string" ? message.content : Array.isArray(message.content) ? message.content.find((part) => part.type === "text") : undefined;
+	const text = typeof first === "string" ? first : first && "text" in first ? first.text : "";
+	return text.startsWith(LESSONS_HEADER) || text.startsWith(`${RUNTIME_PREFIX} ${LESSONS_HEADER}`);
 }
 
 /** Nota `system` de um run antigo (v2) no histórico: vira `user` `[runtime]` na mesma posição. */

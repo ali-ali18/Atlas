@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { autoLanguageInstruction, buildPersonaBlock, languageInstruction, renderLessonsBlock } from "@workspace/shared";
+import { DEFAULT_AUTONOMY_LEVEL, autoLanguageInstruction, buildPersonaBlock, languageInstruction, renderLessonsBlock } from "@workspace/shared";
+import { eligibleNativeTools } from "../engine-v2/catalog.js";
 import { ENGINE_V2_UNATTENDED } from "../engine-v2/prompt.js";
 import { CONTEXT_HEADER, assembleV3Conversation, buildV3ContextBlock, buildV3SystemPrompt, isContextMessage } from "./prompt.js";
 
@@ -93,5 +94,39 @@ describe("motor v3: lições não entram no prompt (PR8c, lições viram fatos)"
 
 	it("sem lições no banco: o prompt é byte a byte o mesmo", () => {
 		expect(build(["USER: Ana", "Fato: prefere PDF", lessonsBlock])).toEqual(build(["USER: Ana", "Fato: prefere PDF"]));
+	});
+});
+
+describe("motor v3: lições no histórico de um run v2 (PR8c, auditoria)", () => {
+	const lessonsBlock = renderLessonsBlock([{ id: "cl1a2b", content: "Ao enviar relatório, use PDF" }])!;
+	const run = (prior: Array<{ role: "system" | "user" | "assistant"; content: string }>) =>
+		JSON.stringify(
+			assembleV3Conversation({
+				system: "S",
+				contextFor: () => "",
+				messages: [{ role: "system", content: "[[slot]]" }, { role: "user", content: "oi" }],
+				priorHistory: prior,
+				slot: "[[slot]]",
+				volatile: [],
+			}),
+		);
+
+	it("system do v2 com o bloco de lições não volta como [runtime]", () => {
+		const out = run([{ role: "system", content: lessonsBlock }, { role: "user", content: "antes" }]);
+		expect(out).not.toContain("LIÇÕES APRENDIDAS");
+		expect(out).toContain("antes");
+	});
+
+	it("o bloco já convertido em [runtime] também sai, e outras notas do v2 continuam", () => {
+		const out = run([{ role: "user", content: `[runtime] ${lessonsBlock}` }, { role: "system", content: "Nota do v2" }]);
+		expect(out).not.toContain("LIÇÕES APRENDIDAS");
+		expect(out).toContain("[runtime] Nota do v2");
+	});
+});
+
+describe("motor v3: lesson_feedback fora do catálogo (PR8c, auditoria)", () => {
+	it("sem as refs de lição no prompt, a tool não existe no v3, nem com lições no run", () => {
+		const natives = eligibleNativeTools({ origin: "chat", userId: "u1", sandboxEnabled: true, autonomy: { level: DEFAULT_AUTONOMY_LEVEL, exceptions: [] }, apiConnector: false, attachments: { present: false } });
+		expect(natives.map((tool) => tool.function.name)).not.toContain("lesson_feedback");
 	});
 });
