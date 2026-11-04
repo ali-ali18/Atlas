@@ -53,8 +53,7 @@
         "expo-image-picker",
         {
           "photosPermission": "O Atlas acessa suas fotos para você anexar imagens nas conversas.",
-          "cameraPermission": "O Atlas usa a câmera para você tirar fotos e anexar nas conversas.",
-          "microphonePermission": false
+          "cameraPermission": "O Atlas usa a câmera para você tirar fotos e anexar nas conversas."
         }
       ],
       "expo-document-picker",
