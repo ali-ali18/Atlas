@@ -125,11 +125,6 @@ export const TOOL_META: Readonly<Record<string, ToolMetaFields>> = {
 	track_items: { effect: "write_internal" },
 
 	// Painéis
-	page_create: { effect: "write_internal" },
-	page_update: { effect: "write_internal" },
-	page_read: { effect: "read" },
-	page_list: { effect: "read" },
-	page_share: { effect: "public_link" },
 
 	// Trabalho longo (motor v2)
 	notebook_write: { effect: "write_internal" },

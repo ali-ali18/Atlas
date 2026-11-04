@@ -12,7 +12,7 @@ import { CONNECTORS_TOOLS } from "./connectors.js";
 import { ROUTINES_TOOLS, ROUTINES_DEFINED } from "./routines.js";
 import { BOTS_TOOLS } from "./bots.js";
 import { PLANNING_TOOLS } from "./planning.js";
-import { PAGES_TOOLS } from "./pages.js";
+import { PAGES_TOOLS, PAGES_DEFINED } from "./pages.js";
 import { LONG_WORK_TOOLS } from "./long-work.js";
 import { connectorToolResolver } from "./connectors.js";
 import { devSessionResolver } from "./dev.js";
@@ -25,4 +25,4 @@ export const TOOL_FAMILIES: Array<() => ToolFamily> = [() => BROWSER_TOOLS, () =
 export const TOOL_RESOLVERS: ToolResolvers = { before: [() => devSessionResolver], after: [() => connectorToolResolver] };
 
 /** Toda tool nativa declarada com `defineTool`/`defineRawTool`, por família (o catálogo `COMPUTER_USE_TOOLS` lê as definições daqui). */
-export const ALL_DEFINED_TOOLS: readonly DefinedTool[] = [...ROUTINES_DEFINED, ...EMAIL_DEFINED, ...BROWSER_DEFINED];
+export const ALL_DEFINED_TOOLS: readonly DefinedTool[] = [...PAGES_DEFINED, ...ROUTINES_DEFINED, ...EMAIL_DEFINED, ...BROWSER_DEFINED];
