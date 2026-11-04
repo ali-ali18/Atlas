@@ -13,7 +13,7 @@ export type BotLoaderProps = {
 	size?: number;
 	/** Rótulo para leitor de tela. Sem rótulo o bot é decorativo. */
 	label?: string;
-	/** Cor da esfera (padrão `muted-foreground` do tema). Telas de fundo fixo, como o Computador, passam a sua. */
+	/** Cor da esfera (padrão `foreground` do tema: branco no escuro, escuro no claro, para não sumir no fundo claro). Telas de fundo fixo, como o Computador, passam a sua. */
 	color?: string;
 	/** Cor dos olhos, que somem atrás na volta (padrão: o fundo da tela). */
 	eyeColor?: string;
@@ -29,7 +29,7 @@ export function BotLoader({ size = 72, label, color, eyeColor }: BotLoaderProps)
 	const surfaces = useSurfaces();
 	return (
 		<View {...(label ? { accessible: true, accessibilityRole: "progressbar" as const, accessibilityLabel: label } : { accessibilityElementsHidden: true, importantForAccessibility: "no-hide-descendants" as const })}>
-			<Avatar color={color ?? themeColor(scheme, "muted-foreground")} shape="blob" size={size} animated look={false} spin spinPeriodS={BOT_LOADER_SPIN_S} state="idle" eyeColor={eyeColor ?? surfaces.screen} />
+			<Avatar color={color ?? themeColor(scheme, "foreground")} shape="blob" size={size} animated look={false} spin spinPeriodS={BOT_LOADER_SPIN_S} state="idle" eyeColor={eyeColor ?? surfaces.screen} />
 		</View>
 	);
 }
