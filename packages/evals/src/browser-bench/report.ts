@@ -38,6 +38,13 @@ export function formatBenchReport(runs: readonly RunMetrics[], options: { title:
 			lines.push(`| ${task.id} | ${run.model} | ${run.mode} | ${run.completed ? "ok" : "FALHOU"} | ${run.steps} | ${run.promptTokens.toLocaleString("pt-BR")} | ${run.silentClicks} | ${run.error ? `erro: ${run.error}` : run.detail} |`);
 		}
 	}
+	const errored = runs.filter((run) => run.toolErrorSamples.length > 0);
+	if (errored.length) {
+		lines.push("", "## Erros de tool", "", "| tarefa | modelo | tools | chamada → erro |", "|---|---|---|---|");
+		for (const run of errored) {
+			for (const sample of run.toolErrorSamples) lines.push(`| ${run.taskId} | ${run.model} | ${run.mode} | ${sample.replace(/\|/g, "\\|")} |`);
+		}
+	}
 	return lines.join("\n");
 }
 

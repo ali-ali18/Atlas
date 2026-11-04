@@ -66,7 +66,7 @@ describe("bench do navegador: checagens determinísticas do estado final (cada u
 	});
 });
 
-const run = (over: Partial<RunMetrics>): RunMetrics => ({ taskId: "chat-gemini", mode: "v3", model: "m", completed: true, detail: "ok", steps: 4, toolCalls: 4, toolErrors: 0, silentClicks: 0, promptTokens: 1000, completionTokens: 100, costUsd: 0.01, durationMs: 1, finalText: "", ...over });
+const run = (over: Partial<RunMetrics>): RunMetrics => ({ taskId: "chat-gemini", mode: "v3", model: "m", completed: true, detail: "ok", steps: 4, toolCalls: 4, toolErrors: 0, toolErrorSamples: [], silentClicks: 0, promptTokens: 1000, completionTokens: 100, costUsd: 0.01, durationMs: 1, finalText: "", ...over });
 
 describe("bench do navegador: relatório, custo e provedor", () => {
 	it("o conjunto v3 tem schema de até 5 mil caracteres e é menor que o das tools atuais", () => {
@@ -130,5 +130,27 @@ describe("bench do navegador: pedido real leva o endereço da página", () => {
 			expect(prompt.startsWith(task.prompt)).toBe(true);
 			expect(prompt).toContain(`Página: http://127.0.0.1:9999${task.path}`);
 		}
+	});
+});
+
+describe("bench do navegador: o relatório diz por que cada tool falhou", () => {
+	it("guarda tool, argumentos e erro numa linha cortada e sem segredo", async () => {
+		const { toolErrorSample } = await import("./run.js");
+		const call = { id: "c1", type: "function" as const, function: { name: "browser_act", arguments: `{"action":"click",\n"ref":"e99","x":"${"a".repeat(400)}"}` } };
+		const sample = toolErrorSample(call, "ref e99 não existe na página.\nUse page_state.  Authorization: Bearer abcdefghijklmnopqrstuvwxyz0123456789");
+		expect(sample.startsWith('browser_act({"action":"click", "ref":"e99"')).toBe(true);
+		expect(sample).toContain("→ ref e99 não existe na página. Use page_state.");
+		expect(sample).not.toContain("\n");
+		expect(sample).not.toContain("abcdefghijklmnopqrstuvwxyz0123456789");
+		expect(sample.length).toBeLessThan(560);
+	});
+
+	it("o relatório lista os erros por tarefa só quando houve erro", () => {
+		const ok = run({});
+		const failed = run({ mode: "v3", toolErrors: 1, toolErrorSamples: ["browser_act({}) → falta o campo action | aceitos: x"] });
+		expect(formatBenchReport([ok], { title: "t" })).not.toContain("## Erros de tool");
+		const text = formatBenchReport([ok, failed], { title: "t" });
+		expect(text).toContain("## Erros de tool");
+		expect(text).toContain("| chat-gemini | m | v3 | browser_act({}) → falta o campo action \\| aceitos: x |");
 	});
 });

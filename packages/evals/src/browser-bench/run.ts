@@ -1,4 +1,5 @@
 import type { ChatTool, CompleteChatWithToolsResult, LlmMessage, LlmToolCall } from "@workspace/llm";
+import { redactSecrets } from "@workspace/shared";
 import { COMPUTER_USE_TOOLS, V3_BROWSER_TOOLS, V3_REPLACED_BROWSER_TOOLS, executeTool } from "@workspace/agent-runtime";
 import type { StreamChat } from "../mock-model.js";
 import type { FixtureServer } from "./fixtures.js";
@@ -38,6 +39,8 @@ export type RunMetrics = {
 	steps: number;
 	toolCalls: number;
 	toolErrors: number;
+	/** Cada erro de tool: nome, começo dos argumentos e do erro (sem segredos), para o relatório dizer o porquê. */
+	toolErrorSamples: string[];
 	/** "Clicou e nada aconteceu": resultados com o aviso de que nada visível mudou. */
 	silentClicks: number;
 	promptTokens: number;
@@ -77,10 +80,16 @@ const silentIn = (text: string) => (text.match(/no visible change/gi) ?? []).len
 type Driver = (messages: LlmMessage[], tools: ChatTool[]) => Promise<CompleteChatWithToolsResult>;
 
 /** Laço mínimo do bench: modelo ↔ tools da VM de bancada, sem o motor (o bench mede as tools, não o laço). */
+/** Uma linha por erro de tool: `tool(args) → erro`, cortada e sem segredos. */
+export function toolErrorSample(call: LlmToolCall, errorText: string): string {
+	const oneLine = (text: string, max: number) => text.replace(/\s+/g, " ").trim().slice(0, max);
+	return redactSecrets(`${call.function.name}(${oneLine(call.function.arguments, 200)}) → ${oneLine(errorText, 300)}`);
+}
+
 async function loop(input: { task: BenchTask; mode: ToolMode; model: string; vm: BenchVm; driver: Driver; maxSteps: number; origin: string }): Promise<Omit<RunMetrics, "completed" | "detail" | "durationMs" | "taskId" | "mode" | "model">> {
 	const tools = toolsFor(input.mode);
 	const messages: LlmMessage[] = [{ role: "system", content: BENCH_SYSTEM }, { role: "user", content: benchUserPrompt(input.task, input.origin) }];
-	const out = { steps: 0, toolCalls: 0, toolErrors: 0, silentClicks: 0, promptTokens: 0, completionTokens: 0, costUsd: 0, finalText: "" };
+	const out = { steps: 0, toolCalls: 0, toolErrors: 0, toolErrorSamples: [] as string[], silentClicks: 0, promptTokens: 0, completionTokens: 0, costUsd: 0, finalText: "" };
 	for (let step = 0; step < input.maxSteps; step += 1) {
 		const response = await input.driver(messages, tools);
 		out.steps += 1;
@@ -96,7 +105,10 @@ async function loop(input: { task: BenchTask; mode: ToolMode; model: string; vm:
 		for (const call of calls) {
 			const result = await execute(input.mode, call, input.vm);
 			out.toolCalls += 1;
-			if (!result.ok) out.toolErrors += 1;
+			if (!result.ok) {
+				out.toolErrors += 1;
+				out.toolErrorSamples.push(toolErrorSample(call, result.text));
+			}
 			out.silentClicks += silentIn(result.text);
 			// BENCH_TRACE=1: mostra cada chamada e o começo do resultado (depuração; nunca grava em arquivo).
 			if (process.env.BENCH_TRACE) console.error(`  → ${call.function.name} ${call.function.arguments.slice(0, 300)}\n  ← ${result.ok ? "" : "[ERRO] "}${result.text.slice(0, 700).replace(/\n/g, "\n    ")}`);
@@ -150,7 +162,7 @@ export async function runBenchTask(input: { task: BenchTask; mode: ToolMode; mod
 		const verdict = task.check({ events: fixtures.events, finalText: measured.finalText });
 		return { ...base, ...measured, completed: verdict.pass, detail: verdict.detail, durationMs: Date.now() - startedAt };
 	} catch (error) {
-		return { ...base, steps: 0, toolCalls: 0, toolErrors: 0, silentClicks: 0, promptTokens: 0, completionTokens: 0, costUsd: 0, finalText: "", completed: false, detail: "erro", durationMs: Date.now() - startedAt, error: error instanceof Error ? error.message : String(error) };
+		return { ...base, steps: 0, toolCalls: 0, toolErrors: 0, toolErrorSamples: [], silentClicks: 0, promptTokens: 0, completionTokens: 0, costUsd: 0, finalText: "", completed: false, detail: "erro", durationMs: Date.now() - startedAt, error: error instanceof Error ? error.message : String(error) };
 	}
 }
 
