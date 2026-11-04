@@ -899,16 +899,21 @@ export async function findActiveConversationRun(userId: string, conversationId: 
 
 /**
  * Motor v3: o que o dono escolheu no cartão de login/VM ("Terminei", "Assumir", "Pular"; o prazo vencido marca
- * `skipped_timeout`). Só grava quando o run espera esse login (`loginId`, se informado, confere). Escopado pelo dono.
+ * `skipped_timeout`). Só grava quando o run espera esse login (`loginId`, se informado, confere) e ainda não há saída
+ * gravada. Escopado pelo dono. Quem chama grava ANTES de liberar o run (resume), para o worker já ler a saída.
  */
 export async function markPendingLoginOutcome(input: { runId: string; userId: string; outcome: NonNullable<NonNullable<AgentRunCheckpoint["pendingLogin"]>["outcome"]>; loginId?: string }): Promise<string | null> {
 	if (!input.userId.trim() || input.userId === "default") return null;
-	const row = await prisma.agentRun.findFirst({ where: { id: input.runId, userId: input.userId }, select: { checkpointJson: true } });
+	const row = await prisma.agentRun.findFirst({ where: { id: input.runId, userId: input.userId }, select: { checkpointJson: true, updatedAt: true } });
 	const checkpoint = row?.checkpointJson as AgentRunCheckpoint | null | undefined;
-	if (!checkpoint?.pendingLogin) return null;
+	if (!row || !checkpoint?.pendingLogin) return null;
 	if (input.loginId && checkpoint.pendingLogin.loginId !== input.loginId) return null;
+	// A primeira saída vence: o prazo não sobrescreve o "Terminei" (nem o contrário).
+	if (checkpoint.pendingLogin.outcome) return null;
 	const next = { ...checkpoint, pendingLogin: { ...checkpoint.pendingLogin, outcome: input.outcome } };
-	await prisma.agentRun.updateMany({ where: { id: input.runId, userId: input.userId }, data: { checkpointJson: next as unknown as Prisma.InputJsonValue } });
+	// Condicional pela versão lida (`updatedAt`): quem gravou no meio (outra saída, o worker) ganha e esta desiste.
+	const updated = await prisma.agentRun.updateMany({ where: { id: input.runId, userId: input.userId, updatedAt: row.updatedAt }, data: { checkpointJson: next as unknown as Prisma.InputJsonValue } });
+	if (updated.count !== 1) return null;
 	// O id do login volta para quem marcou cancelar o prazo daquele cartão.
 	return checkpoint.pendingLogin.loginId;
 }

@@ -796,7 +796,12 @@ export function createRunRoutes(
 		const body = (await c.req.json().catch(() => null)) as { via?: unknown; code?: unknown } | null;
 		const loginCode = body?.via === "code" && typeof body.code === "string" ? body.code.replace(/s+/g, "") : "";
 		if (body?.via === "code" && !/^[A-Za-z0-9-]{3,12}$/.test(loginCode)) return c.json({ error: "Código inválido" }, 400);
+		// Motor v3: a saída do cartão de login/VM ("Pular", "Assumir"; o resto = "Terminei") vai para o checkpoint ANTES de
+		// liberar o run, para o worker (ou o reconcile) nunca pegar o run sem ela. v1/v2 ignoram o campo.
+		const loginOutcome = body?.via === "skip" ? "skipped" : body?.via === "takeover" ? "takeover" : "done";
+		const loginId = await markPendingLoginOutcome({ runId: owned.id, userId, outcome: loginOutcome }).catch(() => null);
 		const run = await requestResumeAgentRun(c.req.param("id"));
+		if (loginId) await cancelCardTimeout(loginId);
 		if (!run) {
 			return c.json(
 				{ error: "O agente ainda está parando ou não pode ser retomado" },
@@ -805,10 +810,6 @@ export function createRunRoutes(
 		}
 		// "Entrar" no card do Cofre: o runtime usa o login ao retomar (o clique é a aprovação).
 		if (body?.via === "vault") await markPendingLoginUseVault(run.id).catch(() => false);
-		// Motor v3: a saída do cartão de login/VM ("Pular", "Assumir"; o resto = "Terminei"). v1/v2 ignoram o campo.
-		const loginOutcome = body?.via === "skip" ? "skipped" : body?.via === "takeover" ? "takeover" : "done";
-		const loginId = await markPendingLoginOutcome({ runId: run.id, userId, outcome: loginOutcome }).catch(() => null);
-		if (loginId) await cancelCardTimeout(loginId);
 		// Código do e-mail/SMS: selado no checkpoint; o runtime digita na página e o modelo nunca o vê.
 		if (loginCode) await markPendingLoginCode(run.id, sealSecrets({ code: loginCode })).catch(() => false);
 		if (!config.agentRunQueue) {

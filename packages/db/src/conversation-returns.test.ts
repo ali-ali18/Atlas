@@ -133,12 +133,13 @@ test("questionário: pular/ignorar fecha o pendente como dispensado; outro usuá
 });
 
 test("login/VM: a saída do cartão só vale para o run do dono que espera aquele login", async () => {
-	const run = { id: "run1", userId: "user-a", checkpointJson: { version: 2, messages: [], pendingLogin: { loginId: "login-1", site: "x", url: "https://x" } } as Record<string, unknown> };
+	const run = { id: "run1", userId: "user-a", updatedAt: new Date(1), checkpointJson: { version: 2, messages: [], pendingLogin: { loginId: "login-1", site: "x", url: "https://x" } } as Record<string, unknown> };
 	const original = { findFirst: prisma.agentRun.findFirst, updateMany: prisma.agentRun.updateMany };
 	prisma.agentRun.findFirst = (async (args: { where: { id: string; userId: string } }) => (args.where.id === run.id && args.where.userId === run.userId ? run : null)) as unknown as typeof prisma.agentRun.findFirst;
-	prisma.agentRun.updateMany = (async (args: { where: { userId: string }; data: { checkpointJson: Record<string, unknown> } }) => {
-		if (args.where.userId !== run.userId) return { count: 0 };
+	prisma.agentRun.updateMany = (async (args: { where: { userId: string; updatedAt?: Date }; data: { checkpointJson: Record<string, unknown> } }) => {
+		if (args.where.userId !== run.userId || args.where.updatedAt?.getTime() !== run.updatedAt.getTime()) return { count: 0 };
 		run.checkpointJson = args.data.checkpointJson;
+		run.updatedAt = new Date(run.updatedAt.getTime() + 1);
 		return { count: 1 };
 	}) as unknown as typeof prisma.agentRun.updateMany;
 	try {
@@ -146,6 +147,17 @@ test("login/VM: a saída do cartão só vale para o run do dono que espera aquel
 		assert.equal(await markPendingLoginOutcome({ runId: "run1", userId: "user-a", outcome: "skipped", loginId: "outro" }), null);
 		assert.equal(await markPendingLoginOutcome({ runId: "run1", userId: "user-a", outcome: "skipped", loginId: "login-1" }), "login-1");
 		assert.equal((run.checkpointJson.pendingLogin as { outcome?: string }).outcome, "skipped");
+		// A primeira saída vence: o prazo depois do "Pular" (ou do "Terminei") não sobrescreve.
+		assert.equal(await markPendingLoginOutcome({ runId: "run1", userId: "user-a", outcome: "skipped_timeout" }), null);
+		assert.equal((run.checkpointJson.pendingLogin as { outcome?: string }).outcome, "skipped");
+		// Gravação concorrente (versão mudou entre a leitura e a escrita): desiste.
+		run.checkpointJson = { version: 2, messages: [], pendingLogin: { loginId: "login-2", site: "x", url: "https://x" } };
+		const stale = run.updatedAt;
+		const originalFind = prisma.agentRun.findFirst;
+		prisma.agentRun.findFirst = (async () => ({ ...run, updatedAt: new Date(stale.getTime() - 5) })) as unknown as typeof prisma.agentRun.findFirst;
+		assert.equal(await markPendingLoginOutcome({ runId: "run1", userId: "user-a", outcome: "skipped_timeout" }), null);
+		prisma.agentRun.findFirst = originalFind;
+		assert.equal((run.checkpointJson.pendingLogin as { outcome?: string }).outcome, undefined);
 	} finally {
 		Object.assign(prisma.agentRun, original);
 	}

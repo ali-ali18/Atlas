@@ -118,6 +118,20 @@ test("resume com via=skip/takeover grava a saída do cartão de login no checkpo
 		assert.equal(response.status, 202, await response.clone().text());
 		assert.equal((runs.rows[0]!.checkpointJson as { pendingLogin: { outcome?: string } }).pendingLogin.outcome, outcome);
 	}
+	// A saída já está no checkpoint quando o run é liberado (o worker ou o reconcile nunca pegam o run sem ela).
+	runs.rows[0]!.status = "paused";
+	runs.rows[0]!.checkpointJson = { version: 2, messages: [], pendingLogin: { loginId: "login-1", site: "x", url: "https://x" } };
+	const table = prisma.agentRun as unknown as { updateMany: (args: { data: Record<string, unknown> }) => Promise<{ count: number }> };
+	const original = table.updateMany.bind(table);
+	let outcomeAtResume: string | undefined | null = null;
+	table.updateMany = async (args) => {
+		if (args.data.status === "queued") outcomeAtResume = (runs.rows[0]!.checkpointJson as { pendingLogin: { outcome?: string } }).pendingLogin.outcome;
+		return original(args);
+	};
+	await post(appFor(OWNER), "/v1/runs/asker/resume", { via: "skip" });
+	table.updateMany = original;
+	assert.equal(outcomeAtResume, "skipped");
+
 	runs.rows[0]!.status = "paused";
 	runs.rows[0]!.checkpointJson = { version: 2, messages: [], pendingLogin: { loginId: "login-1", site: "x", url: "https://x" } };
 	assert.equal((await post(appFor("user-b"), "/v1/runs/asker/resume", { via: "skip" })).status, 404);
