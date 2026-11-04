@@ -1051,10 +1051,12 @@ export async function closePendingConfirmCard(input: {
 		if (!card || card.kind !== "confirm") continue;
 		if (input.confirmId ? card.confirmId !== input.confirmId : card.status !== "pending") continue;
 		if (card.status !== "pending") return null;
-		await prisma.conversationMessage.update({
-			where: { id: row.id },
+		// Condicional pelo conteúdo lido: se o clique do dono (ou o prazo) decidiu o cartão no meio, ninguém sobrescreve.
+		const updated = await prisma.conversationMessage.updateMany({
+			where: { id: row.id, content: row.content },
 			data: { content: serializeConversationCard({ ...card, status: input.status, outcome: { ok: input.status === "approved", detail: input.detail.slice(0, 2000) } }) },
 		});
+		if (updated.count !== 1) return null;
 		return { confirmId: card.confirmId, title: card.title, ...(card.callKey ? { callKey: card.callKey } : {}) };
 	}
 	return null;

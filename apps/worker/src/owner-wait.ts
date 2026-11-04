@@ -104,10 +104,12 @@ export async function processCardTimeout(job: OwnerWaitTimeoutJobPayload, deps: 
 	}
 	const pending = await deps.getSkillPendingIntent(job.userId, job.conversationId);
 	const intent = pending?.kind === "confirm" && pending.payload.action === "tool-call" && pending.payload.confirmId === job.cardId ? pending : null;
-	// Só o cartão AINDA pendente fecha (o dono que respondeu antes ganha): nunca aprova por prazo.
+	// Corrida com o clique do dono: quem reserva a intenção decide. O clique também reserva antes de mexer no cartão,
+	// então um cartão gera um efeito só (nunca dois runs) e o prazo nunca troca "aprovado" por "recusado".
+	if (intent && !(await deps.claimSkillPendingIntent(intent.id, job.userId, job.conversationId).catch(() => false))) return { outcome: "noop", detail: "answered" };
+	// Só o cartão AINDA pendente fecha (troca condicional pelo conteúdo): nunca aprova por prazo.
 	const closed = await deps.closePendingConfirmCard({ conversationId: job.conversationId, ownerId: job.userId, confirmId: job.cardId, status: "rejected", detail: OWNER_WAIT_CARD_DETAIL.skipped_timeout });
 	if (!closed) return { outcome: "noop", detail: "answered" };
-	if (intent) await deps.claimSkillPendingIntent(intent.id, job.userId, job.conversationId).catch(() => false);
 	const callKey = intent?.payload.toolCall?.callKey ?? closed.callKey;
 	const refused = [...(intent?.payload.toolCall?.refused ?? []), ...(callKey ? [`call:${callKey}`] : [])];
 	return await continueAfterTimeout(job, deps, { ...(job.toolName ? { toolName: job.toolName } : {}), refused });

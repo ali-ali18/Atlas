@@ -741,13 +741,14 @@ export async function maybeHandleConfirmedAction(input: {
 	if (!pending && isCardConfirmToken(commandText) && !parseDevApprovalReject(commandText)) {
 		// "Executar" sem intenção viva (venceu ou foi consumida): o cartão não pode mais ser executado. Sem fechá-lo
 		// ele ficava "pendente" no banco e voltava a pedir autorização toda vez que o app era reaberto.
-		await updateConfirmCardStatus(input.conversationId, "rejected", input.confirmId, userId, { ok: false, detail: SUPERSEDED_CARD_DETAIL }).catch(() => undefined);
+		// Só fecha se ainda estiver pendente: um cartão já decidido (pelo dono ou pelo prazo) não troca de desfecho.
+		await closePendingConfirmCard({ conversationId: input.conversationId, ownerId: userId, ...(input.confirmId ? { confirmId: input.confirmId } : {}), status: "rejected", detail: SUPERSEDED_CARD_DETAIL }).catch(() => null);
 	}
 	if (!pending || pending.kind !== "confirm") return { handled: false };
 	if (input.confirmId && pending.payload.confirmId && input.confirmId !== pending.payload.confirmId) {
 		// Decisão de um cartão que um pedido mais novo já substituiu: não aprova (nem recusa) o comando novo.
 		if (isCardConfirmToken(commandText) || isCardCancelToken(commandText) || parseDevApprovalReject(commandText)) {
-			await updateConfirmCardStatus(input.conversationId, "rejected", input.confirmId, undefined, { ok: false, detail: SUPERSEDED_CARD_DETAIL }).catch(() => undefined);
+			await closePendingConfirmCard({ conversationId: input.conversationId, ownerId: userId, confirmId: input.confirmId, status: "rejected", detail: SUPERSEDED_CARD_DETAIL }).catch(() => null);
 			return { handled: false, duplicate: true };
 		}
 	}

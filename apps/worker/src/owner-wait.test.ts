@@ -32,7 +32,7 @@ test("prazo vencido na aprovação: cartão fecha como tempo esgotado (nunca apr
 	const { deps, created, enqueued, calls } = fakeDeps();
 	const result = await processOwnerWaitJob(timeout, deps);
 	assert.equal(result.outcome, "resumed");
-	assert.deepEqual(calls, ["close:rejected:Tempo esgotado · segui sem isso", "claim"]);
+	assert.deepEqual(calls, ["claim", "close:rejected:Tempo esgotado · segui sem isso"]);
 	const seed = created[0]!.request.transcriptSeed!;
 	assert.equal(seed.fromRunId, "run1");
 	assert.equal(seed.toolName, "page_share");
@@ -50,7 +50,7 @@ test("dono respondeu antes do prazo: nada acontece (sem run, sem cartão)", asyn
 	const result = await processOwnerWaitJob(timeout, deps);
 	assert.equal(result.outcome, "noop");
 	assert.equal(created.length, 0);
-	assert.equal(calls.includes("claim"), false);
+	assert.equal(calls.filter((call) => call === "claim").length, 1);
 });
 
 test("prazo do questionário: dispensa o cartão e a pergunta não volta", async () => {
@@ -103,4 +103,12 @@ test("retorno agendado por run sem humano (rotina) vira run proativo: só leitur
 	const { deps, created } = fakeDeps({ getAgentRun: (async () => ({ id: "run1", userId: "user-a", botId: "bot-a", conversationId: "conv-1", origin: "routine", model: "m" })) as unknown as OwnerWaitProcessorDeps["getAgentRun"] });
 	await processOwnerWaitJob({ kind: "scheduled_return", userId: "user-a", returnId: "ret1" }, deps);
 	assert.equal(created[0]!.request.origin, "proactive");
+});
+
+test("corrida com o clique: o dono reservou a intenção primeiro, o prazo não fecha o cartão nem cria run", async () => {
+	const { deps, created, calls } = fakeDeps({ claimSkillPendingIntent: (async () => false) as unknown as OwnerWaitProcessorDeps["claimSkillPendingIntent"] });
+	const result = await processOwnerWaitJob(timeout, deps);
+	assert.equal(result.outcome, "noop");
+	assert.equal(calls.some((call) => call.startsWith("close:")), false, "o prazo não pode trocar o desfecho do cartão");
+	assert.equal(created.length, 0, "um cartão, um efeito");
 });

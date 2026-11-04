@@ -150,3 +150,22 @@ test("login/VM: a saída do cartão só vale para o run do dono que espera aquel
 		Object.assign(prisma.agentRun, original);
 	}
 });
+
+test("cartão de confirmação: decisão no meio (conteúdo mudou) faz o fechamento desistir", async () => {
+	const cards = [{ id: "m1", role: "confirm", content: serializeConversationCard({ v: 1, kind: "confirm", confirmId: "c1", title: "X?", status: "pending" }) }];
+	const restore = fakeCards(cards);
+	const originalMany = prisma.conversationMessage.findMany;
+	// Lê pendente, mas o dono aprova entre a leitura e a escrita.
+	prisma.conversationMessage.findMany = (async () => {
+		const snapshot = cards.map((card) => ({ ...card }));
+		cards[0]!.content = serializeConversationCard({ v: 1, kind: "confirm", confirmId: "c1", title: "X?", status: "approved" });
+		return snapshot;
+	}) as unknown as typeof prisma.conversationMessage.findMany;
+	try {
+		assert.equal(await closePendingConfirmCard({ conversationId: "conv-1", ownerId: "user-a", confirmId: "c1", status: "rejected", detail: "Tempo esgotado" }), null);
+		assert.match(cards[0]!.content, /"approved"/);
+	} finally {
+		prisma.conversationMessage.findMany = originalMany;
+		restore();
+	}
+});
