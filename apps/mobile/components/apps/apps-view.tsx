@@ -1,6 +1,7 @@
 import * as React from "react";
 import { FlatList, KeyboardAvoidingView, View } from "react-native";
 import { CatalogRowView, CatalogSearchBar, CategoryFilters, CloseButton, ListRow, SectionHeader } from "@/components/catalog/catalog-parts";
+import { BotLoader } from "@/components/ui/bot-loader";
 import { Button } from "@/components/ui/button";
 import { ChromePill } from "@/components/ui/chrome-pill";
 import { ScreenFrame } from "@/components/ui/screen-frame";
@@ -96,7 +97,7 @@ export function AppsView(props: AppsViewProps) {
 	if (load.status === "loading") {
 		empty = (
 			<View className="items-center pt-24">
-				<Spinner size="large" label="Carregando os aplicativos" />
+				<BotLoader size={72} label="Carregando os aplicativos" />
 			</View>
 		);
 	} else if (load.status === "error") {
@@ -113,7 +114,7 @@ export function AppsView(props: AppsViewProps) {
 	} else if (composioLoading) {
 		footer = (
 			<View className="items-center py-6">
-				<Spinner label="Carregando apps" />
+				<BotLoader size={48} label="Carregando apps" />
 			</View>
 		);
 	}

@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { RoundButton, TOP_BAR_CONTROL, TOP_BAR_SIDE } from "@/components/chat/chat-top-bar";
 import { ChevronLeftIcon, ClipboardPasteIcon, DotsIcon, HelpIcon, KeyboardIcon, MonitorIcon } from "@/components/icons";
 import { Avatar } from "@/components/ui/avatar";
+import { BotLoader } from "@/components/ui/bot-loader";
 import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
 import { ComputerMenu } from "@/components/computer/computer-menu";
@@ -63,19 +64,9 @@ function RoundAction({ label, onPress, children }: { label: string; onPress?: ()
 
 /** Cor da esfera da tela "Conectando": cinza claro, que combina com o fundo preto e com os olhos escuros. */
 const SPHERE = "#e4e4e7";
-/** Uma volta da esfera na tela de carregamento. */
-const SPIN_S = 1.6;
-
-/**
- * Esfera (a forma `blob` do motor) girando 360° no próprio eixo vertical enquanto conecta, com os olhos escuros que
- * somem atrás. O giro é o `spin` do `Avatar`; com "reduzir movimento" ele fica parado de frente, "pensando".
- */
+/** O bot girando da tela "Conectando" (a peça comum `BotLoader`, com a esfera cinza clara que combina com o fundo preto). */
 function SpinningSphere() {
-	return (
-		<View accessible accessibilityRole="progressbar" accessibilityLabel="Conectando ao computador">
-			<Avatar color={SPHERE} shape="blob" size={72} animated look={false} spin spinPeriodS={SPIN_S} state="idle" eyeColor={SCREEN} />
-		</View>
-	);
+	return <BotLoader size={72} label="Conectando ao computador" color={SPHERE} eyeColor={SCREEN} />;
 }
 
 /** "1x": volta ao tamanho normal. Só aparece com a tela ampliada (no controle não há outro jeito de desfazer o zoom com um dedo). */
