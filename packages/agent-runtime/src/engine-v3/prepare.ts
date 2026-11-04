@@ -3,6 +3,7 @@ import type { LlmMessage } from "@workspace/llm";
 import {
 	DEFAULT_AUTONOMY_LEVEL,
 	buildPersonaBlock,
+	createNotebook,
 	dismissedDraftsNote,
 	parseQuestionnaireAnsweredContent,
 	resolveReplyLanguage,
@@ -55,6 +56,8 @@ function frozenUsage(raw: Readonly<Record<string, number>>): Record<string, numb
 export type EngineV3Options = {
 	/** Teto de passos que o DONO configurou (conta, bot ou pedido); ausente = 40 sem humano, 200 com humano. */
 	ownerSteps?: number;
+	/** Perfil de trabalho longo do bot (o mesmo `long_work` do v2): o caderno da tarefa entra no catálogo (PR8e). */
+	longWork?: boolean;
 };
 
 /**
@@ -85,6 +88,10 @@ export async function prepareRun(params: ComputerUseParams, options: EngineV3Opt
 	const botCount =
 		params.listBotRoster && params.botId && userId !== "default" && (origin === "chat" || origin === "bot") ? (await params.listBotRoster(userId).catch(() => [])).length : 0;
 	const imageIds = params.userImageArtifactIds ?? parsed?.userImageArtifactIds ?? [];
+	// Caderno (PR8e), como no v2: só no trabalho longo, fora do subagente. Fora dele nada muda (o "Bom dia" fica igual).
+	const longWork = options.longWork === true && origin !== "subagent";
+	const continuation = origin === "chat" && (params.autoContinued === true || params.continuedWork === true);
+	const notebook = longWork ? createNotebook(parsed?.notebook ?? (continuation ? params.priorNotebook : undefined)) : undefined;
 
 	// As ~10 tools de navegador do v1/v2 viram 4 (desenho 5); o resto do catálogo é o mesmo.
 	const natives = swapBrowserTools(eligibleNativeTools({
@@ -96,6 +103,7 @@ export async function prepareRun(params: ComputerUseParams, options: EngineV3Opt
 		apiConnector: Boolean(params.apiConnector),
 		email: params.email,
 		attachments: { present: params.attachments?.present === true },
+		longWork,
 		allowProfileUpdate: origin === "chat" && (!botProfile?.description?.trim() || isBotConfigEventObjective(params.objective ?? "") || isBotConfigEventObjective(lastUserMessage)),
 		setEngine: shouldExposeSetEngine({ origin, humanTurn, lastUserMessage }),
 		botMessaging: { botCount, decideForOtherBots: params.decideForOtherBots === true },
@@ -164,6 +172,9 @@ export async function prepareRun(params: ComputerUseParams, options: EngineV3Opt
 		const notes = originSystemNotes({ origin, messages: params.messages, proactive: params.proactive ?? null, userPushMode: params.userPush?.mode, alertRun: params.alertRun });
 		const now = process.env.ATLAS_NOW_NOTE === "off" ? [] : [todayNote(new Date(), params.timeZone)];
 		// Retorno agendado ainda pendente: o modelo vê e não agenda de novo nem faz duas vezes (desenho "Volto depois").
+		// Continuação de trabalho longo: o índice do caderno herdado (títulos, não o conteúdo; o resto por `notebook_read`).
+		const notebookIndex = notebook?.index();
+		if (notebookIndex) notes.push(notebookIndex);
 		const returns = params.ownerWait ? await pendingReturnsTurnNote(params) : "";
 		if (returns) notes.push(returns);
 		// Rascunho que o dono descartou ("Agora não"): nota interna, nunca balão (decisão do dono, 04/11). Uma vez só.
@@ -254,6 +265,7 @@ export async function prepareRun(params: ComputerUseParams, options: EngineV3Opt
 		nudges: createNudges(v3State.nudges),
 		repetition: createRepetitionGuard(v3State.repetition),
 		...(v3State.ownTaskList ? { ownTaskList: v3State.ownTaskList, taskListItems: v3State.ownTaskList } : {}),
+		...(notebook ? { notebook } : {}),
 		loginAsked: new Set(parsed?.loginAsked ?? []),
 		ownerRefused: new Set([...(v3State.ownerRefused ?? []), ...(parsed?.transcriptSeed?.refused ?? [])]),
 		...(parsed?.pendingLogin ? { pendingLogin: parsed.pendingLogin } : {}),
@@ -286,6 +298,7 @@ export async function prepareRun(params: ComputerUseParams, options: EngineV3Opt
 				untrustedSeen: run.mcpRun.untrustedSeen,
 				pendingLogin: run.pendingLogin,
 				activeElapsedMs: run.activeMs(),
+				...(run.notebook && run.notebook.count() > 0 ? { notebook: run.notebook.snapshot() } : {}),
 				loadedTools: [...run.catalog.core],
 				transcriptWatermark: parsed?.transcriptWatermark ?? params.transcriptWatermark,
 				carriedNotes: parsed?.carriedNotes ?? params.carriedNotes,

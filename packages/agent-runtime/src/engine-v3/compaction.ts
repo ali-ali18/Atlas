@@ -278,7 +278,9 @@ export function createCompactor(run: V3Run, contextFor: ToolContextFactory) {
 		let outcome: CompactOutcome = "failed";
 		let after = before;
 		if (text.length >= 40) {
-			const noteOf = () => [redactSecrets(buildSummaryNote(text, collectStoredRefs(plan.old, plan.previousSummary))), SUMMARY_DATA_NOTICE, ...(tasks.length > 0 ? [`Task list at this point:\n${tasks.join("\n")}`] : [])].join("\n\n");
+			// O caderno do trabalho longo (PR8e) sobrevive ao resumo: o índice (títulos) volta junto; o conteúdo, por notebook_read.
+			const notebookIndex = run.notebook?.index();
+			const noteOf = () => [redactSecrets(buildSummaryNote(text, collectStoredRefs(plan.old, plan.previousSummary))), SUMMARY_DATA_NOTICE, ...(tasks.length > 0 ? [`Task list at this point:\n${tasks.join("\n")}`] : []), ...(notebookIndex ? [notebookIndex] : [])].join("\n\n");
 			const draft = rebuildConversation({ system: plan.head, context, contextFacts: [], note: noteOf(), recent: plan.recent });
 			// Só vale se couber no teto (senão o laço compactaria de novo a cada poucos passos) e encolher de fato.
 			if (estimate(draft) <= budget.ceilingTokens && estimate(draft) < before) {

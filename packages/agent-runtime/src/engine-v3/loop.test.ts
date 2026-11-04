@@ -471,3 +471,64 @@ describe("motor v3: array mandado como texto JSON (PR8e)", () => {
 		expect(results[0]!.summary).toMatch(/itens must be a JSON array, not text[\s\S]*shapes \(send real JSON arrays\/objects, not text\): itens: \{sku: string, qtd\?: number\}\[\]/);
 	});
 });
+
+describe("motor v3: caderno no trabalho longo (PR8e)", () => {
+	const entry = { id: "n1", kind: "finding", title: "Preço fornecedor A", excerpt: "R$ 10 por unidade, pedido mínimo 100.", source: "https://a.example/precos", author: "coordinator", step: 2 };
+
+	it("sem trabalho longo o caderno não existe (o 'Bom dia' fica igual)", async () => {
+		const { requests } = await runV3({ text: "Bom dia", script: [say("Bom dia!")] });
+		expect(requests[0]!.visible).not.toContain("notebook_write");
+		expect(requests[0]!.visible).not.toContain("notebook_read");
+	});
+
+	it("trabalho longo: o caderno vai no núcleo, grava e o conteúdo sai no checkpoint", async () => {
+		const { requests, results, checkpoints } = await runV3({
+			text: "Pesquise o preço de 3 fornecedores e monte um relatório",
+			options: { longWork: true },
+			script: [tools(call("n1", "notebook_write", { title: "Preço fornecedor A", excerpt: "R$ 10 por unidade, pedido mínimo 100.", source: "https://a.example/precos" })), say("Anotado.")],
+		});
+		expect(requests[0]!.toolNames).toEqual(expect.arrayContaining(["notebook_write", "notebook_read"]));
+		expect(results[0]).toMatchObject({ name: "notebook_write", ok: true, summary: expect.stringMatching(/^Entry n1 saved/) });
+		const notebook = (checkpoints.at(-1) as { notebook?: Array<{ id: string; title: string }> }).notebook;
+		expect(notebook?.map((item) => [item.id, item.title])).toEqual([["n1", "Preço fornecedor A"]]);
+	});
+
+	it("continuação ('Continua') herda o caderno do run anterior: o índice entra no começo e notebook_read lê", async () => {
+		const { requests, results } = await runV3({
+			text: "Continua",
+			options: { longWork: true },
+			params: { continuedWork: true, priorNotebook: [entry] },
+			script: [tools(call("r1", "notebook_read", { ids: ["n1"] })), say("Seguindo.")],
+		});
+		expect(requests[0]!.texts.some((text) => text.includes("Task notebook (1 entry") && text.includes("Preço fornecedor A"))).toBe(true);
+		expect(results[0]).toMatchObject({ name: "notebook_read", ok: true, summary: expect.stringContaining("R$ 10 por unidade") });
+	});
+
+	it("o perfil long_work do v2 liga o caderno no v3 pela mesma entrada do worker", async () => {
+		const { runEngineV3WithV2Options } = await import("./index.js");
+		const seen: string[][] = [];
+		await runEngineV3WithV2Options(
+			{
+				manager: {} as SandboxManager,
+				getSessionId: async () => "s",
+				sandboxEnabled: false,
+				model: "m",
+				apiKey: "k",
+				runId: "run-v3",
+				userId: "user-a",
+				botId: "bot-cookie",
+				conversationId: "conv-1",
+				origin: "chat",
+				humanTurn: true,
+				messages: [{ role: "user", content: "Relatório longo" }],
+				onEvent: () => undefined,
+				streamChat: async (params) => {
+					seen.push(params.tools.map((tool: ChatTool) => tool.function.name));
+					return say("ok");
+				},
+			},
+			{ profile: "long_work" },
+		);
+		expect(seen[0]).toContain("notebook_write");
+	});
+});

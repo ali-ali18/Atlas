@@ -110,6 +110,7 @@ export function createToolContextFactory(run: V3Run) {
 				}
 			: {}),
 		getOperationalSnapshot: () => ({ step: run.step, model: run.lastModel, messages: run.conversation.length, consumedInputs: [...run.consumedInputIds] }),
+		...(run.notebook ? { notebook: { writer: run.notebook.writer("coordinator"), reader: run.notebook } } : {}),
 		taskListStore: { get: () => run.taskListItems, set: (next) => { run.taskListItems = next; } },
 		emitTaskList: async (items) => {
 			// Só a lista que o MODELO manda neste run alimenta o empurrão E4 (sinal estrutural declarado por ele).
