@@ -49,6 +49,8 @@ import {
 	Square as LucideSquare,
 	Star as LucideStar,
 	TextCursorInput as LucideTextCursorInput,
+	UserRoundCog as LucideUserRoundCog,
+	UserRoundPlus as LucideUserRoundPlus,
 	X as LucideX,
 	ClipboardPaste as LucideClipboardPaste,
 	CircleHelp as LucideCircleHelp,
@@ -373,4 +375,14 @@ export function ForwardIcon({ size = 20, tone = "foreground" }: LineIconProps) {
 /** Lucide `Download` (visualizador de imagens: Salvar). */
 export function DownloadIcon({ size = 20, tone = "foreground" }: LineIconProps) {
 	return <LucideDownload size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `UserRoundPlus` (o cartão "Criar agente"). */
+export function UserPlusIcon({ size = 16, tone = "muted-foreground" }: LineIconProps) {
+	return <LucideUserRoundPlus size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `UserRoundCog` (o cartão de perfil do bot). */
+export function UserCogIcon({ size = 16, tone = "muted-foreground" }: LineIconProps) {
+	return <LucideUserRoundCog size={size} color={useStroke(tone)} strokeWidth={2} />;
 }

@@ -39,7 +39,9 @@ import { replyQuoteFor } from "@/lib/reply-quote";
 import { useChat } from "@/lib/use-chat";
 import { mentionableBots } from "@/lib/mention-input";
 import { useComposerSkills } from "@/lib/use-composer-skills";
+import { ensureHomeBot } from "@/lib/ensure-bot";
 import { useHomeData } from "@/lib/home-data";
+import { fetchHomeBot } from "@/lib/home-sync";
 
 /** Rolou para cima além disto (px do fim): aparece o botão de voltar ao fim. */
 const JUMP_THRESHOLD = 360;
@@ -72,7 +74,7 @@ export default function ChatScreen() {
 	const scheme = useAppColorScheme();
 	const insets = useSafeAreaInsets();
 	const { id, draft } = useLocalSearchParams<{ id: string; draft?: string }>();
-	const { snapshot } = useHomeData();
+	const { snapshot, addBot, refresh } = useHomeData();
 	const { serverUrl, apiFetch } = useAtlasSession();
 	const bot = snapshot?.bots.find((item) => item.id === id);
 	const chat = useChat(bot);
@@ -98,6 +100,16 @@ export default function ChatScreen() {
 	const modelPill = React.useMemo(() => buildModelPill(chat.modelSelector.choice, chat.modelSelector.catalog.catalog), [chat.modelSelector.choice, chat.modelSelector.catalog.catalog]);
 	const goBack = React.useCallback(() => (router.canGoBack() ? router.back() : router.replace("/")), [router]);
 	const openProfile = React.useCallback(() => router.push(`/profile/${encodeURIComponent(id)}` as never), [router, id]);
+	// Cartão já aprovado (em outro aparelho, ou a home perdeu o bot): busca o bot antes de abrir, senão a tela diria "Não encontrei esta conversa".
+	const botIds = snapshot?.bots;
+	const openBot = React.useCallback(
+		(botId: string) => {
+			const open = () => router.push(`/chat/${encodeURIComponent(botId)}` as never);
+			if (botIds?.some((item) => item.id === botId)) return open();
+			void ensureHomeBot({ fetchBot: (wanted) => fetchHomeBot(apiFetch, wanted), addBot, refresh }, botId).then(open);
+		},
+		[router, botIds, apiFetch, addBot, refresh],
+	);
 	const openWeb = React.useCallback(
 		(_item: Extract<ChatItem, { kind: "web-card" }>) => {
 			const url = webChatUrl(serverUrl, id);
@@ -139,6 +151,8 @@ export default function ChatScreen() {
 		() => ({
 			onDecide: chat.decide,
 			onAnswer: chat.answer,
+			onResolveProposal: chat.resolveProposal,
+			onOpenBot: openBot,
 			onOpenWeb: openWeb,
 			onOpenPage: openPage,
 			onOpenMenu: messageMenu.open,
@@ -149,7 +163,7 @@ export default function ChatScreen() {
 			bots: rowBots,
 			skills: skillSet,
 		}),
-		[chat.decide, chat.answer, openWeb, openImage, messageMenu.open, chat.running, chat.runTasks?.runId, userBubble, rowBots, skillSet],
+		[chat.decide, chat.answer, chat.resolveProposal, openBot, openWeb, openImage, messageMenu.open, chat.running, chat.runTasks?.runId, userBubble, rowBots, skillSet],
 	);
 
 	// A lista é invertida (o fim da conversa fica embaixo e o teclado não a desloca): mais novo primeiro.

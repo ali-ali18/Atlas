@@ -71,3 +71,68 @@ describe("com o controlador de atualização da home", () => {
 		expect(saved).toEqual(["Salvo agora"]);
 	});
 });
+
+describe("bot criado durante uma atualização da home", () => {
+	it("a resposta velha (sem o bot novo) não o apaga: ele volta ao topo", () => {
+		const patches = new PendingBotPatches();
+		const marker = patches.mark(); // a atualização começa
+		patches.addBot(bot("novo", "Novo")); // a pessoa cria um bot enquanto ela está em voo
+		const stale = snap(bot("a", "A"), bot("b", "B")); // o servidor respondeu antes da criação
+		expect(patches.applyOver(stale, marker).bots.map((item) => item.id)).toEqual(["novo", "a", "b"]);
+	});
+	it("se a resposta já traz o bot, vale a do servidor (sem duplicar)", () => {
+		const patches = new PendingBotPatches();
+		const marker = patches.mark();
+		patches.addBot(bot("novo", "Local"));
+		const fresh = snap(bot("novo", "Do servidor"), bot("a", "A"));
+		const result = patches.applyOver(fresh, marker);
+		expect(result.bots.map((item) => item.name)).toEqual(["Do servidor", "A"]);
+	});
+	it("criado antes de a atualização começar: o servidor já o devolve, e ele não volta numa atualização seguinte", () => {
+		const patches = new PendingBotPatches();
+		patches.addBot(bot("novo", "Novo"));
+		const marker = patches.mark();
+		const fresh = snap(bot("a", "A")); // (por exemplo, o bot foi apagado em outro aparelho)
+		expect(patches.applyOver(fresh, marker).bots.map((item) => item.id)).toEqual(["a"]);
+		expect(patches.applyOver(fresh, patches.mark()).bots.map((item) => item.id)).toEqual(["a"]);
+	});
+	it("edição do bot novo feita durante a atualização também vale", () => {
+		const patches = new PendingBotPatches();
+		const marker = patches.mark();
+		patches.addBot(bot("novo", "Novo"));
+		patches.add("novo", { name: "Renomeado" });
+		expect(patches.applyOver(snap(bot("a", "A")), marker).bots.map((item) => item.name)).toEqual(["Renomeado", "A"]);
+	});
+	it("trocar de conta (clear) esquece os bots criados", () => {
+		const patches = new PendingBotPatches();
+		const marker = patches.mark();
+		patches.addBot(bot("novo", "Novo"));
+		patches.clear();
+		expect(patches.applyOver(snap(bot("a", "A")), marker).bots.map((item) => item.id)).toEqual(["a"]);
+	});
+	it("na atualização do controlador, o bot novo sobrevive ao fetch antigo e vai para o cache", async () => {
+		const { HomeSyncController } = await import("./home-sync-controller");
+		const patches = new PendingBotPatches();
+		let release!: () => void;
+		const gate = new Promise<void>((resolve) => (release = resolve));
+		const delivered: string[][] = [];
+		const saved: string[][] = [];
+		const controller = new HomeSyncController(() => ({
+			fetch: async () => {
+				const marker = patches.mark();
+				await gate;
+				return { ok: true as const, snapshot: patches.applyOver(snap(bot("a", "A")), marker) };
+			},
+			save: async (_key, value) => void saved.push(value.bots.map((item) => item.id)),
+			onSnapshot: (snapshot) => void delivered.push(snapshot.bots.map((item) => item.id)),
+			onError: () => undefined,
+			onUnauthorized: async () => undefined,
+		}));
+		const running = controller.run("conta");
+		patches.addBot(bot("novo", "Novo"));
+		release();
+		expect(await running).toBe("ok");
+		expect(delivered).toEqual([["novo", "a"]]);
+		expect(saved).toEqual([["novo", "a"]]);
+	});
+});

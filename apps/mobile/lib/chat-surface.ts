@@ -21,3 +21,14 @@ export function routineSurface(scheme: ColorScheme): { screen: string; card: str
 	const colors = surfaceColors(scheme);
 	return { screen: colors.screen, card: colors.surface, edge: colors.surfaceEdge, link: colors.link, off: colors.switchOff };
 }
+
+/** Contorno do cartão do chat (tabela, propostas): o contorno padrão do cartão. */
+export function chatCardEdge(scheme: ColorScheme): string {
+	return surfaceColors(scheme).surfaceEdge;
+}
+
+/** Pele do cartão do chat (tabela, propostas): a superfície padrão com contorno e raio de cartão. */
+export function chatCardSkin(scheme: ColorScheme) {
+	const colors = surfaceColors(scheme);
+	return { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.surfaceEdge, borderRadius: 21 } as const;
+}

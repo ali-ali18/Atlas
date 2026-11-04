@@ -3,6 +3,7 @@
 // `use-atlas-chat.ts` / `thread-merge.ts` / `thread-live.ts` do web: o gravado manda, o ao vivo preenche o resto.
 import { BOT_LINK_ROLE, formatSourceMarker, formatTokensPt, isCardConfirmToken, type MessageSource, parseBotLinkCard, parseConversationCard, type PersistedConversationCard, type SessionMessage } from "@workspace/shared";
 import type { ChatItem, Reaction, TaskItem } from "./chat-types";
+import { applyDecidedProposals, botProfileToItem, botProposalToItem, proposalKey } from "./bot-cards";
 import { parseReplyTo } from "./reply-quote";
 
 const CARD_ROLES = new Set([
@@ -70,10 +71,12 @@ export function cardToItem(id: string, card: PersistedConversationCard, createdA
 			return { ...base, kind: "web-card", card: "login", title: `Entrar em ${card.site}`, key: `login:${card.loginId}` };
 		case "images":
 			return { ...base, kind: "images", origin: card.origin, images: card.items.map(({ artifactId, mime, width, height, alt, name }) => ({ artifactId, mime, width, height, ...(alt ? { alt } : {}), ...(name ? { name } : {}) })), ...(card.caption ? { caption: card.caption } : {}) };
-		case "routine-proposal":
 		case "bot-proposal":
+			return botProposalToItem(id, card, createdAt);
 		case "bot-profile":
-			return { ...base, kind: "web-card", card: "proposal", title: card.kind === "routine-proposal" ? "Proposta de rotina" : card.kind === "bot-proposal" ? "Proposta de bot" : "Proposta de perfil", key: `${card.kind}:${id}` };
+			return botProfileToItem(id, card, createdAt);
+		case "routine-proposal":
+			return { ...base, kind: "web-card", card: "proposal", title: "Proposta de rotina", key: `${card.kind}:${id}` };
 		default:
 			// habilidade, subagentes, orçamento de ferramenta, revisão, execução de código: ficam só no web.
 			return null;
@@ -246,6 +249,9 @@ export function cardKey(item: ChatItem): string | null {
 			return `questionnaire|${item.questionnaireId}`;
 		case "task-list":
 			return `task-list|${item.runId}`;
+		case "bot-proposal":
+		case "bot-profile":
+			return proposalKey(item);
 		case "web-card":
 			return item.key;
 		default:
@@ -260,7 +266,11 @@ export function cardKey(item: ChatItem): string | null {
  * - cartão ao vivo com a identidade de um gravado: vale o gravado; só a lista de tarefas ao vivo do mesmo run
  *   substitui os passos do gravado (é a mais nova), no lugar dele.
  */
-export function reconcile(persisted: readonly ChatItem[], live: readonly ChatItem[]): ChatItem[] {
+export function reconcile(persistedRaw: readonly ChatItem[], liveRaw: readonly ChatItem[]): ChatItem[] {
+	// Proposta decidida em qualquer cópia (gravada ou ao vivo) vale nas duas: o decidido vence (como o web).
+	const decided = applyDecidedProposals([...persistedRaw, ...liveRaw]);
+	const persisted = decided.slice(0, persistedRaw.length);
+	const live = decided.slice(persistedRaw.length);
 	const persistedKeys = new Map<string, number>();
 	persisted.forEach((item, index) => {
 		const key = cardKey(item);

@@ -5,12 +5,15 @@ import { Pressable, ScrollView, View } from "react-native";
 import { DoneButton } from "@/components/bot/done-button";
 import { SoonSheet } from "@/components/home/soon-sheet";
 import { Avatar } from "@/components/ui/avatar";
+import { ShapeOption } from "@/components/ui/shape-option";
 import { ScreenFrame } from "@/components/ui/screen-frame";
 import { ScreenHeader } from "@/components/ui/screen-header";
 import { SurfaceCard, SurfaceDivider } from "@/components/ui/surface-card";
 import { Text } from "@/components/ui/text";
 import { getDraft, updateDraft } from "@/lib/bot-draft";
 import { AVATAR_PALETTE, AVATAR_SHAPES, defaultAvatar } from "@/lib/bot-edit";
+import { shapeLabel } from "@/lib/new-bot";
+import { EDITOR_SHAPE_CELL, EDITOR_SHAPE_SIZE } from "@/lib/shape-ring";
 import { cn } from "@/lib/cn";
 import { useSurfaces } from "@/lib/use-surfaces";
 
@@ -60,10 +63,8 @@ export default function AvatarEditorScreen() {
 				</View>
 				<SurfaceCard className="w-full overflow-hidden">
 					<View className="flex-row flex-wrap justify-center gap-x-1 gap-y-2 px-2 pb-4 pt-5">
-						{AVATAR_SHAPES.map((item) => (
-							<Pressable key={item} role="radio" accessibilityLabel={`Forma ${item}`} accessibilityState={{ checked: item === shape }} onPress={() => setShape(item)} className={cn("size-16 items-center justify-center rounded-full border-2", item === shape ? "border-foreground/50" : "border-transparent")}>
-								<Avatar color={color} shape={item} size={56} animated={false} eyeColor={surfaces.surface} />
-							</Pressable>
+						{AVATAR_SHAPES.map((item, index) => (
+							<ShapeOption key={item} shape={item} color={color} label={shapeLabel(index, AVATAR_SHAPES.length)} selected={item === shape} cell={EDITOR_SHAPE_CELL} size={EDITOR_SHAPE_SIZE} eyeColor={surfaces.surface} surface={surfaces.surface} onPress={() => setShape(item)} />
 						))}
 					</View>
 					<View className="flex-row flex-wrap justify-center gap-x-3 gap-y-3 px-4 pb-5 pt-1">

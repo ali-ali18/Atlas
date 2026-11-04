@@ -60,7 +60,7 @@ export function HomeHeader({ user, onNew, onSignOut, onChangeServer }: { user: U
 			<Pressable role="button" accessibilityLabel="Conta" accessibilityState={{ expanded: menu }} onPress={() => setMenu(true)} className="active:opacity-70">
 				<UserAvatar {...user} />
 			</Pressable>
-			<ChromeButton size="md" label="Novo chat" onPress={onNew}>
+			<ChromeButton size="md" label="Novo bot" onPress={onNew}>
 				<PlusIcon />
 			</ChromeButton>
 			<UserMenu
