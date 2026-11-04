@@ -28,18 +28,10 @@ export const TOOL_META: Readonly<Record<string, ToolMetaFields>> = {
 	// Pior caso: baixa URL arbitrária enviando por padrão os cookies do Chrome da VM; sem a sessão é só escrita na VM.
 
 	// Web
-	web_search: { effect: "read" },
-	web_extract: { effect: "read" },
 
 	// Arquivos e imagens
 
 	// Memória e leitura de contexto
-	memory: { effect: "write_internal" },
-	session_search: { effect: "read" },
-	memory_search: { effect: "read" },
-	checkpoint_read: { effect: "read" },
-	artifact_read: { effect: "read" },
-	lesson_feedback: { effect: "write_internal" },
 
 	// Misc (`app_info` e `current_time` migraram para `defineTool`)
 	preview_setup: { effect: "write_internal", ownCard: true },
