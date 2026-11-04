@@ -13,7 +13,7 @@ export function ConversationRow({ bot, bots, now, onOpen, onMenu }: { bot: HomeB
 	const date = formatListDate(bot.lastAt, now);
 	const unread = bot.unread;
 	return (
-		<Pressable role="button" accessibilityLabel={`${bot.name}. ${bot.preview}`} onPress={() => onOpen(bot)} onLongPress={() => onMenu(bot)} accessibilityHint="Segure para ver as ações da conversa" className="min-h-[72px] flex-row items-center gap-3 px-5 py-2 active:bg-muted/60">
+		<Pressable role="button" accessibilityLabel={`${bot.name}. ${bot.preview}`} onPress={() => onOpen(bot)} onLongPress={() => onMenu(bot)} accessibilityHint="Segure para ver as ações da conversa" className="min-h-20 flex-row items-center gap-4 px-6 py-3 active:bg-muted/60">
 			<BotAvatar bot={bot} bots={bots} body={ROW_BODY} />
 			<View className="min-w-0 flex-1 gap-0.5">
 				<View className="flex-row items-center gap-2">
@@ -59,7 +59,7 @@ export function SectionBlock({
 }) {
 	const editable = section.key !== NO_SECTION_KEY && Boolean(onSectionMenu);
 	return (
-		<View>
+		<View className="pb-3">
 			<Pressable
 				role="button"
 				accessibilityState={{ expanded: open }}
@@ -68,7 +68,7 @@ export function SectionBlock({
 				onPress={onToggle}
 				onLongPress={editable ? () => onSectionMenu?.(section) : undefined}
 				delayLongPress={400}
-				className="min-h-11 flex-row items-center gap-1.5 self-start px-5 active:opacity-70"
+				className="min-h-12 flex-row items-center gap-1.5 self-start px-6 pt-1 active:opacity-70"
 			>
 				<Text numberOfLines={1} className="shrink text-control text-muted-foreground">
 					{section.title}
@@ -81,7 +81,7 @@ export function SectionBlock({
 				? section.bots.length > 0
 					? section.bots.map((bot) => <ConversationRow key={bot.id} bot={bot} bots={bots} now={now} onOpen={onOpen} onMenu={onMenu} />)
 					: showEmpty
-						? <Text className="px-5 pb-3 text-body text-muted-foreground">Nenhuma conversa aqui ainda.</Text>
+						? <Text className="px-6 pb-3 text-body text-muted-foreground">Nenhuma conversa aqui ainda.</Text>
 						: null
 				: null}
 		</View>

@@ -56,7 +56,7 @@ function UserMenu({ open, email, onClose, onSignOut, onChangeServer }: { open: b
 export function HomeHeader({ user, onNew, onSignOut, onChangeServer }: { user: UserProps; onNew: () => void; onSignOut: () => void; onChangeServer: () => void }) {
 	const [menu, setMenu] = React.useState(false);
 	return (
-		<View className="flex-row items-center justify-between px-5 pb-2 pt-2">
+		<View className="flex-row items-center justify-between px-6 pb-2 pt-2">
 			<Pressable role="button" accessibilityLabel="Conta" accessibilityState={{ expanded: menu }} onPress={() => setMenu(true)} className="active:opacity-70">
 				<UserAvatar {...user} />
 			</Pressable>

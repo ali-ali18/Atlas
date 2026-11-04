@@ -82,7 +82,7 @@ export default function HomeScreen() {
 	} else {
 		body = (
 			<>
-				{error ? <Text className="px-5 pt-2 text-caption text-muted-foreground">{staleNotice(error)}</Text> : null}
+				{error ? <Text className="px-6 pt-2 text-caption text-muted-foreground">{staleNotice(error)}</Text> : null}
 				<PinnedGrid pinned={layout.pinned} bots={bots} onOpen={open} onMenu={setMenuBot} />
 				{layout.sections.map((section) => (
 					<SectionBlock
