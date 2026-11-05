@@ -7,10 +7,16 @@ const limit = bodyLimit({
 	onError: (c) => c.json({ error: "JSON body exceeds 1 MiB" }, 413),
 });
 
-/** Uploads têm seu próprio limite de 10 MiB + envelope multipart. */
+/**
+ * Caminhos exatos com limite próprio, fora do teto de 1 MiB de JSON: imagem (10 MiB), anexo de arquivo (20 MiB,
+ * ambos + envelope multipart, checados na rota) e transcrição. Rota nova aqui precisa impor o seu teto.
+ */
+const OWN_LIMIT_PATHS = new Set(["/v1/uploads/images", "/v1/uploads/files", "/v1/transcriptions"]);
+
+/** Webhooks (`/v1/hooks/*`) e as rotas de `OWN_LIMIT_PATHS` têm limite próprio. */
 export const jsonBodyLimit = createMiddleware(async (c, next) => {
 	if (!/^(POST|PUT|PATCH)$/.test(c.req.method) ||
-		c.req.path === "/v1/uploads/images" || c.req.path === "/v1/transcriptions" || c.req.path.startsWith("/v1/hooks/")) {
+		OWN_LIMIT_PATHS.has(c.req.path) || c.req.path.startsWith("/v1/hooks/")) {
 		await next();
 		return;
 	}
