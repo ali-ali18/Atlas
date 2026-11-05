@@ -1,13 +1,14 @@
 /**
- * Teto de gasto RÍGIDO por invocação. Antes de cada execução, `tryReserve(estimativa)` só deixa passar se
- * gasto + reservas em andamento + estimativa <= teto. Falhou uma vez, o guard trava e nada mais é agendado.
- * O custo real de uma execução só é conhecido depois dela: o teto é garantido pelas estimativas (conservadoras);
- * se uma execução custar mais que a estimativa, o excesso entra no gasto e bloqueia as seguintes.
+ * Teto de gasto por invocação. Antes de cada execução, `tryReserve(estimativa)` só deixa passar se
+ * gasto + reservas em andamento + estimativa <= teto. Uma estimativa que não cabe pula SÓ aquela execução: as
+ * seguintes, mais baratas, ainda são avaliadas (o guard não trava para sempre).
+ * O custo real de uma execução só é conhecido depois dela: se custar mais que a estimativa, o excesso entra no gasto
+ * e reduz o que sobra para as seguintes.
  */
 export class BudgetGuard {
 	private spent = 0;
 	private reserved = 0;
-	private tripped = false;
+	private refused = false;
 
 	constructor(readonly capUsd: number | undefined) {
 		if (capUsd !== undefined && !(Number.isFinite(capUsd) && capUsd > 0)) throw new Error("--max-usd precisa ser um número maior que zero");
@@ -17,14 +18,19 @@ export class BudgetGuard {
 		return this.spent;
 	}
 
+	/** Alguma execução foi recusada por não caber no que sobra do teto. */
 	get stopped(): boolean {
-		return this.tripped;
+		return this.refused;
+	}
+
+	/** Quanto ainda cabe (teto − gasto − reservas); `Infinity` sem teto. */
+	get remainingUsd(): number {
+		return this.capUsd === undefined ? Number.POSITIVE_INFINITY : this.capUsd - this.spent - this.reserved;
 	}
 
 	tryReserve(estimateUsd: number): boolean {
-		if (this.tripped) return false;
 		if (this.capUsd !== undefined && this.spent + this.reserved + estimateUsd > this.capUsd) {
-			this.tripped = true;
+			this.refused = true;
 			return false;
 		}
 		this.reserved += estimateUsd;
@@ -43,12 +49,14 @@ export class BudgetGuard {
 	}
 }
 
-/** Quantas execuções, em ordem, cabem no teto (mesma regra do guard, sem concorrência). */
+/** Quantas execuções, em ordem, cabem no teto (mesma regra do guard, sem concorrência): a que não cabe é pulada e as seguintes tentam. */
 export function countThatFit(estimates: readonly number[], capUsd: number): number {
 	let total = 0;
-	for (let index = 0; index < estimates.length; index += 1) {
-		total += estimates[index]!;
-		if (total > capUsd) return index;
+	let fit = 0;
+	for (const estimate of estimates) {
+		if (total + estimate > capUsd) continue;
+		total += estimate;
+		fit += 1;
 	}
-	return estimates.length;
+	return fit;
 }

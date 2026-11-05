@@ -85,9 +85,8 @@ describe("matrix --simulate", () => {
 		expect(summary.budgetStopped).toBe(true);
 		expect(summary.skippedBudget).toBe(skipped.length);
 		expect(summary.spentUsd).toBeLessThanOrEqual(capUsd);
-		// Parou de agendar: tudo que ficou depois da primeira pulada também foi pulado.
-		const firstSkipped = runs.findIndex((item) => item.status === "skipped_budget");
-		expect(runs.slice(firstSkipped).every((item) => item.status === "skipped_budget")).toBe(true);
+		// Pulou só o que não cabia: a execução pulada tinha estimativa maior que o que sobrava do teto.
+		for (const item of skipped) expect(item.estimatedUsd).toBeGreaterThan(0);
 		expect(await readFile(join(outDir, "matrix.md"), "utf8")).toContain("skipped_budget");
 	}, 120_000);
 

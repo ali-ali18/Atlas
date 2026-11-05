@@ -99,7 +99,7 @@ export async function runMatrix(options: MatrixOptions): Promise<MatrixResult> {
 			for (const engine of engines) {
 				for (const model of models) {
 					const profile: ExecutionProfile = profiles.get(profileKey(scenario.id, engine.id)) ?? FALLBACK_PROFILE;
-					jobs.push({ scenario, engine, model, repeat: index, estimatedUsd: estimateExecutionUsd(profile, priceFor(model.priceKey, options.priceTable).price, factor) + (hasJudgeExpectation(scenario) ? estimateJudgeUsd(judgeModels, options.priceTable) : 0) });
+					jobs.push({ scenario, engine, model, repeat: index, estimatedUsd: estimateExecutionUsd(profile, priceFor(model.priceKey, options.priceTable).price, factor) + (hasJudgeExpectation(scenario) ? estimateJudgeUsd(judgeModels, profile, options.priceTable) : 0) });
 				}
 			}
 		}

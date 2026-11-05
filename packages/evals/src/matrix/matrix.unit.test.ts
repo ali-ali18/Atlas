@@ -4,11 +4,13 @@ import { capabilityOf, cleanPassRateOf, cleanRunsOf, passRateOf, setOf, summariz
 import { formatMatrixReport } from "./format.js";
 import { BudgetGuard, countThatFit } from "./budget.js";
 import { resolveEngines } from "./engines.js";
-import { buildEstimate, estimateExecutionUsd, formatEstimate, estimatesInOrder, type ExecutionProfile } from "./estimate.js";
+import { buildEstimate, CACHE_READ_SHARE, COMPLETION_FACTOR, DEFAULT_ESTIMATE_FACTOR, ESTIMATE_MARGIN, estimateExecutionUsd, estimateJudgeUsd, FALLBACK_PROFILE, formatEstimate, estimatesInOrder, judgeProfileOf, JUDGE_COMPLETION_TOKENS, profileFromMock, profileKey, profileScenarios, type ExecutionProfile } from "./estimate.js";
 import { assertProviderKeys, providerSecrets, resolveModelSpec } from "./models.js";
 import { PRICE_TABLE, UNKNOWN_PRICE, costFromTokens, priceFor, type PriceEntry } from "./pricing.js";
 import { createMatrixRouter, createRealProviders, withCostAccounting, withSessionId, type MatrixProviders } from "./providers.js";
-import type { Scenario } from "../scenario.js";
+import { buildJudgePrompt, buildJudgeSystem } from "../quality.js";
+import { parseScenario, type Scenario } from "../scenario.js";
+import type { Trajectory } from "../trajectory.js";
 import { strongMatcher } from "../verdict.js";
 
 const params = (model: string): CompleteChatWithToolsParams => ({ model, apiKey: "x", messages: [{ role: "user", content: "oi" }], tools: [] });
@@ -138,17 +140,21 @@ describe("preço e custo", () => {
 });
 
 describe("teto de gasto", () => {
-	it("reserva estimativas em andamento e trava no primeiro estouro", () => {
+	it("reserva estimativas em andamento; o que não cabe é recusado, mas não trava as execuções mais baratas (auditoria F0, M1)", () => {
 		const guard = new BudgetGuard(1);
 		expect(guard.tryReserve(0.4)).toBe(true);
 		expect(guard.tryReserve(0.4)).toBe(true);
 		expect(guard.tryReserve(0.3)).toBe(false); // 0.8 reservado + 0.3 > 1
-		guard.settle(0.4, 0.1);
-		guard.settle(0.4, 0.1);
-		// Travou: mesmo cabendo agora, nada mais é agendado.
-		expect(guard.tryReserve(0.01)).toBe(false);
 		expect(guard.stopped).toBe(true);
-		expect(guard.spentUsd).toBeCloseTo(0.2, 10);
+		// Uma execução mais barata que o que sobra (0.2) ainda passa.
+		expect(guard.tryReserve(0.15)).toBe(true);
+		expect(guard.remainingUsd).toBeCloseTo(0.05, 10);
+		guard.settle(0.4, 0.1);
+		guard.settle(0.4, 0.1);
+		guard.settle(0.15, 0.05);
+		// Terminadas, o que sobra é o teto menos o gasto real: cabe o que antes era recusado.
+		expect(guard.tryReserve(0.3)).toBe(true);
+		expect(guard.spentUsd).toBeCloseTo(0.25, 10);
 	});
 
 	it("exatamente no teto passa; o juiz gasta do mesmo teto; teto inválido falha", () => {
@@ -165,6 +171,8 @@ describe("teto de gasto", () => {
 		expect(countThatFit([0.3, 0.3, 0.3, 0.3], 1)).toBe(3);
 		expect(countThatFit([2], 1)).toBe(0);
 		expect(countThatFit([0.5, 0.5], 1)).toBe(2);
+		// a que não cabe é pulada e as seguintes, mais baratas, ainda entram
+		expect(countThatFit([0.6, 0.6, 0.3], 1)).toBe(2);
 	});
 });
 
@@ -179,28 +187,62 @@ describe("estimativa", () => {
 		["b|v1", { modelCalls: 2, promptTokens: 0, completionTokens: 100_000, fromMock: true }],
 	]);
 
-	it("custo de uma execução = tokens × fator × preço, sem desconto de cache", () => {
+	it("custo de uma execução: 1ª chamada grava o cache, as seguintes leem 70%; saída total 3x o mock (auditoria F0, M1)", () => {
 		const price: PriceEntry = { promptUsdPerMTok: 1, completionUsdPerMTok: 5, cachedRatio: 0.1, writeRatio: 1.25, source: "t", confirmed: true };
-		expect(estimateExecutionUsd(profiles.get("a|v2")!, price, 2)).toBeCloseTo((2_000_000 * 1 + 200_000 * 5) / 1e6, 10);
+		const profile = profiles.get("a|v2")!; // 2 chamadas, 1M de entrada e 100k de saída no total
+		expect(CACHE_READ_SHARE).toBe(0.7);
+		expect(COMPLETION_FACTOR).toBe(3);
+		// factor 1 = as 2 chamadas do mock: 500k de entrada cada (350k de cache) e 300k de saída no total = 150k por chamada
+		const first = (150_000 * 1 + 350_000 * 1.25 + 150_000 * 5) / 1e6;
+		const later = (150_000 * 1 + 350_000 * 0.1 + 150_000 * 5) / 1e6;
+		expect(estimateExecutionUsd(profile, price, 1)).toBeCloseTo((first + later) * ESTIMATE_MARGIN, 10);
+		// factor 2 = 4 chamadas: a 1ª grava, as outras 3 leem; a saída total continua 300k (75k por chamada)
+		const first2 = (150_000 * 1 + 350_000 * 1.25 + 75_000 * 5) / 1e6;
+		const later2 = (150_000 * 1 + 350_000 * 0.1 + 75_000 * 5) / 1e6;
+		expect(estimateExecutionUsd(profile, price, 2)).toBeCloseTo((first2 + 3 * later2) * ESTIMATE_MARGIN, 10);
+	});
+
+	it("preço sem desconto de cache (modelo desconhecido) não ganha desconto; saída 3x o mock", () => {
+		const unknown = priceFor("opencode-go/nada").price;
+		const single: ExecutionProfile = { modelCalls: 1, promptTokens: 10_000, completionTokens: 1_000, fromMock: true };
+		expect(estimateExecutionUsd(single, unknown, 1)).toBeCloseTo(((10_000 * 3 + 3_000 * 15) / 1e6) * ESTIMATE_MARGIN, 10);
+	});
+
+	it("calibrada com as execuções reais de 05/11: antes passava de 1,4x a 2,6x o custo real; agora fica perto dele", () => {
+		// haiku: média real de ~51k de entrada e ~1,5k de saída por execução, a US$ 0,0030; o mock desse cenário mede ~22k de entrada e ~0,7k de saída em ~4 chamadas.
+		const haiku = priceFor("anthropic/claude-haiku-5-5").price;
+		const mock: ExecutionProfile = { modelCalls: 4, promptTokens: 22_000, completionTokens: 700, fromMock: true };
+		expect(DEFAULT_ESTIMATE_FACTOR).toBe(2);
+		const estimate = estimateExecutionUsd(mock, haiku, DEFAULT_ESTIMATE_FACTOR);
+		expect(estimate).toBeGreaterThan(0.003 * 0.9);
+		expect(estimate).toBeLessThan(0.003 * 1.4);
+		// o cálculo antigo (sem cache, saída x2) dava US$ 0,0047
+		const old = costFromTokens({ promptTokens: 44_000, completionTokens: 1_400 }, { ...haiku, cachedRatio: 1, writeRatio: 1 });
+		expect(old).toBeGreaterThan(estimate);
 	});
 
 	it("a estimativa aplica a tarifa de contexto longo pela chamada média, não pelo total da execução", () => {
 		const haiku = priceFor("anthropic/claude-haiku-5-5").price;
 		// 10 chamadas de 20K = 200K no total: nenhuma chamada passa de 100K, então é a tarifa normal.
 		const short: ExecutionProfile = { modelCalls: 10, promptTokens: 200_000, completionTokens: 0, fromMock: true };
-		expect(estimateExecutionUsd(short, haiku, 1)).toBeCloseTo((200_000 * 0.1) / 1e6, 10);
-		// 1 chamada de 200K passa do corte: tarifa longa.
+		const perCall = (cachedTokens: number, cacheWriteTokens: number) => costFromTokens({ promptTokens: 20_000, cachedTokens, cacheWriteTokens }, haiku);
+		expect(estimateExecutionUsd(short, haiku, 1)).toBeCloseTo((perCall(0, 14_000) + 9 * perCall(14_000, 0)) * ESTIMATE_MARGIN, 10);
+		expect(perCall(0, 14_000)).toBeLessThan((20_000 * 0.5 * 1.25) / 1e6);
+		// 1 chamada de 200K passa do corte: tarifa longa (0,50), com 70% gravados no cache a 1,25x.
 		const long: ExecutionProfile = { modelCalls: 1, promptTokens: 200_000, completionTokens: 0, fromMock: true };
-		expect(estimateExecutionUsd(long, haiku, 1)).toBeCloseTo((200_000 * 0.5) / 1e6, 10);
+		expect(estimateExecutionUsd(long, haiku, 1)).toBeCloseTo(((60_000 * 0.5 + 140_000 * 0.5 * 1.25) / 1e6) * ESTIMATE_MARGIN, 10);
 	});
 
 	it("soma por motor × modelo, repetições e preço desconhecido sinalizado", () => {
 		const estimate = buildEstimate({ scenarios, engines, models, repeat: 3, profiles, factor: 2 });
 		expect(estimate.executions).toBe(2 * 2 * 3 * 3);
 		const row = estimate.rows.find((item) => item.engine === "v2" && item.model === "opencode-go/qwen3.8-flash")!;
-		// v2: a = (2M*0.15 + 200k*0.47)/1e6 = 0.394 ; b = (1M*0.15)/1e6 = 0.15 ; × 3 repetições.
-		expect(row.usd).toBeCloseTo((0.394 + 0.15) * 3, 6);
+		// qwen (cache 0,1x): cada cenário = estimateExecutionUsd com factor 2, × 3 repetições.
+		const qwen = priceFor("opencode-go/qwen3.8-flash").price;
+		const expected = (estimateExecutionUsd(profiles.get("a|v2")!, qwen, 2) + estimateExecutionUsd(profiles.get("b|v2")!, qwen, 2)) * 3;
+		expect(row.usd).toBeCloseTo(expected, 10);
 		expect(row.promptTokens).toBe(1_500_000 * 2 * 3);
+		expect(row.completionTokens).toBe(100_000 * COMPLETION_FACTOR * 3);
 		expect(estimate.rows.find((item) => item.model === "opencode-go/modelo-novo")!.priceKnown).toBe(false);
 		expect(estimate.anyUnknown).toBe(true);
 		expect(estimate.anyUnconfirmed).toBe(true);
@@ -319,6 +361,83 @@ describe("relatório Markdown (auditoria F0, B1)", () => {
 		const columns = (line: string) => line.replace(/\\\|/g, "").split("|").length;
 		const header = lines.find((line) => line.startsWith("| cenário | motor | modelo |"))!;
 		expect(columns(row)).toBe(columns(header));
+	});
+});
+
+describe("estimativa do juiz e do perfil (auditoria F0, M2 e B3)", () => {
+	const make = (extra: Record<string, unknown> = {}): Scenario => {
+		const parsed = parseScenario({ version: 1, id: "j", title: "t", bot: { name: "Ada" }, user: "resuma meus e-mails", expect: [{ type: "judge", rubric: "Traz o conteúdo e a ação de cada e-mail relevante." }], mock: { turns: [{ say: "Resumo curto." }] }, ...extra });
+		if (!parsed.ok) throw new Error(parsed.error);
+		return parsed.scenario;
+	};
+	const trajectoryOf = (text: string, over: Partial<Trajectory> = {}): Trajectory => ({
+		scenarioId: "j", model: "m", variant: "v2", repeat: 0, startedAt: "", durationMs: 1, text, modelCalls: [{ index: 0, kind: "main", model: "m", messages: [], tools: [], durationMs: 1 }], toolCalls: [], toolResults: [], events: [], visible: [], revised: [], discards: [], steerDelivered: [], unmocked: [],
+		costUsd: 0, costUnknown: false, tokens: { prompt: 4000, completion: 200 }, ...over,
+	});
+
+	it("o prompt do juiz é medido com a trajetória do mock: resposta maior, prompt maior", () => {
+		const scenario = make();
+		const small = judgeProfileOf(scenario, trajectoryOf("curta"))!;
+		const big = judgeProfileOf(scenario, trajectoryOf("x".repeat(8000)))!;
+		const chars = buildJudgeSystem(scenario).length + buildJudgePrompt({ rubric: "Traz o conteúdo e a ação de cada e-mail relevante.", scenario, trajectory: trajectoryOf("curta") }).length;
+		expect(small).toEqual({ calls: 1, promptTokens: Math.ceil(chars / 4) });
+		expect(big.promptTokens - small.promptTokens).toBe(Math.ceil((chars + 8000 - 5) / 4) - Math.ceil(chars / 4));
+		expect(judgeProfileOf(make({ expect: [{ type: "completed" }] }))).toBeUndefined();
+	});
+
+	it("duas verificações judge = duas chamadas por juiz", () => {
+		const two = make({ expect: [{ type: "judge", id: "a", rubric: "Primeira rubrica longa o bastante." }, { type: "judge", id: "b", rubric: "Segunda rubrica longa o bastante." }] });
+		expect(judgeProfileOf(two, trajectoryOf("ok"))!.calls).toBe(2);
+	});
+
+	it("custo do juiz = prompt medido + 250 tokens de saída por chamada e por juiz", () => {
+		const judges = ["opencode-go/qwen3.8-flash", "anthropic/claude-haiku-5-5"].map(resolveModelSpec);
+		const profile: ExecutionProfile = { modelCalls: 1, promptTokens: 1, completionTokens: 1, fromMock: true, judge: { calls: 2, promptTokens: 3000 } };
+		const qwen = (1500 * 0.15 + 250 * 0.47) / 1e6;
+		const haiku = (1500 * 0.1 + 250 * 0.5) / 1e6;
+		expect(estimateJudgeUsd(judges, profile)).toBeCloseTo(2 * (qwen + haiku), 12);
+		// antes eram 3000 de entrada e 500 de saída fixos (~4,7x o real)
+		expect(estimateJudgeUsd(judges.slice(0, 1), { ...profile, judge: { calls: 1, promptTokens: 700 } })).toBeCloseTo((700 * 0.15 + 250 * 0.47) / 1e6, 12);
+		expect(JUDGE_COMPLETION_TOKENS).toBe(250);
+	});
+
+	it("buildEstimate soma as chamadas e os tokens do juiz do perfil de cada cenário", () => {
+		const scenario = make();
+		const engines = resolveEngines(["v2"]);
+		const models = ["anthropic/claude-sonnet-5-5", "opencode-go/qwen3.8-flash"].map(resolveModelSpec);
+		const judges = [resolveModelSpec("anthropic/claude-haiku-5-5")];
+		const profiles = new Map<string, ExecutionProfile>([[profileKey("j", "v2"), { modelCalls: 1, promptTokens: 1000, completionTokens: 100, fromMock: true, judge: { calls: 1, promptTokens: 900 } }]]);
+		const estimate = buildEstimate({ scenarios: [scenario], engines, models, repeat: 3, profiles, factor: 1, judges });
+		const row = estimate.judgeRows[0]!;
+		expect(row).toMatchObject({ calls: 6, promptTokens: 5400, completionTokens: 1500 });
+		expect(row.usd).toBeCloseTo(6 * ((900 * 0.1 + 250 * 0.5) / 1e6), 12);
+	});
+
+	it("mock que errou ou que não chamou o modelo não vira estimativa 0: cai no perfil de reserva", () => {
+		const scenario = make();
+		expect(profileFromMock(scenario, trajectoryOf("", { error: "boom", tokens: { prompt: 0, completion: 0 } }))).toMatchObject({ modelCalls: FALLBACK_PROFILE.modelCalls, promptTokens: FALLBACK_PROFILE.promptTokens, fromMock: false });
+		expect(profileFromMock(scenario, trajectoryOf("", { modelCalls: [], tokens: { prompt: 0, completion: 0 } }))).toMatchObject({ promptTokens: FALLBACK_PROFILE.promptTokens, fromMock: false });
+		const ok = profileFromMock(scenario, trajectoryOf("pronto"));
+		expect(ok).toMatchObject({ modelCalls: 1, promptTokens: 4000, completionTokens: 200, fromMock: true });
+		const price = priceFor("anthropic/claude-sonnet-5-5").price;
+		const failed = profileFromMock(scenario, trajectoryOf("", { error: "boom", tokens: { prompt: 0, completion: 0 } }));
+		expect(estimateExecutionUsd(failed, price, 1)).toBeGreaterThan(estimateExecutionUsd(ok, price, 1));
+	});
+
+	it("profileScenarios: runtime do mock que falha vira perfil de reserva (e o juiz do cenário continua medido)", async () => {
+		const scenario = make();
+		const broken = { id: "quebrado", description: "mock sempre erra", patchScenario: (item: Scenario) => item, runOptions: () => ({ streamChat: (async () => { throw new Error("boom"); }) as never }) };
+		const profiles = await profileScenarios([scenario], [broken], {});
+		const profile = profiles.get(profileKey("j", "quebrado"))!;
+		expect(profile).toMatchObject({ modelCalls: FALLBACK_PROFILE.modelCalls, fromMock: false });
+		expect(profile.judge!.calls).toBe(1);
+		expect(profile.judge!.promptTokens).toBeGreaterThan(300);
+	});
+
+	it("cenário sem roteiro usa o perfil de reserva", async () => {
+		const noMock = make({ mock: undefined });
+		const profiles = await profileScenarios([noMock], resolveEngines(["v2"]), {});
+		expect(profiles.get(profileKey("j", "v2"))).toMatchObject({ promptTokens: FALLBACK_PROFILE.promptTokens, fromMock: false });
 	});
 });
 

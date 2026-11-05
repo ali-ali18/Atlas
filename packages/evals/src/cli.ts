@@ -101,7 +101,7 @@ matrix                  cenários × motores × modelos × repetições, com tet
   --scenarios gold|ids  cenários (padrão: gold)           --engines v2[,v1]  motores (padrão: v2)
   --models a,b          anthropic/<m> (CLAUDE_KEY) · opencode-go/<m> (OPENCODE_GO_API_KEY) · openrouter/<id> ou id (OPENROUTER_API_KEY)
   --repeat N            repetições (padrão: 1)            --max-usd N   teto rígido em US$ (obrigatório no modo real)
-  --estimate            só estima o custo (sem rede) e sai  --estimate-factor N  passos extras do modelo real (padrão 2)
+  --estimate            só estima o custo (sem rede) e sai  --estimate-factor N  passos extras do modelo real sobre o roteiro mock (padrão 2)
   --simulate            matriz inteira com provedores falsos (sem rede, sem chave)
   --judge A[,B]         juízes LLM da rubrica (entram no teto e no --estimate)  --judge-max-gap N  teto de discordância (padrão 1)          --strong a,b  modelos fortes na leitura harness × modelo
   --concurrency N  --timeout S  --dir DIR  --out DIR (padrão results/<data-hora>-matrix)  --env-file ARQ
