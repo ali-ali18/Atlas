@@ -3,7 +3,6 @@ import { useRouter } from "expo-router";
 import * as React from "react";
 import { KeyboardAvoidingView, RefreshControl, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Fade } from "@/components/ui/fade";
 import { HomeHeader } from "@/components/home/home-header";
 import { PinnedGrid } from "@/components/home/pinned-grid";
 import { SearchFooter } from "@/components/home/search-footer";
@@ -127,12 +126,10 @@ export default function HomeScreen() {
 				>
 					{body}
 				</ScrollView>
-				<Fade from="top" height={headerHeight + 16} className="absolute left-0 right-0 top-0" />
 				<View className="absolute left-0 right-0 top-0 z-10" style={{ paddingTop: insets.top }} onLayout={(event) => setHeaderHeight(Math.round(event.nativeEvent.layout.height))}>
 					<HomeHeader user={{ name, email, image }} onNew={() => router.push("/new-bot" as never)} />
 				</View>
 				<View className="z-10" onLayout={(event) => setFooterHeight(Math.round(event.nativeEvent.layout.height))}>
-					<Fade from="bottom" height={footerHeight + 24} className="absolute bottom-0 left-0 right-0" />
 					<SearchFooter query={query} onChange={setQuery} onGrid={() => router.push("/apps" as never)} />
 				</View>
 			</KeyboardAvoidingView>
