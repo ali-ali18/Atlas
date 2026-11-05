@@ -34,6 +34,8 @@ export type BotTag = { kind: "request" | "reply" | "answer"; fromBotId?: string;
 /** O outro bot de uma troca; `id` falta quando só se sabe o nome (a conversa não abre). */
 export type BotPartner = { id?: string; name: string };
 
+export type RoutineCardItem = Base & { kind: "routine"; action: "created" | "listed" | "updated"; title: string; routineId?: string; triggerType?: RoutineTrigger; detail?: string; hook?: boolean; items?: RoutineListed[]; settled?: RoutineSettled };
+
 export type ChatItem =
 	| (Base & { kind: "user"; text: string; reactions?: Reaction[]; replyTo?: ReplyQuote; bot?: BotTag })
 	/** `source`: rotina, lembrete ou evento que produziu a fala (vira o marcador acima do balão). */
@@ -55,6 +57,10 @@ export type ChatItem =
 	 * Cartão de painel antigo (gravado no cache sem `pageId`) continua abrindo no navegador.
 	 */
 	| (Base & { kind: "web-card"; card: WebCardKind; title: string; key: string; pageId?: string; revision?: number; sourceCount?: number; fileId?: string; mime?: string; size?: number })
+	/** Rotina/alerta/gatilho (criada, editada, pausada, retomada, apagada ou lista). `settled` é calculado ao desenhar. */
+	| RoutineCardItem
+	/** Rotina que o bot propôs sozinho (modo proativo): só leitura no app. */
+	| (Base & { kind: "routine-proposal"; proposalId: string; mode: "suggest" | "auto"; status: "pending" | "accepted" | "declined"; name: string; schedule: string; routineId?: string })
 	/** Imagens do fio (anexo do usuário ou imagem gerada/enviada pelo bot), com a legenda do cartão quando há. */
 	| (Base & { kind: "images"; origin: "user" | "assistant"; images: ChatImage[]; caption?: string })
 	/** Marcador de uma linha no fio (conversa compactada, mensagem enviada a outro bot). */
@@ -66,6 +72,15 @@ export type ChatItem =
 	 */
 	| (Base & { kind: "bot-exchange"; direction: "group" | "received"; count: number; partners: BotPartner[]; /** Fala a destacar ao abrir (`<id da troca>:req|reply`). */ focus?: string });
 
-export type WebCardKind = "chart" | "page" | "file" | "routine" | "login" | "images" | "proposal" | "approval";
+export type WebCardKind = "chart" | "page" | "file" | "login" | "images" | "approval";
+
+/** Rotina de uma lista ("Suas rotinas"): só o que a linha desenha. */
+export type RoutineListed = { id: string; name: string; enabled: boolean; triggerType: RoutineTrigger; schedule?: string };
+export type RoutineTrigger = "cron" | "event" | "once" | "interval";
+/** Estado ATUAL da rotina no fio (o cartão reflete o que aconteceu com ela depois, ver `lib/routine-cards.ts`). */
+export type RoutineState = "created" | "edited" | "notify" | "paused" | "resumed" | "deleted";
+export type RoutineSettled = { state: RoutineState; /** Um cartão posterior (pausa, exclusão…) mudou o estado deste. */ changed: boolean; summary: string | null };
+/** Substantivo do grupo: alerta é uma rotina com condição. */
+export type RoutineNoun = "rotina" | "alerta";
 
 export type ChatPhase = "idle" | "thinking" | "writing" | "tool";

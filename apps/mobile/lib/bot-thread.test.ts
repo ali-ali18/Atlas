@@ -108,7 +108,7 @@ describe("cache", () => {
 		expect(parseChat(raw, NOW)).toBeNull();
 	});
 	it("marca de bot inválida no disco é ignorada, sem quebrar a fala", () => {
-		const raw = JSON.stringify({ v: 2, savedAt: NOW, items: [{ id: "u1", kind: "user", text: "oi", bot: { kind: "x" } }] });
+		const raw = JSON.stringify({ v: 3, savedAt: NOW, items: [{ id: "u1", kind: "user", text: "oi", bot: { kind: "x" } }] });
 		expect(parseChat(raw, NOW)!.items).toEqual([{ id: "u1", kind: "user", text: "oi" }]);
 	});
 });

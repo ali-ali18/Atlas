@@ -19,7 +19,7 @@ describe("destino do toque no cartão do chat", () => {
 		expect(viewerTargetForCard(card())).toBeNull();
 		expect(viewerTargetForCard(card({ card: "file", title: "a.md" }))).toBeNull();
 		expect(viewerTargetForCard(card({ card: "chart", pageId: "p1", fileId: "f1" }))).toBeNull();
-		expect(viewerTargetForCard(card({ card: "routine" }))).toBeNull();
+		expect(viewerTargetForCard(card({ card: "approval" }))).toBeNull();
 	});
 });
 

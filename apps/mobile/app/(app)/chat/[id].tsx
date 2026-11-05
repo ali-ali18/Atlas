@@ -167,6 +167,7 @@ export default function ChatScreen() {
 		},
 		[router, id],
 	);
+	const openRoutine = React.useCallback((routineId: string) => router.push(`/routines/${encodeURIComponent(id)}/${encodeURIComponent(routineId)}` as never), [router, id]);
 	const actions = React.useMemo<RowActions>(
 		() => ({
 			onDecide: chat.decide,
@@ -177,6 +178,7 @@ export default function ChatScreen() {
 			onOpenExchange: openExchange,
 			onOpenWeb: openWeb,
 			onOpenPage: openPage,
+			onOpenRoutine: openRoutine,
 			onResumeLogin: chat.resumeLogin,
 			onOpenScreen: openScreen,
 			onConnectLogin: chat.connectLogin,
@@ -193,7 +195,7 @@ export default function ChatScreen() {
 			bots: rowBots,
 			skills: skillSet,
 		}),
-		[chat.decide, chat.answer, chat.resolveProposal, chat.resumeLogin, chat.connectLogin, chat.connects, openBot, botFor, openExchange, openWeb, openPage, openScreen, openImage, request, bot?.name, palette.accent, palette.foreground, serverUrl, messageMenu.open, chat.running, chat.runTasks?.runId, userBubble, rowBots, skillSet],
+		[chat.decide, chat.answer, chat.resolveProposal, chat.resumeLogin, chat.connectLogin, chat.connects, openBot, botFor, openExchange, openWeb, openPage, openRoutine, openScreen, openImage, request, bot?.name, palette.accent, palette.foreground, serverUrl, messageMenu.open, chat.running, chat.runTasks?.runId, userBubble, rowBots, skillSet],
 	);
 
 	// A lista é invertida (o fim da conversa fica embaixo e o teclado não a desloca): mais novo primeiro.

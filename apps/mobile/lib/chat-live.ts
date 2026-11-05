@@ -5,6 +5,7 @@ import { botProfileToItem, botProposalFromEvent, proposalKey } from "./bot-cards
 import type { ChatItem, ChatPhase } from "./chat-types";
 import { fileRef, pageRef } from "./chat-thread";
 import { loginToItem, secretsToItem } from "./request-cards";
+import { liveRoutineId, routineToItem } from "./routine-cards";
 
 export type LiveState = {
 	items: ChatItem[];
@@ -134,8 +135,8 @@ export function applyRunEvent(state: LiveState, event: ComputerUseEvent): LiveSt
 		case "file":
 			return withWebCard(state, `file-${event.artifactId}`, "file", event.filename, `file:${event.artifactId}`, fileRef(event.artifactId, event.mime, event.size));
 		case "routine":
-			if (!event.title) return state;
-			return withWebCard(state, `routine-${state.runId ?? "local"}-${event.routineId ?? event.title}`, "routine", event.title, `routine:${event.routineId ?? event.title}`);
+			if (!event.title && event.action !== "listed") return state;
+			return { ...state, items: upsert(state.items, routineToItem(liveRoutineId(state.runId, event), event)) };
 		case "login":
 			// O replay do stream repete os eventos: um pedido já resolvido não volta a pendente.
 			if (state.items.some((item) => item.kind === "login" && item.loginId === event.loginId && item.status === "done")) return state;

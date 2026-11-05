@@ -12,6 +12,7 @@ import type { HomeBot } from "@/lib/home-types";
 import { BotExchangeMarker } from "./bot-exchange-marker";
 import { ImagesRow } from "./image-card";
 import { BotProfileCard, BotProposalCard } from "./bot-cards";
+import { RoutineCard, RoutineProposalRow } from "./routine-cards";
 import { BotLinkMarkerRow, ConfirmCard, MarkerRow, WebCardRow } from "./cards";
 import { loginVariant } from "@/lib/request-cards";
 import type { RequestActions } from "@/lib/use-request-actions";
@@ -41,6 +42,8 @@ export type RowActions = {
 	/** "Abrir conversa" do agente criado pelo cartão. */
 	onOpenBot: (botId: string) => void;
 	onOpenWeb: (item: Extract<ChatItem, { kind: "web-card" }>) => void;
+	/** Toque numa rotina (cartão, linha do grupo ou da lista): abre os detalhes nativos dela. */
+	onOpenRoutine: (routineId: string) => void;
 	/** Painel com id: abre a tela nativa do painel. */
 	onOpenPage: (item: Extract<ChatItem, { kind: "web-card" }>) => void;
 	/** Toque numa imagem do fio: abre o visualizador nela. */
@@ -206,6 +209,10 @@ function RowContent({ item, actions, position }: { item: ChatItem; actions: RowA
 			return <SecretsCard item={item} onSave={actions.request.saveSecrets} onDecide={actions.onDecide} />;
 		case "web-card":
 			return <WebCardRow item={item} onOpen={actions.onOpenWeb} onOpenPage={actions.onOpenPage} />;
+		case "routine":
+			return <RoutineCard item={item} onOpen={actions.onOpenRoutine} />;
+		case "routine-proposal":
+			return <RoutineProposalRow item={item} onOpenWeb={actions.onOpenScreen} onOpen={actions.onOpenRoutine} />;
 		case "images":
 			return <ImagesRow item={item} onOpen={actions.onOpenImage} />;
 		case "marker":

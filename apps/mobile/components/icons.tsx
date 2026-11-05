@@ -1,5 +1,10 @@
 import * as React from "react";
 import {
+	Bell as LucideBell,
+	CalendarClock as LucideCalendarClock,
+	GitBranch as LucideGitBranch,
+	Mail as LucideMail,
+	Webhook as LucideWebhook,
 	ArrowUp as LucideArrowUp,
 	Camera as LucideCamera,
 	ArrowDown as LucideArrowDown,
@@ -517,4 +522,29 @@ export function ColorWheelIcon({ size = 28 }: IconProps) {
 			))}
 		</Svg>
 	);
+}
+
+/** Lucide `Webhook` (rotina disparada por webhook). */
+export function WebhookIcon({ size = 16, tone = "muted-foreground" }: LineIconProps) {
+	return <LucideWebhook size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `Mail` (rotina disparada por e-mail). */
+export function MailIcon({ size = 16, tone = "muted-foreground" }: LineIconProps) {
+	return <LucideMail size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `GitBranch` (rotina disparada pelo GitHub). */
+export function GitBranchIcon({ size = 16, tone = "muted-foreground" }: LineIconProps) {
+	return <LucideGitBranch size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `Bell` (alerta). */
+export function BellIcon({ size = 16, tone = "muted-foreground" }: LineIconProps) {
+	return <LucideBell size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `CalendarClock` (rotina recorrente). */
+export function CalendarClockIcon({ size = 16, tone = "muted-foreground" }: LineIconProps) {
+	return <LucideCalendarClock size={size} color={useStroke(tone)} strokeWidth={2} />;
 }

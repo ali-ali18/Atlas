@@ -12,6 +12,7 @@ import type { ConnectResultView } from "./connect-app";
 import { connectorCanAuthorize, connectorOf } from "./request-cards";
 import { homeBotFromProposal, withProposalResolution, type CardResolution } from "./bot-cards";
 import { groupBotItems } from "./bot-thread";
+import { withRoutineCards } from "./routine-cards";
 import { applyRunEvent, createLiveState, startLiveRun, type LiveState } from "./chat-live";
 import { followRun, type FollowOptions, type OpenStream } from "./chat-stream";
 import { isActiveRunStatus } from "./event-hub";
@@ -930,7 +931,7 @@ export function deriveView(snapshot: ChatSnapshot): ChatView {
 	const lastTasks = [...merged].reverse().find((item): item is Extract<ChatItem, { kind: "task-list" }> => item.kind === "task-list" && item.items.length > 0) ?? null;
 	return {
 		// Fala entre bots não é balão do usuário: vira a linha "N mensagens com X".
-		items: withSourceMarkers(groupBotItems(merged)),
+		items: withSourceMarkers(withRoutineCards(groupBotItems(merged))),
 		runTasks,
 		lastTasks,
 		line: syncLine(snapshot.sync),

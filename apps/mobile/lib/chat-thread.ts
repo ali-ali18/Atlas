@@ -6,6 +6,7 @@ import type { BotTag, ChatItem, Reaction, TaskItem } from "./chat-types";
 import { applyDecidedProposals, botProfileToItem, botProposalToItem, proposalKey } from "./bot-cards";
 import { parseReplyTo } from "./reply-quote";
 import { loginToItem, secretsToItem } from "./request-cards";
+import { routineCardKey, routineProposalToItem, routineSignature, routineToItem } from "./routine-cards";
 
 const CARD_ROLES = new Set([
 	"skill", "confirm", "login", "file", "routine", "tool-budget", "jev-status", "provider-fallback", "subagents", "routine-proposal", "bot-proposal",
@@ -71,7 +72,7 @@ export function cardToItem(id: string, card: PersistedConversationCard, createdA
 		case "file":
 			return { ...base, kind: "web-card", card: "file", title: card.filename, key: `file:${card.artifactId}`, ...fileRef(card.artifactId, card.mime, card.size) };
 		case "routine":
-			return { ...base, kind: "web-card", card: "routine", title: card.title ?? "Rotina", key: `routine:${card.routineId ?? id}` };
+			return routineToItem(id, card, createdAt);
 		case "login":
 			return loginToItem(id, card, createdAt);
 		case "images":
@@ -81,7 +82,7 @@ export function cardToItem(id: string, card: PersistedConversationCard, createdA
 		case "bot-profile":
 			return botProfileToItem(id, card, createdAt);
 		case "routine-proposal":
-			return { ...base, kind: "web-card", card: "proposal", title: "Proposta de rotina", key: `${card.kind}:${id}` };
+			return routineProposalToItem(id, card, createdAt);
 		default:
 			// habilidade, subagentes, orçamento de ferramenta, revisão, execução de código: ficam só no web.
 			return null;
@@ -276,6 +277,10 @@ export function cardKey(item: ChatItem): string | null {
 			return `confirm|${item.confirmId}`;
 		case "web-card":
 			return item.key;
+		case "routine":
+			return routineCardKey(item);
+		case "routine-proposal":
+			return `routine-proposal|${item.proposalId}`;
 		default:
 			return null;
 	}
@@ -320,6 +325,14 @@ export function reconcile(persistedRaw: readonly ChatItem[], liveRaw: readonly C
 		} else if (item.kind === "assistant") {
 			if (!item.text.trim()) continue;
 			if (normalize(item.text).length >= MIN_COVERED_LENGTH && persistedAssistantCovers(persisted, item.text)) continue;
+		} else if (item.kind === "routine" && item.action !== "created") {
+			// Pausa, retomada, edição: podem se repetir de verdade, então o ao vivo só casa com o gravado igual (um por vez).
+			const same = routineSignature(item);
+			const match = persisted.find((row) => row.kind === "routine" && row.action !== "created" && !consumed.has(row.id) && routineSignature(row) === same);
+			if (match) {
+				consumed.add(match.id);
+				continue;
+			}
 		} else if (item.kind === "images") {
 			// Ao vivo não há id de mensagem: o cartão gravado com os mesmos arquivos (um por vez) é o mesmo. Só o AO VIVO
 			// é comparado com o gravado; duas mensagens gravadas com o mesmo arquivo continuam sendo duas.

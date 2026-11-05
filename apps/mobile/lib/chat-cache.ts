@@ -4,8 +4,9 @@
 import type { CacheStorage } from "./home-cache";
 import type { BotTag, ChatImage, ChatItem, ConfirmStatus, ProposalStatus, QuestionnaireStatus, TaskItem } from "./chat-types";
 
+// v3: rotina e proposta de rotina passaram a ter cartão nativo (`routine`, `routine-proposal`); o v2 guardava a linha "Abrir no navegador".
 // v2: cartões de proposta de bot passaram a ser nativos; o v1 guardava a linha "Abrir no navegador" e é descartado.
-export const CHAT_CACHE_VERSION = 2;
+export const CHAT_CACHE_VERSION = 3;
 const ALL_VERSIONS_PREFIX = "atlas.chat.";
 const PREFIX = `${ALL_VERSIONS_PREFIX}v${CHAT_CACHE_VERSION}:`;
 export const CHAT_CACHE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
@@ -30,7 +31,9 @@ const TASK: readonly TaskItem["status"][] = ["pending", "in_progress", "complete
 const PROPOSAL: readonly ProposalStatus[] = ["pending", "approved", "rejected"];
 const PROFILE_FIELDS = ["name", "snippet", "description", "openRouterModel"] as const;
 const BOT_KINDS: readonly BotTag["kind"][] = ["request", "reply", "answer"];
-const WEB_CARDS = ["chart", "page", "file", "routine", "login", "images", "proposal", "approval"] as const;
+const WEB_CARDS = ["chart", "page", "file", "login", "images", "approval"] as const;
+const ROUTINE_ACTIONS = ["created", "listed", "updated"] as const;
+const TRIGGERS = ["cron", "event", "once", "interval"] as const;
 
 function pickTasks(value: unknown): TaskItem[] | null {
 	if (!Array.isArray(value)) return null;
@@ -151,6 +154,27 @@ export function pickItem(value: unknown): ChatItem | null {
 			if (!isString(value.confirmId) || !isString(value.title) || !Array.isArray(value.names) || !CONFIRM.includes(value.status as ConfirmStatus) || value.status === "pending") return null;
 			return { ...base, kind: "secrets", confirmId: value.confirmId, title: value.title.slice(0, 300), names: value.names.filter(isString).slice(0, 20).map((name) => name.slice(0, 64)), status: value.status as ConfirmStatus };
 		}
+		case "routine": {
+			if (!isString(value.title) || !ROUTINE_ACTIONS.includes(value.action as (typeof ROUTINE_ACTIONS)[number])) return null;
+			const trigger = TRIGGERS.includes(value.triggerType as (typeof TRIGGERS)[number]) ? (value.triggerType as (typeof TRIGGERS)[number]) : null;
+			const listed = Array.isArray(value.items)
+				? value.items.slice(0, 25).flatMap((row) => (isRecord(row) && isString(row.id) && isString(row.name) && typeof row.enabled === "boolean" && TRIGGERS.includes(row.triggerType as (typeof TRIGGERS)[number]) ? [{ id: row.id.slice(0, 160), name: row.name.slice(0, 200), enabled: row.enabled, triggerType: row.triggerType as (typeof TRIGGERS)[number], ...(isString(row.schedule) ? { schedule: row.schedule.slice(0, 120) } : {}) }] : []))
+				: [];
+			return {
+				...base,
+				kind: "routine",
+				action: value.action as (typeof ROUTINE_ACTIONS)[number],
+				title: value.title.slice(0, 200),
+				...(isString(value.routineId) && value.routineId.length <= 160 ? { routineId: value.routineId } : {}),
+				...(trigger ? { triggerType: trigger } : {}),
+				...(isString(value.detail) ? { detail: value.detail.slice(0, 600) } : {}),
+				...(value.hook === true ? { hook: true } : {}),
+				...(listed.length ? { items: listed } : {}),
+			};
+		}
+		case "routine-proposal":
+			if (!isString(value.proposalId) || !isString(value.name) || !isString(value.schedule) || (value.mode !== "suggest" && value.mode !== "auto") || (value.status !== "pending" && value.status !== "accepted" && value.status !== "declined")) return null;
+			return { ...base, kind: "routine-proposal", proposalId: value.proposalId, mode: value.mode, status: value.status, name: value.name.slice(0, 200), schedule: value.schedule.slice(0, 160), ...(isString(value.routineId) ? { routineId: value.routineId } : {}) };
 		case "web-card":
 			if (!isString(value.title) || !isString(value.key) || !WEB_CARDS.includes(value.card as (typeof WEB_CARDS)[number])) return null;
 			// `pageId` só vale em painel e só se for texto curto: cache antigo (sem ele) cai no "Abrir no navegador".

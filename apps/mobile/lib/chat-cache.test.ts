@@ -25,7 +25,7 @@ const msgs: ChatItem[] = [
 
 describe("cache do chat", () => {
 	it("a chave leva servidor, e-mail (sem caixa) e conversa", () => {
-		expect(chatCacheKey("https://a.test", "Dono@Ex.com", "c1")).toBe("atlas.chat.v2:https://a.test|dono@ex.com|c1");
+		expect(chatCacheKey("https://a.test", "Dono@Ex.com", "c1")).toBe("atlas.chat.v3:https://a.test|dono@ex.com|c1");
 		expect(chatCacheKey("https://a.test", "a@b.c", "c1")).not.toBe(chatCacheKey("https://a.test", "a@b.c", "c2"));
 		expect(chatCacheKey("https://a.test", "a@b.c", "c1")).not.toBe(chatCacheKey("https://a.test", "x@b.c", "c1"));
 	});
