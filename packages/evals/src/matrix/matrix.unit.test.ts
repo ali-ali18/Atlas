@@ -98,10 +98,30 @@ describe("preço e custo", () => {
 		expect(costFromTokens({ promptTokens: 1000, cachedTokens: 800, cacheWriteTokens: 100, completionTokens: 200 }, price)).toBeCloseTo((305 * 1 + 200 * 5) / 1e6, 10);
 	});
 
+	it("Haiku 5.5 acima de 100K tokens de entrada na chamada custa 0,50/2,50 (auditoria F0, M4)", () => {
+		const haiku = priceFor("anthropic/claude-haiku-5-5").price;
+		expect(haiku.longContext).toEqual({ abovePromptTokens: 100_000, promptUsdPerMTok: 0.5, completionUsdPerMTok: 2.5 });
+		// No corte (100K exatos) ainda vale a tarifa normal; 1 token a mais muda a chamada inteira para a longa.
+		expect(costFromTokens({ promptTokens: 100_000, completionTokens: 10_000 }, haiku)).toBeCloseTo((100_000 * 0.1 + 10_000 * 0.5) / 1e6, 10);
+		expect(costFromTokens({ promptTokens: 100_001, completionTokens: 10_000 }, haiku)).toBeCloseTo((100_001 * 0.5 + 10_000 * 2.5) / 1e6, 10);
+		// Cache lido usa a mesma tarifa longa (0,1x de 0,50).
+		expect(costFromTokens({ promptTokens: 200_000, cachedTokens: 150_000, completionTokens: 0 }, haiku)).toBeCloseTo((50_000 * 0.5 + 150_000 * 0.1 * 0.5) / 1e6, 10);
+		// Outros modelos não têm tarifa longa.
+		expect(priceFor("anthropic/claude-sonnet-5-5").price.longContext).toBeUndefined();
+	});
+
+	it("o corte é por chamada: duas chamadas de 60K não pagam a tarifa longa, uma de 120K paga (via withCostAccounting)", async () => {
+		const stream = (prompt: number) => withCostAccounting(async () => result({ promptTokens: prompt, completionTokens: 0, costUnknown: true }))(params("anthropic-direct/claude-haiku-5-5"));
+		const two = (await stream(60_000)).usage!.costUsd! * 2;
+		const one = (await stream(120_000)).usage!.costUsd!;
+		expect(two).toBeCloseTo((120_000 * 0.1) / 1e6, 10);
+		expect(one).toBeCloseTo((120_000 * 0.5) / 1e6, 10);
+	});
+
 	it("Anthropic/Go: custo vem da tabela; modelo fora dela fica costUnknown; OpenRouter mantém o custo real", async () => {
 		const stream = (usage: CompleteChatWithToolsResult["usage"]) => withCostAccounting(async () => result(usage));
-		const known = await stream({ promptTokens: 1_000_000, completionTokens: 1_000_000, costUnknown: true })(params("anthropic-direct/claude-haiku-5-5"));
-		expect(known.usage?.costUsd).toBeCloseTo(0.6, 6);
+		const known = await stream({ promptTokens: 50_000, completionTokens: 50_000, costUnknown: true })(params("anthropic-direct/claude-haiku-5-5"));
+		expect(known.usage?.costUsd).toBeCloseTo(0.03, 8);
 		expect(known.usage?.costUnknown).toBeUndefined();
 		const go = await stream({ promptTokens: 1_000_000, completionTokens: 0, costKind: "plan" })(params("opencode-go/qwen3.8-flash"));
 		expect(go.usage?.costUsd).toBeCloseTo(0.15, 6);
@@ -162,6 +182,16 @@ describe("estimativa", () => {
 	it("custo de uma execução = tokens × fator × preço, sem desconto de cache", () => {
 		const price: PriceEntry = { promptUsdPerMTok: 1, completionUsdPerMTok: 5, cachedRatio: 0.1, writeRatio: 1.25, source: "t", confirmed: true };
 		expect(estimateExecutionUsd(profiles.get("a|v2")!, price, 2)).toBeCloseTo((2_000_000 * 1 + 200_000 * 5) / 1e6, 10);
+	});
+
+	it("a estimativa aplica a tarifa de contexto longo pela chamada média, não pelo total da execução", () => {
+		const haiku = priceFor("anthropic/claude-haiku-5-5").price;
+		// 10 chamadas de 20K = 200K no total: nenhuma chamada passa de 100K, então é a tarifa normal.
+		const short: ExecutionProfile = { modelCalls: 10, promptTokens: 200_000, completionTokens: 0, fromMock: true };
+		expect(estimateExecutionUsd(short, haiku, 1)).toBeCloseTo((200_000 * 0.1) / 1e6, 10);
+		// 1 chamada de 200K passa do corte: tarifa longa.
+		const long: ExecutionProfile = { modelCalls: 1, promptTokens: 200_000, completionTokens: 0, fromMock: true };
+		expect(estimateExecutionUsd(long, haiku, 1)).toBeCloseTo((200_000 * 0.5) / 1e6, 10);
 	});
 
 	it("soma por motor × modelo, repetições e preço desconhecido sinalizado", () => {

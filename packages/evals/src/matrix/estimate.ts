@@ -48,9 +48,14 @@ export async function profileScenarios(
 	return out;
 }
 
-/** Custo estimado de UMA execução (sem desconto de cache: conservador). */
+/**
+ * Custo estimado de UMA execução (sem desconto de cache: conservador). O preço é aplicado por chamada média (o corte de
+ * contexto longo é por chamada): `factor` multiplica o número de chamadas, não o tamanho de cada uma.
+ */
 export function estimateExecutionUsd(profile: ExecutionProfile, price: PriceEntry, factor: number): number {
-	return costFromTokens({ promptTokens: Math.ceil(profile.promptTokens * factor), completionTokens: Math.ceil(profile.completionTokens * factor) }, { ...price, cachedRatio: 1, writeRatio: 1 });
+	const calls = Math.max(1, profile.modelCalls);
+	const perCall = costFromTokens({ promptTokens: Math.ceil(profile.promptTokens / calls), completionTokens: Math.ceil(profile.completionTokens / calls) }, { ...price, cachedRatio: 1, writeRatio: 1 });
+	return perCall * calls * factor;
 }
 
 export type EstimateRow = { engine: string; model: string; provider: string; executions: number; promptTokens: number; completionTokens: number; usd: number; priceKnown: boolean; priceConfirmed: boolean };
