@@ -1,4 +1,4 @@
-import { classifyRunFailure } from "@workspace/shared";
+import { classifyRunFailure, type RunFailureToolCall } from "@workspace/shared";
 import { describe, expect, it } from "vitest";
 import { failureTraceFromTrajectory } from "./failure-trace.js";
 import type { RecordedModelCall, Trajectory } from "./trajectory.js";
@@ -52,6 +52,20 @@ describe("failureTraceFromTrajectory", () => {
 		expect(classifyRunFailure(failureTraceFromTrajectory(trajectory({ stop: { reason: "loop_repeat" } }))).primary).toBe("model.loop");
 		const failing = trajectory({ toolResults: [{ id: "c1", name: "web_search", ok: false, summary: "502", source: "connector" }] });
 		expect(classifyRunFailure(failureTraceFromTrajectory(failing)).primary).toBe("env.connector");
+	});
+
+	it("agrupa por `step` quando existe; chamadas sem `step` viram passos próprios depois (auditoria F0, B4)", () => {
+		const tool = (id: string, step?: number) => ({ id, name: "web_search", args: {}, argsRaw: "{}", ...(step === undefined ? {} : { step }) });
+		const result = (id: string, ok: boolean) => ({ id, name: "web_search", ok, summary: "", source: "fixture" as const });
+		const trace = failureTraceFromTrajectory(
+			trajectory({
+				toolCalls: [tool("a", 2), tool("b"), tool("c", 0), tool("d", 2), tool("e")],
+				toolResults: [result("a", true), result("b", false), result("c", true), result("d", false), result("e", true)],
+			}),
+		);
+		const view = trace.steps.map((step) => step.toolCalls.map((item: RunFailureToolCall) => item.ok));
+		// passo 0 = [c]; passo 2 = [a, d] (paralelas); sem passo = [b] e [e], cada uma sozinha, na ordem.
+		expect(view).toEqual([[true], [true, false], [false], [true]]);
 	});
 
 	it("`known` tem precedência (insistência)", () => {
