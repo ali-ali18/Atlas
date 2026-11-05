@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { COMPOSER_LINE_HEIGHT, COMPOSER_STACKED_STRIP, textWrapped } from "./composer-metrics";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { COMPOSER_LINE_HEIGHT, COMPOSER_STACKED_STRIP, fieldWrapperStyle, textWrapped, webFieldHeight } from "./composer-metrics";
 
 describe("textWrapped", () => {
 	it("uma linha não empilha", () => {
@@ -17,5 +19,23 @@ describe("textWrapped", () => {
 	});
 	it("a faixa dos botões é o botão mais o respiro dos dois lados", () => {
 		expect(COMPOSER_STACKED_STRIP).toBe(50);
+	});
+});
+
+describe("altura do campo", () => {
+	it("na web cresce com o conteúdo entre o mínimo e o teto", () => {
+		expect(webFieldHeight(21, 45, 300)).toBe(45);
+		expect(webFieldHeight(21 * 6 + 24, 45, 300)).toBe(150);
+		expect(webFieldHeight(21 * 15 + 24, 45, 300)).toBe(300);
+	});
+	it("o flex fica no envoltório", () => {
+		expect(fieldWrapperStyle(false)).toEqual({ flex: 1 });
+		expect(fieldWrapperStyle(true)).toMatchObject({ flexBasis: 120, minWidth: 120 });
+	});
+	it("o TextInput não tem flex: dentro do envoltório de altura automática ele trava em minHeight e rola (regressão)", () => {
+		const src = readFileSync(resolve(__dirname, "../components/chat/composer.tsx"), "utf8");
+		const input = src.slice(src.indexOf("<TextInput"), src.indexOf("</PasteImageInput>"));
+		expect(input).toContain("maxHeight: maxFieldHeight");
+		expect(input).not.toMatch(/\bflex(Grow|Shrink|Basis)?:/);
 	});
 });

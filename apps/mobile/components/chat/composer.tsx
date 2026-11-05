@@ -11,7 +11,7 @@ import { tap } from "@/lib/haptics";
 import type { ApiFetch } from "@/lib/home-sync";
 import { PasteImageInput } from "@/lib/paste-native";
 import { useAttachments } from "@/lib/use-attachments";
-import { COMPOSER_BUTTON, COMPOSER_INSET, COMPOSER_LINE_HEIGHT, COMPOSER_MIN_HEIGHT, COMPOSER_PILL_RADIUS, COMPOSER_STACKED_INSET, COMPOSER_STACKED_RADIUS } from "@/lib/composer-metrics";
+import { fieldWrapperStyle, webFieldHeight, COMPOSER_BUTTON, COMPOSER_INSET, COMPOSER_LINE_HEIGHT, COMPOSER_MIN_HEIGHT, COMPOSER_PILL_RADIUS, COMPOSER_STACKED_INSET, COMPOSER_STACKED_RADIUS } from "@/lib/composer-metrics";
 import { useStackedLayout } from "@/lib/use-stacked-layout";
 import { DictationBar } from "./dictation-bar";
 import { MARKER_HEIGHT, MarkerChip } from "./marker-chip";
@@ -341,7 +341,7 @@ export function Composer({ initialText, botName, color, foreground, running, api
 						{markers.map((marker) => (
 							<MarkerChip key={`${marker.kind}:${marker.id}`} marker={marker} onRemove={removeChip} />
 						))}
-					<PasteImageInput onImages={attachments.add} style={hasMarkers ? { flexGrow: 1, flexShrink: 1, flexBasis: 120, minWidth: 120 } : { flex: 1 }}>
+					<PasteImageInput onImages={attachments.add} style={fieldWrapperStyle(hasMarkers)}>
 					<TextInput
 						ref={inputRef}
 						accessibilityLabel={`Perguntar a ${botName}`}
@@ -406,11 +406,10 @@ export function Composer({ initialText, botName, color, foreground, running, api
 										paddingBottom: open ? 4 : (MIN_HEIGHT - LINE_HEIGHT) / 2,
 										paddingLeft: open ? 16 : INSET + BUTTON + 8,
 										paddingRight: open ? 16 : INSET + rightWidth + 8,
-										flex: 1,
 										minHeight: MIN_HEIGHT,
 									}),
 							maxHeight: maxFieldHeight,
-							...(Platform.OS === "web" ? { height: Math.min(maxFieldHeight, Math.max(hasMarkers ? MARKER_HEIGHT : MIN_HEIGHT, webHeight)) } : {}),
+							...(Platform.OS === "web" ? { height: webFieldHeight(webHeight, hasMarkers ? MARKER_HEIGHT : MIN_HEIGHT, maxFieldHeight) } : {}),
 						}}
 						className="text-foreground outline-none"
 					/>
