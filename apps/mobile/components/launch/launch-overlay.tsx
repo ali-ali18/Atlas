@@ -6,7 +6,7 @@ import { Image, StyleSheet, View } from "react-native";
 import { useReducedMotion } from "react-native-reanimated";
 import { LaunchMascot, type LaunchMascotFrame } from "@/components/launch/launch-mascot";
 import { SPLASH_BACKGROUND } from "@/components/splash-screen";
-import { applyPoseToFrame, introFrame, LAUNCH_IDLE_CLIP, LAUNCH_SIZE_FROM, LAUNCH_SIZE_TO, launchOpacity, launchState } from "@/lib/launch-sequence";
+import { applyPoseToFrame, introFrame, LAUNCH_IDLE_CLIP, LAUNCH_SIZE, launchOpacity, launchState } from "@/lib/launch-sequence";
 
 // Mesma imagem do splash nativo (app.json): na troca do nativo para esta tela o personagem não muda de lugar nem de cara.
 const SPLASH_IMAGE = require("../../assets/splash-icon.png");
@@ -31,7 +31,7 @@ function renderAt(character: Character, runtime: Runtime, input: { elapsedS: num
 		// Sem movimento: parado como o splash nativo até o fade.
 		const engineFrame = character.frame();
 		applyPoseToFrame(engineFrame, introFrame(0).pose);
-		return finish(engineFrame, LAUNCH_SIZE_FROM, 1);
+		return finish(engineFrame, LAUNCH_SIZE, 1);
 	}
 	if (state.phase === "intro") {
 		const intro = introFrame(state.introT);
@@ -52,7 +52,7 @@ function renderAt(character: Character, runtime: Runtime, input: { elapsedS: num
 		character.playClip(LAUNCH_IDLE_CLIP);
 		runtime.idling = true;
 	}
-	return finish(character.frame(), LAUNCH_SIZE_TO, 0);
+	return finish(character.frame(), LAUNCH_SIZE, 0);
 }
 
 export type LaunchOverlayProps = {
@@ -64,7 +64,7 @@ export type LaunchOverlayProps = {
 
 /**
  * Abertura animada, em tela cheia por cima do app (montada no layout raiz). O splash nativo fica até esta tela estar
- * desenhada, com o personagem no mesmo lugar e tamanho dele; então roda a animação (`lib/launch-sequence.ts`: cresce,
+ * desenhada, com o personagem no mesmo lugar e tamanho dele; então roda a animação (`lib/launch-sequence.ts`: vira de frente,
  * uma volta feliz, repouso), espera o app ficar pronto num repouso calmo (teto de segurança de 8 s) e sai só com fade.
  * Com "reduzir movimento" fica parado e só faz o fade. Roda uma vez por abertura do app e depois se desmonta.
  */

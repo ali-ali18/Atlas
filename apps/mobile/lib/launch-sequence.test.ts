@@ -2,7 +2,7 @@ import { Character } from "@workspace/shared/avatar/model/character";
 import { projectFrame } from "@workspace/shared/avatar/render/project";
 import { describe, expect, it } from "vitest";
 import { LIST_POSE } from "./avatar-pose";
-import { applyPoseToFrame, fadeStartS, introFrame, isAppReady, LAUNCH_IDLE_CLIP, LAUNCH_SIZE_FROM, LAUNCH_SIZE_TO, LAUNCH_TIMING, launchOpacity, launchState } from "./launch-sequence";
+import { applyPoseToFrame, fadeStartS, introFrame, isAppReady, LAUNCH_IDLE_CLIP, LAUNCH_SIZE, LAUNCH_TIMING, launchOpacity, launchState } from "./launch-sequence";
 
 const T = LAUNCH_TIMING;
 const state = (elapsedS: number, readyAtS: number | null, reducedMotion = false) => launchState({ elapsedS, readyAtS, reducedMotion });
@@ -11,24 +11,16 @@ describe("introFrame (a animação de entrada)", () => {
 	it("começa idêntico ao splash estático: pose da lista, 92 pt, imagem do splash opaca, rosto neutro", () => {
 		for (const t of [0, T.holdS]) {
 			const frame = introFrame(t);
-			expect(frame.size).toBe(LAUNCH_SIZE_FROM);
+			expect(frame.size).toBe(LAUNCH_SIZE);
 			expect(frame.pose.rot).toEqual([LIST_POSE.pitch, LIST_POSE.yaw, LIST_POSE.roll]);
 			expect(frame.splashImage).toBe(1);
 			expect(frame.happy).toBe(false);
 		}
 	});
 
-	it("cresce de 92 para 140 pt sem passar de nenhum dos dois e nunca encolhe", () => {
-		let previous = introFrame(0).size;
-		for (let t = 0; t <= T.introEndS; t += 1 / 60) {
-			const { size } = introFrame(t);
-			expect(size).toBeGreaterThanOrEqual(previous - 1e-9);
-			expect(size).toBeGreaterThanOrEqual(LAUNCH_SIZE_FROM);
-			expect(size).toBeLessThanOrEqual(LAUNCH_SIZE_TO);
-			previous = size;
-		}
-		expect(introFrame(T.growEndS).size).toBeCloseTo(LAUNCH_SIZE_TO, 6);
-		expect(introFrame(T.introEndS).size).toBeCloseTo(LAUNCH_SIZE_TO, 6);
+	it("não cresce: a caixa fica em 92 pt (a do splash) do começo ao fim", () => {
+		for (let t = 0; t <= T.introEndS; t += 1 / 60) expect(introFrame(t).size).toBe(LAUNCH_SIZE);
+		expect(LAUNCH_SIZE).toBe(92);
 	});
 
 	it("dá uma volta só (360°) e volta ao repouso de frente, ficando feliz", () => {

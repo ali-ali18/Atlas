@@ -14,7 +14,7 @@ import { redirectFor, type AccessPhase } from "./auth-flow";
 export const LAUNCH_TIMING = {
 	/** Parado, igual ao splash nativo. */
 	holdS: 0.15,
-	/** Fim do crescimento (de 92 a 140 pt de caixa, o corpo vai de ~65 a ~98 pt). */
+	/** Fim da virada de frente (a pose da lista vai ao clipe; o tamanho não muda). */
 	growEndS: 0.7,
 	/** O rosto vira feliz um pouco antes do giro. */
 	happyAtS: 0.5,
@@ -31,9 +31,8 @@ export const LAUNCH_TIMING = {
 	handoffS: 0.2,
 } as const;
 
-/** Lado da caixa do splash nativo (`imageWidth` em app.json) e a final da animação. O corpo ocupa ~70,5% da caixa. */
-export const LAUNCH_SIZE_FROM = 92;
-export const LAUNCH_SIZE_TO = 140;
+/** Lado da caixa do splash nativo (`imageWidth` em app.json), o mesmo do começo ao fim: a animação não cresce. O corpo ocupa ~70,5% da caixa. */
+export const LAUNCH_SIZE = 92;
 
 /** Uma volta do clipe `Rotation_A`: tempo do clipe em que o yaw (linear no clipe) completa 360° desde o início. */
 const ROTATION_CLIP = "Rotation_A";
@@ -115,11 +114,11 @@ export type IntroFrame = {
 export function introFrame(t: number): IntroFrame {
 	const T = LAUNCH_TIMING;
 	const time = Math.min(T.introEndS, Math.max(0, t));
-	const grow = easeInOutCubic(clamp01((time - T.holdS) / (T.growEndS - T.holdS)));
+	const turn = easeInOutCubic(clamp01((time - T.holdS) / (T.growEndS - T.holdS)));
 	const u = clamp01((time - T.spinStartS) / (T.spinEndS - T.spinStartS));
 	return {
-		pose: lerpPose(LIST_ENGINE_POSE, spinPose(u), grow),
-		size: LAUNCH_SIZE_FROM + (LAUNCH_SIZE_TO - LAUNCH_SIZE_FROM) * grow,
+		pose: lerpPose(LIST_ENGINE_POSE, spinPose(u), turn),
+		size: LAUNCH_SIZE,
 		happy: time >= T.happyAtS,
 		splashImage: 1 - clamp01((time - T.holdS) / T.handoffS),
 	};
