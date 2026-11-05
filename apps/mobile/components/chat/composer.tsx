@@ -8,6 +8,7 @@ import { ComposerAttachments } from "./composer-attachments";
 import { pickDocuments, pickFromCamera, pickPhotos, type PickOutcome } from "@/lib/attachment-pickers";
 import type { OutgoingAttachment } from "@/lib/attachments";
 import type { ApiFetch } from "@/lib/home-sync";
+import { PasteImageInput } from "@/lib/paste-native";
 import { useAttachments } from "@/lib/use-attachments";
 import { COMPOSER_BUTTON, COMPOSER_INSET, COMPOSER_LINE_HEIGHT, COMPOSER_MIN_HEIGHT, COMPOSER_PILL_RADIUS, COMPOSER_STACKED_INSET, COMPOSER_STACKED_RADIUS } from "@/lib/composer-metrics";
 import { useStackedLayout } from "@/lib/use-stacked-layout";
@@ -338,6 +339,7 @@ export function Composer({ initialText, botName, color, foreground, running, api
 						{markers.map((marker) => (
 							<MarkerChip key={`${marker.kind}:${marker.id}`} marker={marker} onRemove={removeChip} />
 						))}
+					<PasteImageInput onImages={attachments.add} style={hasMarkers ? { flexGrow: 1, flexShrink: 1, flexBasis: 120, minWidth: 120 } : { flex: 1 }}>
 					<TextInput
 						ref={inputRef}
 						accessibilityLabel={`Perguntar a ${botName}`}
@@ -396,7 +398,7 @@ export function Composer({ initialText, botName, color, foreground, running, api
 							fontSize: 16,
 							lineHeight: LINE_HEIGHT,
 							...(hasMarkers
-								? { paddingTop: 1.5, paddingBottom: 1.5, paddingLeft: 2, paddingRight: 0, flexGrow: 1, flexShrink: 1, flexBasis: 120, minWidth: 120, minHeight: MARKER_HEIGHT }
+								? { paddingTop: 1.5, paddingBottom: 1.5, paddingLeft: 2, paddingRight: 0, minHeight: MARKER_HEIGHT }
 								: {
 										paddingTop: (MIN_HEIGHT - LINE_HEIGHT) / 2,
 										paddingBottom: open ? 4 : (MIN_HEIGHT - LINE_HEIGHT) / 2,
@@ -410,6 +412,7 @@ export function Composer({ initialText, botName, color, foreground, running, api
 						}}
 						className="text-foreground outline-none"
 					/>
+					</PasteImageInput>
 					</View>
 					{/*
 					  Pílula: a linha de botões ocupa a altura toda e centra na vertical (no Android o campo pode medir mais que
