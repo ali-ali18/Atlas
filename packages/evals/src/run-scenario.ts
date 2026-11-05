@@ -87,6 +87,8 @@ export async function runScenario(scenario: Scenario, options: RunScenarioOption
 		} catch (caught) {
 			call.error = caught instanceof Error ? caught.message.slice(0, 300) : "erro";
 			if (caught instanceof Error) call.errorName = caught.name;
+			const status = (caught as { status?: unknown } | null)?.status;
+			if (typeof status === "number") call.errorStatus = status;
 			throw caught;
 		} finally {
 			call.durationMs = Date.now() - begin;

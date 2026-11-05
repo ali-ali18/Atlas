@@ -19,6 +19,8 @@ export type RecordedModelCall = {
 	error?: string;
 	/** `name` do erro lançado pelo provedor/runtime (ex.: `TimeoutError`, de `DOMException`): classificação sem ler texto. */
 	errorName?: string;
+	/** Status HTTP do erro, quando o provedor informa: separa erro de transporte (429/5xx) de pedido recusado (400/422). */
+	errorStatus?: number;
 };
 
 export type RecordedToolCall = { id: string; name: string; args: Record<string, unknown>; argsRaw: string; step?: number };

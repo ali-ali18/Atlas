@@ -9,8 +9,16 @@ describe("classifyRunError (auditoria F0, C1)", () => {
 		expect(classifyRunError({ modelCalls: [call({})] })).toBeUndefined();
 	});
 
-	it("o prazo do próprio eval é corte de tempo do runtime", () => {
-		expect(classifyRunError({ error: "tempo esgotado (180s)", timedOut: true, modelCalls: [] })).toBe("runtime_timeout");
+	it("o prazo do próprio eval conta contra o modelo (laço ou lentidão), não como erro de execução (reauditoria N2)", () => {
+		expect(classifyRunError({ error: "tempo esgotado (180s)", timedOut: true, modelCalls: [] })).toBeUndefined();
+	});
+
+	it.each([400, 404, 422])("pedido recusado (HTTP %i) conta contra o modelo, não como erro do provedor (reauditoria N1)", (status) => {
+		expect(classifyRunError({ error: "bad request", errorName: "Error", modelCalls: [call({ error: "bad request", errorName: "Error", errorStatus: status })] })).toBeUndefined();
+	});
+
+	it.each([429, 503, 401])("HTTP %i de transporte ou chave vira provider", (status) => {
+		expect(classifyRunError({ error: "x", errorName: "Error", modelCalls: [call({ error: "x", errorName: "Error", errorStatus: status })] })).toBe("provider");
 	});
 
 	it.each([...RUNTIME_TIMEOUT_MESSAGES])("identificador do runtime %j vira runtime_timeout", (message) => {
