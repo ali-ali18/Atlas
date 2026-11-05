@@ -4,7 +4,7 @@ O motor do agente do Atlas, feito para o Atlas e open-source junto com ele (MIT)
 
 ## Estado atual (honesto)
 
-Prontos: as **portas** e as guardas (F1.1); na F1.2, as **classes de efeito**, o `defineTool` e as **capacidades** (registro, índice, `use_capability`, ganchos tipados); e, na F1.4 a F1.6, o **executor do contrato** (`createExecutor`). O resto abaixo é o desenho, ainda sem código.
+Prontos: as **portas** e as guardas (F1.1); na F1.2, as **classes de efeito**, o `defineTool` e as **capacidades** (registro, índice, `use_capability`, ganchos tipados); na F1.4 a F1.6, o **executor do contrato** (`createExecutor`); e, na F1.7, os **canais** (nonce por run, envelopes e escape). O resto abaixo é o desenho, ainda sem código.
 
 | Camada | O que é | Existe? |
 |---|---|---|
@@ -13,7 +13,7 @@ Prontos: as **portas** e as guardas (F1.1); na F1.2, as **classes de efeito**, o
 | `kernel/` | laço, estado do run, checkpoint, compactação | não |
 | `contract/` | classes de efeito (`effects.ts`); `executor.ts` (único caminho de toda chamada: efeito → `authorize()` → aprovação → execução); `approval.ts` (cartão por `riskFacts`, token = hash dos argumentos, uso único); `provenance.ts` (taint de fonte não confiável); journal de efeitos e recibos obrigatórios; redação de segredo | sim (a política pura `decide`/mandato mora em `shared`; falta handoff de superfície e o laço que chama o executor) |
 | `tools/` | `defineTool`: efeito obrigatório, args validados pelo zod, resultado `ok`/`erro` tipado, `LlmToolSpec` | sim |
-| `channels/` | envelopes: fala do usuário, sistema (nonce), dado não confiável | não |
+| `channels/` | envelopes: fala do usuário (limpa), sistema (`<atlas:runtime id=nonce>`), dado não confiável (`<data … trust="untrusted">`), escape determinístico, parágrafo de canais do prompt estável. O nonce vai no `[context]`, não no prompt estável (cache) | sim |
 | `capabilities/` | `defineCapability`, registro, índice de uma linha, carga só de acréscimo (`use_capability`), ganchos tipados. Uma pasta por feature virá nas fases seguintes | sim (o mecanismo; sem capacidades concretas) |
 | `agenda/` | lembrete, vigia, intenção por evento | não |
 | `memory/` | perfil, caderno, sessões | não |
