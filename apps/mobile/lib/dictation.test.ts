@@ -24,11 +24,21 @@ describe("speechLocaleFor", () => {
 	});
 });
 
+describe("mergeDictation: maiúscula inicial", () => {
+	it("campo vazio ganha a primeira letra maiúscula, sem inventar pontuação", () => {
+		expect(mergeDictation("", "testando Bom dia tudo bem")).toBe("Testando Bom dia tudo bem");
+		expect(mergeDictation("  ", "érica chegou")).toBe("Érica chegou");
+	});
+	it("campo com texto não muda a caixa do ditado", () => {
+		expect(mergeDictation("Oi", "tudo bem")).toBe("Oi tudo bem");
+	});
+});
+
 describe("mergeDictation", () => {
 	it("soma ao que já estava digitado sem apagar", () => {
 		expect(mergeDictation("Oi", "tudo bem")).toBe("Oi tudo bem");
 		expect(mergeDictation("Oi ", "tudo bem")).toBe("Oi tudo bem");
-		expect(mergeDictation("", "  tudo   bem ")).toBe("tudo bem");
+		expect(mergeDictation("", "  tudo   bem ")).toBe("Tudo bem");
 	});
 	it("fala vazia mantém o campo como está", () => {
 		expect(mergeDictation("Oi", "   ")).toBe("Oi");

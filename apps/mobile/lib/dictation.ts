@@ -23,11 +23,16 @@ export function collapseSpaces(text: string): string {
 	return text.replace(/\s+/g, " ").trim();
 }
 
-/** Anexa o texto ditado ao já digitado, separando por um espaço. Nunca apaga o que estava no campo. */
+/** Primeira letra em maiúscula (só ela; não inventa pontuação nem mexe no resto). */
+export function capitalizeFirst(text: string): string {
+	return text.charAt(0).toLocaleUpperCase() + text.slice(1);
+}
+
+/** Anexa o texto ditado ao já digitado, separando por um espaço. Nunca apaga o que estava no campo. Em campo vazio, o texto começa em maiúscula. */
 export function mergeDictation(current: string, dictated: string): string {
 	const text = collapseSpaces(dictated);
 	if (!text) return current;
-	if (!current.trim()) return text;
+	if (!current.trim()) return capitalizeFirst(text);
 	return /\s$/.test(current) ? `${current}${text}` : `${current} ${text}`;
 }
 

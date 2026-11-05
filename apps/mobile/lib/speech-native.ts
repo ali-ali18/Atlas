@@ -16,6 +16,8 @@ export function loadSpeechEngine(): SpeechEngine | null {
 					lang,
 					interimResults: true,
 					continuous: true,
+					// Pontuação do motor (vírgula, ponto, ?). Android 13+ (liga EXTRA_ENABLE_FORMATTING) e iOS 16+; antes disso é ignorado.
+					addsPunctuation: true,
 					// Só pede reconhecimento no aparelho quando ele suporta; senão usa o serviço do sistema.
 					requiresOnDeviceRecognition: onDevice,
 					volumeChangeEventOptions: { enabled: true, intervalMillis: 120 },
