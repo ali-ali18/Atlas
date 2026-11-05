@@ -1,4 +1,6 @@
 import * as React from "react";
+import { AppState } from "react-native";
+import { attachHomeLive } from "@/lib/home-live";
 import { cacheKey, loadHomeCache, saveHomeCache } from "@/lib/home-cache";
 import { homeStorage } from "@/lib/home-storage";
 import { HomeSyncController, type SyncDeps } from "@/lib/home-sync-controller";
@@ -20,8 +22,8 @@ export type HomeData = {
 	 * Devolve `ready` quando há o que mostrar; `signed-out` quando o servidor recusou a sessão ou a conta saiu no meio.
 	 */
 	prepare: () => Promise<"ready" | "empty" | "signed-out">;
-	/** `fresh`: descarta a atualização em voo e busca de novo (use depois de criar algo no servidor). */
-	refresh: (options?: { fresh?: boolean }) => Promise<void>;
+	/** `fresh`: descarta a atualização em voo e busca de novo (use depois de criar algo no servidor). `silent`: sem o giro do puxar-para-atualizar (eventos em tempo real). */
+	refresh: (options?: { fresh?: boolean; silent?: boolean }) => Promise<void>;
 	/** Aplica na lista (e no cache do aparelho) o que acabou de ser salvo no servidor, sem esperar a próxima atualização. */
 	applyBotUpdate: (botId: string, patch: Partial<Pick<HomeBot, "name" | "color" | "shape" | "language" | "pinned" | "pinOrder" | "sectionId" | "unread">>) => void;
 	/**
@@ -47,7 +49,7 @@ export function useHomeData(): HomeData {
 
 /** Guarda bots e seções da conta em memória e no cache do aparelho. Vive acima das telas: tudo troca de rota sem perder o estado. */
 export function HomeDataProvider({ children }: { children: React.ReactNode }) {
-	const { phase, apiFetch, email, serverUrl, signOut, onSignOut } = useAtlasSession();
+	const { phase, apiFetch, email, serverUrl, signOut, onSignOut, eventHub } = useAtlasSession();
 	const [snapshot, setSnapshot] = React.useState<HomeSnapshot | null>(null);
 	const [refreshing, setRefreshing] = React.useState(false);
 	const [error, setError] = React.useState<SyncFailure | null>(null);
@@ -110,15 +112,36 @@ export function HomeDataProvider({ children }: { children: React.ReactNode }) {
 		setError(null);
 	}, [phase, controller]);
 
-	const refresh = React.useCallback(async (options?: { fresh?: boolean }) => {
+	const refresh = React.useCallback(async (options?: { fresh?: boolean; silent?: boolean }) => {
 		if (!key) return;
-		setRefreshing(true);
+		const silent = options?.silent === true;
+		if (!silent) setRefreshing(true);
 		try {
 			await controller.run(key, options?.fresh === true);
 		} finally {
-			setRefreshing(false);
+			if (!silent) setRefreshing(false);
 		}
 	}, [key, controller]);
+
+	// Tempo real: eventos de mensagem/leitura/bot/run, `ready`/`resync` e a volta ao primeiro plano atualizam a home
+	// em silêncio (debounce de 300 ms). Só com retrato já na tela: o carregamento inicial é do `prepare`.
+	const refreshRef = React.useRef(refresh);
+	refreshRef.current = refresh;
+	const hasSnapshot = snapshot !== null;
+	React.useEffect(() => {
+		if (!key || !hasSnapshot) return;
+		return attachHomeLive({
+			hub: eventHub,
+			appState: {
+				current: () => AppState.currentState ?? "active",
+				subscribe: (listener) => {
+					const subscription = AppState.addEventListener("change", listener);
+					return () => subscription.remove();
+				},
+			},
+			refresh: () => void refreshRef.current({ silent: true }),
+		});
+	}, [key, hasSnapshot, eventHub]);
 
 	const prepare = React.useCallback(async () => {
 		if (!key) return "signed-out" as const;

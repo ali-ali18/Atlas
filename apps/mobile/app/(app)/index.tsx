@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
 import { useAtlasSession } from "@/lib/atlas-session";
 import { useHomeData } from "@/lib/home-data";
+import { useHomeLive } from "@/lib/use-home-live";
 import { NO_SECTION_KEY } from "@/lib/home-list";
 import { staleNotice } from "@/lib/home-copy";
 import { buildHome, buildSearchIndex } from "@/lib/home-list";
@@ -38,6 +39,7 @@ export default function HomeScreen() {
 	const [footerHeight, setFooterHeight] = React.useState(0);
 	const { name, email, image, apiFetch } = useAtlasSession();
 	const { snapshot, refreshing, error, refresh, applySectionUpdate } = useHomeData();
+	useHomeLive();
 	const [query, setQuery] = React.useState("");
 	const [collapsed, setCollapsed] = React.useState<Record<string, boolean>>({});
 	const [menuBot, setMenuBot] = React.useState<HomeBot | null>(null);
