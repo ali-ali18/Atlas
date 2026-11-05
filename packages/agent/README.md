@@ -4,14 +4,14 @@ O motor do agente do Atlas, feito para o Atlas e open-source junto com ele (MIT)
 
 ## Estado atual (honesto)
 
-Prontos: as **portas** e as guardas (F1.1) e, na F1.2, as **classes de efeito**, o `defineTool` e as **capacidades** (registro, índice, `use_capability`, ganchos tipados). O resto abaixo é o desenho, ainda sem código.
+Prontos: as **portas** e as guardas (F1.1); na F1.2, as **classes de efeito**, o `defineTool` e as **capacidades** (registro, índice, `use_capability`, ganchos tipados); e, na F1.4 a F1.6, o **executor do contrato** (`createExecutor`). O resto abaixo é o desenho, ainda sem código.
 
 | Camada | O que é | Existe? |
 |---|---|---|
 | `ports/` | interfaces `Llm`, `Store`, `Queue`, `Sandbox`, `Vault`, `Clock`, `Events` | sim |
 | `adapters/` | implementações das portas (Prisma, BullMQ, VM, cofre, `packages/llm`) | pasta, sem código |
 | `kernel/` | laço, estado do run, checkpoint, compactação | não |
-| `contract/` | classes de efeito (`effects.ts`, pronto), política, mandatos, handoff, taint, recibos | parcial (só efeitos) |
+| `contract/` | classes de efeito (`effects.ts`); `executor.ts` (único caminho de toda chamada: efeito → `authorize()` → aprovação → execução); `approval.ts` (cartão por `riskFacts`, token = hash dos argumentos, uso único); `provenance.ts` (taint de fonte não confiável); journal de efeitos e recibos obrigatórios; redação de segredo | sim (a política pura `decide`/mandato mora em `shared`; falta handoff de superfície e o laço que chama o executor) |
 | `tools/` | `defineTool`: efeito obrigatório, args validados pelo zod, resultado `ok`/`erro` tipado, `LlmToolSpec` | sim |
 | `channels/` | envelopes: fala do usuário, sistema (nonce), dado não confiável | não |
 | `capabilities/` | `defineCapability`, registro, índice de uma linha, carga só de acréscimo (`use_capability`), ganchos tipados. Uma pasta por feature virá nas fases seguintes | sim (o mecanismo; sem capacidades concretas) |
@@ -20,6 +20,18 @@ Prontos: as **portas** e as guardas (F1.1) e, na F1.2, as **classes de efeito**,
 | `presets/` | `full` e `minimal` | não |
 
 Tudo de fora entra por porta injetada: o worker monta as implementações reais, o teste monta mocks. Lógica pura compartilhada com o legado vai para `packages/shared`.
+
+## Contrato: como uma chamada de tool passa
+
+`executor.executeCall({ callId, step, tool, args, grant? })` devolve um `CallOutcome`:
+
+1. A tool dá a classe de efeito e os `riskFacts` dos argumentos; o `authorize()` chama `decide()` só com metadado (sem campo de conteúdo, o tipo impede).
+2. `handoff` e `hidden` não rodam e devolvem texto honesto ao modelo e ao dono (`handoff`, `not_available`).
+3. `approve` devolve `pending_approval` com o cartão (argumentos sem segredo + `riskFacts`). Só roda com `ApprovalGrant` do hash atual dos argumentos, uso único; mudou um argumento, `approval_invalid`. O modelo não produz o grant.
+4. Efeito (qualquer classe, menos `read`) grava `started` no journal (chave `runId:callId:hash`) antes e `succeeded`/`failed` depois. Na retomada, `started` sem fim vira `interrupted_write`, e `succeeded` vira `already_done`: nunca repete às cegas.
+5. Efeito sem recibo é `contract_error`. O recibo vai para `Store.receipts`.
+6. Tool `trust: "untrusted"` marca o run (`RunProvenance`); trecho de 24+ caracteres copiado dela para os argumentos também marca a chamada. Os dois booleanos entram no `decide()`.
+7. Erro e resumo passam por `redactSecrets` antes de chegar ao modelo.
 
 ## Regras
 

@@ -53,7 +53,7 @@ describe("aprovação presa aos argumentos (F1.4)", () => {
 		expect(counter.runs).toBe(0);
 	});
 
-	it("o grant é de uso único", async () => {
+	it("o grant é de uso único (efeito: o journal já barra; leitura com regra approve: o grant gasto é recusado)", async () => {
 		const { executor, clock } = setup();
 		const { tool, counter } = sendTool();
 		const args = { to: "ana@exemplo.test", body: "oi" };
@@ -61,9 +61,18 @@ describe("aprovação presa aos argumentos (F1.4)", () => {
 		if (pending.status !== "pending_approval") throw new Error("unreachable");
 		const grant = grantApproval(pending.request, clock.now());
 		expect((await executor.executeCall({ callId: "c1", step: 1, tool, args, grant })).status).toBe("ok");
-		const again = await executor.executeCall({ callId: "c1", step: 1, tool, args, grant });
-		expect(again).toMatchObject({ status: "approval_invalid", reason: "approval already used" });
+		expect((await executor.executeCall({ callId: "c1", step: 1, tool, args, grant })).status).toBe("already_done");
 		expect(counter.runs).toBe(1);
+
+		let reads = 0;
+		const read = defineTool({ name: "peek", description: "Peek.", inputSchema: z.object({}), effect: "read", execute: () => ((reads++), { ok: true, summary: "x" }) });
+		const strict = setup({ ...chatPolicy, rules: [{ match: "peek", verdict: "approve" }] });
+		const p2 = await strict.executor.executeCall({ callId: "r", step: 1, tool: read, args: {} });
+		if (p2.status !== "pending_approval") throw new Error("unreachable");
+		const g2 = grantApproval(p2.request, strict.clock.now());
+		expect((await strict.executor.executeCall({ callId: "r", step: 1, tool: read, args: {}, grant: g2 })).status).toBe("ok");
+		expect(await strict.executor.executeCall({ callId: "r", step: 1, tool: read, args: {}, grant: g2 })).toMatchObject({ status: "approval_invalid", reason: "approval already used" });
+		expect(reads).toBe(1);
 	});
 
 	it("o cartão não carrega segredo e o id é estável para a mesma chamada", () => {
