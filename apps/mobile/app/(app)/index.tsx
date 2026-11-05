@@ -30,7 +30,7 @@ const NO_SECTIONS: readonly SectionRef[] = [];
 export default function HomeScreen() {
 	const router = useRouter();
 	const scheme = useAppColorScheme();
-	const { name, email, image, signOut, changeServer, apiFetch } = useAtlasSession();
+	const { name, email, image, apiFetch } = useAtlasSession();
 	const { snapshot, refreshing, error, refresh, applySectionUpdate } = useHomeData();
 	const [query, setQuery] = React.useState("");
 	const [collapsed, setCollapsed] = React.useState<Record<string, boolean>>({});
@@ -109,7 +109,7 @@ export default function HomeScreen() {
 	return (
 		<ScreenFrame>
 			<KeyboardAvoidingView behavior="padding" className="flex-1">
-				<HomeHeader user={{ name, email, image }} onNew={() => router.push("/new-bot" as never)} onSignOut={() => void signOut()} onChangeServer={() => void changeServer()} />
+				<HomeHeader user={{ name, email, image }} onNew={() => router.push("/new-bot" as never)} />
 				<ScrollView
 					className="flex-1"
 					contentContainerStyle={{ paddingBottom: 16 }}

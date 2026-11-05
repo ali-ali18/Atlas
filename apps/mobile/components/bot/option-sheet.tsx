@@ -4,8 +4,11 @@ import { ThemedModalRoot } from "@/components/home/themed-modal";
 import { Text } from "@/components/ui/text";
 import { useSurfaces } from "@/lib/use-surfaces";
 
-/** Gaveta com uma lista de opções (uma escolhida): o seletor das linhas "Idioma" etc. */
-export function OptionSheet({ open, title, options, value, onPick, onClose }: { open: boolean; title: string; options: readonly { value: string; label: string }[]; value: string; onPick: (value: string) => void; onClose: () => void }) {
+/** Uma opção da gaveta; `description` é o apoio de uma linha embaixo do rótulo (ex.: o que cada nível de permissão faz). */
+export type Option = { value: string; label: string; description?: string };
+
+/** Gaveta com uma lista de opções (uma escolhida): o seletor das linhas "Idioma", "Permissões", "Aparência". */
+export function OptionSheet({ open, title, options, value, onPick, onClose }: { open: boolean; title: string; options: readonly Option[]; value: string; onPick: (value: string) => void; onClose: () => void }) {
 	const surfaces = useSurfaces();
 	return (
 		<Modal visible={open} transparent animationType="fade" onRequestClose={onClose} statusBarTranslucent>
@@ -16,8 +19,15 @@ export function OptionSheet({ open, title, options, value, onPick, onClose }: { 
 							{title}
 						</Text>
 						{options.map((option) => (
-							<Pressable key={option.value} role="radio" accessibilityState={{ checked: option.value === value }} onPress={() => onPick(option.value)} className="min-h-12 flex-row items-center justify-between rounded-xl px-4 active:bg-muted/60">
-								<Text className="text-control">{option.label}</Text>
+							<Pressable key={option.value} role="radio" accessibilityState={{ checked: option.value === value }} onPress={() => onPick(option.value)} className="min-h-12 flex-row items-center justify-between gap-3 rounded-xl px-4 py-2 active:bg-muted/60">
+								<View className="min-w-0 flex-1">
+									<Text className="text-control">{option.label}</Text>
+									{option.description ? (
+										<Text variant="muted" className="pt-0.5 text-body">
+											{option.description}
+										</Text>
+									) : null}
+								</View>
 								{option.value === value ? <Text className="text-control font-semibold">✓</Text> : <View />}
 							</Pressable>
 						))}
