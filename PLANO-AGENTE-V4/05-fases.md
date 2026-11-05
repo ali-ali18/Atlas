@@ -103,6 +103,13 @@ F0 baseline ─► F1 fundação ─► F2 capacidades núcleo ─┬─► F3 p
   - leitura pela árvore de acessibilidade com refs (ADR 0005, o mesmo princípio do agent-browser da Vercel Labs e do Playwright MCP);
   - a página inteira fica disponível em partes ("ler o resto"), nunca com poda escondida;
   - captura de tela e visão só quando a árvore é pobre (página sem rótulos, canvas, captcha) ou quando o pedido é visual.
+- [ ] **Página enorme e feed infinito** (ex.: vídeo com 1.000 comentários). Ver tudo **sem lotar a memória** nem cortar escondido:
+  - **Mapa primeiro.** A leitura devolve a estrutura da página (seções, painéis) com o tamanho de cada lista ("comentários: ~1.000, carregados 40"), nunca a lista inteira de uma vez.
+  - **Partes sob demanda.** O modelo pede "próximos 50" ou "comentários 200 a 250". Cada parte diz onde está e quanto falta.
+  - **Busca dentro da página,** feita na VM: "comentários que falam de preço" devolve só os trechos que batem, com ref para agir.
+  - **Feed infinito.** "Carregar mais" é uma ação explícita que o modelo decide repetir, e o resultado sempre diz quantos já foram carregados.
+  - **Volume grande vai para arquivo.** O conteúdo completo é salvo num arquivo da VM ou no caderno, e um ajudante, com memória própria, lê em blocos e devolve o resumo ou os itens pedidos. A memória do bot principal fica leve, e nada se perde.
+  - **Teste:** cenário com 1.000 comentários em que a resposta depende do comentário nº 870. Precisa acertar sem estourar a janela.
 - [ ] Comparar no `browser-bench`, com modelo real, o navegador atual (ADR 0005) e o `agent-browser` (Apache-2.0) rodando dentro da VM. Fica o que **acertar mais**, não o que gastar menos. Poda de contexto que derrube o acerto é recusada.
 - [ ] `code`: presets de política `plan` e `build`, edição precisa, verificação por teste e dev sessions.
 - [ ] Experimento Code Mode, ligado só se ganhar na matriz.

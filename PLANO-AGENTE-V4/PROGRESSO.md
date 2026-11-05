@@ -127,6 +127,7 @@
 
 ### F8: Navegador e código
 - [ ] F8.1 `browser` sobre a porta `Sandbox`: árvore de acessibilidade com refs, página inteira em partes (nunca poda escondida) e visão só quando a árvore for pobre.
+- [ ] F8.1a Página enorme e feed infinito: mapa primeiro, partes sob demanda, busca na página, "carregar mais" explícito e volume grande em arquivo lido por ajudante. Cenário: resposta no comentário nº 870 de 1.000.
 - [ ] F8.1b `browser-bench` real comparando o navegador atual (ADR 0005) com o `agent-browser` da Vercel Labs na VM; fica o que acertar mais.
 - [ ] F8.2 `code` (plan/build, edição precisa, verificação).
 - [ ] F8.3 Experimento Code Mode.
