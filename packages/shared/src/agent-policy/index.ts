@@ -1,2 +1,5 @@
+export * from "./types.js";
+export * from "./decide.js";
+export * from "./glob.js";
 export * from "./mandate.js";
 export * from "./approval-key.js";
