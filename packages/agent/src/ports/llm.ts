@@ -33,6 +33,11 @@ export type LlmChatRequest = {
 	role: LlmRole;
 	messages: LlmMessage[];
 	tools?: LlmToolSpec[];
+	/**
+	 * "none": as tools continuam no pedido (prefixo e cache estáveis), mas o modelo não pode chamá-las.
+	 * Usado no passo final de um limite. Omitido = "auto".
+	 */
+	toolChoice?: "auto" | "none";
 	signal?: AbortSignal;
 };
 

@@ -8,7 +8,7 @@ export type RunCheckpoint = {
 	runId: string;
 	userId: string;
 	step: number;
-	state: "PREPARE" | "MODEL" | "TOOLS" | "SETTLE" | "PARKED" | "FINAL";
+	state: "PREPARE" | "MODEL" | "TOOLS" | "SETTLE" | "PARKED" | "FINAL" | "DONE";
 	/** Estado serializável do kernel (opaco para a porta). */
 	payload: unknown;
 };
