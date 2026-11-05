@@ -37,7 +37,8 @@
 ## Fase atual
 | Fase | Branch | Status | PR |
 |---|---|---|---|
-| F0 baseline | `feat/harness-v4-f0-baseline` | em andamento | — |
+| F0 baseline | `feat/harness-v4-f0-baseline` | correções da auditoria | — |
+| F1 fundação | `feat/harness-v4-f1-fundacao` | em andamento (começou em paralelo ao fim da F0) | — |
 
 ## Decisões do dono (não reabrir)
 - Base nova, do zero, em `packages/agent`, sem import do legado (05/11).
@@ -69,7 +70,7 @@
 - [x] F0.6 (05/11; placar corrigido em `docs/ops/v4-baseline.md`) Corrigir os 4 defeitos do eval listados em `docs/ops/v4-baseline.md` (cenários 11, 22 e 23, `skill_read` no ambiente) e rodar de novo só os afetados.
 
 ### F1: Fundação
-- [ ] F1.1 Pacote `packages/agent` com `ports/`, `adapters/` e guarda de fronteira (sem `@workspace/agent-runtime`), README do motor e varredura que falha com segredo ou dado pessoal no código.
+- [x] F1.1 (05/11, Sonnet escreveu, Opus revisou; nota: a porta `Llm` ainda só leva texto — imagem para o papel `vision` entra na F1.10) Pacote `packages/agent` com `ports/`, `adapters/` e guarda de fronteira (sem `@workspace/agent-runtime`), README do motor e varredura que falha com segredo ou dado pessoal no código.
 - [ ] F1.2 `defineTool` (efeito obrigatório) e `defineCapability` (registro, índice, `use_capability`).
 - [ ] F1.3 `decide()` puro em shared: 3 estados, `HANDOFF_ACTIONS`, mandatos, matriz superfície × efeito.
 - [ ] F1.4 Token de aprovação por hash dos argumentos e `riskFacts`.
