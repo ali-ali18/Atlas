@@ -322,7 +322,7 @@ export function Composer({ initialText, botName, color, foreground, running, api
 				{replyTo && onCancelReply ? <ReplyChip quote={replyTo} onCancel={onCancelReply} /> : null}
 				{!dictating ? <ComposerAttachments drafts={attachments.drafts} notice={pickNotice ?? attachments.notice} onRemove={attachments.remove} /> : null}
 				{dictating ? (
-					<DictationBar spoken={dictation.spoken} level={dictation.level} color={color} foreground={onColor} busy={dictation.phase === "stopping"} onCancel={dictation.cancel} onStop={() => dictation.stop("review")} onSend={() => dictation.stop("send")} />
+					<DictationBar spoken={dictation.spoken} color={color} foreground={onColor} busy={dictation.phase === "stopping"} onCancel={dictation.cancel} onStop={() => dictation.stop("review")} onSend={() => dictation.stop("send")} />
 				) : null}
 				{/*
 				  Um só TextInput nos dois formatos (assim o foco e o teclado não se perdem na troca). Os botões ficam sempre

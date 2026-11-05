@@ -1,24 +1,24 @@
 import * as React from "react";
-import { Pressable, View } from "react-native";
+import { Pressable, ScrollView, useWindowDimensions, View } from "react-native";
 
 import { ArrowUpIcon, CloseIcon, StopIcon } from "@/components/icons";
 import { ChromeButton } from "@/components/ui/chrome-button";
 import { Text } from "@/components/ui/text";
-import { barLine, levelFraction } from "@/lib/dictation";
+import { barLine } from "@/lib/dictation";
 import { themeColor } from "@/lib/theme";
 import { useAppColorScheme } from "@/lib/use-theme";
 
-/** Mesmas alturas das ondas do indicador de "ouvindo": o meio é o mais alto. */
-const WAVE_SHAPE = [0.45, 0.8, 1, 0.8, 0.45] as const;
-const WAVE_MIN = 4;
-const WAVE_MAX = 18;
 const SIDE = 36;
+/** Mesma métrica do campo de escrita do composer (fonte 16, linha 21, altura mínima 45): o texto falado quebra igual. */
+const FONT_SIZE = 16;
+const LINE_HEIGHT = 21;
+const MIN_HEIGHT = 45;
+/** Botões de 36 centrados na altura mínima; quando o texto quebra, ficam na base. */
+const BUTTON_INSET = (MIN_HEIGHT - SIDE) / 2;
 
 type DictationBarProps = {
 	/** O que já foi falado (parcial + confirmado); vazio mostra "Ouvindo…". */
 	spoken: string;
-	/** Volume do microfone (0..1), se o módulo informar. */
-	level: number;
 	/** Cor do bot (o botão de enviar é o mesmo do composer). */
 	color: string;
 	foreground: string;
@@ -31,40 +31,47 @@ type DictationBarProps = {
 
 /**
  * Barra de voz: ocupa o lugar do composer enquanto o ditado ouve. X cancela (descarta o falado), o meio mostra o texto
- * ao vivo (sempre o fim da frase), o quadrado para e leva o texto ao campo para revisar e a seta para e envia direto.
+ * ao vivo (quebra de linha e a barra cresce como o campo de escrita; acima do máximo rola, sempre no fim), o quadrado para e leva o texto ao campo para revisar e a seta para e envia direto.
  */
-export function DictationBar({ spoken, level, color, foreground, busy, onCancel, onStop, onSend }: DictationBarProps) {
+export function DictationBar({ spoken, color, foreground, busy, onCancel, onStop, onSend }: DictationBarProps) {
 	const scheme = useAppColorScheme();
 	const line = barLine(spoken);
-	const fraction = levelFraction(level);
+	const scroller = React.useRef<React.ComponentRef<typeof ScrollView>>(null);
+	// Mesmo teto do campo do composer (40% da tela).
+	const maxHeight = Math.round(useWindowDimensions().height * 0.4);
 	return (
-		<View className="flex-row items-center gap-2" style={{ minHeight: 45, paddingHorizontal: 4.5 }}>
-			<ChromeButton label="Cancelar ditado" size="sm" onPress={onCancel}>
-				<CloseIcon size={18} tone="foreground" />
-			</ChromeButton>
-			<View className="min-w-0 flex-1 flex-row items-center gap-2 px-1" accessibilityLiveRegion="polite">
-				{line.empty ? (
-					<View className="flex-row items-center gap-0.5" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-						{WAVE_SHAPE.map((shape, index) => (
-							<View key={index} className="rounded-full bg-muted-foreground" style={{ width: 3, height: WAVE_MIN + (WAVE_MAX - WAVE_MIN) * shape * Math.max(0.25, fraction) }} />
-						))}
-					</View>
-				) : null}
-				{/* Cabeça cortada: a frase longa mostra o fim, que é o que a pessoa acabou de falar. */}
-				<Text numberOfLines={1} ellipsizeMode="head" variant={line.empty ? "muted" : "default"} className="min-w-0 flex-1 text-control">
+		<View className="flex-row items-end gap-2" style={{ minHeight: MIN_HEIGHT, paddingHorizontal: 4.5 }}>
+			<View style={{ marginBottom: BUTTON_INSET }}>
+				<ChromeButton label="Cancelar ditado" size="sm" onPress={onCancel}>
+					<CloseIcon size={18} tone="foreground" />
+				</ChromeButton>
+			</View>
+			<ScrollView
+				ref={scroller}
+				className="min-w-0 flex-1"
+				style={{ maxHeight }}
+				contentContainerStyle={{ justifyContent: "center", minHeight: MIN_HEIGHT, paddingHorizontal: 4 }}
+				showsVerticalScrollIndicator={false}
+				accessibilityLiveRegion="polite"
+				// Passou do máximo: a rolagem acompanha o fim, que é o que a pessoa acabou de falar.
+				onContentSizeChange={() => scroller.current?.scrollToEnd({ animated: false })}
+			>
+				<Text variant={line.empty ? "muted" : "default"} style={{ fontSize: FONT_SIZE, lineHeight: LINE_HEIGHT, paddingVertical: (MIN_HEIGHT - LINE_HEIGHT) / 2 }}>
 					{line.text}
 				</Text>
+			</ScrollView>
+			<View style={{ marginBottom: BUTTON_INSET }}>
+				<ChromeButton label="Parar e revisar" size="sm" onPress={onStop} disabled={busy}>
+					<StopIcon size={14} color={themeColor(scheme, "foreground")} />
+				</ChromeButton>
 			</View>
-			<ChromeButton label="Parar e revisar" size="sm" onPress={onStop} disabled={busy}>
-				<StopIcon size={14} color={themeColor(scheme, "foreground")} />
-			</ChromeButton>
 			<Pressable
 				role="button"
 				accessibilityLabel="Parar e enviar"
 				accessibilityState={{ disabled: busy }}
 				disabled={busy}
 				onPress={onSend}
-				style={{ backgroundColor: color, width: SIDE, height: SIDE, opacity: busy ? 0.5 : 1 }}
+				style={{ backgroundColor: color, width: SIDE, height: SIDE, marginBottom: BUTTON_INSET, opacity: busy ? 0.5 : 1 }}
 				className="items-center justify-center rounded-full active:opacity-80"
 			>
 				<ArrowUpIcon size={18} color={foreground} />

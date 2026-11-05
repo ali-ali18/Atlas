@@ -10,6 +10,7 @@ Todas as mudanças relevantes do Atlas. Formato [Keep a Changelog](https://keepa
 - **mobile, ci:** workflow `apk-android.yml` gera o APK Android no GitHub Actions (`eas build --local`, sem fila nem cota do EAS): tag `apk-*` publica Release com o APK, "Run workflow" deixa artifact (14 dias). Exige o secret `EXPO_TOKEN`. Ver `docs/features/apk-android-ci.md`.
 
 ### Corrigido
+- **mobile:** a barra de voz mostra o texto falado como o campo de escrita: quebra linha e a barra cresce com o texto (rola no máximo, sempre no fim), com os botões alinhados na base. Sem fala ainda, só "Ouvindo…". As ondinhas saíram.
 - **mobile:** o cartão do anexo (arquivo e imagens) que o usuário envia não some mais do fio: ao começar a seguir o run o controlador descartava tudo do ao vivo menos o balão de texto, então o PDF sumia até a conversa ser reaberta.
 - **mobile:** o aviso falso "Não consegui ouvir agora" não aparece mais quando a fala foi reconhecida: o motor emite `error` (ex.: `no-speech`, `client`) junto do fim e o controlador avisava mesmo com o texto já no campo. Agora, com fala na sessão ou depois de pedir para parar, o erro tardio é ignorado e o texto é preservado.
 - **mobile:** o ditado por voz agora vem com pontuação (vírgula, ponto, interrogação): o reconhecimento passa `addsPunctuation` (Android 13+ e iOS 16+; no Android liga o formato de qualidade do motor). Em campo vazio o texto ditado começa com maiúscula.

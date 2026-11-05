@@ -5,7 +5,6 @@ import {
 	applyResult,
 	barLine,
 	dictationTransition,
-	levelFraction,
 	mergeDictation,
 	problemFromError,
 	problemNotice,
@@ -103,12 +102,6 @@ describe("barra de voz", () => {
 	it("sem texto mostra o placeholder; com texto mostra a fala", () => {
 		expect(barLine("  ")).toEqual({ text: LISTENING_LABEL, empty: true });
 		expect(barLine("oi  tudo")).toEqual({ text: "oi tudo", empty: false });
-	});
-	it("volume vira fração de 0 a 1", () => {
-		expect(levelFraction(-2)).toBe(0);
-		expect(levelFraction(5)).toBe(0.5);
-		expect(levelFraction(30)).toBe(1);
-		expect(levelFraction(Number.NaN)).toBe(0);
 	});
 });
 

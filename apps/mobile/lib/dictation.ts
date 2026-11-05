@@ -104,12 +104,6 @@ export function barLine(spoken: string): { text: string; empty: boolean } {
 	return text ? { text, empty: false } : { text: LISTENING_LABEL, empty: true };
 }
 
-/** Volume do reconhecedor (-2..10; abaixo de 0 é inaudível) → 0..1 para a altura das ondas. */
-export function levelFraction(value: number): number {
-	if (!Number.isFinite(value) || value <= 0) return 0;
-	return Math.min(1, value / 10);
-}
-
 export type DictationProblem = "missing-module" | "unavailable" | "permission" | "failed";
 
 /** Aviso amigável por problema. `settings`: oferece abrir as configurações do sistema. */
