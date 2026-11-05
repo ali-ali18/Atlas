@@ -64,7 +64,7 @@ Vale para toda tela, folha e componente de `apps/mobile`. Complementa a seção 
 - **Ações iguais em sequência viram uma linha-marcador** (como no Grok): 2 ou mais cards de rotina (ou alerta) seguidos viram
   UMA linha centralizada, discreta, sem casca (`MarkerRow` com ícone do tipo): "Criou 5 rotinas", "Pausou 7 rotinas", "Apagou
   3 rotinas"; mistura de ações = "Alterou 4 rotinas"; se o estado mudou depois, o estado atual vira o texto ("5 rotinas apagadas",
-  riscado). Tocar abre a gaveta (`DraggableSheet`; `fullHeight` + rolagem acima de 6 itens) com o card de cada um em
+  sem riscar o texto). Tocar abre a gaveta (`DraggableSheet`; `fullHeight` + rolagem acima de 6 itens) com o card de cada um em
   `SurfaceGroup`/`SurfaceRow`, cada linha com seu selo e tocável para os detalhes. Um card sozinho continua card. A lógica é
   pura em `lib/routine-cards.ts` (consecutivos, mesmo substantivo; identidade da linha = a da primeira rotina).
 - Anexos no composer: tiles quadrados de 88 pt, raio 14, X branco no canto; erro com borda `destructive` e motivo embaixo.

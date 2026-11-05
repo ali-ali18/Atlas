@@ -279,22 +279,22 @@ const PARTICIPLE: Record<RoutineState, { m: string; f: string }> = {
 	deleted: { m: "apagados", f: "apagadas" },
 };
 
-export type RoutineGroupLabel = { text: string; /** Tudo apagado: a linha vem riscada. */ struck: boolean };
+export type RoutineGroupLabel = { text: string };
 
 /**
  * Texto da linha. Todos no mesmo estado: verbo no passado ("Pausou 7 rotinas"); se o estado veio de um cartão
- * posterior (as 5 criadas foram apagadas), o estado atual vira o texto ("5 rotinas apagadas", riscado). Estados
+ * posterior (as 5 criadas foram apagadas), o estado atual vira o texto ("5 rotinas apagadas"). Estados
  * misturados: "Alterou 4 rotinas".
  */
 export function routineGroupLabel(group: Pick<GroupItem, "items" | "noun">): RoutineGroupLabel {
 	const { items, noun } = group;
 	const plural = noun === "alerta" ? "alertas" : "rotinas";
 	const states = new Set(items.map(stateOf));
-	if (states.size !== 1) return { text: `Alterou ${items.length} ${plural}`, struck: false };
+	if (states.size !== 1) return { text: `Alterou ${items.length} ${plural}` };
 	const state = [...states][0]!;
 	const changed = items.some((item) => item.settled?.changed);
-	if (changed) return { text: `${items.length} ${plural} ${PARTICIPLE[state][noun === "alerta" ? "m" : "f"]}`, struck: state === "deleted" };
-	return { text: `${VERB[state]} ${items.length} ${plural}`, struck: false };
+	if (changed) return { text: `${items.length} ${plural} ${PARTICIPLE[state][noun === "alerta" ? "m" : "f"]}` };
+	return { text: `${VERB[state]} ${items.length} ${plural}` };
 }
 
 /** Os nomes que acompanham a linha na gaveta e na leitura em voz alta: "A, B e mais 5". */

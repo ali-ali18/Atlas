@@ -72,7 +72,7 @@ describe("o cartão reflete o estado atual", () => {
 		expect(out.filter((item) => item.kind === "routine").every((item) => (item as RoutineCardItem).settled?.state === "deleted" && (item as RoutineCardItem).settled?.changed)).toBe(true);
 		const grouped = withRoutineCards([...[1, 2, 3, 4, 5].map(created), ...[1, 2, 3, 4, 5].map(deleted)]);
 		expect(grouped).toHaveLength(1);
-		expect(routineGroupLabel(grouped[0] as never)).toEqual({ text: "5 rotinas apagadas", struck: true });
+		expect(routineGroupLabel(grouped[0] as never)).toEqual({ text: "5 rotinas apagadas" });
 	});
 	it("pausa com routineId muda o estado do cartão de criação", () => {
 		const out = settleRoutineCards([created(1), paused(1)]);
@@ -104,7 +104,7 @@ describe("agrupamento de cartões de rotina", () => {
 		expect(kinds(withRoutineCards([1, 2, 3].map(paused)))).toEqual(["routine-group"]);
 		const seven = withRoutineCards([1, 2, 3, 4, 5, 6, 7].map(paused));
 		expect(seven).toHaveLength(1);
-		expect(routineGroupLabel(seven[0] as never)).toEqual({ text: "Pausou 7 rotinas", struck: false });
+		expect(routineGroupLabel(seven[0] as never)).toEqual({ text: "Pausou 7 rotinas" });
 	});
 	it("fala, outro cartão ou lista fecham o trecho", () => {
 		const out = groupRoutineCards([paused(1), paused(2), talk("t"), paused(3), paused(4), paused(5)]);
@@ -124,7 +124,7 @@ describe("agrupamento de cartões de rotina", () => {
 		expect(routineGroupLabel(withRoutineCards(resumed)[0] as never).text).toBe("Retomou 2 rotinas");
 	});
 	it("exclusões novas (sem cartão de criação no fio) dizem 'Apagou N rotinas'", () => {
-		expect(routineGroupLabel(withRoutineCards([deleted(1), deleted(2), deleted(3)])[0] as never)).toEqual({ text: "Apagou 3 rotinas", struck: false });
+		expect(routineGroupLabel(withRoutineCards([deleted(1), deleted(2), deleted(3)])[0] as never)).toEqual({ text: "Apagou 3 rotinas" });
 	});
 	it("a identidade da linha é a da primeira rotina: igual ao vivo e gravado", () => {
 		const a = withRoutineCards([1, 2, 3].map(paused))[0]!;

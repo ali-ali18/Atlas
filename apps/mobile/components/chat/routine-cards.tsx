@@ -36,12 +36,12 @@ export function RoutineKindIcon({ kind, size = 16 }: { kind: RoutineIcon; size?:
 
 const canOpen = (item: RoutineCardItem): item is RoutineCardItem & { routineId: string } => Boolean(item.routineId) && (item.settled?.state ?? "created") !== "deleted";
 
-/** Nome da rotina e a frase do agendamento ("Uma vez · 03/10 às 10:00", "A cada 50 min"); apagada vem riscada. */
+/** Nome da rotina e a frase do agendamento ("Uma vez · 03/10 às 10:00", "A cada 50 min"). */
 function RoutineTexts({ item }: { item: RoutineCardItem }) {
 	const deleted = item.settled?.state === "deleted";
 	return (
 		<>
-			<Text numberOfLines={1} className={`text-sm font-medium ${deleted ? "text-muted-foreground line-through" : ""}`}>
+			<Text numberOfLines={1} className={`text-sm font-medium ${deleted ? "text-muted-foreground" : ""}`}>
 				{item.title}
 			</Text>
 			{item.settled?.summary ? (
@@ -147,7 +147,7 @@ export function RoutineGroupRow({ group, onOpen }: { group: GroupItem; onOpen: (
 	const names = routineGroupNames(group.items);
 	return (
 		<>
-			<MarkerRow text={label.text} icon={<RoutineKindIcon kind={group.noun === "alerta" ? "alert" : "schedule"} size={14} />} struck={label.struck} onPress={() => setOpen(true)} accessibilityLabel={`${label.text}: ${names}. Ver lista`} />
+			<MarkerRow text={label.text} icon={<RoutineKindIcon kind={group.noun === "alerta" ? "alert" : "schedule"} size={14} />} onPress={() => setOpen(true)} accessibilityLabel={`${label.text}: ${names}. Ver lista`} />
 			<DraggableSheet visible={open} onClose={() => setOpen(false)} fullHeight={group.items.length > ROUTINE_SHEET_FULL_AFTER} header={<SheetTitle text={label.text} />}>
 				<SurfaceGroup>
 					{group.items.map((item) => (

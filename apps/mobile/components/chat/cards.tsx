@@ -88,9 +88,9 @@ export function WebCardRow({ item, onOpen, onOpenPage }: { item: WebCard; onOpen
  * Grok (print de referência do dono): lá o vão visível é de ~29 pt entre um marcador e o seguinte e ~26 pt até o
  * balão; aqui são 10 pt de margem em cada lado, que somados ao gap de 6 da lista dão ~34 e ~20 pt visíveis.
  */
-export function MarkerRow({ text, icon, struck = false, onPress, accessibilityLabel }: { text: string; icon?: React.ReactNode; struck?: boolean; onPress?: () => void; accessibilityLabel?: string }) {
+export function MarkerRow({ text, icon, onPress, accessibilityLabel }: { text: string; icon?: React.ReactNode; onPress?: () => void; accessibilityLabel?: string }) {
 	const label = (
-		<Text variant="caption" className={`text-body ${struck ? "line-through" : ""}`}>
+		<Text variant="caption" className="text-body">
 			{text}
 		</Text>
 	);
