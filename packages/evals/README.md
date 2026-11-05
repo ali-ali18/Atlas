@@ -12,6 +12,7 @@ Inspirado nos evals do Hermes Agent (calibração por modelo, políticas compar�
 packages/evals/
   scenarios/*.json      cenários versionados (semente: casos reais do projeto, anonimizados)
   scenarios/gold/<capacidade>/<nn>-<slug>.json   conjunto ouro (24 tarefas do uso real do dono; ver "Conjunto ouro")
+  scenarios/generic/<capacidade>/<nn>-<slug>.json   conjunto genérico (16 tarefas com outras pessoas e contextos; ver "Conjunto genérico")
   src/scenario.ts       formato do cenário (zod, campo desconhecido = erro)
   src/checks.ts         verificações determinísticas (+ juiz LLM opcional)
   src/quality.ts        rubrica de qualidade: prompt do juiz, parse, teto de discordância, agregação (puro)
@@ -55,7 +56,7 @@ Opções úteis:
 
 | opção | o que faz |
 |---|---|
-| `--scenarios ids,tags` | só esses cenários (ids ou tags, ex.: `arquivos,rotinas`; `gold` = só o conjunto ouro; `all` = sementes + ouro) |
+| `--scenarios ids,tags` | só esses cenários (ids ou tags, ex.: `arquivos,rotinas`; `gold` = só o conjunto ouro; `generic` = só o genérico; `all` = sementes + ouro + genérico) |
 | `--dir DIR` | pasta dos cenários (padrão `scenarios/`, lida com subpastas) |
 | `--repeat N` | repetições por cenário e modelo (3 separa "instável" de "falha") |
 | `--concurrency N` | execuções simultâneas (padrão 3; o container é pequeno, não passe de 4) |
@@ -151,7 +152,7 @@ pnpm --filter @workspace/evals run eval -- matrix --scenarios gold --engines v2 
 
 | opção | o que faz |
 |---|---|
-| `--scenarios gold\|ids\|tags` | cenários (padrão `gold`) |
+| `--scenarios gold\|ids\|tags` | cenários (padrão `gold`; `gold,generic` roda os dois conjuntos e liga a comparação lado a lado) |
 | `--engines v2[,v1]` | motores; cada cenário roda em cada um (sobrescreve `run.engine`). Padrão `v2` |
 | `--models a,b` | modelos com prefixo (obrigatório, exceto com `--estimate`/`--simulate`) |
 | `--repeat N` | repetições (padrão 1). Se o teto cortar, as repetições já feitas cobrem todas as células |
@@ -166,7 +167,9 @@ pnpm --filter @workspace/evals run eval -- matrix --scenarios gold --engines v2 
 
 **Custo.** Anthropic direto e OpenCode Go só devolvem tokens: o custo sai da tabela `src/matrix/pricing.ts` (Go: `opencode.ai/docs/go`, deepseek pelo preço de pico). Modelo fora da tabela usa o preço conservador (US$ 3/15 por Mtok) e fica marcado `costUnknown` (`*` no relatório); os preços da Anthropic direta estão marcados "a confirmar". OpenRouter usa o custo real do provedor. A estimativa de cada execução (`--estimate` e a reserva do teto) é o tamanho do roteiro mock do cenário × fator, sem desconto de cache. O teto vale por invocação: o limite de US$ 10 da Anthropic somando várias rodadas é do dono controlar.
 
-**Saída** em `results/<data-hora>-matrix/` (ignorada pelo git): `matrix.md`, `matrix.json` e `runs.jsonl` (trajetórias, com as chaves redigidas). O relatório traz por modelo × motor (acerto, passos, tokens, custo, duração), por provedor, por capacidade (pasta do ouro), a diferença entre motores e, por cenário × motor, a leitura mecânica: `harness/instruções` (falha em todos os modelos), `modelo` (passa no forte e falha só nos baratos), `instável` (repetições divergem). É relatório determinístico, não juiz. Falha que reproduz com o modelo roteirizado (`--simulate` sem as falhas sintéticas, ou `--mock`) é bug de harness.
+**Saída** em `results/<data-hora>-matrix/` (ignorada pelo git): `matrix.md`, `matrix.json` e `runs.jsonl` (trajetórias, com as chaves redigidas). O relatório traz por modelo × motor (acerto, passos, tokens, custo, duração), por provedor, por capacidade (pasta do conjunto), a diferença entre motores, o **ouro × genérico** (veja abaixo) e, por cenário × motor, a leitura mecânica: `harness/instruções` (falha em todos os modelos), `modelo` (passa no forte e falha só nos baratos), `instável` (repetições divergem). É relatório determinístico, não juiz. Falha que reproduz com o modelo roteirizado (`--simulate` sem as falhas sintéticas, ou `--mock`) é bug de harness.
+
+**Ouro × genérico (aceite do motor).** Com os dois conjuntos na mesma matriz (`--scenarios gold,generic`), o relatório ganha a seção "Ouro × genérico": por motor × modelo, o acerto de cada conjunto lado a lado e o Δ em pontos percentuais (genérico − ouro). `matrix.json` guarda o mesmo em `summary.bySet`. Regra de aceite (`04-avaliacao.md` §1.1): uma mudança de motor só vale se melhorar ou manter os DOIS; ganho só no ouro, com o genérico parado ou caindo, é suspeito de vício no uso do dono. A seção só aparece quando os dois conjuntos estão presentes (com um só, nada muda).
 
 **Plugar um motor novo (v3, v4, presets).** Um mapa só: `ENGINE_ADAPTERS` em `src/matrix/engines.ts` (id → `patchScenario` e/ou `runOptions` do `runScenario`). Hoje existem `v1` e `v2`; o v3 vive num branch congelado e o v4 ainda não existe no runtime.
 
@@ -184,7 +187,7 @@ Mede **qualidade**, que as verificações determinísticas não pegam (`PLANO-AG
 
 O parse é defensivo (aceita cerca de código e ruído em volta). JSON quebrado, dimensão faltando, nota fora de 1-5 ou N/A onde não vale → resultado **`invalid`**: nunca vira nota. Erro de rede do juiz também é `invalid`. A verificação `judge` fica então "pulada" (sem medida: não aprova nem reprova) e o relatório conta os inválidos.
 
-**O que o juiz vê:** o pedido (e as últimas mensagens do histórico), o texto final, a lista de tools chamadas com resultado curto e os arquivos criados. **Não** vê as verificações esperadas. O prompt é em inglês, curto e em seções; trata resposta e saída de tool como dado (não instrução), e julga como um usuário de assistente pessoal no Brasil (pt-BR). Seções do prompt têm as tags neutralizadas no conteúdo, para uma resposta não fechar a seção do juiz.
+**O que o juiz vê:** o pedido (e as últimas mensagens do histórico), o texto final, a lista de tools chamadas com resultado curto e os arquivos criados. **Não** vê as verificações esperadas. O prompt é em inglês, curto e em seções; trata resposta e saída de tool como dado (não instrução), e julga como o usuário do cenário: o idioma do bot e, se o cenário declara `locale`, o país, a moeda e o fuso dele (sem `locale`, só o idioma, sem presumir país, moeda nem formato de data). Nada de "Brasil" fixo no prompt (`buildJudgeSystem` em `src/quality.ts`). Seções do prompt têm as tags neutralizadas no conteúdo, para uma resposta não fechar a seção do juiz.
 
 **Dois juízes** (`--judge a,b`, com prefixo de provedor como na matriz: `anthropic/...`, `opencode-go/...`, `openrouter/...`): cada um julga sozinho, em paralelo, com o mesmo prompt. **Prefira provedores diferentes** (ex.: `anthropic/claude-haiku-5-5,opencode-go/deepseek-v4.1-flash`): dois modelos da mesma família erram do mesmo jeito e concordam por viés, não por acerto. Evite também julgar um modelo com ele mesmo (autopreferência infla a nota).
 
@@ -229,6 +232,7 @@ Um JSON em `scenarios/` (o nome do arquivo só define a ordem):
   "title": "Pedido óbvio de lembrete → cria a rotina, sem questionário",
   "tags": ["rotinas"],
   "bot": { "name": "Ada", "about": "Assistente pessoal.", "language": "pt-BR" },
+  "locale": { "country": "BR", "currency": "BRL", "timezone": "America/Sao_Paulo" },
   "history": [],
   "user": "me lembra amanhã às 9h de ligar pro fornecedor",
   "tools": {
@@ -246,6 +250,7 @@ Um JSON em `scenarios/` (o nome do arquivo só define a ordem):
 }
 ```
 
+- `locale` (opcional, estrito): `country` (ISO 3166-1 alfa-2, maiúsculas), `currency` (ISO 4217, maiúsculas) e `timezone` (IANA). É o local do usuário que o **juiz** usa (ver "Juízes"); não muda o runtime nem o fuso do bot. Sem ele o juiz só sabe o idioma do bot e não presume país. O ouro declara BR/BRL/America/Sao_Paulo; o genérico declara o de cada pessoa.
 - `history`: mensagens `user`/`assistant`; também aceita `{ "role": "assistant", "toolCalls": [...] }` e
   `{ "role": "tool", "toolCallId": "...", "content": "..." }` (vão como transcrição dos turnos anteriores, como no worker).
 - `steer`: `[{ "afterModelCalls": 1, "content": "..." }]` = mensagem do usuário que chega no meio do run.
@@ -300,6 +305,41 @@ pnpm --filter @workspace/evals run eval -- --scenarios gold,insistencia ...     
 - **Falhar no v2 é esperado** em vários (é o ponto do baseline). Não afrouxe a expectativa para o v2 passar. A `description` de cada cenário diz o que se espera do v2.
 - As verificações de texto do ouro (`text_not_contains` "vídeo", "PWNED", "comprei"...) são afirmações determinísticas sobre a SAÍDA do eval, não decisão de comportamento do runtime (a regra de `60-agente.md` vale para o runtime).
 - Limites conhecidos: o relógio do runtime não é injetável (o lembrete de "amanhã às 10h" confere a HORA, não o dia); a nota de continuação que o worker injeta com dados do banco (`continuedWorkNote`) não existe no eval, então a insistência mede a parte do modelo; o cenário de código usa a VM de shell por fixture (a sessão de código não é oferecida pelo v2).
+
+## Conjunto genérico (contra o vício no uso do dono)
+
+16 tarefas em `scenarios/generic/<capacidade>/<nn>-<slug>.json` (`PLANO-AGENTE-V4/04-avaliacao.md` §1.1, `03-arquitetura.md` §0.1): as mesmas capacidades do ouro, menos código, com **outras pessoas e contextos**, para o motor novo ser medido também fora do uso do dono (o v1 foi moldado por ele e ficou com 13 casos do ERP Bling no runtime). Tags `generic` + a da capacidade; ids `generic-*`; rodam no motor v2. Tudo fictício: nomes inventados, domínios `.test`, nenhuma marca como regra.
+
+| # | id | pessoa | idioma do bot / local |
+|---|---|---|---|
+| 01 | `generic-email-summary-with-content-and-action` | enfermeira, Toronto (Outlook) | en-US · CA, CAD |
+| 02 | `generic-email-resposta-so-rascunho-pt-pt` | advogada, Lisboa (Fastmail) | pt-BR (texto pt-PT) · PT, EUR |
+| 03 | `generic-compras-product-card-keyboard` | desenvolvedor, Austin | en-US · US, USD |
+| 04 | `generic-compras-comprar-exige-aprobacion-es` | estudante, Madri | es-ES · ES, EUR |
+| 05 | `generic-entregavel-design-doc-english` | desenvolvedor, Austin | en-US · US, USD |
+| 06 | `generic-entregavel-planilha-horas-faturaveis-pt-pt` | advogada, Lisboa | pt-BR (texto pt-PT) · PT, EUR |
+| 07 | `generic-pesquisa-5-processors-with-source` | lojista de e-commerce, Manchester | en-US · GB, GBP |
+| 08 | `generic-pesquisa-divergent-sources-quillbase` | desenvolvedor, Austin | en-US · US, USD |
+| 09 | `generic-agenda-reminder-tomorrow-0730-toronto` | enfermeira, Toronto | en-US · CA, CAD |
+| 10 | `generic-agenda-watch-price-drop-keyboard` | desenvolvedor, Austin | en-US · US, USD |
+| 11 | `generic-dia-plan-my-day-shop-owner` | lojista, Manchester (ERP `orderdesk` fictício) | en-US · GB, GBP |
+| 12 | `generic-navegador-login-vault-shift-portal` | enfermeira, Toronto | en-US · CA, CAD |
+| 13 | `generic-seguranca-email-injection-no-forward` | desenvolvedor, Austin (Proton Mail) | en-US · US, USD |
+| 14 | `generic-seguranca-pagina-con-instruccion-es` | estudante, Madri | es-ES · ES, EUR |
+| 15 | `generic-insistencia-falha-silencio-assunto-novo-pt-pt` | advogada, Lisboa | pt-BR (texto pt-PT) · PT, EUR |
+| 16 | `generic-economia-good-morning` | enfermeira, Toronto | en-US · CA, CAD |
+
+```bash
+pnpm --filter @workspace/evals run eval -- list --scenarios generic
+pnpm --filter @workspace/evals run eval -- --mock --scenarios generic          # roteiro ideal (sem rede nem chave)
+pnpm --filter @workspace/evals run eval -- matrix --scenarios gold,generic --engines v2 --models ... --max-usd 2   # lado a lado
+```
+
+- **pt-PT:** o enum de idioma do bot é `pt-BR | en-US | es-ES | auto` e não foi ampliado (decisão do runtime). Os cenários de Lisboa usam bot `pt-BR` com o texto do usuário em português de Portugal; a verificação de `language` não é usada neles porque o detector não separa pt-PT de pt-BR.
+- **Lacuna do motor encontrada ao escrever o conjunto:** o cenário 06 pede "folha de cálculo". Com "planilha" o grupo de arquivos já vem carregado no 1º passo; com "folha de cálculo" não, e o `create_file` responde "não carregado" na 1ª chamada (o roteador de intenção só conhece o vocabulário do ouro). O roteiro mock carrega o grupo por `mcp_tool_search`, o caminho de recuperação do modelo. O `generic.test.ts` trava essa diferença; quando o v4 rotear por intenção em qualquer língua, o teste deve ser invertido.
+- **Agenda (10) e a lacuna do v2:** como no ouro 12, não existe vigia recorrente leve no v2 (só lembrete de uma vez e Rotina), então o cenário leva `lacuna-v2` e pode falhar hoje.
+- **Economia (16):** teto de 6.600 tokens, como o do ouro: o contexto do 1º passo do 'Good morning' mede ~5.729 tokens no v2 (o idioma do bot não muda a medida).
+- `generic.test.ts` confere forma (16 cenários, ids únicos, tags, locale diferente do BR e vários países/moedas/fusos, só domínios `.test`, nenhuma referência ao uso do dono), o roteiro mock e, por verificação-chave, uma trajetória ruim que precisa reprovar.
 
 ## Cenário a partir de uma conversa real
 

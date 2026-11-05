@@ -1,0 +1,67 @@
+{
+  "version": 1,
+  "id": "generic-economia-good-morning",
+  "title": "'Good morning' → short reply, no tool, and a small first-step context (ceiling measured)",
+  "description": "Mesma capacidade do ouro 24 (economia de contexto, 70-padroes): 'Good morning' não carrega o schema detalhado de nenhuma feature. O teto de `max_context_tokens` (estimativa chars/4 de mensagens + schemas das tools do 1º passo, motor v2, bot en-US) foi medido em 05/11/2026 com o runtime atual: ~5.729 tokens (12 tools, igual ao do ouro: o idioma do bot não muda o 1º passo). O teto de 6.600 é essa medida + ~15% de folga, o mesmo critério do ouro 24. Se o v4 fizer melhor, baixe o teto no mesmo commit.",
+  "tags": [
+    "generic",
+    "economia"
+  ],
+  "source": {
+    "kind": "seed",
+    "note": "Conjunto genérico F0.7 (PLANO-AGENTE-V4/04-avaliacao.md §1.1): cenário sintético com pessoa, loja e contexto fictícios (domínios .test), para o motor não viciar no uso do dono."
+  },
+  "bot": {
+    "name": "Mira",
+    "about": "Personal assistant: e-mail, shopping, studies and calendar.",
+    "language": "en-US"
+  },
+  "locale": {
+    "country": "CA",
+    "currency": "CAD",
+    "timezone": "America/Toronto"
+  },
+  "user": "Good morning",
+  "run": {
+    "engine": "v2"
+  },
+  "expect": [
+    {
+      "type": "completed"
+    },
+    {
+      "id": "no-tool",
+      "type": "tool_not_called",
+      "toolPattern": ".*"
+    },
+    {
+      "id": "single-step",
+      "type": "max_model_calls",
+      "value": 1
+    },
+    {
+      "id": "short-reply",
+      "type": "text_not_contains",
+      "pattern": "[\\s\\S]{400,}"
+    },
+    {
+      "id": "small-context",
+      "type": "max_context_tokens",
+      "value": 6600
+    },
+    {
+      "type": "language",
+      "value": "en-US"
+    },
+    {
+      "type": "no_internals"
+    }
+  ],
+  "mock": {
+    "turns": [
+      {
+        "say": "Good morning! How can I help you today?"
+      }
+    ]
+  }
+}
