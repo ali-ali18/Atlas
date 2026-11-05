@@ -26,9 +26,9 @@ O juiz **só roda no eval**, nunca no runtime.
 
 ## 2. Matriz
 ```
-presets  {minimal, v3, v4}  ×  modelos {3 baratos + 1 forte}  ×  3 repetições
+presets  {minimal, v2, v3, v4}  ×  modelos {3 baratos + 1 forte}  ×  3 repetições
 ```
-Comando: `pnpm --filter @workspace/evals exec tsx src/cli.ts matrix --tasks gold --presets minimal,v3,v4 --models ...`
+Comando: `pnpm --filter @workspace/evals exec tsx src/cli.ts matrix --tasks gold --presets minimal,v2,v3,v4 --models ...`
 
 O relatório traz, por tarefa e por modelo:
 - conclusão;

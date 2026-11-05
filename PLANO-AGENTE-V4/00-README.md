@@ -8,6 +8,10 @@
 > - [`03-arquitetura.md`](03-arquitetura.md): núcleo, capacidades, ganchos, canais, memória e agenda.
 > - [`04-avaliacao.md`](04-avaliacao.md): como saber se o problema é o harness ou o modelo.
 > - [`05-fases.md`](05-fases.md): fases, PRs, arquivos, testes e critério de pronto.
+> - [`06-contrato-de-comportamento.md`](06-contrato-de-comportamento.md): as 16 cláusulas de coerência de uso, com mecanismo e teste invariante.
+> - [`pesquisa/coerencia-de-uso.md`](pesquisa/coerencia-de-uso.md): pesquisa sobre Grok Bot, ChatGPT dots, Claude Duet, Gemini, Alexa+, Comet, Manus e outros (notas em `pesquisa/notas/`).
+>
+> **Revisão de 05/11:** o dono decidiu fazer uma **base nova, do zero**, modular, preparada para apagar v1, v2 e v3 no fim. O v3 vira só referência de ideias. O foco é a **coerência de uso**: o bot se comporta sempre igual, em qualquer superfície.
 
 ## Por quê
 O dono não sente evolução do v2 para o v3. O diagnóstico (ver `01`) mostra o motivo.
@@ -20,7 +24,7 @@ O dono não sente evolução do v2 para o v3. O diagnóstico (ver `01`) mostra o
   - "Sistema" e "usuário" chegam no mesmo canal, só com um prefixo de texto.
   - Não existe eval com modelo real que meça pesquisa, documento ou autonomia.
 
-O v4 **não recomeça do zero**. Ele usa o laço do v3 como núcleo e investe no que o usuário sente:
+O v4 é uma **base nova** (`packages/agent`), sem import do legado. A ideia é que a coerência nasça da arquitetura e não do prompt: a pesquisa mostra que os produtos coerentes (Claude Duet, ChatGPT dots, Gemini) decidem no código, por classe de efeito, o que fazem sozinhos e o que perguntam. Sobre essa base, o v4 investe no que o usuário sente:
 1. Capacidades completas: e-mail com conteúdo, compras, documentos, pesquisa, dia planejado, código.
 2. Uma agenda própria: lembretes, vigias e intenções por evento.
 3. Memória que aprende fora do caminho quente.
@@ -47,6 +51,7 @@ O v4 **não recomeça do zero**. Ele usa o laço do v3 como núcleo e investe no
 | Sem travas e sem regex; não reescreve a resposta | Princípios 1 a 3 abaixo, com teste de guarda |
 
 ## Princípios (valem para todo PR do v4)
+0. **Coerência é contrato no código.** As 16 cláusulas de `06` têm mecanismo e teste invariante. A frase do Atlas: "Eu leio, pesquiso, rascunho e organizo sozinho. Antes de enviar, pagar, publicar ou apagar, eu te mostro exatamente o quê. Senha, dinheiro entre contas e aceite de termos ficam com você. Você vê tudo o que eu agendei e aprendi, e pode parar a qualquer momento."
 1. **Núcleo burro, capacidades espertas.** O laço só chama o modelo, executa tools e persiste. Inteligência de domínio mora na capacidade (skill + tools + ganchos), carregada sob demanda.
 2. **Zero regex sobre texto do usuário ou do modelo para decidir comportamento.** Decisão vem de sinal estrutural: efeito declarado da tool, argumentos tipados, estado do run, configuração do dono. Um teste de guarda varre `engine-v4/` e `capabilities/` (ver F1).
 3. **A resposta do modelo nunca é reescrita, descartada nem trocada.** Não há revisor, rascunho revisado nem portão de entrega. Se algo faltou, o próprio modelo é que nota (via resultado de tool) e age.
@@ -56,12 +61,15 @@ O v4 **não recomeça do zero**. Ele usa o laço do v3 como núcleo e investe no
 7. **Toda falha tem dono:** harness, modelo ou ambiente. O run guarda o suficiente para o eval classificar sozinho (`04`).
 8. **Aprender fora do caminho quente.** Memória e skills se consolidam num job de "sono" depois do run, com proveniência, sem juiz LLM bloqueando a resposta.
 
-## Decisões que preciso do dono
-1. **Base:** v4 = núcleo do v3 (`origin/harness/v3`) promovido e limpo. *(Recomendado.)* A alternativa é reescrever do zero, o que joga fora checkpoint, política e catálogo que já funcionam.
-2. **O que fazer com o branch `harness/v3`:** fechar o PR8d (UI dos cartões) e mergear na versão como base, sem ligar para usuários. *(Recomendado.)* A alternativa é abandonar e copiar arquivos.
-3. **Compras:** checkout pelo navegador da VM com o cartão no cofre, sempre com cartão de confirmação mostrando item, loja, total e frete. *(Recomendado.)* As alternativas são uma API de pagamento (Stripe, Mercado Pago) ou só busca, sem comprar.
-4. **Modelos do bench:** quais 3 modelos baratos e 1 forte entram na matriz (ex.: o padrão atual + Haiku 5.5 + um DeepSeek V4 Flash + Sonnet 5.5).
-5. **"EVA":** qual projeto você quis dizer? A pesquisa achou vários com esse nome (ver `02`). O mais provável é o Vercel Eve (agente durável com canais).
+## Decisões
+- ~~Base~~: **base nova, do zero** (decisão do dono, 05/11).
+- ~~"Duet" e "dots"~~: identificados. São o Claude Duet (Anthropic, prévia de 21/10/2026) e os dots do ChatGPT (DevDay de 29/09/2026). Ver a pesquisa.
+
+Ainda pendentes:
+1. **Compras:** checkout pelo navegador da VM com o cartão no cofre e confirmação sempre, com mandato opcional (valor, loja, prazo). *(Recomendado.)* As alternativas são cartão virtual de uso único via provedor, que é mais seguro mas exige integração e conta, ou começar só com busca.
+2. **Modelos do bench:** 3 baratos e 1 forte.
+3. **Branch `harness/v3`:** congelar (não mergear) e usar só como referência. *(Recomendado, coerente com a base nova.)*
+4. **"EVA":** qual projeto? O candidato mais provável é o Vercel Eve.
 
 ## Custo esperado
 - **Tokens:**
