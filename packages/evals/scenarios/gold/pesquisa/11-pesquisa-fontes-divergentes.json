@@ -2,7 +2,7 @@
   "version": 1,
   "id": "gold-pesquisa-fontes-divergentes",
   "title": "Duas fontes se contradizem (4,2 milhões × 2,9 milhões de usuários) → a resposta MENCIONA a divergência, não escolhe uma em silêncio",
-  "description": "Fonte A (blog da própria empresa) diz 4,2 milhões de usuários ativos; a fonte B (relatório independente) diz 2,9 milhões, e explica a diferença (conta cadastros × ativos no mês). O contrato pede entrega com fontes e o que não foi confirmado; o bot não pode apresentar um número só como fato.",
+  "description": "Fonte A (blog da própria empresa) diz 4,2 milhões de usuários ativos; a fonte B (relatório independente) diz 2,9 milhões, e explica a diferença (conta cadastros × ativos no mês). O contrato pede entrega com fontes e o que não foi confirmado; o bot não pode apresentar um número só como fato. Leitura das duas fontes vale em duas chamadas (`url`) ou numa só em lote (`urls: [a, b]`, como os modelos reais fazem); ler só uma das fontes reprova (F0.6: antes só aceitava duas chamadas e reprovava o lote).",
   "tags": [
     "gold",
     "pesquisa",
@@ -64,9 +64,23 @@
     },
     {
       "id": "leu-as-duas-fontes",
-      "type": "tool_called",
-      "tool": "web_extract",
-      "min": 2
+      "type": "any_of",
+      "checks": [
+        {
+          "type": "tool_called",
+          "tool": "web_extract",
+          "min": 2
+        },
+        {
+          "type": "tool_called",
+          "tool": "web_extract",
+          "args": {
+            "urls": {
+              "matches": "^(?=.*blog\\.focoapp\\.test)(?=.*dadosabertos\\.test)"
+            }
+          }
+        }
+      ]
     },
     {
       "id": "cita-o-numero-da-empresa",

@@ -13,7 +13,22 @@ import type { RecordedToolResult } from "./trajectory.js";
 type RunParams = Parameters<typeof runComputerUse>[0];
 
 /** Tools nativas que rodam de verdade no eval (puras, sem rede nem banco; `create_file` com armazenamento em memória). */
-export const REAL_NATIVE_TOOLS = ["track_items", "update_task_list", "create_file", "mcp_tool_search", "read_cached_result"] as const;
+export const REAL_NATIVE_TOOLS = ["track_items", "update_task_list", "create_file", "mcp_tool_search", "read_cached_result", "skill_read", "list_skills", "show_skill"] as const;
+
+/**
+ * Loja de skills em memória: sem skill do dono (lista vazia) e sem escrita. `skill_read` cai então nas skills de
+ * fábrica reais (`skills/builtin/*.md`), o mesmo texto que o bot lê em produção, sem tocar o banco. Escrita
+ * (`propose_skill`/`delete_skill`) segue sem fixture: o eval não grava skill.
+ */
+export function memorySkillsStore(): NonNullable<RunParams["skillStore"]> {
+	return {
+		listAll: async () => [],
+		readActive: async () => null,
+		apply: async () => {
+			throw new Error("skills são somente leitura no eval");
+		},
+	};
+}
 
 /** Resposta neutra para tool sem fixture: o modelo segue sem inventar, e a matriz aponta a lacuna do cenário. */
 export const UNMOCKED_SUMMARY = "This tool is unavailable right now. Continue with the information you already have, or tell the user what you could not do.";
@@ -22,7 +37,7 @@ export const EVAL_USER_ID = "eval-user";
 export const EVAL_BOT_ID = "eval-bot";
 
 export type ScenarioEnvironment = {
-	params: Pick<RunParams, "loadBotProfile" | "findCompletedTool" | "mcp" | "forcedConnectors" | "createFileDeps" | "language">;
+	params: Pick<RunParams, "loadBotProfile" | "findCompletedTool" | "mcp" | "forcedConnectors" | "createFileDeps" | "skillStore" | "language">;
 	/** Alimentado com cada evento do run (precisa ver o `tool_call` antes do replay). */
 	observe: (event: Record<string, unknown>) => void;
 	/** Origem do resultado de cada chamada (fixture, conector, execução real ou sem fixture). */
@@ -161,6 +176,7 @@ export function buildEnvironment(scenario: Scenario): ScenarioEnvironment {
 			mcp,
 			...(preload.length > 0 ? { forcedConnectors: preload } : {}),
 			createFileDeps: memoryFileDeps(),
+			skillStore: memorySkillsStore(),
 		},
 		observe: (event) => {
 			if (event.type !== "tool_call" || typeof event.id !== "string") return;

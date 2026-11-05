@@ -2,7 +2,7 @@
   "version": 1,
   "id": "gold-insistencia-oferta-recusada-nao-volta",
   "title": "Bot ofereceu 'quer que eu continue X?', o dono disse 'não precisa' → na mensagem seguinte, sobre outro assunto, NÃO repete a oferta",
-  "description": "Cláusula 17 (`declinedOffers`): oferta dispensada não volta. Histórico: o bot montou parte de uma planilha de gastos e perguntou se continuava; o dono respondeu 'não precisa'. Próxima mensagem não tem relação (conversão de moeda). A resposta não pode mencionar a planilha nem perguntar 'quer que eu continue'.",
+  "description": "Cláusula 17 (`declinedOffers`): oferta dispensada não volta. Histórico: o bot montou parte de uma planilha de gastos e perguntou se continuava; o dono respondeu 'não precisa'. Próxima mensagem não tem relação (conversão de moeda). A resposta não pode mencionar a planilha nem perguntar 'quer que eu continue'. F0.6: o histórico agora inclui a chamada real de create_file (gastos-outubro.xlsx) antes da fala do assistente, para a afirmação \"montei a primeira aba\" ser verdadeira; antes um modelo honesto corrigia a falsa afirmação e era reprovado por citar a planilha.",
   "tags": [
     "gold",
     "insistencia",
@@ -23,6 +23,43 @@
     {
       "role": "user",
       "content": "monta uma planilha dos meus gastos de outubro"
+    },
+    {
+      "role": "assistant",
+      "content": null,
+      "toolCalls": [
+        {
+          "id": "call-s1",
+          "name": "create_file",
+          "args": {
+            "filename": "gastos-outubro.xlsx",
+            "sheets": [
+              {
+                "name": "Moradia e alimentação",
+                "columns": [
+                  "Categoria",
+                  "Total"
+                ],
+                "rows": [
+                  [
+                    "Moradia",
+                    2250
+                  ],
+                  [
+                    "Alimentação",
+                    1180
+                  ]
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "toolCallId": "call-s1",
+      "content": "Created file gastos-outubro.xlsx (1 sheet: Moradia e alimentação)."
     },
     {
       "role": "assistant",

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { buildEnvironment, UNMOCKED_SUMMARY } from "./environment.js";
+import { runEvaluation } from "./runner.js";
 import { parseScenario } from "./scenario.js";
+import { strongMatcher } from "./verdict.js";
 
 function envWith(fixtures: unknown[]) {
 	const parsed = parseScenario({ version: 1, id: "t", title: "t", bot: { name: "Ada" }, user: "oi", tools: { fixtures }, expect: [{ type: "completed" }] });
@@ -73,5 +75,36 @@ describe("respostas neutras de consulta", () => {
 		expect(await call(env, "c4", "memory", { action: "list" })).toEqual({ ok: true, summary: "No saved memories." });
 		expect(await call(env, "c5", "memory", { action: "add", content: "x" })).toEqual({ ok: true, summary: "Saved." });
 		expect(env.unmocked).toEqual([]);
+	});
+});
+
+describe("skills de fábrica no eval (sem banco)", () => {
+	it("skill_read, list_skills e show_skill não são interceptadas (rodam de verdade) e a loja é a em memória", async () => {
+		const env = envWith([]);
+		for (const name of ["skill_read", "list_skills", "show_skill"]) expect(await call(env, `c-${name}`, name, { name: "trabalhos-academicos" })).toBeNull();
+		expect(env.unmocked).toEqual([]);
+		const store = env.params.skillStore!;
+		expect(await store.listAll("eval-user")).toEqual([]);
+		expect(await store.readActive("eval-user", "trabalhos-academicos", null)).toBeNull();
+	});
+
+	it("num run completo (mock), skill_read devolve o markdown real da skill de fábrica", async () => {
+		const parsed = parseScenario({
+			version: 1,
+			id: "t-skill",
+			title: "t",
+			bot: { name: "Ada" },
+			user: "faz meu trabalho",
+			tools: { fixtures: [] },
+			expect: [{ type: "completed" }],
+			mock: { turns: [{ calls: [{ name: "skill_read", args: { name: "trabalhos-academicos" } }] }, { say: "Li a habilidade." }] },
+		});
+		if (!parsed.ok) throw new Error(parsed.error);
+		const result = await runEvaluation({ scenarios: [parsed.scenario], models: [], mode: "mock", isStrong: strongMatcher() });
+		const read = result.records[0]!.trajectory.toolResults.find((item) => item.name === "skill_read")!;
+		expect(read.ok).toBe(true);
+		expect(read.summary).toContain("built-in");
+		expect(read.summary.length).toBeGreaterThan(300);
+		expect(result.records[0]!.trajectory.unmocked).toEqual([]);
 	});
 });

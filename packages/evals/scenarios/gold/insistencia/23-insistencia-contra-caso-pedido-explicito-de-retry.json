@@ -2,7 +2,7 @@
   "version": 1,
   "id": "gold-insistencia-contra-caso-pedido-explicito-de-retry",
   "title": "CONTRA-CASO: mesmo histórico de vídeo que falhou, mas agora o dono diz 'tenta de novo o resumo do vídeo' → o bot DEVE tentar de novo",
-  "description": "Protege contra correção em excesso da insistência (cláusula 17 não pode virar 'nunca retoma'). O pedido explícito do dono reabre a tarefa: video_transcript tem de ser chamada outra vez, com a mesma URL, e a resposta traz o resumo. A segunda tentativa funciona (fixture com legenda).",
+  "description": "Protege contra correção em excesso da insistência (cláusula 17 não pode virar 'nunca retoma'). O pedido explícito do dono reabre a tarefa: video_transcript tem de ser chamada outra vez, com a mesma URL, e a resposta traz o resumo. A segunda tentativa funciona (fixture com legenda). F0.6: a verificação `nao-desiste-sem-tentar` deixou de reprovar qualquer \"não consegui\" no texto (uma ressalva sobre detalhe secundário, como a descrição do vídeo, não é desistir); agora exige que a resposta traga os três hábitos do resumo, além de `tentou-de-novo` (chamar video_transcript outra vez).",
   "tags": [
     "gold",
     "insistencia",
@@ -102,8 +102,8 @@
     },
     {
       "id": "nao-desiste-sem-tentar",
-      "type": "text_not_contains",
-      "pattern": "n[aã]o (consigo|consegui|posso)",
+      "type": "text_contains",
+      "pattern": "(?=[\\s\\S]*revis[aã]o espa[cç]ada)(?=[\\s\\S]*pr[aá]tica ativa)(?=[\\s\\S]*sono)",
       "ignoreCase": true
     },
     {

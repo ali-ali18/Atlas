@@ -251,7 +251,10 @@ Um JSON em `scenarios/` (o nome do arquivo só define a ordem):
 - `steer`: `[{ "afterModelCalls": 1, "content": "..." }]` = mensagem do usuário que chega no meio do run.
 - `tools.fixtures`: tool nativa respondida pelo fixture (o primeiro cujo `args` bate). `uses: N` limita a N respostas e depois passa ao próximo fixture que bate (ex.: o teste falha na 1ª execução e passa depois da correção). Sem fixture, só rodam de verdade
   as tools puras (`track_items`, `update_task_list`, `create_file` com armazenamento em memória, `mcp_tool_search`,
-  `read_cached_result`, e o que estiver em `allowReal`); as demais respondem "indisponível".
+  `read_cached_result`, `skill_read`/`list_skills`/`show_skill`, e o que estiver em `allowReal`); as demais respondem
+  "indisponível". As skills rodam de verdade contra uma loja em memória (`memorySkillsStore`, injetada pelo parâmetro
+  `skillStore` do runtime): sem skill do dono e sem escrita, então `skill_read` devolve o markdown real das skills de
+  fábrica (`skills/builtin/*.md`), sem banco. Um fixture de `skill_read` no cenário ainda vence.
 - `tools.connectors`: conector falso (`mcp__<slug>__<tool>`), com `readOnly`/`destructive`, `inputSchema` e respostas
   por argumento. `preload: true` carrega as tools no 1º passo (como uma menção `@App`).
 - Predicados de argumento (caminho com pontos, `items.0.sku`): `equals`, `oneOf`, `contains`, `matches` (regex, sem
