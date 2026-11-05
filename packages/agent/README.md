@@ -4,14 +4,15 @@ O motor do agente do Atlas, feito para o Atlas e open-source junto com ele (MIT)
 
 ## Estado atual (honesto)
 
-Só a F1.1 está pronta: as **portas**, a pasta de **adapters** (vazia) e as guardas. O resto abaixo é o desenho, ainda sem código.
+Prontos: as **portas** e as guardas (F1.1) e, na F1.2, as **classes de efeito** e o `defineTool`. O resto abaixo é o desenho, ainda sem código.
 
 | Camada | O que é | Existe? |
 |---|---|---|
 | `ports/` | interfaces `Llm`, `Store`, `Queue`, `Sandbox`, `Vault`, `Clock`, `Events` | sim |
 | `adapters/` | implementações das portas (Prisma, BullMQ, VM, cofre, `packages/llm`) | pasta, sem código |
 | `kernel/` | laço, estado do run, checkpoint, compactação | não |
-| `contract/` | classes de efeito, política, mandatos, handoff, taint, recibos | não |
+| `contract/` | classes de efeito (`effects.ts`, pronto), política, mandatos, handoff, taint, recibos | parcial (só efeitos) |
+| `tools/` | `defineTool`: efeito obrigatório, args validados pelo zod, resultado `ok`/`erro` tipado, `LlmToolSpec` | sim |
 | `channels/` | envelopes: fala do usuário, sistema (nonce), dado não confiável | não |
 | `capabilities/` | uma pasta por feature (tools + skill + cards + evals) | não |
 | `agenda/` | lembrete, vigia, intenção por evento | não |

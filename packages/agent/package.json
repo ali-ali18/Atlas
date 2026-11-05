@@ -7,7 +7,7 @@
   "scripts": {
     "build": "tsc",
     "lint": "node -e \"process.exit(0)\"",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit -p tsconfig.typecheck.json",
     "test": "vitest run --passWithNoTests"
   },
   "exports": {
@@ -22,5 +22,8 @@
     "@workspace/typescript-config": "workspace:*",
     "typescript": "^5",
     "vitest": "^4.1.12"
+  },
+  "dependencies": {
+    "zod": "^4.4.3"
   }
 }
