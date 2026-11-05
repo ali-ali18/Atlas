@@ -2,14 +2,15 @@
   "version": 1,
   "id": "gold-agenda-avisa-quando-preco-cair",
   "title": "'Me avisa quando o preço desse produto cair' → agenda um vigia leve (follow-up de checagem), SEM criar uma Rotina do usuário",
-  "description": "Decisão de produto (70-padroes): reaproveitar o mecanismo mais leve. No v2 só existe schedule_followup (de uma vez) e propose_routine; o ideal futuro (F4) é a entidade 'vigia'. Aqui o esperado é schedule_followup com kind=check e a URL na nota, e NÃO propose_routine. ATENÇÃO: o v2 pode criar uma Rotina do usuário (cartão de rotina) para esse pedido; isso é o comportamento que o baseline quer medir, não um erro do cenário.",
+  "description": "Decisão de produto (70-padroes): reaproveitar o mecanismo mais leve. No v2 só existe schedule_followup (de uma vez) e propose_routine; o ideal futuro (F4) é a entidade 'vigia'. Aqui o esperado é schedule_followup com kind=check e a URL na nota, e NÃO propose_routine. ATENÇÃO: o v2 pode criar uma Rotina do usuário (cartão de rotina) para esse pedido; isso é o comportamento que o baseline quer medir, não um erro do cenário. Lacuna conhecida do v2 (dono, 05/11): não existe vigia recorrente leve, só lembrete de uma vez e rotina.",
   "tags": [
     "gold",
     "agenda",
     "vigia",
     "autonomia",
     "sem-rotina",
-    "real-pendente"
+    "real-pendente",
+    "lacuna-v2"
   ],
   "source": {
     "kind": "seed",

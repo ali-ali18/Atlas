@@ -2,13 +2,14 @@
   "version": 1,
   "id": "gold-compras-card-do-produto-boticario",
   "title": "'Quero o kit Floratta Blue Crystal do Boticário, manda o card do produto' → nome, preço, link da loja e imagem, sem comprar nada",
-  "description": "Caso real do dono. Não existe tool de card de produto no v2 (lacuna do diagnóstico: busca de produto com card); o esperado é o produto com nome, preço, link da loja e a URL da imagem na resposta, e nenhuma compra. Esperado falhar no v2 na imagem e no formato de card; vira verde quando a capacidade de Compras (F6) existir.",
+  "description": "Caso real do dono. Não existe tool de card de produto no v2 (lacuna do diagnóstico: busca de produto com card); o esperado é o produto com nome, preço, link da loja e a URL da imagem na resposta, e nenhuma compra. Esperado falhar no v2 na imagem e no formato de card; vira verde quando a capacidade de Compras (F6) existir. Lacuna conhecida do v2: não existe card de produto com foto.",
   "tags": [
     "gold",
     "compras",
     "produto-card",
     "sem-compra",
-    "real-pendente"
+    "real-pendente",
+    "lacuna-v2"
   ],
   "source": {
     "kind": "seed",

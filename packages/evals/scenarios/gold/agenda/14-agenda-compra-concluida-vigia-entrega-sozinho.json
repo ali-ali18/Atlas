@@ -2,14 +2,15 @@
   "version": 1,
   "id": "gold-agenda-compra-concluida-vigia-entrega-sozinho",
   "title": "Compra concluída no histórico → o bot agenda sozinho o acompanhamento da entrega, em silêncio, sem ser pedido",
-  "description": "Decisão do dono (70-padroes): follow-up inferido da conversa é agendado em silêncio (inferred=true, kind=check), sem card e sem anunciar; volta só com novidade. O pedido do usuário aqui é só agradecer. ESPERADO FALHAR NO v2 (lacuna 'acompanhamento de entrega' do diagnóstico, F4/F6): o modelo costuma só responder 'de nada'.",
+  "description": "Decisão do dono (70-padroes): follow-up inferido da conversa é agendado em silêncio (inferred=true, kind=check), sem card e sem anunciar; volta só com novidade. O pedido do usuário aqui é só agradecer. ESPERADO FALHAR NO v2 (lacuna 'acompanhamento de entrega' do diagnóstico, F4/F6): o modelo costuma só responder 'de nada'. Lacuna conhecida do v2: nada cria o acompanhamento de entrega depois de uma compra.",
   "tags": [
     "gold",
     "agenda",
     "vigia",
     "autonomia",
     "silencio",
-    "real-pendente"
+    "real-pendente",
+    "lacuna-v2"
   ],
   "source": {
     "kind": "seed",

@@ -2,13 +2,14 @@
   "version": 1,
   "id": "gold-codigo-corrigir-bug-com-teste",
   "title": "Corrigir um bug com teste falhando num repositório já clonado na VM → roda o teste, lê o código, corrige e prova com o teste verde",
-  "description": "LIMITAÇÃO: o eval não tem VM nem repositório de verdade, e a sessão de código (dev_session_start, edit_file...) não é oferecida pelo motor v2 nem pelo ambiente do eval. Este cenário só mede a TRAJETÓRIA pela VM de shell (sandbox_shell/sandbox_read, por fixture): reproduzir (teste falha), ler o arquivo, editar, rodar de novo (passa) e relatar com a saída real. As respostas do shell são sequenciais (`uses`): a 1ª execução do teste falha, a seguinte passa. O repositório fixture real com teste (F8.2) substitui este cenário.",
+  "description": "LIMITAÇÃO: o eval não tem VM nem repositório de verdade, e a sessão de código (dev_session_start, edit_file...) não é oferecida pelo motor v2 nem pelo ambiente do eval. Este cenário só mede a TRAJETÓRIA pela VM de shell (sandbox_shell/sandbox_read, por fixture): reproduzir (teste falha), ler o arquivo, editar, rodar de novo (passa) e relatar com a saída real. As respostas do shell são sequenciais (`uses`): a 1ª execução do teste falha, a seguinte passa. O repositório fixture real com teste (F8.2) substitui este cenário. Lacuna conhecida do v2 no eval: as ferramentas de sessão de código não são oferecidas sem banco, então os modelos respondem que a sessão não está ativa; fica fora da comparação até a F8.2.",
   "tags": [
     "gold",
     "codigo",
     "repositorio-fixture",
     "limitacao-sem-vm",
-    "real-pendente"
+    "real-pendente",
+    "lacuna-v2"
   ],
   "source": {
     "kind": "seed",

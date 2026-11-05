@@ -88,7 +88,7 @@ export type MatrixSummary = {
 	skippedBudget: number;
 	budgetStopped: boolean;
 	costUnknown: boolean;
-	scenarios: Array<{ id: string; capability: string }>;
+	scenarios: Array<{ id: string; capability: string; tags?: string[] }>;
 	/** cenário → motor → modelo. */
 	cells: Grid;
 	/** capacidade → motor → modelo. */
@@ -105,7 +105,7 @@ export const passRateOf = (agg: Pick<Agg, "runs" | "passes">): number | null => 
 
 export function summarizeMatrix(
 	runs: readonly MatrixRun[],
-	options: { engines: string[]; models: string[]; scenarios: Array<{ id: string; capability: string }>; repeat: number; mode: "real" | "simulate"; capUsd?: number; judgeUsd?: number; judging?: { models: string[]; maxGap: number }; isStrong: (model: string) => boolean; createdAt?: string },
+	options: { engines: string[]; models: string[]; scenarios: Array<{ id: string; capability: string; tags?: string[] }>; repeat: number; mode: "real" | "simulate"; capUsd?: number; judgeUsd?: number; judging?: { models: string[]; maxGap: number }; isStrong: (model: string) => boolean; createdAt?: string },
 ): MatrixSummary {
 	const cells: Grid = {};
 	const byCapability: Grid = {};
@@ -131,7 +131,11 @@ export function summarizeMatrix(
 				const agg = cells[scenario.id]?.[engine]?.[model] ?? emptyAgg();
 				return { model, runs: agg.runs, passes: agg.passes, errors: agg.errors, failing: agg.failing, costUsd: agg.costUsd, costUnknown: agg.costUnknown };
 			});
-			(readings[scenario.id] ??= {})[engine] = diagnose(stats, options.isStrong);
+			const reading = diagnose(stats, options.isStrong);
+			// Lacuna conhecida do motor (tag `lacuna-<motor>`): continua sendo culpa do harness, mas o relatório diz que já se
+			// sabia (o motor não oferece a ferramenta certa), para ninguém caçar defeito de modelo ou de cenário.
+			const knownGap = (scenario.tags ?? []).includes(`lacuna-${engine}`) && reading.verdict === "harness/instruções";
+			(readings[scenario.id] ??= {})[engine] = knownGap ? { verdict: reading.verdict, reason: `lacuna conhecida do motor ${engine}: ele não oferece a ferramenta certa (ver a descrição do cenário)` } : reading;
 		}
 	}
 	const [baseEngine, ...otherEngines] = options.engines;

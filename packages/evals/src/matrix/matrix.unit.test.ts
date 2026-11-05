@@ -228,6 +228,19 @@ describe("agregação do relatório", () => {
 		expect(summary.readings.s3!.v2).toMatchObject({ verdict: "instável" });
 	});
 
+	it("lacuna conhecida do motor (tag lacuna-v2) continua harness, mas o motivo diz que já se sabia", () => {
+		const tagged = summarizeMatrix(runs, {
+			engines: ["v2"],
+			models: [strong, cheap],
+			scenarios: [{ id: "s2", capability: "email", tags: ["gold", "email", "lacuna-v2"] }],
+			repeat: 3,
+			mode: "simulate",
+			isStrong: strongMatcher(),
+			createdAt: "2026-11-05T00:00:00.000Z",
+		});
+		expect(tagged.readings.s2!.v2).toMatchObject({ verdict: "harness/instruções", reason: expect.stringContaining("lacuna conhecida do motor v2") });
+	});
+
 	it("agrega por capacidade e por modelo, sem contar pulados como execução", () => {
 		expect(summary.byCapability.email!.v2![strong]).toMatchObject({ runs: 6, passes: 3 });
 		expect(summary.byCapability.email!.v2![cheap]).toMatchObject({ runs: 6, passes: 0 });

@@ -170,7 +170,7 @@ export async function runMatrix(options: MatrixOptions): Promise<MatrixResult> {
 	const summary = summarizeMatrix(runs, {
 		engines: engines.map((engine) => engine.id),
 		models: models.map((model) => model.spec),
-		scenarios: options.scenarios.map((scenario) => ({ id: scenario.id, capability: capabilityOf(scenario.tags) })),
+		scenarios: options.scenarios.map((scenario) => ({ id: scenario.id, capability: capabilityOf(scenario.tags), tags: scenario.tags })),
 		repeat,
 		mode: options.mode,
 		...(options.capUsd !== undefined ? { capUsd: options.capUsd } : {}),
