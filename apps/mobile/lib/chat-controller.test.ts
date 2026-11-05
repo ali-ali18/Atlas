@@ -1046,6 +1046,36 @@ describe("envio com anexos", () => {
 		await flush();
 		expect(calls.createRun[0]).toMatchObject({ content: "olha isso", attachments: [{ artifactId: "a1" }, { artifactId: "f1" }] });
 	});
+	it("os cartões do anexo continuam no fio quando o run começa e depois que o servidor grava (formato real)", async () => {
+		const card = { v: 1, kind: "file", artifactId: "f1", filename: "r.pdf", mime: "application/pdf", size: 10, format: "pdf", version: 1, origin: "user" };
+		let saved = false;
+		const duringRun: string[][] = [];
+		const holder: { controller?: ChatController } = {};
+		const { controller } = setup({
+			api: {
+				fetchPage: async () => ({
+					messages: saved ? [{ ...row("m1", "user", "Veja"), createdAt: new Date().toISOString() }, { ...row("m2", "file", JSON.stringify(card)), createdAt: new Date().toISOString() }, { ...row("m3", "assistant", "Li o PDF e ele fala de custos."), createdAt: new Date().toISOString() }] : [],
+					hasMore: false,
+				}),
+			},
+			follow: async (opts) => {
+				opts.onEvent(delta("Lendo"));
+				duringRun.push(holder.controller!.getSnapshot().live.items.map((item) => item.kind));
+				saved = true;
+				opts.onEvent(done);
+				return "boundary" as const;
+			},
+		});
+		holder.controller = controller;
+		await controller.open();
+		controller.send("Veja", undefined, [file]);
+		await flush();
+		expect(duringRun[0]).toEqual(expect.arrayContaining(["user", "web-card"]));
+		const cards = view(controller).items.filter((item) => item.kind === "web-card");
+		expect(cards).toHaveLength(1);
+		expect(cards[0]).toMatchObject({ card: "file", key: "file:f1", title: "r.pdf" });
+		expect(view(controller).items.filter((item) => item.kind === "user")).toHaveLength(1);
+	});
 	it("só anexo, sem texto: envia e não cria balão vazio", async () => {
 		const { controller, calls } = setup();
 		await controller.open();

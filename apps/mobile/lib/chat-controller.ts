@@ -350,8 +350,9 @@ export class ChatController {
 		const controller = new AbortController();
 		this.abort = controller;
 		this.runId = runId;
-		// O replay recria falas e cartões do run: o que vinha dele sai, o balão do usuário fica.
-		this.set({ following: true, live: { ...startLiveRun(this.state.live, runId), items: this.state.live.items.filter((item) => item.kind === "user") } });
+		// O replay recria falas e cartões do run: o que vinha dele sai; o que o usuário acabou de enviar (balão e cartões
+		// de imagens e arquivos, ids `msg-*`) fica até o servidor gravar. Antes só o balão ficava e o cartão do anexo sumia.
+		this.set({ following: true, live: { ...startLiveRun(this.state.live, runId), items: this.state.live.items.filter(isOptimisticSend) } });
 		let terminal = false;
 		const highWater = this.seenSeq.get(runId) ?? 0;
 		let currentSeq = 0;
@@ -401,7 +402,7 @@ export class ChatController {
 			return;
 		}
 		// O gravado assumiu: só o que ainda não foi gravado (balão do usuário, erro do run) fica ao vivo.
-		const keep = live.items.filter((item) => item.id === "cu-run-error" || ((item.kind === "user" || item.kind === "images" || item.kind === "web-card") && item.id.startsWith("msg-")));
+		const keep = live.items.filter((item) => item.id === "cu-run-error" || isOptimisticSend(item));
 		this.set({ live: { ...live, items: keep, runId: null, phase: "idle", tool: null } });
 	}
 
@@ -823,6 +824,11 @@ export function liveActivity(live: LiveState, running: boolean): AgentActivity {
 		default:
 			return { phase: "thinking" };
 	}
+}
+
+/** Item otimista do envio do usuário (balão, imagens, arquivo): nasce em `send` com id `msg-*` e vale até o gravado assumir. */
+function isOptimisticSend(item: ChatItem): boolean {
+	return (item.kind === "user" || item.kind === "images" || item.kind === "web-card") && item.id.startsWith("msg-");
 }
 
 /** O toque no cartão vale na hora, antes de o servidor gravar o novo estado. */
