@@ -168,11 +168,14 @@ async function commandRun(args: CliArgs): Promise<number> {
 	// Juízes pelo roteamento do matrix (prefixo do provedor); o custo deles entra no --max-cost.
 	let judgeUsd = 0;
 	let judge: import("./checks.js").Judge | undefined;
+	// Chaves dos juízes (Anthropic/Go): a redação do JSONL e do resumo cobre todas, não só a do OpenRouter.
+	let extraSecrets: string[] = [];
 	if (judgeSpecs.length > 0 && !mock) {
-		const { resolveModelSpecs, assertProviderKeys, createRealProviders, createMatrixRouter, withCostAccounting, withSessionId } = await import("./matrix/index.js");
+		const { resolveModelSpecs, assertProviderKeys, createRealProviders, createMatrixRouter, withCostAccounting, withSessionId, providerSecrets } = await import("./matrix/index.js");
 		const { createJudgePanel, createRubricJudge } = await import("./judge.js");
 		const specs = resolveModelSpecs(judgeSpecs);
 		assertProviderKeys(specs, process.env);
+		extraSecrets = providerSecrets(specs, process.env);
 		const router = withCostAccounting(createMatrixRouter(withSessionId(createRealProviders(process.env), "eval-judge")), { onCost: (usd) => (judgeUsd += usd) });
 		judge = createJudgePanel({
 			judges: specs.map((spec) => createRubricJudge({ model: spec.internalId, apiKey: "eval", streamChat: ((params: import("@workspace/llm").CompleteChatWithToolsParams) => router(params, {})) as import("./mock-model.js").StreamChat })),
@@ -187,6 +190,7 @@ async function commandRun(args: CliArgs): Promise<number> {
 		scenarios,
 		models,
 		mode: mock ? "mock" : "real",
+		...(extraSecrets.length > 0 ? { extraSecrets } : {}),
 		...(mock ? {} : { apiKey, realStreamChat: (params, handlers) => streamChatWithTools(params, handlers ?? {}) }),
 		repeat: number(flag(args, "repeat"), 1),
 		concurrency: number(flag(args, "concurrency"), 3),

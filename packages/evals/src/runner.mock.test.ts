@@ -131,6 +131,19 @@ describe("runner em modo real (modelo injetado)", () => {
 		expect(result.report).toMatch(/custo: US\$ 0\.0\d+/);
 	});
 
+	it("segredos extras (chaves dos juízes) também ficam fora do JSONL e do resumo (auditoria F0, S4)", async () => {
+		const scenarios = await loadScenarios(SCENARIOS_DIR);
+		const apiKey = "orkey-AAAA1111";
+		const judgeKeys = ["anthkey-BBBB2222", "gokey-CCCC3333"];
+		const streamChat: StreamChat = async (params) => ({ model: params.model, finishReason: "stop", usage: { promptTokens: 1, completionTokens: 1 }, message: { role: "assistant", content: `Good morning! 401 ${judgeKeys.join(" e ")} e ${apiKey}` } });
+		const outDir = await mkdtemp(join(tmpdir(), "evals-secrets-"));
+		dirs.push(outDir);
+		await runEvaluation({ scenarios: [scenarioOf(scenarios, "bot-en-us-responde-em-ingles")], models: ["x/y"], mode: "real", apiKey, extraSecrets: judgeKeys, realStreamChat: streamChat, isStrong: strongMatcher(), outDir });
+		const files = await Promise.all(["runs.jsonl", "summary.json", "matrix.txt"].map((name) => readFile(join(outDir, name), "utf8")));
+		for (const content of files) for (const secret of [apiKey, ...judgeKeys]) expect(content).not.toContain(secret);
+		expect(files[0]).toContain("[redacted]");
+	});
+
 	it("teto de gasto pula o que ainda não começou", async () => {
 		const scenarios = await loadScenarios(SCENARIOS_DIR);
 		const streamChat: StreamChat = async (params) => ({ model: params.model, finishReason: "stop", usage: { promptTokens: 1, completionTokens: 1, costUsd: 1 }, message: { role: "assistant", content: "Good morning! Here are your tips for the week and the plan." } });
