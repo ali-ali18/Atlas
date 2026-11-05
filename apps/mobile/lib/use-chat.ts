@@ -3,6 +3,8 @@
 import type { OutgoingAttachment } from "./attachments";
 import * as React from "react";
 import { AppState } from "react-native";
+import { useIsFocused } from "expo-router";
+import { CHAT_POLL_MS, startFallbackPoller } from "./event-hub-client";
 import * as cardApi from "./card-api";
 import * as chatApi from "./chat-api";
 import type { MobileAvatarState } from "./avatar-activity";
@@ -58,7 +60,7 @@ export type ChatHook = ReturnType<typeof deriveView> & {
 };
 
 export function useChat(bot: HomeBot | undefined): ChatHook {
-	const { apiFetch, openRunStream, serverUrl, email, signOut, onSignOut } = useAtlasSession();
+	const { apiFetch, openRunStream, serverUrl, email, signOut, onSignOut, eventHub } = useAtlasSession();
 	// Dependências que mudam a cada render: o controlador (um só) lê sempre as de agora.
 	const { addBot, applyBotUpdate, refresh } = useHomeData();
 	const latest = React.useRef({ unread: bot?.unread === true, apiFetch, openRunStream, serverUrl, email, signOut, addBot, applyBotUpdate, refresh });
@@ -172,6 +174,37 @@ export function useChat(bot: HomeBot | undefined): ChatHook {
 		});
 		return () => subscription.remove();
 	}, [controller]);
+
+	// Tempo real: avisos da conversa aberta (mensagem e run de outras origens) e `ready`/`resync` do canal. Sem canal
+	// (servidor sem hub, caiu de vez) consulta a cada 12 s, só em primeiro plano e com esta tela em foco.
+	const focused = useIsFocused();
+	const focusedRef = React.useRef(focused);
+	focusedRef.current = focused;
+	React.useEffect(() => {
+		if (!eventHub || !conversationId) return;
+		const offConversation = eventHub.subscribeConversation(conversationId, (event) => controller.onHubEvent(event));
+		const offResync = eventHub.onResync(() => void controller.onHubResync());
+		return () => {
+			offConversation();
+			offResync();
+		};
+	}, [eventHub, conversationId, controller]);
+	React.useEffect(() => {
+		if (!conversationId) return;
+		return startFallbackPoller({
+			hub: eventHub,
+			appState: {
+				current: () => AppState.currentState ?? "active",
+				subscribe: (listener) => {
+					const subscription = AppState.addEventListener("change", listener);
+					return () => subscription.remove();
+				},
+			},
+			intervalMs: CHAT_POLL_MS,
+			isFocused: () => focusedRef.current,
+			tick: () => void controller.onHubResync(),
+		});
+	}, [eventHub, conversationId, controller]);
 
 	const snapshot = React.useSyncExternalStore(controller.subscribe, controller.getSnapshot);
 	const view = React.useMemo(() => deriveView(snapshot), [snapshot]);

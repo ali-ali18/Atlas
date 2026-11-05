@@ -14,6 +14,7 @@ import { homeBotFromProposal, withProposalResolution, type CardResolution } from
 import { groupBotItems } from "./bot-thread";
 import { applyRunEvent, createLiveState, startLiveRun, type LiveState } from "./chat-live";
 import { followRun, type FollowOptions, type OpenStream } from "./chat-stream";
+import { isActiveRunStatus } from "./event-hub";
 import { initialSync, syncLine, syncReducer, type SyncAction, type SyncState } from "./chat-sync";
 import { compactionMarkerText, dockedTaskList, mergeTail, oldestCursor, PAGE_SIZE, prependOlder, reconcile, sessionMessageToItem, withSourceMarkers, type MessagePage, type PageCursor } from "./chat-thread";
 import type { ChatItem, Reaction, ReplyQuote } from "./chat-types";
@@ -62,6 +63,11 @@ export type ChatDeps = {
 	/** Intervalo mínimo entre avisos à tela durante o texto chegando (o texto em si nunca se perde). */
 	throttleMs?: number;
 	retryDelays?: readonly number[];
+	/** Janela que junta avisos do canal de eventos antes de conferir o fio (padrão 300 ms). */
+	hubDebounceMs?: number;
+	/** Timers do debounce (testes). */
+	setTimer?: (fn: () => void, ms: number) => unknown;
+	clearTimer?: (handle: unknown) => void;
 	/** Campos de modelo do run (escolha do seletor, lida na hora do envio). Ausente = o servidor decide. */
 	modelFields?: () => RunModelFields;
 	/** A conversa acabou de ser criada por um envio (chat novo): quem guarda a escolha de modelo passa a gravar nela. */
@@ -102,6 +108,14 @@ export type ChatSnapshot = {
 const ENDED_RUN_STATUSES = new Set(["completed", "failed", "cancelled", "budget_exhausted"]);
 const ACTIVE_CONFLICT = "A conversa já tem uma tarefa em andamento";
 const DEFAULT_RETRY = [400, 1_000, 2_000] as const;
+/** Rajada de avisos do canal (mensagem + run + leitura) vira uma conferência só. */
+const HUB_SYNC_DEBOUNCE_MS = 300;
+const SAFE_ID = /^[\w.:-]{1,128}$/;
+
+/** Id vindo do canal: só texto curto e sem estranhezas; qualquer outra coisa não vale. */
+function safeId(value: unknown): string | null {
+	return typeof value === "string" && SAFE_ID.test(value) ? value : null;
+}
 
 type Queued = { text: string; optimisticIds: string[]; replyToMessageId?: string; attachments?: AttachmentRef[] };
 
@@ -114,6 +128,8 @@ export class ChatController {
 	private published: ChatSnapshot = this.state;
 	private listeners = new Set<() => void>();
 	private timer: ReturnType<typeof setTimeout> | null = null;
+	/** Conferência marcada por um aviso do canal de eventos (junta rajadas). */
+	private hubSyncTimer: unknown = null;
 
 	private botId: string | null;
 	private conversationId: string | null;
@@ -204,6 +220,7 @@ export class ChatController {
 		this.disposed = false; // (o React em desenvolvimento monta, desmonta e monta de novo)
 		const generation = ++this.generation;
 		this.stopFollowing();
+		this.clearHubSync();
 		this.seenSentId = null;
 		this.seenBaselineId = null;
 		this.state = { ...initial(), decisions: this.state.decisions, answered: this.state.answered, cards: this.state.cards, loginsDone: this.state.loginsDone, connects: this.state.connects };
@@ -243,6 +260,7 @@ export class ChatController {
 		this.connectSignal.aborted = true;
 		this.generation += 1;
 		this.stopFollowing();
+		this.clearHubSync();
 		if (this.timer) clearTimeout(this.timer);
 		this.timer = null;
 	}
@@ -265,10 +283,12 @@ export class ChatController {
 	}
 
 	/** Confere o servidor. `replace`: a primeira conferência troca o que veio do cache pelo fim de verdade. */
-	async syncTail(replace: boolean, generation = this.generation): Promise<boolean> {
+	async syncTail(replace: boolean, generation = this.generation, quiet = false): Promise<boolean> {
 		const convId = this.conversationId;
 		if (!convId) return false;
-		this.dispatchSync({ type: "start" });
+		// `quiet`: conferência disparada pelo canal de eventos; não acende o "Verificando novas mensagens…" nem mostra "Sem conexão".
+		const dispatchSync = (action: SyncAction) => (quiet ? undefined : this.dispatchSync(action));
+		dispatchSync({ type: "start" });
 		try {
 			const page = await this.deps.api.fetchPage(convId, { limit: PAGE_SIZE });
 			if (generation !== this.generation) return false;
@@ -280,11 +300,11 @@ export class ChatController {
 			}
 			this.set({ persisted: merged.items });
 			this.persist(merged.items, generation);
-			this.dispatchSync({ type: "success" });
+			dispatchSync({ type: "success" });
 			this.markSeen(convId, page.messages.at(-1)?.id ?? null);
 			return true;
 		} catch (reason) {
-			if (generation === this.generation) this.dispatchSync({ type: isNetworkError(reason) ? "network-failure" : "failure" });
+			if (generation === this.generation) dispatchSync({ type: isNetworkError(reason) ? "network-failure" : "failure" });
 			this.fail(reason);
 			return false;
 		}
@@ -309,6 +329,64 @@ export class ChatController {
 	}
 
 	retry = (): Promise<void> => this.resume();
+
+	// ---- tempo real (canal de eventos) ------------------------------------------------------------------
+
+	/**
+	 * Aviso do canal de eventos (`GET /v1/events`). O evento só traz ids: aqui só se decide o que buscar no servidor.
+	 * - outra conversa, tipo que não interessa ou id malformado: ignora;
+	 * - `message`: confere o fim do fio (quieto, com debounce; `mergeTail` já deduplica);
+	 * - `run` ativo sem stream local: segue o run (uma vez; o `follow` ocupa o `abort` na hora);
+	 * - qualquer outro `run` (terminou, parou esperando): confere o fim.
+	 * Com stream local em curso (ou um envio criando o run) os avisos não fazem nada: o próprio run entrega o conteúdo e
+	 * o `finishRun` confere no fim. Nada do conteúdo do evento vai para log.
+	 */
+	onHubEvent(event: { type: string; payload: Record<string, unknown> }): void {
+		const convId = this.conversationId;
+		if (this.disposed || !convId || safeId(event.payload.conversationId) !== convId) return;
+		if (event.type === "message") {
+			if (!this.localRunBusy()) this.scheduleHubSync();
+			return;
+		}
+		if (event.type !== "run" || event.payload.origin === "subagent") return;
+		if (this.localRunBusy()) return;
+		const runId = safeId(event.payload.runId);
+		const status = event.payload.status;
+		if (runId && typeof status === "string" && isActiveRunStatus(status)) {
+			void this.follow(runId);
+			return;
+		}
+		this.scheduleHubSync();
+	}
+
+	/** `ready`/`resync` do canal, ou consulta do plano B: refaz o fim do fio e procura run em andamento. */
+	async onHubResync(): Promise<void> {
+		if (this.disposed || this.localRunBusy()) return;
+		const generation = this.generation;
+		if (await this.syncTail(false, generation, true)) await this.resumeActiveRun(generation);
+	}
+
+	/** Há stream local do run (ou um envio criando o run): o canal não mexe no fio nem abre outro stream. */
+	private localRunBusy(): boolean {
+		return this.abort !== null || this.state.creating;
+	}
+
+	private scheduleHubSync(): void {
+		if (this.hubSyncTimer !== null) return;
+		const schedule = this.deps.setTimer ?? ((fn, ms) => setTimeout(fn, ms));
+		const generation = this.generation;
+		this.hubSyncTimer = schedule(() => {
+			this.hubSyncTimer = null;
+			if (this.disposed || generation !== this.generation || this.localRunBusy()) return;
+			void this.syncTail(false, generation, true);
+		}, this.deps.hubDebounceMs ?? HUB_SYNC_DEBOUNCE_MS);
+	}
+
+	private clearHubSync(): void {
+		if (this.hubSyncTimer === null) return;
+		(this.deps.clearTimer ?? ((handle) => clearTimeout(handle as ReturnType<typeof setTimeout>)))(this.hubSyncTimer);
+		this.hubSyncTimer = null;
+	}
 
 	private async resumeActiveRun(generation: number): Promise<void> {
 		const convId = this.conversationId;
