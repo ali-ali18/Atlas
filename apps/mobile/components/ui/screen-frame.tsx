@@ -7,12 +7,11 @@ import { useSurfaces } from "@/lib/use-surfaces";
 /**
  * Contêiner de TODA tela: área segura + o fundo padrão do app (`screen`, o do chat). Tela nenhuma pinta o próprio
  * fundo. `edges` escolhe as bordas seguras (o chat tira o topo porque a barra flutua sobre as mensagens).
- * `tone="sheet"` usa o fundo mais claro das folhas (Configurações, como no Grok): cartões `surface` sobre `screen` ficam contrastados demais em telas vazias.
  */
-export function ScreenFrame({ children, edges, tone = "screen", className, style, ...props }: ViewProps & { edges?: readonly Edge[]; tone?: "screen" | "sheet" }) {
+export function ScreenFrame({ children, edges, className, style, ...props }: ViewProps & { edges?: readonly Edge[] }) {
 	const surfaces = useSurfaces();
 	return (
-		<SafeAreaView edges={edges} style={[{ backgroundColor: tone === "sheet" ? surfaces.sheet : surfaces.screen }, style]} className={cn("flex-1", className)} {...props}>
+		<SafeAreaView edges={edges} style={[{ backgroundColor: surfaces.screen }, style]} className={cn("flex-1", className)} {...props}>
 			{children}
 		</SafeAreaView>
 	);

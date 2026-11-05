@@ -1,8 +1,9 @@
 import { useRouter } from "expo-router";
 import * as React from "react";
-import { Linking, Pressable, ScrollView, View } from "react-native";
+import { Linking, Pressable, View } from "react-native";
 import { UserAvatar } from "@/components/home/user-avatar";
 import { ActionSheet } from "@/components/ui/action-sheet";
+import { FloatingHeaderScroll } from "@/components/ui/floating-header-scroll";
 import { ScreenFrame } from "@/components/ui/screen-frame";
 import { ScreenHeader } from "@/components/ui/screen-header";
 import { Spinner } from "@/components/ui/spinner";
@@ -96,9 +97,8 @@ export function AccountView() {
 	};
 
 	return (
-		<ScreenFrame tone="sheet">
-			<ScreenHeader title="Conta" align="left" onBack={goBack} />
-			<ScrollView keyboardShouldPersistTaps="handled" contentContainerClassName="px-4 pb-12 pt-4">
+		<ScreenFrame edges={["bottom", "left", "right"]}>
+			<FloatingHeaderScroll header={<ScreenHeader title="Conta" align="left" onBack={goBack} />} keyboardShouldPersistTaps="handled" contentContainerClassName="px-4 pb-12">
 				<SurfaceGroup>
 					<SurfaceRow className="min-h-[88px] py-4">
 						<Pressable role="button" accessibilityLabel="Foto do perfil" disabled={busy !== null} onPress={() => setPhotoMenu(true)} className="size-14 items-center justify-center active:opacity-80">
@@ -131,7 +131,7 @@ export function AccountView() {
 				<View className="mt-5">
 					<SessionGroup />
 				</View>
-			</ScrollView>
+			</FloatingHeaderScroll>
 			<ActionSheet
 				visible={photoMenu}
 				onClose={() => setPhotoMenu(false)}

@@ -1,9 +1,10 @@
 import { useRouter } from "expo-router";
 import * as React from "react";
-import { Pressable, ScrollView, View } from "react-native";
+import { Pressable, View } from "react-native";
 import { UserAvatar } from "@/components/home/user-avatar";
 import { ChevronRightIcon, CloseIcon } from "@/components/icons";
 import { ChromeButton } from "@/components/ui/chrome-button";
+import { FloatingHeaderScroll } from "@/components/ui/floating-header-scroll";
 import { ScreenFrame } from "@/components/ui/screen-frame";
 import { SurfaceGroup, SurfaceRow } from "@/components/ui/surface-card";
 import { Text } from "@/components/ui/text";
@@ -30,13 +31,17 @@ export function SettingsView() {
 	const state = useAccountSettings();
 	const close = () => (router.canGoBack() ? router.back() : router.replace("/"));
 	return (
-		<ScreenFrame tone="sheet">
-			<View className="px-4 pb-2 pt-1.5">
-				<ChromeButton label="Fechar" onPress={close}>
-					<CloseIcon size={20} tone="foreground" />
-				</ChromeButton>
-			</View>
-			<ScrollView contentContainerClassName="px-4 pb-10 pt-4">
+		<ScreenFrame edges={["bottom", "left", "right"]}>
+			<FloatingHeaderScroll
+				header={
+					<View className="px-4 pb-2 pt-1.5">
+						<ChromeButton label="Fechar" onPress={close}>
+							<CloseIcon size={20} tone="foreground" />
+						</ChromeButton>
+					</View>
+				}
+				contentContainerClassName="px-4 pb-10"
+			>
 				{state.notice ? <NoticeBar message={state.notice} onDismiss={state.dismissNotice} /> : null}
 				{state.loadFailed ? (
 					<Pressable role="button" accessibilityLabel="Tentar de novo" onPress={state.reload} className="mb-4 rounded-card bg-warning/10 px-4 py-3 active:opacity-70">
@@ -68,7 +73,7 @@ export function SettingsView() {
 				<SectionLabel>App</SectionLabel>
 				<AppSettingsGroup />
 				<SettingsFooter />
-			</ScrollView>
+			</FloatingHeaderScroll>
 		</ScreenFrame>
 	);
 }

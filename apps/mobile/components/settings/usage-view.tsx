@@ -1,8 +1,9 @@
 import { modelDisplayName, type UsagePeriod } from "@workspace/shared";
 import { useRouter } from "expo-router";
 import * as React from "react";
-import { ScrollView, View } from "react-native";
+import { View } from "react-native";
 import { ChromePill } from "@/components/ui/chrome-pill";
+import { FloatingHeaderScroll } from "@/components/ui/floating-header-scroll";
 import { ScreenFrame } from "@/components/ui/screen-frame";
 import { ScreenHeader } from "@/components/ui/screen-header";
 import { Spinner } from "@/components/ui/spinner";
@@ -131,9 +132,8 @@ export function UsageView() {
 	}, [apiFetch, signOut, period, attempt]);
 	const goBack = () => (router.canGoBack() ? router.back() : router.replace("/settings" as never));
 	return (
-		<ScreenFrame tone="sheet">
-			<ScreenHeader title="Uso" onBack={goBack} />
-			<ScrollView contentContainerClassName="px-4 pb-12 pt-4">
+		<ScreenFrame edges={["bottom", "left", "right"]}>
+			<FloatingHeaderScroll header={<ScreenHeader title="Uso" onBack={goBack} />} contentContainerClassName="px-4 pb-12">
 				<PeriodPicker value={period} onChange={setPeriod} />
 				{load.status === "loading" ? (
 					<View className="items-center pt-10">
@@ -151,7 +151,7 @@ export function UsageView() {
 					</View>
 				) : null}
 				{load.status === "ready" ? <UsageBody usage={load.usage} /> : null}
-			</ScrollView>
+			</FloatingHeaderScroll>
 		</ScreenFrame>
 	);
 }
