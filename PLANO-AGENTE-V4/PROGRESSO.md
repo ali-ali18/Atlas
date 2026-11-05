@@ -19,8 +19,16 @@
    - escrever uma entrada no Diário de passagem com: o que ficou pronto, o que está pela metade (arquivo e trecho), o próximo passo exato, comandos para verificar e dúvidas para o dono;
    - commitar e fazer o push. **Nunca** deixar trabalho só local.
 6. Item pela metade que não dá para commitar verde: commit `wip(...)` num branch `wip/<fase>-<item>`, com push e registro no diário. Nunca no branch da fase.
-7. **Fase concluída:**
-   - todos os itens `[x]` e a auditoria independente feita (Sonnet, só leitura);
+7. **Auditoria da fase** (processo completo em [`auditorias/README.md`](auditorias/README.md)). Quando todos os itens da fase estão `[x]`:
+   - 5 auditores novos, só leitura, um por lente: segurança, bugs, testes, contrato e custo;
+   - verificação de cada achado;
+   - um commit `fix(...)` por achado confirmado, com teste de regressão;
+   - reauditoria das correções;
+   - relatório em `auditorias/F<n>.md`.
+
+   De preferência na **conta principal**. Se a sessão atual não puder rodar a auditoria, marque `F<n>.A` como `[!] aguardando conta principal` no diário.
+8. **Fase concluída:**
+   - itens e auditoria `[x]`, sem achado crítico ou alto aberto;
    - PR para `harness/v4`, com o link na tabela;
    - a "Fase atual" passa para a próxima fase.
 
@@ -48,6 +56,7 @@
 - [ ] F0.3 Rubrica de qualidade com juiz offline (2 juízes e teto de discordância).
 - [ ] F0.4 `classifyRunFailure` em shared, com testes por classe (incluindo `harness.stale_task_injection` e `model.nagging`).
 - [ ] F0.5 Rodada do baseline com v2 e v3 em Sonnet, Haiku e 2 baratos de outros provedores, com o relatório em `docs/ops/v4-baseline.md`.
+- [ ] F0.A Auditoria: 5 lentes, verificação, correções com teste, reauditoria e `auditorias/F0.md` fechado.
 
 ### F1: Fundação
 - [ ] F1.1 Pacote `packages/agent` com `ports/` e guarda de fronteira (sem `@workspace/agent-runtime`).
@@ -64,6 +73,7 @@
 - [ ] F1.12 Eventos compatíveis com o contrato SSE e `chooseRunEngine` → `runAgent` atrás da flag.
 - [ ] F1.13 Guardas permanentes: sem regex de comportamento, catraca da ponte, invariantes do contrato, economia.
 - [ ] F1.14 Teste de fumaça ponta a ponta no worker com preset `minimal`.
+- [ ] F1.A Auditoria: 5 lentes, verificação, correções com teste, reauditoria e `auditorias/F1.md` fechado.
 
 ### F2: Capacidades do núcleo
 - [ ] F2.1 `web` (busca e extração).
@@ -71,21 +81,25 @@
 - [ ] F2.3 `deliverables` (arquivo, painel, gráfico, `inspect_file`, moldes ABNT, relatório, deck e planilha).
 - [ ] F2.4 `memory` (perfil), `tasks` e `settings` (inclui o modelo por papel pelo chat).
 - [ ] F2.5 `connectors` (ponte MCP, escopo por dono, classificação de schema, `confirmWrites` → regra).
+- [ ] F2.A Auditoria: 5 lentes, verificação, correções com teste, reauditoria e `auditorias/F2.md` fechado.
 
 ### F3: Pesquisa
 - [ ] F3.1 Ajudantes com preset filho e política que não concede mais que a mãe.
 - [ ] F3.2 `research` (plano, paralelo, caderno de trabalho, fonte por afirmação, formato certo).
+- [ ] F3.A Auditoria: 5 lentes, verificação, correções com teste, reauditoria e `auditorias/F3.md` fechado.
 
 ### F4: Agenda
 - [ ] F4.1 Migration aditiva em `BotFollowup` e funções puras (`planAgendaItem`, `nextWatchDelay`, `matchEventFilter`).
 - [ ] F4.2 Tools `remind_me`, `watch`, `on_event` e `agenda_result`.
 - [ ] F4.3 Worker de wake: contrato silencioso, freios e parada após 2 avisos ignorados.
 - [ ] F4.4 Seção "Agenda" na Biblioteca (com prévias).
+- [ ] F4.A Auditoria: 5 lentes, verificação, correções com teste, reauditoria e `auditorias/F4.md` fechado.
 
 ### F5: Memória, Caderno e Sono
 - [ ] F5.1 Model `Note`, rotas `/v1/notes` (IDOR) e tools.
 - [ ] F5.2 Seção "Caderno" e regras aprendidas visíveis e editáveis (com prévias).
 - [ ] F5.3 Job `sleep`, `MemoryChange` com desfazer e "doctor".
+- [ ] F5.A Auditoria: 5 lentes, verificação, correções com teste, reauditoria e `auditorias/F5.md` fechado.
 
 ### F6: Compras
 - [ ] F6.1 `product_search` estruturado e card `product`.
@@ -93,19 +107,23 @@
 - [ ] F6.3 `checkout` com campo de CVV no cartão de aprovação e `card_fill` (teste de vazamento).
 - [ ] F6.4 Mandato opcional.
 - [ ] F6.5 `record_purchase` e vigia de entrega automático.
+- [ ] F6.A Auditoria: 5 lentes, verificação, correções com teste, reauditoria e `auditorias/F6.md` fechado.
 
 ### F7: E-mail e dia
 - [ ] F7.1 `email` e `calendar` (corpo, classificação por campo, prazos, rascunhos, envio com cartão).
 - [ ] F7.2 `brief` na agenda (plano do dia).
+- [ ] F7.A Auditoria: 5 lentes, verificação, correções com teste, reauditoria e `auditorias/F7.md` fechado.
 
 ### F8: Navegador e código
 - [ ] F8.1 `browser` sobre a porta `Sandbox` e `browser-bench` real.
 - [ ] F8.2 `code` (plan/build, edição precisa, verificação).
 - [ ] F8.3 Experimento Code Mode.
+- [ ] F8.A Auditoria: 5 lentes, verificação, correções com teste, reauditoria e `auditorias/F8.md` fechado.
 
 ### F9: Ponte → zero
 - [ ] F9.1 Inventário das pontes, com a contagem inicial anotada aqui.
 - [ ] F9.2 Cada ponte nativa: um item por tool, adicionado quando o inventário existir.
+- [ ] F9.A Auditoria: 5 lentes, verificação, correções com teste, reauditoria e `auditorias/F9.md` fechado.
 
 ### F10: Corte e remoção
 - [ ] F10.1 Critério de corte atendido, com o relatório da matriz.
@@ -113,6 +131,7 @@
 - [ ] F10.3 v4 padrão; v2 fica como emergência por 2 versões.
 - [ ] F10.4 Remoção de v1, v2, v3 e `agent-runtime` legado.
 - [ ] F10.5 ADR 0006 e `docs/features/motor-v4.md`.
+- [ ] F10.A Auditoria: 5 lentes, verificação, correções com teste, reauditoria e `auditorias/F10.md` fechado.
 
 ## Diário de passagem
 > A entrada mais nova fica no topo. Formato: data · conta ou sessão · fase · feito · pela metade · próximo passo · como verificar · dúvidas.

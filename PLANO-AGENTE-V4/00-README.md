@@ -4,6 +4,7 @@
 >
 > Arquivos:
 > - [`PROGRESSO.md`](PROGRESSO.md): **comece por aqui** para executar. Checklist por fase e passagem entre contas.
+> - [`auditorias/README.md`](auditorias/README.md): auditoria ao fim de cada fase (segurança, bugs, testes, contrato, custo), com verificação, correções e reauditoria.
 > - [`01-diagnostico.md`](01-diagnostico.md): o que v2 e v3 fazem hoje e por que não parecem melhores.
 > - [`02-referencias.md`](02-referencias.md): o que copiar dos harnesses abertos.
 > - [`03-arquitetura.md`](03-arquitetura.md): núcleo, capacidades, ganchos, canais, memória e agenda.

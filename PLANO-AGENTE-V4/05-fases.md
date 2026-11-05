@@ -6,7 +6,7 @@
   - testes no mesmo commit;
   - `turbo typecheck` verde;
   - CHANGELOG atualizado;
-  - auditoria independente (Sonnet, só leitura);
+  - **auditoria de fase** com 5 lentes, verificação, correções confirmadas e reauditoria ([`auditorias/README.md`](auditorias/README.md)). Sem achado crítico ou alto aberto, a fase não vai para PR;
   - prévias quando muda tela.
 - Flag: `ATLAS_ENGINE_V4` + `ATLAS_ENGINE_V4_ACCOUNTS`, no `chooseRunEngine`.
 - **Guardas permanentes (entram na F1, nunca saem):**
