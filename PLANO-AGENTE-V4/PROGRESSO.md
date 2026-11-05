@@ -47,6 +47,7 @@
 - Não insistir em tarefa largada: cláusula 17 (05/11).
 - **Genérico no comportamento:** o motor é dedicado ao Atlas, mas não viciado no uso do dono (o v1 tem 13 casos do Bling no runtime). Correção por padrão, nunca por caso; conjunto genérico junto do conjunto do dono (05/11).
 - **Open-source como o Atlas:** o motor é dedicado ao Atlas, não é biblioteca genérica. Nada do dono no código; provedores, modelos e tetos configuráveis por quem hospeda (05/11).
+- **Navegador sem enxugar:** o bot vê a página inteira (em partes), pela árvore de acessibilidade, sem depender de print; o v3 enxugou e não funcionou (05/11).
 - **Sem corte por economia:** nada de cortar contexto, pesquisa ou saída de tool para gastar menos. Só o teto que o dono configurar (05/11).
 - O branch `harness/v3` fica **congelado**, só como referência (05/11).
 - "EVA" = **Vercel Eve** (05/11).
@@ -125,7 +126,8 @@
 - [ ] F7.A Auditoria: 5 lentes, verificação, correções com teste, reauditoria e `auditorias/F7.md` fechado.
 
 ### F8: Navegador e código
-- [ ] F8.1 `browser` sobre a porta `Sandbox` e `browser-bench` real.
+- [ ] F8.1 `browser` sobre a porta `Sandbox`: árvore de acessibilidade com refs, página inteira em partes (nunca poda escondida) e visão só quando a árvore for pobre.
+- [ ] F8.1b `browser-bench` real comparando o navegador atual (ADR 0005) com o `agent-browser` da Vercel Labs na VM; fica o que acertar mais.
 - [ ] F8.2 `code` (plan/build, edição precisa, verificação).
 - [ ] F8.3 Experimento Code Mode.
 - [ ] F8.A Auditoria: 5 lentes, verificação, correções com teste, reauditoria e `auditorias/F8.md` fechado.

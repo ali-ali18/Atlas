@@ -99,7 +99,11 @@ F0 baseline ─► F1 fundação ─► F2 capacidades núcleo ─┬─► F3 p
 - [ ] `brief` da agenda: plano do dia com e-mail, agenda, caderno, pendências e entregas.
 
 ## F8: Navegador/VM e código
-- [ ] `browser`: reescreve as 4 tools com `page_state` (ideia do v3) sobre a porta `Sandbox`, e roda o `browser-bench` com modelo real.
+- [ ] `browser` (decisão do dono, 05/11: **ver a página inteira, nunca enxugar o que o bot recebe**):
+  - leitura pela árvore de acessibilidade com refs (ADR 0005, o mesmo princípio do agent-browser da Vercel Labs e do Playwright MCP);
+  - a página inteira fica disponível em partes ("ler o resto"), nunca com poda escondida;
+  - captura de tela e visão só quando a árvore é pobre (página sem rótulos, canvas, captcha) ou quando o pedido é visual.
+- [ ] Comparar no `browser-bench`, com modelo real, o navegador atual (ADR 0005) e o `agent-browser` (Apache-2.0) rodando dentro da VM. Fica o que **acertar mais**, não o que gastar menos. Poda de contexto que derrube o acerto é recusada.
 - [ ] `code`: presets de política `plan` e `build`, edição precisa, verificação por teste e dev sessions.
 - [ ] Experimento Code Mode, ligado só se ganhar na matriz.
 
