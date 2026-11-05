@@ -179,6 +179,7 @@ export async function runScenario(scenario: Scenario, options: RunScenarioOption
 			.filter((event) => event.type === "tool_result")
 			.map((event) => ({ id: String(event.id), name: String(event.name), ok: Boolean(event.ok), summary: textOf(event.summary), source: env.sourceOf(String(event.id), String(event.name)) })),
 		events,
+		...(env.files.length > 0 ? { files: env.files } : {}),
 		visible: transcript.filter((bubble) => !bubble.revised && bubble.text.trim()).map((bubble) => bubble.text),
 		revised: transcript.filter((bubble) => bubble.revised).map((bubble) => ({ text: bubble.text, reason: String(bubble.revised) })),
 		discards: events.filter((event) => event.type === "assistant_discard").map((event) => String(event.reason)),

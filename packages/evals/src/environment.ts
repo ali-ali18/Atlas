@@ -1,7 +1,7 @@
 import { buildMcpToolset, type McpRuntime, type runComputerUse } from "@workspace/agent-runtime";
 import { argsMatch } from "./predicates.js";
 import type { NativeFixture, Scenario } from "./scenario.js";
-import type { RecordedToolResult } from "./trajectory.js";
+import type { RecordedFile, RecordedToolResult } from "./trajectory.js";
 
 /**
  * Ambiente falso de um cenário: perfil do bot fixo, tools nativas respondidas pelos fixtures, conectores falsos e
@@ -43,6 +43,8 @@ export type ScenarioEnvironment = {
 	/** Origem do resultado de cada chamada (fixture, conector, execução real ou sem fixture). */
 	sourceOf: (callId: string, name: string) => RecordedToolResult["source"];
 	unmocked: string[];
+	/** Arquivos criados no run, com o texto quando há. */
+	files: RecordedFile[];
 };
 
 /** Id da chamada dentro da chave de idempotência `${runId}:${decisionIndex}:${toolCallId}:${toolName}`. */
@@ -80,12 +82,25 @@ function buildConnectors(scenario: Scenario): McpRuntime | null {
 	};
 }
 
-function memoryFileDeps(): NonNullable<RunParams["createFileDeps"]> {
+/** Conteúdo de texto guardado por arquivo na trajetória (o juiz lê o começo; acima disso a omissão é explícita). */
+export const FILE_TEXT_LIMIT = 100_000;
+const TEXT_MIME = /^text\/|json|xml|csv|markdown|yaml|javascript|svg/i;
+
+function memoryFileDeps(files: RecordedFile[]): NonNullable<RunParams["createFileDeps"]> {
 	let count = 0;
 	return {
 		persist: async (input) => {
 			count += 1;
-			return { id: `art-eval-${count}`, kind: input.kind, meta: { ...input.meta, mime: input.mime, size: input.bytes.byteLength }, runId: input.runId ?? null, conversationId: null, createdAt: new Date(0) };
+			const id = `art-eval-${count}`;
+			const filename = typeof input.meta?.filename === "string" ? input.meta.filename : id;
+			const file: RecordedFile = { artifactId: id, filename, mime: input.mime, size: input.bytes.byteLength };
+			if (TEXT_MIME.test(input.mime)) {
+				const text = new TextDecoder().decode(input.bytes);
+				file.text = text.slice(0, FILE_TEXT_LIMIT);
+				if (text.length > FILE_TEXT_LIMIT) file.textOmitted = text.length - FILE_TEXT_LIMIT;
+			}
+			files.push(file);
+			return { id, kind: input.kind, meta: { ...input.meta, mime: input.mime, size: input.bytes.byteLength }, runId: input.runId ?? null, conversationId: null, createdAt: new Date(0) };
 		},
 		nextVersion: async () => 1,
 		countRunFiles: async () => count,
@@ -137,6 +152,7 @@ export function buildEnvironment(scenario: Scenario): ScenarioEnvironment {
 	const calls = new Map<string, { name: string; args: unknown }>();
 	const sources = new Map<string, RecordedToolResult["source"]>();
 	const unmocked: string[] = [];
+	const files: RecordedFile[] = [];
 	const fixtureUses = new Map<NativeFixture, number>();
 	/** A mesma chamada pode ser consultada mais de uma vez: ela consome o fixture uma vez só. */
 	const assigned = new Map<string, NativeFixture>();
@@ -184,7 +200,7 @@ export function buildEnvironment(scenario: Scenario): ScenarioEnvironment {
 			},
 			mcp,
 			...(preload.length > 0 ? { forcedConnectors: preload } : {}),
-			createFileDeps: memoryFileDeps(),
+			createFileDeps: memoryFileDeps(files),
 			skillStore: memorySkillsStore(),
 		},
 		observe: (event) => {
@@ -199,5 +215,6 @@ export function buildEnvironment(scenario: Scenario): ScenarioEnvironment {
 		},
 		sourceOf: (callId, name) => sources.get(callId) ?? (name.startsWith("mcp__") ? "connector" : "real"),
 		unmocked,
+		files,
 	};
 }

@@ -1,5 +1,5 @@
 import type { Scenario, ScenarioBotLanguage } from "./scenario.js";
-import type { Trajectory } from "./trajectory.js";
+import type { RecordedFile, Trajectory } from "./trajectory.js";
 
 /**
  * Rubrica de qualidade com dois juízes (PLANO-AGENTE-V4/04-avaliacao §1). Só existe no eval, nunca no runtime.
@@ -104,36 +104,61 @@ const JUDGE_SYSTEM_TEMPLATE = [
 	'{"completude":{"score":4,"reason":"..."},"fontes":{"score":null,"reason":"..."},"formato":{"score":4,"reason":"..."},"antecipacao":{"score":3,"reason":"..."}}',
 ].join("\n");
 
-const LIMITS = { answer: 6000, request: 1500, historyMessage: 400, historyMessages: 6, toolArgs: 200, toolResult: 240, toolCalls: 30, rubric: 1500 };
+/**
+ * Limites do que o juiz lê. Generosos de propósito: cortar a resposta (ou o documento criado) faz o juiz notar o
+ * começo e perder o fim, e isso é corte por economia (decisão do dono). O que ainda passar do limite NUNCA some em
+ * silêncio: `clipExplicit` mantém começo e fim e escreve "[…N chars omitted…]" no meio.
+ */
+export const LIMITS = { answer: 40_000, request: 20_000, historyMessage: 2000, historyMessages: 8, toolArgs: 1000, toolResult: 2000, toolCalls: 60, rubric: 6000, fileHead: 3000, fileTail: 1000, files: 10 };
+
+/** Mantém o começo (60%) e o fim (40%) e diz quantos caracteres ficaram de fora. Texto dentro do limite passa intacto. */
+export function clipExplicit(text: string, max: number): string {
+	if (text.length <= max) return text;
+	const head = Math.ceil(max * 0.6);
+	const tail = max - head;
+	return `${text.slice(0, head)}\n[…${text.length - head - tail} chars omitted…]\n${tail > 0 ? text.slice(text.length - tail) : ""}`;
+}
 
 const clip = (text: string, max: number): string => (text.length > max ? `${text.slice(0, max)}…` : text);
 /** Impede que o conteúdo feche ou abra as seções do prompt. */
 const defang = (text: string): string => text.replace(/<\/?(request|answer|tools|files|rubric|history)\b[^>]*>/gi, "[tag]");
 
+/** Um arquivo criado: nome, tipo, tamanho e, quando é texto, o começo e o fim do conteúdo (com a omissão explícita). */
+function describeFile(file: RecordedFile): string {
+	const head = `- ${file.filename} (${file.mime}, ${file.size} bytes)`;
+	if (file.text === undefined) return `${head}: binary content, not shown`;
+	const body = clipExplicit(file.text, LIMITS.fileHead + LIMITS.fileTail);
+	// O ambiente guarda até FILE_TEXT_LIMIT caracteres; o que passou disso também é dito, não escondido.
+	return `${head}:\n${body}${file.textOmitted ? `\n[…${file.textOmitted} more chars not stored…]` : ""}`;
+}
+
 /**
- * O que o juiz vê: pedido, resposta final, tools chamadas com resultado curto e arquivos criados.
+ * O que o juiz vê: pedido, resposta final, tools chamadas com resultado, e arquivos criados com o conteúdo.
  * Nunca as verificações esperadas do cenário (`expect`), só a rubrica (orientação da tarefa).
  */
-export function buildJudgePrompt(input: { rubric: string; scenario: Pick<Scenario, "user" | "history">; trajectory: Pick<Trajectory, "text" | "toolCalls" | "toolResults" | "events"> }): string {
+export function buildJudgePrompt(input: { rubric: string; scenario: Pick<Scenario, "user" | "history">; trajectory: Pick<Trajectory, "text" | "toolCalls" | "toolResults" | "events"> & { files?: RecordedFile[] } }): string {
 	const { scenario, trajectory } = input;
 	const history = scenario.history
 		.slice(-LIMITS.historyMessages)
-		.map((message) => `${message.role}: ${clip("content" in message ? (message.content ?? "") : "", LIMITS.historyMessage)}`)
+		.map((message) => `${message.role}: ${clipExplicit("content" in message ? (message.content ?? "") : "", LIMITS.historyMessage)}`)
 		.join("\n");
 	const resultOf = new Map(trajectory.toolResults.map((result) => [result.id, result]));
 	const calls = trajectory.toolCalls.slice(0, LIMITS.toolCalls).map((call) => {
 		const result = resultOf.get(call.id);
-		const outcome = result ? `${result.ok ? "ok" : "ERROR"}: ${clip(result.summary.replace(/\s+/g, " "), LIMITS.toolResult)}` : "(no result)";
-		return `- ${call.name}(${clip(call.argsRaw, LIMITS.toolArgs)}) -> ${outcome}`;
+		const outcome = result ? `${result.ok ? "ok" : "ERROR"}: ${clipExplicit(result.summary.replace(/\s+/g, " "), LIMITS.toolResult)}` : "(no result)";
+		return `- ${call.name}(${clipExplicit(call.argsRaw, LIMITS.toolArgs)}) -> ${outcome}`;
 	});
-	if (trajectory.toolCalls.length > LIMITS.toolCalls) calls.push(`- (+${trajectory.toolCalls.length - LIMITS.toolCalls} more calls)`);
-	const files = trajectory.events.filter((event) => event.type === "file").map((event) => `- ${String(event.filename ?? "file")}`);
+	if (trajectory.toolCalls.length > LIMITS.toolCalls) calls.push(`- (+${trajectory.toolCalls.length - LIMITS.toolCalls} more calls omitted)`);
+	// Com o conteúdo gravado pelo ambiente; sem ele (trajetória antiga), só os nomes dos eventos de arquivo.
+	const recorded = trajectory.files ?? [];
+	const files = recorded.length > 0 ? recorded.slice(0, LIMITS.files).map(describeFile) : trajectory.events.filter((event) => event.type === "file").map((event) => `- ${String(event.filename ?? "file")}`);
+	if (recorded.length > LIMITS.files) files.push(`- (+${recorded.length - LIMITS.files} more files omitted)`);
 	return [
-		`<rubric>\n${defang(clip(input.rubric, LIMITS.rubric))}\n</rubric>`,
-		`<request>\n${defang([history ? `Earlier messages:\n${history}` : "", `user: ${clip(scenario.user, LIMITS.request)}`].filter(Boolean).join("\n"))}\n</request>`,
+		`<rubric>\n${defang(clipExplicit(input.rubric, LIMITS.rubric))}\n</rubric>`,
+		`<request>\n${defang([history ? `Earlier messages:\n${history}` : "", `user: ${clipExplicit(scenario.user, LIMITS.request)}`].filter(Boolean).join("\n"))}\n</request>`,
 		`<tools>\n${defang(calls.join("\n") || "(none)")}\n</tools>`,
 		`<files>\n${defang(files.join("\n") || "(none)")}\n</files>`,
-		`<answer>\n${defang(clip(trajectory.text, LIMITS.answer))}\n</answer>`,
+		`<answer>\n${defang(clipExplicit(trajectory.text, LIMITS.answer))}\n</answer>`,
 	].join("\n\n");
 }
 

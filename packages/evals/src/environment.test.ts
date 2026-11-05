@@ -129,3 +129,17 @@ describe("current_time no fuso do cenário (auditoria F0, A1)", () => {
 		expect(evalNowText()).toBe(evalNowText("UTC"));
 	});
 });
+
+describe("arquivos criados guardam o conteúdo de texto (auditoria F0, M3)", () => {
+	it("persist grava nome, tipo e texto; binário só nome e tamanho", async () => {
+		const env = envWith([]);
+		const deps = env.params.createFileDeps!;
+		const encode = (value: string) => new TextEncoder().encode(value);
+		await deps.persist!({ userId: "u", kind: "file", bytes: encode("# Relatório\nfim"), mime: "text/markdown", meta: { filename: "relatorio.md" } });
+		await deps.persist!({ userId: "u", kind: "file", bytes: new Uint8Array([1, 2, 3]), mime: "application/pdf", meta: { filename: "doc.pdf" } });
+		expect(env.files).toEqual([
+			{ artifactId: "art-eval-1", filename: "relatorio.md", mime: "text/markdown", size: 16, text: "# Relatório\nfim" },
+			{ artifactId: "art-eval-2", filename: "doc.pdf", mime: "application/pdf", size: 3 },
+		]);
+	});
+});
