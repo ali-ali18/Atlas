@@ -11,7 +11,7 @@ import { tap } from "@/lib/haptics";
 import type { ApiFetch } from "@/lib/home-sync";
 import { PasteImageInput } from "@/lib/paste-native";
 import { useAttachments } from "@/lib/use-attachments";
-import { fieldWrapperStyle, webFieldHeight, COMPOSER_BUTTON, COMPOSER_INSET, COMPOSER_LINE_HEIGHT, COMPOSER_MIN_HEIGHT, COMPOSER_PILL_RADIUS, COMPOSER_STACKED_INSET, COMPOSER_STACKED_RADIUS } from "@/lib/composer-metrics";
+import { fieldMaxHeight, fieldWrapperStyle, webFieldHeight, COMPOSER_BUTTON, COMPOSER_INSET, COMPOSER_LINE_HEIGHT, COMPOSER_MIN_HEIGHT, COMPOSER_PILL_RADIUS, COMPOSER_STACKED_INSET, COMPOSER_STACKED_RADIUS } from "@/lib/composer-metrics";
 import { useStackedLayout } from "@/lib/use-stacked-layout";
 import { DictationBar } from "./dictation-bar";
 import { MARKER_HEIGHT, MarkerChip } from "./marker-chip";
@@ -218,8 +218,8 @@ export function Composer({ initialText, botName, color, foreground, running, api
 		held.current = holdWriting === true;
 	}, [holdWriting]);
 	const [webHeight, setWebHeight] = React.useState(0);
-	// O campo cresce com o texto até 40% da tela e rola por dentro depois disso.
-	const maxFieldHeight = Math.round(useWindowDimensions().height * 0.4);
+	// O campo cresce com o texto até 20% da tela e rola por dentro depois disso.
+	const maxFieldHeight = fieldMaxHeight(useWindowDimensions().height);
 	// Largura do grupo da direita: microfone + botão da cor do bot.
 	const rightWidth = BUTTON * 2 + 8;
 	const mode = hasText || hasAttachments ? "send" : running ? "stop" : "voice";

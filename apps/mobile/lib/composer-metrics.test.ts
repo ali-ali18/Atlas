@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { COMPOSER_LINE_HEIGHT, COMPOSER_STACKED_STRIP, fieldWrapperStyle, textWrapped, webFieldHeight } from "./composer-metrics";
+import { COMPOSER_LINE_HEIGHT, COMPOSER_STACKED_STRIP, fieldMaxHeight, FIELD_MAX_SCREEN_FRACTION, fieldWrapperStyle, textWrapped, webFieldHeight } from "./composer-metrics";
 
 describe("textWrapped", () => {
 	it("uma linha não empilha", () => {
@@ -27,6 +27,11 @@ describe("altura do campo", () => {
 		expect(webFieldHeight(21, 45, 300)).toBe(45);
 		expect(webFieldHeight(21 * 6 + 24, 45, 300)).toBe(150);
 		expect(webFieldHeight(21 * 15 + 24, 45, 300)).toBe(300);
+	});
+	it("o teto é 20% da altura da tela, igual para o composer e a barra de voz", () => {
+		expect(FIELD_MAX_SCREEN_FRACTION).toBe(0.2);
+		expect(fieldMaxHeight(800)).toBe(160);
+		expect(webFieldHeight(1000, 45, fieldMaxHeight(800))).toBe(160);
 	});
 	it("o flex fica no envoltório", () => {
 		expect(fieldWrapperStyle(false)).toEqual({ flex: 1 });

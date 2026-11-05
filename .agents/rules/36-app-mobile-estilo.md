@@ -46,6 +46,7 @@ Vale para toda tela, folha e componente de `apps/mobile`. Complementa a seção 
 ## Campos
 - Campos lado a lado (ex.: Nome e E-mail) usam a **mesma peça** (`ChromeInput`), com a mesma altura, raio, borda e fonte.
   Campo não editável = `readOnly`, mesma aparência (sem cursor, sem opacidade).
+- Campo do composer e barra de voz crescem até 20% da altura da tela (`FIELD_MAX_SCREEN_FRACTION` em `lib/composer-metrics.ts`) e rolam por dentro depois disso. Decisão do dono, 11/2026.
 
 ## Status do avatar (home)
 - Bolinha no canto de baixo à direita do avatar (`StatusDot`, medidas do web: 26% do corpo, entre 10 e 16, anel na cor do fundo).

@@ -17,6 +17,14 @@ export const COMPOSER_STACKED_TEXT_PADDING = 16;
 /** Faixa que o retângulo reserva embaixo para a linha de botões. */
 export const COMPOSER_STACKED_STRIP = COMPOSER_BUTTON + COMPOSER_STACKED_INSET * 2;
 
+/** Teto do campo (e da barra de voz): fração da altura da tela; passando disso o texto rola por dentro. */
+export const FIELD_MAX_SCREEN_FRACTION = 0.2;
+
+/** Altura máxima do campo para a altura de tela dada. */
+export function fieldMaxHeight(screenHeight: number): number {
+	return Math.round(screenHeight * FIELD_MAX_SCREEN_FRACTION);
+}
+
 /**
  * O texto quebrou em mais de uma linha? Regra do campo do composer: a altura passou da base de uma linha em pelo menos
  * 80% de uma linha. `baseline` é a menor altura vista (uma linha).

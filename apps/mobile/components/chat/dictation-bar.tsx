@@ -10,6 +10,7 @@ import {
 	COMPOSER_INSET,
 	COMPOSER_LINE_HEIGHT,
 	COMPOSER_MIN_HEIGHT,
+	fieldMaxHeight,
 	COMPOSER_STACKED_INSET,
 	COMPOSER_STACKED_STRIP,
 	COMPOSER_STACKED_TEXT_PADDING,
@@ -44,13 +45,13 @@ type DictationBarProps = {
  * Mesmo mecanismo e mesmas medidas do campo do composer (`useStackedLayout`, `lib/composer-metrics.ts`): com o texto
  * em uma linha é a pílula (X | texto | quadrado | enviar); quando quebra vira retângulo (texto na largura toda, linha de
  * botões na base) e fica assim até a barra fechar. Os botões ficam sempre em posição absoluta; o texto reserva as
- * laterais (pílula) ou a faixa de baixo (retângulo). Acima de 40% da tela rola, sempre no fim.
+ * laterais (pílula) ou a faixa de baixo (retângulo). Acima de 20% da tela rola, sempre no fim.
  */
 export function DictationBar({ spoken, color, foreground, busy, onStackedChange, onCancel, onStop, onSend }: DictationBarProps) {
 	const scheme = useAppColorScheme();
 	const line = barLine(spoken);
 	const scroller = React.useRef<React.ComponentRef<typeof ScrollView>>(null);
-	const maxHeight = Math.round(useWindowDimensions().height * 0.4);
+	const maxHeight = fieldMaxHeight(useWindowDimensions().height);
 	const { stacked, measure } = useStackedLayout();
 	const onTextLayout = (event: LayoutChangeEvent) => {
 		if (measure(event.nativeEvent.layout.height, true)) onStackedChange?.(true);
