@@ -1,5 +1,5 @@
 import * as React from "react";
-import { ChartColumnIcon, ClockIcon, CodeIcon, CompactIcon, FileIcon, FileSpreadsheetIcon, FileTextIcon, HelpIcon, ImagesIcon, KeyRoundIcon, LayoutDashboardIcon, ListChecksIcon, PresentationIcon, ShieldCheckIcon, SparklesIcon, UserCogIcon, UserPlusIcon, UsersIcon } from "@/components/icons";
+import { ChartColumnIcon, ClockIcon, CodeIcon, CompactIcon, FileIcon, FileSpreadsheetIcon, FileTextIcon, ImagesIcon, KeyRoundIcon, LayoutDashboardIcon, ListChecksIcon, ListTodoIcon, PresentationIcon, ShieldCheckIcon, SparklesIcon, UserCogIcon, UserPlusIcon, UsersIcon } from "@/components/icons";
 import type { CardIconKey } from "@/lib/card-preview";
 
 type IconComponent = (props: { size?: number; tone?: "muted-foreground" }) => React.JSX.Element;
@@ -14,7 +14,7 @@ const ICONS: Record<CardIconKey, IconComponent> = {
 	images: ImagesIcon,
 	routine: ClockIcon,
 	tasks: ListChecksIcon,
-	questionnaire: HelpIcon,
+	questionnaire: ListTodoIcon,
 	subagents: UsersIcon,
 	login: KeyRoundIcon,
 	approval: ShieldCheckIcon,

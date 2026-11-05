@@ -40,6 +40,7 @@ import {
 	Link as LucideLink,
 	MailOpen as LucideMailOpen,
 	ListChecks as LucideListChecks,
+	ListTodo as LucideListTodo,
 	Mic as LucideMic,
 	Monitor as LucideMonitor,
 	MousePointer2 as LucideMousePointer2,
@@ -198,6 +199,11 @@ export function CircleIcon({ size = 16, tone = "muted-foreground" }: LineIconPro
 /** Lucide `ListChecks`. */
 export function ListChecksIcon({ size = 16, tone = "muted-foreground" }: LineIconProps) {
 	return <LucideListChecks size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `ListTodo` (lista com caixinhas; Questionário, na prévia da conversa). */
+export function ListTodoIcon({ size = 16, tone = "muted-foreground" }: LineIconProps) {
+	return <LucideListTodo size={size} color={useStroke(tone)} strokeWidth={2} />;
 }
 
 /** Lucide `ChartColumn` (Gráfico, na prévia da conversa). */
