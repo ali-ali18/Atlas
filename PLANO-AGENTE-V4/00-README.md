@@ -71,13 +71,23 @@ Ainda pendentes:
 3. **Branch `harness/v3`:** congelar (não mergear) e usar só como referência. *(Recomendado, coerente com a base nova.)*
 4. **"EVA":** qual projeto? O candidato mais provável é o Vercel Eve.
 
-## Custo esperado
-- **Tokens:**
-  - "Bom dia" continua pequeno; o núcleo do v3 já mede ≤ 50% da entrada do v2.
-  - O núcleo cresce com Entregáveis e Agenda (~1,5k caracteres de schema).
-  - O contrato de trabalho acrescenta ~1,2k caracteres.
-  - Proteção: `economy-replay`.
-- **Jobs:**
-  - Vigias com intervalo mínimo de 2h, salvo pedido explícito, e com espaçamento quando nada muda.
-  - Sono: um job por bot ao fim do dia, com modelo barato.
-- **Bench real:** cerca de US$ 3 a 8 por rodada completa, sob demanda e antes de cada corte.
+## Controle de provedor e modelo (motivo do Atlas existir)
+O problema do Grok Bot não é o preço, é a **cota**. Ela acaba no meio da semana e trava faculdade, trabalho e projetos até sábado. O v4 garante **liberdade de escolha e nunca ficar travado**:
+- **Modelo por papel, escolhido pelo dono:**
+  - conversa e trabalho geral (ex.: Sonnet);
+  - passos rápidos, ajudantes, sono e classificação (ex.: Haiku);
+  - código (ex.: Opus);
+  - visão.
+
+  Configurável por bot e mudável pelo chat ("usa o Opus nessa tarefa").
+- **Vários provedores ao mesmo tempo:** chave própria da Anthropic, OpenRouter, assinatura ChatGPT/Codex e outros que a camada `packages/llm` já fala (`provider-router`, `provider-fallback`).
+- **Cadeia de reserva por papel:** se um provedor bate limite ou cai, o próximo da lista assume no mesmo passo. O dono recebe um aviso curto ("troquei para X porque Y bateu o limite").
+- **Teto só se o dono quiser:** US$ ou tokens por dia, semana ou mês, por bot ou por conta. Quando um teto dispara, a nota diz qual teto, quanto foi gasto e como liberar. Nunca trava em silêncio.
+- **Painel de uso:** quanto cada provedor e cada modelo gastou, para o dono decidir.
+- **Eficiência continua importando, para render mais:**
+  - "Bom dia" pequeno (teste de economia);
+  - cache de prompt estável;
+  - módulos sob demanda;
+  - agenda com freios;
+  - sono com modelo barato.
+- **Bench real:** cerca de US$ 3 a 8 por rodada completa, sob demanda.

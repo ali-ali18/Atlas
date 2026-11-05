@@ -49,6 +49,7 @@ F0 baseline ─► F1 fundação ─► F2 capacidades núcleo ─┬─► F3 p
   - passo final honesto;
   - eventos compatíveis com o contrato SSE.
 - [ ] Contrato de trabalho (prompt estável em inglês), com teste de string por seção.
+- [ ] Porta `Llm` com papéis, cadeia de reserva entre provedores (`pickModelFor`, com testes de 429 e queda no meio do run) e tetos opcionais do dono.
 - [ ] Worker: `chooseRunEngine` → `runAgent(runId, ports)`, atrás da flag.
 - [ ] As 5 guardas permanentes.
 
@@ -59,7 +60,7 @@ F0 baseline ─► F1 fundação ─► F2 capacidades núcleo ─┬─► F3 p
 - [ ] `deliverables`: `create_file`, `create_page`, `chart` e `inspect_file`, com moldes ABNT, relatório, deck e planilha na skill.
   - Os renderizadores de `agent-runtime/src/files/*` **migram** para um pacote próprio, `packages/files`, que o v1 e o v2 também passam a importar.
   - Assim nada é duplicado, e a ponte não é necessária.
-- [ ] `memory` (perfil), `tasks` (lista de tarefas) e `settings` (configurar o bot pelo chat).
+- [ ] `memory` (perfil), `tasks` (lista de tarefas) e `settings` (configurar o bot pelo chat, inclusive o modelo por papel).
 - [ ] `connectors`: ponte MCP com `tool_search`, escopo por dono, `confirmWrites` virando regra de política e classificação de schema.
 
 ## F3: Pesquisa

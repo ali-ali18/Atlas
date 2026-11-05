@@ -135,7 +135,15 @@ Uma entidade só para a proatividade do agente. `BotFollowup` ganha uma migratio
 - Escopo por dono e por conversa: memória de grupo não vaza para o 1:1 (Meta).
 
 ## 8. Modelos e presets
-- **Papéis de modelo:** `main`, `helper`, `sleep`, `classifier`. O `classifier` só classifica *schema* de tool MCP sem anotação, uma vez, em cache.
+- **Papéis de modelo:** `main`, `helper`, `code`, `vision`, `sleep` e `classifier`.
+  - Cada papel tem uma **cadeia ordenada de provedor + modelo**, configurada pelo dono por bot ou por conta e mudável pelo chat. Ex.: `main` = Sonnet (Anthropic) → Sonnet (OpenRouter) → modelo da assinatura ChatGPT; `code` = Opus; `helper` e `sleep` = Haiku.
+  - O `classifier` só classifica *schema* de tool MCP sem anotação, uma vez, em cache.
+- **Nunca travar por cota:**
+  - limite, erro 429 ou indisponibilidade no provedor → o próximo da cadeia assume **no mesmo passo**, com o checkpoint intacto;
+  - o dono recebe um evento de aviso curto, e o run nunca morre por cota de um provedor só;
+  - a escolha é uma função pura em shared (`pickModelFor(role, chain, health, ceilings)`), testada.
+- **Teto opcional do dono:** US$ ou tokens por dia, semana ou mês. A nota de parada diz qual teto, quanto foi gasto e como liberar. Painel de uso por provedor e modelo.
+- **Porta `Llm`:** reaproveita `packages/llm` (`provider-router`, `provider-fallback`, `prompt-cache`), que já fala Anthropic, OpenRouter, assinatura ChatGPT/Codex e OpenCode.
 - **Presets:**
   - `full`;
   - `minimal`: núcleo, web e arquivo, sem capacidades nem contrato de trabalho;
