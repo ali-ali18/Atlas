@@ -83,7 +83,7 @@
 - [x] F1.10 Porta `Llm` (notas da revisão: imagem para o papel `vision`; adaptador da porta `Random` com CSPRNG; TTL opcional no `ApprovalGrant`): papéis, cadeia de reserva (`pickModelFor`), troca no meio do run, tetos opcionais, aviso ao dono.
 - [x] F1.11 Contrato de trabalho (nota da revisão: os textos ao usuário do executor, `userMessage` de handoff e de indisponível, hoje estão fixos em pt-BR; passam a sair no idioma do bot por um módulo de copy) (prompt), com teste de string por seção.
 - [ ] F1.12 Eventos (notas da revisão do kernel: `ChannelInput` precisa de papel `assistant` para o histórico, hoje só dono, runtime e dado; fundir mensagens `user` seguidas no adaptador; não duplicar `text_delta` no retry de erro; o adaptador real do Store implementa `conversations`; saúde de provedor compartilhada entre instâncias (Redis)) compatíveis com o contrato SSE e `chooseRunEngine` → `runAgent` atrás da flag.
-- [ ] F1.13 Guardas permanentes: sem regex de comportamento, catraca da ponte, invariantes do contrato, economia.
+- [x] F1.13 (05/11; achou e corrigiu vazamento de segredo no recibo devolvido ao laço; pendente: kernel passar ao executor os valores resolvidos do cofre, ver `it.todo`) Guardas permanentes: sem regex de comportamento, catraca da ponte, invariantes do contrato, economia.
 - [ ] F1.14 Teste de fumaça ponta a ponta no worker com preset `minimal`.
 - [ ] F1.A Auditoria: 5 lentes, verificação, correções com teste, reauditoria e `auditorias/F1.md` fechado.
 
