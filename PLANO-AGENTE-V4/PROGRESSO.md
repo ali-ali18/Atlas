@@ -55,7 +55,7 @@
 ### F0: Baseline medido
 - [x] F0.1 (05/11, Sonnet escreveu, Opus revisou; `feat(evals): cenários em subpastas…` + `test(evals): conjunto ouro…`) Conjunto ouro: 24 tarefas em `packages/evals/tasks/**`, sendo pelo menos 12 de runs reais (`from-run.ts`), incluindo as de insistência.
 - [ ] F0.1b Trocar os 17 cenários `real-pendente` por runs reais redigidos (`from-run.ts`), quando houver acesso ao banco de produção.
-- [~] F0.2 (05/11, Sonnet) Comando `matrix` no CLI de evals (presets × modelos × repetições, relatório em Markdown e JSON).
+- [x] F0.2 (05/11, Sonnet escreveu, Opus revisou e confirmou os preços da Anthropic) Comando `matrix` no CLI de evals (presets × modelos × repetições, relatório em Markdown e JSON).
 - [ ] F0.3 Rubrica de qualidade com juiz offline (2 juízes e teto de discordância).
 - [x] F0.4 (05/11, Sonnet escreveu, Opus revisou e ajustou: tarefa velha injetada conta sozinha como harness) `classifyRunFailure` em shared, com testes por classe (incluindo `harness.stale_task_injection` e `model.nagging`).
 - [ ] F0.5 Rodada do baseline com v2 e v3 em Sonnet, Haiku e 2 baratos de outros provedores, com o relatório em `docs/ops/v4-baseline.md`.
@@ -138,6 +138,12 @@
 
 ## Diário de passagem
 > A entrada mais nova fica no topo. Formato: data · conta ou sessão · fase · feito · pela metade · próximo passo · como verificar · dúvidas.
+
+- **05/11/2026 · sessão principal · F0 (2)**
+  - **Feito:** F0.2 (`matrix`, com `--estimate`, `--simulate`, `--max-usd` rígido e provedores `anthropic/`, `opencode-go/` e `openrouter/`) e F0.4.
+  - **Gasto real até agora: ~US$ 0,06.** Num teste do F0.2, o Sonnet rodou sem querer 20 execuções reais (haiku pela Anthropic e qwen pelo Go, 10 cenários, 1 repetição) e o processo foi interrompido. Isso confirmou que as chaves e o roteamento funcionam. **Saldo do teto da Anthropic: ~US$ 9,95.**
+  - **Estimativa da F0.5** (gold × v2 × haiku, sonnet, deepseek e qwen × 3 repetições): **US$ 8,47**, dos quais US$ 6,66 são do Sonnet. Rodar o Sonnet com 1 repetição, ou só nas capacidades-chave, para caber no teto.
+  - **Próximo passo:** F0.3 (rubrica com 2 juízes) e depois F0.5.
 
 - **05/11/2026 · sessão principal · F0**
   - **Feito:** F0.1. Os 24 cenários ficam em `packages/evals/scenarios/gold/<capacidade>/`. O roteiro mock de todos passa, e `gold.test.ts` exige que uma trajetória ruim por verificação-chave reprove.
