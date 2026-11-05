@@ -112,8 +112,11 @@ export function classifyRunFailure(trace: RunFailureTrace): RunFailureClassifica
 		const name = ident(call.name, 60);
 		if (call.notInCatalog) add("harness.tool_not_exposed", `O modelo procurou "${name}", que existia mas não estava no catálogo nem no índice.`);
 		if (call.hidden) add("harness.tool_not_exposed", `O modelo chamou "${name}", que estava escondida neste passo.`);
-		// Só é erro do modelo com a assinatura correta visível; sem ela o defeito é de quem montou o contexto.
+		// Só é erro do modelo com a assinatura correta visível; sem ela (declarada `false`) o defeito é de quem montou o
+		// contexto: a tool existia, mas o modelo não via como chamá-la. `signatureVisible` ausente = não declarado:
+		// não acusa ninguém.
 		if (call.validationRejected && call.signatureVisible === true) add("model.bad_args", `Args recusados pelo validador em "${name}" com a assinatura visível${codeNote(call.errorCode)}.`);
+		else if (call.validationRejected && call.signatureVisible === false) add("harness.tool_not_exposed", `Args de "${name}" recusados pelo validador e a assinatura não visível ao modelo${codeNote(call.errorCode)}.`);
 	}
 
 	if (trace.compactionHappened && trace.reReadAfterCompactionEmpty) add("harness.context_lost", "A informação ficou antes da compactação e a releitura veio vazia.");
