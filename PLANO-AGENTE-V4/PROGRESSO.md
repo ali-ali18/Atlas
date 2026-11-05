@@ -71,8 +71,8 @@
 
 ### F1: Fundação
 - [x] F1.1 (05/11, Sonnet escreveu, Opus revisou; nota: a porta `Llm` ainda só leva texto — imagem para o papel `vision` entra na F1.10) Pacote `packages/agent` com `ports/`, `adapters/` e guarda de fronteira (sem `@workspace/agent-runtime`), README do motor e varredura que falha com segredo ou dado pessoal no código.
-- [ ] F1.2 `defineTool` (efeito obrigatório) e `defineCapability` (registro, índice, `use_capability`).
-- [ ] F1.3 `decide()` puro em shared: 3 estados, `HANDOFF_ACTIONS`, mandatos, matriz superfície × efeito.
+- [x] F1.2 (05/11, Sonnet escreveu, Opus revisou) `defineTool` (efeito obrigatório) e `defineCapability` (registro, índice, `use_capability`).
+- [x] F1.3 (05/11, Sonnet escreveu, Opus revisou; taint anula mandato, subagente sem envio/dinheiro, `balanced` = escrita externa pede aprovação) `decide()` puro em shared: 3 estados, `HANDOFF_ACTIONS`, mandatos, matriz superfície × efeito.
 - [ ] F1.4 Token de aprovação por hash dos argumentos e `riskFacts`.
 - [ ] F1.5 Proveniência (taint) e a regra da trifeta.
 - [ ] F1.6 `Receipt` tipado e journal de efeitos.
