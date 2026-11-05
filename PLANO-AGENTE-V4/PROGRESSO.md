@@ -149,6 +149,11 @@
 ## Diário de passagem
 > A entrada mais nova fica no topo. Formato: data · conta ou sessão · fase · feito · pela metade · próximo passo · como verificar · dúvidas.
 
+- **05/11/2026 · sessão principal · F0 (5)**
+  - **Feito:** linha de base do conjunto genérico. O Haiku cai de 75% no ouro para 56% no genérico, o que confirma o vício do v2 no uso do dono. Resumo de e-mail e plano do dia falham em todos os modelos.
+  - **Gasto acumulado:** ~US$ 5,53, sendo ~US$ 3,26 pela Anthropic.
+  - **Próximo passo:** auditoria F0.A (5 lentes) e depois o PR da F0 para `harness/v4`.
+
 - **05/11/2026 · sessão principal · F0 (4)**
   - **Feito:** F0.6.
     - Placar corrigido, sem a tarefa de código: Haiku 75%, Sonnet 65% (1 rep.), Qwen 61%, DeepSeek 58%.
