@@ -1,7 +1,10 @@
 import * as React from "react";
+import { AppState } from "react-native";
 import { fetch as expoFetch } from "expo/fetch";
 import { createApiFetch } from "@/lib/api-fetch";
-import { createRunStreamOpener } from "@/lib/chat-open";
+import { createEventsStreamOpener, createRunStreamOpener } from "@/lib/chat-open";
+import { EventHub } from "@/lib/event-hub";
+import { attachHubLifecycle, createHubTransport } from "@/lib/event-hub-client";
 import type { OpenStream } from "@/lib/chat-stream";
 import { createAtlasAuthClient, type AtlasAuthClient } from "@/lib/auth-client";
 import { canMarkSynced, phaseOf, type AccessPhase } from "@/lib/auth-flow";
@@ -35,6 +38,11 @@ export type AtlasSession = {
 	apiFetch: (path: string, init?: RequestInit) => Promise<Response>;
 	/** Abre o stream SSE de um run (`expo/fetch`, com XHR como plano B). */
 	openRunStream: (runId: string) => OpenStream;
+	/**
+	 * Canal de eventos em tempo real (`GET /v1/events`): UM por app e por conta, só existe logado. `null` fora disso.
+	 * Quem assina busca o estado no servidor quando o aviso chega (o evento só traz ids).
+	 */
+	eventHub: EventHub | null;
 };
 
 const Context = React.createContext<AtlasSession | null>(null);
@@ -140,6 +148,32 @@ export function AtlasSessionProvider({ children }: { children: React.ReactNode }
 	}, []);
 	const markSignedIn = React.useCallback(() => setJustSignedIn(true), []);
 	const consumeJustSignedIn = React.useCallback(() => setJustSignedIn(false), []);
+	// Um hub por conta e servidor (o cursor de uma conta nunca vale na outra): nasce logado e morre ao sair.
+	const hubOwner = phase === "signed-in" && client && serverUrl && email ? { client, serverUrl, email } : null;
+	const eventHub = React.useMemo(
+		() =>
+			hubOwner
+				? new EventHub({
+						transport: createHubTransport(
+							createEventsStreamOpener({ baseUrl: hubOwner.serverUrl, getCookie: () => hubOwner.client.getCookie(), streamFetch: (url, init) => expoFetch(url, init) }),
+						),
+					})
+				: null,
+		// biome-ignore lint/correctness/useExhaustiveDependencies: o dono muda só com cliente, servidor ou conta
+		[hubOwner?.client, hubOwner?.serverUrl, hubOwner?.email],
+	);
+	// Bateria: conectado só com o app ativo; em segundo plano derruba, ao voltar reconecta pelo último cursor.
+	React.useEffect(() => {
+		if (!eventHub) return;
+		return attachHubLifecycle(eventHub, {
+			current: () => AppState.currentState ?? "active",
+			subscribe: (listener) => {
+				const subscription = AppState.addEventListener("change", listener);
+				return () => subscription.remove();
+			},
+		});
+	}, [eventHub]);
+
 	// Sessão que caiu por fora (expirou, revogada): o próximo login passa de novo pelo carregamento.
 	React.useEffect(() => {
 		if (phase === "signed-out" || phase === "no-server") setSynced(false);
@@ -165,8 +199,9 @@ export function AtlasSessionProvider({ children }: { children: React.ReactNode }
 			changeServer,
 			apiFetch,
 			openRunStream,
+			eventHub,
 		}),
-		[phase, synced, onSignOut, serverUrl, client, email, name, image, justSignedIn, markSynced, markSignedIn, consumeJustSignedIn, connectServer, signOut, changeServer, apiFetch, openRunStream],
+		[phase, synced, onSignOut, serverUrl, client, email, name, image, justSignedIn, markSynced, markSignedIn, consumeJustSignedIn, connectServer, signOut, changeServer, apiFetch, openRunStream, eventHub],
 	);
 
 	return (

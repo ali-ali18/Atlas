@@ -26,8 +26,18 @@ export function resetStreamTransport(): void {
 }
 
 export function createRunStreamOpener(deps: StreamOpenerDeps, runId: string): OpenStream {
+	return createSseOpener(deps, (cursor) => `/v1/runs/${encodeURIComponent(runId)}/stream?after=${cursor}`);
+}
+
+/** Canal de eventos do usuário (`GET /v1/events`): a retomada vai só no `Last-Event-ID` (sem cursor, o servidor manda `ready`). */
+export function createEventsStreamOpener(deps: StreamOpenerDeps): OpenStream {
+	return createSseOpener(deps, () => "/v1/events");
+}
+
+/** Abre um stream SSE por `path(cursor)`; o cursor, quando há, também vai em `Last-Event-ID`. */
+export function createSseOpener(deps: StreamOpenerDeps, path: (cursor: number) => string): OpenStream {
 	return async (cursor, signal) => {
-		const url = resolveApiUrl(deps.baseUrl, `/v1/runs/${encodeURIComponent(runId)}/stream?after=${cursor}`);
+		const url = resolveApiUrl(deps.baseUrl, path(cursor));
 		if (!url) throw new Error("Endereço fora do servidor do Atlas.");
 		const cookie = await deps.getCookie();
 		const headers: Record<string, string> = {
