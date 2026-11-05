@@ -81,6 +81,34 @@ function memoryFileDeps(): NonNullable<RunParams["createFileDeps"]> {
 	};
 }
 
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
+
+/**
+ * URLs de uma chamada que lê em lote (`urls: string[]`, schema real do `web_extract`). Os fixtures dos cenários
+ * casam por `url`; sem esta ponte, o modelo real (que manda `urls`) recebia "indisponível" e o eval culpava o motor.
+ */
+export function listedUrls(args: unknown): string[] | null {
+	if (!isRecord(args) || !Array.isArray(args.urls)) return null;
+	const urls = args.urls.filter((item): item is string => typeof item === "string");
+	return urls.length > 0 ? urls : null;
+}
+
+/**
+ * Resposta neutra para tools de consulta que o modelo real chama por conta própria (memória, histórico, hora).
+ * Sem isso elas voltavam "indisponível", o modelo desviava e o eval culpava o motor. Fixture do cenário vence.
+ * A hora é fixa (quinta, 05/11/2026 10:00 em São Paulo): o eval nunca depende do relógio real.
+ */
+export const EVAL_NOW_TEXT = "2026-11-05T10:00:00-03:00 (Thursday, America/Sao_Paulo)";
+export function neutralResult(name: string, args: unknown): { ok: boolean; summary: string } | null {
+	if (name === "memory_search" || name === "session_search") return { ok: true, summary: "No results." };
+	if (name === "current_time") return { ok: true, summary: EVAL_NOW_TEXT };
+	if (name === "memory") {
+		const action = isRecord(args) ? args.action : undefined;
+		return { ok: true, summary: action === "list" || action === undefined ? "No saved memories." : "Saved." };
+	}
+	return null;
+}
+
 export function buildEnvironment(scenario: Scenario): ScenarioEnvironment {
 	const calls = new Map<string, { name: string; args: unknown }>();
 	const sources = new Map<string, RecordedToolResult["source"]>();
@@ -99,8 +127,19 @@ export function buildEnvironment(scenario: Scenario): ScenarioEnvironment {
 				const id = callIdFromKey(key, calls.keys());
 				const call = id ? calls.get(id) : undefined;
 				if (!id || !call || call.name.startsWith("mcp__")) return null;
+				const urls = listedUrls(call.args);
+				if (!assigned.has(id) && urls && urls.length > 1) {
+					// Leitura em lote (`urls: [...]`, como o schema real do web_extract): cada URL responde pelo seu fixture.
+					const parts = urls.map((url) => scenario.tools.fixtures.find((item) => item.tool === call.name && argsMatch({ url, urls: [url] }, item.args)));
+					if (parts.some(Boolean)) {
+						sources.set(id, "fixture");
+						const summary = urls.map((url, index) => parts[index]?.result.summary ?? `${url}: error (not found)`).join("\n\n");
+						return { ok: parts.some((part) => part?.result.ok), summary };
+					}
+				}
+				const matchArgs = urls && urls.length === 1 && isRecord(call.args) ? { ...call.args, url: urls[0] } : call.args;
 				const fixture =
-					assigned.get(id) ?? scenario.tools.fixtures.find((item) => item.tool === call.name && argsMatch(call.args, item.args) && (item.uses === undefined || (fixtureUses.get(item) ?? 0) < item.uses));
+					assigned.get(id) ?? scenario.tools.fixtures.find((item) => item.tool === call.name && argsMatch(matchArgs, item.args) && (item.uses === undefined || (fixtureUses.get(item) ?? 0) < item.uses));
 				if (fixture) {
 					if (!assigned.has(id)) {
 						assigned.set(id, fixture);
@@ -110,6 +149,11 @@ export function buildEnvironment(scenario: Scenario): ScenarioEnvironment {
 					return { ok: fixture.result.ok, summary: fixture.result.summary };
 				}
 				if (real.has(call.name)) return null;
+				const neutral = neutralResult(call.name, call.args);
+				if (neutral) {
+					sources.set(id, "fixture");
+					return neutral;
+				}
 				sources.set(id, "unmocked");
 				unmocked.push(call.name);
 				return { ok: false, summary: UNMOCKED_SUMMARY };

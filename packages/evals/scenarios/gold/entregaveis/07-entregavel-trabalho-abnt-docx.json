@@ -87,5 +87,16 @@
         "say": "Pronto: o trabalho (cerca de 5 páginas, formatado em ABNT, com introdução, desenvolvimento, considerações finais e referências) está no arquivo acima."
       }
     ]
+  },
+  "tools": {
+    "fixtures": [
+      {
+        "tool": "web_search",
+        "result": {
+          "ok": true,
+          "summary": "Results:\n1. ABNT NBR 14724:2011 — Trabalhos acadêmicos: capa, folha de rosto, resumo, sumário, introdução, desenvolvimento, conclusão e referências; fonte 12, espaçamento 1,5, margens 3 cm (superior/esquerda) e 2 cm (inferior/direita). https://normas.test/nbr14724\n2. ABNT NBR 6023:2018 — Referências: AUTOR. Título. Edição. Local: Editora, ano. https://normas.test/nbr6023"
+        }
+      }
+    ]
   }
 }

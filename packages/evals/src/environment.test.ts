@@ -40,3 +40,38 @@ describe("fixtures com `uses`", () => {
 		expect(env.unmocked).toEqual(["sandbox_read"]);
 	});
 });
+
+describe("leitura em lote (`urls`, schema real do web_extract)", () => {
+	const fixtures = [
+		{ tool: "web_extract", args: { url: { contains: "a.test" } }, result: { ok: true, summary: "página A" } },
+		{ tool: "web_extract", args: { url: { contains: "b.test" } }, result: { ok: true, summary: "página B" } },
+	];
+
+	it("uma URL em `urls` casa o fixture escrito com `url` (antes caía em 'indisponível')", async () => {
+		const env = envWith(fixtures);
+		expect(await call(env, "c1", "web_extract", { urls: ["https://a.test/x"] })).toEqual({ ok: true, summary: "página A" });
+	});
+
+	it("várias URLs respondem cada uma pelo seu fixture; a desconhecida vira erro só dela", async () => {
+		const env = envWith(fixtures);
+		const result = await call(env, "c1", "web_extract", { urls: ["https://a.test/x", "https://zz.test", "https://b.test/y"] });
+		expect(result).toEqual({ ok: true, summary: "página A\n\nhttps://zz.test: error (not found)\n\npágina B" });
+	});
+
+	it("nenhuma URL conhecida continua 'indisponível'", async () => {
+		const env = envWith(fixtures);
+		expect(await call(env, "c1", "web_extract", { urls: ["https://zz.test", "https://yy.test"] })).toEqual({ ok: false, summary: UNMOCKED_SUMMARY });
+	});
+});
+
+describe("respostas neutras de consulta", () => {
+	it("memória, histórico e hora respondem neutro (não 'indisponível'); fixture do cenário vence", async () => {
+		const env = envWith([{ tool: "memory_search", result: { ok: true, summary: "prefere Floratta" } }]);
+		expect(await call(env, "c1", "memory_search", { query: "perfume" })).toEqual({ ok: true, summary: "prefere Floratta" });
+		expect(await call(env, "c2", "session_search", { query: "x" })).toEqual({ ok: true, summary: "No results." });
+		expect((await call(env, "c3", "current_time", {}))?.summary).toContain("2026-11-05T10:00");
+		expect(await call(env, "c4", "memory", { action: "list" })).toEqual({ ok: true, summary: "No saved memories." });
+		expect(await call(env, "c5", "memory", { action: "add", content: "x" })).toEqual({ ok: true, summary: "Saved." });
+		expect(env.unmocked).toEqual([]);
+	});
+});
