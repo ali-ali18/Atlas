@@ -1,6 +1,6 @@
 import type { QuestionnaireCardItem } from "@workspace/shared";
 import { describe, expect, it } from "vitest";
-import { answeredSummary, buildAnswers, choiceLetter, initialStepState, missingRequired, stepAnswered, stepFooter, stepReduce, stepSubtitle, toggleChoice, type StepAction, type StepState } from "./questionnaire";
+import { answeredQuestions, buildAnswers, choiceLetter, initialStepState, missingRequired, stepAnswered, stepFooter, stepReduce, stepSubtitle, toggleChoice, type StepAction, type StepState } from "./questionnaire";
 
 const items: QuestionnaireCardItem[] = [
 	{ name: "direction", prompt: "Direção?", required: true, choices: [{ value: "a" }, { value: "b" }] },
@@ -120,20 +120,38 @@ describe("questionário em etapas", () => {
 
 describe("resumo do questionário respondido", () => {
 	const asked: QuestionnaireCardItem[] = [
-		{ name: "direction", prompt: "Direção?", choices: [{ value: "both", label: "Ambos" }, { value: "x" }] },
+		{ name: "direction", prompt: "Direção?", choices: [{ value: "both", label: "Ambos" }, { value: "x", label: "Só um" }] },
 		{ name: "tags", prompt: "Tags?", multiple: true, choices: [{ value: "a", label: "Alfa" }, { value: "b", label: "Beta" }] },
 		{ name: "skipped", prompt: "Pulada?", choices: [{ value: "z" }] },
 		{ name: "briefing", prompt: "Conte mais", input: { label: "Texto" } },
 	];
-	it("troca o value pelo rótulo, junta várias escolhas e mantém o texto livre", () => {
-		expect(answeredSummary(asked, { direction: "both", tags: ["a", "b"], briefing: " agendar " })).toEqual([
-			{ name: "direction", prompt: "Direção?", labels: ["Ambos"] },
-			{ name: "tags", prompt: "Tags?", labels: ["Alfa", "Beta"] },
-			{ name: "briefing", prompt: "Conte mais", labels: ["agendar"] },
+	it("lista todas as alternativas, marca a escolhida e mantém letra e rótulo", () => {
+		const [direction] = answeredQuestions(asked, { direction: "both" });
+		expect(direction).toMatchObject({ name: "direction", prompt: "Direção?", text: null, answered: true });
+		expect(direction!.options.map((option) => [option.letter, option.label, option.selected])).toEqual([
+			["A", "Ambos", true],
+			["B", "Só um", false],
 		]);
 	});
-	it("sem respostas (ou só vazias) não tem linhas", () => {
-		expect(answeredSummary(asked, undefined)).toEqual([]);
-		expect(answeredSummary(asked, { direction: "  ", tags: [] })).toEqual([]);
+	it("múltipla escolha marca todas as escolhidas", () => {
+		const tags = answeredQuestions(asked, { tags: ["a", "b"] })[1]!;
+		expect(tags.options.map((option) => option.selected)).toEqual([true, true]);
+		expect(tags.answered).toBe(true);
+	});
+	it("texto livre aparece como veio, sem alternativas", () => {
+		const briefing = answeredQuestions(asked, { briefing: " agendar " })[3]!;
+		expect(briefing).toMatchObject({ options: [], text: "agendar", answered: true });
+	});
+	it("valor fora das alternativas vira texto e a alternativa fica desmarcada", () => {
+		const direction = answeredQuestions(asked, { direction: ["both", "outra"] })[0]!;
+		expect(direction.text).toBe("outra");
+		expect(direction.options.map((option) => option.selected)).toEqual([true, false]);
+	});
+	it("resposta ausente ou vazia mantém a pergunta, sem marcas", () => {
+		for (const answers of [undefined, { direction: "  ", tags: [] }]) {
+			const all = answeredQuestions(asked, answers);
+			expect(all).toHaveLength(4);
+			expect(all.every((question) => !question.answered && question.text === null && question.options.every((option) => !option.selected))).toBe(true);
+		}
 	});
 });

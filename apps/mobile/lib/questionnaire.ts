@@ -123,23 +123,34 @@ function finish(items: readonly QuestionnaireCardItem[], state: StepState, answe
 
 export const EMPTY_QUESTIONNAIRE_NOTICE = "Responda ao menos uma pergunta para enviar.";
 
-export type AnsweredLine = { name: string; prompt: string; labels: string[] };
+export type AnsweredOption = { value: string; letter: string; label: string; description?: string; selected: boolean };
+export type AnsweredQuestion = {
+	name: string;
+	prompt: string;
+	/** TODAS as alternativas da pergunta, com a(s) escolhida(s) marcada(s). */
+	options: AnsweredOption[];
+	/** Texto livre digitado (ou valor que não casa com nenhuma alternativa); `null` se não houve. */
+	text: string | null;
+	/** Houve alguma resposta (escolha ou texto)? Falso = pergunta pulada. */
+	answered: boolean;
+};
 
 /**
- * Respostas de um questionário já enviado, na ordem das perguntas: o rótulo da opção (não o `value` cru), o texto
- * livre como veio, várias escolhas como lista. Pergunta sem resposta (pulada) fica de fora.
+ * Questionário já enviado, para o cartão respondido, na ordem das perguntas: cada pergunta traz todas as alternativas
+ * (rótulo, não o `value` cru; a letra é a da etapa pendente) com `selected`, várias escolhas marcadas juntas e o texto
+ * livre como veio. Pergunta sem resposta (pulada) continua na lista com `answered: false`.
  */
-export function answeredSummary(items: readonly QuestionnaireCardItem[], answers: AnswerMap | undefined): AnsweredLine[] {
-	if (!answers) return [];
-	const lines: AnsweredLine[] = [];
-	for (const item of items) {
-		const raw = answers[item.name];
-		if (raw === undefined) continue;
-		const labels = (Array.isArray(raw) ? raw : [raw])
-			.map((value) => value.trim())
-			.filter(Boolean)
-			.map((value) => item.choices?.find((choice) => choice.value === value)?.label ?? value);
-		if (labels.length > 0) lines.push({ name: item.name, prompt: item.prompt, labels });
-	}
-	return lines;
+export function answeredQuestions(items: readonly QuestionnaireCardItem[], answers: AnswerMap | undefined): AnsweredQuestion[] {
+	return items.map((item) => {
+		const raw = answers?.[item.name];
+		const values = (raw === undefined ? [] : Array.isArray(raw) ? raw : [raw]).map((value) => value.trim()).filter(Boolean);
+		const known = new Set((item.choices ?? []).map((choice) => choice.value));
+		const options = (item.choices ?? []).map((choice, position): AnsweredOption => {
+			const option: AnsweredOption = { value: choice.value, letter: choiceLetter(position), label: choice.label ?? choice.value, selected: values.includes(choice.value) };
+			if (choice.description) option.description = choice.description;
+			return option;
+		});
+		const free = values.filter((value) => !known.has(value));
+		return { name: item.name, prompt: item.prompt, options, text: free.length > 0 ? free.join(", ") : null, answered: values.length > 0 };
+	});
 }

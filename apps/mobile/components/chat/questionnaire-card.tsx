@@ -2,11 +2,11 @@ import * as React from "react";
 import { Pressable, TextInput, View } from "react-native";
 import { CHAT_CARD_COPY } from "@workspace/ui/lib/chat-card-copy";
 import { CheckIcon, CloseIcon, ListChecksIcon } from "@/components/icons";
-import { ChatCard, ChatCardDetails, ChatCardHeader } from "@/components/ui/chat-card";
+import { ChatCard, ChatCardHeader } from "@/components/ui/chat-card";
 import { Text } from "@/components/ui/text";
 import { chatChrome } from "@/lib/chat-surface";
 import type { ChatItem } from "@/lib/chat-types";
-import { answeredSummary, choiceLetter, EMPTY_QUESTIONNAIRE_NOTICE, initialStepState, stepFooter, stepReduce, stepSubtitle, type AnswerMap, type StepAction } from "@/lib/questionnaire";
+import { answeredQuestions, choiceLetter, EMPTY_QUESTIONNAIRE_NOTICE, initialStepState, stepFooter, stepReduce, stepSubtitle, type AnswerMap, type StepAction } from "@/lib/questionnaire";
 import { clearQuestionnaireDraft, getQuestionnaireDraft, setQuestionnaireDraft } from "@/lib/request-memory";
 import { themeColor } from "@/lib/theme";
 import { useAppColorScheme } from "@/lib/use-theme";
@@ -25,14 +25,48 @@ function Dots({ count, index }: { count: number; index: number }) {
 	);
 }
 
+/** Letra numa caixinha + rótulo: a mesma peça da etapa pendente; `readOnly` (respondido) não é pressionável. */
+function ChoiceRow({ letter, label, description, on, readOnly, borderColor, onPress, multiple }: { letter: string; label: string; description?: string; on: boolean; readOnly?: boolean; borderColor: string; onPress?: () => void; multiple?: boolean }) {
+	const body = (
+		<>
+			<View className={on ? "size-7 items-center justify-center rounded-lg bg-primary" : "size-7 items-center justify-center rounded-lg border"} style={on ? undefined : { borderColor }}>
+				<Text className={on ? "text-body font-semibold text-primary-foreground" : "text-body font-semibold text-muted-foreground"}>{letter}</Text>
+			</View>
+			<View className="min-w-0 flex-1">
+				<Text className={readOnly && !on ? "text-control text-muted-foreground" : "text-control"}>{label}</Text>
+				{description ? (
+					<Text variant="caption" className="text-body">
+						{description}
+					</Text>
+				) : null}
+			</View>
+			{readOnly && on ? <CheckIcon size={16} tone="success" /> : null}
+		</>
+	);
+	const box = on ? "min-h-12 flex-row items-center gap-3 rounded-2xl bg-foreground/[0.06] px-2 py-2" : "min-h-12 flex-row items-center gap-3 rounded-2xl px-2 py-2";
+	if (readOnly) {
+		return (
+			<View role="listitem" accessibilityLabel={`${label}${on ? ", escolhida" : ""}`} className={box}>
+				{body}
+			</View>
+		);
+	}
+	return (
+		<Pressable role={multiple ? "checkbox" : "radio"} accessibilityState={{ checked: on }} onPress={onPress} className={`${box} active:opacity-80`}>
+			{body}
+		</Pressable>
+	);
+}
+
 /**
  * Questionário que não está mais pendente (respondido, dispensado ou sem perguntas): cartão `card` com ícone, título e
- * selo de estado, como no web. Respondido traz as respostas recolhidas ("Ver detalhes"): pergunta e o rótulo escolhido.
+ * selo de estado, como no web. Respondido fica sempre aberto: cada pergunta com todas as alternativas (a escolhida marcada) ou o texto digitado.
  * Vive em `card` (largura cheia) de propósito: na variante `activity` o título `flex-1` encolhia a pílula a só o ícone.
  */
 function ResolvedQuestionnaire({ item }: { item: Questionnaire }) {
 	const dismissed = item.status === "dismissed";
-	const lines = answeredSummary(item.items, item.answers);
+	const chrome = chatChrome(useAppColorScheme());
+	const questions = answeredQuestions(item.items, item.answers);
 	const header = (
 		<ChatCardHeader
 			leading={dismissed ? <CloseIcon /> : item.status === "submitted" ? <CheckIcon size={16} tone="success" /> : <ListChecksIcon />}
@@ -44,22 +78,32 @@ function ResolvedQuestionnaire({ item }: { item: Questionnaire }) {
 		<ChatCard className="max-w-[min(68ch,100%)] self-start">
 			{header}
 			{item.status === "submitted" ? (
-				<ChatCardDetails>
-					{lines.length === 0 ? (
+				// pl-6 = ícone do cabeçalho (16) + gap (8): o conteúdo alinha com o título.
+				<View className="gap-4 pl-6">
+					{questions.length === 0 ? (
 						<Text variant="muted" className="text-body">
 							Respostas enviadas.
 						</Text>
 					) : (
-						lines.map((line) => (
-							<View key={line.name} className="gap-0.5">
-								<Text className="text-body font-medium">{line.prompt}</Text>
-								<Text variant="muted" className="text-body">
-									{line.labels.join(", ")}
-								</Text>
+						questions.map((question) => (
+							<View key={question.name} className="gap-2">
+								<Text className="text-base font-semibold">{question.prompt}</Text>
+								<View role="list" className="gap-2">
+									{question.options.map((option) => (
+										<ChoiceRow key={option.value} letter={option.letter} label={option.label} description={option.description} on={option.selected} readOnly borderColor={chrome.edge} />
+									))}
+									{question.text ? (
+										<Text className="text-control">{question.text}</Text>
+									) : !question.answered ? (
+										<Text variant="muted" className="text-body">
+											Sem resposta
+										</Text>
+									) : null}
+								</View>
 							</View>
 						))
 					)}
-				</ChatCardDetails>
+				</View>
 			) : null}
 		</ChatCard>
 	);
@@ -117,27 +161,7 @@ export function QuestionnaireCard({ item, onAnswer }: { item: Questionnaire; onA
 			<View className="gap-2">
 				{(entry.choices ?? []).map((choice, position) => {
 					const on = picked.includes(choice.value);
-					return (
-						<Pressable
-							key={choice.value}
-							role={entry.multiple ? "checkbox" : "radio"}
-							accessibilityState={{ checked: on }}
-							onPress={() => dispatch({ type: "toggle", name: entry.name, value: choice.value, multiple: entry.multiple === true })}
-							className={on ? "min-h-12 flex-row items-center gap-3 rounded-2xl bg-foreground/[0.06] px-2 py-2 active:opacity-80" : "min-h-12 flex-row items-center gap-3 rounded-2xl px-2 py-2 active:opacity-80"}
-						>
-							<View className={on ? "size-7 items-center justify-center rounded-lg bg-primary" : "size-7 items-center justify-center rounded-lg border"} style={on ? undefined : { borderColor: chrome.edge }}>
-								<Text className={on ? "text-body font-semibold text-primary-foreground" : "text-body font-semibold text-muted-foreground"}>{choiceLetter(position)}</Text>
-							</View>
-							<View className="min-w-0 flex-1">
-								<Text className="text-control">{choice.label ?? choice.value}</Text>
-								{choice.description ? (
-									<Text variant="caption" className="text-body">
-										{choice.description}
-									</Text>
-								) : null}
-							</View>
-						</Pressable>
-					);
+					return <ChoiceRow key={choice.value} letter={choiceLetter(position)} label={choice.label ?? choice.value} description={choice.description} on={on} multiple={entry.multiple === true} borderColor={chrome.edge} onPress={() => dispatch({ type: "toggle", name: entry.name, value: choice.value, multiple: entry.multiple === true })} />;
 				})}
 				{entry.input ? (
 					<TextInput
