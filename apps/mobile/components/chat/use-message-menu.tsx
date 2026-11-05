@@ -1,9 +1,9 @@
 import * as Clipboard from "expo-clipboard";
-import * as Haptics from "expo-haptics";
 import * as React from "react";
 import { View } from "react-native";
 import { Text } from "@/components/ui/text";
 import type { ChatItem } from "@/lib/chat-types";
+import { tap } from "@/lib/haptics";
 import { messageMenuFor, type MessageMenu } from "@/lib/message-actions";
 import type { ChatHook } from "@/lib/use-chat";
 import { MessageActionsSheet } from "./message-actions-sheet";
@@ -43,7 +43,7 @@ export function useMessageMenu({ chat, goBack, composerHeight, onReply }: { chat
 	const open = React.useCallback((item: ChatItem) => {
 		const menu = messageMenuFor(item);
 		if (!menu) return;
-		void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined);
+		tap();
 		setTarget({ id: item.id, menu, item });
 	}, []);
 	const close = React.useCallback(() => setTarget(null), []);

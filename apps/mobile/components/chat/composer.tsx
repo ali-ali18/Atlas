@@ -7,6 +7,7 @@ import { AttachmentSheet, type AttachmentAction } from "./attachment-sheet";
 import { ComposerAttachments } from "./composer-attachments";
 import { pickDocuments, pickFromCamera, pickPhotos, type PickOutcome } from "@/lib/attachment-pickers";
 import type { OutgoingAttachment } from "@/lib/attachments";
+import { tap } from "@/lib/haptics";
 import type { ApiFetch } from "@/lib/home-sync";
 import { PasteImageInput } from "@/lib/paste-native";
 import { useAttachments } from "@/lib/use-attachments";
@@ -268,6 +269,7 @@ export function Composer({ initialText, botName, color, foreground, running, api
 		dictation.start();
 	};
 	const press = () => {
+		if (mode === "send" ? attachments.ready : mode === "stop") tap();
 		if (mode === "send") {
 			// `/compact [foco]` escrito à mão também é o comando (como no web); com o bot respondendo segue como texto.
 			if (!attachments.ready) return;

@@ -9,6 +9,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { LaunchOverlay } from "@/components/launch/launch-overlay";
 import { SplashView } from "@/components/splash-screen";
 import { redirectFor } from "@/lib/auth-flow";
+import { AppPreferencesProvider } from "@/lib/app-preferences";
 import { AtlasSessionProvider, useAtlasSession } from "@/lib/atlas-session";
 import { HomeDataProvider } from "@/lib/home-data";
 import { isAppReady } from "@/lib/launch-sequence";
@@ -46,7 +47,7 @@ function LaunchGate({ onShown }: { onShown: () => void }) {
 /** Se a abertura não chegar a desenhar (erro inesperado), o splash nativo sai mesmo assim: o app nunca fica preso nele. */
 const NATIVE_SPLASH_BACKSTOP_MS = 6000;
 
-export default function RootLayout() {
+function RootShell() {
 	const scheme = useAppColorScheme();
 	const hideNativeSplash = React.useCallback(() => {
 		SplashScreen.hideAsync().catch(() => undefined);
