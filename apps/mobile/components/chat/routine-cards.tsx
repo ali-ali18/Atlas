@@ -58,15 +58,15 @@ export function RoutineCard({ item, onOpen }: { item: RoutineCardItem; onOpen: (
 	if (item.action === "listed") return <RoutineListCard item={item} onOpen={onOpen} />;
 	const badge = badgeFor(item);
 	const body = (
-		<ChatCard variant="activity" className="min-h-11 max-w-[min(68ch,100%)] justify-center">
+		<ChatCard variant="activity" className="min-h-11 max-w-full justify-center">
 			<ChatCardLine leading={<RoutineKindIcon kind={routineIcon(item)} />} trailing={<ChatCardBadge {...badge} />}>
 				<RoutineTexts item={item} />
 			</ChatCardLine>
 		</ChatCard>
 	);
-	if (!canOpen(item)) return <View className="self-start">{body}</View>;
+	if (!canOpen(item)) return <View className="max-w-full self-start">{body}</View>;
 	return (
-		<Pressable role="button" accessibilityLabel={`${item.title}. ${badge.label}. Abrir rotina`} onPress={() => onOpen(item.routineId)} className="self-start active:opacity-80">
+		<Pressable role="button" accessibilityLabel={`${item.title}. ${badge.label}. Abrir rotina`} onPress={() => onOpen(item.routineId)} className="max-w-full self-start active:opacity-80">
 			{body}
 		</Pressable>
 	);
@@ -79,8 +79,8 @@ function RoutineListCard({ item, onOpen }: { item: RoutineCardItem; onOpen: (rou
 	const active = rows.filter((row) => row.enabled).length;
 	return (
 		<>
-			<Pressable role="button" accessibilityLabel={`${item.title}. Ver tudo`} onPress={() => rows.length > 0 && setOpen(true)} className="self-start active:opacity-80">
-				<ChatCard variant="activity" className="min-h-11 max-w-[min(68ch,100%)] justify-center">
+			<Pressable role="button" accessibilityLabel={`${item.title}. Ver tudo`} onPress={() => rows.length > 0 && setOpen(true)} className="max-w-full self-start active:opacity-80">
+				<ChatCard variant="activity" className="min-h-11 max-w-full justify-center">
 					<ChatCardLine leading={<ClockIcon size={16} />} trailing={rows.length > 0 ? <Text className="text-body font-medium text-muted-foreground">{`${CHAT_CARD_COPY.seeAll} (${rows.length})`}</Text> : null}>
 						<Text numberOfLines={1} className="text-sm font-medium">
 							{item.title}
