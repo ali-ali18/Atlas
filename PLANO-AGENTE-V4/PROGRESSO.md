@@ -53,7 +53,8 @@
 ## Checklist
 
 ### F0: Baseline medido
-- [~] F0.1 (05/11, sessão principal: Sonnet escreve, Opus revisa) Conjunto ouro: 24 tarefas em `packages/evals/tasks/**`, sendo pelo menos 12 de runs reais (`from-run.ts`), incluindo as de insistência.
+- [x] F0.1 (05/11, Sonnet escreveu, Opus revisou; `feat(evals): cenários em subpastas…` + `test(evals): conjunto ouro…`) Conjunto ouro: 24 tarefas em `packages/evals/tasks/**`, sendo pelo menos 12 de runs reais (`from-run.ts`), incluindo as de insistência.
+- [ ] F0.1b Trocar os 17 cenários `real-pendente` por runs reais redigidos (`from-run.ts`), quando houver acesso ao banco de produção.
 - [ ] F0.2 Comando `matrix` no CLI de evals (presets × modelos × repetições, relatório em Markdown e JSON).
 - [ ] F0.3 Rubrica de qualidade com juiz offline (2 juízes e teto de discordância).
 - [ ] F0.4 `classifyRunFailure` em shared, com testes por classe (incluindo `harness.stale_task_injection` e `model.nagging`).
@@ -137,6 +138,16 @@
 
 ## Diário de passagem
 > A entrada mais nova fica no topo. Formato: data · conta ou sessão · fase · feito · pela metade · próximo passo · como verificar · dúvidas.
+
+- **05/11/2026 · sessão principal · F0**
+  - **Feito:** F0.1. Os 24 cenários ficam em `packages/evals/scenarios/gold/<capacidade>/`. O roteiro mock de todos passa, e `gold.test.ts` exige que uma trajetória ruim por verificação-chave reprove.
+  - **Limitações** (estão nas `description`):
+    - o 17 (código) é representado pela shell da VM;
+    - no 13 não dá para injetar `now` no runtime;
+    - o 21 mede só a parte do modelo, porque a nota `continuedWorkNote` do worker vem do banco e o eval não a reproduz.
+  - **Medida:** "Bom dia" com ~5.729 tokens no 1º passo; o teto do cenário é 6.600.
+  - **Próximo passo:** F0.2, o comando `matrix` com provedores OpenCode Go (`OPENCODE_GO_API_KEY`) e Anthropic (`CLAUDE_KEY`), teto rígido de US$ 10 e `--estimate`.
+  - **Como verificar:** `cd packages/evals && pnpm exec tsc --noEmit && pnpm test` (99 verdes) e `pnpm eval list --scenarios gold`.
 
 - **05/11/2026 · sessão de planejamento**
   - **Feito:** plano completo em `PLANO-AGENTE-V4/` e pesquisa em `pesquisa/`.

@@ -1,0 +1,136 @@
+{
+  "version": 1,
+  "id": "gold-insistencia-falha-silencio-assunto-novo",
+  "title": "Resumo de vídeo falhou, o dono sumiu e agora pergunta do tempo → responde SÓ o tempo; não menciona o vídeo nem oferece continuar",
+  "description": "Queixa de 05/11 (01-diagnostico, 'Insistência'). Cláusula 17: o que o dono largou não volta. Limitação: o v2 de produção reinjeta o trabalho velho por uma nota do worker (`continuedWorkNote`, DB), que o eval não reproduz; este cenário mede a parte do MODELO (`model.nagging`) com a lista de tarefas aberta no histórico. A parte do harness fica coberta pelo teste do montador de contexto (F1). Checagem textual: proibido 'vídeo', 'youtube' e 'legenda' na resposta (determinística sobre a saída, não é decisão de runtime).",
+  "tags": [
+    "gold",
+    "insistencia",
+    "nao-insiste",
+    "contrato-17",
+    "real-pendente"
+  ],
+  "source": {
+    "kind": "seed",
+    "note": "Conjunto ouro F0.1 (PLANO-AGENTE-V4/04-avaliacao.md §1): cenário escrito à mão a partir do uso real do dono."
+  },
+  "bot": {
+    "name": "Ada",
+    "about": "Assistente pessoal do dono: e-mail, compras, estudos e agenda.",
+    "language": "pt-BR"
+  },
+  "history": [
+    {
+      "role": "user",
+      "content": "resume esse vídeo pra mim https://www.youtube.com/watch?v=abc123XYZ"
+    },
+    {
+      "role": "assistant",
+      "content": null,
+      "toolCalls": [
+        {
+          "id": "call-v1",
+          "name": "update_task_list",
+          "args": {
+            "items": [
+              {
+                "content": "Resumir o vídeo do YouTube",
+                "status": "in_progress"
+              }
+            ]
+          }
+        },
+        {
+          "id": "call-v2",
+          "name": "video_transcript",
+          "args": {
+            "url": "https://www.youtube.com/watch?v=abc123XYZ"
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "toolCallId": "call-v1",
+      "content": "Task list updated: 1 item (0 completed)."
+    },
+    {
+      "role": "tool",
+      "toolCallId": "call-v2",
+      "content": "Error: no captions available for this video (yt-dlp: There are no subtitles for the requested languages)."
+    },
+    {
+      "role": "assistant",
+      "content": "Não consegui resumir o vídeo: ele não tem legendas disponíveis para eu ler."
+    }
+  ],
+  "user": "qual a previsão do tempo amanhã em Curitiba?",
+  "tools": {
+    "fixtures": [
+      {
+        "tool": "web_search",
+        "result": {
+          "ok": true,
+          "summary": "Results:\n1. Previsão do tempo para Curitiba amanhã (06/11): mínima 14 °C, máxima 22 °C, chuva fraca à tarde (60% de chance). https://clima.test/curitiba"
+        }
+      }
+    ]
+  },
+  "run": {
+    "engine": "v2"
+  },
+  "expect": [
+    {
+      "type": "completed"
+    },
+    {
+      "id": "responde-o-tempo",
+      "type": "text_contains",
+      "pattern": "14|22|chuva",
+      "ignoreCase": true
+    },
+    {
+      "id": "cita-curitiba-ou-a-previsao",
+      "type": "text_contains",
+      "pattern": "Curitiba|amanh",
+      "ignoreCase": true
+    },
+    {
+      "id": "nao-menciona-o-video",
+      "type": "text_not_contains",
+      "pattern": "v[ií]deo|youtube|legenda",
+      "ignoreCase": true
+    },
+    {
+      "id": "nao-oferece-continuar",
+      "type": "text_not_contains",
+      "pattern": "quer que eu (continue|tente|retome)|posso (tentar|continuar|retomar)|continuar (de onde|com)",
+      "ignoreCase": true
+    },
+    {
+      "id": "nao-retoma-a-tool-do-video",
+      "type": "tool_not_called",
+      "toolPattern": "video_transcript"
+    },
+    {
+      "type": "no_internals"
+    }
+  ],
+  "mock": {
+    "turns": [
+      {
+        "calls": [
+          {
+            "name": "web_search",
+            "args": {
+              "query": "previsão do tempo Curitiba amanhã"
+            }
+          }
+        ]
+      },
+      {
+        "say": "Amanhã em Curitiba: mínima de 14 °C e máxima de 22 °C, com chuva fraca à tarde (60% de chance). Leve um guarda-chuva."
+      }
+    ]
+  }
+}

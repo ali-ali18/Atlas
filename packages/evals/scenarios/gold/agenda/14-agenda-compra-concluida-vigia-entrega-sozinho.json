@@ -1,0 +1,118 @@
+{
+  "version": 1,
+  "id": "gold-agenda-compra-concluida-vigia-entrega-sozinho",
+  "title": "Compra concluída no histórico → o bot agenda sozinho o acompanhamento da entrega, em silêncio, sem ser pedido",
+  "description": "Decisão do dono (70-padroes): follow-up inferido da conversa é agendado em silêncio (inferred=true, kind=check), sem card e sem anunciar; volta só com novidade. O pedido do usuário aqui é só agradecer. ESPERADO FALHAR NO v2 (lacuna 'acompanhamento de entrega' do diagnóstico, F4/F6): o modelo costuma só responder 'de nada'.",
+  "tags": [
+    "gold",
+    "agenda",
+    "vigia",
+    "autonomia",
+    "silencio",
+    "real-pendente"
+  ],
+  "source": {
+    "kind": "seed",
+    "note": "Conjunto ouro F0.1 (PLANO-AGENTE-V4/04-avaliacao.md §1): cenário escrito à mão a partir do uso real do dono."
+  },
+  "bot": {
+    "name": "Ada",
+    "about": "Assistente pessoal do dono: e-mail, compras, estudos e agenda.",
+    "language": "pt-BR"
+  },
+  "history": [
+    {
+      "role": "user",
+      "content": "pode finalizar a compra do kit, aprovei"
+    },
+    {
+      "role": "assistant",
+      "content": "Pedido BR-48213 confirmado: Kit Presente Floratta Blue Crystal, R$ 189,90 no cartão final 4321. A loja previu a entrega até 12/11, código de rastreio BR123456789BR (https://rastreio.test/BR123456789BR)."
+    }
+  ],
+  "user": "valeu, show!",
+  "tools": {
+    "fixtures": [
+      {
+        "tool": "list_followups",
+        "result": {
+          "ok": true,
+          "summary": "No open follow-ups."
+        }
+      },
+      {
+        "tool": "schedule_followup",
+        "result": {
+          "ok": true,
+          "summary": "Follow-up scheduled (check). Silent unless there is news."
+        }
+      },
+      {
+        "tool": "propose_routine",
+        "result": {
+          "ok": true,
+          "summary": "Routine created. The user sees the routine card."
+        }
+      }
+    ]
+  },
+  "run": {
+    "engine": "v2",
+    "proactive": true
+  },
+  "expect": [
+    {
+      "type": "completed"
+    },
+    {
+      "id": "agendou-o-acompanhamento",
+      "type": "tool_called",
+      "tool": "schedule_followup",
+      "args": {
+        "inferred": {
+          "equals": true
+        },
+        "note": {
+          "matches": "BR123456789BR|BR-48213"
+        }
+      }
+    },
+    {
+      "id": "sem-rotina-do-usuario",
+      "type": "tool_not_called",
+      "tool": "propose_routine"
+    },
+    {
+      "id": "agendou-em-silencio",
+      "type": "text_not_contains",
+      "pattern": "agend|vigia|acompanh|follow-?up|te aviso",
+      "ignoreCase": true
+    },
+    {
+      "type": "no_question"
+    },
+    {
+      "type": "no_internals"
+    }
+  ],
+  "mock": {
+    "turns": [
+      {
+        "calls": [
+          {
+            "name": "schedule_followup",
+            "args": {
+              "inferred": true,
+              "kind": "check",
+              "when": "dia 10 às 10h",
+              "note": "Check the delivery status of order BR-48213 (tracking BR123456789BR, https://rastreio.test/BR123456789BR; expected by 2026-11-12). Message the user only if it shipped late, was delayed or was delivered."
+            }
+          }
+        ]
+      },
+      {
+        "say": "De nada! Boa compra."
+      }
+    ]
+  }
+}

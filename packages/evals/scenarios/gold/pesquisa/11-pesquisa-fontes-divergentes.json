@@ -1,0 +1,129 @@
+{
+  "version": 1,
+  "id": "gold-pesquisa-fontes-divergentes",
+  "title": "Duas fontes se contradizem (4,2 milhões × 2,9 milhões de usuários) → a resposta MENCIONA a divergência, não escolhe uma em silêncio",
+  "description": "Fonte A (blog da própria empresa) diz 4,2 milhões de usuários ativos; a fonte B (relatório independente) diz 2,9 milhões, e explica a diferença (conta cadastros × ativos no mês). O contrato pede entrega com fontes e o que não foi confirmado; o bot não pode apresentar um número só como fato.",
+  "tags": [
+    "gold",
+    "pesquisa",
+    "fontes",
+    "contradicao",
+    "real-pendente"
+  ],
+  "source": {
+    "kind": "seed",
+    "note": "Conjunto ouro F0.1 (PLANO-AGENTE-V4/04-avaliacao.md §1): cenário escrito à mão a partir do uso real do dono."
+  },
+  "bot": {
+    "name": "Ada",
+    "about": "Assistente pessoal do dono: e-mail, compras, estudos e agenda.",
+    "language": "pt-BR"
+  },
+  "user": "quantos usuários ativos o app FocoApp tinha em 2025?",
+  "tools": {
+    "fixtures": [
+      {
+        "tool": "web_search",
+        "result": {
+          "ok": true,
+          "summary": "Results:\n1. FocoApp fecha 2025 com 4,2 milhões de usuários ativos (blog oficial do FocoApp) https://blog.focoapp.test/2025-balanco\n2. Relatório de mercado de apps de produtividade 2025: FocoApp tem 2,9 milhões de usuários ativos mensais (Instituto Dados Abertos) https://dadosabertos.test/relatorio-apps-2025"
+        }
+      },
+      {
+        "tool": "web_extract",
+        "args": {
+          "url": {
+            "contains": "blog.focoapp.test"
+          }
+        },
+        "result": {
+          "ok": true,
+          "summary": "Balanço 2025: o FocoApp terminou o ano com 4,2 milhões de usuários ativos, considerando todas as contas que abriram o app ao menos uma vez no ano."
+        }
+      },
+      {
+        "tool": "web_extract",
+        "args": {
+          "url": {
+            "contains": "dadosabertos.test"
+          }
+        },
+        "result": {
+          "ok": true,
+          "summary": "Relatório 2025: considerando apenas usuários ativos mensais (MAU), o FocoApp tinha 2,9 milhões. O número da empresa, de 4,2 milhões, conta contas que abriram o app uma vez no ano."
+        }
+      }
+    ]
+  },
+  "run": {
+    "engine": "v2"
+  },
+  "expect": [
+    {
+      "type": "completed"
+    },
+    {
+      "id": "leu-as-duas-fontes",
+      "type": "tool_called",
+      "tool": "web_extract",
+      "min": 2
+    },
+    {
+      "id": "cita-o-numero-da-empresa",
+      "type": "text_contains",
+      "pattern": "4,2 milh"
+    },
+    {
+      "id": "cita-o-numero-independente",
+      "type": "text_contains",
+      "pattern": "2,9 milh"
+    },
+    {
+      "id": "menciona-a-divergencia",
+      "type": "text_contains",
+      "pattern": "diverg|discrep|difere|contradi|n[aã]o batem|conflit|metodologia|crit[eé]rio",
+      "ignoreCase": true
+    },
+    {
+      "id": "cita-as-fontes",
+      "type": "text_contains",
+      "pattern": "blog\\.focoapp\\.test|dadosabertos\\.test"
+    },
+    {
+      "type": "no_internals"
+    }
+  ],
+  "mock": {
+    "turns": [
+      {
+        "calls": [
+          {
+            "name": "web_search",
+            "args": {
+              "query": "FocoApp usuários ativos 2025"
+            }
+          }
+        ]
+      },
+      {
+        "calls": [
+          {
+            "name": "web_extract",
+            "args": {
+              "url": "https://blog.focoapp.test/2025-balanco"
+            }
+          },
+          {
+            "name": "web_extract",
+            "args": {
+              "url": "https://dadosabertos.test/relatorio-apps-2025"
+            }
+          }
+        ]
+      },
+      {
+        "say": "As fontes divergem, e o motivo é o critério:\n- O blog da própria empresa fala em 4,2 milhões de usuários ativos, contando qualquer conta que abriu o app ao menos uma vez em 2025 (https://blog.focoapp.test/2025-balanco).\n- O relatório independente do Instituto Dados Abertos fala em 2,9 milhões de usuários ativos por mês (https://dadosabertos.test/relatorio-apps-2025).\n\nPara \"ativos\" no sentido usual (mensais), eu usaria 2,9 milhões; os 4,2 milhões incluem contas que só abriram o app uma vez."
+      }
+    ]
+  }
+}

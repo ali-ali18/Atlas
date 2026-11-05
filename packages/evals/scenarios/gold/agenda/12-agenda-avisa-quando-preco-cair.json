@@ -1,0 +1,138 @@
+{
+  "version": 1,
+  "id": "gold-agenda-avisa-quando-preco-cair",
+  "title": "'Me avisa quando o preço desse produto cair' → agenda um vigia leve (follow-up de checagem), SEM criar uma Rotina do usuário",
+  "description": "Decisão de produto (70-padroes): reaproveitar o mecanismo mais leve. No v2 só existe schedule_followup (de uma vez) e propose_routine; o ideal futuro (F4) é a entidade 'vigia'. Aqui o esperado é schedule_followup com kind=check e a URL na nota, e NÃO propose_routine. ATENÇÃO: o v2 pode criar uma Rotina do usuário (cartão de rotina) para esse pedido; isso é o comportamento que o baseline quer medir, não um erro do cenário.",
+  "tags": [
+    "gold",
+    "agenda",
+    "vigia",
+    "autonomia",
+    "sem-rotina",
+    "real-pendente"
+  ],
+  "source": {
+    "kind": "seed",
+    "note": "Conjunto ouro F0.1 (PLANO-AGENTE-V4/04-avaliacao.md §1): cenário escrito à mão a partir do uso real do dono."
+  },
+  "bot": {
+    "name": "Ada",
+    "about": "Assistente pessoal do dono: e-mail, compras, estudos e agenda.",
+    "language": "pt-BR"
+  },
+  "history": [
+    {
+      "role": "user",
+      "content": "quanto tá o kit floratta blue crystal?"
+    },
+    {
+      "role": "assistant",
+      "content": "O Kit Presente Floratta Blue Crystal está R$ 189,90 (de R$ 229,90) no O Boticário: https://www.boticario.test/kit-floratta-blue-crystal"
+    }
+  ],
+  "user": "me avisa quando o preço desse produto cair",
+  "tools": {
+    "fixtures": [
+      {
+        "tool": "list_followups",
+        "result": {
+          "ok": true,
+          "summary": "No open follow-ups."
+        }
+      },
+      {
+        "tool": "schedule_followup",
+        "result": {
+          "ok": true,
+          "summary": "Follow-up scheduled (check) for tomorrow 09:00. Silent unless there is news."
+        }
+      },
+      {
+        "tool": "propose_routine",
+        "result": {
+          "ok": true,
+          "summary": "Routine created. The user sees the routine card."
+        }
+      },
+      {
+        "tool": "list_routines",
+        "result": {
+          "ok": true,
+          "summary": "No routines yet."
+        }
+      },
+      {
+        "tool": "web_search",
+        "result": {
+          "ok": true,
+          "summary": "Results:\n1. Kit Presente Floratta Blue Crystal (Desodorante Colônia 75 ml + Loção Hidratante 200 ml) | O Boticário: R$ 189,90 (de R$ 229,90) https://www.boticario.test/kit-floratta-blue-crystal\n2. Floratta Blue Crystal Desodorante Colônia 75 ml | O Boticário: R$ 139,90 https://www.boticario.test/floratta-blue-crystal-75ml\n3. Perfumes Floratta: qual escolher? (blog) https://blog.perfumes.test/floratta"
+        }
+      },
+      {
+        "tool": "web_extract",
+        "args": {
+          "url": {
+            "contains": "kit-floratta-blue-crystal"
+          }
+        },
+        "result": {
+          "ok": true,
+          "summary": "Kit Presente Floratta Blue Crystal | O Boticário\nPreço: R$ 189,90 (de R$ 229,90) em até 3x sem juros\nConteúdo: Desodorante Colônia 75 ml + Loção Hidratante 200 ml\nDisponível. Frete grátis acima de R$ 199.\nImagem do produto: https://cdn.boticario.test/img/kit-floratta-blue-crystal.jpg\nLink: https://www.boticario.test/kit-floratta-blue-crystal"
+        }
+      }
+    ]
+  },
+  "run": {
+    "engine": "v2",
+    "proactive": true
+  },
+  "expect": [
+    {
+      "type": "completed"
+    },
+    {
+      "id": "agendou-checagem",
+      "type": "tool_called",
+      "tool": "schedule_followup",
+      "args": {
+        "kind": {
+          "equals": "check"
+        },
+        "note": {
+          "contains": "boticario.test"
+        }
+      }
+    },
+    {
+      "id": "nao-criou-rotina-do-usuario",
+      "type": "tool_not_called",
+      "tool": "propose_routine"
+    },
+    {
+      "id": "nao-pergunta-o-obvio",
+      "type": "no_question"
+    },
+    {
+      "type": "no_internals"
+    }
+  ],
+  "mock": {
+    "turns": [
+      {
+        "calls": [
+          {
+            "name": "schedule_followup",
+            "args": {
+              "note": "Check the current price of the Kit Presente Floratta Blue Crystal at https://www.boticario.test/kit-floratta-blue-crystal (was R$ 189,90 on 2026-11-05). Message the user only if the price is lower than R$ 189,90.",
+              "when": "amanhã 9h",
+              "kind": "check"
+            }
+          }
+        ]
+      },
+      {
+        "say": "Combinado: vou conferir o preço do kit e te aviso se cair abaixo de R$ 189,90."
+      }
+    ]
+  }
+}

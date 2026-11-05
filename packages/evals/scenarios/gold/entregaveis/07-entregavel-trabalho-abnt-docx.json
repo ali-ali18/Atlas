@@ -1,0 +1,91 @@
+{
+  "version": 1,
+  "id": "gold-entregavel-trabalho-abnt-docx",
+  "title": "Trabalho acadêmico de 5 páginas em ABNT → arquivo .docx com layout abnt, seções obrigatórias e tamanho de ~5 páginas",
+  "description": "Trabalho vira ARQUIVO (cláusula de formato do contrato), não texto colado no chat. Verifica: create_file .docx com layout abnt, introdução, desenvolvimento, conclusão e referências, e conteúdo com pelo menos 8.000 caracteres (~5 páginas em corpo 12, espaçamento 1,5). Sem pesquisa web no roteiro: o tema é dado.",
+  "tags": [
+    "gold",
+    "entregaveis",
+    "docx",
+    "abnt",
+    "real-pendente"
+  ],
+  "source": {
+    "kind": "seed",
+    "note": "Conjunto ouro F0.1 (PLANO-AGENTE-V4/04-avaliacao.md §1): cenário escrito à mão a partir do uso real do dono."
+  },
+  "bot": {
+    "name": "Ada",
+    "about": "Assistente pessoal do dono: e-mail, compras, estudos e agenda.",
+    "language": "pt-BR"
+  },
+  "user": "faz um trabalho acadêmico de 5 páginas sobre o impacto da inteligência artificial na educação, em ABNT, em Word",
+  "run": {
+    "engine": "v2"
+  },
+  "expect": [
+    {
+      "type": "completed"
+    },
+    {
+      "id": "criou-o-docx",
+      "type": "file_created",
+      "extension": "docx"
+    },
+    {
+      "id": "layout-abnt",
+      "type": "tool_called",
+      "tool": "create_file",
+      "args": {
+        "layout": {
+          "equals": "abnt"
+        },
+        "filename": {
+          "matches": "\\.docx$"
+        }
+      }
+    },
+    {
+      "id": "secoes-e-tamanho",
+      "type": "tool_called",
+      "tool": "create_file",
+      "args": {
+        "content": {
+          "matches": "(?=[\\s\\S]*Introdu[cç][aã]o)(?=[\\s\\S]*Considera[cç][oõ]es finais|[\\s\\S]*Conclus[aã]o)(?=[\\s\\S]*Refer[eê]ncias)[\\s\\S]{8000,}"
+        }
+      }
+    },
+    {
+      "id": "nao-cola-o-trabalho-no-chat",
+      "type": "text_not_contains",
+      "pattern": "Referencial teórico",
+      "ignoreCase": true
+    },
+    {
+      "type": "no_unfulfilled_promise"
+    },
+    {
+      "type": "no_internals"
+    }
+  ],
+  "mock": {
+    "turns": [
+      {
+        "calls": [
+          {
+            "name": "create_file",
+            "args": {
+              "filename": "impacto-da-ia-na-educacao.docx",
+              "layout": "abnt",
+              "title": "Impacto da inteligência artificial na educação",
+              "content": "# Impacto da inteligência artificial na educação\n\n## 1 Introdução\n\nA inteligência artificial na educação (tópico 1) altera a forma como estudantes e professores se relacionam com o conhecimento. Segundo Silva (2023), ferramentas adaptativas permitem acompanhar o ritmo de cada aluno e liberar o professor para a mediação pedagógica, enquanto Souza (2022) alerta para os riscos de dependência tecnológica e de viés nos dados de treinamento. Nesse cenário, a escola precisa discutir letramento digital, privacidade dos estudantes e critérios de transparência dos sistemas utilizados, de modo que a tecnologia amplie, e não substitua, a autonomia de quem aprende.\n\nA inteligência artificial na educação (tópico 2) altera a forma como estudantes e professores se relacionam com o conhecimento. Segundo Silva (2023), ferramentas adaptativas permitem acompanhar o ritmo de cada aluno e liberar o professor para a mediação pedagógica, enquanto Souza (2022) alerta para os riscos de dependência tecnológica e de viés nos dados de treinamento. Nesse cenário, a escola precisa discutir letramento digital, privacidade dos estudantes e critérios de transparência dos sistemas utilizados, de modo que a tecnologia amplie, e não substitua, a autonomia de quem aprende.\n\n## 2 Referencial teórico\n\nA inteligência artificial na educação (tópico 3) altera a forma como estudantes e professores se relacionam com o conhecimento. Segundo Silva (2023), ferramentas adaptativas permitem acompanhar o ritmo de cada aluno e liberar o professor para a mediação pedagógica, enquanto Souza (2022) alerta para os riscos de dependência tecnológica e de viés nos dados de treinamento. Nesse cenário, a escola precisa discutir letramento digital, privacidade dos estudantes e critérios de transparência dos sistemas utilizados, de modo que a tecnologia amplie, e não substitua, a autonomia de quem aprende.\n\nA inteligência artificial na educação (tópico 4) altera a forma como estudantes e professores se relacionam com o conhecimento. Segundo Silva (2023), ferramentas adaptativas permitem acompanhar o ritmo de cada aluno e liberar o professor para a mediação pedagógica, enquanto Souza (2022) alerta para os riscos de dependência tecnológica e de viés nos dados de treinamento. Nesse cenário, a escola precisa discutir letramento digital, privacidade dos estudantes e critérios de transparência dos sistemas utilizados, de modo que a tecnologia amplie, e não substitua, a autonomia de quem aprende.\n\nA inteligência artificial na educação (tópico 5) altera a forma como estudantes e professores se relacionam com o conhecimento. Segundo Silva (2023), ferramentas adaptativas permitem acompanhar o ritmo de cada aluno e liberar o professor para a mediação pedagógica, enquanto Souza (2022) alerta para os riscos de dependência tecnológica e de viés nos dados de treinamento. Nesse cenário, a escola precisa discutir letramento digital, privacidade dos estudantes e critérios de transparência dos sistemas utilizados, de modo que a tecnologia amplie, e não substitua, a autonomia de quem aprende.\n\nA inteligência artificial na educação (tópico 6) altera a forma como estudantes e professores se relacionam com o conhecimento. Segundo Silva (2023), ferramentas adaptativas permitem acompanhar o ritmo de cada aluno e liberar o professor para a mediação pedagógica, enquanto Souza (2022) alerta para os riscos de dependência tecnológica e de viés nos dados de treinamento. Nesse cenário, a escola precisa discutir letramento digital, privacidade dos estudantes e critérios de transparência dos sistemas utilizados, de modo que a tecnologia amplie, e não substitua, a autonomia de quem aprende.\n\n## 3 Desenvolvimento\n\nA inteligência artificial na educação (tópico 7) altera a forma como estudantes e professores se relacionam com o conhecimento. Segundo Silva (2023), ferramentas adaptativas permitem acompanhar o ritmo de cada aluno e liberar o professor para a mediação pedagógica, enquanto Souza (2022) alerta para os riscos de dependência tecnológica e de viés nos dados de treinamento. Nesse cenário, a escola precisa discutir letramento digital, privacidade dos estudantes e critérios de transparência dos sistemas utilizados, de modo que a tecnologia amplie, e não substitua, a autonomia de quem aprende.\n\nA inteligência artificial na educação (tópico 8) altera a forma como estudantes e professores se relacionam com o conhecimento. Segundo Silva (2023), ferramentas adaptativas permitem acompanhar o ritmo de cada aluno e liberar o professor para a mediação pedagógica, enquanto Souza (2022) alerta para os riscos de dependência tecnológica e de viés nos dados de treinamento. Nesse cenário, a escola precisa discutir letramento digital, privacidade dos estudantes e critérios de transparência dos sistemas utilizados, de modo que a tecnologia amplie, e não substitua, a autonomia de quem aprende.\n\nA inteligência artificial na educação (tópico 9) altera a forma como estudantes e professores se relacionam com o conhecimento. Segundo Silva (2023), ferramentas adaptativas permitem acompanhar o ritmo de cada aluno e liberar o professor para a mediação pedagógica, enquanto Souza (2022) alerta para os riscos de dependência tecnológica e de viés nos dados de treinamento. Nesse cenário, a escola precisa discutir letramento digital, privacidade dos estudantes e critérios de transparência dos sistemas utilizados, de modo que a tecnologia amplie, e não substitua, a autonomia de quem aprende.\n\nA inteligência artificial na educação (tópico 10) altera a forma como estudantes e professores se relacionam com o conhecimento. Segundo Silva (2023), ferramentas adaptativas permitem acompanhar o ritmo de cada aluno e liberar o professor para a mediação pedagógica, enquanto Souza (2022) alerta para os riscos de dependência tecnológica e de viés nos dados de treinamento. Nesse cenário, a escola precisa discutir letramento digital, privacidade dos estudantes e critérios de transparência dos sistemas utilizados, de modo que a tecnologia amplie, e não substitua, a autonomia de quem aprende.\n\nA inteligência artificial na educação (tópico 11) altera a forma como estudantes e professores se relacionam com o conhecimento. Segundo Silva (2023), ferramentas adaptativas permitem acompanhar o ritmo de cada aluno e liberar o professor para a mediação pedagógica, enquanto Souza (2022) alerta para os riscos de dependência tecnológica e de viés nos dados de treinamento. Nesse cenário, a escola precisa discutir letramento digital, privacidade dos estudantes e critérios de transparência dos sistemas utilizados, de modo que a tecnologia amplie, e não substitua, a autonomia de quem aprende.\n\nA inteligência artificial na educação (tópico 12) altera a forma como estudantes e professores se relacionam com o conhecimento. Segundo Silva (2023), ferramentas adaptativas permitem acompanhar o ritmo de cada aluno e liberar o professor para a mediação pedagógica, enquanto Souza (2022) alerta para os riscos de dependência tecnológica e de viés nos dados de treinamento. Nesse cenário, a escola precisa discutir letramento digital, privacidade dos estudantes e critérios de transparência dos sistemas utilizados, de modo que a tecnologia amplie, e não substitua, a autonomia de quem aprende.\n\nA inteligência artificial na educação (tópico 13) altera a forma como estudantes e professores se relacionam com o conhecimento. Segundo Silva (2023), ferramentas adaptativas permitem acompanhar o ritmo de cada aluno e liberar o professor para a mediação pedagógica, enquanto Souza (2022) alerta para os riscos de dependência tecnológica e de viés nos dados de treinamento. Nesse cenário, a escola precisa discutir letramento digital, privacidade dos estudantes e critérios de transparência dos sistemas utilizados, de modo que a tecnologia amplie, e não substitua, a autonomia de quem aprende.\n\nA inteligência artificial na educação (tópico 14) altera a forma como estudantes e professores se relacionam com o conhecimento. Segundo Silva (2023), ferramentas adaptativas permitem acompanhar o ritmo de cada aluno e liberar o professor para a mediação pedagógica, enquanto Souza (2022) alerta para os riscos de dependência tecnológica e de viés nos dados de treinamento. Nesse cenário, a escola precisa discutir letramento digital, privacidade dos estudantes e critérios de transparência dos sistemas utilizados, de modo que a tecnologia amplie, e não substitua, a autonomia de quem aprende.\n\nA inteligência artificial na educação (tópico 15) altera a forma como estudantes e professores se relacionam com o conhecimento. Segundo Silva (2023), ferramentas adaptativas permitem acompanhar o ritmo de cada aluno e liberar o professor para a mediação pedagógica, enquanto Souza (2022) alerta para os riscos de dependência tecnológica e de viés nos dados de treinamento. Nesse cenário, a escola precisa discutir letramento digital, privacidade dos estudantes e critérios de transparência dos sistemas utilizados, de modo que a tecnologia amplie, e não substitua, a autonomia de quem aprende.\n\n## 4 Considerações finais\n\nA inteligência artificial na educação (tópico 16) altera a forma como estudantes e professores se relacionam com o conhecimento. Segundo Silva (2023), ferramentas adaptativas permitem acompanhar o ritmo de cada aluno e liberar o professor para a mediação pedagógica, enquanto Souza (2022) alerta para os riscos de dependência tecnológica e de viés nos dados de treinamento. Nesse cenário, a escola precisa discutir letramento digital, privacidade dos estudantes e critérios de transparência dos sistemas utilizados, de modo que a tecnologia amplie, e não substitua, a autonomia de quem aprende.\n\nA inteligência artificial na educação (tópico 17) altera a forma como estudantes e professores se relacionam com o conhecimento. Segundo Silva (2023), ferramentas adaptativas permitem acompanhar o ritmo de cada aluno e liberar o professor para a mediação pedagógica, enquanto Souza (2022) alerta para os riscos de dependência tecnológica e de viés nos dados de treinamento. Nesse cenário, a escola precisa discutir letramento digital, privacidade dos estudantes e critérios de transparência dos sistemas utilizados, de modo que a tecnologia amplie, e não substitua, a autonomia de quem aprende.\n\n## Referências\n\nSILVA, A. **Tecnologia e aprendizagem adaptativa**. São Paulo: Editora Exemplo, 2023.\n\nSOUZA, B. Riscos da dependência tecnológica na escola. **Revista Educação em Foco**, v. 12, n. 2, p. 45-60, 2022.\n"
+            }
+          }
+        ]
+      },
+      {
+        "say": "Pronto: o trabalho (cerca de 5 páginas, formatado em ABNT, com introdução, desenvolvimento, considerações finais e referências) está no arquivo acima."
+      }
+    ]
+  }
+}

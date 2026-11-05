@@ -1,0 +1,148 @@
+{
+  "version": 1,
+  "id": "gold-email-pratica-extensao-data-no-corpo",
+  "title": "'Verifica a prática de extensão, quando devo começar?' → abre o e-mail e responde a data que só está no CORPO",
+  "description": "Caso real do dono: o assunto e o snippet do e-mail da PUCPR não trazem a data de início; ela só aparece no corpo. A busca devolve dois e-mails parecidos (um é de outro semestre, com outra data), então o bot precisa abrir o certo e responder 15/02/2027. Esperado falhar quando o modelo responde só com o que viu no snippet.",
+  "tags": [
+    "gold",
+    "email",
+    "corpo-do-email",
+    "real-pendente"
+  ],
+  "source": {
+    "kind": "seed",
+    "note": "Conjunto ouro F0.1 (PLANO-AGENTE-V4/04-avaliacao.md §1): cenário escrito à mão a partir do uso real do dono."
+  },
+  "bot": {
+    "name": "Ada",
+    "about": "Assistente pessoal do dono: e-mail, compras, estudos e agenda.",
+    "language": "pt-BR"
+  },
+  "user": "verifica a prática de extensão pra mim, não sei quando devo começar",
+  "tools": {
+    "connectors": [
+      {
+        "slug": "gmail",
+        "name": "Gmail",
+        "preload": true,
+        "tools": [
+          {
+            "name": "search_messages",
+            "description": "Search the user's e-mails. Returns id, sender, subject and a short snippet (not the full body).",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "query": {
+                  "type": "string"
+                }
+              }
+            },
+            "responses": [
+              {
+                "text": "{\"messages\":[{\"id\":\"e1\",\"from\":\"praticas@pucpr.test\",\"subject\":\"Práticas Extensionistas 2027/1: orientações aos alunos\",\"snippet\":\"Leia com atenção as orientações sobre o início das atividades.\"},{\"id\":\"e2\",\"from\":\"praticas@pucpr.test\",\"subject\":\"Práticas Extensionistas 2026/2: encerramento\",\"snippet\":\"As atividades do semestre foram encerradas. Obrigado pela participação.\"},{\"id\":\"e3\",\"from\":\"secretaria@pucpr.test\",\"subject\":\"Calendário de provas\",\"snippet\":\"Segue o calendário de provas do bimestre.\"}]}"
+              }
+            ]
+          },
+          {
+            "name": "read_message",
+            "description": "Read the full body of one e-mail by id.",
+            "inputSchema": {
+              "type": "object",
+              "required": [
+                "id"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string"
+                }
+              }
+            },
+            "responses": [
+              {
+                "args": {
+                  "id": {
+                    "equals": "e1"
+                  }
+                },
+                "text": "{\"id\":\"e1\",\"from\":\"praticas@pucpr.test\",\"subject\":\"Práticas Extensionistas 2027/1: orientações aos alunos\",\"body\":\"As Práticas Extensionistas de 2027/1 começam em 15/02/2027. A inscrição no portal abre em 12/11/2026 e é obrigatório confirmar o tutor antes de se inscrever. A carga horária é de 60 horas.\"}"
+              },
+              {
+                "args": {
+                  "id": {
+                    "equals": "e2"
+                  }
+                },
+                "text": "{\"id\":\"e2\",\"from\":\"praticas@pucpr.test\",\"subject\":\"Práticas Extensionistas 2026/2: encerramento\",\"body\":\"As atividades de 2026/2 foram encerradas em 20/10/2026. Os certificados saem em até 30 dias.\"}"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "run": {
+    "engine": "v2"
+  },
+  "expect": [
+    {
+      "type": "completed"
+    },
+    {
+      "id": "abriu-o-email-certo",
+      "type": "tool_called",
+      "toolPattern": "read_message",
+      "args": {
+        "id": {
+          "equals": "e1"
+        }
+      }
+    },
+    {
+      "id": "traz-a-data-do-corpo",
+      "type": "text_contains",
+      "value": "15/02/2027"
+    },
+    {
+      "id": "nao-confunde-com-o-semestre-antigo",
+      "type": "text_not_contains",
+      "value": "20/10/2026"
+    },
+    {
+      "type": "no_question"
+    },
+    {
+      "type": "no_internals"
+    },
+    {
+      "type": "max_model_calls",
+      "value": 5
+    }
+  ],
+  "mock": {
+    "turns": [
+      {
+        "calls": [
+          {
+            "name": "mcp__gmail__search_messages",
+            "args": {
+              "query": "Práticas Extensionistas"
+            }
+          }
+        ]
+      },
+      {
+        "calls": [
+          {
+            "name": "mcp__gmail__read_message",
+            "args": {
+              "id": "e1"
+            }
+          }
+        ]
+      },
+      {
+        "say": "As Práticas Extensionistas de 2027/1 começam em 15/02/2027. A inscrição no portal abre em 12/11/2026, e antes de se inscrever você precisa confirmar quem é o seu tutor."
+      }
+    ]
+  }
+}

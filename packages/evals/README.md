@@ -11,6 +11,7 @@ Inspirado nos evals do Hermes Agent (calibração por modelo, políticas compar�
 ```
 packages/evals/
   scenarios/*.json      cenários versionados (semente: casos reais do projeto, anonimizados)
+  scenarios/gold/<capacidade>/<nn>-<slug>.json   conjunto ouro (24 tarefas do uso real do dono; ver "Conjunto ouro")
   src/scenario.ts       formato do cenário (zod, campo desconhecido = erro)
   src/checks.ts         verificações determinísticas (+ juiz LLM opcional)
   src/environment.ts    ambiente falso: perfil do bot, fixtures de tools nativas, conectores falsos, arquivos em memória
@@ -52,7 +53,8 @@ Opções úteis:
 
 | opção | o que faz |
 |---|---|
-| `--scenarios ids,tags` | só esses cenários (ids ou tags, ex.: `arquivos,rotinas`) |
+| `--scenarios ids,tags` | só esses cenários (ids ou tags, ex.: `arquivos,rotinas`; `gold` = só o conjunto ouro; `all` = sementes + ouro) |
+| `--dir DIR` | pasta dos cenários (padrão `scenarios/`, lida com subpastas) |
 | `--repeat N` | repetições por cenário e modelo (3 separa "instável" de "falha") |
 | `--concurrency N` | execuções simultâneas (padrão 3; o container é pequeno, não passe de 4) |
 | `--timeout S` | segundos por execução (padrão 180) |
@@ -168,13 +170,14 @@ Um JSON em `scenarios/` (o nome do arquivo só define a ordem):
 - `history`: mensagens `user`/`assistant`; também aceita `{ "role": "assistant", "toolCalls": [...] }` e
   `{ "role": "tool", "toolCallId": "...", "content": "..." }` (vão como transcrição dos turnos anteriores, como no worker).
 - `steer`: `[{ "afterModelCalls": 1, "content": "..." }]` = mensagem do usuário que chega no meio do run.
-- `tools.fixtures`: tool nativa respondida pelo fixture (o primeiro cujo `args` bate). Sem fixture, só rodam de verdade
+- `tools.fixtures`: tool nativa respondida pelo fixture (o primeiro cujo `args` bate). `uses: N` limita a N respostas e depois passa ao próximo fixture que bate (ex.: o teste falha na 1ª execução e passa depois da correção). Sem fixture, só rodam de verdade
   as tools puras (`track_items`, `update_task_list`, `create_file` com armazenamento em memória, `mcp_tool_search`,
   `read_cached_result`, e o que estiver em `allowReal`); as demais respondem "indisponível".
 - `tools.connectors`: conector falso (`mcp__<slug>__<tool>`), com `readOnly`/`destructive`, `inputSchema` e respostas
   por argumento. `preload: true` carrega as tools no 1º passo (como uma menção `@App`).
 - Predicados de argumento (caminho com pontos, `items.0.sku`): `equals`, `oneOf`, `contains`, `matches` (regex, sem
   diferenciar maiúsculas), `exists`.
+- `run`: `maxSteps`, `origin` (`chat`, `routine`...), `engine` (`v1`/`v2`), `briefReadOnly`, `proactive: true` (oferece `schedule_followup` e cia., como no chat do bot principal) e `sandbox: true` (oferece navegador, `login_fill` e shell da VM; a execução continua sendo por fixture, nunca há VM).
 - `mock.turns`: roteiro do modo mock. Obrigatório para cenário semente (o CI roda todos).
 
 Verificações (`expect`; `id` opcional dá o nome que aparece na matriz):
@@ -189,6 +192,8 @@ Verificações (`expect`; `id` opcional dá o nome que aparece na matriz):
 | `text_contains` / `text_not_contains` | resposta final com/sem `value` ou `pattern` (regex) |
 | `max_model_calls` | no máximo N passos do agente (chamadas com tools) |
 | `max_discards` | no máximo N respostas refeitas pelo runtime (rascunho revisado) |
+| `max_context_tokens` | o pedido do 1º passo do agente (mensagens + schemas das tools, caracteres / 4) tem no máximo N tokens estimados; determinística e independente do provedor |
+| `any_of` | passa se QUALQUER verificação de `checks` (2 ou mais, sem `judge`) passa; ex.: lembrete por rotina `once` ou por `schedule_followup` |
 | `language` | idioma da resposta (heurística por palavras funcionais) |
 | `no_internals` | nada de nome de tool, número de revisão, "a ferramenta recusou" nem dos `extraTerms` (fora de blocos cercados) |
 | `file_created` | card de arquivo, com `extension` se dada |
@@ -197,6 +202,22 @@ Verificações (`expect`; `id` opcional dá o nome que aparece na matriz):
 | `no_model_note` | nenhuma nota do runtime ao modelo casa com `pattern` |
 | `steer_delivered` | a mensagem do meio do run chegou ao modelo como fala do usuário |
 | `judge` | o juiz LLM aprova a `rubric` (só com `--judge`; sem ele fica "pulada") |
+
+## Conjunto ouro (baseline do Motor v4)
+
+24 tarefas do uso real do dono (`PLANO-AGENTE-V4/04-avaliacao.md` §1), em `scenarios/gold/<capacidade>/<nn>-<slug>.json`: e-mail (3), compras (3), entregáveis (3), pesquisa (2), agenda (3), dia (1), navegador (1), código (1), segurança (3), insistência (3) e economia (1). Todo cenário tem as tags `gold` e a da capacidade; os que devem ser trocados por um run real redigido (`from-run.ts`) levam `real-pendente`. Rodam no motor v2 (`run.engine: "v2"`), o padrão de hoje.
+
+```bash
+pnpm --filter @workspace/evals run eval -- list --scenarios gold                       # lista
+pnpm --filter @workspace/evals run eval -- --mock --scenarios gold                     # roteiro ideal (sem rede nem chave)
+pnpm --filter @workspace/evals run eval -- --scenarios gold --models <ids> --repeat 3  # baseline com modelo real (gasta tokens)
+pnpm --filter @workspace/evals run eval -- --scenarios gold,insistencia ...            # uma capacidade (a tag é o nome da pasta)
+```
+
+- O **mock** do ouro valida o harness (schema, fixtures, verificações) e que o roteiro só usa tools que o runtime oferece; nenhum modelo é medido ali. `gold.test.ts` também confere, por cenário, que uma trajetória ruim reprova (um padrão de texto errado deixaria o baseline verde por engano).
+- **Falhar no v2 é esperado** em vários (é o ponto do baseline). Não afrouxe a expectativa para o v2 passar. A `description` de cada cenário diz o que se espera do v2.
+- As verificações de texto do ouro (`text_not_contains` "vídeo", "PWNED", "comprei"...) são afirmações determinísticas sobre a SAÍDA do eval, não decisão de comportamento do runtime (a regra de `60-agente.md` vale para o runtime).
+- Limites conhecidos: o relógio do runtime não é injetável (o lembrete de "amanhã às 10h" confere a HORA, não o dia); a nota de continuação que o worker injeta com dados do banco (`continuedWorkNote`) não existe no eval, então a insistência mede a parte do modelo; o cenário de código usa a VM de shell por fixture (a sessão de código não é oferecida pelo v2).
 
 ## Cenário a partir de uma conversa real
 

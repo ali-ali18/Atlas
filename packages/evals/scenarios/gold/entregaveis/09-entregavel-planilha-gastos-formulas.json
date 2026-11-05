@@ -1,0 +1,158 @@
+{
+  "version": 1,
+  "id": "gold-entregavel-planilha-gastos-formulas",
+  "title": "'Planilha de gastos do mês com total por categoria e saldo' → .xlsx com FÓRMULAS (não valores digitados)",
+  "description": "Verifica create_file .xlsx com sheets, ao menos uma fórmula de soma (string começando com '=') e uma de saldo; o modelo não pode calcular os totais de cabeça e digitar o número.",
+  "tags": [
+    "gold",
+    "entregaveis",
+    "xlsx",
+    "formulas",
+    "real-pendente"
+  ],
+  "source": {
+    "kind": "seed",
+    "note": "Conjunto ouro F0.1 (PLANO-AGENTE-V4/04-avaliacao.md §1): cenário escrito à mão a partir do uso real do dono."
+  },
+  "bot": {
+    "name": "Ada",
+    "about": "Assistente pessoal do dono: e-mail, compras, estudos e agenda.",
+    "language": "pt-BR"
+  },
+  "user": "monta uma planilha de gastos do mês com categorias, total por categoria e o saldo no fim (minha renda é 6500). Com fórmulas.",
+  "run": {
+    "engine": "v2"
+  },
+  "expect": [
+    {
+      "type": "completed"
+    },
+    {
+      "id": "criou-o-xlsx",
+      "type": "file_created",
+      "extension": "xlsx"
+    },
+    {
+      "id": "usou-formula-de-soma",
+      "type": "tool_called",
+      "tool": "create_file",
+      "args": {
+        "sheets": {
+          "matches": "\"=(SUM|SOMA)"
+        }
+      }
+    },
+    {
+      "id": "tem-saldo",
+      "type": "tool_called",
+      "tool": "create_file",
+      "args": {
+        "sheets": {
+          "matches": "saldo"
+        }
+      }
+    },
+    {
+      "type": "no_unfulfilled_promise"
+    },
+    {
+      "type": "no_internals"
+    }
+  ],
+  "mock": {
+    "turns": [
+      {
+        "calls": [
+          {
+            "name": "create_file",
+            "args": {
+              "filename": "gastos-do-mes.xlsx",
+              "sheets": [
+                {
+                  "name": "Gastos",
+                  "columns": [
+                    "Categoria",
+                    "Item",
+                    "Valor (R$)"
+                  ],
+                  "rows": [
+                    [
+                      "Moradia",
+                      "Aluguel",
+                      1800
+                    ],
+                    [
+                      "Moradia",
+                      "Condomínio",
+                      450
+                    ],
+                    [
+                      "Alimentação",
+                      "Mercado",
+                      1100
+                    ],
+                    [
+                      "Alimentação",
+                      "Restaurantes",
+                      420
+                    ],
+                    [
+                      "Transporte",
+                      "Combustível",
+                      380
+                    ],
+                    [
+                      "Lazer",
+                      "Streaming e cinema",
+                      150
+                    ]
+                  ]
+                },
+                {
+                  "name": "Resumo",
+                  "columns": [
+                    "Categoria",
+                    "Total (R$)"
+                  ],
+                  "rows": [
+                    [
+                      "Moradia",
+                      "=SUMIF(Gastos!A2:A7,\"Moradia\",Gastos!C2:C7)"
+                    ],
+                    [
+                      "Alimentação",
+                      "=SUMIF(Gastos!A2:A7,\"Alimentação\",Gastos!C2:C7)"
+                    ],
+                    [
+                      "Transporte",
+                      "=SUMIF(Gastos!A2:A7,\"Transporte\",Gastos!C2:C7)"
+                    ],
+                    [
+                      "Lazer",
+                      "=SUMIF(Gastos!A2:A7,\"Lazer\",Gastos!C2:C7)"
+                    ],
+                    [
+                      "Total gasto",
+                      "=SUM(B2:B5)"
+                    ],
+                    [
+                      "Renda",
+                      6500
+                    ],
+                    [
+                      "Saldo",
+                      "=B7-B6"
+                    ]
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "say": "Pronto: a planilha tem os gastos por item, o total por categoria, o total gasto e o saldo (renda de R$ 6.500 menos os gastos), tudo com fórmulas."
+      }
+    ]
+  }
+}

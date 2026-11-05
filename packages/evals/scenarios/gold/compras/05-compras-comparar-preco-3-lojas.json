@@ -1,0 +1,179 @@
+{
+  "version": 1,
+  "id": "gold-compras-comparar-preco-3-lojas",
+  "title": "'Compara o preço da air fryer de 4 L em 3 lojas' → preço e frete de cada loja, menor total e os links",
+  "description": "Comparação de preço em 3 lojas (fixtures). O menor preço de prateleira (Mercado Verde, R$ 259,90) NÃO é o menor total: com o frete de R$ 24,90 sai R$ 284,80, e a TechPonto (R$ 274,50, frete grátis) é a mais barata. A resposta precisa dizer o total e citar as 3 lojas com links. Armadilha de raciocínio proposital.",
+  "tags": [
+    "gold",
+    "compras",
+    "comparacao",
+    "fontes"
+  ],
+  "source": {
+    "kind": "seed",
+    "note": "Conjunto ouro F0.1 (PLANO-AGENTE-V4/04-avaliacao.md §1): cenário escrito à mão a partir do uso real do dono."
+  },
+  "bot": {
+    "name": "Ada",
+    "about": "Assistente pessoal do dono: e-mail, compras, estudos e agenda.",
+    "language": "pt-BR"
+  },
+  "user": "compara o preço da air fryer de 4 litros em 3 lojas pra mim",
+  "tools": {
+    "fixtures": [
+      {
+        "tool": "web_search",
+        "result": {
+          "ok": true,
+          "summary": "Results:\n1. Air Fryer 4 L | Casa Azul: R$ 289,00 https://www.casaazul.test/air-fryer-4l\n2. Air Fryer 4 L | Mercado Verde: R$ 259,90 https://www.mercadoverde.test/p/air-fryer-4l\n3. Air Fryer 4 L | TechPonto: R$ 274,50 https://www.techponto.test/fritadeira-4l"
+        }
+      },
+      {
+        "tool": "web_extract",
+        "args": {
+          "url": {
+            "contains": "casaazul.test"
+          }
+        },
+        "result": {
+          "ok": true,
+          "summary": "Air Fryer 4 L (127 V)\nLoja: Casa Azul\nPreço: R$ 289,00\nEntrega: frete grátis\nDisponível em estoque.\nLink: https://www.casaazul.test/air-fryer-4l"
+        }
+      },
+      {
+        "tool": "web_extract",
+        "args": {
+          "url": {
+            "contains": "mercadoverde.test"
+          }
+        },
+        "result": {
+          "ok": true,
+          "summary": "Air Fryer 4 L (127 V)\nLoja: Mercado Verde\nPreço: R$ 259,90\nEntrega: frete R$ 24,90\nDisponível em estoque.\nLink: https://www.mercadoverde.test/p/air-fryer-4l"
+        }
+      },
+      {
+        "tool": "web_extract",
+        "args": {
+          "url": {
+            "contains": "techponto.test"
+          }
+        },
+        "result": {
+          "ok": true,
+          "summary": "Air Fryer 4 L (127 V)\nLoja: TechPonto\nPreço: R$ 274,50\nEntrega: frete grátis\nDisponível em estoque.\nLink: https://www.techponto.test/fritadeira-4l"
+        }
+      }
+    ]
+  },
+  "run": {
+    "engine": "v2"
+  },
+  "expect": [
+    {
+      "type": "completed"
+    },
+    {
+      "id": "buscou",
+      "type": "tool_called",
+      "toolPattern": "^web_(search|extract)$"
+    },
+    {
+      "id": "cita-casaazul",
+      "type": "text_contains",
+      "value": "Casa Azul"
+    },
+    {
+      "id": "cita-mercadoverde",
+      "type": "text_contains",
+      "value": "Mercado Verde"
+    },
+    {
+      "id": "cita-techponto",
+      "type": "text_contains",
+      "value": "TechPonto"
+    },
+    {
+      "id": "link-casaazul",
+      "type": "text_contains",
+      "value": "https://www.casaazul.test/air-fryer-4l"
+    },
+    {
+      "id": "link-mercadoverde",
+      "type": "text_contains",
+      "value": "https://www.mercadoverde.test/p/air-fryer-4l"
+    },
+    {
+      "id": "link-techponto",
+      "type": "text_contains",
+      "value": "https://www.techponto.test/fritadeira-4l"
+    },
+    {
+      "id": "traz-os-precos",
+      "type": "text_contains",
+      "pattern": "289,00[\\s\\S]*259,90|259,90[\\s\\S]*289,00"
+    },
+    {
+      "id": "calcula-o-total-com-frete",
+      "type": "text_contains",
+      "value": "284,80"
+    },
+    {
+      "id": "aponta-a-techponto-como-mais-barata",
+      "type": "text_contains",
+      "pattern": "(mais barat[ao]|mais em conta|mais econ[oô]mic[ao]|menor (pre[cç]o|total|custo))(?:(?!Casa Azul|Mercado Verde)[^.\\n]){0,60}TechPonto|TechPonto(?:(?!Casa Azul|Mercado Verde)[^.\\n]){0,60}(mais barat[ao]|mais em conta|mais econ[oô]mic[ao]|menor (pre[cç]o|total|custo))",
+      "ignoreCase": true
+    },
+    {
+      "id": "nao-comprou",
+      "type": "tool_not_called",
+      "toolPattern": "checkout|purchase|buy|pay|order|comprar|pedido"
+    },
+    {
+      "type": "no_internals"
+    },
+    {
+      "type": "max_model_calls",
+      "value": 8
+    }
+  ],
+  "mock": {
+    "turns": [
+      {
+        "calls": [
+          {
+            "name": "web_search",
+            "args": {
+              "query": "air fryer 4 litros preço"
+            }
+          }
+        ]
+      },
+      {
+        "calls": [
+          {
+            "name": "web_extract",
+            "args": {
+              "url": "https://www.casaazul.test/air-fryer-4l"
+            }
+          },
+          {
+            "name": "web_extract",
+            "args": {
+              "url": "https://www.mercadoverde.test/p/air-fryer-4l"
+            }
+          },
+          {
+            "name": "web_extract",
+            "args": {
+              "url": "https://www.techponto.test/fritadeira-4l"
+            }
+          }
+        ]
+      },
+      {
+        "say": "Comparei a air fryer de 4 L em 3 lojas:\n\n| Loja | Preço | Frete | Total |\n|---|---|---|---|\n| Casa Azul | R$ 289,00 | grátis | R$ 289,00 |\n| Mercado Verde | R$ 259,90 | R$ 24,90 | R$ 284,80 |\n| TechPonto | R$ 274,50 | grátis | R$ 274,50 |\n\nA mais barata no total é a TechPonto (R$ 274,50), apesar de o Mercado Verde ter o menor preço de prateleira.\n\nLinks: https://www.casaazul.test/air-fryer-4l · https://www.mercadoverde.test/p/air-fryer-4l · https://www.techponto.test/fritadeira-4l"
+      }
+    ]
+  }
+}

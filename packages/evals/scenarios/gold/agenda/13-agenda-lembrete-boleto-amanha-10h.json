@@ -1,0 +1,134 @@
+{
+  "version": 1,
+  "id": "gold-agenda-lembrete-boleto-amanha-10h",
+  "title": "'Me lembra amanhã às 10h de pagar o boleto' → cria o lembrete de uma vez (rotina once ou follow-up) para as 10h, sem questionário",
+  "description": "Relógio: o runtime lê a hora de `new Date()` e não há como injetar `now` neste eval (limitação). Por isso o horário é verificado pelo relógio de parede ('10:00' em horário local ou 13:00Z) e não pelo dia; a data relativa ('amanhã') fica sob a rubrica de revisão manual. Aceita as duas formas existentes de lembrete (routine once ou schedule_followup).",
+  "tags": [
+    "gold",
+    "agenda",
+    "lembrete",
+    "data-relativa"
+  ],
+  "source": {
+    "kind": "seed",
+    "note": "Conjunto ouro F0.1 (PLANO-AGENTE-V4/04-avaliacao.md §1): cenário escrito à mão a partir do uso real do dono."
+  },
+  "bot": {
+    "name": "Ada",
+    "about": "Assistente pessoal do dono: e-mail, compras, estudos e agenda.",
+    "language": "pt-BR"
+  },
+  "user": "me lembra amanhã às 10h de pagar o boleto",
+  "tools": {
+    "fixtures": [
+      {
+        "tool": "propose_routine",
+        "args": {
+          "action": {
+            "equals": "create"
+          }
+        },
+        "result": {
+          "ok": true,
+          "summary": "Routine created: \"Pagar o boleto\" · once · tomorrow 10:00 (America/Sao_Paulo). The user sees the routine card."
+        }
+      },
+      {
+        "tool": "list_routines",
+        "result": {
+          "ok": true,
+          "summary": "No routines yet."
+        }
+      },
+      {
+        "tool": "list_followups",
+        "result": {
+          "ok": true,
+          "summary": "No open follow-ups."
+        }
+      },
+      {
+        "tool": "schedule_followup",
+        "result": {
+          "ok": true,
+          "summary": "Follow-up scheduled (reminder) for tomorrow 10:00."
+        }
+      }
+    ]
+  },
+  "run": {
+    "engine": "v2",
+    "proactive": true
+  },
+  "expect": [
+    {
+      "type": "completed"
+    },
+    {
+      "id": "criou-o-lembrete-as-10h",
+      "type": "any_of",
+      "checks": [
+        {
+          "type": "tool_called",
+          "tool": "propose_routine",
+          "args": {
+            "action": {
+              "equals": "create"
+            },
+            "trigger_type": {
+              "equals": "once"
+            },
+            "run_at": {
+              "matches": "T(10:00|13:00)"
+            }
+          }
+        },
+        {
+          "type": "tool_called",
+          "tool": "schedule_followup",
+          "args": {
+            "when": {
+              "matches": "10|T13:00"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "type": "tool_not_called",
+      "tool": "propose_questionnaire"
+    },
+    {
+      "type": "no_question"
+    },
+    {
+      "id": "diz-o-horario",
+      "type": "text_contains",
+      "pattern": "10h|10:00|10 horas"
+    },
+    {
+      "type": "no_internals"
+    }
+  ],
+  "mock": {
+    "turns": [
+      {
+        "calls": [
+          {
+            "name": "propose_routine",
+            "args": {
+              "action": "create",
+              "title": "Pagar o boleto",
+              "detail": "Lembrar de pagar o boleto.",
+              "trigger_type": "once",
+              "run_at": "2026-11-06T10:00"
+            }
+          }
+        ]
+      },
+      {
+        "say": "Combinado: amanhã às 10h te lembro de pagar o boleto."
+      }
+    ]
+  }
+}

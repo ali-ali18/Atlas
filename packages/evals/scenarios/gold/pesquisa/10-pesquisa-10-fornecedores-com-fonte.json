@@ -1,0 +1,263 @@
+{
+  "version": 1,
+  "id": "gold-pesquisa-10-fornecedores-com-fonte",
+  "title": "'10 fornecedores de embalagem biodegradável em Curitiba, com preço e fonte' → 10 itens, cada um com preço e URL",
+  "description": "A busca devolve 12 fornecedores (fixtures). A resposta deve ter pelo menos 10, cada um com preço e link de origem, e o que não foi confirmado deve ser marcado. Verifica a contagem de URLs distintas e que o preço aparece; a qualidade da tabela fica com o juiz.",
+  "tags": [
+    "gold",
+    "pesquisa",
+    "fontes",
+    "lista-completa",
+    "real-pendente"
+  ],
+  "source": {
+    "kind": "seed",
+    "note": "Conjunto ouro F0.1 (PLANO-AGENTE-V4/04-avaliacao.md §1): cenário escrito à mão a partir do uso real do dono."
+  },
+  "bot": {
+    "name": "Ada",
+    "about": "Assistente pessoal do dono: e-mail, compras, estudos e agenda.",
+    "language": "pt-BR"
+  },
+  "user": "acha 10 fornecedores de embalagem biodegradável em Curitiba e região, com preço e a fonte de cada um",
+  "tools": {
+    "fixtures": [
+      {
+        "tool": "web_search",
+        "result": {
+          "ok": true,
+          "summary": "Results:\n1. EcoPack Sul: embalagens biodegradáveis, Curitiba/PR. R$ 1,85 por unidade (caixa de 500). https://www.ecopacksul.test/produtos\n2. VerdePack: embalagens biodegradáveis, Curitiba/PR. R$ 1,72 por unidade (mínimo 1.000). https://www.verdepack.test/produtos\n3. BioEmbalagens Curitiba: embalagens biodegradáveis, Curitiba/PR. R$ 2,10 por unidade. https://www.bioembalagens.test/produtos\n4. Papel & Folha: embalagens biodegradáveis, Curitiba/PR. R$ 1,95 por unidade. https://www.papelefolha.test/produtos\n5. Fibra Nativa: embalagens biodegradáveis, Curitiba/PR. R$ 2,40 por unidade (cana-de-açúcar). https://www.fibranativa.test/produtos\n6. Pinhão Pack: embalagens biodegradáveis, Curitiba/PR. R$ 1,68 por unidade (mínimo 2.000). https://www.pinhaopack.test/produtos\n7. Amido Verde: embalagens biodegradáveis, Curitiba/PR. R$ 2,25 por unidade. https://www.amidoverde.test/produtos\n8. Kraft Paraná: embalagens biodegradáveis, Curitiba/PR. R$ 1,60 por unidade (mínimo 5.000). https://www.kraftparana.test/produtos\n9. Natureza em Caixa: embalagens biodegradáveis, Curitiba/PR. R$ 2,05 por unidade. https://www.naturezaemcaixa.test/produtos\n10. Compostável BR: embalagens biodegradáveis, Curitiba/PR. R$ 2,30 por unidade. https://www.compostavelbr.test/produtos\n11. Lume Embalagens: embalagens biodegradáveis, Curitiba/PR. R$ 1,90 por unidade. https://www.lumeembalagens.test/produtos\n12. Terra Pack: embalagens biodegradáveis, Curitiba/PR. R$ 2,15 por unidade. https://www.terrapack.test/produtos"
+        }
+      },
+      {
+        "tool": "web_extract",
+        "args": {
+          "url": {
+            "contains": "ecopacksul.test"
+          }
+        },
+        "result": {
+          "ok": true,
+          "summary": "EcoPack Sul\nEmbalagens biodegradáveis e compostáveis. Atendemos Curitiba e região metropolitana.\nPreço de referência: R$ 1,85 por unidade (caixa de 500).\nContato: vendas@ecopacksul.test"
+        }
+      },
+      {
+        "tool": "web_extract",
+        "args": {
+          "url": {
+            "contains": "verdepack.test"
+          }
+        },
+        "result": {
+          "ok": true,
+          "summary": "VerdePack\nEmbalagens biodegradáveis e compostáveis. Atendemos Curitiba e região metropolitana.\nPreço de referência: R$ 1,72 por unidade (mínimo 1.000).\nContato: vendas@verdepack.test"
+        }
+      },
+      {
+        "tool": "web_extract",
+        "args": {
+          "url": {
+            "contains": "bioembalagens.test"
+          }
+        },
+        "result": {
+          "ok": true,
+          "summary": "BioEmbalagens Curitiba\nEmbalagens biodegradáveis e compostáveis. Atendemos Curitiba e região metropolitana.\nPreço de referência: R$ 2,10 por unidade.\nContato: vendas@bioembalagens.test"
+        }
+      },
+      {
+        "tool": "web_extract",
+        "args": {
+          "url": {
+            "contains": "papelefolha.test"
+          }
+        },
+        "result": {
+          "ok": true,
+          "summary": "Papel & Folha\nEmbalagens biodegradáveis e compostáveis. Atendemos Curitiba e região metropolitana.\nPreço de referência: R$ 1,95 por unidade.\nContato: vendas@papelefolha.test"
+        }
+      },
+      {
+        "tool": "web_extract",
+        "args": {
+          "url": {
+            "contains": "fibranativa.test"
+          }
+        },
+        "result": {
+          "ok": true,
+          "summary": "Fibra Nativa\nEmbalagens biodegradáveis e compostáveis. Atendemos Curitiba e região metropolitana.\nPreço de referência: R$ 2,40 por unidade (cana-de-açúcar).\nContato: vendas@fibranativa.test"
+        }
+      },
+      {
+        "tool": "web_extract",
+        "args": {
+          "url": {
+            "contains": "pinhaopack.test"
+          }
+        },
+        "result": {
+          "ok": true,
+          "summary": "Pinhão Pack\nEmbalagens biodegradáveis e compostáveis. Atendemos Curitiba e região metropolitana.\nPreço de referência: R$ 1,68 por unidade (mínimo 2.000).\nContato: vendas@pinhaopack.test"
+        }
+      },
+      {
+        "tool": "web_extract",
+        "args": {
+          "url": {
+            "contains": "amidoverde.test"
+          }
+        },
+        "result": {
+          "ok": true,
+          "summary": "Amido Verde\nEmbalagens biodegradáveis e compostáveis. Atendemos Curitiba e região metropolitana.\nPreço de referência: R$ 2,25 por unidade.\nContato: vendas@amidoverde.test"
+        }
+      },
+      {
+        "tool": "web_extract",
+        "args": {
+          "url": {
+            "contains": "kraftparana.test"
+          }
+        },
+        "result": {
+          "ok": true,
+          "summary": "Kraft Paraná\nEmbalagens biodegradáveis e compostáveis. Atendemos Curitiba e região metropolitana.\nPreço de referência: R$ 1,60 por unidade (mínimo 5.000).\nContato: vendas@kraftparana.test"
+        }
+      },
+      {
+        "tool": "web_extract",
+        "args": {
+          "url": {
+            "contains": "naturezaemcaixa.test"
+          }
+        },
+        "result": {
+          "ok": true,
+          "summary": "Natureza em Caixa\nEmbalagens biodegradáveis e compostáveis. Atendemos Curitiba e região metropolitana.\nPreço de referência: R$ 2,05 por unidade.\nContato: vendas@naturezaemcaixa.test"
+        }
+      },
+      {
+        "tool": "web_extract",
+        "args": {
+          "url": {
+            "contains": "compostavelbr.test"
+          }
+        },
+        "result": {
+          "ok": true,
+          "summary": "Compostável BR\nEmbalagens biodegradáveis e compostáveis. Atendemos Curitiba e região metropolitana.\nPreço de referência: R$ 2,30 por unidade.\nContato: vendas@compostavelbr.test"
+        }
+      },
+      {
+        "tool": "web_extract",
+        "args": {
+          "url": {
+            "contains": "lumeembalagens.test"
+          }
+        },
+        "result": {
+          "ok": true,
+          "summary": "Lume Embalagens\nEmbalagens biodegradáveis e compostáveis. Atendemos Curitiba e região metropolitana.\nPreço de referência: R$ 1,90 por unidade.\nContato: vendas@lumeembalagens.test"
+        }
+      },
+      {
+        "tool": "web_extract",
+        "args": {
+          "url": {
+            "contains": "terrapack.test"
+          }
+        },
+        "result": {
+          "ok": true,
+          "summary": "Terra Pack\nEmbalagens biodegradáveis e compostáveis. Atendemos Curitiba e região metropolitana.\nPreço de referência: R$ 2,15 por unidade.\nContato: vendas@terrapack.test"
+        }
+      }
+    ]
+  },
+  "run": {
+    "engine": "v2",
+    "maxSteps": 12
+  },
+  "expect": [
+    {
+      "type": "completed"
+    },
+    {
+      "id": "pesquisou",
+      "type": "tool_called",
+      "toolPattern": "^web_(search|extract)$"
+    },
+    {
+      "id": "dez-links",
+      "type": "text_contains",
+      "pattern": "(?:https?://[^\\s)|]+[\\s\\S]*?){10}"
+    },
+    {
+      "id": "traz-preco",
+      "type": "text_contains",
+      "pattern": "R\\$ ?\\d+,\\d{2}"
+    },
+    {
+      "id": "dez-fornecedores-citados",
+      "type": "text_contains",
+      "pattern": "(?:(?:EcoPack Sul|VerdePack|BioEmbalagens Curitiba|Papel \\& Folha|Fibra Nativa|Pinhão Pack|Amido Verde|Kraft Paraná|Natureza em Caixa|Compostável BR|Lume Embalagens|Terra Pack)[\\s\\S]*?){10}"
+    },
+    {
+      "type": "no_unfulfilled_promise"
+    },
+    {
+      "type": "no_internals"
+    },
+    {
+      "id": "rubrica-fontes",
+      "type": "judge",
+      "rubric": "A resposta lista pelo menos 10 fornecedores distintos, cada um com preço e link da fonte, em formato de tabela ou lista legível, e separa o que não foi confirmado do que foi."
+    }
+  ],
+  "mock": {
+    "turns": [
+      {
+        "calls": [
+          {
+            "name": "web_search",
+            "args": {
+              "query": "fornecedores embalagem biodegradável Curitiba preço"
+            }
+          }
+        ]
+      },
+      {
+        "calls": [
+          {
+            "name": "web_extract",
+            "args": {
+              "url": "https://www.ecopacksul.test/produtos"
+            }
+          },
+          {
+            "name": "web_extract",
+            "args": {
+              "url": "https://www.verdepack.test/produtos"
+            }
+          },
+          {
+            "name": "web_extract",
+            "args": {
+              "url": "https://www.bioembalagens.test/produtos"
+            }
+          },
+          {
+            "name": "web_extract",
+            "args": {
+              "url": "https://www.papelefolha.test/produtos"
+            }
+          }
+        ]
+      },
+      {
+        "say": "Encontrei 12 fornecedores; estes são 10, com o preço de referência e a fonte de cada um:\n\n| Fornecedor | Preço | Fonte |\n|---|---|---|\n| EcoPack Sul | R$ 1,85 por unidade (caixa de 500) | https://www.ecopacksul.test/produtos |\n| VerdePack | R$ 1,72 por unidade (mínimo 1.000) | https://www.verdepack.test/produtos |\n| BioEmbalagens Curitiba | R$ 2,10 por unidade | https://www.bioembalagens.test/produtos |\n| Papel & Folha | R$ 1,95 por unidade | https://www.papelefolha.test/produtos |\n| Fibra Nativa | R$ 2,40 por unidade (cana-de-açúcar) | https://www.fibranativa.test/produtos |\n| Pinhão Pack | R$ 1,68 por unidade (mínimo 2.000) | https://www.pinhaopack.test/produtos |\n| Amido Verde | R$ 2,25 por unidade | https://www.amidoverde.test/produtos |\n| Kraft Paraná | R$ 1,60 por unidade (mínimo 5.000) | https://www.kraftparana.test/produtos |\n| Natureza em Caixa | R$ 2,05 por unidade | https://www.naturezaemcaixa.test/produtos |\n| Compostável BR | R$ 2,30 por unidade | https://www.compostavelbr.test/produtos |\n\nOs preços são de referência dos sites; preço final e frete dependem do pedido mínimo."
+      }
+    ]
+  }
+}
