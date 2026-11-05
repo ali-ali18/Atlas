@@ -28,8 +28,9 @@ Vale para toda tela, folha e componente de `apps/mobile`. Complementa a seção 
 - Botões do topo e a busca/composer **flutuam sobre o conteúdo**: posição absoluta com área segura e conteúdo rolando por
   baixo. **Nunca** faixa opaca cortando o conteúdo.
 - **Home e Configurações (Conta, Uso, Aparência) flutuam com `Fade curve="linear"`** (decisão do dono, 05/11, revista: sem
-  degradê ficou estranho): atrás do cabeçalho (avatar + "+"), do rodapé (grade + Buscar) e do `FloatingHeaderScroll`, 2 stops
-  (opaco na borda → transparente, uniforme), com altura do cabeçalho/rodapé + 24. O **chat mantém o `Fade` padrão** (segura
+  degradê ficou estranho): atrás do cabeçalho (avatar + "+") e do `FloatingHeaderScroll`, 2 stops
+  (opaco na borda → transparente, uniforme), com altura do cabeçalho + 24. **O rodapé da home (grade + Buscar) fica SEM
+  degradê** (decisão do dono, 05/11): o `Fade` quebrava em celulares com barra de navegação inferior. O **chat mantém o `Fade` padrão** (segura
   opacidade até 55%) no topo e no composer. Stops em `lib/fade-stops.ts`.
 - Peça: `FloatingHeaderScroll` (Configurações, Conta, Uso, Aparência) e o mesmo padrão na home. Padding do conteúdo
   medido por `onLayout`.
