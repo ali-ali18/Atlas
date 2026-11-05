@@ -122,6 +122,50 @@ pnpm --filter @workspace/evals run eval -- --models ... --repeat 3 --out /tmp/ev
 pnpm --filter @workspace/evals run eval -- compare /tmp/evals-a /tmp/evals-b
 ```
 
+## Matriz: cenários × motores × modelos × repetições (`matrix`)
+
+Mede o conjunto ouro em vários provedores de uma vez e responde "é o harness ou o modelo?" (`PLANO-AGENTE-V4/04-avaliacao.md` §2 e §3). Reaproveita o runner, as verificações, o veredito (`verdict.ts`) e os adaptadores do `packages/llm`; o código fica em `src/matrix/`.
+
+```bash
+# 1. quanto custaria (sem rede, sem chave)
+pnpm --filter @workspace/evals run eval -- matrix --scenarios gold --engines v2 \
+  --models anthropic/claude-haiku-5-5,opencode-go/deepseek-v4.1-flash,opencode-go/qwen3.8-flash --repeat 3 --estimate
+# 2. ensaio da matriz inteira com provedores falsos (sem rede, sem chave)
+pnpm --filter @workspace/evals run eval -- matrix --scenarios gold --engines v2,v1 --models ... --repeat 3 --simulate --max-usd 0.05
+# 3. rodada real (gasta tokens; --max-usd é obrigatório)
+pnpm --filter @workspace/evals run eval -- matrix --scenarios gold --engines v2 --models ... --repeat 3 --max-usd 2
+```
+
+**Provedores pelo prefixo do modelo** (a chave só é lida do ambiente; falta de chave falha antes de qualquer execução, citando só o nome da variável; o valor nunca é impresso nem gravado):
+
+| prefixo | provedor | variável |
+|---|---|---|
+| `anthropic/<modelo>` | Anthropic direto | `CLAUDE_KEY` (reserva: `ANTHROPIC_API_KEY`) |
+| `opencode-go/<modelo>` | OpenCode Go (protocolo por `goProtocolFor`) | `OPENCODE_GO_API_KEY` |
+| `openrouter/<id>` ou `<id>` | OpenRouter | `OPENROUTER_API_KEY` |
+
+`anthropic/` aqui é sempre o Anthropic **direto**; o Claude via OpenRouter é `openrouter/anthropic/<modelo>`.
+
+| opção | o que faz |
+|---|---|
+| `--scenarios gold\|ids\|tags` | cenários (padrão `gold`) |
+| `--engines v2[,v1]` | motores; cada cenário roda em cada um (sobrescreve `run.engine`). Padrão `v2` |
+| `--models a,b` | modelos com prefixo (obrigatório, exceto com `--estimate`/`--simulate`) |
+| `--repeat N` | repetições (padrão 1). Se o teto cortar, as repetições já feitas cobrem todas as células |
+| `--max-usd N` | teto **rígido** desta invocação. Antes de cada execução: gasto + reservas em andamento + estimativa da próxima > teto → para de agendar e o resto vira `skipped_budget`; o relatório sai mesmo assim |
+| `--estimate` | só estima e imprime a tabela (sem rede, sai com 0). Aceita `--max-usd` para dizer quantas execuções cabem |
+| `--estimate-factor N` | multiplicador de passos do modelo real sobre o roteiro mock (padrão 2) |
+| `--simulate` | a matriz inteira com provedores falsos: roteiro mock + uso falso por provedor (Anthropic `costUnknown`, Go `plan`, OpenRouter `costUsd`) e falhas determinísticas nos modelos baratos. Exercita roteamento, custo, teto, agregação e relatório; os números não medem modelo nenhum |
+| `--judge MODELO` | juiz LLM (também com prefixo); o gasto dele entra no teto |
+| `--strong a,b` | quais modelos são "fortes" na leitura harness × modelo (padrão: Claude Sonnet/Opus) |
+| `--concurrency N`, `--timeout S`, `--dir`, `--out`, `--env-file` | como no `run` |
+
+**Custo.** Anthropic direto e OpenCode Go só devolvem tokens: o custo sai da tabela `src/matrix/pricing.ts` (Go: `opencode.ai/docs/go`, deepseek pelo preço de pico). Modelo fora da tabela usa o preço conservador (US$ 3/15 por Mtok) e fica marcado `costUnknown` (`*` no relatório); os preços da Anthropic direta estão marcados "a confirmar". OpenRouter usa o custo real do provedor. A estimativa de cada execução (`--estimate` e a reserva do teto) é o tamanho do roteiro mock do cenário × fator, sem desconto de cache. O teto vale por invocação: o limite de US$ 10 da Anthropic somando várias rodadas é do dono controlar.
+
+**Saída** em `results/<data-hora>-matrix/` (ignorada pelo git): `matrix.md`, `matrix.json` e `runs.jsonl` (trajetórias, com as chaves redigidas). O relatório traz por modelo × motor (acerto, passos, tokens, custo, duração), por provedor, por capacidade (pasta do ouro), a diferença entre motores e, por cenário × motor, a leitura mecânica: `harness/instruções` (falha em todos os modelos), `modelo` (passa no forte e falha só nos baratos), `instável` (repetições divergem). É relatório determinístico, não juiz. Falha que reproduz com o modelo roteirizado (`--simulate` sem as falhas sintéticas, ou `--mock`) é bug de harness.
+
+**Plugar um motor novo (v3, v4, presets).** Um mapa só: `ENGINE_ADAPTERS` em `src/matrix/engines.ts` (id → `patchScenario` e/ou `runOptions` do `runScenario`). Hoje existem `v1` e `v2`; o v3 vive num branch congelado e o v4 ainda não existe no runtime.
+
 ## Comparar o motor atual (v1) e o novo (v2)
 
 ```bash

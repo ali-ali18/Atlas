@@ -47,7 +47,7 @@ export type RunnerResult = {
 
 type Job = { scenario: Scenario; model: string; repeat: number };
 
-async function pool<T>(items: T[], limit: number, worker: (item: T) => Promise<void>): Promise<void> {
+export async function pool<T>(items: T[], limit: number, worker: (item: T) => Promise<void>): Promise<void> {
 	let next = 0;
 	const lanes = Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, async () => {
 		while (next < items.length) {

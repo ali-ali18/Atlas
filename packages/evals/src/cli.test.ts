@@ -12,6 +12,11 @@ describe("utilidades do runner", () => {
 	it("argumentos da CLI: comando, flags com valor, booleanas e o '--' do pnpm", () => {
 		expect(parseCliArgs(["--", "--models", "a,b", "--mock", "--repeat=3"])).toEqual({ command: "run", positional: [], flags: { models: "a,b", mock: true, repeat: "3" } });
 		expect(parseCliArgs(["compare", "x", "y"])).toEqual({ command: "compare", positional: ["x", "y"], flags: {} });
+		expect(parseCliArgs(["--", "matrix", "--scenarios", "gold", "--estimate", "--engines", "v2,v1", "--simulate", "--max-usd", "2"])).toEqual({
+			command: "matrix",
+			positional: [],
+			flags: { scenarios: "gold", estimate: true, engines: "v2,v1", simulate: true, "max-usd": "2" },
+		});
 		expect(parseCliArgs(["from-run", "--inspect", "i.json", "--out", "o.json"]).flags).toEqual({ inspect: "i.json", out: "o.json" });
 	});
 });

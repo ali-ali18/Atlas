@@ -10,6 +10,7 @@ import { redactSecrets } from "@workspace/shared";
  *   from-run      cenário a partir de um run de produção exportado (inspetor + eventos)
  *   list          cenários disponíveis
  *   motor-v1-vs-v2  motor atual × motor novo nas mesmas tarefas (roteiro; `--live` gasta tokens)
+ *   matrix        cenários × motores × modelos (Anthropic, OpenCode Go, OpenRouter) × repetições, com teto rígido de US$
  * A chave (`OPENROUTER_API_KEY`) vem do ambiente ou de `--env-file`; nunca é impressa nem gravada.
  */
 
@@ -17,7 +18,7 @@ const PACKAGE_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 export type CliArgs = { command: string; positional: string[]; flags: Record<string, string | true> };
 
-const BOOLEAN_FLAGS = new Set(["mock", "help", "live", "reference"]);
+const BOOLEAN_FLAGS = new Set(["mock", "help", "live", "reference", "estimate", "simulate"]);
 
 export function parseCliArgs(argv: string[]): CliArgs {
 	const args = argv[0] === "--" ? argv.slice(1) : argv;
@@ -38,7 +39,7 @@ export function parseCliArgs(argv: string[]): CliArgs {
 			index += 1;
 		}
 	}
-	const commands = new Set(["run", "compare", "from-run", "list", "motor-v1-vs-v2"]);
+	const commands = new Set(["run", "compare", "from-run", "list", "motor-v1-vs-v2", "matrix"]);
 	const command = positional[0] && commands.has(positional[0]) ? positional.shift()! : "run";
 	return { command, positional, flags };
 }
@@ -77,6 +78,15 @@ run (padrão)
 compare DIR_A DIR_B     delta de acerto de B sobre A (summary.json de cada um)
 from-run --inspect ARQ [--events ARQ] [--user TEXTO] [--id ID] [--language en-US|auto] --out ARQ
 list                    lista os cenários
+
+matrix                  cenários × motores × modelos × repetições, com teto rígido de gasto
+  --scenarios gold|ids  cenários (padrão: gold)           --engines v2[,v1]  motores (padrão: v2)
+  --models a,b          anthropic/<m> (CLAUDE_KEY) · opencode-go/<m> (OPENCODE_GO_API_KEY) · openrouter/<id> ou id (OPENROUTER_API_KEY)
+  --repeat N            repetições (padrão: 1)            --max-usd N   teto rígido em US$ (obrigatório no modo real)
+  --estimate            só estima o custo (sem rede) e sai  --estimate-factor N  passos extras do modelo real (padrão 2)
+  --simulate            matriz inteira com provedores falsos (sem rede, sem chave)
+  --judge MODELO        juiz LLM (entra no teto)          --strong a,b  modelos fortes na leitura harness × modelo
+  --concurrency N  --timeout S  --dir DIR  --out DIR (padrão results/<data-hora>-matrix)  --env-file ARQ
 
 motor-v1-vs-v2          compara o motor atual (v1) e o novo (v2) em 11 tarefas de pesquisa/análise
   (padrão)              modelo roteirizado: sem rede, sem chave, números determinísticos
@@ -210,6 +220,67 @@ async function commandEngineCompare(args: CliArgs): Promise<number> {
 	return 0;
 }
 
+async function commandMatrix(args: CliArgs): Promise<number> {
+	const { runMatrix, defaultMatrixDir, resolveEngines, resolveModelSpecs, assertProviderKeys, profileScenarios, buildEstimate, formatEstimate, DEFAULT_ESTIMATE_FACTOR } = await import("./matrix/index.js");
+	const { strongMatcher } = await import("./verdict.js");
+	const { loadScenarios, selectScenarios } = await import("./scenario.js");
+	const estimateOnly = args.flags.estimate === true;
+	const simulate = args.flags.simulate === true;
+	const dir = resolve(flag(args, "dir") ?? join(PACKAGE_DIR, "scenarios"));
+	const scenarios = selectScenarios(await loadScenarios(dir, { recursive: true }), flag(args, "scenarios") ?? "gold");
+	const engines = resolveEngines(list(flag(args, "engines") ?? "v2"));
+	const defaultModels = "anthropic/claude-haiku-5-5,opencode-go/deepseek-v4.1-flash,opencode-go/qwen3.8-flash";
+	const modelIds = list(flag(args, "models") ?? (simulate || estimateOnly ? defaultModels : undefined));
+	if (modelIds.length === 0) throw new Error("informe --models (ex.: anthropic/claude-haiku-5-5,opencode-go/qwen3.8-flash)");
+	const models = resolveModelSpecs(modelIds);
+	const repeat = flag(args, "repeat") !== undefined ? Math.floor(strictNumber("--repeat", flag(args, "repeat"))) : 1;
+	if (repeat < 1) throw new Error("--repeat precisa ser 1 ou mais");
+	const capUsd = flag(args, "max-usd") !== undefined ? strictNumber("--max-usd", flag(args, "max-usd")) : undefined;
+	if (capUsd !== undefined && capUsd <= 0) throw new Error("--max-usd precisa ser maior que zero");
+	const factor = flag(args, "estimate-factor") !== undefined ? strictNumber("--estimate-factor", flag(args, "estimate-factor")) : DEFAULT_ESTIMATE_FACTOR;
+	if (!(factor > 0)) throw new Error("--estimate-factor precisa ser maior que zero");
+	if (estimateOnly) {
+		const profiles = await profileScenarios(scenarios, engines, { concurrency: number(flag(args, "concurrency"), 3) });
+		console.log(`${scenarios.length} cenário(s) × ${engines.length} motor(es) × ${models.length} modelo(s) × ${repeat} repetição(ões)\n`);
+		console.log(formatEstimate(buildEstimate({ scenarios, engines, models, repeat, profiles, factor, ...(capUsd !== undefined ? { capUsd } : {}) })));
+		return 0;
+	}
+	if (!simulate) {
+		if (capUsd === undefined) throw new Error("informe --max-usd: o modo real exige um teto de gasto rígido (use --estimate para ver o custo antes)");
+		assertProviderKeys(models, process.env);
+	}
+	const now = new Date();
+	const outDir = resolve(flag(args, "out") ?? defaultMatrixDir(join(PACKAGE_DIR, "results"), now));
+	const judgeModel = flag(args, "judge");
+	if (judgeModel && simulate) console.log("--judge ignorado em --simulate (sem rede).");
+	console.log(`${scenarios.length} cenário(s) × ${engines.length} motor(es) × ${models.length} modelo(s) × ${repeat} repetição(ões)${simulate ? " [SIMULADO]" : ""}${capUsd !== undefined ? ` · teto US$ ${capUsd}` : ""} → ${outDir}`);
+	const result = await runMatrix({
+		scenarios,
+		engines: engines.map((engine) => engine.id),
+		models: modelIds,
+		repeat,
+		mode: simulate ? "simulate" : "real",
+		...(capUsd !== undefined ? { capUsd } : {}),
+		estimateFactor: factor,
+		concurrency: number(flag(args, "concurrency"), 3),
+		timeoutMs: number(flag(args, "timeout"), 180) * 1000,
+		...(judgeModel ? { judgeModel } : {}),
+		isStrong: strongMatcher(list(flag(args, "strong"))),
+		outDir,
+		now: () => now,
+		onProgress: (run, done, total) => {
+			if (run.status === "skipped_budget") return;
+			console.log(`[${done}/${total}] ${run.engine} ${run.model} ${run.scenarioId} #${run.repeat + 1}: ${run.pass ? "passou" : `falhou (${run.failedChecks.join(", ") || run.error || "erro"})`} · US$ ${run.costUsd.toFixed(4)}`);
+		},
+	});
+	const { summary } = result;
+	console.log(`\ngasto US$ ${summary.spentUsd.toFixed(4)}${summary.capUsd !== null ? ` de US$ ${summary.capUsd}` : ""}${summary.costUnknown ? " (parcial: custo estimado pela tabela)" : ""}`);
+	if (summary.budgetStopped) console.log(`TETO ATINGIDO: ${summary.skippedBudget} execução(ões) marcadas skipped_budget (não rodaram).`);
+	for (const [provider, item] of Object.entries(summary.byProvider)) console.log(`  ${provider}: ${item.runs} execuções · US$ ${item.costUsd.toFixed(4)}`);
+	console.log(`relatório: ${join(outDir, "matrix.md")}\n           ${join(outDir, "matrix.json")}`);
+	return 0;
+}
+
 export async function main(argv: string[]): Promise<number> {
 	const args = parseCliArgs(argv);
 	if (args.flags.help) {
@@ -225,6 +296,7 @@ export async function main(argv: string[]): Promise<number> {
 	if (args.command === "from-run") return commandFromRun(args);
 	if (args.command === "list") return commandList(args);
 	if (args.command === "motor-v1-vs-v2") return commandEngineCompare(args);
+	if (args.command === "matrix") return commandMatrix(args);
 	return commandRun(args);
 }
 
@@ -232,7 +304,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
 	main(process.argv.slice(2))
 		.then((code) => process.exit(code))
 		.catch((error: unknown) => {
-			console.error(redactSecrets(error instanceof Error ? error.message : "erro desconhecido", [process.env.OPENROUTER_API_KEY ?? ""]));
+			console.error(redactSecrets(error instanceof Error ? error.message : "erro desconhecido", [process.env.OPENROUTER_API_KEY ?? "", process.env.CLAUDE_KEY ?? "", process.env.ANTHROPIC_API_KEY ?? "", process.env.OPENCODE_GO_API_KEY ?? ""]));
 			process.exit(2);
 		});
 }
