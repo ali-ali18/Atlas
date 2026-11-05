@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { CHANNELS_PROMPT } from "../channels/index.js";
 import { capabilityIndex, createCapabilityRegistry, defineCapability } from "../capabilities/index.js";
 import { kernelHarness, reply } from "../testing/kernel-fakes.js";
 
@@ -14,7 +13,7 @@ import { kernelHarness, reply } from "../testing/kernel-fakes.js";
 //
 // Medida de entrada: caracteres de todas as mensagens + JSON das tools, divididos por 4.
 // TETO = medido em 2026-11-05 + 15% (arredondado para cima). Subir o teto exige motivo no commit.
-export const GOOD_MORNING_INPUT_TOKENS_MEASURED = 580;
+export const GOOD_MORNING_INPUT_TOKENS_MEASURED = 902; // prompt estável completo (contrato de trabalho + canais), medido depois da F1.11
 export const GOOD_MORNING_INPUT_TOKENS_CEILING = Math.ceil(GOOD_MORNING_INPUT_TOKENS_MEASURED * 1.15);
 
 const approxTokens = (chars: number) => Math.ceil(chars / 4);
@@ -24,7 +23,9 @@ export async function measureGoodMorning(extraCapabilities: Parameters<typeof cr
 	const registry = createCapabilityRegistry([core, ...extraCapabilities]);
 	const h = kernelHarness([reply({ text: "Bom dia! Como posso ajudar?" })], { capabilities: [core, ...extraCapabilities] });
 	const index = capabilityIndex(registry);
-	const result = await h.run({ input: { stableSystem: CHANNELS_PROMPT, contextSections: index ? [`Capabilities you can load with use_capability:\n${index}`] : [], history: [{ kind: "owner", text: "Bom dia" }] } });
+	// Sem `stableSystem`: o kernel monta o prompt estável real (contrato de trabalho + canais + índice de capacidades, F1.11).
+	void index;
+	const result = await h.run({ input: { contextSections: [], history: [{ kind: "owner", text: "Bom dia" }] } });
 	const first = h.llm.requests[0];
 	if (!first) throw new Error("o modelo não foi chamado");
 	const messageChars = JSON.stringify(first.messages).length;
