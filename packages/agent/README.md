@@ -4,7 +4,7 @@ O motor do agente do Atlas, feito para o Atlas e open-source junto com ele (MIT)
 
 ## Estado atual (honesto)
 
-Prontos: as **portas** e as guardas (F1.1) e, na F1.2, as **classes de efeito** e o `defineTool`. O resto abaixo é o desenho, ainda sem código.
+Prontos: as **portas** e as guardas (F1.1) e, na F1.2, as **classes de efeito**, o `defineTool` e as **capacidades** (registro, índice, `use_capability`, ganchos tipados). O resto abaixo é o desenho, ainda sem código.
 
 | Camada | O que é | Existe? |
 |---|---|---|
@@ -14,7 +14,7 @@ Prontos: as **portas** e as guardas (F1.1) e, na F1.2, as **classes de efeito** 
 | `contract/` | classes de efeito (`effects.ts`, pronto), política, mandatos, handoff, taint, recibos | parcial (só efeitos) |
 | `tools/` | `defineTool`: efeito obrigatório, args validados pelo zod, resultado `ok`/`erro` tipado, `LlmToolSpec` | sim |
 | `channels/` | envelopes: fala do usuário, sistema (nonce), dado não confiável | não |
-| `capabilities/` | uma pasta por feature (tools + skill + cards + evals) | não |
+| `capabilities/` | `defineCapability`, registro, índice de uma linha, carga só de acréscimo (`use_capability`), ganchos tipados. Uma pasta por feature virá nas fases seguintes | sim (o mecanismo; sem capacidades concretas) |
 | `agenda/` | lembrete, vigia, intenção por evento | não |
 | `memory/` | perfil, caderno, sessões | não |
 | `presets/` | `full` e `minimal` | não |
