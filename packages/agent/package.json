@@ -24,6 +24,7 @@
     "vitest": "^4.1.12"
   },
   "dependencies": {
+    "@workspace/llm": "workspace:*",
     "@workspace/shared": "workspace:*",
     "zod": "^4.4.3"
   }
