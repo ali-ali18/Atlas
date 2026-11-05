@@ -2,6 +2,8 @@ import type { HomeBot, SectionRef } from "@/lib/home-types";
 import { useRouter } from "expo-router";
 import * as React from "react";
 import { KeyboardAvoidingView, RefreshControl, ScrollView, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Fade } from "@/components/ui/fade";
 import { HomeHeader } from "@/components/home/home-header";
 import { PinnedGrid } from "@/components/home/pinned-grid";
 import { SearchFooter } from "@/components/home/search-footer";
@@ -30,6 +32,10 @@ const NO_SECTIONS: readonly SectionRef[] = [];
 export default function HomeScreen() {
 	const router = useRouter();
 	const scheme = useAppColorScheme();
+	const insets = useSafeAreaInsets();
+	// Alturas medidas do cabeçalho e da busca: a lista passa por baixo deles e o conteúdo ganha esse espaço no início/fim.
+	const [headerHeight, setHeaderHeight] = React.useState(0);
+	const [footerHeight, setFooterHeight] = React.useState(0);
 	const { name, email, image, apiFetch } = useAtlasSession();
 	const { snapshot, refreshing, error, refresh, applySectionUpdate } = useHomeData();
 	const [query, setQuery] = React.useState("");
@@ -107,19 +113,28 @@ export default function HomeScreen() {
 	}
 
 	return (
-		<ScreenFrame>
+		<ScreenFrame edges={["bottom", "left", "right"]}>
 			<KeyboardAvoidingView behavior="padding" className="flex-1">
-				<HomeHeader user={{ name, email, image }} onNew={() => router.push("/new-bot" as never)} />
 				<ScrollView
 					className="flex-1"
-					contentContainerStyle={{ paddingBottom: 16 }}
+					// A lista vai até o fundo e passa por trás da busca (ela flutua sobre as conversas, sem faixa opaca).
+					style={{ marginBottom: -footerHeight }}
+					contentContainerStyle={{ paddingTop: headerHeight, paddingBottom: footerHeight + 16 }}
+					scrollIndicatorInsets={{ top: headerHeight, bottom: footerHeight }}
 					keyboardShouldPersistTaps="handled"
 					keyboardDismissMode="on-drag"
-					refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void refresh()} tintColor={themeColor(scheme, "muted-foreground")} colors={[themeColor(scheme, "muted-foreground")]} />}
+					refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void refresh()} progressViewOffset={headerHeight} tintColor={themeColor(scheme, "muted-foreground")} colors={[themeColor(scheme, "muted-foreground")]} />}
 				>
 					{body}
 				</ScrollView>
-				<SearchFooter query={query} onChange={setQuery} onGrid={() => router.push("/apps" as never)} />
+				<Fade from="top" height={headerHeight + 16} className="absolute left-0 right-0 top-0" />
+				<View className="absolute left-0 right-0 top-0 z-10" style={{ paddingTop: insets.top }} onLayout={(event) => setHeaderHeight(Math.round(event.nativeEvent.layout.height))}>
+					<HomeHeader user={{ name, email, image }} onNew={() => router.push("/new-bot" as never)} />
+				</View>
+				<View className="z-10" onLayout={(event) => setFooterHeight(Math.round(event.nativeEvent.layout.height))}>
+					<Fade from="bottom" height={footerHeight + 24} className="absolute bottom-0 left-0 right-0" />
+					<SearchFooter query={query} onChange={setQuery} onGrid={() => router.push("/apps" as never)} />
+				</View>
 			</KeyboardAvoidingView>
 			<HomeBotMenu bot={menuBot} onClose={() => setMenuBot(null)} />
 			<HomeSectionMenu
