@@ -57,3 +57,34 @@ export function simulatedProviders(job: SimJob): MatrixProviders {
 		openrouter: make((usage) => ({ costUsd: (usage.promptTokens * 0.2 + usage.completionTokens * 0.8) / 1_000_000 })),
 	};
 }
+
+/**
+ * Juiz simulado (`--simulate --judge a,b`): responde o JSON da rubrica com notas determinísticas (semente = modelo +
+ * pedido enviado), sem rede, com uso falso no formato do provedor. Juízes diferentes dão notas diferentes, então às
+ * vezes discordam e a regra do teto é exercitada. As notas NÃO medem nada.
+ */
+export function simulatedJudgeProviders(model: ResolvedModel): MatrixProviders {
+	const make = (shape: (usage: { promptTokens: number; completionTokens: number }) => Record<string, unknown>): MatrixProviders["anthropic"] =>
+		(async (params) => {
+			const prompt = JSON.stringify(params.messages);
+			// Nota "verdadeira" da resposta (3..5, igual para os dois juízes) + desvio de cada juiz: quase sempre ±1, às vezes ±2.
+			const pick = (dimension: string): number => {
+				const base = 3 + Math.floor(seededUnit(`truth|${dimension}|${prompt}`) * 3);
+				const draw = seededUnit(`judge|${model.spec}|${dimension}|${prompt}`);
+				const drift = draw < 0.1 ? -2 : draw < 0.3 ? -1 : draw < 0.75 ? 0 : draw < 0.95 ? 1 : 2;
+				return Math.min(5, Math.max(1, base + drift));
+			};
+			const dimension = (name: string, nullable: boolean): string => {
+				const score = nullable && seededUnit(`na|${name}|${prompt}`) > 0.75 ? "null" : String(pick(name));
+				return `"${name}":{"score":${score},"reason":"nota simulada"}`;
+			};
+			const content = `{${[dimension("completude", false), dimension("fontes", true), dimension("formato", false), dimension("antecipacao", true)].join(",")}}`;
+			const base = { promptTokens: Math.ceil(prompt.length / 4), completionTokens: Math.ceil(content.length / 4) };
+			return { model: params.model, message: { role: "assistant", content }, usage: { ...base, totalTokens: base.promptTokens + base.completionTokens, ...shape(base) } };
+		}) as MatrixProviders["anthropic"];
+	return {
+		anthropic: make((usage) => ({ cachedTokens: Math.floor(usage.promptTokens * 0.5), costUnknown: true })),
+		opencodeGo: make(() => ({ costKind: "plan" })),
+		openrouter: make((usage) => ({ costUsd: (usage.promptTokens * 0.2 + usage.completionTokens * 0.8) / 1_000_000 })),
+	};
+}

@@ -69,7 +69,9 @@ run (padrão)
   --timeout S           segundos por execução (padrão: 180)
   --harness a,b         variantes do runtime (padrão: base); a 1ª é a base do delta
   --strong a,b          modelos tratados como fortes no diagnóstico (padrão: Claude Sonnet/Opus, GPT-5, Gemini Pro)
-  --judge MODELO        liga o juiz LLM das verificações "judge" (desligado por padrão)
+  --judge A[,B]         liga o juiz LLM (rubrica de qualidade) nas verificações "judge"; 2 modelos = dois juízes com teto de
+                        discordância (prefixo do provedor: anthropic/, opencode-go/, openrouter/). Desligado por padrão
+  --judge-max-gap N     diferença máxima entre os dois juízes por dimensão (padrão 1; acima disso a dimensão fica "disputed")
   --max-cost USD        para de iniciar execuções depois do teto
   --mock                modelo roteirizado dos cenários (sem rede, sem chave)
   --out DIR             pasta dos resultados (padrão: results/<data-hora>)
@@ -85,7 +87,7 @@ matrix                  cenários × motores × modelos × repetições, com tet
   --repeat N            repetições (padrão: 1)            --max-usd N   teto rígido em US$ (obrigatório no modo real)
   --estimate            só estima o custo (sem rede) e sai  --estimate-factor N  passos extras do modelo real (padrão 2)
   --simulate            matriz inteira com provedores falsos (sem rede, sem chave)
-  --judge MODELO        juiz LLM (entra no teto)          --strong a,b  modelos fortes na leitura harness × modelo
+  --judge A[,B]         juízes LLM da rubrica (entram no teto e no --estimate)  --judge-max-gap N  teto de discordância (padrão 1)          --strong a,b  modelos fortes na leitura harness × modelo
   --concurrency N  --timeout S  --dir DIR  --out DIR (padrão results/<data-hora>-matrix)  --env-file ARQ
 
 motor-v1-vs-v2          compara o motor atual (v1) e o novo (v2) em 11 tarefas de pesquisa/análise
@@ -98,6 +100,19 @@ motor-v1-vs-v2          compara o motor atual (v1) e o novo (v2) em 11 tarefas d
   --budget-usd N        orçamento do trabalho longo no v2 (0.05 a 20; padrão 0.50)   --minutes N  (1 a 120; padrão 20)
   --price-in N          US$/Mtok de entrada para o custo estimado (padrão 1)   --price-out N (padrão 5)
   --out ARQ             grava o relatório markdown (ex.: docs/ops/motor-v1-vs-v2.md); sem isto imprime`;
+
+function judgeSpecsFlag(args: CliArgs): string[] {
+	if (args.flags.judge === true) throw new Error("--judge precisa de um ou dois modelos (a ou a,b)");
+	return list(flag(args, "judge"));
+}
+
+function judgeMaxGapFlag(args: CliArgs): number {
+	const raw = flag(args, "judge-max-gap");
+	if (raw === undefined) return 1;
+	const value = strictNumber("--judge-max-gap", raw);
+	if (value < 0) throw new Error("--judge-max-gap precisa ser 0 ou mais");
+	return value;
+}
 
 async function loadAll(args: CliArgs) {
 	const { loadScenarios, selectScenarios } = await import("./scenario.js");
@@ -116,8 +131,24 @@ async function commandRun(args: CliArgs): Promise<number> {
 	const { resolveVariants } = await import("./variants.js");
 	const { strongMatcher } = await import("./verdict.js");
 	const { streamChatWithTools } = await import("@workspace/llm");
-	const judgeModel = flag(args, "judge");
-	const { createJudge } = await import("./judge.js");
+	const judgeSpecs = judgeSpecsFlag(args);
+	const judgeMaxGap = judgeMaxGapFlag(args);
+	if (judgeSpecs.length > 2) throw new Error("--judge aceita no máximo 2 modelos (a,b)");
+	if (judgeSpecs.length > 0 && mock) console.log("--judge ignorado em --mock (sem rede).");
+	// Juízes pelo roteamento do matrix (prefixo do provedor); o custo deles entra no --max-cost.
+	let judgeUsd = 0;
+	let judge: import("./checks.js").Judge | undefined;
+	if (judgeSpecs.length > 0 && !mock) {
+		const { resolveModelSpecs, assertProviderKeys, createRealProviders, createMatrixRouter, withCostAccounting, withSessionId } = await import("./matrix/index.js");
+		const { createJudgePanel, createRubricJudge } = await import("./judge.js");
+		const specs = resolveModelSpecs(judgeSpecs);
+		assertProviderKeys(specs, process.env);
+		const router = withCostAccounting(createMatrixRouter(withSessionId(createRealProviders(process.env), "eval-judge")), { onCost: (usd) => (judgeUsd += usd) });
+		judge = createJudgePanel({
+			judges: specs.map((spec) => createRubricJudge({ model: spec.internalId, apiKey: "eval", streamChat: ((params: import("@workspace/llm").CompleteChatWithToolsParams) => router(params, {})) as import("./mock-model.js").StreamChat })),
+			maxGap: judgeMaxGap,
+		});
+	}
 	const stamp = new Date().toISOString().replace(/[:.]/g, "-");
 	const outDir = resolve(flag(args, "out") ?? join(PACKAGE_DIR, "results", stamp));
 	const variants = resolveVariants(flag(args, "harness"));
@@ -131,7 +162,7 @@ async function commandRun(args: CliArgs): Promise<number> {
 		concurrency: number(flag(args, "concurrency"), 3),
 		timeoutMs: number(flag(args, "timeout"), 180) * 1000,
 		variants,
-		...(judgeModel && !mock ? { judge: createJudge({ model: judgeModel, apiKey, streamChat: (params) => streamChatWithTools(params, {}) }) } : {}),
+		...(judge ? { judge, judgeCostUsd: () => judgeUsd } : {}),
 		...(flag(args, "max-cost") ? { maxCostUsd: number(flag(args, "max-cost"), Number.POSITIVE_INFINITY) } : {}),
 		isStrong: strongMatcher(list(flag(args, "strong"))),
 		outDir,
@@ -242,17 +273,18 @@ async function commandMatrix(args: CliArgs): Promise<number> {
 	if (estimateOnly) {
 		const profiles = await profileScenarios(scenarios, engines, { concurrency: number(flag(args, "concurrency"), 3) });
 		console.log(`${scenarios.length} cenário(s) × ${engines.length} motor(es) × ${models.length} modelo(s) × ${repeat} repetição(ões)\n`);
-		console.log(formatEstimate(buildEstimate({ scenarios, engines, models, repeat, profiles, factor, ...(capUsd !== undefined ? { capUsd } : {}) })));
+		console.log(formatEstimate(buildEstimate({ scenarios, engines, models, repeat, profiles, factor, judges: resolveModelSpecs(judgeSpecsFlag(args)), ...(capUsd !== undefined ? { capUsd } : {}) })));
 		return 0;
 	}
 	if (!simulate) {
 		if (capUsd === undefined) throw new Error("informe --max-usd: o modo real exige um teto de gasto rígido (use --estimate para ver o custo antes)");
-		assertProviderKeys(models, process.env);
+		assertProviderKeys([...models, ...resolveModelSpecs(judgeSpecsFlag(args))], process.env);
 	}
 	const now = new Date();
 	const outDir = resolve(flag(args, "out") ?? defaultMatrixDir(join(PACKAGE_DIR, "results"), now));
-	const judgeModel = flag(args, "judge");
-	if (judgeModel && simulate) console.log("--judge ignorado em --simulate (sem rede).");
+	const judgeModels = judgeSpecsFlag(args);
+	const judgeMaxGap = judgeMaxGapFlag(args);
+	if (judgeModels.length > 2) throw new Error("--judge aceita no máximo 2 modelos (a,b)");
 	console.log(`${scenarios.length} cenário(s) × ${engines.length} motor(es) × ${models.length} modelo(s) × ${repeat} repetição(ões)${simulate ? " [SIMULADO]" : ""}${capUsd !== undefined ? ` · teto US$ ${capUsd}` : ""} → ${outDir}`);
 	const result = await runMatrix({
 		scenarios,
@@ -264,7 +296,7 @@ async function commandMatrix(args: CliArgs): Promise<number> {
 		estimateFactor: factor,
 		concurrency: number(flag(args, "concurrency"), 3),
 		timeoutMs: number(flag(args, "timeout"), 180) * 1000,
-		...(judgeModel ? { judgeModel } : {}),
+		...(judgeModels.length > 0 ? { judgeModels, judgeMaxGap } : {}),
 		isStrong: strongMatcher(list(flag(args, "strong"))),
 		outDir,
 		now: () => now,

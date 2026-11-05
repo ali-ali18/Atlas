@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { redactSecrets } from "@workspace/shared";
 import { passed, runChecks, type Judge } from "./checks.js";
 import { createMockModel, MOCK_MODEL, type StreamChat } from "./mock-model.js";
+import { formatQualityLine, summarizeRunQuality } from "./quality.js";
 import { formatReport, summarize, type Summary } from "./report.js";
 import { runScenario } from "./run-scenario.js";
 import type { Scenario } from "./scenario.js";
@@ -28,6 +29,8 @@ export type RunnerOptions = {
 	timeoutMs?: number;
 	variants?: Array<[string, HarnessVariant]>;
 	judge?: Judge;
+	/** Gasto acumulado dos juízes (US$): entra no teto `maxCostUsd`. */
+	judgeCostUsd?: () => number;
 	/** Teto de gasto (US$): passado o teto, execuções que ainda não começaram são puladas. */
 	maxCostUsd?: number;
 	isStrong: (model: string) => boolean;
@@ -82,7 +85,7 @@ export async function runEvaluation(options: RunnerOptions): Promise<RunnerResul
 		const restore = applyVariantEnv(variant);
 		try {
 			await pool(jobs, options.concurrency ?? 3, async (job) => {
-				if (options.maxCostUsd !== undefined && spent >= options.maxCostUsd) {
+				if (options.maxCostUsd !== undefined && spent + (options.judgeCostUsd?.() ?? 0) >= options.maxCostUsd) {
 					skippedByBudget += 1;
 					return;
 				}
@@ -111,7 +114,8 @@ export async function runEvaluation(options: RunnerOptions): Promise<RunnerResul
 	// Ordem estável na matriz (a da bateria), não a de término.
 	summary.scenarios = scenarios.map((scenario) => scenario.id).filter((id) => summary.scenarios.includes(id));
 	summary.models = models.filter((model) => summary.models.includes(model));
-	const report = `${formatReport(summary)}${skippedByBudget > 0 ? `\n${skippedByBudget} execução(ões) pulada(s): teto de US$ ${options.maxCostUsd} atingido` : ""}`;
+	const qualityLine = formatQualityLine(records.map((record) => summarizeRunQuality(record.checks.map((check) => check.quality))));
+	const report = `${formatReport(summary)}${qualityLine ? `\n${qualityLine}${options.judgeCostUsd ? ` · juízes US$ ${options.judgeCostUsd().toFixed(4)}` : ""}` : ""}${skippedByBudget > 0 ? `\n${skippedByBudget} execução(ões) pulada(s): teto de US$ ${options.maxCostUsd} atingido` : ""}`;
 	if (options.outDir) {
 		await writeFile(join(options.outDir, "summary.json"), `${redactSecrets(JSON.stringify(summary, null, 2), secrets)}\n`);
 		await writeFile(join(options.outDir, "matrix.txt"), `${report}\n`);

@@ -50,7 +50,14 @@ export type Trajectory = {
 	tokens: { prompt: number; completion: number };
 };
 
-export type CheckResult = { name: string; pass: boolean; detail?: string; skipped?: boolean };
+export type CheckResult = {
+	name: string;
+	pass: boolean;
+	detail?: string;
+	skipped?: boolean;
+	/** Notas da rubrica de qualidade (só na verificação `judge`, com `--judge`). */
+	quality?: import("./quality.js").QualityResult;
+};
 
 export type RunRecord = {
 	scenarioId: string;

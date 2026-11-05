@@ -1,3 +1,4 @@
+import { addQuality, emptyQualityAgg, type QualityAgg, type RunQuality } from "../quality.js";
 import { diagnose, type ModelStat, type Verdict } from "../verdict.js";
 
 /** Agregação do relatório do matrix (funções puras sobre as execuções). */
@@ -22,6 +23,8 @@ export type MatrixRun = {
 	durationMs: number;
 	/** Estimativa usada na reserva do teto. */
 	estimatedUsd: number;
+	/** Rubrica de qualidade (só com `--judge` e cenário com verificação `judge`). */
+	quality?: RunQuality;
 };
 
 export type Agg = {
@@ -36,9 +39,11 @@ export type Agg = {
 	costUsd: number;
 	costUnknown: boolean;
 	durationMs: number;
+	/** Rubrica de qualidade das execuções julgadas. */
+	quality: QualityAgg;
 };
 
-const emptyAgg = (): Agg => ({ runs: 0, passes: 0, errors: 0, skipped: 0, failing: {}, steps: 0, promptTokens: 0, completionTokens: 0, costUsd: 0, costUnknown: false, durationMs: 0 });
+const emptyAgg = (): Agg => ({ runs: 0, passes: 0, errors: 0, skipped: 0, failing: {}, steps: 0, promptTokens: 0, completionTokens: 0, costUsd: 0, costUnknown: false, durationMs: 0, quality: emptyQualityAgg() });
 
 function add(agg: Agg, run: MatrixRun): void {
 	if (run.status === "skipped_budget") {
@@ -55,6 +60,7 @@ function add(agg: Agg, run: MatrixRun): void {
 	agg.costUsd += run.costUsd;
 	agg.costUnknown ||= run.costUnknown;
 	agg.durationMs += run.durationMs;
+	addQuality(agg.quality, run.quality);
 }
 
 /** Capacidade = pasta do conjunto ouro (`gold/<capacidade>/`), que é a 2ª tag; fora do ouro, a 1ª tag. */
@@ -77,6 +83,8 @@ export type MatrixSummary = {
 	capUsd: number | null;
 	spentUsd: number;
 	judgeUsd: number;
+	/** Juízes da rubrica (vazio = sem juiz) e o teto de discordância. */
+	judging: { models: string[]; maxGap: number } | null;
 	skippedBudget: number;
 	budgetStopped: boolean;
 	costUnknown: boolean;
@@ -97,7 +105,7 @@ export const passRateOf = (agg: Pick<Agg, "runs" | "passes">): number | null => 
 
 export function summarizeMatrix(
 	runs: readonly MatrixRun[],
-	options: { engines: string[]; models: string[]; scenarios: Array<{ id: string; capability: string }>; repeat: number; mode: "real" | "simulate"; capUsd?: number; judgeUsd?: number; isStrong: (model: string) => boolean; createdAt?: string },
+	options: { engines: string[]; models: string[]; scenarios: Array<{ id: string; capability: string }>; repeat: number; mode: "real" | "simulate"; capUsd?: number; judgeUsd?: number; judging?: { models: string[]; maxGap: number }; isStrong: (model: string) => boolean; createdAt?: string },
 ): MatrixSummary {
 	const cells: Grid = {};
 	const byCapability: Grid = {};
@@ -147,6 +155,7 @@ export function summarizeMatrix(
 		capUsd: options.capUsd ?? null,
 		spentUsd,
 		judgeUsd: options.judgeUsd ?? 0,
+		judging: options.judging && options.judging.models.length > 0 ? options.judging : null,
 		skippedBudget,
 		budgetStopped: skippedBudget > 0,
 		costUnknown: runs.some((run) => run.costUnknown),

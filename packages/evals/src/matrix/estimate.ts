@@ -54,7 +54,8 @@ export function estimateExecutionUsd(profile: ExecutionProfile, price: PriceEntr
 }
 
 export type EstimateRow = { engine: string; model: string; provider: string; executions: number; promptTokens: number; completionTokens: number; usd: number; priceKnown: boolean; priceConfirmed: boolean };
-export type EstimateResult = { rows: EstimateRow[]; totalUsd: number; executions: number; factor: number; repeat: number; anyUnknown: boolean; anyUnconfirmed: boolean; fitsInCap?: { capUsd: number; executions: number } };
+export type JudgeEstimateRow = { model: string; provider: string; calls: number; promptTokens: number; completionTokens: number; usd: number; priceKnown: boolean; priceConfirmed: boolean };
+export type EstimateResult = { rows: EstimateRow[]; judgeRows: JudgeEstimateRow[]; totalUsd: number; executions: number; factor: number; repeat: number; anyUnknown: boolean; anyUnconfirmed: boolean; fitsInCap?: { capUsd: number; executions: number } };
 
 export function buildEstimate(input: {
 	scenarios: readonly Scenario[];
@@ -64,6 +65,8 @@ export function buildEstimate(input: {
 	profiles: ReadonlyMap<string, ExecutionProfile>;
 	factor: number;
 	capUsd?: number;
+	/** Juízes da rubrica: cada execução de cenário com verificação `judge` chama cada juiz uma vez. */
+	judges?: readonly ResolvedModel[];
 	priceTable?: Record<string, PriceEntry>;
 }): EstimateResult {
 	const rows: EstimateRow[] = [];
@@ -82,30 +85,49 @@ export function buildEstimate(input: {
 			rows.push({ engine: engine.id, model: model.spec, provider: model.provider, executions: input.scenarios.length * input.repeat, promptTokens: Math.round(promptTokens), completionTokens: Math.round(completionTokens), usd, priceKnown: known, priceConfirmed: known && price.confirmed });
 		}
 	}
+	const judged = input.scenarios.filter(hasJudgeExpectation).length * input.engines.length * input.models.length * input.repeat;
+	const judgeRows: JudgeEstimateRow[] = (input.judges ?? []).map((judge) => {
+		const { known, price } = priceFor(judge.priceKey, input.priceTable);
+		return { model: judge.spec, provider: judge.provider, calls: judged, promptTokens: judged * JUDGE_PROMPT_TOKENS, completionTokens: judged * JUDGE_COMPLETION_TOKENS, usd: judged * estimateJudgeUsd([judge], input.priceTable), priceKnown: known, priceConfirmed: known && price.confirmed };
+	});
 	const result: EstimateResult = {
 		rows,
-		totalUsd: rows.reduce((sum, row) => sum + row.usd, 0),
+		judgeRows,
+		totalUsd: rows.reduce((sum, row) => sum + row.usd, 0) + judgeRows.reduce((sum, row) => sum + row.usd, 0),
 		executions: rows.reduce((sum, row) => sum + row.executions, 0),
 		factor: input.factor,
 		repeat: input.repeat,
-		anyUnknown: rows.some((row) => !row.priceKnown),
-		anyUnconfirmed: rows.some((row) => !row.priceConfirmed),
+		anyUnknown: [...rows, ...judgeRows].some((row) => !row.priceKnown),
+		anyUnconfirmed: [...rows, ...judgeRows].some((row) => !row.priceConfirmed),
 	};
 	return input.capUsd === undefined ? result : { ...result, fitsInCap: { capUsd: input.capUsd, executions: countThatFit(estimatesInOrder(input), input.capUsd) } };
 }
 
 /** Estimativa de cada execução na ordem de agendamento do matrix (repetição → cenário → motor → modelo). */
-export function estimatesInOrder(input: { scenarios: readonly Scenario[]; engines: readonly EngineAdapter[]; models: readonly ResolvedModel[]; repeat: number; profiles: ReadonlyMap<string, ExecutionProfile>; factor: number; priceTable?: Record<string, PriceEntry> }): number[] {
+export function estimatesInOrder(input: { judges?: readonly ResolvedModel[]; scenarios: readonly Scenario[]; engines: readonly EngineAdapter[]; models: readonly ResolvedModel[]; repeat: number; profiles: ReadonlyMap<string, ExecutionProfile>; factor: number; priceTable?: Record<string, PriceEntry> }): number[] {
 	const out: number[] = [];
 	for (let repeat = 0; repeat < input.repeat; repeat += 1) {
 		for (const scenario of input.scenarios) {
 			for (const engine of input.engines) {
 				const profile = input.profiles.get(profileKey(scenario.id, engine.id)) ?? FALLBACK_PROFILE;
-				for (const model of input.models) out.push(estimateExecutionUsd(profile, priceFor(model.priceKey, input.priceTable).price, input.factor));
+				const judgeUsd = hasJudgeExpectation(scenario) ? estimateJudgeUsd(input.judges ?? [], input.priceTable) : 0;
+				for (const model of input.models) out.push(estimateExecutionUsd(profile, priceFor(model.priceKey, input.priceTable).price, input.factor) + judgeUsd);
 			}
 		}
 	}
 	return out;
+}
+
+/** Uma chamada de juiz: prompt (rubrica + pedido + resposta + tools, com cortes) e JSON curto. Fixo, sem fator de passos. */
+export const JUDGE_PROMPT_TOKENS = 3000;
+export const JUDGE_COMPLETION_TOKENS = 500;
+
+/** Só os cenários com verificação `judge` são julgados. */
+export const hasJudgeExpectation = (scenario: Pick<Scenario, "expect">): boolean => (scenario.expect ?? []).some((item) => item.type === "judge");
+
+/** Custo estimado do julgamento de UMA execução (todos os juízes), sem desconto de cache. */
+export function estimateJudgeUsd(judges: readonly ResolvedModel[], priceTable?: Record<string, PriceEntry>): number {
+	return judges.reduce((sum, judge) => sum + costFromTokens({ promptTokens: JUDGE_PROMPT_TOKENS, completionTokens: JUDGE_COMPLETION_TOKENS }, { ...priceFor(judge.priceKey, priceTable).price, cachedRatio: 1, writeRatio: 1 }), 0);
 }
 
 const usd = (value: number): string => `US$ ${value.toFixed(4)}`;
@@ -113,12 +135,17 @@ const tok = (value: number): string => (value >= 1_000_000 ? `${(value / 1_000_0
 
 export function formatEstimate(result: EstimateResult): string {
 	const header = ["motor", "modelo", "execuções", "tokens in", "tokens out", "custo estimado", "preço"];
-	const body = result.rows.map((row) => [row.engine, row.model, String(row.executions), tok(row.promptTokens), tok(row.completionTokens), usd(row.usd), row.priceKnown ? (row.priceConfirmed ? "ok" : "a confirmar") : "desconhecido (padrão conservador)"]);
+	const priceNote = (row: { priceKnown: boolean; priceConfirmed: boolean }) => (row.priceKnown ? (row.priceConfirmed ? "ok" : "a confirmar") : "desconhecido (padrão conservador)");
+	const body = [
+		...result.rows.map((row) => [row.engine, row.model, String(row.executions), tok(row.promptTokens), tok(row.completionTokens), usd(row.usd), priceNote(row)]),
+		...result.judgeRows.map((row) => ["juiz", row.model, `${row.calls} chamadas`, tok(row.promptTokens), tok(row.completionTokens), usd(row.usd), priceNote(row)]),
+	];
 	const rows = [header, ...body, ["", "TOTAL", String(result.executions), "", "", usd(result.totalUsd), ""]];
 	const widths = header.map((_, column) => Math.max(...rows.map((row) => row[column]!.length)));
 	const lines = rows.map((row) => row.map((cell, column) => cell.padEnd(widths[column]!)).join(" | ").trimEnd());
 	lines.splice(1, 0, widths.map((width) => "-".repeat(width)).join("-+-"));
 	const notes = [`estimativa sem rede: tamanho do roteiro mock × ${result.factor} (fator de passos extras do modelo real) × ${result.repeat} repetição(ões); sem desconto de cache.`];
+	if (result.judgeRows.length > 0) notes.push(`juízes: ${JUDGE_PROMPT_TOKENS} tokens de entrada + ${JUDGE_COMPLETION_TOKENS} de saída por chamada, uma por juiz em cada execução de cenário com verificação \`judge\` (entra no total e no teto --max-usd).`);
 	if (result.anyUnconfirmed) notes.push("há preços marcados \"a confirmar\" em src/matrix/pricing.ts: confira antes de confiar no total.");
 	if (result.fitsInCap) notes.push(`teto --max-usd ${usd(result.fitsInCap.capUsd)}: cabem ${result.fitsInCap.executions} de ${result.executions} execuções${result.fitsInCap.executions < result.executions ? " (o resto seria pulado)" : ""}.`);
 	return [...lines, "", ...notes].join("\n");

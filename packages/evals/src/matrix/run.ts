@@ -2,7 +2,8 @@ import { appendFile, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { redactSecrets } from "@workspace/shared";
 import { passed, runChecks, type Judge } from "../checks.js";
-import { createJudge } from "../judge.js";
+import { createJudgePanel, createRubricJudge, type RubricJudge } from "../judge.js";
+import { DEFAULT_MAX_GAP, summarizeRunQuality } from "../quality.js";
 import type { StreamChat } from "../mock-model.js";
 import { pool } from "../runner.js";
 import { runScenario } from "../run-scenario.js";
@@ -11,12 +12,12 @@ import type { RunRecord } from "../trajectory.js";
 import { capabilityOf, summarizeMatrix, type MatrixRun, type MatrixSummary } from "./aggregate.js";
 import { BudgetGuard } from "./budget.js";
 import { ENGINE_ADAPTERS, resolveEngines, type EngineAdapter } from "./engines.js";
-import { DEFAULT_ESTIMATE_FACTOR, estimateExecutionUsd, profileKey, profileScenarios, FALLBACK_PROFILE, type ExecutionProfile } from "./estimate.js";
+import { DEFAULT_ESTIMATE_FACTOR, estimateExecutionUsd, estimateJudgeUsd, hasJudgeExpectation, profileKey, profileScenarios, FALLBACK_PROFILE, type ExecutionProfile } from "./estimate.js";
 import { formatMatrixReport } from "./format.js";
 import { assertProviderKeys, providerSecrets, resolveModelSpec, resolveModelSpecs, type ResolvedModel } from "./models.js";
 import { priceFor, type PriceEntry } from "./pricing.js";
 import { createMatrixRouter, createRealProviders, withCostAccounting, withSessionId, type MatrixProviders } from "./providers.js";
-import { simulatedProviders } from "./simulate.js";
+import { simulatedJudgeProviders, simulatedProviders } from "./simulate.js";
 
 export type MatrixOptions = {
 	scenarios: Scenario[];
@@ -33,7 +34,10 @@ export type MatrixOptions = {
 	concurrency?: number;
 	timeoutMs?: number;
 	estimateFactor?: number;
-	judgeModel?: string;
+	/** Juízes da rubrica (1 ou 2 ids com prefixo de provedor). Sem eles, nenhum juiz roda. */
+	judgeModels?: string[];
+	/** Teto de discordância por dimensão (padrão 1). */
+	judgeMaxGap?: number;
 	isStrong: (model: string) => boolean;
 	outDir?: string;
 	now?: () => Date;
@@ -56,30 +60,35 @@ export async function runMatrix(options: MatrixOptions): Promise<MatrixResult> {
 	if (models.length === 0) throw new Error("informe --models");
 	if (options.scenarios.length === 0) throw new Error("nenhum cenário selecionado");
 	if (real && options.capUsd === undefined) throw new Error("informe --max-usd: o modo real exige um teto de gasto rígido");
-	const judgeModel = options.judgeModel && real ? resolveModelSpec(options.judgeModel) : undefined;
-	// Antes de qualquer execução: chave de cada provedor usado (inclusive o do juiz).
-	if (real) assertProviderKeys(judgeModel ? [...models, judgeModel] : models, env);
-	const secrets = providerSecrets(judgeModel ? [...models, judgeModel] : models, env);
+	const judgeModels = resolveModelSpecs(options.judgeModels ?? []);
+	if (judgeModels.length > 2) throw new Error("--judge aceita no máximo 2 modelos");
+	const judgeMaxGap = options.judgeMaxGap ?? DEFAULT_MAX_GAP;
+	if (!(judgeMaxGap >= 0)) throw new Error("--judge-max-gap precisa ser 0 ou mais");
+	const used = [...models, ...judgeModels];
+	// Antes de qualquer execução: chave de cada provedor usado (inclusive o dos juízes).
+	if (real) assertProviderKeys(used, env);
+	const secrets = providerSecrets(used, env);
 	const redact = (text: string): string => redactSecrets(text, secrets);
 
 	const factor = options.estimateFactor ?? DEFAULT_ESTIMATE_FACTOR;
 	const profiles = await profileScenarios(options.scenarios, engines, { concurrency: options.concurrency ?? 3 });
 	const guard = new BudgetGuard(options.capUsd);
 	const realProviders = real ? (options.providers ?? createRealProviders(env)) : undefined;
-	const judgeRouter = realProviders ? withCostAccounting(createMatrixRouter(withSessionId(realProviders, "matrix-judge")), { ...(options.priceTable ? { table: options.priceTable } : {}), onCost: (usd) => guard.charge(usd) }) : undefined;
 	let judgeUsd = 0;
-	const judge: Judge | undefined =
-		judgeModel && judgeRouter
-			? createJudge({
-					model: judgeModel.internalId,
-					apiKey: "matrix",
-					streamChat: (params) =>
-						judgeRouter(params, {}).then((result) => {
-							judgeUsd += result.usage?.costUsd ?? 0;
-							return result;
-						}) as ReturnType<StreamChat>,
-				})
-			: undefined;
+	// O gasto do juiz sai do MESMO teto que as execuções (`guard.charge`).
+	const rubricJudges: RubricJudge[] = judgeModels.map((judgeModel) => {
+		const router = withCostAccounting(createMatrixRouter(realProviders ? withSessionId(realProviders, "matrix-judge") : simulatedJudgeProviders(judgeModel)), { ...(options.priceTable ? { table: options.priceTable } : {}), onCost: (usd) => guard.charge(usd) });
+		return createRubricJudge({
+			model: judgeModel.internalId,
+			apiKey: "matrix",
+			streamChat: (params) =>
+				router(params, {}).then((result) => {
+					judgeUsd += result.usage?.costUsd ?? 0;
+					return result;
+				}) as ReturnType<StreamChat>,
+		});
+	});
+	const judge: Judge | undefined = rubricJudges.length > 0 ? createJudgePanel({ judges: rubricJudges, maxGap: judgeMaxGap }) : undefined;
 
 	const jobs: Job[] = [];
 	// Repetição por fora: se o teto cortar, as repetições já feitas cobrem todas as células.
@@ -88,7 +97,7 @@ export async function runMatrix(options: MatrixOptions): Promise<MatrixResult> {
 			for (const engine of engines) {
 				for (const model of models) {
 					const profile: ExecutionProfile = profiles.get(profileKey(scenario.id, engine.id)) ?? FALLBACK_PROFILE;
-					jobs.push({ scenario, engine, model, repeat: index, estimatedUsd: estimateExecutionUsd(profile, priceFor(model.priceKey, options.priceTable).price, factor) });
+					jobs.push({ scenario, engine, model, repeat: index, estimatedUsd: estimateExecutionUsd(profile, priceFor(model.priceKey, options.priceTable).price, factor) + (hasJudgeExpectation(scenario) ? estimateJudgeUsd(judgeModels, options.priceTable) : 0) });
 				}
 			}
 		}
@@ -130,6 +139,7 @@ export async function runMatrix(options: MatrixOptions): Promise<MatrixResult> {
 			trajectory.model = job.model.spec;
 			actual = trajectory.costUsd;
 			const checks = await runChecks(patched, trajectory, judge ? { judge } : {});
+			const quality = summarizeRunQuality(checks.map((item) => item.quality));
 			const record: RunRecord = { scenarioId: job.scenario.id, model: job.model.spec, variant: job.engine.id, repeat: job.repeat, pass: passed(checks), checks, trajectory };
 			records.push(record);
 			if (runsFile) await appendFile(runsFile, `${redact(JSON.stringify(record))}\n`);
@@ -138,6 +148,7 @@ export async function runMatrix(options: MatrixOptions): Promise<MatrixResult> {
 				status: "done",
 				pass: record.pass && !trajectory.error,
 				failedChecks: checks.filter((item) => !item.pass && !item.skipped).map((item) => item.name),
+				...(quality ? { quality } : {}),
 				...(trajectory.error ? { error: redact(trajectory.error).slice(0, 300) } : {}),
 				steps: trajectory.modelCalls.filter((call) => call.kind === "main").length,
 				promptTokens: trajectory.tokens.prompt,
@@ -164,6 +175,7 @@ export async function runMatrix(options: MatrixOptions): Promise<MatrixResult> {
 		mode: options.mode,
 		...(options.capUsd !== undefined ? { capUsd: options.capUsd } : {}),
 		judgeUsd,
+		...(judgeModels.length > 0 ? { judging: { models: judgeModels.map((item) => item.spec), maxGap: judgeMaxGap } } : {}),
 		isStrong: options.isStrong,
 		createdAt: now().toISOString(),
 	});

@@ -2,6 +2,7 @@ import { parseChartSpec } from "@workspace/shared";
 import { argsMatch, argsProblem } from "./predicates.js";
 import { expectationName, type Expectation, type Scenario } from "./scenario.js";
 import { chartBlocks, countQuestions, detectLanguage, endsWithQuestion, findInternals, isUnfulfilledPromise } from "./text.js";
+import type { QualityResult } from "./quality.js";
 import { mainCalls, offeredTools, type CheckResult, type Trajectory } from "./trajectory.js";
 
 /**
@@ -9,7 +10,9 @@ import { mainCalls, offeredTools, type CheckResult, type Trajectory } from "./tr
  * matriz. O juiz LLM é opcional: sem `judge` injetado, a verificação `judge` fica como "pulada" e não conta.
  */
 
-export type Judge = (input: { rubric: string; scenario: Scenario; trajectory: Trajectory }) => Promise<{ pass: boolean; reason: string }>;
+/** `skipped`: o juiz não conseguiu medir (juízes discordam em tudo, ou resposta inválida): nem aprova nem reprova. */
+export type JudgeVerdict = { pass: boolean; reason: string; skipped?: boolean; quality?: QualityResult };
+export type Judge = (input: { rubric: string; scenario: Scenario; trajectory: Trajectory }) => Promise<JudgeVerdict>;
 
 const QUESTIONNAIRE_TOOL = "propose_questionnaire";
 
@@ -175,7 +178,9 @@ export async function runChecks(scenario: Scenario, trajectory: Trajectory, opti
 		}
 		try {
 			const verdict = await options.judge({ rubric: item.rubric, scenario, trajectory });
-			results.push(verdict.pass ? { name, pass: true, detail: verdict.reason } : { name, pass: false, detail: verdict.reason });
+			const quality = verdict.quality ? { quality: verdict.quality } : {};
+			if (verdict.skipped) results.push({ name, pass: true, skipped: true, detail: verdict.reason, ...quality });
+			else results.push({ name, pass: verdict.pass, detail: verdict.reason, ...quality });
 		} catch (error) {
 			results.push({ name, pass: false, detail: `juiz falhou: ${error instanceof Error ? error.message.slice(0, 120) : "erro"}` });
 		}

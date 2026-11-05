@@ -3,8 +3,8 @@ export { ENGINE_ADAPTERS, resolveEngines, type EngineAdapter } from "./engines.j
 export { resolveModelSpec, resolveModelSpecs, assertProviderKeys, readProviderKey, providerSecrets, KEY_ENV, type ResolvedModel, type MatrixProvider } from "./models.js";
 export { PRICE_TABLE, UNKNOWN_PRICE, priceFor, costFromTokens, type PriceEntry } from "./pricing.js";
 export { BudgetGuard, countThatFit } from "./budget.js";
-export { profileScenarios, buildEstimate, estimatesInOrder, estimateExecutionUsd, formatEstimate, DEFAULT_ESTIMATE_FACTOR, FALLBACK_PROFILE } from "./estimate.js";
+export { profileScenarios, buildEstimate, estimatesInOrder, estimateExecutionUsd, estimateJudgeUsd, hasJudgeExpectation, formatEstimate, DEFAULT_ESTIMATE_FACTOR, FALLBACK_PROFILE } from "./estimate.js";
 export { summarizeMatrix, capabilityOf, passRateOf, type MatrixRun, type MatrixSummary, type Agg } from "./aggregate.js";
 export { formatMatrixReport } from "./format.js";
-export { createMatrixRouter, createRealProviders, withCostAccounting, type MatrixProviders } from "./providers.js";
-export { simulatedProviders, simulatedFailRate, seededUnit } from "./simulate.js";
+export { createMatrixRouter, createRealProviders, withCostAccounting, withSessionId, type MatrixProviders } from "./providers.js";
+export { simulatedProviders, simulatedJudgeProviders, simulatedFailRate, seededUnit } from "./simulate.js";

@@ -1,3 +1,4 @@
+import { DIMENSIONS, DIMENSION_LABELS, dimensionMean, disputedRate, meanQuality, type QualityAgg } from "../quality.js";
 import { passRateOf, type Agg, type MatrixSummary } from "./aggregate.js";
 
 /** Relatório Markdown do matrix (determinístico: só formata o resumo). */
@@ -11,6 +12,15 @@ const ktok = (value: number): string => `${(value / 1000).toFixed(1)}k`;
 function table(header: string[], rows: string[][]): string {
 	return [`| ${header.join(" | ")} |`, `| ${header.map(() => "---").join(" | ")} |`, ...rows.map((row) => `| ${row.join(" | ")} |`)].join("\n");
 }
+
+const score = (value: number | null): string => (value === null ? "-" : value.toFixed(2));
+/** `4.20 (disp. 10%)`; sem juiz: `-`. Com 1 juiz não há comparação, então não há taxa. */
+const qualityCell = (quality: QualityAgg | undefined): string => {
+	if (!quality || quality.judged === 0) return "-";
+	const rate = disputedRate(quality);
+	const extra = [rate === null ? "1 juiz" : `disp. ${pct(rate)}`, quality.disputedRuns > 0 ? `${quality.disputedRuns} cenário(s) em disputa` : "", quality.invalidRuns > 0 ? `${quality.invalidRuns} inválido(s)` : ""].filter(Boolean);
+	return `${score(meanQuality(quality))} (${extra.join(", ")})`;
+};
 
 const failing = (agg: Agg): string =>
 	Object.entries(agg.failing)
@@ -35,6 +45,10 @@ export function formatMatrixReport(summary: MatrixSummary): string {
 	out.push(`- Data: ${summary.createdAt}`);
 	out.push(`- Cenários: ${summary.scenarios.length} · motores: ${summary.engines.join(", ")} · modelos: ${summary.models.join(", ")} · repetições: ${summary.repeat} (${total} execuções planejadas)`);
 	out.push(`- Gasto: ${usd(summary.spentUsd, summary.costUnknown)}${summary.judgeUsd > 0 ? ` (juiz ${usd(summary.judgeUsd)})` : ""} · teto: ${summary.capUsd === null ? "sem teto" : usd(summary.capUsd)}`);
+	if (summary.judging) {
+		const { models, maxGap } = summary.judging;
+		out.push(`- Rubrica de qualidade (1 a 5): ${models.length} juiz(es) — ${models.join(", ")} · ${models.length > 1 ? `teto de discordância ${maxGap} (acima disso a dimensão fica \`disputed\` e sai da nota)` : "1 juiz, sem teto de discordância"} · só nos cenários com verificação \`judge\`.`);
+	}
 	if (summary.budgetStopped) out.push(`- **Teto atingido:** ${summary.skippedBudget} de ${total} execuções ficaram \`skipped_budget\` (não rodaram).`);
 	if (summary.costUnknown) out.push("- `*` = custo estimado pela tabela de preços (preço desconhecido, ou o provedor não informou o custo).");
 	if (summary.mode === "simulate") out.push("- **Simulado:** modelos roteirizados com uso falso por provedor e falhas sintéticas nos modelos baratos. Exercita o pipeline; os números não dizem nada sobre nenhum modelo.");
@@ -59,6 +73,24 @@ export function formatMatrixReport(summary: MatrixSummary): string {
 		out.push(table(["modelo", "motor", "base", "acerto base", "acerto", "Δ pp"], summary.engineDeltas.map((delta) => [delta.model, delta.engine, delta.base, pct(delta.basePassRate), pct(delta.passRate), delta.deltaPp === null ? "-" : `${delta.deltaPp > 0 ? "+" : ""}${delta.deltaPp}`])), "");
 	}
 
+	if (summary.judging) {
+		out.push("### Qualidade (rubrica) por modelo", "");
+		out.push(
+			table(
+				["motor", "modelo", "nota média (1-5)", "dimensões em disputa", "cenários em disputa", "inválidos", ...DIMENSIONS.map((dimension) => DIMENSION_LABELS[dimension])],
+				summary.engines.flatMap((engine) =>
+					summary.models.map((model) => {
+						const quality = summary.byModel[engine]?.[model]?.quality;
+						if (!quality || quality.judged === 0) return [engine, model, "-", "-", "-", "-", ...DIMENSIONS.map(() => "-")];
+						const rate = disputedRate(quality);
+						return [engine, model, score(meanQuality(quality)), rate === null ? "n/a (1 juiz)" : `${pct(rate)} (${quality.dimsDisputed}/${quality.dimsCompared})`, `${quality.disputedRuns}/${quality.judged}`, String(quality.invalidRuns), ...DIMENSIONS.map((dimension) => score(dimensionMean(quality, dimension)))];
+					}),
+				),
+			),
+			"",
+		);
+	}
+
 	out.push("## Por provedor", "");
 	out.push(table(["provedor", "execuções", "tokens in", "tokens out", "custo"], Object.entries(summary.byProvider).sort(([a], [b]) => a.localeCompare(b)).map(([provider, item]) => [provider, String(item.runs), ktok(item.promptTokens), ktok(item.completionTokens), usd(item.costUsd, item.costUnknown)])), "");
 
@@ -74,6 +106,19 @@ export function formatMatrixReport(summary: MatrixSummary): string {
 		),
 		"",
 	);
+
+	if (summary.judging) {
+		out.push("## Qualidade por capacidade (nota média 1-5, discordância)", "");
+		out.push(
+			table(
+				["capacidade", ...columns.map(colName)],
+				Object.keys(summary.byCapability)
+					.sort()
+					.map((capability) => [capability, ...columns.map((c) => qualityCell(summary.byCapability[capability]?.[c.engine]?.[c.model]?.quality))]),
+			),
+			"",
+		);
+	}
 
 	out.push("## Leitura: harness ou modelo? (por cenário)", "");
 	out.push("Calculada pelo padrão de acertos entre os modelos (04-avaliacao §3), sem juiz:", "");
@@ -93,13 +138,13 @@ export function formatMatrixReport(summary: MatrixSummary): string {
 	out.push("## Detalhe por cenário × motor × modelo", "");
 	out.push(
 		table(
-			["cenário", "motor", "modelo", "acertos", "checks que falharam", "passos", "tokens in/out", "custo", "duração", "pulados"],
+			["cenário", "motor", "modelo", "acertos", "checks que falharam", ...(summary.judging ? ["qualidade"] : []), "passos", "tokens in/out", "custo", "duração", "pulados"],
 			summary.scenarios.flatMap((scenario) =>
 				summary.engines.flatMap((engine) =>
 					summary.models.map((model) => {
 						const agg = summary.cells[scenario.id]?.[engine]?.[model];
-						if (!agg) return [scenario.id, engine, model, "-", "-", "-", "-", "-", "-", "0"];
-						return [scenario.id, engine, model, ratio(agg), failing(agg), avg(agg.steps, agg.runs).toFixed(1), `${ktok(avg(agg.promptTokens, agg.runs))} / ${ktok(avg(agg.completionTokens, agg.runs))}`, usd(agg.costUsd, agg.costUnknown), `${(avg(agg.durationMs, agg.runs) / 1000).toFixed(1)}s`, String(agg.skipped)];
+						if (!agg) return [scenario.id, engine, model, "-", "-", ...(summary.judging ? ["-"] : []), "-", "-", "-", "-", "0"];
+						return [scenario.id, engine, model, ratio(agg), failing(agg), ...(summary.judging ? [qualityCell(agg.quality)] : []), avg(agg.steps, agg.runs).toFixed(1), `${ktok(avg(agg.promptTokens, agg.runs))} / ${ktok(avg(agg.completionTokens, agg.runs))}`, usd(agg.costUsd, agg.costUnknown), `${(avg(agg.durationMs, agg.runs) / 1000).toFixed(1)}s`, String(agg.skipped)];
 					}),
 				),
 			),

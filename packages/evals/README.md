@@ -14,6 +14,8 @@ packages/evals/
   scenarios/gold/<capacidade>/<nn>-<slug>.json   conjunto ouro (24 tarefas do uso real do dono; ver "Conjunto ouro")
   src/scenario.ts       formato do cenário (zod, campo desconhecido = erro)
   src/checks.ts         verificações determinísticas (+ juiz LLM opcional)
+  src/quality.ts        rubrica de qualidade: prompt do juiz, parse, teto de discordância, agregação (puro)
+  src/judge.ts          juízes LLM (1 ou 2) e o painel que vira a verificação `judge`
   src/environment.ts    ambiente falso: perfil do bot, fixtures de tools nativas, conectores falsos, arquivos em memória
   src/run-scenario.ts   um cenário → trajetória (pedidos ao modelo, chamadas de tool, eventos)
   src/runner.ts         cenário × modelo × repetição × variante, concorrência, custo, JSONL
@@ -61,7 +63,8 @@ Opções úteis:
 | `--max-cost USD` | não inicia novas execuções depois do teto |
 | `--strong a,b` | quais modelos contam como "fortes" no diagnóstico |
 | `--harness base,sem-disciplina` | compara variantes do runtime nos mesmos modelos |
-| `--judge MODELO` | liga o juiz LLM das verificações `judge` (desligado por padrão) |
+| `--judge A[,B]` | liga o juiz LLM (rubrica de qualidade) nas verificações `judge`; dois modelos = dois juízes com teto de discordância (ver "Juízes e rubrica de qualidade"). Desligado por padrão |
+| `--judge-max-gap N` | diferença máxima entre os dois juízes por dimensão (padrão 1) |
 | `--out DIR` | pasta de saída (padrão `results/<data-hora>`) |
 
 A chave só é lida do ambiente. Ela nunca é impressa, e cada linha gravada passa por `redactSecrets` com a chave antes de
@@ -156,7 +159,8 @@ pnpm --filter @workspace/evals run eval -- matrix --scenarios gold --engines v2 
 | `--estimate` | só estima e imprime a tabela (sem rede, sai com 0). Aceita `--max-usd` para dizer quantas execuções cabem |
 | `--estimate-factor N` | multiplicador de passos do modelo real sobre o roteiro mock (padrão 2) |
 | `--simulate` | a matriz inteira com provedores falsos: roteiro mock + uso falso por provedor (Anthropic `costUnknown`, Go `plan`, OpenRouter `costUsd`) e falhas determinísticas nos modelos baratos. Exercita roteamento, custo, teto, agregação e relatório; os números não medem modelo nenhum |
-| `--judge MODELO` | juiz LLM (também com prefixo); o gasto dele entra no teto |
+| `--judge A[,B]` | juízes da rubrica de qualidade (também com prefixo de provedor); o gasto deles entra no teto e no `--estimate` |
+| `--judge-max-gap N` | teto de discordância entre os juízes (padrão 1) |
 | `--strong a,b` | quais modelos são "fortes" na leitura harness × modelo (padrão: Claude Sonnet/Opus) |
 | `--concurrency N`, `--timeout S`, `--dir`, `--out`, `--env-file` | como no `run` |
 
@@ -165,6 +169,37 @@ pnpm --filter @workspace/evals run eval -- matrix --scenarios gold --engines v2 
 **Saída** em `results/<data-hora>-matrix/` (ignorada pelo git): `matrix.md`, `matrix.json` e `runs.jsonl` (trajetórias, com as chaves redigidas). O relatório traz por modelo × motor (acerto, passos, tokens, custo, duração), por provedor, por capacidade (pasta do ouro), a diferença entre motores e, por cenário × motor, a leitura mecânica: `harness/instruções` (falha em todos os modelos), `modelo` (passa no forte e falha só nos baratos), `instável` (repetições divergem). É relatório determinístico, não juiz. Falha que reproduz com o modelo roteirizado (`--simulate` sem as falhas sintéticas, ou `--mock`) é bug de harness.
 
 **Plugar um motor novo (v3, v4, presets).** Um mapa só: `ENGINE_ADAPTERS` em `src/matrix/engines.ts` (id → `patchScenario` e/ou `runOptions` do `runScenario`). Hoje existem `v1` e `v2`; o v3 vive num branch congelado e o v4 ainda não existe no runtime.
+
+## Juízes e rubrica de qualidade (`--judge`)
+
+Mede **qualidade**, que as verificações determinísticas não pegam (`PLANO-AGENTE-V4/04-avaliacao.md` §1). Roda **só no eval**, nunca no runtime, e **nunca sem `--judge`**. Só os cenários com verificação `judge` são julgados; o texto da `rubric` do cenário continua sendo a orientação específica da tarefa.
+
+**Dimensões** (nota inteira de 1 a 5 cada): `completude` (responde tudo que foi pedido, com o conteúdo real), `fontes` (cita ou usa fontes direito quando a tarefa pede; pode ser N/A), `formato` (o formato certo: arquivo, tabela, card ou resposta curta) e `antecipacao` (antecipa a próxima necessidade óbvia sem encher; pode ser N/A). Só `fontes` e `antecipacao` aceitam N/A.
+
+**Esquema do juiz** (JSON puro, uma justificativa de uma linha em pt-BR por dimensão):
+
+```json
+{"completude":{"score":4,"reason":"..."},"fontes":{"score":null,"reason":"..."},"formato":{"score":4,"reason":"..."},"antecipacao":{"score":3,"reason":"..."}}
+```
+
+O parse é defensivo (aceita cerca de código e ruído em volta). JSON quebrado, dimensão faltando, nota fora de 1-5 ou N/A onde não vale → resultado **`invalid`**: nunca vira nota. Erro de rede do juiz também é `invalid`. A verificação `judge` fica então "pulada" (sem medida: não aprova nem reprova) e o relatório conta os inválidos.
+
+**O que o juiz vê:** o pedido (e as últimas mensagens do histórico), o texto final, a lista de tools chamadas com resultado curto e os arquivos criados. **Não** vê as verificações esperadas. O prompt é em inglês, curto e em seções; trata resposta e saída de tool como dado (não instrução), e julga como um usuário de assistente pessoal no Brasil (pt-BR). Seções do prompt têm as tags neutralizadas no conteúdo, para uma resposta não fechar a seção do juiz.
+
+**Dois juízes** (`--judge a,b`, com prefixo de provedor como na matriz: `anthropic/...`, `opencode-go/...`, `openrouter/...`): cada um julga sozinho, em paralelo, com o mesmo prompt. **Prefira provedores diferentes** (ex.: `anthropic/claude-haiku-5-5,opencode-go/deepseek-v4.1-flash`): dois modelos da mesma família erram do mesmo jeito e concordam por viés, não por acerto. Evite também julgar um modelo com ele mesmo (autopreferência infla a nota).
+
+**Teto de discordância** (`--judge-max-gap`, padrão 1). Por dimensão, se `|a − b| > gap`, ela fica `disputed` e **sai da nota**; N/A de um juiz contra nota do outro também é disputa. A nota do cenário é a **média das dimensões em acordo** (cada uma é a média dos dois juízes). Todas as dimensões aplicáveis em disputa → cenário `disputed`, sem nota. Algum juiz `invalid` → `invalid`, sem nota. A verificação `judge` passa com nota >= 3.
+
+**Um juiz só** (`--judge a`): sem teto de discordância ("1 juiz, sem teto de discordância" aparece no detalhe e no relatório); a nota média >= 3 aprova, como antes o aprova/reprova, mas sobre o esquema novo.
+
+**No `run`**: cada execução leva a nota e o detalhe na verificação `judge` (em `runs.jsonl`, campo `quality`), e o relatório ganha a linha `qualidade (rubrica)`. Os juízes usam o roteamento por prefixo da matriz (chaves `CLAUDE_KEY`, `OPENCODE_GO_API_KEY`, `OPENROUTER_API_KEY`); o gasto deles conta no `--max-cost`. Com `--mock` o juiz é ignorado (sem rede).
+
+**No `matrix`**: o relatório ganha "Qualidade (rubrica) por modelo" (nota média, % de dimensões em disputa, cenários em disputa, inválidos e a média por dimensão, por motor × modelo), "Qualidade por capacidade" e a coluna `qualidade` no detalhe. O gasto dos juízes sai do **mesmo** `--max-usd`: a reserva de cada execução inclui a estimativa dos juízes e o gasto real é cobrado do teto. `--estimate` soma as chamadas dos juízes (3000 tokens de entrada + 500 de saída por juiz e por execução julgada, tabela de preços de `src/matrix/pricing.ts`). `--simulate --judge a,b` usa juízes falsos determinísticos (sem rede nem chave) para ensaiar o pipeline; as notas não medem nada.
+
+```bash
+pnpm --filter @workspace/evals run eval -- matrix --scenarios gold --engines v2 --models ... --repeat 3 --max-usd 2 \
+  --judge anthropic/claude-haiku-5-5,opencode-go/deepseek-v4.1-flash --judge-max-gap 1
+```
 
 ## Comparar o motor atual (v1) e o novo (v2)
 
@@ -245,7 +280,7 @@ Verificações (`expect`; `id` opcional dá o nome que aparece na matriz):
 | `no_unfulfilled_promise` | não terminou só prometendo ("vou gerar agora") |
 | `no_model_note` | nenhuma nota do runtime ao modelo casa com `pattern` |
 | `steer_delivered` | a mensagem do meio do run chegou ao modelo como fala do usuário |
-| `judge` | o juiz LLM aprova a `rubric` (só com `--judge`; sem ele fica "pulada") |
+| `judge` | a rubrica de qualidade tira nota média >= 3 (1 a 5) no juízo de `--judge`; sem ele fica "pulada", e disputada/inválida também (ver abaixo) |
 
 ## Conjunto ouro (baseline do Motor v4)
 
