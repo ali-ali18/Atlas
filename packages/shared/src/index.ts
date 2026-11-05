@@ -1019,3 +1019,4 @@ export * from "./avatar-activity.js";
 export * from "./avatar-governor.js";
 export * from "./vtt.js";
 export * from "./agent-policy/index.js";
+export * from "./model-roles/index.js";
