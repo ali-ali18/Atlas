@@ -15,9 +15,18 @@ export type LlmToolSpec = {
 
 export type LlmToolCall = { id: string; name: string; args: unknown };
 
+/**
+ * Parte de conteúdo do usuário. Imagem (papel `vision`): ou `data` em base64 ou `url`
+ * (https ou data URL); o adaptador converte para o formato de cada provedor.
+ */
+export type LlmUserPart =
+	| { type: "text"; text: string }
+	| { type: "image"; mediaType: string; data?: string; url?: string };
+
 export type LlmMessage =
 	| { role: "system"; content: string }
-	| { role: "user"; content: string }
+	/** `string` continua valendo; lista de partes só quando há imagem. */
+	| { role: "user"; content: string | LlmUserPart[] }
 	| { role: "assistant"; content: string; toolCalls?: LlmToolCall[] }
 	| { role: "tool"; toolCallId: string; content: string };
 

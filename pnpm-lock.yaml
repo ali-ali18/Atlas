@@ -407,6 +407,9 @@ importers:
 
   packages/agent:
     dependencies:
+      '@workspace/llm':
+        specifier: workspace:*
+        version: link:../llm
       '@workspace/shared':
         specifier: workspace:*
         version: link:../shared
