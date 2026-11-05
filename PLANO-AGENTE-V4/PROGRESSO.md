@@ -37,7 +37,7 @@
 ## Fase atual
 | Fase | Branch | Status | PR |
 |---|---|---|---|
-| F0 baseline | `feat/harness-v4-f0-baseline` | não iniciada | — |
+| F0 baseline | `feat/harness-v4-f0-baseline` | em andamento | — |
 
 ## Decisões do dono (não reabrir)
 - Base nova, do zero, em `packages/agent`, sem import do legado (05/11).
@@ -46,7 +46,9 @@
 - Compras: cartão salvo **sem CVV**. O CVV é digitado pelo dono no cartão de aprovação e vai direto para a loja (05/11).
 - Não insistir em tarefa largada: cláusula 17 (05/11).
 - O branch `harness/v3` fica **congelado**, só como referência (05/11).
-- "EVA" = **Vercel Eve** (05/11). As ideias aproveitadas estão em `02-referencias.md`.
+- "EVA" = **Vercel Eve** (05/11).
+- Base: `harness/v4` criado a partir da `main` (0.4.1-beta) (05/11).
+- Provedor das rodadas reais da F0 por enquanto: **OpenCode Go**, porque os créditos do OpenRouter estão acabando. Modelos: `deepseek-v4.1-flash` (maior franquia; ligar *Global* em Settings › Privacy) e `qwen3.8-flash`, mais `claude-haiku-5-5`, que também está no Go. O Sonnet entra pela chave da Anthropic quando houver (05/11). As ideias aproveitadas estão em `02-referencias.md`.
 
 ## Checklist
 
@@ -140,4 +142,4 @@
   - **Feito:** plano completo em `PLANO-AGENTE-V4/` e pesquisa em `pesquisa/`.
   - **Pela metade:** nada.
   - **Próximo passo:** começar a F0.1, criando o branch `feat/harness-v4-f0-baseline` a partir de `harness/v4`. Se `harness/v4` não existir, criá-lo a partir do ramo da versão atual (`release/<versão>`).
-  - **Dúvidas para o dono:** quais 2 modelos baratos de outros provedores entram na F0.5. Sugestão: escolher pelo preço da semana e anotar aqui.
+  - **Dúvidas para o dono:** nenhuma (provedor e modelos da F0.5 definidos acima).
