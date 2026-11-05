@@ -48,7 +48,7 @@
 - O branch `harness/v3` fica **congelado**, só como referência (05/11).
 - "EVA" = **Vercel Eve** (05/11).
 - Base: `harness/v4` criado a partir da `main` (0.4.1-beta) (05/11).
-- Provedor das rodadas reais da F0 por enquanto: **OpenCode Go**, porque os créditos do OpenRouter estão acabando. Modelos: `deepseek-v4.1-flash` (maior franquia; ligar *Global* em Settings › Privacy) e `qwen3.8-flash`, mais `claude-haiku-5-5`, que também está no Go. O Sonnet entra pela chave da Anthropic quando houver (05/11). As ideias aproveitadas estão em `02-referencias.md`.
+- Provedor das rodadas reais da F0 por enquanto: **OpenCode Go**, porque os créditos do OpenRouter estão acabando. Modelos: `deepseek-v4.1-flash` (maior franquia; ligar *Global* em Settings › Privacy) e `qwen3.8-flash`, mais `claude-haiku-5-5`, que também está no Go. Anthropic direto: a chave está no ambiente como `CLAUDE_KEY` (verificada, responde 200) e dá Sonnet, Haiku e Opus, com **teto de US$ 10 no total das rodadas reais pela Anthropic**. O comando `matrix` (F0.2) precisa de um teto rígido que aborta antes de passar e de um `--estimate` antes de rodar (05/11). As ideias aproveitadas estão em `02-referencias.md`.
 
 ## Checklist
 
