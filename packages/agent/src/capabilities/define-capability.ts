@@ -36,6 +36,7 @@ export function defineCapability(def: CapabilityDefinition): Capability {
 	if (!ID_FORMAT.test(def.id)) throw new Error(`${where}: invalid id (use lowercase letters, digits, "_" or "-").`);
 	if (def.title.trim().length === 0) throw new Error(`${where}: empty title.`);
 	if (def.summary.trim().length === 0) throw new Error(`${where}: empty summary.`);
+	// guard-allow: format-validation metadado da capacidade (uma linha no índice), não texto do dono nem do modelo
 	if (/[\r\n]/.test(def.summary)) throw new Error(`${where}: summary must be a single line.`);
 	if (def.summary.length > SUMMARY_MAX_LENGTH) {
 		throw new Error(`${where}: summary has ${def.summary.length} characters (max ${SUMMARY_MAX_LENGTH}).`);
