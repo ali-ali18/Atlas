@@ -1,6 +1,6 @@
 import type { Judge, JudgeVerdict } from "./checks.js";
 import type { StreamChat } from "./mock-model.js";
-import { buildJudgePrompt, combineVerdicts, DEFAULT_MAX_GAP, DEFAULT_PASS_SCORE, describeQuality, JUDGE_SYSTEM, parseRubricAnswer, type RubricVerdict } from "./quality.js";
+import { buildJudgePrompt, buildJudgeSystem, combineVerdicts, DEFAULT_MAX_GAP, DEFAULT_PASS_SCORE, describeQuality, parseRubricAnswer, type RubricVerdict } from "./quality.js";
 import type { Scenario } from "./scenario.js";
 import type { Trajectory } from "./trajectory.js";
 
@@ -26,7 +26,7 @@ export function createRubricJudge(options: { model: string; apiKey: string; stre
 				tools: [],
 				toolChoice: "none",
 				messages: [
-					{ role: "system", content: JUDGE_SYSTEM },
+					{ role: "system", content: buildJudgeSystem(scenario) },
 					{ role: "user", content: buildJudgePrompt({ rubric, scenario, trajectory }) },
 				],
 				timeoutMs: options.timeoutMs ?? 60_000,

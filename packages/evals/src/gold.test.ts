@@ -82,6 +82,10 @@ describe("conjunto ouro: forma", () => {
 		}
 	});
 
+	it("o ouro declara o local do dono (BR, BRL, America/Sao_Paulo), que é o que o juiz usa no lugar do 'Brasil' fixo", async () => {
+		for (const scenario of await loadGold()) expect(scenario.locale, scenario.id).toEqual({ country: "BR", currency: "BRL", timezone: "America/Sao_Paulo" });
+	});
+
 	it("toda verificação de texto do ouro é precisa: nada de regex vazio nem juiz sem rubrica", async () => {
 		for (const scenario of await loadGold()) {
 			for (const item of scenario.expect) {

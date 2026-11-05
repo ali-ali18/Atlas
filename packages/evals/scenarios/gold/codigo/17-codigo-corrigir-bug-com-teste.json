@@ -20,6 +20,11 @@
     "about": "Assistente pessoal do dono: e-mail, compras, estudos e agenda.",
     "language": "pt-BR"
   },
+  "locale": {
+    "country": "BR",
+    "currency": "BRL",
+    "timezone": "America/Sao_Paulo"
+  },
   "user": "o teste de formatPrice no repositório fixture-loja (já está clonado na VM, em ~/work/fixture-loja) está falhando. Corrige o bug e roda o teste de novo pra provar.",
   "tools": {
     "fixtures": [

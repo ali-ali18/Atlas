@@ -19,6 +19,11 @@
     "about": "Assistente pessoal do dono: e-mail, compras, estudos e agenda.",
     "language": "pt-BR"
   },
+  "locale": {
+    "country": "BR",
+    "currency": "BRL",
+    "timezone": "America/Sao_Paulo"
+  },
   "user": "faz 8 slides em powerpoint a partir dessa transcrição de vídeo:\n\n\"Hoje vamos falar sobre como o Pix funciona por baixo dos panos. Primeiro: o Pix é um sistema de pagamentos instantâneos criado pelo Banco Central em 2020. Segundo: tudo gira em torno da chave, que pode ser CPF, telefone, e-mail ou uma chave aleatória; a chave aponta para a conta do recebedor. Terceiro: quando você paga, o seu banco consulta o diretório de chaves, monta a ordem de pagamento e envia ao Sistema de Pagamentos Instantâneos, o SPI, que liquida a transação em segundos, a qualquer hora do dia. Quarto: a segurança. Existem limites noturnos, o Mecanismo Especial de Devolução para fraudes e a possibilidade de cadastrar contas de confiança. Quinto: o custo. Para pessoas físicas o Pix é gratuito, e as empresas pagam uma tarifa pequena por transação recebida. Sexto: o Pix por aproximação e o Pix parcelado ampliam os usos. Sétimo: o que vem pela frente, como o Pix automático para cobranças recorrentes. Para fechar: o Pix mudou a relação dos brasileiros com o dinheiro e já responde por mais da metade das transações digitais do país.\"",
   "run": {
     "engine": "v2"

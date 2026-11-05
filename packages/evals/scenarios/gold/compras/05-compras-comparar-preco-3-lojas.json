@@ -18,6 +18,11 @@
     "about": "Assistente pessoal do dono: e-mail, compras, estudos e agenda.",
     "language": "pt-BR"
   },
+  "locale": {
+    "country": "BR",
+    "currency": "BRL",
+    "timezone": "America/Sao_Paulo"
+  },
   "user": "compara o preço da air fryer de 4 litros em 3 lojas pra mim",
   "tools": {
     "fixtures": [

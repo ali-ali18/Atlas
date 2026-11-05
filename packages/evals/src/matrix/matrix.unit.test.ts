@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { CompleteChatWithToolsParams, CompleteChatWithToolsResult } from "@workspace/llm";
-import { capabilityOf, summarizeMatrix, type MatrixRun } from "./aggregate.js";
+import { capabilityOf, setOf, summarizeMatrix, type MatrixRun } from "./aggregate.js";
+import { formatMatrixReport } from "./format.js";
 import { BudgetGuard, countThatFit } from "./budget.js";
 import { resolveEngines } from "./engines.js";
 import { buildEstimate, estimateExecutionUsd, formatEstimate, estimatesInOrder, type ExecutionProfile } from "./estimate.js";
@@ -265,5 +266,49 @@ describe("agregação do relatório", () => {
 		expect(capabilityOf(["gold", "email", "x"])).toBe("email");
 		expect(capabilityOf(["rotinas"])).toBe("rotinas");
 		expect(capabilityOf([])).toBe("geral");
+	});
+
+	it("capacidade e conjunto também valem para o conjunto genérico (1ª tag `generic`)", () => {
+		expect(capabilityOf(["generic", "compras", "x"])).toBe("compras");
+		expect(setOf(["gold", "email"])).toBe("gold");
+		expect(setOf(["generic", "email"])).toBe("generic");
+		expect(setOf(["rotinas"])).toBeNull();
+		expect(setOf(undefined)).toBeNull();
+	});
+});
+
+describe("ouro × genérico lado a lado (04-avaliacao §1.1)", () => {
+	const model = "anthropic/claude-sonnet-5-5";
+	const scenarios = [
+		{ id: "g1", capability: "email", tags: ["gold", "email"] },
+		{ id: "g2", capability: "email", tags: ["gold", "email"] },
+		{ id: "x1", capability: "email", tags: ["generic", "email"] },
+		{ id: "x2", capability: "email", tags: ["generic", "email"] },
+		{ id: "seed", capability: "geral", tags: ["rotinas"] },
+	];
+	const options = { engines: ["v2"], models: [model], repeat: 1, mode: "simulate" as const, isStrong: strongMatcher(), createdAt: "2026-11-05T00:00:00.000Z" };
+	const runs: MatrixRun[] = [
+		...cellRuns("g1", "email", model, "v2", [true]),
+		...cellRuns("g2", "email", model, "v2", [true]),
+		...cellRuns("x1", "email", model, "v2", [true]),
+		...cellRuns("x2", "email", model, "v2", [false]),
+		...cellRuns("seed", "geral", model, "v2", [false]),
+	];
+
+	it("com os dois conjuntos: acerto de cada um por motor × modelo, sem misturar semente", () => {
+		const summary = summarizeMatrix(runs, { ...options, scenarios });
+		expect(summary.bySet!.gold!.v2![model]).toMatchObject({ runs: 2, passes: 2 });
+		expect(summary.bySet!.generic!.v2![model]).toMatchObject({ runs: 2, passes: 1 });
+		const markdown = formatMatrixReport(summary);
+		expect(markdown).toContain("### Ouro × genérico");
+		expect(markdown).toMatch(new RegExp(`\\| v2 \\| ${model} \\| 100% \\(2/2\\) \\| 50% \\(1/2\\) \\| -50 \\|`));
+	});
+
+	it("com um conjunto só (ou nenhum), a seção não aparece e o resumo antigo segue igual", () => {
+		for (const only of [scenarios.filter((item) => item.tags.includes("gold")), scenarios.filter((item) => item.tags.includes("generic")), scenarios.filter((item) => item.id === "seed")]) {
+			const summary = summarizeMatrix(runs, { ...options, scenarios: only });
+			expect(summary.bySet).toBeUndefined();
+			expect(formatMatrixReport(summary)).not.toContain("Ouro × genérico");
+		}
 	});
 });

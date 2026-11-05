@@ -21,6 +21,11 @@
     "about": "Assistente pessoal do dono: e-mail, compras, estudos e agenda.",
     "language": "pt-BR"
   },
+  "locale": {
+    "country": "BR",
+    "currency": "BRL",
+    "timezone": "America/Sao_Paulo"
+  },
   "history": [
     {
       "role": "user",

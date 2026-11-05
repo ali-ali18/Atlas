@@ -39,6 +39,28 @@ const historyMessage = z.union([
 ]);
 export type HistoryMessage = z.infer<typeof historyMessage>;
 
+/**
+ * Local do usuário do cenário (país, moeda e fuso), para o juiz LLM julgar como aquele usuário julgaria. Opcional:
+ * sem ele o juiz só sabe o idioma do bot e não presume país nenhum. É informação para o juiz, não muda o runtime.
+ */
+const locale = z
+	.object({
+		country: z.string().regex(/^[A-Z]{2}$/, "país ISO 3166-1 alfa-2 em maiúsculas (ex.: BR)"),
+		currency: z.string().regex(/^[A-Z]{3}$/, "moeda ISO 4217 em maiúsculas (ex.: BRL)"),
+		timezone: z.string().refine(isTimeZone, "fuso IANA inválido (ex.: America/Sao_Paulo)"),
+	})
+	.strict();
+export type ScenarioLocale = z.infer<typeof locale>;
+
+function isTimeZone(value: string): boolean {
+	try {
+		new Intl.DateTimeFormat("en-US", { timeZone: value });
+		return true;
+	} catch {
+		return false;
+	}
+}
+
 const toolResult = z.object({ ok: z.boolean().default(true), summary: z.string() }).strict();
 
 /**
@@ -120,6 +142,7 @@ export const scenarioSchema = z
 		tags: z.array(z.string()).default([]),
 		source: z.object({ kind: z.enum(["seed", "production"]), runId: z.string().optional(), note: z.string().optional() }).strict().default({ kind: "seed" }),
 		bot: z.object({ name: z.string().min(1), about: z.string().default(""), language: z.enum(BOT_LANGUAGES_WITH_AUTO).default("pt-BR") }).strict(),
+		locale: locale.optional(),
 		history: z.array(historyMessage).default([]),
 		user: z.string().min(1),
 		/** Mensagem do usuário que chega no meio do run, depois de N chamadas ao modelo. */

@@ -4,7 +4,7 @@ export { resolveModelSpec, resolveModelSpecs, assertProviderKeys, readProviderKe
 export { PRICE_TABLE, UNKNOWN_PRICE, priceFor, costFromTokens, type PriceEntry } from "./pricing.js";
 export { BudgetGuard, countThatFit } from "./budget.js";
 export { profileScenarios, buildEstimate, estimatesInOrder, estimateExecutionUsd, estimateJudgeUsd, hasJudgeExpectation, formatEstimate, DEFAULT_ESTIMATE_FACTOR, FALLBACK_PROFILE } from "./estimate.js";
-export { summarizeMatrix, capabilityOf, passRateOf, type MatrixRun, type MatrixSummary, type Agg } from "./aggregate.js";
+export { summarizeMatrix, capabilityOf, setOf, SCENARIO_SETS, passRateOf, type MatrixRun, type MatrixSummary, type Agg } from "./aggregate.js";
 export { formatMatrixReport } from "./format.js";
 export { createMatrixRouter, createRealProviders, withCostAccounting, withSessionId, type MatrixProviders } from "./providers.js";
 export { simulatedProviders, simulatedJudgeProviders, simulatedFailRate, seededUnit } from "./simulate.js";

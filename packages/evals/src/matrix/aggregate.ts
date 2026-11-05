@@ -63,9 +63,19 @@ function add(agg: Agg, run: MatrixRun): void {
 	addQuality(agg.quality, run.quality);
 }
 
-/** Capacidade = pasta do conjunto ouro (`gold/<capacidade>/`), que é a 2ª tag; fora do ouro, a 1ª tag. */
+/** Conjuntos de cenários que a matriz compara lado a lado (04-avaliacao §1.1): o do dono e o genérico. */
+export const SCENARIO_SETS = ["gold", "generic"] as const;
+export type ScenarioSet = (typeof SCENARIO_SETS)[number];
+
+/** Capacidade = pasta do conjunto (`gold/<capacidade>/` ou `generic/<capacidade>/`), que é a tag depois da do conjunto; fora deles, a 1ª tag. */
 export function capabilityOf(tags: readonly string[]): string {
-	return (tags[0] === "gold" ? tags[1] : tags[0]) ?? "geral";
+	const first = tags[0] as ScenarioSet | undefined;
+	return ((first && SCENARIO_SETS.includes(first) ? tags[1] : first)) ?? "geral";
+}
+
+/** Conjunto do cenário pela tag (`gold` ou `generic`), ou `null` (sementes e cenários avulsos). */
+export function setOf(tags: readonly string[] | undefined): ScenarioSet | null {
+	return SCENARIO_SETS.find((set) => tags?.includes(set)) ?? null;
 }
 
 type Grid = Record<string, Record<string, Record<string, Agg>>>;
@@ -95,6 +105,11 @@ export type MatrixSummary = {
 	byCapability: Grid;
 	/** motor → modelo (agregado de todos os cenários). */
 	byModel: Record<string, Record<string, Agg>>;
+	/**
+	 * conjunto (`gold`/`generic`) → motor → modelo. Só existe quando os DOIS conjuntos estão na matriz: é o aceite da
+	 * mudança de motor, que tem que manter ou melhorar os dois (04-avaliacao §1.1).
+	 */
+	bySet?: Partial<Record<ScenarioSet, Record<string, Record<string, Agg>>>>;
 	byProvider: Record<string, { runs: number; costUsd: number; costUnknown: boolean; promptTokens: number; completionTokens: number }>;
 	/** cenário → motor → leitura "modelo ou harness" (ver 04-avaliacao §3). */
 	readings: Record<string, Record<string, { verdict: Verdict; reason: string }>>;
@@ -111,7 +126,13 @@ export function summarizeMatrix(
 	const byCapability: Grid = {};
 	const byModel: Record<string, Record<string, Agg>> = {};
 	const byProvider: MatrixSummary["byProvider"] = {};
+	const setByScenario = new Map(options.scenarios.map((scenario) => [scenario.id, setOf(scenario.tags)] as const));
+	const sets = new Set(options.scenarios.map((scenario) => setOf(scenario.tags)));
+	const compareSets = sets.has("gold") && sets.has("generic");
+	const bySet: NonNullable<MatrixSummary["bySet"]> = {};
 	for (const run of runs) {
+		const set = setByScenario.get(run.scenarioId);
+		if (compareSets && set) add((((bySet[set] ??= {})[run.engine] ??= {})[run.model] ??= emptyAgg()), run);
 		add(slot(cells, run.scenarioId, run.engine, run.model), run);
 		add(slot(byCapability, run.capability, run.engine, run.model), run);
 		add(((byModel[run.engine] ??= {})[run.model] ??= emptyAgg()), run);
@@ -167,6 +188,7 @@ export function summarizeMatrix(
 		cells,
 		byCapability,
 		byModel,
+		...(compareSets ? { bySet } : {}),
 		byProvider,
 		readings,
 		engineDeltas,

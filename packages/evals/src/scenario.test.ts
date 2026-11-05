@@ -25,6 +25,21 @@ describe("schema do cenário", () => {
 		expect(parseScenario({ ...minimal, expect: [{ type: "language", value: "auto" }] }).ok).toBe(false);
 	});
 
+	it("locale (país, moeda, fuso) é opcional, estrito e validado", () => {
+		const base = parseScenario(minimal);
+		expect(base.ok && base.scenario.locale).toBeUndefined();
+		const ok = parseScenario({ ...minimal, locale: { country: "PT", currency: "EUR", timezone: "Europe/Lisbon" } });
+		expect(ok.ok).toBe(true);
+		if (ok.ok) expect(ok.scenario.locale).toEqual({ country: "PT", currency: "EUR", timezone: "Europe/Lisbon" });
+		const bad = (locale: unknown) => parseScenario({ ...minimal, locale });
+		expect(bad({ country: "pt", currency: "EUR", timezone: "Europe/Lisbon" }).ok).toBe(false);
+		expect(bad({ country: "PT", currency: "euro", timezone: "Europe/Lisbon" }).ok).toBe(false);
+		expect(bad({ country: "PT", currency: "EUR", timezone: "Lisboa/Centro" }).ok).toBe(false);
+		expect(bad({ country: "PT", currency: "EUR" }).ok).toBe(false);
+		const extra = bad({ country: "PT", currency: "EUR", timezone: "Europe/Lisbon", language: "pt-PT" });
+		expect(extra.ok).toBe(false);
+	});
+
 	it("campo desconhecido é erro (na raiz e dentro de uma expectativa)", () => {
 		const root = parseScenario({ ...minimal, expected: [] });
 		expect(root.ok).toBe(false);

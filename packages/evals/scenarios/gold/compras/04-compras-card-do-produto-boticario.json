@@ -20,6 +20,11 @@
     "about": "Assistente pessoal do dono: e-mail, compras, estudos e agenda.",
     "language": "pt-BR"
   },
+  "locale": {
+    "country": "BR",
+    "currency": "BRL",
+    "timezone": "America/Sao_Paulo"
+  },
   "user": "quero o kit floratta blue crystal da o boticário, manda o card do produto",
   "tools": {
     "fixtures": [

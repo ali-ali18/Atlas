@@ -91,6 +91,27 @@ export function formatMatrixReport(summary: MatrixSummary): string {
 		);
 	}
 
+	const gold = summary.bySet?.gold;
+	const generic = summary.bySet?.generic;
+	if (gold && generic) {
+		out.push("### Ouro × genérico (acerto lado a lado)", "");
+		out.push("Aceite do motor (04-avaliacao §1.1): a mudança só vale se melhorar ou manter os DOIS conjuntos. Ganho só no ouro, com o genérico parado ou caindo, é suspeito de vício no uso do dono.", "");
+		out.push(
+			table(
+				["motor", "modelo", "ouro", "genérico", "Δ pp (genérico − ouro)"],
+				summary.engines.flatMap((engine) =>
+					summary.models.map((model) => {
+						const goldRate = passRateOf(gold[engine]?.[model] ?? { runs: 0, passes: 0 });
+						const genericRate = passRateOf(generic[engine]?.[model] ?? { runs: 0, passes: 0 });
+						const delta = goldRate === null || genericRate === null ? "-" : `${Math.round((genericRate - goldRate) * 100) > 0 ? "+" : ""}${Math.round((genericRate - goldRate) * 100)}`;
+						return [engine, model, `${pct(goldRate)} (${ratio(gold[engine]?.[model])})`, `${pct(genericRate)} (${ratio(generic[engine]?.[model])})`, delta];
+					}),
+				),
+			),
+			"",
+		);
+	}
+
 	out.push("## Por provedor", "");
 	out.push(table(["provedor", "execuções", "tokens in", "tokens out", "custo"], Object.entries(summary.byProvider).sort(([a], [b]) => a.localeCompare(b)).map(([provider, item]) => [provider, String(item.runs), ktok(item.promptTokens), ktok(item.completionTokens), usd(item.costUsd, item.costUnknown)])), "");
 
