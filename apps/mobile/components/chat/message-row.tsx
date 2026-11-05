@@ -62,6 +62,8 @@ export type RowActions = {
 	onOpenExchange: (item: Extract<ChatItem, { kind: "bot-exchange" }>) => void;
 	/** Cor do bot para o balão do usuário (fundo e texto por cima dele). Sem ela, o balão usa o cinza neutro. */
 	userBubble?: { background: string; foreground: string };
+	/** Cor de destaque (bot ou neutro, conforme Aparência): a letra da alternativa escolhida no questionário respondido. */
+	accent?: { background: string; foreground: string };
 	/** Bots do usuário: o avatar da menção `@bot` no balão e o do marcador "Enviou mensagem para X". */
 	bots?: readonly MentionBotRef[];
 	/** Habilidades conhecidas (slugs): `/habilidade` no balão ganha o visual de marcador. */
@@ -189,7 +191,7 @@ function RowContent({ item, actions, position }: { item: ChatItem; actions: RowA
 		case "confirm":
 			return <ConfirmCard item={item} onDecide={actions.onDecide} />;
 		case "questionnaire":
-			return <QuestionnaireCard item={item} onAnswer={actions.onAnswer} />;
+			return <QuestionnaireCard item={item} onAnswer={actions.onAnswer} accent={actions.accent} />;
 		case "bot-proposal":
 			return <BotProposalCard item={item} onDecide={actions.onResolveProposal} onOpenBot={actions.onOpenBot} />;
 		case "bot-profile":

@@ -154,3 +154,29 @@ export function answeredQuestions(items: readonly QuestionnaireCardItem[], answe
 		return { name: item.name, prompt: item.prompt, options, text: free.length > 0 ? free.join(", ") : null, answered: values.length > 0 };
 	});
 }
+
+// ---- cartão que não está mais pendente (respondido / dispensado) ------------------------------------------------------
+// Mesmo formato de etapas do pendente, só leitura: navega entre as perguntas com Voltar/Avançar, sem enviar nada.
+
+export type ReviewFooter = { dots: number; index: number; back: boolean; next: boolean; dismissed: boolean };
+
+/** Limita o índice da pergunta mostrada ao intervalo válido (0 quando não há perguntas). */
+export function clampReviewIndex(count: number, index: number): number {
+	return Math.min(Math.max(0, index), Math.max(0, count - 1));
+}
+
+/** Passo do Voltar (`-1`) e do Avançar (`1`) no cartão respondido; nunca sai de 0..último. */
+export function reviewStep(count: number, index: number, delta: -1 | 1): number {
+	return clampReviewIndex(count, index + delta);
+}
+
+/** Rodapé do cartão respondido: Voltar apagado na 1ª, Avançar apagado na última. Dispensado não navega (mostra só "Dispensado"). */
+export function reviewFooter(count: number, index: number, dismissed: boolean): ReviewFooter {
+	const at = clampReviewIndex(count, index);
+	return { dots: count, index: at, back: !dismissed && at > 0, next: !dismissed && at < count - 1, dismissed };
+}
+
+/** Perguntas do cartão que não está pendente: dispensado não tem resposta, então nenhuma alternativa sai marcada. */
+export function reviewQuestions(items: readonly QuestionnaireCardItem[], answers: AnswerMap | undefined, dismissed: boolean): AnsweredQuestion[] {
+	return answeredQuestions(items, dismissed ? undefined : answers);
+}

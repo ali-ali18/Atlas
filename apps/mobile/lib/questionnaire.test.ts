@@ -1,6 +1,6 @@
 import type { QuestionnaireCardItem } from "@workspace/shared";
 import { describe, expect, it } from "vitest";
-import { answeredQuestions, buildAnswers, choiceLetter, initialStepState, missingRequired, stepAnswered, stepFooter, stepReduce, stepSubtitle, toggleChoice, type StepAction, type StepState } from "./questionnaire";
+import { answeredQuestions, buildAnswers, choiceLetter, initialStepState, missingRequired, clampReviewIndex, reviewFooter, reviewQuestions, reviewStep, stepAnswered, stepFooter, stepReduce, stepSubtitle, toggleChoice, type StepAction, type StepState } from "./questionnaire";
 
 const items: QuestionnaireCardItem[] = [
 	{ name: "direction", prompt: "Direção?", required: true, choices: [{ value: "a" }, { value: "b" }] },
@@ -153,5 +153,40 @@ describe("resumo do questionário respondido", () => {
 			expect(all).toHaveLength(4);
 			expect(all.every((question) => !question.answered && question.text === null && question.options.every((option) => !option.selected))).toBe(true);
 		}
+	});
+});
+
+describe("cartão respondido em etapas (só leitura)", () => {
+	const asked: QuestionnaireCardItem[] = [
+		{ name: "direction", prompt: "Direção?", choices: [{ value: "both", label: "Ambos" }, { value: "x", label: "Só um" }] },
+		{ name: "tags", prompt: "Tags?", multiple: true, choices: [{ value: "a", label: "Agenda" }, { value: "b", label: "E-mail" }, { value: "c", label: "Finanças" }] },
+		{ name: "briefing", prompt: "Conte mais", input: { label: "Texto" } },
+	];
+	it("começa na pergunta 0 e Voltar/Avançar respeitam os limites", () => {
+		const first = reviewFooter(3, 0, false);
+		expect(first).toMatchObject({ index: 0, back: false, next: true, dots: 3 });
+		expect(reviewFooter(3, 1, false)).toMatchObject({ back: true, next: true });
+		expect(reviewFooter(3, 2, false)).toMatchObject({ back: true, next: false });
+		expect(reviewStep(3, 0, -1)).toBe(0);
+		expect(reviewStep(3, 2, 1)).toBe(2);
+		expect(reviewStep(3, 0, 1)).toBe(1);
+		expect(clampReviewIndex(0, 5)).toBe(0);
+		expect(clampReviewIndex(3, 9)).toBe(2);
+	});
+	it("seleção é por pergunta: cada uma marca só as suas alternativas", () => {
+		const q = reviewQuestions(asked, { direction: "both", tags: ["a", "b"] }, false);
+		expect(q[0]!.options.map((o) => o.selected)).toEqual([true, false]);
+		expect(q[1]!.options.map((o) => o.selected)).toEqual([true, true, false]);
+	});
+	it("múltipla marca todas as escolhidas; texto livre mostra o texto", () => {
+		const q = reviewQuestions(asked, { tags: ["a", "b"], briefing: "agendar" }, false);
+		expect(q[1]!.options.filter((o) => o.selected).map((o) => o.label)).toEqual(["Agenda", "E-mail"]);
+		expect(q[2]).toMatchObject({ text: "agendar", options: [] });
+	});
+	it("dispensado: todas as alternativas aparecem, nenhuma marcada, sem navegação", () => {
+		const q = reviewQuestions(asked, { direction: "both" }, true);
+		expect(q).toHaveLength(3);
+		expect(q.every((question) => question.options.every((o) => !o.selected) && !question.answered)).toBe(true);
+		expect(reviewFooter(3, 1, true)).toMatchObject({ back: false, next: false, dismissed: true });
 	});
 });
