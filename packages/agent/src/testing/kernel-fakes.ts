@@ -103,5 +103,5 @@ export function kernelHarness(turns: Turn[], opts: { tools?: Tool[]; capabilitie
 	const registry = createCapabilityRegistry(opts.capabilities ?? [defineCapability({ id: "core", title: "Core", summary: "core tools", core: true, tools: opts.tools ?? [] })]);
 	const input: RunInput = { stableSystem: "SYSTEM", contextSections: [], history: [{ kind: "owner", text: "faça isso" }] };
 	const deps = (over: Partial<RunAgentDeps> = {}): RunAgentDeps => ({ runId: "run-1", ownerId: "owner-1", input, ports, registry, policy: chatPolicy, limits: {}, hash: sha256, ...over });
-	return { llm, runs, notes, journal, receipts, log, ports, registry, input, deps, run: (over: Partial<RunAgentDeps> = {}) => runAgent(deps(over)) };
+	return { llm, byRole: (r: LlmRole) => llm.byRole(r), runs, notes, journal, receipts, log, ports, registry, input, deps, run: (over: Partial<RunAgentDeps> = {}) => runAgent(deps(over)) };
 }

@@ -14,9 +14,11 @@ import type { LlmToolSpec } from "../ports/llm.js";
 import type { Tool } from "../tools/define-tool.js";
 import { finalStepNote, reachedLimit, spendText } from "./limits.js";
 import { observeCall, REPEAT_NOTE, signatureOf } from "./loop-guard.js";
+import { compactContext, contextTokens, DEFAULT_COMPACT_RATIO, DEFAULT_KEEP_RECENT, shouldCompact } from "./compaction.js";
 import { callModel } from "./model-step.js";
 import { addRuntimeNote, initSnapshot, isSnapshot, saveCheckpoint } from "./session.js";
 import { runPending } from "./tool-step.js";
+import { createNoteReadTool, DEFAULT_PAGE_CHARS, fitOutput } from "./work-notes.js";
 import type { KernelEvent, KernelState, PendingCall, RunAgentDeps, RunResult } from "./types.js";
 
 export async function runAgent(deps: RunAgentDeps): Promise<RunResult> {
@@ -30,7 +32,8 @@ export async function runAgent(deps: RunAgentDeps): Promise<RunResult> {
 
 	const loaded = createLoadedSet(registry, snap.loadedIds);
 	const executor = createExecutor({ runId, ownerId, ports, hash: deps.hash, policy: deps.policy, provenance: RunProvenance.restore(snap.provenance), ...(deps.signal && { signal: deps.signal }) });
-	const kernelTools: readonly Tool[] = [];
+	const pageChars = deps.options?.pageChars ?? DEFAULT_PAGE_CHARS;
+	const kernelTools: readonly Tool[] = [createNoteReadTool(pageChars)];
 	const toolMap = () => new Map<string, Tool>([...kernelTools, ...loaded.toolsForModel()].map((t) => [t.name, t]));
 	const specs = (): LlmToolSpec[] => [...kernelTools.map((t) => t.toLlmToolSpec()), ...loaded.specsForModel()];
 	const save = async (state: KernelState) => {
@@ -38,7 +41,7 @@ export async function runAgent(deps: RunAgentDeps): Promise<RunResult> {
 		snap.provenance = executor.provenance.snapshot();
 		await saveCheckpoint(ports, ownerId, runId, state, snap);
 	};
-	const fit = async (_call: PendingCall, text: string) => text;
+	const fit = (call: PendingCall, text: string) => fitOutput({ store: ports.store, ownerId, runId, callId: call.id, toolName: call.name, text, pageChars });
 
 	let state: KernelState = resumed ? (saved.state === "PARKED" ? "TOOLS" : saved.state) : "PREPARE";
 	if (!resumed) await save("PREPARE");
@@ -59,6 +62,17 @@ export async function runAgent(deps: RunAgentDeps): Promise<RunResult> {
 	}
 	const endStatus = (): RunResult["status"] => (snap.stop || Object.keys(snap.lastErrors).length > 0 ? "not_done" : "done");
 
+	/** Compacta só com a janela do modelo quase cheia (nunca por custo): flush no caderno, depois resumo. */
+	async function maybeCompact() {
+		const window = await ports.llm.contextWindow("main");
+		const ratio = deps.options?.compactAtRatio ?? DEFAULT_COMPACT_RATIO;
+		if (!shouldCompact(contextTokens(snap), window, ratio)) return;
+		const done = await compactContext({ snap, llm: ports.llm, store: ports.store, ownerId, runId, keepRecent: deps.options?.keepRecent ?? DEFAULT_KEEP_RECENT });
+		if (!done) return;
+		const why = done.summaryFailed ? ` The summary failed (${done.summaryFailed}); the full material is in work note ${done.noteId}.` : "";
+		await emit({ type: "status", data: { reason: "compacted", message: `Conversation compacted: about ${done.before} tokens before, ${done.after} after.${why}` } });
+	}
+
 	try {
 		for (;;) {
 			if (state === "PREPARE") {
@@ -67,7 +81,10 @@ export async function runAgent(deps: RunAgentDeps): Promise<RunResult> {
 					snap.stop = hit;
 					addRuntimeNote(snap, finalStepNote(hit.label, spendText(snap.spentUsd, snap.stepsWithoutPrice, snap.step)));
 					state = "FINAL";
-				} else state = "MODEL";
+				} else {
+					await maybeCompact();
+					state = "MODEL";
+				}
 				await save(state);
 			} else if (state === "MODEL" || state === "FINAL") {
 				const isFinal = state === "FINAL";

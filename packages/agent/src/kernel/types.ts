@@ -78,6 +78,11 @@ export type KernelSnapshot = {
 	provenance: ProvenanceSnapshot;
 	spentUsd: number;
 	stepsWithoutPrice: number;
+	/** Posições em `messages` das falas do dono (para listá-las por inteiro ao compactar). */
+	ownerIdx: number[];
+	/** O que a compactação já mandou para o caderno de trabalho. */
+	compacted: { noteIds: string[]; ownerTexts: string[] };
+	compactions: number;
 	/** Chamadas do passo atual. */
 	pending: PendingCall[];
 	/** Conteúdo já produzido por chamada (efeito já gravado no journal). */
