@@ -44,7 +44,7 @@ function pickBot(value: unknown): HomeBot | null {
 	if (!isNullable(pinOrder, isNumber) || !isNullable(sectionId, isString) || !isNullable(lastAt, isString)) return null;
 	if (!Array.isArray(memberIds) || !memberIds.every(isString)) return null;
 	// Reconstrói campo a campo: qualquer chave a mais que esteja no disco não passa.
-	return { id, name, color, shape, pinned, pinOrder, sectionId, memberIds: [...memberIds], isPrimary, conversationId, language, unread, lastAt, preview, previewSent, previewCard: previewCard as CardIconKey | null };
+	return { id, name, color, shape, pinned, pinOrder, sectionId, memberIds: [...memberIds], isPrimary, conversationId, language, unread, lastAt, preview, previewSent, previewCard: previewCard as CardIconKey | null, ...(value.needsYou === true ? { needsYou: true } : {}) };
 }
 
 function pickSection(value: unknown): SectionRef | null {

@@ -5,6 +5,8 @@ import { View } from "react-native";
 import { StarFilledIcon } from "@/components/icons";
 import { Avatar } from "@/components/ui/avatar";
 import { LIST_POSE } from "@/lib/avatar-pose";
+import { AVATAR_STATUS_LABELS, avatarDotSize, resolveAvatarStatus, type AvatarStatusKind } from "@/lib/avatar-status";
+import { botRunStore } from "@/lib/bot-waiting";
 import { useSurfaces } from "@/lib/use-surfaces";
 
 /**
@@ -20,27 +22,33 @@ type BotAvatarProps = {
 	bots: readonly HomeBot[];
 	/** Lado do corpo em px (o SVG tem ~30% de margem). */
 	body: number;
-	/** Conversa não lida: bolinha no canto de baixo à direita (como o `AvatarStatus` do web). */
-	unread?: boolean;
+	/** Bolinha de status no canto de baixo à direita (como o `AvatarStatus` do web): trabalhando > precisa de você > não lida. */
+	status?: AvatarStatusKind;
 };
 
-/** Tamanho da bolinha: 26% do avatar, entre 10 e 16 (mesma conta do web, `avatarDotMetrics`). */
-export function unreadDotSize(body: number): number {
-	return Math.min(16, Math.max(10, Math.round(body * 0.26)));
+/**
+ * Estado da bolinha de um bot: o retrato do servidor (`working`, card pendente, não lida) somado aos avisos `run`
+ * do canal de eventos, que chegam antes do refresh e cobrem o run pausado esperando o usuário.
+ */
+export function useBotStatus(bot: HomeBot): AvatarStatusKind {
+	const sets = React.useSyncExternalStore(botRunStore.subscribe, botRunStore.get, botRunStore.get);
+	const live = sets.active.has(bot.id);
+	const waiting = sets.waiting.has(bot.id);
+	return resolveAvatarStatus({ working: live || (bot.working === true && !waiting), needsYou: waiting || bot.needsYou === true, unread: bot.unread });
 }
 
 /**
- * Bolinha de não lida (`info`, a azul do tema) no canto de baixo à direita do avatar. O anel na cor do fundo faz o
- * papel do recorte do web (2px de folga entre avatar e bolinha).
+ * Bolinha de status no canto de baixo à direita do avatar. Cor pelos tokens (`useSurfaces`): verde e azul do web,
+ * amarelo `warning`. O anel na cor do fundo faz o papel do recorte do web (2px de folga entre avatar e bolinha).
  */
-export function UnreadDot({ body }: { body: number }) {
-	const { screen } = useSurfaces();
-	const size = unreadDotSize(body);
+export function StatusDot({ body, status }: { body: number; status: Exclude<AvatarStatusKind, "none"> }) {
+	const { screen, statusWorking, statusNeeds, statusUnread } = useSurfaces();
+	const size = avatarDotSize(body);
+	const color = status === "working" ? statusWorking : status === "needs" ? statusNeeds : statusUnread;
 	return (
 		<View
-			accessibilityLabel="Não lida"
-			className="absolute rounded-full bg-info"
-			style={{ right: -2, bottom: -2, width: size + 4, height: size + 4, borderWidth: 2, borderColor: screen }}
+			accessibilityLabel={AVATAR_STATUS_LABELS[status]}
+			style={{ position: "absolute", right: -2, bottom: -2, width: size + 4, height: size + 4, borderRadius: (size + 4) / 2, backgroundColor: color, borderWidth: 2, borderColor: screen }}
 		/>
 	);
 }
@@ -53,14 +61,14 @@ const BOX_RATIO = 1 / 0.705;
  * olhando para cima e para a direita (a pose da referência), sem animação: uma grade e uma lista com dezenas de avatares
  * animados custariam timers e valores compartilhados por avatar, e no web a lista também fica parada.
  */
-export function BotAvatar({ bot, bots, body, unread = false }: BotAvatarProps) {
+export function BotAvatar({ bot, bots, body, status = "none" }: BotAvatarProps) {
 	const box = Math.round(body * BOX_RATIO);
 	const members = bot.memberIds.length > 0 ? bot.memberIds.map((id) => bots.find((item) => item.id === id)).filter((item): item is HomeBot => Boolean(item)).slice(0, 3) : [];
 	if (members.length === 0) {
 		return (
 			<View style={{ width: body, height: body, alignItems: "center", justifyContent: "center" }}>
 				<Avatar color={resolveColor(bot.color, bot.id)} shape={resolveShape(bot.shape, bot.id)} size={box} animated={false} pose={LIST_POSE} />
-				{unread ? <UnreadDot body={body} /> : null}
+				{status !== "none" ? <StatusDot body={body} status={status} /> : null}
 			</View>
 		);
 	}
@@ -74,7 +82,7 @@ export function BotAvatar({ bot, bots, body, unread = false }: BotAvatarProps) {
 					<Avatar color={resolveColor(member.color, member.id)} shape={resolveShape(member.shape, member.id)} size={Math.round(small * BOX_RATIO)} animated={false} pose={LIST_POSE} />
 				</View>
 			))}
-			{unread ? <UnreadDot body={body} /> : null}
+			{status !== "none" ? <StatusDot body={body} status={status} /> : null}
 		</View>
 	);
 }

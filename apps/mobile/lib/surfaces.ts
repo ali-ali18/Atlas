@@ -39,7 +39,16 @@ export type SurfaceColors = {
 	inverseFill: string;
 	/** Traço (X) sobre `inverseFill`: quase preto nos dois modos. */
 	inverseInk: string;
+	/** Bolinha "trabalhando" do avatar: o verde fixo do web (`AVATAR_STATUS_COLORS.working`), igual nos dois temas. */
+	statusWorking: string;
+	/** Bolinha "precisa de você": o token de estado `warning` do tema (o mesmo do selo dos cards). */
+	statusNeeds: string;
+	/** Bolinha "não lida": o azul fixo do web (`AVATAR_STATUS_COLORS.unread`), igual nos dois temas. */
+	statusUnread: string;
 };
+
+const STATUS_WORKING = "#22c55e";
+const STATUS_UNREAD = "#2496e8";
 
 const DARK: SurfaceColors = {
 	screen: "#1a1a1a",
@@ -58,6 +67,9 @@ const DARK: SurfaceColors = {
 	switchThumb: "#ffffff",
 	inverseFill: "#ffffff",
 	inverseInk: "#09090b",
+	statusWorking: STATUS_WORKING,
+	statusNeeds: themeColor("dark", "warning"),
+	statusUnread: STATUS_UNREAD,
 };
 
 export function surfaceColors(scheme: ColorScheme): SurfaceColors {
@@ -79,6 +91,9 @@ export function surfaceColors(scheme: ColorScheme): SurfaceColors {
 		switchThumb: "#ffffff",
 		inverseFill: "#ffffff",
 		inverseInk: "#09090b",
+		statusWorking: STATUS_WORKING,
+		statusNeeds: themeColor(scheme, "warning"),
+		statusUnread: STATUS_UNREAD,
 	};
 }
 

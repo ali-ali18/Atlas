@@ -47,6 +47,12 @@ Vale para toda tela, folha e componente de `apps/mobile`. Complementa a seção 
 - Campos lado a lado (ex.: Nome e E-mail) usam a **mesma peça** (`ChromeInput`), com a mesma altura, raio, borda e fonte.
   Campo não editável = `readOnly`, mesma aparência (sem cursor, sem opacidade).
 
+## Status do avatar (home)
+- Bolinha no canto de baixo à direita do avatar (`StatusDot`, medidas do web: 26% do corpo, entre 10 e 16, anel na cor do fundo).
+- **Prioridade: trabalhando > precisa de você > não lida.** Uma bolinha só; a estrela do bot principal só aparece sem bolinha.
+- **Cores** (tokens em `lib/surfaces.ts`): trabalhando = verde `statusWorking` (`#22c55e`, igual ao web); precisa de você = **amarelo**, token de estado `warning` do tema (`statusNeeds`, o mesmo do selo "Precisa de você" dos cards); não lida = azul `statusUnread` (`#2496e8`, igual ao web). Decisão do dono, 05/11. Nunca hex solto em tela.
+- Fonte do dado: `working` de `/v1/bots` + avisos `run` do hub (`lib/bot-waiting.ts`); "precisa de você" = run `waiting_user` ou última mensagem é card pendente legível (`lib/avatar-status.ts`).
+
 ## Chat
 - Card novo = `ChatCard` (variantes `card`/`activity`), largura do balão (`BUBBLE_WIDTH_CLASS`).
 - Anexos no composer: tiles quadrados de 88 pt, raio 14, X branco no canto; erro com borda `destructive` e motivo embaixo.

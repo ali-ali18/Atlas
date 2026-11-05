@@ -3,6 +3,7 @@
 // fixado fica só na zona de fixados (fixar e seção são exclusivos), seção some se vazia, e quem não tem seção
 // (ou aponta para uma que não existe) vai para "Sem sessão".
 import { parseBotLinkCard, sourcePreviewPrefix, type Bot } from "@workspace/shared";
+import { lastMessageNeedsYou } from "./avatar-status";
 import { cardPreviewOf, isMarkerContent, isMarkerRole, type CardIconKey } from "./card-preview";
 import type { HomeBot, SectionRef } from "./home-types";
 
@@ -73,6 +74,8 @@ export function toHomeBot(bot: Bot): HomeBot {
 		isPrimary: bot.isPrimary === true,
 		conversationId: bot.conversationId ?? null,
 		language: typeof bot.language === "string" ? bot.language : null,
+		working: bot.working === true,
+		needsYou: lastMessageNeedsYou(bot.lastMessage),
 		unread: (bot.unreadCount ?? 0) > 0 || bot.manualUnread === true,
 		lastAt: bot.lastMessage?.createdAt ?? null,
 		preview: preview.text.length > PREVIEW_MAX_CHARS ? `${preview.text.slice(0, PREVIEW_MAX_CHARS)}…` : preview.text,

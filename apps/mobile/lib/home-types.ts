@@ -17,6 +17,10 @@ export type HomeBot = {
 	conversationId: string | null;
 	/** Idioma do bot ("auto" ou um idioma); `null` em cache antigo. */
 	language: string | null;
+	/** Há run em andamento deste bot (ou do grupo), como o servidor conta em `GET /v1/bots`. Ausente em cache antigo. */
+	working?: boolean;
+	/** A última mensagem é um card pendente que espera o usuário (login, aprovação, pergunta). Ausente em cache antigo. */
+	needsYou?: boolean;
 	/** Há mensagem nova ou o usuário marcou como não lida. */
 	unread: boolean;
 	/** ISO da última mensagem (a data da linha). */

@@ -24,6 +24,9 @@ describe("surfaceColors", () => {
 			switchThumb: "#ffffff",
 			inverseFill: "#ffffff",
 			inverseInk: "#09090b",
+			statusWorking: "#22c55e",
+			statusNeeds: "#f7c243",
+			statusUnread: "#2496e8",
 		});
 	});
 
@@ -39,6 +42,15 @@ describe("surfaceColors", () => {
 		expect(light.chatCard).toBe(light.bubble);
 		expect(light.chatCardControl).toBe(themeColor("light", "input"));
 		expect(light.link).toBe(themeColor("light", "info"));
+	});
+
+	it("status do avatar: verde e azul fixos do web, amarelo é o `warning` do tema (nos dois modos)", () => {
+		for (const scheme of ["light", "dark"] as const) {
+			const colors = surfaceColors(scheme);
+			expect(colors.statusWorking).toBe("#22c55e");
+			expect(colors.statusUnread).toBe("#2496e8");
+			expect(colors.statusNeeds).toBe(themeColor(scheme, "warning"));
+		}
 	});
 
 	it("o fundo de tela é o do tema nos dois modos (um padrão só)", () => {

@@ -1,6 +1,7 @@
 import * as React from "react";
 import { AppState } from "react-native";
 import { attachHomeLive } from "@/lib/home-live";
+import { botRunStore } from "@/lib/bot-waiting";
 import { cacheKey, loadHomeCache, saveHomeCache } from "@/lib/home-cache";
 import { homeStorage } from "@/lib/home-storage";
 import { HomeSyncController, type SyncDeps } from "@/lib/home-sync-controller";
@@ -142,6 +143,19 @@ export function HomeDataProvider({ children }: { children: React.ReactNode }) {
 			refresh: () => void refreshRef.current({ silent: true }),
 		});
 	}, [key, hasSnapshot, eventHub]);
+
+	// Avisos `run` (com o bot) acendem/apagam a bolinha de status na hora, antes do refresh; `ready`/`resync` limpam.
+	React.useEffect(() => {
+		botRunStore.reset();
+		if (!key || !eventHub) return;
+		const offEvent = eventHub.subscribe((event) => botRunStore.apply(event));
+		const offResync = eventHub.onResync(() => botRunStore.reset());
+		return () => {
+			offEvent();
+			offResync();
+			botRunStore.reset();
+		};
+	}, [key, eventHub]);
 
 	const prepare = React.useCallback(async () => {
 		if (!key) return "signed-out" as const;

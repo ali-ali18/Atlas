@@ -5,7 +5,7 @@ import { ChevronDownIcon, SendIcon } from "@/components/icons";
 import { CardPreviewIcon } from "./card-preview-icon";
 import { Text } from "@/components/ui/text";
 import { formatListDate, NO_SECTION_KEY, type HomeSection } from "@/lib/home-list";
-import { BotAvatar } from "./bot-avatar";
+import { BotAvatar, useBotStatus } from "./bot-avatar";
 
 const ROW_BODY = 48;
 
@@ -13,9 +13,10 @@ const ROW_BODY = 48;
 export function ConversationRow({ bot, bots, now, onOpen, onMenu }: { bot: HomeBot; bots: readonly HomeBot[]; now: Date; onOpen: (bot: HomeBot) => void; onMenu: (bot: HomeBot) => void }) {
 	const date = formatListDate(bot.lastAt, now);
 	const unread = bot.unread;
+	const status = useBotStatus(bot);
 	return (
 		<Pressable role="button" accessibilityLabel={`${bot.name}. ${bot.preview}`} onPress={() => onOpen(bot)} onLongPress={() => onMenu(bot)} accessibilityHint="Segure para ver as ações da conversa" className="min-h-20 flex-row items-center gap-4 px-6 py-3 active:bg-muted/60">
-			<BotAvatar bot={bot} bots={bots} body={ROW_BODY} unread={unread} />
+			<BotAvatar bot={bot} bots={bots} body={ROW_BODY} status={status} />
 			<View className="min-w-0 flex-1 gap-0.5">
 				<View className="flex-row items-center gap-2">
 					<Text numberOfLines={1} ellipsizeMode="tail" className="min-w-0 flex-1 text-control font-bold">
