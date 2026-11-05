@@ -91,6 +91,13 @@ describe("matrix --simulate", () => {
 		expect(await readFile(join(outDir, "matrix.md"), "utf8")).toContain("skipped_budget");
 	}, 120_000);
 
+	it("modelo repetido em --models conta uma vez só (auditoria F0, B7)", async () => {
+		const result = await runMatrix({ scenarios: scenarios.slice(0, 1), engines: ["v2"], models: [MODELS[0]!, MODELS[1]!, MODELS[0]!, ` ${MODELS[1]!} `], repeat: 1, mode: "simulate", isStrong: strongMatcher() });
+		expect(result.runs).toHaveLength(2);
+		expect(result.summary.models).toEqual(MODELS);
+		expect(result.summary.byModel.v2![MODELS[0]!]!.runs).toBe(1);
+	});
+
 	it("teto menor que a primeira estimativa: nada roda e o relatório sai mesmo assim", async () => {
 		const result = await runMatrix({ scenarios, engines: ["v2"], models: MODELS, repeat: 1, mode: "simulate", capUsd: 0.000001, isStrong: strongMatcher() });
 		expect(result.runs.every((item) => item.status === "skipped_budget")).toBe(true);

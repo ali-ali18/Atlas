@@ -56,7 +56,8 @@ export async function runMatrix(options: MatrixOptions): Promise<MatrixResult> {
 	const real = options.mode === "real";
 	const repeat = Math.max(1, Math.floor(options.repeat ?? 1));
 	const engines = resolveEngines(options.engines, options.engineTable ?? ENGINE_ADAPTERS);
-	const models = resolveModelSpecs(options.models);
+	// Modelo repetido em `--models` contaria em dobro (execuções, gasto e acerto): vale a 1ª ocorrência.
+	const models = resolveModelSpecs([...new Set(options.models.map((spec) => spec.trim()))]);
 	if (models.length === 0) throw new Error("informe --models");
 	if (options.scenarios.length === 0) throw new Error("nenhum cenário selecionado");
 	if (real && options.capUsd === undefined) throw new Error("informe --max-usd: o modo real exige um teto de gasto rígido");
