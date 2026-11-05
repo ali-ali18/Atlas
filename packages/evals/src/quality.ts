@@ -168,27 +168,69 @@ export function buildJudgePrompt(input: { rubric: string; scenario: Pick<Scenari
 
 const invalid = (error: string): RubricVerdict => ({ status: "invalid", error });
 
+/**
+ * Objetos `{...}` de nível superior do texto, em ordem, achados por contagem de chaves que respeita strings JSON.
+ * Aguenta ruído antes e depois da resposta (cerca de código, "{}" solto, comentário com chaves), que o par
+ * primeiro-`{`/último-`}` engolia junto e quebrava o parse.
+ */
+export function topLevelObjects(text: string): string[] {
+	const out: string[] = [];
+	let depth = 0;
+	let start = -1;
+	let inString = false;
+	let escaped = false;
+	for (let index = 0; index < text.length; index += 1) {
+		const char = text[index]!;
+		if (inString) {
+			if (escaped) escaped = false;
+			else if (char === "\\") escaped = true;
+			else if (char === '"') inString = false;
+			continue;
+		}
+		if (char === '"' && depth > 0) inString = true;
+		else if (char === "{") {
+			if (depth === 0) start = index;
+			depth += 1;
+		} else if (char === "}" && depth > 0) {
+			depth -= 1;
+			if (depth === 0) out.push(text.slice(start, index + 1));
+		}
+	}
+	return out;
+}
+
+/** O objeto da rubrica entre os candidatos: o 1º que traz alguma dimensão; senão o 1º que é um objeto JSON. */
+function pickRubricObject(text: string): unknown {
+	let firstObject: unknown;
+	for (const candidate of topLevelObjects(text)) {
+		let value: unknown;
+		try {
+			value = JSON.parse(candidate);
+		} catch {
+			continue;
+		}
+		if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+		if (DIMENSIONS.some((dimension) => dimension in (value as Record<string, unknown>))) return value;
+		firstObject ??= value;
+	}
+	return firstObject;
+}
+
 /** Aceita o JSON puro ou dentro de cerca/ruído; qualquer desvio do esquema vira `invalid`, nunca uma nota. */
 export function parseRubricAnswer(content: string | null | undefined): RubricVerdict {
 	const text = (content ?? "").trim();
 	if (!text) return invalid("resposta vazia");
-	const start = text.indexOf("{");
-	const end = text.lastIndexOf("}");
-	if (start < 0 || end <= start) return invalid("sem JSON");
-	let parsed: unknown;
-	try {
-		parsed = JSON.parse(text.slice(start, end + 1));
-	} catch {
-		return invalid("JSON inválido");
-	}
-	if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return invalid("JSON não é um objeto");
+	if (!text.includes("{")) return invalid("sem JSON");
+	const parsed = pickRubricObject(text);
+	if (parsed === undefined) return invalid("JSON inválido");
 	const record = parsed as Record<string, unknown>;
 	const scores = {} as RubricScores;
 	for (const dimension of DIMENSIONS) {
 		const entry = record[dimension];
 		if (!entry || typeof entry !== "object" || Array.isArray(entry)) return invalid(`falta a dimensão ${dimension}`);
 		const { score, reason } = entry as { score?: unknown; reason?: unknown };
-		if (reason !== undefined && typeof reason !== "string") return invalid(`${dimension}: reason não é texto`);
+		// `reason: null` é só justificativa ausente (modelos escrevem assim em fontes/antecipação N/A), não é nota inválida.
+		if (reason !== undefined && reason !== null && typeof reason !== "string") return invalid(`${dimension}: reason não é texto`);
 		let value: number | null;
 		if (score === null || (typeof score === "string" && /^(n\/?a|na)$/i.test(score.trim()))) {
 			if (!NA_ALLOWED.includes(dimension)) return invalid(`${dimension}: não pode ser N/A`);
@@ -198,7 +240,7 @@ export function parseRubricAnswer(content: string | null | undefined): RubricVer
 		} else {
 			return invalid(`${dimension}: nota fora de 1-5 (${typeof score === "number" ? score : typeof score})`);
 		}
-		scores[dimension] = { score: value, reason: clip((reason as string | undefined)?.replace(/\s+/g, " ").trim() ?? "", 200) };
+		scores[dimension] = { score: value, reason: clip((typeof reason === "string" ? reason : "").replace(/\s+/g, " ").trim(), 200) };
 	}
 	return { status: "ok", scores };
 }

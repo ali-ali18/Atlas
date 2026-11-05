@@ -59,6 +59,33 @@ describe("parseRubricAnswer", () => {
 		expect("scores" in parsed).toBe(false);
 	});
 
+	it("acha o objeto da rubrica entre chaves soltas, texto e cercas (auditoria F0, B2)", () => {
+		const json = answer({ fontes: null });
+		const noisy = [
+			`Aqui vai {a avaliação}: \`\`\`json\n${json}\n\`\`\``,
+			`${json}\n\nObs.: formato {} respeitado, nota {mínima: 1}.`,
+			`{} ${json} {}`,
+			`Resultado final => ${json}`,
+		];
+		for (const text of noisy) {
+			const parsed = parseRubricAnswer(text);
+			expect(parsed.status, text).toBe("ok");
+			if (parsed.status === "ok") expect(parsed.scores.fontes.score).toBeNull();
+		}
+	});
+
+	it("chaves dentro de uma justificativa não confundem a contagem", () => {
+		const parsed = parseRubricAnswer(answer().replace("ok completude", "usa } e { soltas como { texto } e \\\"aspas\\\" }"));
+		expect(parsed.status).toBe("ok");
+		if (parsed.status === "ok") expect(parsed.scores.completude.reason).toContain("como { texto }");
+	});
+
+	it("reason: null vale como justificativa ausente, não como juiz inválido", () => {
+		const parsed = parseRubricAnswer(answer({ fontes: null }).replace('"reason":"ok fontes"', '"reason":null'));
+		expect(parsed.status).toBe("ok");
+		if (parsed.status === "ok") expect(parsed.scores.fontes).toEqual({ score: null, reason: "" });
+	});
+
 	it("corta justificativas longas", () => {
 		const long = answer().replace("ok completude", "x".repeat(900));
 		const parsed = parseRubricAnswer(long);

@@ -322,6 +322,34 @@ describe("relatório Markdown (auditoria F0, B1)", () => {
 	});
 });
 
+describe("aviso de juiz inválido no relatório (auditoria F0, B2)", () => {
+	const strong = "anthropic/claude-sonnet-5-5";
+	const cheap = "opencode-go/qwen3.8-flash";
+	const quality = (status: "scored" | "invalid") => ({ status, score: status === "scored" ? 4 : null, judges: 2, dimsCompared: 0, dimsDisputed: 0, dims: { completude: null, fontes: null, formato: null, antecipacao: null } });
+	const build = (cheapStatus: "scored" | "invalid") =>
+		summarizeMatrix([run({ model: strong, quality: quality("scored") }), run({ model: cheap, provider: "opencode-go", quality: quality(cheapStatus) }), run({ model: cheap, provider: "opencode-go", repeat: 1, quality: quality(cheapStatus) })], {
+			engines: ["v2"],
+			models: [strong, cheap],
+			scenarios: [{ id: "s1", capability: "email" }],
+			repeat: 2,
+			mode: "simulate",
+			judging: { models: ["anthropic/claude-haiku-5-5", "opencode-go/qwen3.8-flash"], maxGap: 1 },
+			isStrong: strongMatcher(),
+			createdAt: "2026-11-05T00:00:00.000Z",
+		});
+
+	it("quando TODOS os julgamentos de um modelo são inválidos, o matrix.md avisa no topo e por célula", () => {
+		const markdown = formatMatrixReport(build("invalid"));
+		expect(markdown).toContain("**Juiz inválido em tudo:** 2 de 2 julgamentos de `opencode-go/qwen3.8-flash` (v2)");
+		expect(markdown).toContain("Sem nota em `s1` · v2 · `opencode-go/qwen3.8-flash`: 2 julgamento(s), todos inválidos.");
+		expect(markdown).not.toContain(`julgamentos de \`${strong}\``);
+	});
+
+	it("sem inválidos totais não há aviso", () => {
+		expect(formatMatrixReport(build("scored"))).not.toContain("Juiz inválido em tudo");
+	});
+});
+
 describe("ouro × genérico lado a lado (04-avaliacao §1.1)", () => {
 	const model = "anthropic/claude-sonnet-5-5";
 	const scenarios = [

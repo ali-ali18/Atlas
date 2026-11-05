@@ -41,6 +41,30 @@ export const READING_LEGEND: Record<string, string> = {
 	indefinido: "sem dados suficientes (pulado pelo teto ou um só modelo fraco que falha)",
 };
 
+/**
+ * Avisos de juiz inválido: cenário × motor × modelo em que TODOS os julgamentos vieram inválidos (o juiz errou o JSON,
+ * caiu ou foi recusado). Sem isso a coluna de qualidade mostra só "-" e o relatório parece dizer "nada a julgar".
+ */
+export function judgeWarnings(summary: MatrixSummary): string[] {
+	if (!summary.judging) return [];
+	const out: string[] = [];
+	for (const engine of summary.engines) {
+		for (const model of summary.models) {
+			const total = summary.byModel[engine]?.[model]?.quality;
+			if (total && total.judged > 0 && total.invalidRuns === total.judged) out.push(`**Juiz inválido em tudo:** ${total.judged} de ${total.judged} julgamentos de \`${model}\` (${engine}) vieram inválidos; não há nota de qualidade para esse modelo. Confira o modelo do juiz (\`${summary.judging.models.join("`, `")}\`) e o formato da resposta dele.`);
+		}
+	}
+	for (const scenario of summary.scenarios) {
+		for (const engine of summary.engines) {
+			for (const model of summary.models) {
+				const quality = summary.cells[scenario.id]?.[engine]?.[model]?.quality;
+				if (quality && quality.judged > 0 && quality.invalidRuns === quality.judged) out.push(`Sem nota em \`${scenario.id}\` · ${engine} · \`${model}\`: ${quality.judged} julgamento(s), todos inválidos.`);
+			}
+		}
+	}
+	return out;
+}
+
 export function formatMatrixReport(summary: MatrixSummary): string {
 	const out: string[] = [];
 	const total = summary.scenarios.length * summary.engines.length * summary.models.length * summary.repeat;
@@ -52,6 +76,7 @@ export function formatMatrixReport(summary: MatrixSummary): string {
 		const { models, maxGap } = summary.judging;
 		out.push(`- Rubrica de qualidade (1 a 5): ${models.length} juiz(es) — ${models.join(", ")} · ${models.length > 1 ? `teto de discordância ${maxGap} (acima disso a dimensão fica \`disputed\` e sai da nota)` : "1 juiz, sem teto de discordância"} · só nos cenários com verificação \`judge\`.`);
 	}
+	for (const warning of judgeWarnings(summary)) out.push(`- ${warning}`);
 	if (summary.budgetStopped) out.push(`- **Teto atingido:** ${summary.skippedBudget} de ${total} execuções ficaram \`skipped_budget\` (não rodaram).`);
 	if (summary.costUnknown) out.push("- `*` = custo estimado pela tabela de preços (preço desconhecido, ou o provedor não informou o custo).");
 	if (summary.mode === "simulate") out.push("- **Simulado:** modelos roteirizados com uso falso por provedor e falhas sintéticas nos modelos baratos. Exercita o pipeline; os números não dizem nada sobre nenhum modelo.");
