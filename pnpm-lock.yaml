@@ -407,6 +407,9 @@ importers:
 
   packages/agent:
     dependencies:
+      '@workspace/shared':
+        specifier: workspace:*
+        version: link:../shared
       zod:
         specifier: ^4.4.3
         version: 4.6.5

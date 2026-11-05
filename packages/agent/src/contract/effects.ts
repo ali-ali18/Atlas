@@ -2,19 +2,12 @@
 // `defineTool`; quem decide o que fazer com cada classe (run | approve | handoff) é o
 // `decide()` puro da F1.3, não este arquivo. Aqui só o vocabulário, igual em toda superfície.
 
-export const EFFECT_CLASSES = [
-	"read",
-	"draft",
-	"write_internal",
-	"write_external",
-	"send",
-	"money",
-	"public_link",
-	"credential",
-	"destructive",
-] as const;
+// Fonte única: o vocabulário mora em `@workspace/shared` (a `decide()` da F1.3 usa o mesmo);
+// aqui só se reexporta, para o motor e a política nunca divergirem.
+import { EFFECT_CLASSES, type EffectClass } from "@workspace/shared";
 
-export type Effect = (typeof EFFECT_CLASSES)[number];
+export { EFFECT_CLASSES };
+export type Effect = EffectClass;
 
 /** O que cada classe significa (pt-BR, para quem lê o código e para a UI de regras). */
 export const EFFECT_DOCS: Readonly<Record<Effect, string>> = {
