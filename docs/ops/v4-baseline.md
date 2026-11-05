@@ -8,7 +8,23 @@ Rodadas usadas, depois da correção do ambiente do eval (`74037cc8`):
 
 `results/` fica fora do git; este arquivo é o registro.
 
-## Placar
+## Placar corrigido (depois da F0.6)
+As 4 tarefas com defeito de eval (11, 22 e 23, mais o ABNT, que não tinha as skills de fábrica) rodaram de novo com o eval corrigido (US$ 0,41). A tarefa de código fica fora porque o eval não oferece a sessão de código. Sobram 23 tarefas.
+
+| modelo | acerto (23 tarefas) |
+|---|---|
+| Haiku 5.5 | **75%** (52/69) |
+| Sonnet 5.5 (1 rep.) | 65% (15/23) |
+| Qwen 3.8 Flash | 61% (42/69) |
+| DeepSeek V4.1 Flash | 58% (40/69) |
+
+O que mudou:
+- **ABNT:** saiu de 0 para 2/3 nos baratos assim que as skills de fábrica passaram a carregar. O Sonnet ainda cai pelo corte de tempo do passo.
+- **Contra-caso de retry:** todos tentam de novo e entregam.
+- **Fontes divergentes e oferta recusada:** os baratos acertam 3/3. O Sonnet errou na única repetição; com 1 repetição isso é ruído e precisa de mais amostra.
+- **A conclusão não muda:** o Sonnet não supera o Haiku, e o teto continua sendo o motor (lacunas, triagem fraca e corte de tempo).
+
+## Placar da primeira leitura (antes da F0.6)
 | modelo | acerto | nota de qualidade (1-5) | custo por execução | duração média |
 |---|---|---|---|---|
 | Sonnet 5.5 (1 rep.) | 58% (14/24) | 4,01 | US$ 0,047 | 10 s |
@@ -61,7 +77,8 @@ Rodadas usadas, depois da correção do ambiente do eval (`74037cc8`):
 - `skill_read` responde "indisponível" no eval (precisa de banco). Isso prejudica o ABNT; fornecer as skills nativas ao ambiente.
 
 ## Gasto real acumulado no desenvolvimento
-~US$ 3,50 no total, dos quais **~US$ 1,87 pela Anthropic**. Teto do dono: US$ 10.
+~US$ 3,91 no total, dos quais **~US$ 2,12 pela Anthropic**. Teto do dono: US$ 10.
 - Incidente F0.2: US$ 0,06.
 - 1ª rodada com o eval quebrado: US$ 1,07 + US$ 0,33.
 - Rodadas válidas: US$ 0,92 + US$ 1,12.
+- Rodada da F0.6 (4 tarefas): US$ 0,41.

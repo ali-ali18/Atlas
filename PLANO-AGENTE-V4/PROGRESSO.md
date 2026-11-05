@@ -65,7 +65,7 @@
 - [ ] F0.A Auditoria: 5 lentes, verificação, correções com teste, reauditoria e `auditorias/F0.md` fechado.
 
 - [ ] F0.7 Conjunto `generico`: ~16 cenários com outras pessoas, idiomas, países e lojas, e o juiz recebendo o local do cenário (`04` §1.1).
-- [~] F0.6 (05/11, Sonnet) Corrigir os 4 defeitos do eval listados em `docs/ops/v4-baseline.md` (cenários 11, 22 e 23, `skill_read` no ambiente) e rodar de novo só os afetados.
+- [x] F0.6 (05/11; placar corrigido em `docs/ops/v4-baseline.md`) Corrigir os 4 defeitos do eval listados em `docs/ops/v4-baseline.md` (cenários 11, 22 e 23, `skill_read` no ambiente) e rodar de novo só os afetados.
 
 ### F1: Fundação
 - [ ] F1.1 Pacote `packages/agent` com `ports/`, `adapters/` e guarda de fronteira (sem `@workspace/agent-runtime`), README do motor e varredura que falha com segredo ou dado pessoal no código.
@@ -145,6 +145,13 @@
 
 ## Diário de passagem
 > A entrada mais nova fica no topo. Formato: data · conta ou sessão · fase · feito · pela metade · próximo passo · como verificar · dúvidas.
+
+- **05/11/2026 · sessão principal · F0 (4)**
+  - **Feito:** F0.6.
+    - Placar corrigido, sem a tarefa de código: Haiku 75%, Sonnet 65% (1 rep.), Qwen 61%, DeepSeek 58%.
+    - O ABNT só funciona com as skills de fábrica carregadas.
+  - **Gasto acumulado:** ~US$ 3,91, sendo ~US$ 2,12 pela Anthropic.
+  - **Próximo passo:** F0.7 (conjunto genérico) e a auditoria F0.A.
 
 - **05/11/2026 · sessão principal · F0 (3)**
   - **Feito:** F0.5, linha de base em `docs/ops/v4-baseline.md`.
