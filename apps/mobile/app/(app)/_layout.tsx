@@ -15,6 +15,9 @@ export default function AppLayout() {
 			<Stack.Screen name="apps/connected" options={{ animation: "slide_from_right" }} />
 			<Stack.Screen name="apps/[id]" options={{ animation: "slide_from_right" }} />
 			{/* Configurações (o avatar da home): folha cheia com X; Perfil e Uso entram por cima, da direita. */}
-			<Stack.Screen name="settings" options={{ presentation: "modal", animation: "slide_from_bottom" }} />		</Stack>
+			<Stack.Screen name="settings" options={{ presentation: "modal", animation: "slide_from_bottom" }} />
+			<Stack.Screen name="settings/profile" options={{ animation: "slide_from_right" }} />
+			<Stack.Screen name="settings/usage" options={{ animation: "slide_from_right" }} />
+		</Stack>
 	);
 }
