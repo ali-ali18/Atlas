@@ -277,6 +277,21 @@ describe("agregação do relatório", () => {
 	});
 });
 
+describe("relatório Markdown (auditoria F0, B1)", () => {
+	it("nome de verificação com `|` (any_of:a|b) não quebra a tabela de detalhe", () => {
+		const model = "anthropic/claude-sonnet-5-5";
+		const name = "any_of:text_contains|tool_called";
+		const summary = summarizeMatrix(cellRuns("s1", "email", model, "v2", [false], [name]), { engines: ["v2"], models: [model], scenarios: [{ id: "s1", capability: "email" }], repeat: 1, mode: "simulate", isStrong: strongMatcher(), createdAt: "2026-11-05T00:00:00.000Z" });
+		const lines = formatMatrixReport(summary).split("\n");
+		const row = lines.find((line) => line.startsWith("| s1 | v2 |"))!;
+		expect(row).toContain("any_of:text_contains\\|tool_called (1)");
+		// Mesma quantidade de colunas (| sem escape) que o cabeçalho da tabela.
+		const columns = (line: string) => line.replace(/\\\|/g, "").split("|").length;
+		const header = lines.find((line) => line.startsWith("| cenário | motor | modelo |"))!;
+		expect(columns(row)).toBe(columns(header));
+	});
+});
+
 describe("ouro × genérico lado a lado (04-avaliacao §1.1)", () => {
 	const model = "anthropic/claude-sonnet-5-5";
 	const scenarios = [

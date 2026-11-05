@@ -9,8 +9,11 @@ const ratio = (agg: Agg | undefined): string => (!agg || agg.runs === 0 ? (agg &
 const avg = (sum: number, count: number): number => (count === 0 ? 0 : sum / count);
 const ktok = (value: number): string => `${(value / 1000).toFixed(1)}k`;
 
+/** `|` dentro de uma célula (ex.: o nome `any_of:a|b` de uma verificação) quebraria a tabela Markdown. */
+const cell = (value: string): string => value.replace(/\|/g, "\\|");
+
 function table(header: string[], rows: string[][]): string {
-	return [`| ${header.join(" | ")} |`, `| ${header.map(() => "---").join(" | ")} |`, ...rows.map((row) => `| ${row.join(" | ")} |`)].join("\n");
+	return [`| ${header.map(cell).join(" | ")} |`, `| ${header.map(() => "---").join(" | ")} |`, ...rows.map((row) => `| ${row.map(cell).join(" | ")} |`)].join("\n");
 }
 
 const score = (value: number | null): string => (value === null ? "-" : value.toFixed(2));
