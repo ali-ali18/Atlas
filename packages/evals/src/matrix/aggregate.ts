@@ -12,7 +12,8 @@ export type MatrixRun = {
 	model: string;
 	provider: string;
 	repeat: number;
-	status: "done" | "skipped_budget";
+	/** `skipped_budget`: não começou (a estimativa não coube ou o teto já tinha sido atingido). `stopped_budget`: começou e foi interrompida quando o teto foi atingido (custo parcial; sem nota de acerto). */
+	status: "done" | "skipped_budget" | "stopped_budget";
 	pass: boolean;
 	failedChecks: string[];
 	error?: string;
@@ -37,6 +38,8 @@ export type Agg = {
 	/** Execuções por natureza do erro de execução: infraestrutura, não falha do modelo. */
 	errorKinds: Record<ErrorKind, number>;
 	skipped: number;
+	/** Interrompidas em andamento pelo teto: o custo entra, mas não contam como execução nem como acerto. */
+	stopped: number;
 	failing: Record<string, number>;
 	steps: number;
 	promptTokens: number;
@@ -48,11 +51,20 @@ export type Agg = {
 	quality: QualityAgg;
 };
 
-const emptyAgg = (): Agg => ({ runs: 0, passes: 0, errors: 0, errorKinds: { runtime_timeout: 0, provider: 0 }, skipped: 0, failing: {}, steps: 0, promptTokens: 0, completionTokens: 0, costUsd: 0, costUnknown: false, durationMs: 0, quality: emptyQualityAgg() });
+const emptyAgg = (): Agg => ({ runs: 0, passes: 0, errors: 0, errorKinds: { runtime_timeout: 0, provider: 0 }, skipped: 0, stopped: 0, failing: {}, steps: 0, promptTokens: 0, completionTokens: 0, costUsd: 0, costUnknown: false, durationMs: 0, quality: emptyQualityAgg() });
 
 function add(agg: Agg, run: MatrixRun): void {
 	if (run.status === "skipped_budget") {
 		agg.skipped += 1;
+		return;
+	}
+	if (run.status === "stopped_budget") {
+		agg.stopped += 1;
+		agg.promptTokens += run.promptTokens;
+		agg.completionTokens += run.completionTokens;
+		agg.costUsd += run.costUsd;
+		agg.costUnknown ||= run.costUnknown;
+		agg.durationMs += run.durationMs;
 		return;
 	}
 	agg.runs += 1;
@@ -102,6 +114,8 @@ export type MatrixSummary = {
 	/** Juízes da rubrica (vazio = sem juiz) e o teto de discordância. */
 	judging: { models: string[]; maxGap: number } | null;
 	skippedBudget: number;
+	/** Execuções interrompidas em andamento quando o teto foi atingido (`stopped_budget`). */
+	stoppedBudget: number;
 	budgetStopped: boolean;
 	costUnknown: boolean;
 	scenarios: Array<{ id: string; capability: string; tags?: string[] }>;
@@ -151,9 +165,9 @@ export function summarizeMatrix(
 		add(slot(cells, run.scenarioId, run.engine, run.model), run);
 		add(slot(byCapability, run.capability, run.engine, run.model), run);
 		add(((byModel[run.engine] ??= {})[run.model] ??= emptyAgg()), run);
-		if (run.status === "done") {
+		if (run.status !== "skipped_budget") {
 			const provider = (byProvider[run.provider] ??= { runs: 0, costUsd: 0, costUnknown: false, promptTokens: 0, completionTokens: 0 });
-			provider.runs += 1;
+			if (run.status === "done") provider.runs += 1;
 			provider.costUsd += run.costUsd;
 			provider.costUnknown ||= run.costUnknown;
 			provider.promptTokens += run.promptTokens;
@@ -192,6 +206,7 @@ export function summarizeMatrix(
 		}
 	}
 	const skippedBudget = runs.filter((run) => run.status === "skipped_budget").length;
+	const stoppedBudget = runs.filter((run) => run.status === "stopped_budget").length;
 	const spentUsd = runs.reduce((sum, run) => sum + run.costUsd, 0) + (options.judgeUsd ?? 0);
 	return {
 		v: 1,
@@ -205,7 +220,8 @@ export function summarizeMatrix(
 		judgeUsd: options.judgeUsd ?? 0,
 		judging: options.judging && options.judging.models.length > 0 ? options.judging : null,
 		skippedBudget,
-		budgetStopped: skippedBudget > 0,
+		stoppedBudget,
+		budgetStopped: skippedBudget > 0 || stoppedBudget > 0,
 		costUnknown: runs.some((run) => run.costUnknown),
 		scenarios: options.scenarios,
 		cells,

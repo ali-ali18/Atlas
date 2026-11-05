@@ -41,6 +41,8 @@ export type Trajectory = {
 	/** `name` do erro que encerrou o run (ver `RecordedModelCall.errorName`). */
 	errorName?: string;
 	timedOut?: boolean;
+	/** O run foi interrompido de fora (`abortSignal`, ex.: teto de gasto atingido) antes de terminar. */
+	interrupted?: boolean;
 	modelCalls: RecordedModelCall[];
 	toolCalls: RecordedToolCall[];
 	toolResults: RecordedToolResult[];

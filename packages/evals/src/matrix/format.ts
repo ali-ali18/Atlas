@@ -6,7 +6,12 @@ import { cleanPassRateOf, cleanRunsOf, passRateOf, type Agg, type MatrixSummary 
 
 const usd = (value: number, unknown = false): string => `US$ ${value.toFixed(4)}${unknown ? "*" : ""}`;
 const pct = (rate: number | null): string => (rate === null ? "-" : `${Math.round(rate * 100)}%`);
-const ratio = (agg: Agg | undefined): string => (!agg || agg.runs === 0 ? (agg && agg.skipped > 0 ? `pulado (${agg.skipped})` : "-") : `${agg.passes}/${agg.runs}`);
+const ratio = (agg: Agg | undefined): string => {
+	if (!agg) return "-";
+	const extra = [agg.skipped > 0 ? `pulado (${agg.skipped})` : "", agg.stopped > 0 ? `interrompido (${agg.stopped})` : ""].filter(Boolean).join(", ");
+	if (agg.runs === 0) return extra || "-";
+	return extra ? `${agg.passes}/${agg.runs} + ${extra}` : `${agg.passes}/${agg.runs}`;
+};
 const avg = (sum: number, count: number): number => (count === 0 ? 0 : sum / count);
 const ktok = (value: number): string => `${(value / 1000).toFixed(1)}k`;
 
@@ -90,7 +95,10 @@ export function formatMatrixReport(summary: MatrixSummary): string {
 		out.push(`- Rubrica de qualidade (1 a 5): ${models.length} juiz(es) — ${models.join(", ")} · ${models.length > 1 ? `teto de discordância ${maxGap} (acima disso a dimensão fica \`disputed\` e sai da nota)` : "1 juiz, sem teto de discordância"} · só nos cenários com verificação \`judge\`.`);
 	}
 	for (const warning of judgeWarnings(summary)) out.push(`- ${warning}`);
-	if (summary.budgetStopped) out.push(`- **Teto atingido:** ${summary.skippedBudget} de ${total} execuções ficaram \`skipped_budget\` (não rodaram).`);
+	if (summary.budgetStopped) {
+		const parts = [summary.skippedBudget > 0 ? `${summary.skippedBudget} de ${total} execuções ficaram \`skipped_budget\` (não rodaram: a estimativa não coube ou o teto já tinha sido atingido)` : "", summary.stoppedBudget > 0 ? `${summary.stoppedBudget} foram interrompidas em andamento (\`stopped_budget\`, custo parcial contado, sem nota de acerto)` : ""].filter(Boolean);
+		out.push(`- **Teto atingido:** ${parts.join("; ")}. O teto vale para o início de cada execução e para o gasto real, cobrado a cada chamada; o gasto final pode passar dele só pelas chamadas que já estavam em andamento.`);
+	}
 	if (summary.costUnknown) out.push("- `*` = custo estimado pela tabela de preços (preço desconhecido, ou o provedor não informou o custo).");
 	if (summary.mode === "simulate") out.push("- **Simulado:** modelos roteirizados com uso falso por provedor e falhas sintéticas nos modelos baratos. Exercita o pipeline; os números não dizem nada sobre nenhum modelo.");
 	out.push("");

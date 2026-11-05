@@ -10,7 +10,7 @@ import { redactSecrets } from "@workspace/shared";
  *   from-run      cenário a partir de um run de produção exportado (inspetor + eventos)
  *   list          cenários disponíveis
  *   motor-v1-vs-v2  motor atual × motor novo nas mesmas tarefas (roteiro; `--live` gasta tokens)
- *   matrix        cenários × motores × modelos (Anthropic, OpenCode Go, OpenRouter) × repetições, com teto rígido de US$
+ *   matrix        cenários × motores × modelos (Anthropic, OpenCode Go, OpenRouter) × repetições, com teto de gasto em US$ (cobrado a cada chamada)
  * A chave (`OPENROUTER_API_KEY`) vem do ambiente ou de `--env-file`; nunca é impressa nem gravada.
  */
 
@@ -97,14 +97,17 @@ compare DIR_A DIR_B     delta de acerto de B sobre A (summary.json de cada um)
 from-run --inspect ARQ [--events ARQ] [--user TEXTO] [--id ID] [--language en-US|auto] --out ARQ
 list                    lista os cenários
 
-matrix                  cenários × motores × modelos × repetições, com teto rígido de gasto
+matrix                  cenários × motores × modelos × repetições, com teto de gasto cobrado a cada chamada
   --scenarios gold|ids  cenários (padrão: gold)           --engines v2[,v1]  motores (padrão: v2)
   --models a,b          anthropic/<m> (CLAUDE_KEY) · opencode-go/<m> (OPENCODE_GO_API_KEY) · openrouter/<id> ou id (OPENROUTER_API_KEY)
-  --repeat N            repetições (padrão: 1)            --max-usd N   teto rígido em US$ (obrigatório no modo real)
+  --repeat N            repetições (padrão: 1)            --max-usd N   teto de gasto em US$ (obrigatório no modo real)
   --estimate            só estima o custo (sem rede) e sai  --estimate-factor N  passos extras do modelo real sobre o roteiro mock (padrão 2)
   --simulate            matriz inteira com provedores falsos (sem rede, sem chave)
   --judge A[,B]         juízes LLM da rubrica (entram no teto e no --estimate)  --judge-max-gap N  teto de discordância (padrão 1)          --strong a,b  modelos fortes na leitura harness × modelo
   --concurrency N  --timeout S  --dir DIR  --out DIR (padrão results/<data-hora>-matrix)  --env-file ARQ
+  teto: nenhuma execução começa se a estimativa não couber no que sobra; o custo real é cobrado a cada chamada e, ao
+  atingi-lo, as execuções em andamento são interrompidas. O gasto final pode passar do teto só pelas chamadas que já
+  estavam em andamento (uma por execução simultânea).
 
 motor-v1-vs-v2          compara o motor atual (v1) e o novo (v2) em 11 tarefas de pesquisa/análise
   (padrão)              modelo roteirizado: sem rede, sem chave, números determinísticos
@@ -311,7 +314,7 @@ async function commandMatrix(args: CliArgs): Promise<number> {
 		return 0;
 	}
 	if (!simulate) {
-		if (capUsd === undefined) throw new Error("informe --max-usd: o modo real exige um teto de gasto rígido (use --estimate para ver o custo antes)");
+		if (capUsd === undefined) throw new Error("informe --max-usd: o modo real exige um teto de gasto (use --estimate para ver o custo antes)");
 		assertProviderKeys([...models, ...resolveModelSpecs(judgeSpecsFlag(args))], process.env);
 	}
 	const now = new Date();
@@ -336,12 +339,16 @@ async function commandMatrix(args: CliArgs): Promise<number> {
 		now: () => now,
 		onProgress: (run, done, total) => {
 			if (run.status === "skipped_budget") return;
+			if (run.status === "stopped_budget") {
+				console.log(`[${done}/${total}] ${run.engine} ${run.model} ${run.scenarioId} #${run.repeat + 1}: interrompida pelo teto · US$ ${run.costUsd.toFixed(4)}`);
+				return;
+			}
 			console.log(`[${done}/${total}] ${run.engine} ${run.model} ${run.scenarioId} #${run.repeat + 1}: ${run.pass ? "passou" : `falhou (${run.failedChecks.join(", ") || run.error || "erro"})`} · US$ ${run.costUsd.toFixed(4)}`);
 		},
 	});
 	const { summary } = result;
 	console.log(`\ngasto US$ ${summary.spentUsd.toFixed(4)}${summary.capUsd !== null ? ` de US$ ${summary.capUsd}` : ""}${summary.costUnknown ? " (parcial: custo estimado pela tabela)" : ""}`);
-	if (summary.budgetStopped) console.log(`TETO ATINGIDO: ${summary.skippedBudget} execução(ões) marcadas skipped_budget (não rodaram).`);
+	if (summary.budgetStopped) console.log(`TETO ATINGIDO: ${summary.skippedBudget} execução(ões) skipped_budget (não rodaram) e ${summary.stoppedBudget} interrompida(s) em andamento (stopped_budget).${summary.capUsd !== null && summary.spentUsd > summary.capUsd ? ` Gasto acima do teto por US$ ${(summary.spentUsd - summary.capUsd).toFixed(4)}: chamadas que já estavam em andamento.` : ""}`);
 	for (const [provider, item] of Object.entries(summary.byProvider)) console.log(`  ${provider}: ${item.runs} execuções · US$ ${item.costUsd.toFixed(4)}`);
 	console.log(`relatório: ${join(outDir, "matrix.md")}\n           ${join(outDir, "matrix.json")}`);
 	return 0;

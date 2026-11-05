@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { CompleteChatWithToolsParams, CompleteChatWithToolsResult } from "@workspace/llm";
 import { capabilityOf, cleanPassRateOf, cleanRunsOf, passRateOf, setOf, summarizeMatrix, type MatrixRun } from "./aggregate.js";
 import { formatMatrixReport } from "./format.js";
-import { BudgetGuard, countThatFit } from "./budget.js";
+import { BudgetExhaustedError, BudgetGuard, countThatFit, withBudgetGate } from "./budget.js";
 import { resolveEngines } from "./engines.js";
 import { buildEstimate, CACHE_READ_SHARE, COMPLETION_FACTOR, DEFAULT_ESTIMATE_FACTOR, ESTIMATE_MARGIN, estimateExecutionUsd, estimateJudgeUsd, FALLBACK_PROFILE, formatEstimate, estimatesInOrder, judgeProfileOf, JUDGE_COMPLETION_TOKENS, profileFromMock, profileKey, profileScenarios, type ExecutionProfile } from "./estimate.js";
 import { assertProviderKeys, providerSecrets, resolveModelSpec } from "./models.js";
@@ -142,29 +142,93 @@ describe("preço e custo", () => {
 describe("teto de gasto", () => {
 	it("reserva estimativas em andamento; o que não cabe é recusado, mas não trava as execuções mais baratas (auditoria F0, M1)", () => {
 		const guard = new BudgetGuard(1);
-		expect(guard.tryReserve(0.4)).toBe(true);
-		expect(guard.tryReserve(0.4)).toBe(true);
-		expect(guard.tryReserve(0.3)).toBe(false); // 0.8 reservado + 0.3 > 1
+		const a = guard.reserve(0.4)!;
+		const b = guard.reserve(0.4)!;
+		expect(a).not.toBeNull();
+		expect(b).not.toBeNull();
+		expect(guard.reserve(0.3)).toBeNull(); // 0.8 reservado + 0.3 > 1
 		expect(guard.stopped).toBe(true);
 		// Uma execução mais barata que o que sobra (0.2) ainda passa.
-		expect(guard.tryReserve(0.15)).toBe(true);
+		const c = guard.reserve(0.15)!;
+		expect(c).not.toBeNull();
 		expect(guard.remainingUsd).toBeCloseTo(0.05, 10);
-		guard.settle(0.4, 0.1);
-		guard.settle(0.4, 0.1);
-		guard.settle(0.15, 0.05);
+		a.charge(0.1);
+		b.charge(0.1);
+		c.charge(0.05);
+		a.release();
+		b.release();
+		c.release();
 		// Terminadas, o que sobra é o teto menos o gasto real: cabe o que antes era recusado.
-		expect(guard.tryReserve(0.3)).toBe(true);
+		expect(guard.reserve(0.3)).not.toBeNull();
 		expect(guard.spentUsd).toBeCloseTo(0.25, 10);
+	});
+
+	it("o custo real é cobrado na hora e sai da reserva da execução (não conta duas vezes)", () => {
+		const guard = new BudgetGuard(1);
+		const lease = guard.reserve(0.5)!;
+		expect(guard.remainingUsd).toBeCloseTo(0.5, 10);
+		lease.charge(0.2);
+		// gasto 0.2 + falta reservar 0.3 = 0.5 comprometido
+		expect(guard.spentUsd).toBeCloseTo(0.2, 10);
+		expect(guard.remainingUsd).toBeCloseTo(0.5, 10);
+		// passou da estimativa: a reserva zera e o excesso já pesa no teto
+		lease.charge(0.6);
+		expect(lease.reservedUsd).toBe(0);
+		expect(guard.remainingUsd).toBeCloseTo(0.2, 10);
+	});
+
+	it("ao atingir o teto: aborta as execuções em andamento, barra chamadas novas e recusa o que falta", () => {
+		const guard = new BudgetGuard(1);
+		const a = guard.reserve(0.3)!;
+		const b = guard.reserve(0.3)!;
+		a.charge(0.6);
+		expect(guard.exhausted).toBe(false);
+		expect(a.aborted).toBe(false);
+		b.charge(0.4); // gasto = 1.0 = teto
+		expect(guard.exhausted).toBe(true);
+		// a que cruzou o teto (b) não é abortada, mas também não começa chamada nova; a outra, em voo, é abortada
+		expect(a.aborted).toBe(true);
+		expect(a.signal.aborted).toBe(true);
+		expect(b.aborted).toBe(false);
+		expect(() => a.assertCanStart()).toThrow(BudgetExhaustedError);
+		expect(() => b.assertCanStart()).toThrow(/teto de gasto atingido/);
+		expect(guard.reserve(0.0001)).toBeNull();
+	});
+
+	it("withBudgetGate barra a chamada sem tocar o provedor depois do estouro e deixa passar antes", async () => {
+		const guard = new BudgetGuard(1);
+		const lease = guard.reserve(0.1)!;
+		const inner = vi.fn(async () => result({ promptTokens: 1 }));
+		const gated = withBudgetGate(inner, lease);
+		await gated(params("m"), {});
+		expect(inner).toHaveBeenCalledTimes(1);
+		lease.charge(2);
+		await expect(gated(params("m"), {})).rejects.toBeInstanceOf(BudgetExhaustedError);
+		expect(inner).toHaveBeenCalledTimes(1);
+	});
+
+	it("drain espera as chamadas em voo, com limite de tempo", async () => {
+		const guard = new BudgetGuard(1);
+		const lease = guard.reserve(0.1)!;
+		let finished = false;
+		lease.track(new Promise<void>((resolve) => setTimeout(() => { finished = true; resolve(); }, 20)));
+		await lease.drain(1000);
+		expect(finished).toBe(true);
+		lease.track(new Promise<void>(() => undefined));
+		const started = Date.now();
+		await lease.drain(30);
+		expect(Date.now() - started).toBeLessThan(500);
 	});
 
 	it("exatamente no teto passa; o juiz gasta do mesmo teto; teto inválido falha", () => {
 		const guard = new BudgetGuard(1);
 		guard.charge(0.5);
-		expect(guard.tryReserve(0.5)).toBe(true);
-		expect(guard.tryReserve(0.0001)).toBe(false);
+		expect(guard.reserve(0.5)).not.toBeNull();
+		expect(guard.reserve(0.0001)).toBeNull();
 		expect(() => new BudgetGuard(0)).toThrow();
 		expect(() => new BudgetGuard(Number.NaN)).toThrow();
-		expect(new BudgetGuard(undefined).tryReserve(1e9)).toBe(true);
+		expect(new BudgetGuard(undefined).reserve(1e9)).not.toBeNull();
+		expect(new BudgetGuard(undefined).exhausted).toBe(false);
 	});
 
 	it("countThatFit conta as execuções que cabem em ordem", () => {

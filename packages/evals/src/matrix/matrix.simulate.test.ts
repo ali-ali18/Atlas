@@ -69,7 +69,7 @@ describe("matrix --simulate", () => {
 		expect(key(first.runs)).toEqual(key(second.runs));
 	}, 120_000);
 
-	it("teto rígido: para de agendar, marca skipped_budget, nunca passa do teto e ainda grava o relatório", async () => {
+	it("teto: pula o que não cabe, marca skipped_budget e ainda grava o relatório", async () => {
 		const outDir = await tmp();
 		const all = await runMatrix({ scenarios, engines: ["v2", "v1"], models: MODELS, repeat: 3, mode: "simulate", isStrong: strongMatcher() });
 		// Metade do gasto de uma rodada completa: dá para rodar parte e cortar o resto.
@@ -84,7 +84,9 @@ describe("matrix --simulate", () => {
 		expect(done.length).toBeGreaterThan(0);
 		expect(summary.budgetStopped).toBe(true);
 		expect(summary.skippedBudget).toBe(skipped.length);
-		expect(summary.spentUsd).toBeLessThanOrEqual(capUsd);
+		// O teto vale pelo gasto real: passa, no máximo, pelas chamadas em andamento (aqui, uma execução inteira é um limite folgado).
+		expect(summary.spentUsd).toBeLessThanOrEqual(capUsd + 2 * Math.max(...all.runs.map((item) => item.costUsd)));
+		expect(summary.stoppedBudget + summary.skippedBudget).toBeGreaterThan(0);
 		// Pulou só o que não cabia: a execução pulada tinha estimativa maior que o que sobrava do teto.
 		for (const item of skipped) expect(item.estimatedUsd).toBeGreaterThan(0);
 		expect(await readFile(join(outDir, "matrix.md"), "utf8")).toContain("skipped_budget");

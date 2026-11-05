@@ -23,6 +23,8 @@ export type RunScenarioOptions = {
 	runtimeOverrides?: Partial<RunParams>;
 	repeat?: number;
 	timeoutMs?: number;
+	/** Interrompe o run de fora (ex.: o teto de gasto do matrix foi atingido): a trajetória sai com `interrupted`. */
+	abortSignal?: AbortSignal;
 	/** Motor novo (v2): roda `runEngineV2` com estas opções em vez do `runComputerUse`. Omitido = motor atual (v1). */
 	engineV2?: EngineV2Options;
 };
@@ -58,6 +60,7 @@ export async function runScenario(scenario: Scenario, options: RunScenarioOption
 	const abort = new AbortController();
 	const timeoutMs = options.timeoutMs ?? 180_000;
 	let timedOut = false;
+	let interrupted = false;
 	let text = "";
 	let stop: Trajectory["stop"];
 	let error: string | undefined;
@@ -128,6 +131,18 @@ export async function runScenario(scenario: Scenario, options: RunScenarioOption
 	});
 
 	let timer: ReturnType<typeof setTimeout> | undefined;
+	const external = options.abortSignal;
+	let onExternalAbort: (() => void) | undefined;
+	const interruption = new Promise<"interrupted">((resolve) => {
+		if (!external) return;
+		onExternalAbort = () => {
+			interrupted = true;
+			abort.abort();
+			resolve("interrupted");
+		};
+		if (external.aborted) onExternalAbort();
+		else external.addEventListener("abort", onExternalAbort, { once: true });
+	});
 	const timeout = new Promise<"timeout">((resolve) => {
 		timer = setTimeout(() => {
 			timedOut = true;
@@ -136,8 +151,9 @@ export async function runScenario(scenario: Scenario, options: RunScenarioOption
 		}, timeoutMs);
 	});
 	try {
-		const outcome = await Promise.race([run, timeout]);
+		const outcome = await Promise.race([run, timeout, interruption]);
 		if (outcome === "timeout") error = `tempo esgotado (${Math.round(timeoutMs / 1000)}s)`;
+		else if (outcome === "interrupted") error = "execução interrompida (teto de gasto atingido)";
 		else {
 			text = outcome.text;
 			stop = outcome.stop;
@@ -147,6 +163,7 @@ export async function runScenario(scenario: Scenario, options: RunScenarioOption
 		if (caught instanceof Error) errorName = caught.name;
 	} finally {
 		clearTimeout(timer);
+		if (external && onExternalAbort) external.removeEventListener("abort", onExternalAbort);
 	}
 	// Um run abortado pelo prazo pode rejeitar depois; não deixa virar rejeição sem tratamento.
 	run.catch(() => undefined);
@@ -177,6 +194,7 @@ export async function runScenario(scenario: Scenario, options: RunScenarioOption
 		...(error ? { error } : {}),
 		...(errorName ? { errorName } : {}),
 		...(timedOut ? { timedOut } : {}),
+		...(interrupted ? { interrupted } : {}),
 		modelCalls,
 		toolCalls,
 		toolResults: events
