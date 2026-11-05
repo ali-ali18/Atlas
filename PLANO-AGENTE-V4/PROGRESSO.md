@@ -45,6 +45,7 @@
 - Modelos por papel: Sonnet (conversa), Haiku (rápido, ajudantes, sono), Opus (código) (05/11).
 - Compras: cartão salvo **sem CVV**. O CVV é digitado pelo dono no cartão de aprovação e vai direto para a loja (05/11).
 - Não insistir em tarefa largada: cláusula 17 (05/11).
+- **Genérico no comportamento:** o motor é dedicado ao Atlas, mas não viciado no uso do dono (o v1 tem 13 casos do Bling no runtime). Correção por padrão, nunca por caso; conjunto genérico junto do conjunto do dono (05/11).
 - **Open-source como o Atlas:** o motor é dedicado ao Atlas, não é biblioteca genérica. Nada do dono no código; provedores, modelos e tetos configuráveis por quem hospeda (05/11).
 - **Sem corte por economia:** nada de cortar contexto, pesquisa ou saída de tool para gastar menos. Só o teto que o dono configurar (05/11).
 - O branch `harness/v3` fica **congelado**, só como referência (05/11).
@@ -63,6 +64,7 @@
 - [x] F0.5 (05/11; relatório em `docs/ops/v4-baseline.md`) Rodada do baseline com v2 e v3 em Sonnet, Haiku e 2 baratos de outros provedores, com o relatório em `docs/ops/v4-baseline.md`.
 - [ ] F0.A Auditoria: 5 lentes, verificação, correções com teste, reauditoria e `auditorias/F0.md` fechado.
 
+- [ ] F0.7 Conjunto `generico`: ~16 cenários com outras pessoas, idiomas, países e lojas, e o juiz recebendo o local do cenário (`04` §1.1).
 - [~] F0.6 (05/11, Sonnet) Corrigir os 4 defeitos do eval listados em `docs/ops/v4-baseline.md` (cenários 11, 22 e 23, `skill_read` no ambiente) e rodar de novo só os afetados.
 
 ### F1: Fundação

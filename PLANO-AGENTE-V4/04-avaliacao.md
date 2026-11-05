@@ -26,6 +26,18 @@ Cada tarefa tem dois tipos de verificação:
 
 O juiz **só roda no eval**, nunca no runtime.
 
+## 1.1 Conjunto genérico (contra o vício no uso do dono)
+O conjunto ouro nasce do uso do dono. Se for o único, o motor fica viciado nele, como aconteceu com o v1. Por isso:
+- **Um segundo conjunto, `generico`:** as mesmas capacidades com outras pessoas e contextos. Por exemplo:
+  - uma advogada em Lisboa (pt-PT, EUR);
+  - um dev em Austin (en-US, USD);
+  - uma lojista de e-commerce usando outro ERP;
+  - um estudante em espanhol.
+
+  Outras lojas, outros provedores de e-mail, outros fusos.
+- **Regra de aceite:** uma mudança de motor só vale se melhorar ou manter **os dois** conjuntos. Ganho só no conjunto do dono é suspeito de vício.
+- **O juiz recebe o local do cenário** (idioma, país, moeda) em vez de "Brasil" fixo.
+
 ## 2. Matriz
 ```
 presets  {minimal, v2, v3, v4}  ×  modelos {3 baratos + 1 forte}  ×  3 repetições

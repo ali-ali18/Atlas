@@ -24,6 +24,11 @@ O motor é **do Atlas**, feito para o Atlas, e é open-source porque o Atlas int
   - Pastas com nomes claros e módulos pequenos.
   - README do motor explicando o laço, o contrato, as capacidades e como rodar o eval.
   - Os ADRs contam o porquê das decisões.
+- **Genérico no comportamento, sem viciar no uso do dono.** O v1 foi sendo moldado pelo uso do dono: há 13 pontos no runtime com casos do ERP Bling, regras escritas para conversas específicas e travas criadas a partir de um caso só. No v4:
+  - Prompt, capacidade e regra **nunca** citam pessoa, empresa, site, marca ou conta específicos como regra. Exemplo só como exemplo, e trocável.
+  - Correção de comportamento vem de **padrão** (uma classe de tarefa), nunca de um caso do dono. Cada correção precisa passar no conjunto do dono **e** no conjunto genérico (ver `04`).
+  - Idioma, país, moeda, fuso e formato de data vêm do bot e do usuário. Nada de "Brasil" fixo, nem no juiz do eval.
+  - Conector específico (Bling, Gmail…) tem o seu jeito dentro do próprio conector ou da skill dele, nunca no núcleo do motor.
 - **Portas continuam, por testabilidade.** LLM, banco, fila, VM, cofre e relógio entram por interface, para testar com mock e trocar implementação. O motor pode usar os pacotes do Atlas (`@workspace/db`, `shared` etc.) pelas portas.
 
 ## 1. Camadas
