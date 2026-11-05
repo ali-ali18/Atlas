@@ -73,15 +73,15 @@
 - [x] F1.1 (05/11, Sonnet escreveu, Opus revisou; nota: a porta `Llm` ainda só leva texto — imagem para o papel `vision` entra na F1.10) Pacote `packages/agent` com `ports/`, `adapters/` e guarda de fronteira (sem `@workspace/agent-runtime`), README do motor e varredura que falha com segredo ou dado pessoal no código.
 - [x] F1.2 (05/11, Sonnet escreveu, Opus revisou) `defineTool` (efeito obrigatório) e `defineCapability` (registro, índice, `use_capability`).
 - [x] F1.3 (05/11, Sonnet escreveu, Opus revisou; taint anula mandato, subagente sem envio/dinheiro, `balanced` = escrita externa pede aprovação) `decide()` puro em shared: 3 estados, `HANDOFF_ACTIONS`, mandatos, matriz superfície × efeito.
-- [ ] F1.4 Token de aprovação por hash dos argumentos e `riskFacts`.
-- [ ] F1.5 Proveniência (taint) e a regra da trifeta.
-- [ ] F1.6 `Receipt` tipado e journal de efeitos.
-- [ ] F1.7 Canais: nonce, `<data trust>` e escape.
-- [ ] F1.8 Kernel: estados, checkpoint, compactação em 3 passos, limites do dono, passo final honesto.
+- [x] F1.4 (05/11) Token de aprovação por hash dos argumentos e `riskFacts`.
+- [x] F1.5 (05/11) Proveniência (taint) e a regra da trifeta.
+- [x] F1.6 (05/11) `Receipt` tipado e journal de efeitos.
+- [x] F1.7 (05/11) Canais: nonce, `<data trust>` e escape.
+- [ ] F1.8 Kernel (notas da revisão: persistir e restaurar `RunProvenance.snapshot()` no checkpoint, senão a retomada perde o taint; o `[context]` é o 2º `system` e o adaptador funde se o provedor aceitar só um): estados, checkpoint, compactação em 3 passos, limites do dono, passo final honesto.
 - [ ] F1.8b Sem corte por economia: compactação só por janela cheia e restaurável, leitura em partes, nenhum teto padrão de pesquisa (decisão do dono, 05/11).
 - [ ] F1.9 Ciclo de vida da tarefa: sem herança entre runs, oferta por cartão com estado, `declinedOffers`, replays de insistência.
-- [ ] F1.10 Porta `Llm`: papéis, cadeia de reserva (`pickModelFor`), troca no meio do run, tetos opcionais, aviso ao dono.
-- [ ] F1.11 Contrato de trabalho (prompt), com teste de string por seção.
+- [ ] F1.10 Porta `Llm` (notas da revisão: imagem para o papel `vision`; adaptador da porta `Random` com CSPRNG; TTL opcional no `ApprovalGrant`): papéis, cadeia de reserva (`pickModelFor`), troca no meio do run, tetos opcionais, aviso ao dono.
+- [ ] F1.11 Contrato de trabalho (nota da revisão: os textos ao usuário do executor, `userMessage` de handoff e de indisponível, hoje estão fixos em pt-BR; passam a sair no idioma do bot por um módulo de copy) (prompt), com teste de string por seção.
 - [ ] F1.12 Eventos compatíveis com o contrato SSE e `chooseRunEngine` → `runAgent` atrás da flag.
 - [ ] F1.13 Guardas permanentes: sem regex de comportamento, catraca da ponte, invariantes do contrato, economia.
 - [ ] F1.14 Teste de fumaça ponta a ponta no worker com preset `minimal`.
