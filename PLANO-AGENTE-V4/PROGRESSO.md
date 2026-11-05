@@ -77,12 +77,12 @@
 - [x] F1.5 (05/11) Proveniência (taint) e a regra da trifeta.
 - [x] F1.6 (05/11) `Receipt` tipado e journal de efeitos.
 - [x] F1.7 (05/11) Canais: nonce, `<data trust>` e escape.
-- [ ] F1.8 Kernel (notas da revisão: persistir e restaurar `RunProvenance.snapshot()` no checkpoint, senão a retomada perde o taint; o `[context]` é o 2º `system` e o adaptador funde se o provedor aceitar só um): estados, checkpoint, compactação em 3 passos, limites do dono, passo final honesto.
-- [ ] F1.8b Sem corte por economia: compactação só por janela cheia e restaurável, leitura em partes, nenhum teto padrão de pesquisa (decisão do dono, 05/11).
-- [ ] F1.9 Ciclo de vida da tarefa: sem herança entre runs, oferta por cartão com estado, `declinedOffers`, replays de insistência.
-- [ ] F1.10 Porta `Llm` (notas da revisão: imagem para o papel `vision`; adaptador da porta `Random` com CSPRNG; TTL opcional no `ApprovalGrant`): papéis, cadeia de reserva (`pickModelFor`), troca no meio do run, tetos opcionais, aviso ao dono.
+- [x] F1.8 Kernel (notas da revisão: persistir e restaurar `RunProvenance.snapshot()` no checkpoint, senão a retomada perde o taint; o `[context]` é o 2º `system` e o adaptador funde se o provedor aceitar só um): estados, checkpoint, compactação em 3 passos, limites do dono, passo final honesto.
+- [x] F1.8b Sem corte por economia: compactação só por janela cheia e restaurável, leitura em partes, nenhum teto padrão de pesquisa (decisão do dono, 05/11).
+- [x] F1.9 Ciclo de vida da tarefa: sem herança entre runs, oferta por cartão com estado, `declinedOffers`, replays de insistência.
+- [x] F1.10 Porta `Llm` (notas da revisão: imagem para o papel `vision`; adaptador da porta `Random` com CSPRNG; TTL opcional no `ApprovalGrant`): papéis, cadeia de reserva (`pickModelFor`), troca no meio do run, tetos opcionais, aviso ao dono.
 - [ ] F1.11 Contrato de trabalho (nota da revisão: os textos ao usuário do executor, `userMessage` de handoff e de indisponível, hoje estão fixos em pt-BR; passam a sair no idioma do bot por um módulo de copy) (prompt), com teste de string por seção.
-- [ ] F1.12 Eventos compatíveis com o contrato SSE e `chooseRunEngine` → `runAgent` atrás da flag.
+- [ ] F1.12 Eventos (notas da revisão do kernel: `ChannelInput` precisa de papel `assistant` para o histórico, hoje só dono, runtime e dado; fundir mensagens `user` seguidas no adaptador; não duplicar `text_delta` no retry de erro; o adaptador real do Store implementa `conversations`; saúde de provedor compartilhada entre instâncias (Redis)) compatíveis com o contrato SSE e `chooseRunEngine` → `runAgent` atrás da flag.
 - [ ] F1.13 Guardas permanentes: sem regex de comportamento, catraca da ponte, invariantes do contrato, economia.
 - [ ] F1.14 Teste de fumaça ponta a ponta no worker com preset `minimal`.
 - [ ] F1.A Auditoria: 5 lentes, verificação, correções com teste, reauditoria e `auditorias/F1.md` fechado.
