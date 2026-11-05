@@ -3,7 +3,7 @@
 // (2) só então RESUMIR com o papel `helper`, guardando caminhos, URLs, ids, o último erro de cada tool
 // e a referência ao que foi para o caderno. Falha do resumo não perde nada: o material já está salvo.
 import { escapeReserved, renderDataBlock, renderRuntimeBlock, type RunNonce } from "../channels/index.js";
-import type { Llm, LlmMessage } from "../ports/llm.js";
+import { contentText, type Llm, type LlmMessage } from "../ports/llm.js";
 import type { Store } from "../ports/store.js";
 import { NOTE_READ_TOOL, WORK_NOTE_PREFIX } from "./work-notes.js";
 import type { KernelSnapshot } from "./types.js";
@@ -69,7 +69,7 @@ export async function compactContext(env: CompactEnv): Promise<{ noteId: string;
 	const full = transcript(dropped);
 	await env.store.notes.save({ id: noteId, userId: env.ownerId, title: `Earlier context (part ${n})`, body: full, pinned: false });
 	snap.compacted.noteIds.push(noteId);
-	for (let i = HEAD; i < tailStart; i++) if (snap.ownerIdx.includes(i)) snap.compacted.ownerTexts.push((msgs[i] as LlmMessage).content);
+	for (let i = HEAD; i < tailStart; i++) if (snap.ownerIdx.includes(i)) snap.compacted.ownerTexts.push(contentText((msgs[i] as LlmMessage).content));
 
 	// 2. resumo (falhar não perde nada)
 	let summary: string;

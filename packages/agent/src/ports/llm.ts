@@ -67,3 +67,9 @@ export interface Llm {
 	/** Janela de contexto (tokens) do modelo atual do papel; base da compactação. */
 	contextWindow(role: LlmRole): Promise<number>;
 }
+
+/** Texto de uma mensagem do dono (partes de imagem viram um marcador; a imagem em si não entra em resumo de texto). */
+export function contentText(content: string | LlmUserPart[]): string {
+	if (typeof content === "string") return content;
+	return content.map((part) => (part.type === "text" ? part.text : `[image ${part.mediaType}]`)).join("\n");
+}
