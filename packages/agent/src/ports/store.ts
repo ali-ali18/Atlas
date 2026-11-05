@@ -85,6 +85,23 @@ export interface NoteStore {
 	remove(userId: string, id: string): Promise<void>;
 }
 
+export type OfferState = "open" | "answered" | "dismissed" | "ignored";
+
+/** Oferta de continuar ("quer que eu continue?"): só existe como cartão `ask_owner`, com estado próprio. */
+export type OfferRecord = { cardId: string; label: string; state: OfferState };
+
+export type ConversationState = {
+	offers: OfferRecord[];
+	/** Rótulos de ofertas que o dono dispensou ou ignorou: o modelo as recebe como dado e não oferece de novo. */
+	declinedOffers: string[];
+};
+
+/** Estado por conversa (escopado pelo dono): ofertas e `declinedOffers`. Nunca guarda tarefa aberta. */
+export interface ConversationStore {
+	get(userId: string, conversationId: string): Promise<ConversationState>;
+	save(userId: string, conversationId: string, state: ConversationState): Promise<void>;
+}
+
 /** Conjunto das interfaces focadas; cada módulo pede só a que usa. */
 export type Store = {
 	runs: RunStateStore;
@@ -92,4 +109,5 @@ export type Store = {
 	receipts: ReceiptStore;
 	agenda: AgendaStore;
 	notes: NoteStore;
+	conversations: ConversationStore;
 };

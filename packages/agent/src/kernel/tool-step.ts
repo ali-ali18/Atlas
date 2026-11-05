@@ -90,7 +90,10 @@ export async function runPending(env: ToolStepEnv): Promise<{ malformed: number 
 		}
 		delete snap.parked[call.id];
 		if (outcome.status === "error" || outcome.status === "contract_error") snap.lastErrors[call.name] = outcome.error;
-		else if (outcome.status === "ok") delete snap.lastErrors[call.name];
+		else if (outcome.status === "ok") {
+			delete snap.lastErrors[call.name];
+			if (tool.endsTurn) snap.endedBy = call.id;
+		}
 		await finish(call, outcome.status, outcomeText(outcome));
 	}
 

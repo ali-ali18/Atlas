@@ -5,7 +5,7 @@ import type { Tool } from "../tools/define-tool.js";
 import type { Events, RunEvent } from "../ports/events.js";
 import type { Llm, LlmChatRequest, LlmRole, LlmStreamEvent, LlmToolCall, LlmUsage } from "../ports/llm.js";
 import type { Ports } from "../ports/index.js";
-import type { Note, NoteStore, RunCheckpoint, RunStateStore, RunStatus } from "../ports/store.js";
+import type { ConversationState, ConversationStore, Note, NoteStore, RunCheckpoint, RunStateStore, RunStatus } from "../ports/store.js";
 import { runAgent } from "../kernel/run.js";
 import type { RunAgentDeps, RunInput } from "../kernel/types.js";
 import { chatPolicy } from "./contract-helpers.js";
@@ -81,6 +81,16 @@ export class MemoryNotes implements NoteStore {
 	}
 }
 
+export class MemoryConversations implements ConversationStore {
+	items = new Map<string, ConversationState>();
+	async get(userId: string, id: string) {
+		return structuredClone(this.items.get(`${userId}:${id}`) ?? { offers: [], declinedOffers: [] });
+	}
+	async save(userId: string, id: string, state: ConversationState) {
+		this.items.set(`${userId}:${id}`, structuredClone(state));
+	}
+}
+
 export class EventLog implements Events {
 	events: RunEvent[] = [];
 	emit(e: RunEvent) {
@@ -95,13 +105,14 @@ export function kernelHarness(turns: Turn[], opts: { tools?: Tool[]; capabilitie
 	const llm = new ScriptedLlm(turns, opts.windows);
 	const runs = new MemoryRuns();
 	const notes = new MemoryNotes();
+	const conversations = new MemoryConversations();
 	const journal = new FakeJournal();
 	const receipts = new FakeReceipts();
 	const log = new EventLog();
 	const random = { bytes: (n: number) => new Uint8Array(n).fill(7) };
-	const ports = { llm, store: { runs, notes, journal, receipts }, events: log, clock: new FakeClock(), random } as unknown as Ports;
+	const ports = { llm, store: { runs, notes, conversations, journal, receipts }, events: log, clock: new FakeClock(), random } as unknown as Ports;
 	const registry = createCapabilityRegistry(opts.capabilities ?? [defineCapability({ id: "core", title: "Core", summary: "core tools", core: true, tools: opts.tools ?? [] })]);
 	const input: RunInput = { stableSystem: "SYSTEM", contextSections: [], history: [{ kind: "owner", text: "faça isso" }] };
 	const deps = (over: Partial<RunAgentDeps> = {}): RunAgentDeps => ({ runId: "run-1", ownerId: "owner-1", input, ports, registry, policy: chatPolicy, limits: {}, hash: sha256, ...over });
-	return { llm, byRole: (r: LlmRole) => llm.byRole(r), runs, notes, journal, receipts, log, ports, registry, input, deps, run: (over: Partial<RunAgentDeps> = {}) => runAgent(deps(over)) };
+	return { llm, byRole: (r: LlmRole) => llm.byRole(r), runs, notes, conversations, journal, receipts, log, ports, registry, input, deps, run: (over: Partial<RunAgentDeps> = {}) => runAgent(deps(over)) };
 }

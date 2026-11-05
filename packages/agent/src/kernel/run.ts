@@ -12,6 +12,8 @@ import { channelMessage, type RunNonce } from "../channels/index.js";
 import { createExecutor, RunProvenance, redactDeep } from "../contract/index.js";
 import type { LlmToolSpec } from "../ports/llm.js";
 import type { Tool } from "../tools/define-tool.js";
+import { createAskOwnerTool, ASK_OWNER_TOOL } from "./ask-owner.js";
+import { declinedOffersNote, emptyConversation, openOffer, settleOffers } from "./offers.js";
 import { finalStepNote, reachedLimit, spendText } from "./limits.js";
 import { observeCall, REPEAT_NOTE, signatureOf } from "./loop-guard.js";
 import { compactContext, contextTokens, DEFAULT_COMPACT_RATIO, DEFAULT_KEEP_RECENT, shouldCompact } from "./compaction.js";
@@ -23,17 +25,30 @@ import type { KernelEvent, KernelState, PendingCall, RunAgentDeps, RunResult } f
 
 export async function runAgent(deps: RunAgentDeps): Promise<RunResult> {
 	const { ports, runId, ownerId, registry } = deps;
+	const conversationId = deps.input.conversationId;
+
+	/** Fecha as ofertas abertas (ignorada = o dono falou sem tocar no cartão) e devolve o aviso de `declinedOffers`. Não herda tarefa nenhuma. */
+	async function offerNotes(): Promise<string[]> {
+		if (!conversationId) return [];
+		const before = await ports.store.conversations.get(ownerId, conversationId);
+		const ownerSpoke = deps.input.history.at(-1)?.kind === "owner";
+		const after = settleOffers(before, { responses: deps.input.cardResponses ?? [], ownerSpoke });
+		if (JSON.stringify(after) !== JSON.stringify(before)) await ports.store.conversations.save(ownerId, conversationId, after);
+		const note = declinedOffersNote(after.declinedOffers);
+		return note ? [note] : [];
+	}
+
 	const emit = async (e: KernelEvent) => void (await ports.events.emit({ type: e.type, runId, userId: ownerId, data: e.data }));
 
 	const saved = await ports.store.runs.loadCheckpoint(ownerId, runId);
 	const resumed = saved !== null && isSnapshot(saved.payload);
-	const snap = resumed ? structuredClone(saved.payload as ReturnType<typeof initSnapshot>) : initSnapshot(deps.input, ports);
+	const snap = resumed ? structuredClone(saved.payload as ReturnType<typeof initSnapshot>) : initSnapshot(deps.input, ports, await offerNotes());
 	if (resumed && saved.state === "DONE" && snap.result) return snap.result;
 
 	const loaded = createLoadedSet(registry, snap.loadedIds);
 	const executor = createExecutor({ runId, ownerId, ports, hash: deps.hash, policy: deps.policy, provenance: RunProvenance.restore(snap.provenance), ...(deps.signal && { signal: deps.signal }) });
 	const pageChars = deps.options?.pageChars ?? DEFAULT_PAGE_CHARS;
-	const kernelTools: readonly Tool[] = [createNoteReadTool(pageChars)];
+	const kernelTools: readonly Tool[] = [createNoteReadTool(pageChars), createAskOwnerTool()];
 	const toolMap = () => new Map<string, Tool>([...kernelTools, ...loaded.toolsForModel()].map((t) => [t.name, t]));
 	const specs = (): LlmToolSpec[] => [...kernelTools.map((t) => t.toLlmToolSpec()), ...loaded.specsForModel()];
 	const save = async (state: KernelState) => {
@@ -61,6 +76,18 @@ export async function runAgent(deps: RunAgentDeps): Promise<RunResult> {
 		return result;
 	}
 	const endStatus = (): RunResult["status"] => (snap.stop || Object.keys(snap.lastErrors).length > 0 ? "not_done" : "done");
+
+	/** Cartão de pergunta/oferta: mostra, registra a oferta (se houver) e encerra o turno. */
+	async function showQuestion(asked: PendingCall): Promise<string> {
+		const args = asked.args as { question?: string; offer?: string };
+		const cardId = `${runId}:${asked.id}`;
+		await emit({ type: "card", data: { kind: "ask_owner", cardId, question: args.question ?? "", ...(args.offer && { offer: args.offer }) } });
+		if (asked.name === ASK_OWNER_TOOL && args.offer && conversationId) {
+			const state = await ports.store.conversations.get(ownerId, conversationId);
+			await ports.store.conversations.save(ownerId, conversationId, openOffer(state ?? emptyConversation(), { cardId, label: args.offer }));
+		}
+		return cardId;
+	}
 
 	/** Compacta só com a janela do modelo quase cheia (nunca por custo): flush no caderno, depois resumo. */
 	async function maybeCompact() {
@@ -98,6 +125,7 @@ export async function runAgent(deps: RunAgentDeps): Promise<RunResult> {
 				});
 				if (reply.costUsd === undefined) snap.stepsWithoutPrice++;
 				else snap.spentUsd += reply.costUsd;
+				snap.lastText = reply.text;
 				snap.lastInputTokens = reply.inputTokens;
 				snap.tokensAtCount = snap.messages.length;
 				if (reply.problem === "model_error") {
@@ -128,10 +156,12 @@ export async function runAgent(deps: RunAgentDeps): Promise<RunResult> {
 					snap.guard = verdict.state;
 					if (verdict.action !== "ok") guardAction = verdict.action;
 				}
-				snap.malformedStreak = snap.malformedNow > 0 ? snap.malformedStreak + 1 : 0;
+				const asked = snap.endedBy ? snap.pending.find((c) => c.id === snap.endedBy) : undefined;
 				snap.pending = [];
 				snap.results = {};
 				snap.step++;
+				if (asked) return await finish(endStatus(), snap.lastText, { awaiting: await showQuestion(asked) });
+				snap.malformedStreak = snap.malformedNow > 0 ? snap.malformedStreak + 1 : 0;
 				if (snap.malformedStreak > 1) {
 					await emit({ type: "status", data: { reason: "malformed_tool_call", message: "The model sent malformed tool calls twice in a row after being shown the error; the run was stopped." } });
 					return await finish("not_done", "", { reason: "malformed_tool_call" });

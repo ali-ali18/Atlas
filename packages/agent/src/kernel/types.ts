@@ -5,6 +5,7 @@ import type { ChannelInput } from "../channels/index.js";
 import type { ApprovalGrant, ApprovalRequest, Hash, PolicyContext, ProvenanceSnapshot } from "../contract/index.js";
 import type { LlmMessage, Ports } from "../ports/index.js";
 import type { RunCheckpoint } from "../ports/store.js";
+import type { CardResponse } from "./offers.js";
 import type { GuardState } from "./loop-guard.js";
 
 export type KernelState = RunCheckpoint["state"];
@@ -50,6 +51,10 @@ export type RunInput = {
 	/** Histórico normal da conversa. O kernel NUNCA injeta estado de tarefa de outro run. */
 	history: readonly ChannelInput[];
 	resume?: ResumeInput;
+	/** Conversa deste run; habilita ofertas e `declinedOffers`. */
+	conversationId?: string;
+	/** O dono tocou em cartões de oferta antes deste run. */
+	cardResponses?: readonly CardResponse[];
 };
 
 export type RunAgentDeps = {
@@ -97,6 +102,10 @@ export type KernelSnapshot = {
 	lastInputTokens: number;
 	/** Índice em `messages` até onde `lastInputTokens` vale. */
 	tokensAtCount: number;
+	/** Texto da última resposta do modelo (para fechar o turno quando uma tool `endsTurn` termina). */
+	lastText: string;
+	/** Chamada de tool `endsTurn` que terminou bem: o turno acaba depois dela. */
+	endedBy?: string;
 	/** Motivo do passo final (limite ou laço). */
 	stop?: { kind: string; label: string };
 	/** Resultado final, quando DONE. */

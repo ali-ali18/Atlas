@@ -4,7 +4,7 @@ O motor do agente do Atlas, feito para o Atlas e open-source junto com ele (MIT)
 
 ## Estado atual (honesto)
 
-Prontos: as **portas** e as guardas (F1.1); na F1.2, as **classes de efeito**, o `defineTool` e as **capacidades** (registro, índice, `use_capability`, ganchos tipados); na F1.4 a F1.6, o **executor do contrato** (`createExecutor`); na F1.7, os **canais** (nonce por run, envelopes e escape); e, na F1.8, o **kernel** (`runAgent`). O resto abaixo é o desenho, ainda sem código.
+Prontos: as **portas** e as guardas (F1.1); na F1.2, as **classes de efeito**, o `defineTool` e as **capacidades** (registro, índice, `use_capability`, ganchos tipados); na F1.4 a F1.6, o **executor do contrato** (`createExecutor`); na F1.7, os **canais** (nonce por run, envelopes e escape); na F1.8, o **kernel** (`runAgent`); e, na F1.8b/F1.9, a compactação restaurável, a leitura em partes e o ciclo de vida da tarefa. O resto abaixo é o desenho, ainda sem código.
 
 | Camada | O que é | Existe? |
 |---|---|---|
@@ -69,3 +69,8 @@ pnpm --filter @workspace/agent typecheck
 - **Compactação só com a janela cheia.** `contextTokens` usa o uso real que o provedor informou no último pedido mais uma estimativa do que veio depois; passa de ~85% da `contextWindow("main")` (ajustável em `options.compactAtRatio`), compacta. Custo e gasto nunca disparam. Ordem fixa: (1) *flush*: o trecho que sai vai inteiro para `Store.notes` (`work:<runId>:ctx:<n>`); (2) resumo pelo papel `helper`, com um bloco de runtime que lista as notas, as falas do dono por inteiro, o último erro de cada tool e o resumo (como dado). Resumo que falha não perde nada: o material já está no caderno e o status diz o motivo. Sempre ficam os 2 primeiros blocos e as últimas `keepRecent` mensagens (sem separar chamada de resultado).
 - **Saída grande de tool nunca é cortada em silêncio.** Passou de `pageChars` (24000), a saída inteira vai para o caderno (`work:<runId>:out:<callId>`) e o modelo recebe a 1ª página com o ponteiro `note_read(id, offset)`. `note_read` é uma tool `read` do kernel (só notas `work:` do próprio dono). Invariante testado: toda saída chega inteira ou com ponteiro, e as páginas reconstroem o original.
 - Não existem teto de pesquisa, orçamento de saída nem corte por custo no kernel.
+
+### Ciclo de vida da tarefa (F1.9)
+
+- **Uma tarefa vive dentro de um turno.** O kernel nunca injeta estado de tarefa de outro run: o contexto de um run novo é o histórico normal mais, no máximo, o aviso de `declinedOffers`. Tool que falhou e foi relatada termina o run como `not_done` (com `unresolved`), sem continuação automática.
+- **Oferta = cartão `ask_owner`** (tool do kernel, `endsTurn`): mostra o cartão e encerra o turno (`RunResult.awaiting`). Com `offer`, o cartão vira uma oferta em `Store.conversations` (escopada por dono e conversa) com estado `open → answered | dismissed | ignored`. `ignored` é estrutural: o run seguinte começou com fala do dono (`history` termina em `owner`) sem `cardResponses` tocando no cartão. Dispensada ou ignorada entra em `declinedOffers` e o modelo recebe, como bloco de runtime: `You already offered "X" and the owner declined it. Do not offer it again.`

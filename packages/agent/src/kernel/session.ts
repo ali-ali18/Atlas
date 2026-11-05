@@ -18,6 +18,7 @@ export function initSnapshot(input: RunInput, ports: Ports, runtimeNotes: readon
 		provenance: { untrustedReadInRun: false, sources: [], texts: [] },
 		spentUsd: 0,
 		stepsWithoutPrice: 0,
+		lastText: "",
 		pending: [],
 		results: {},
 		parked: {},
