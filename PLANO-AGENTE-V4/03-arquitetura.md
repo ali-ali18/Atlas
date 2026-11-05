@@ -50,6 +50,15 @@ Quem importa quem: `capabilities` → `contract`, `channels`, `ports`. `kernel` 
   - Bater no limite nunca aborta calado: vira passo final com o motivo real e o gasto.
 - **A resposta do modelo nunca é reescrita, descartada nem substituída.** Texto vazio depois do retry vira evento de status com o motivo.
 
+## 2.1 Ciclo de vida da tarefa: nunca insistir
+- **Uma tarefa vive dentro de um turno.** Nenhum run herda itens abertos de outro run. Não há "previous task stopped with open items", nem lista semeada, nem continuação automática por item aberto. O histórico da conversa basta: o modelo vê o que aconteceu, como qualquer pessoa veria.
+- **Atravessar turnos é sempre explícito:** o modelo agenda (`remind_me`, `watch`) ou deixa uma pendência no cartão de espera. Os dois têm estado próprio, freio e contagem de ignorados.
+- **Falhou e avisou = encerrado.** Uma tarefa que falhou e foi relatada termina como `not_done` com o motivo. Ela não volta sozinha.
+- **Oferta tem estado.** "Quer que eu continue?" só existe como **cartão de pergunta** (`ask_owner`), nunca como texto solto que o harness persegue. O cartão termina como `answered`, `dismissed` ou `ignored`.
+  - `ignored` é estrutural: o dono mandou outra mensagem sem tocar no cartão.
+  - Oferta ignorada ou dispensada **não volta** na conversa. Fica em `declinedOffers`, no estado da conversa, e o modelo recebe como dado: "você já ofereceu X e o dono não quis; não ofereça de novo".
+- **A agenda herda o freio:** vigia ou lembrete com 2 avisos seguidos ignorados se encerra sozinho, e a contagem é por item.
+
 ## 3. Contrato (`contract/`): onde mora a coerência
 É a parte que faz o bot se comportar **sempre igual**, em chat, agenda, rotina, subagente, bot-para-bot, web e celular. O detalhe está em [`06-contrato-de-comportamento.md`](06-contrato-de-comportamento.md). Em resumo:
 - **Classe de efeito obrigatória** em `defineTool`: `read`, `draft`, `write_internal`, `write_external`, `send`, `money`, `public_link`, `credential`, `destructive`. Sem classe, a tool não registra.

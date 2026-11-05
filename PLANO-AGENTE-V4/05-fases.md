@@ -48,6 +48,7 @@ F0 baseline ─► F1 fundação ─► F2 capacidades núcleo ─┬─► F3 p
   - limites do dono;
   - passo final honesto;
   - eventos compatíveis com o contrato SSE.
+- [ ] Ciclo de vida da tarefa (`03` §2.1): sem herança entre runs, oferta por cartão com estado, `declinedOffers`, falha relatada encerra (cláusula 17). Replays de insistência no CI.
 - [ ] Contrato de trabalho (prompt estável em inglês), com teste de string por seção.
 - [ ] Porta `Llm` com papéis, cadeia de reserva entre provedores (`pickModelFor`, com testes de 429 e queda no meio do run) e tetos opcionais do dono.
 - [ ] Worker: `chooseRunEngine` → `runAgent(runId, ports)`, atrás da flag.

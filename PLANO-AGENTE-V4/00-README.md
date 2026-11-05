@@ -8,7 +8,8 @@
 > - [`03-arquitetura.md`](03-arquitetura.md): núcleo, capacidades, ganchos, canais, memória e agenda.
 > - [`04-avaliacao.md`](04-avaliacao.md): como saber se o problema é o harness ou o modelo.
 > - [`05-fases.md`](05-fases.md): fases, PRs, arquivos, testes e critério de pronto.
-> - [`06-contrato-de-comportamento.md`](06-contrato-de-comportamento.md): as 16 cláusulas de coerência de uso, com mecanismo e teste invariante.
+> - [`07-explicacao-em-audio.md`](07-explicacao-em-audio.md): o plano inteiro em texto corrido, para ouvir.
+> - [`06-contrato-de-comportamento.md`](06-contrato-de-comportamento.md): as 17 cláusulas de coerência de uso, com mecanismo e teste invariante.
 > - [`pesquisa/coerencia-de-uso.md`](pesquisa/coerencia-de-uso.md): pesquisa sobre Grok Bot, ChatGPT dots, Claude Duet, Gemini, Alexa+, Comet, Manus e outros (notas em `pesquisa/notas/`).
 >
 > **Revisão de 05/11:** o dono decidiu fazer uma **base nova, do zero**, modular, preparada para apagar v1, v2 e v3 no fim. O v3 vira só referência de ideias. O foco é a **coerência de uso**: o bot se comporta sempre igual, em qualquer superfície.
@@ -48,10 +49,11 @@ O v4 é uma **base nova** (`packages/agent`), sem import do legado. A ideia é q
 | Fácil de adicionar feature, modular | Capacidade = pacote com tools, skill, ganchos e evals (`03` §2) |
 | Saber se é harness ou modelo | Matriz de eval e classificação automática de falha (`04`) |
 | Aprende com o tempo, guarda só o útil | Sono (consolidação), memória em camadas e skills aprendidas (F5) |
+| Não insistir em tarefa que larguei (ex.: resumo de vídeo) | Ciclo de vida da tarefa (`03` §2.1), cláusula 17; causa no v2 em `01` |
 | Sem travas e sem regex; não reescreve a resposta | Princípios 1 a 3 abaixo, com teste de guarda |
 
 ## Princípios (valem para todo PR do v4)
-0. **Coerência é contrato no código.** As 16 cláusulas de `06` têm mecanismo e teste invariante. A frase do Atlas: "Eu leio, pesquiso, rascunho e organizo sozinho. Antes de enviar, pagar, publicar ou apagar, eu te mostro exatamente o quê. Senha, dinheiro entre contas e aceite de termos ficam com você. Você vê tudo o que eu agendei e aprendi, e pode parar a qualquer momento."
+0. **Coerência é contrato no código.** As 17 cláusulas de `06` têm mecanismo e teste invariante. A frase do Atlas: "Eu leio, pesquiso, rascunho e organizo sozinho. Antes de enviar, pagar, publicar ou apagar, eu te mostro exatamente o quê. Senha, dinheiro entre contas e aceite de termos ficam com você. Você vê tudo o que eu agendei e aprendi, e pode parar a qualquer momento."
 1. **Núcleo burro, capacidades espertas.** O laço só chama o modelo, executa tools e persiste. Inteligência de domínio mora na capacidade (skill + tools + ganchos), carregada sob demanda.
 2. **Zero regex sobre texto do usuário ou do modelo para decidir comportamento.** Decisão vem de sinal estrutural: efeito declarado da tool, argumentos tipados, estado do run, configuração do dono. Um teste de guarda varre `engine-v4/` e `capabilities/` (ver F1).
 3. **A resposta do modelo nunca é reescrita, descartada nem trocada.** Não há revisor, rascunho revisado nem portão de entrega. Se algo faltou, o próprio modelo é que nota (via resultado de tool) e age.

@@ -52,6 +52,20 @@ Os caminhos citados são relativos a `packages/agent-runtime/src/`.
    - O que foi medido é custo: navegador −43% de entrada, schema de 8k para 4,7k caracteres.
    - Ninguém mede qualidade de pesquisa, de documento nem proatividade.
 
+## Insistência: o bot volta em tarefa que o dono abandonou (queixa de 05/11)
+**Sintoma:** o bot falha num resumo de vídeo, o dono não responde mais e depois fala de outra coisa. O bot pergunta "quer continuar vendo o resumo do vídeo?" de novo e de novo.
+
+**Causa principal: harness.** O v2 reinjeta trabalho velho a cada mensagem nova.
+- `apps/worker/src/processors/agent-run.ts:1213`: `typedContinuation` é verdadeiro sempre que **o último run da conversa** parou com itens abertos (`lastChatRunStoppedWithOpenWork`, `packages/db/src/runs.ts:437`). Não há prazo, contagem nem sinal de que o dono largou o assunto.
+- `engine-v2/run.ts:1386-1389` injeta `continuedWorkNote` (`engine-v2/prompt.ts:62-64`): "The previous task in this conversation stopped with open items… Continue them only if… (then keep them in a new update_task_list)". O modelo recebe a tarefa velha **como se fosse assunto vivo** e, educado, oferece continuar.
+- **Realimentação:** se o modelo recria a lista ou o run termina de novo com itens abertos (`withOpenItemsMarker`, `run.ts:1245`), o próximo run herda de novo. O ciclo nunca fecha sozinho.
+- **Ainda dentro do run:** `openItemsNote` (`run.ts:1493-1496`) empurra "continue or finalize", e a continuação automática (`autoContinueAttempt`) repete a tarefa.
+- **Silêncio não vira sinal:** não existe estado "o dono ignorou" ou "o dono largou".
+
+**Parte do modelo:** a tarefa velha está no histórico, e modelos tendem a oferecer continuar. Sem a nota do harness isso cai muito, mas não some. A matriz do eval separa as duas partes (`04` §4: `harness.stale_task_injection` × `model.nagging`).
+
+**O placar parado (24, 23, 16 nas rodadas de desempenho) reforça o diagnóstico.** Os motores mudam e o placar não mexe, só o custo. Isso indica que o eval mede o que o harness não muda, e que não mede insistência nem abandono. Por isso essas tarefas entram no conjunto ouro.
+
 ## Lacunas de produto (não existem em lugar nenhum)
 - **Busca de produto/preço com card.** `market/` só cobre cotação, câmbio, cripto e clima.
 - **Pagamento ou cartão salvo**, e acompanhamento de entrega de pedido.

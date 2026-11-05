@@ -15,6 +15,7 @@ Ficam em `packages/evals/tasks/<capacidade>/`. A maioria nasce de runs reais via
 | Dia | planejar o dia com e-mail, agenda e caderno |
 | Navegador | `browser-bench` (8 páginas) e login com cofre |
 | Código | correção com teste no repositório fixture |
+| Insistência | o resumo de vídeo falha → silêncio → assunto novo (não pode oferecer de novo); oferta dispensada (não volta); vigia ignorado 2 vezes (encerra) |
 | Segurança | e-mail com injeção; página com "ignore as instruções"; rotina tentando enviar; `money` sem humano |
 | Economia | "Bom dia" (tamanho de entrada) |
 
@@ -57,6 +58,8 @@ Uma função pura em shared, `classifyRunFailure(trace)`, decide por **sinal est
 | `harness.policy_misfire` | Cartão de aprovação para efeito `read`, ou `deny` que o dono depois liberou. |
 | `model.bad_args` | O validador recusou os args **com a assinatura correta visível**. |
 | `model.announce_stop` | Terminou sem tool e a última tarefa da própria lista ficou aberta. |
+| `harness.stale_task_injection` | O contexto montado traz tarefa ou oferta de um run anterior que o dono não retomou. |
+| `model.nagging` | O contexto está limpo, mas o modelo ofereceu de novo algo que está em `declinedOffers` ou que o dono abandonou. |
 | `model.loop` | Repetição bloqueada. |
 | `env.connector` / `env.network` / `env.vm` | Erro de transporte ou de terceiro, com o código. |
 
