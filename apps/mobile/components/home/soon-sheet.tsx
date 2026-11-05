@@ -1,28 +1,16 @@
 import * as React from "react";
-import { Modal, Pressable, View } from "react-native";
-import { Button } from "@/components/ui/button";
+import { SheetButton } from "@/components/ui/sheet-button";
+import { DraggableSheet } from "@/components/ui/draggable-sheet";
 import { Text } from "@/components/ui/text";
-import { useSurfaces } from "@/lib/use-surfaces";
-import { ThemedModalRoot } from "./themed-modal";
 
 /** Gaveta de "em breve" para o que ainda não existe (novo chat, apps). */
 export function SoonSheet({ open, title, onClose }: { open: boolean; title: string; onClose: () => void }) {
-	const surfaces = useSurfaces();
 	return (
-		<Modal visible={open} transparent animationType="fade" onRequestClose={onClose} statusBarTranslucent>
-			<ThemedModalRoot>
-			<Pressable accessibilityLabel="Fechar" onPress={onClose} className="flex-1 justify-end bg-black/50">
-				<Pressable accessible={false} style={{ backgroundColor: surfaces.sheet }} className="gap-4 rounded-t-panel px-6 pb-10 pt-6">
-					<View className="gap-1">
-						<Text variant="heading">{title}</Text>
-						<Text variant="muted">Em breve.</Text>
-					</View>
-					<Button size="lg" variant="secondary" className="w-full" onPress={onClose}>
-						<Text>Entendi</Text>
-					</Button>
-				</Pressable>
-			</Pressable>
-			</ThemedModalRoot>
-		</Modal>
+		<DraggableSheet visible={open} onClose={onClose} header={<Text variant="heading">{title}</Text>}>
+			<Text variant="muted">Em breve.</Text>
+			<SheetButton variant="secondary" onPress={onClose}>
+				<Text>Entendi</Text>
+			</SheetButton>
+		</DraggableSheet>
 	);
 }

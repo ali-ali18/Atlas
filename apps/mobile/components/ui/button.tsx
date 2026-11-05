@@ -21,6 +21,8 @@ const buttonVariants = cva("shrink-0 flex-row items-center justify-center rounde
 			xs: "h-8 gap-1 px-3",
 			sm: "h-9 gap-1.5 px-4",
 			lg: "h-11 gap-2 px-5",
+			/** Botão dentro da gaveta: a mesma altura (56) e o mesmo `px-5` da linha de ação (`SurfaceRow`). Use `SheetButton`. */
+			sheet: "h-14 gap-2 px-5",
 			icon: "size-11",
 			"icon-xs": "size-8",
 			"icon-sm": "size-9",
@@ -45,6 +47,7 @@ const buttonTextVariants = cva("font-semibold", {
 			xs: "text-sm",
 			sm: "text-control",
 			lg: "text-control",
+			sheet: "text-control",
 			icon: "text-control",
 			"icon-xs": "text-sm",
 			"icon-sm": "text-control",

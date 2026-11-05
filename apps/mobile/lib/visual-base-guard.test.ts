@@ -47,6 +47,13 @@ const BASELINE: Record<string, number> = {
 	"lib/theme.ts": 1,
 };
 
+/**
+ * Único lugar que abre `Modal` de baixo: a gaveta (`DraggableSheet`, a do menu da mensagem). Os demais `Modal` não são
+ * gaveta: menus ancorados no botão do topo (dropdown, "…" do chat e do Computador), visualizador de imagem e a raiz de tema.
+ */
+const MODAL_ALLOWED = new Set(["components/ui/draggable-sheet.tsx", "components/ui/dropdown-menu.tsx", "components/chat/chat-menu.tsx", "components/computer/computer-menu.tsx", "components/image-viewer/image-viewer.tsx", "components/home/themed-modal.tsx"]);
+const RN_MODAL = /import\s*\{[^}]*\bModal\b[^}]*\}\s*from\s*["']react-native["']/;
+
 const HEX = /#[0-9a-fA-F]{3,8}\b/g;
 const RN_SWITCH = /import\s*\{[^}]*\bSwitch\b[^}]*\}\s*from\s*["']react-native["']/;
 
@@ -85,5 +92,12 @@ describe("guarda visual do app mobile", () => {
 	it("o Switch do react-native não é importado (use components/ui/toggle-switch.tsx)", () => {
 		const offenders = FILES.filter((file) => file.path !== "components/ui/toggle-switch.tsx" && RN_SWITCH.test(file.text)).map((file) => file.path);
 		expect(offenders).toEqual([]);
+	});
+
+	it("gaveta é uma só: `Modal` do react-native só na base e nos menus ancorados, nunca com animationType=\"slide\"", () => {
+		const modals = FILES.filter((file) => RN_MODAL.test(file.text) && !MODAL_ALLOWED.has(file.path)).map((file) => file.path);
+		expect(modals).toEqual([]);
+		const slides = FILES.filter((file) => /animationType=["']slide["']/.test(file.text)).map((file) => file.path);
+		expect(slides).toEqual([]);
 	});
 });

@@ -35,11 +35,11 @@ export function SurfaceGroup({ children, className, style, ...props }: ViewProps
 }
 
 /** Linha de um `SurfaceGroup`: altura mínima de toque, `px-5` e realce ao pressionar. Sem `onPress` é só uma linha. */
-export function SurfaceRow({ onPress, label, className, children }: { onPress?: () => void; label?: string; className?: string; children: React.ReactNode }) {
+export function SurfaceRow({ onPress, label, className, children, radio }: { onPress?: () => void; label?: string; className?: string; children: React.ReactNode; /** Linha de uma lista de opções: papel `radio`, `checked` diz qual está escolhida. */ radio?: { checked: boolean } }) {
 	const base = "min-h-14 flex-row items-center gap-4 px-5";
 	if (!onPress) return <View className={cn(base, className)}>{children}</View>;
 	return (
-		<Pressable role="button" accessibilityLabel={label} onPress={onPress} className={cn(base, "active:bg-foreground/10", className)}>
+		<Pressable role={radio ? "radio" : "button"} accessibilityLabel={label} accessibilityState={radio ? { checked: radio.checked } : undefined} onPress={onPress} className={cn(base, "active:bg-foreground/10", className)}>
 			{children}
 		</Pressable>
 	);

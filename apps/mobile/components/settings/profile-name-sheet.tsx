@@ -1,18 +1,16 @@
 import { validateProfileName } from "@workspace/shared";
 import * as React from "react";
 import { View } from "react-native";
-import { Button } from "@/components/ui/button";
+import { SheetButton } from "@/components/ui/sheet-button";
 import { ChromeInput } from "@/components/ui/chrome-input";
 import { DraggableSheet } from "@/components/ui/draggable-sheet";
 import { Text } from "@/components/ui/text";
-import { useKeyboardHeight } from "@/lib/use-keyboard-visible";
 
 /**
  * Editar o nome do perfil numa gaveta: campo com o nome atual e "Salvar" (apagado sem mudança ou com nome inválido, com a
- * mesma validação do servidor). O teclado empurra o conteúdo: a gaveta vive num `Modal`, que no Android não encolhe com ele.
+ * mesma validação do servidor). A gaveta sobe junto com o teclado (o `DraggableSheet` cuida disso).
  */
 export function ProfileNameSheet({ visible, currentName, email, saving, onClose, onSave }: { visible: boolean; currentName: string; email: string | null; saving: boolean; onClose: () => void; onSave: (name: string) => void }) {
-	const keyboard = useKeyboardHeight();
 	const [draft, setDraft] = React.useState(currentName);
 	React.useEffect(() => {
 		if (visible) setDraft(currentName);
@@ -42,10 +40,9 @@ export function ProfileNameSheet({ visible, currentName, email, saving, onClose,
 					</>
 				) : null}
 			</View>
-			<Button size="lg" onPress={save} disabled={!canSave} className="w-full">
+			<SheetButton onPress={save} disabled={!canSave}>
 				<Text>{saving ? "Salvando…" : "Salvar"}</Text>
-			</Button>
-			{keyboard > 0 ? <View style={{ height: keyboard }} /> : null}
+			</SheetButton>
 		</DraggableSheet>
 	);
 }

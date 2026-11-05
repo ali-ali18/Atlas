@@ -1,7 +1,7 @@
 import * as React from "react";
 import { Pressable, TextInput, View } from "react-native";
 import { EyeIcon, EyeOffIcon, GlobeIcon, ShieldCheckIcon } from "@/components/icons";
-import { Button } from "@/components/ui/button";
+import { SheetButton } from "@/components/ui/sheet-button";
 import { DraggableSheet } from "@/components/ui/draggable-sheet";
 import { Text } from "@/components/ui/text";
 import type { ResumeOptions } from "@/lib/chat-api";
@@ -127,9 +127,9 @@ function LoginSheet({ item, botName, visible, onClose, onResume, onSaveLogin, on
 			header={
 				<View className="min-h-11 flex-row items-center gap-2">
 					<View className="min-w-24 items-start">
-						<Button size="sm" variant="secondary" accessibilityLabel="Cancelar" onPress={close}>
+						<SheetButton variant="secondary" className="w-auto" accessibilityLabel="Cancelar" onPress={close}>
 							<Text>Cancelar</Text>
-						</Button>
+						</SheetButton>
 					</View>
 					<Text className="min-w-0 flex-1 text-center text-base font-semibold" numberOfLines={1}>
 						Entrar no {site}
