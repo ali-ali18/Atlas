@@ -1,0 +1,9 @@
+---
+description: Guia de estilo do app mobile (fundo, cascas com borda, botões, cabeçalhos flutuantes, gaveta única, campos, chat)
+globs: apps/mobile/**
+alwaysApply: false
+---
+
+Regra mantida em `.agents/rules/36-app-mobile-estilo.md` (fonte única, não edite aqui).
+
+@.agents/rules/36-app-mobile-estilo.md
