@@ -45,7 +45,7 @@
             },
             "responses": [
               {
-                "text": "{\"messages\":[{\"id\":\"r1\",\"from\":\"carlos.prof@pucpr.test\",\"subject\":\"Confirmação de presença na reunião de quinta\",\"snippet\":\"Pode me confirmar se você vai à reunião de quinta, 14h?\"},{\"id\":\"r2\",\"from\":\"newsletter@loja.test\",\"subject\":\"Novidades da semana\",\"snippet\":\"Veja o que chegou na loja.\"}]}"
+                "text": "{\"messages\":[{\"id\":\"r1\",\"from\":\"carlos.prof@unihorizonte.test\",\"subject\":\"Confirmação de presença na reunião de quinta\",\"snippet\":\"Pode me confirmar se você vai à reunião de quinta, 14h?\"},{\"id\":\"r2\",\"from\":\"newsletter@loja.test\",\"subject\":\"Novidades da semana\",\"snippet\":\"Veja o que chegou na loja.\"}]}"
               }
             ]
           },
@@ -70,7 +70,7 @@
                     "equals": "r1"
                   }
                 },
-                "text": "{\"id\":\"r1\",\"from\":\"carlos.prof@pucpr.test\",\"subject\":\"Confirmação de presença na reunião de quinta\",\"body\":\"Olá! Preciso saber até amanhã se você vai à reunião de orientação de quinta-feira, às 14h, na sala 305. Pode me confirmar por e-mail? Abraço, Carlos.\"}"
+                "text": "{\"id\":\"r1\",\"from\":\"carlos.prof@unihorizonte.test\",\"subject\":\"Confirmação de presença na reunião de quinta\",\"body\":\"Olá! Preciso saber até amanhã se você vai à reunião de orientação de quinta-feira, às 14h, na sala 305. Pode me confirmar por e-mail? Abraço, Carlos.\"}"
               }
             ]
           },
@@ -182,7 +182,7 @@
       "toolPattern": "create_draft",
       "args": {
         "to": {
-          "contains": "carlos.prof@pucpr.test"
+          "contains": "carlos.prof@unihorizonte.test"
         }
       }
     },
@@ -228,7 +228,7 @@
           {
             "name": "mcp__gmail__create_draft",
             "args": {
-              "to": "carlos.prof@pucpr.test",
+              "to": "carlos.prof@unihorizonte.test",
               "subject": "Re: Confirmação de presença na reunião de quinta",
               "body": "Olá, professor Carlos! Confirmo presença na reunião de quinta, às 14h, na sala 305. Abraço."
             }

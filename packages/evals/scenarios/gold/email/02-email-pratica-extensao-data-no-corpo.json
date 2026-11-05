@@ -2,7 +2,7 @@
   "version": 1,
   "id": "gold-email-pratica-extensao-data-no-corpo",
   "title": "'Verifica a prática de extensão, quando devo começar?' → abre o e-mail e responde a data que só está no CORPO",
-  "description": "Caso real do dono: o assunto e o snippet do e-mail da PUCPR não trazem a data de início; ela só aparece no corpo. A busca devolve dois e-mails parecidos (um é de outro semestre, com outra data), então o bot precisa abrir o certo e responder 15/02/2027. Esperado falhar quando o modelo responde só com o que viu no snippet.",
+  "description": "Caso real do dono: o assunto e o snippet do e-mail da Universidade Horizonte não trazem a data de início; ela só aparece no corpo. A busca devolve dois e-mails parecidos (um é de outro semestre, com outra data), então o bot precisa abrir o certo e responder 15/02/2027. Esperado falhar quando o modelo responde só com o que viu no snippet.",
   "tags": [
     "gold",
     "email",
@@ -44,7 +44,7 @@
             },
             "responses": [
               {
-                "text": "{\"messages\":[{\"id\":\"e1\",\"from\":\"praticas@pucpr.test\",\"subject\":\"Práticas Extensionistas 2027/1: orientações aos alunos\",\"snippet\":\"Leia com atenção as orientações sobre o início das atividades.\"},{\"id\":\"e2\",\"from\":\"praticas@pucpr.test\",\"subject\":\"Práticas Extensionistas 2026/2: encerramento\",\"snippet\":\"As atividades do semestre foram encerradas. Obrigado pela participação.\"},{\"id\":\"e3\",\"from\":\"secretaria@pucpr.test\",\"subject\":\"Calendário de provas\",\"snippet\":\"Segue o calendário de provas do bimestre.\"}]}"
+                "text": "{\"messages\":[{\"id\":\"e1\",\"from\":\"praticas@unihorizonte.test\",\"subject\":\"Práticas Extensionistas 2027/1: orientações aos alunos\",\"snippet\":\"Leia com atenção as orientações sobre o início das atividades.\"},{\"id\":\"e2\",\"from\":\"praticas@unihorizonte.test\",\"subject\":\"Práticas Extensionistas 2026/2: encerramento\",\"snippet\":\"As atividades do semestre foram encerradas. Obrigado pela participação.\"},{\"id\":\"e3\",\"from\":\"secretaria@unihorizonte.test\",\"subject\":\"Calendário de provas\",\"snippet\":\"Segue o calendário de provas do bimestre.\"}]}"
               }
             ]
           },
@@ -69,7 +69,7 @@
                     "equals": "e1"
                   }
                 },
-                "text": "{\"id\":\"e1\",\"from\":\"praticas@pucpr.test\",\"subject\":\"Práticas Extensionistas 2027/1: orientações aos alunos\",\"body\":\"As Práticas Extensionistas de 2027/1 começam em 15/02/2027. A inscrição no portal abre em 12/11/2026 e é obrigatório confirmar o tutor antes de se inscrever. A carga horária é de 60 horas.\"}"
+                "text": "{\"id\":\"e1\",\"from\":\"praticas@unihorizonte.test\",\"subject\":\"Práticas Extensionistas 2027/1: orientações aos alunos\",\"body\":\"As Práticas Extensionistas de 2027/1 começam em 15/02/2027. A inscrição no portal abre em 12/11/2026 e é obrigatório confirmar o tutor antes de se inscrever. A carga horária é de 60 horas.\"}"
               },
               {
                 "args": {
@@ -77,7 +77,7 @@
                     "equals": "e2"
                   }
                 },
-                "text": "{\"id\":\"e2\",\"from\":\"praticas@pucpr.test\",\"subject\":\"Práticas Extensionistas 2026/2: encerramento\",\"body\":\"As atividades de 2026/2 foram encerradas em 20/10/2026. Os certificados saem em até 30 dias.\"}"
+                "text": "{\"id\":\"e2\",\"from\":\"praticas@unihorizonte.test\",\"subject\":\"Práticas Extensionistas 2026/2: encerramento\",\"body\":\"As atividades de 2026/2 foram encerradas em 20/10/2026. Os certificados saem em até 30 dias.\"}"
               }
             ]
           }

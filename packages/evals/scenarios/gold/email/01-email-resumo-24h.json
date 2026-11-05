@@ -2,7 +2,7 @@
   "version": 1,
   "id": "gold-email-resumo-24h",
   "title": "'Resumo do e-mail das últimas 24h' → traz o CONTEÚDO e a ação (valor, prazo, tutor), não só os assuntos, e ignora a promoção",
-  "description": "Caso real do dono: o resumo de e-mail lista remetente e assunto sem dizer o que fazer. A caixa tem 6 e-mails; só o corpo (read_message) traz o valor R$ 389,90 da cobrança recusada e o prazo 08/11, e o aviso do tutor da PUCPR. O resumo deve dizer o que cada um pede e o prazo e deixar a promoção de fora. Cláusula de antecipação do contrato (06). Esperado falhar parcialmente no v2 quando o modelo resume só pelos snippets. Trocar por um run real redigido (from-run.ts).",
+  "description": "Caso real do dono: o resumo de e-mail lista remetente e assunto sem dizer o que fazer. A caixa tem 6 e-mails; só o corpo (read_message) traz o valor R$ 389,90 da cobrança recusada e o prazo 08/11, e o aviso do tutor da Universidade Horizonte. O resumo deve dizer o que cada um pede e o prazo e deixar a promoção de fora. Cláusula de antecipação do contrato (06). Esperado falhar parcialmente no v2 quando o modelo resume só pelos snippets. Trocar por um run real redigido (from-run.ts).",
   "tags": [
     "gold",
     "email",
@@ -44,7 +44,7 @@
             },
             "responses": [
               {
-                "text": "{\"messages\":[{\"id\":\"m1\",\"from\":\"faturas@bancoazul.test\",\"subject\":\"Cobrança recusada no cartão final 4321\",\"snippet\":\"Não conseguimos processar o seu pagamento. Veja os detalhes e a ação necessária.\"},{\"id\":\"m2\",\"from\":\"praticas@pucpr.test\",\"subject\":\"PUCPR Práticas Extensionistas: antes de se inscrever\",\"snippet\":\"Atenção: confira a orientação antes de efetuar a sua inscrição.\"},{\"id\":\"m3\",\"from\":\"notifications@github.test\",\"subject\":\"[ali-ali18/Atlas] CI falhou: Run #482 (feat/harness-v4-f0-baseline)\",\"snippet\":\"O job typecheck falhou em packages/evals.\"},{\"id\":\"m4\",\"from\":\"review@coderabbit.test\",\"subject\":\"CodeRabbit pediu sua revisão no PR #214\",\"snippet\":\"3 sugestões aguardando resposta no PR #214.\"},{\"id\":\"m5\",\"from\":\"no-reply@accounts.test\",\"subject\":\"Alerta de segurança: novo login na sua conta Google\",\"snippet\":\"Novo login em Chrome/Windows, Curitiba, 03:12. Se não foi você, proteja sua conta.\"},{\"id\":\"m6\",\"from\":\"ofertas@megastore.test\",\"subject\":\"Megastore: só hoje 40% OFF em eletrônicos\",\"snippet\":\"Aproveite descontos de até 40% em toda a loja. Cupom: HOJE40.\"}]}"
+                "text": "{\"messages\":[{\"id\":\"m1\",\"from\":\"faturas@bancoazul.test\",\"subject\":\"Cobrança recusada no cartão final 4321\",\"snippet\":\"Não conseguimos processar o seu pagamento. Veja os detalhes e a ação necessária.\"},{\"id\":\"m2\",\"from\":\"praticas@unihorizonte.test\",\"subject\":\"Universidade Horizonte Práticas Extensionistas: antes de se inscrever\",\"snippet\":\"Atenção: confira a orientação antes de efetuar a sua inscrição.\"},{\"id\":\"m3\",\"from\":\"notifications@github.test\",\"subject\":\"[usuario-demo/Atlas] CI falhou: Run #482 (feat/harness-v4-f0-baseline)\",\"snippet\":\"O job typecheck falhou em packages/evals.\"},{\"id\":\"m4\",\"from\":\"review@reviewpilot.test\",\"subject\":\"ReviewPilot pediu sua revisão no PR #214\",\"snippet\":\"3 sugestões aguardando resposta no PR #214.\"},{\"id\":\"m5\",\"from\":\"no-reply@accounts.test\",\"subject\":\"Alerta de segurança: novo login na sua conta Google\",\"snippet\":\"Novo login em Chrome/Windows, Curitiba, 03:12. Se não foi você, proteja sua conta.\"},{\"id\":\"m6\",\"from\":\"ofertas@megastore.test\",\"subject\":\"Megastore: só hoje 40% OFF em eletrônicos\",\"snippet\":\"Aproveite descontos de até 40% em toda a loja. Cupom: HOJE40.\"}]}"
               }
             ]
           },
@@ -77,7 +77,7 @@
                     "equals": "m2"
                   }
                 },
-                "text": "{\"id\":\"m2\",\"from\":\"praticas@pucpr.test\",\"subject\":\"PUCPR Práticas Extensionistas: antes de se inscrever\",\"snippet\":\"Atenção: confira a orientação antes de efetuar a sua inscrição.\",\"body\":\"Prezado(a) aluno(a), antes de efetuar a inscrição em Práticas Extensionistas, consulte no portal qual é o seu tutor de curso; sem essa confirmação a inscrição será indeferida. Inscrições até 12/11.\"}"
+                "text": "{\"id\":\"m2\",\"from\":\"praticas@unihorizonte.test\",\"subject\":\"Universidade Horizonte Práticas Extensionistas: antes de se inscrever\",\"snippet\":\"Atenção: confira a orientação antes de efetuar a sua inscrição.\",\"body\":\"Prezado(a) aluno(a), antes de efetuar a inscrição em Práticas Extensionistas, consulte no portal qual é o seu tutor de curso; sem essa confirmação a inscrição será indeferida. Inscrições até 12/11.\"}"
               },
               {
                 "args": {
@@ -85,7 +85,7 @@
                     "equals": "m3"
                   }
                 },
-                "text": "{\"id\":\"m3\",\"from\":\"notifications@github.test\",\"subject\":\"[ali-ali18/Atlas] CI falhou: Run #482 (feat/harness-v4-f0-baseline)\",\"snippet\":\"O job typecheck falhou em packages/evals.\",\"body\":\"O workflow CI falhou no job typecheck: packages/evals/src/scenario.ts(112,5): error TS2345. Veja o log completo no GitHub.\"}"
+                "text": "{\"id\":\"m3\",\"from\":\"notifications@github.test\",\"subject\":\"[usuario-demo/Atlas] CI falhou: Run #482 (feat/harness-v4-f0-baseline)\",\"snippet\":\"O job typecheck falhou em packages/evals.\",\"body\":\"O workflow CI falhou no job typecheck: packages/evals/src/scenario.ts(112,5): error TS2345. Veja o log completo no GitHub.\"}"
               },
               {
                 "args": {
@@ -93,7 +93,7 @@
                     "equals": "m4"
                   }
                 },
-                "text": "{\"id\":\"m4\",\"from\":\"review@coderabbit.test\",\"subject\":\"CodeRabbit pediu sua revisão no PR #214\",\"snippet\":\"3 sugestões aguardando resposta no PR #214.\",\"body\":\"CodeRabbit revisou o PR #214 (fix routines) e deixou 3 sugestões: nomes de variáveis, um teste faltando e um early return. Responda ou resolva os comentários.\"}"
+                "text": "{\"id\":\"m4\",\"from\":\"review@reviewpilot.test\",\"subject\":\"ReviewPilot pediu sua revisão no PR #214\",\"snippet\":\"3 sugestões aguardando resposta no PR #214.\",\"body\":\"ReviewPilot revisou o PR #214 (fix routines) e deixou 3 sugestões: nomes de variáveis, um teste faltando e um early return. Responda ou resolva os comentários.\"}"
               },
               {
                 "args": {
@@ -227,7 +227,7 @@
       "value": "08/11"
     },
     {
-      "id": "traz-a-acao-da-pucpr",
+      "id": "traz-a-acao-da-unihorizonte",
       "type": "text_contains",
       "pattern": "tutor",
       "ignoreCase": true
@@ -264,7 +264,7 @@
     {
       "id": "rubrica-conteudo-e-acao",
       "type": "judge",
-      "rubric": "O resumo traz, para cada e-mail relevante, o que ele pede e o prazo (valor da cobrança, tutor da PUCPR, CI quebrado, revisão pendente, alerta de login), em vez de só listar remetentes e assuntos, e não menciona a promoção."
+      "rubric": "O resumo traz, para cada e-mail relevante, o que ele pede e o prazo (valor da cobrança, tutor da Universidade Horizonte, CI quebrado, revisão pendente, alerta de login), em vez de só listar remetentes e assuntos, e não menciona a promoção."
     }
   ],
   "mock": {
@@ -302,7 +302,7 @@
         ]
       },
       {
-        "say": "Resumo das últimas 24h (6 e-mails, 5 relevantes):\n\n1. **Cartão recusado**: a mensalidade do Curso Alfa (R$ 389,90) não passou no cartão final 4321. Atualize o pagamento até 08/11 para não perder o acesso.\n2. **PUCPR, Práticas Extensionistas**: antes de se inscrever, confirme no portal quem é o seu tutor; inscrições até 12/11.\n3. **GitHub**: o CI falhou no job typecheck do branch feat/harness-v4-f0-baseline (packages/evals).\n4. **CodeRabbit**: 3 sugestões esperam resposta no PR #214.\n5. **Segurança**: novo login na sua conta Google às 03:12, em Curitiba. Se não foi você, troque a senha.\n\nO e-mail promocional ficou de fora."
+        "say": "Resumo das últimas 24h (6 e-mails, 5 relevantes):\n\n1. **Cartão recusado**: a mensalidade do Curso Alfa (R$ 389,90) não passou no cartão final 4321. Atualize o pagamento até 08/11 para não perder o acesso.\n2. **Universidade Horizonte, Práticas Extensionistas**: antes de se inscrever, confirme no portal quem é o seu tutor; inscrições até 12/11.\n3. **GitHub**: o CI falhou no job typecheck do branch feat/harness-v4-f0-baseline (packages/evals).\n4. **ReviewPilot**: 3 sugestões esperam resposta no PR #214.\n5. **Segurança**: novo login na sua conta Google às 03:12, em Curitiba. Se não foi você, troque a senha.\n\nO e-mail promocional ficou de fora."
       }
     ]
   }
