@@ -10,7 +10,7 @@ import { type ApprovalGrant, type Hash, checkGrant, payloadHashOf, requestApprov
 import { type PolicyContext, authorize } from "./authorize.js";
 import { RunProvenance } from "./provenance.js";
 import type { CallOutcome } from "./outcome.js";
-import { sanitizeText } from "./sanitize.js";
+import { redactDeep, sanitizeText } from "./sanitize.js";
 
 export type ExecutorDeps = {
 	runId: string;
@@ -114,7 +114,7 @@ export function createExecutor(deps: ExecutorDeps) {
 			});
 			await deps.ports.store.journal.append({ ...journalBase, outcome: "succeeded" });
 		}
-		return { status: "ok", summary: sanitizeText(result.summary, secrets()), ...(result.receipt && { receipt: result.receipt }) };
+		return { status: "ok", summary: sanitizeText(result.summary, secrets()), ...(result.receipt && { receipt: redactDeep(result.receipt, secrets()) }) };
 	}
 
 	return { executeCall, provenance };

@@ -125,4 +125,16 @@ describe("handoff, hidden e erros", () => {
 		const out = await setup(chatPolicy, { secrets: () => ["hunter2-pass"] }).executor.executeCall({ callId: "c", step: 1, tool, args: {} });
 		expect(out).toMatchObject({ status: "error", error: "login failed for [redacted]" });
 	});
+	it("o recibo devolvido ao laço também é redigido (não só o gravado)", async () => {
+		const tool = defineTool({
+			name: "save_note",
+			description: "Save a note.",
+			inputSchema: z.object({}),
+			effect: "write_internal",
+			execute: () => ({ ok: true, summary: "salvo", receipt: { what: "Nota com hunter2-pass", where: "https://example.com/?k=hunter2-pass", url: "https://example.com/x?k=hunter2-pass" } }),
+		});
+		const out = await setup(chatPolicy, { secrets: () => ["hunter2-pass"] }).executor.executeCall({ callId: "c", step: 1, tool, args: {} });
+		expect(out.status).toBe("ok");
+		expect(JSON.stringify(out)).not.toContain("hunter2-pass");
+	});
 });
