@@ -1,15 +1,12 @@
-import { validateProfileName } from "@workspace/shared";
 import { useRouter } from "expo-router";
 import * as React from "react";
 import { Linking, Pressable, ScrollView, View } from "react-native";
-import { DoneButton } from "@/components/bot/done-button";
 import { UserAvatar } from "@/components/home/user-avatar";
-import { CameraIcon } from "@/components/icons";
-import { ChromeInput } from "@/components/ui/chrome-input";
+import { ActionSheet } from "@/components/ui/action-sheet";
 import { ScreenFrame } from "@/components/ui/screen-frame";
 import { ScreenHeader } from "@/components/ui/screen-header";
 import { Spinner } from "@/components/ui/spinner";
-import { SurfaceGroup } from "@/components/ui/surface-card";
+import { SurfaceGroup, SurfaceRow } from "@/components/ui/surface-card";
 import { Text } from "@/components/ui/text";
 import { useAtlasSession } from "@/lib/atlas-session";
 import { isUnauthorized } from "@/lib/chat-api";
@@ -17,21 +14,23 @@ import { pickProfilePhoto } from "@/lib/profile-photo";
 import { refreshSession } from "@/lib/session-refresh";
 import { removeProfileImage, saveProfileImage, saveProfileName } from "@/lib/settings-api";
 import { friendlyError } from "@/lib/settings-format";
-import { NavRow, SectionLabel } from "./settings-rows";
+import { ProfileNameSheet } from "./profile-name-sheet";
+import { SessionGroup } from "./session-group";
 
-/** Perfil: trocar ou remover a foto (galeria com recorte quadrado), editar o nome; o e-mail é só leitura (vem do login). */
-export function ProfileView() {
+/**
+ * Conta (Configurações > Conta): cartão do perfil (avatar abre Trocar/Remover foto, nome abre a edição, e-mail só leitura),
+ * depois Trocar servidor e Sair com confirmação. Nome e foto salvam na hora e a home atualiza pela sessão.
+ */
+export function AccountView() {
 	const router = useRouter();
 	const { name, email, image, apiFetch, client, signOut } = useAtlasSession();
-	const [draft, setDraft] = React.useState(name ?? "");
 	// Foto mostrada já ao escolher (otimista); `undefined` = a da sessão.
 	const [photo, setPhoto] = React.useState<string | null | undefined>(undefined);
 	const [busy, setBusy] = React.useState<"photo" | "name" | null>(null);
 	const [error, setError] = React.useState<string | null>(null);
+	const [photoMenu, setPhotoMenu] = React.useState(false);
+	const [editingName, setEditingName] = React.useState(false);
 	const shownPhoto = photo === undefined ? image : photo;
-
-	const check = validateProfileName(draft);
-	const changed = check.ok && check.name !== (name ?? "").trim();
 	const goBack = () => (router.canGoBack() ? router.back() : router.replace("/settings" as never));
 
 	const fail = (reason: unknown) => {
@@ -40,6 +39,7 @@ export function ProfileView() {
 	};
 
 	const savePhoto = async () => {
+		setPhotoMenu(false);
 		setError(null);
 		setBusy("photo");
 		try {
@@ -65,6 +65,7 @@ export function ProfileView() {
 	};
 
 	const removePhoto = async () => {
+		setPhotoMenu(false);
 		setError(null);
 		setBusy("photo");
 		const previous = shownPhoto;
@@ -80,55 +81,69 @@ export function ProfileView() {
 		}
 	};
 
-	const saveName = async () => {
-		if (!check.ok || !changed || busy) return;
+	const saveName = async (next: string) => {
 		setError(null);
 		setBusy("name");
 		try {
-			await saveProfileName(apiFetch, check.name);
+			await saveProfileName(apiFetch, next);
 			refreshSession(client);
-			goBack();
 		} catch (reason) {
 			fail(reason);
+		} finally {
+			setEditingName(false);
 			setBusy(null);
 		}
 	};
 
 	return (
-		<ScreenFrame>
-			<ScreenHeader title="Perfil" onBack={goBack} right={<DoneButton enabled={changed} busy={busy === "name"} onPress={() => void saveName()} />} />
+		<ScreenFrame tone="sheet">
+			<ScreenHeader title="Conta" align="left" onBack={goBack} />
 			<ScrollView keyboardShouldPersistTaps="handled" contentContainerClassName="px-4 pb-12 pt-4">
-				<Pressable role="button" accessibilityLabel="Trocar foto" disabled={busy !== null} onPress={() => void savePhoto()} className="size-28 items-center justify-center self-center active:opacity-80">
-					<UserAvatar name={draft || name} email={email} image={shownPhoto} size={112} />
-					<View className="absolute inset-0 items-center justify-center">{busy === "photo" ? <Spinner label="Enviando a foto" size="large" tone="foreground" /> : null}</View>
-					<View className="absolute bottom-0 right-0 size-9 items-center justify-center rounded-full bg-foreground">
-						<CameraIcon size={18} tone="background" />
-					</View>
-				</Pressable>
-				<SurfaceGroup className="mt-6">
-					<NavRow title="Trocar foto" disabled={busy !== null} onPress={() => void savePhoto()} />
-					{shownPhoto ? <NavRow title="Remover foto" tone="destructive" chevron={false} disabled={busy !== null} onPress={() => void removePhoto()} /> : null}
-				</SurfaceGroup>
-				<SectionLabel>Nome</SectionLabel>
-				<ChromeInput accessibilityLabel="Nome" value={draft} onChangeText={setDraft} maxLength={80} autoCapitalize="words" invalid={!check.ok && draft.length > 0} editable={busy !== "name"} />
-				{!check.ok && draft.length > 0 ? (
-					<Text className="px-4 pt-2 text-body text-destructive" accessibilityRole="alert">
-						{check.error}
-					</Text>
-				) : null}
-				<SectionLabel>E-mail</SectionLabel>
 				<SurfaceGroup>
-					<NavRow title={email ?? "—"} chevron={false} />
+					<SurfaceRow className="min-h-[88px] py-4">
+						<Pressable role="button" accessibilityLabel="Foto do perfil" disabled={busy !== null} onPress={() => setPhotoMenu(true)} className="size-14 items-center justify-center active:opacity-80">
+							<UserAvatar name={name} email={email} image={shownPhoto} size={56} />
+							{busy === "photo" ? (
+								<View className="absolute inset-0 items-center justify-center">
+									<Spinner label="Enviando a foto" tone="foreground" />
+								</View>
+							) : null}
+						</Pressable>
+						<View className="min-w-0 flex-1">
+							<Pressable role="button" accessibilityLabel="Editar nome" disabled={busy !== null} onPress={() => setEditingName(true)} className="active:opacity-70">
+								<Text numberOfLines={1} className="text-lg">
+									{name?.trim() || "Sem nome"}
+								</Text>
+							</Pressable>
+							{email ? (
+								<Text variant="muted" numberOfLines={1} className="text-body">
+									{email}
+								</Text>
+							) : null}
+						</View>
+					</SurfaceRow>
 				</SurfaceGroup>
-				<Text variant="muted" className="px-5 pt-2 text-body">
-					O e-mail é o do seu login e não muda por aqui.
-				</Text>
 				{error ? (
-					<Text className="px-5 pt-4 text-control text-destructive" accessibilityRole="alert">
+					<Text className="px-5 pt-3 text-control text-destructive" accessibilityRole="alert">
 						{error}
 					</Text>
 				) : null}
+				<View className="mt-5">
+					<SessionGroup />
+				</View>
 			</ScrollView>
+			<ActionSheet
+				visible={photoMenu}
+				onClose={() => setPhotoMenu(false)}
+				groups={[
+					[
+						{ key: "change", label: "Trocar foto", onPress: () => void savePhoto() },
+						...(shownPhoto ? [{ key: "remove", label: "Remover foto", tone: "destructive" as const, onPress: () => void removePhoto() }] : []),
+					],
+					[{ key: "cancel", label: "Cancelar", onPress: () => setPhotoMenu(false) }],
+				]}
+			/>
+			<ProfileNameSheet visible={editingName} currentName={name ?? ""} email={email} saving={busy === "name"} onClose={() => setEditingName(false)} onSave={(next) => void saveName(next)} />
 		</ScreenFrame>
 	);
 }

@@ -131,7 +131,7 @@ export function UsageView() {
 	}, [apiFetch, signOut, period, attempt]);
 	const goBack = () => (router.canGoBack() ? router.back() : router.replace("/settings" as never));
 	return (
-		<ScreenFrame>
+		<ScreenFrame tone="sheet">
 			<ScreenHeader title="Uso" onBack={goBack} />
 			<ScrollView contentContainerClassName="px-4 pb-12 pt-4">
 				<PeriodPicker value={period} onChange={setPeriod} />

@@ -11,7 +11,6 @@ import { useAtlasSession } from "@/lib/atlas-session";
 import { useAccountSettings } from "@/lib/use-account-settings";
 import { AppSettingsGroup } from "./app-settings-group";
 import { BotSettingsGroup } from "./bot-settings-group";
-import { SessionGroup } from "./session-group";
 import { SectionLabel, NavRow } from "./settings-rows";
 import { SettingsFooter } from "./settings-footer";
 
@@ -31,7 +30,7 @@ export function SettingsView() {
 	const state = useAccountSettings();
 	const close = () => (router.canGoBack() ? router.back() : router.replace("/"));
 	return (
-		<ScreenFrame>
+		<ScreenFrame tone="sheet">
 			<View className="px-4 pb-2 pt-1.5">
 				<ChromeButton label="Fechar" onPress={close}>
 					<CloseIcon size={20} tone="foreground" />
@@ -45,11 +44,11 @@ export function SettingsView() {
 					</Pressable>
 				) : null}
 				<SurfaceGroup>
-					<SurfaceRow label="Perfil" onPress={() => router.push("/settings/profile" as never)} className="min-h-[76px] justify-between">
+					<SurfaceRow label="Conta" onPress={() => router.push("/settings/account" as never)} className="min-h-[76px] justify-between">
 						<UserAvatar name={name} email={email} image={image} size={44} />
 						<View className="min-w-0 flex-1">
 							<Text numberOfLines={1} className="text-lg">
-								{name?.trim() || email || "Perfil"}
+								{name?.trim() || email || "Conta"}
 							</Text>
 							{name?.trim() && email ? (
 								<Text variant="muted" numberOfLines={1} className="text-body">
@@ -68,9 +67,6 @@ export function SettingsView() {
 				<BotSettingsGroup state={state} />
 				<SectionLabel>App</SectionLabel>
 				<AppSettingsGroup />
-				<View className="mt-5">
-					<SessionGroup />
-				</View>
 				<SettingsFooter />
 			</ScrollView>
 		</ScreenFrame>
