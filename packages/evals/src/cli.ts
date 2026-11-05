@@ -32,8 +32,13 @@ export function parseCliArgs(argv: string[]): CliArgs {
 			continue;
 		}
 		const [key, inline] = item.slice(2).split(/=(.*)/s, 2) as [string, string | undefined];
-		if (inline !== undefined) flags[key] = inline;
-		else if (BOOLEAN_FLAGS.has(key) || args[index + 1] === undefined || args[index + 1]!.startsWith("--")) flags[key] = true;
+		if (inline !== undefined) {
+			// Flag booleana só aceita `true`/`false`: `--simulate=1` caía em silêncio no modo real (gasto de verdade).
+			if (BOOLEAN_FLAGS.has(key)) {
+				if (inline === "true") flags[key] = true;
+				else if (inline !== "false") throw new Error(`--${key} é booleana: use --${key} ou --${key}=true|false (recebido: ${inline || "vazio"}). Nada foi executado.`);
+			} else flags[key] = inline;
+		} else if (BOOLEAN_FLAGS.has(key) || args[index + 1] === undefined || args[index + 1]!.startsWith("--")) flags[key] = true;
 		else {
 			flags[key] = args[index + 1]!;
 			index += 1;
@@ -42,6 +47,17 @@ export function parseCliArgs(argv: string[]): CliArgs {
 	const commands = new Set(["run", "compare", "from-run", "list", "motor-v1-vs-v2", "matrix"]);
 	const command = positional[0] && commands.has(positional[0]) ? positional.shift()! : "run";
 	return { command, positional, flags };
+}
+
+/** Flags que só existem em um comando: errar o comando mudaria o modo (ex.: `--simulate` fora do `matrix` rodaria o `run` real). */
+const COMMAND_ONLY_FLAGS: Record<string, string> = { simulate: "matrix", estimate: "matrix", mock: "run" };
+
+export function assertFlagsForCommand(args: CliArgs): void {
+	for (const [name, command] of Object.entries(COMMAND_ONLY_FLAGS)) {
+		if (args.flags[name] !== true || args.command === command) continue;
+		const hint = name === "mock" ? " (no matrix, o modo sem rede é --simulate)" : "";
+		throw new Error(`--${name} só vale no comando ${command}${hint}; o comando atual é ${args.command}. Nada foi executado.`);
+	}
 }
 
 const flag = (args: CliArgs, name: string): string | undefined => (typeof args.flags[name] === "string" ? (args.flags[name] as string) : undefined);
@@ -319,6 +335,7 @@ export async function main(argv: string[]): Promise<number> {
 		console.log(HELP);
 		return 0;
 	}
+	assertFlagsForCommand(args);
 	const envFile = flag(args, "env-file");
 	if (envFile) process.loadEnvFile(resolve(envFile));
 	// O pacote do banco exige um pepper ao carregar; o eval não grava nada (o banco nem é usado).
