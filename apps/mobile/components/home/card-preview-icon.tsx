@@ -23,6 +23,7 @@ const ICONS: Record<CardIconKey, IconComponent> = {
 	compaction: CompactIcon,
 	agent: UserPlusIcon,
 	profile: UserCogIcon,
+	generic: FileIcon,
 };
 
 /** Ícone do tipo do card, sempre na cor muted, do tamanho do texto da prévia. */

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CARD_ICON_KEYS, CARD_PREVIEW_ROLES, cardPreviewOf, isMarkerRole, jsonTextField } from "./card-preview";
+import { CARD_ICON_KEYS, CARD_PREVIEW_ROLES, cardKindOfContent, cardPreviewOf, isMarkerRole, jsonTextField } from "./card-preview";
 
 // O servidor corta o `content` em 200 caracteres (`BOT_PREVIEW_MAX_CHARS`): os testes imitam isso.
 const wire = (card: object): string => JSON.stringify({ v: 1, ...card }).slice(0, 200);
@@ -113,5 +113,35 @@ describe("isMarkerRole", () => {
 		for (const role of ["tool-budget", "jev-status", "provider-fallback", "revised-draft"]) expect(isMarkerRole(role)).toBe(true);
 		expect(isMarkerRole("assistant")).toBe(false);
 		expect(isMarkerRole("chart")).toBe(false);
+	});
+});
+
+describe("card reconhecido pelo conteúdo (papel não diz que é card)", () => {
+	// Caso do print do dono: questionário cortado em 200 caracteres.
+	const printed = JSON.stringify({ v: 1, kind: "questionnaire", questionnaireId: "q1", title: "Preciso de algumas informações para montar o plano da sua viagem", status: "pending", items: [{ id: "a", question: "Para onde?" }] }).slice(0, 200);
+
+	it("questionário truncado em 200 caracteres com papel assistant", () => {
+		const preview = cardPreviewOf("assistant", printed);
+		expect(preview).toEqual({ icon: "questionnaire", title: "Preciso de algumas informações para montar o plano da sua viagem" });
+	});
+
+	it("título cortado: rótulo do tipo, nunca JSON", () => {
+		expect(cardPreviewOf("assistant", '{"v":1,"kind":"questionnaire","questionnai')).toEqual({ icon: "questionnaire", title: "Questionário" });
+	});
+
+	it("kind desconhecido ou cortado: rótulo genérico sem JSON", () => {
+		expect(cardPreviewOf("assistant", '{"v":1,"kind":"novo-tipo","x":1}')).toEqual({ icon: "generic", title: "Card" });
+		expect(cardPreviewOf("assistant", '{"v":1,"kin')).toEqual({ icon: "generic", title: "Card" });
+		expect(cardPreviewOf("assistant", '{"v":2,"x":1}')).toEqual({ icon: "generic", title: "Card" });
+	});
+
+	it("texto normal não é card", () => {
+		expect(cardPreviewOf("assistant", "Oi! Segue o plano")).toBeNull();
+		expect(cardPreviewOf("assistant", '{"title":"x"}')).toBeNull();
+	});
+
+	it("cardKindOfContent", () => {
+		expect(cardKindOfContent('{"v":1,"kind":"page","t')).toBe("page");
+		expect(cardKindOfContent("texto")).toBeNull();
 	});
 });

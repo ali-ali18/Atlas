@@ -22,10 +22,11 @@ export type CardIconKey =
 	| "code"
 	| "compaction"
 	| "agent"
-	| "profile";
+	| "profile"
+	| "generic";
 
 /** Todas as chaves de ícone (valida o que volta do cache do aparelho). */
-export const CARD_ICON_KEYS: readonly CardIconKey[] = ["chart", "panel", "document", "spreadsheet", "presentation", "images", "routine", "tasks", "questionnaire", "subagents", "login", "approval", "skill", "code", "compaction", "agent", "profile"];
+export const CARD_ICON_KEYS: readonly CardIconKey[] = ["chart", "panel", "document", "spreadsheet", "presentation", "images", "routine", "tasks", "questionnaire", "subagents", "login", "approval", "skill", "code", "compaction", "agent", "profile", "generic"];
 
 export type CardPreview = { icon: CardIconKey; title: string };
 
@@ -81,6 +82,24 @@ function imagesTitle(content: string): string {
  * Título do payload quando existe (nome da rotina, título do Painel, arquivo, pergunta); senão o rótulo do tipo.
  */
 export function cardPreviewOf(role: string, content: string): CardPreview | null {
+	const byRole = cardPreviewByKind(role, content);
+	if (byRole) return byRole;
+	// O papel não disse que é card (ex.: linha antiga ou papel genérico) mas o conteúdo é o JSON de um card:
+	// o `kind` do próprio payload decide, e nunca vaza JSON cru para a prévia.
+	const kind = cardKindOfContent(content);
+	if (kind === null) return null;
+	return cardPreviewByKind(kind, content) ?? { icon: "generic", title: "Card" };
+}
+
+/** `kind` de um card serializado (`{"v":1,"kind":"…`), lido do prefixo mesmo cortado em 200 caracteres. Formato fixo de `serializeConversationCard`. */
+export function cardKindOfContent(content: string): string | null {
+	const match = /^\s*\{\s*"v"\s*:\s*\d+\s*,\s*"kind"\s*:\s*"([^"\\]{1,60})"/.exec(content);
+	if (match) return match[1] ?? null;
+	// `kind` fora de ordem ou cortado: ainda é card (começa com `{"v":`), só não sabemos qual.
+	return /^\s*\{\s*"v"\s*:/.test(content) ? "" : null;
+}
+
+function cardPreviewByKind(role: string, content: string): CardPreview | null {
 	switch (role) {
 		case "chart": {
 			const head = content.split('"data"')[0] ?? content;
@@ -131,6 +150,12 @@ export function cardPreviewOf(role: string, content: string): CardPreview | null
 
 /** Papel de marcador interno (limite de ferramenta, fallback de modelo…): a conversa não tem prévia útil nele. */
 export const isMarkerRole = (role: string): boolean => MARKER_ROLES.has(role);
+
+/** Marcador interno cujo papel não veio como tal, mas o `kind` do conteúdo mostra que é. */
+export const isMarkerContent = (content: string): boolean => {
+	const kind = cardKindOfContent(content);
+	return kind !== null && MARKER_ROLES.has(kind);
+};
 
 /** Todo `role` que vira card na prévia (para a folha de ícones e os testes). */
 export const CARD_PREVIEW_ROLES = ["chart", "page", "file", "images", "routine", "routine-proposal", "task-list", "questionnaire", "subagents", "login", "confirm", "skill", "skill-proposal", "code-run", "compaction", "bot-proposal", "bot-profile"] as const;

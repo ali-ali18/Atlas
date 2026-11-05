@@ -96,6 +96,12 @@ describe("toHomeBot e busca", () => {
 });
 
 describe("previewOf", () => {
+	it("card serializado com papel assistant: ícone e título, nunca JSON cru", () => {
+		const content = JSON.stringify({ v: 1, kind: "questionnaire", questionnaireId: "q1", title: "Qual o orçamento?", status: "pending", items: [] }).slice(0, 200);
+		expect(previewOf({ lastMessage: { role: "assistant", content, createdAt: "2026-11-05T10:00:00Z" } })).toEqual({ text: "Qual o orçamento?", sent: false, card: "questionnaire" });
+		expect(previewOf({ lastMessage: { role: "assistant", content: '{"v":1,"kind":"zzz"}', createdAt: "2026-11-05T10:00:00Z" } })).toEqual({ text: "Card", sent: false, card: "generic" });
+		expect(previewOf({ lastMessage: { role: "assistant", content: '{"v":1,"kind":"tool-budget","x":1}', createdAt: "2026-11-05T10:00:00Z" } })).toEqual({ text: "", sent: false });
+	});
 	it("sem mensagem", () => expect(previewOf(bot("a"))).toEqual({ text: "", sent: false }));
 	it("limpa markdown", () => {
 		expect(stripMarkdownPreview("# Oi\n**negrito** e [link](http://x) `código`")).toBe("Oi negrito e link código");

@@ -3,7 +3,7 @@
 // fixado fica só na zona de fixados (fixar e seção são exclusivos), seção some se vazia, e quem não tem seção
 // (ou aponta para uma que não existe) vai para "Sem sessão".
 import { parseBotLinkCard, sourcePreviewPrefix, type Bot } from "@workspace/shared";
-import { cardPreviewOf, isMarkerRole, type CardIconKey } from "./card-preview";
+import { cardPreviewOf, isMarkerContent, isMarkerRole, type CardIconKey } from "./card-preview";
 import type { HomeBot, SectionRef } from "./home-types";
 
 export const NO_SECTION_KEY = "__sem-sessao";
@@ -50,7 +50,7 @@ export function previewOf(bot: Pick<Bot, "lastMessage">): RowPreview {
 		if (card) return { text: `Enviou mensagem para ${card.botName}${card.title ? `: ${card.title}` : ""}`, sent: true };
 		return { text: "", sent: false };
 	}
-	if (isMarkerRole(last.role)) return { text: "", sent: false };
+	if (isMarkerRole(last.role) || isMarkerContent(last.content)) return { text: "", sent: false };
 	const card = cardPreviewOf(last.role, last.content);
 	if (card) return { text: card.title, sent: false, card: card.icon };
 	const prefix = sourcePreviewPrefix(last.source);
