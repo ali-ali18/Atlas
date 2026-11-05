@@ -1,6 +1,7 @@
 import type { HandoffKind } from "@workspace/shared";
 import { z } from "zod";
 import { EFFECT_CLASSES, type Effect, isEffect } from "../contract/effects.js";
+import type { TrustSource } from "../contract/provenance.js";
 import type { LlmToolSpec } from "../ports/llm.js";
 import { inputJsonSchema, toLlmToolSpec } from "./tool-json-schema.js";
 import type { RiskFacts, ToolContext, ToolResult } from "./types.js";
@@ -19,6 +20,10 @@ export type ToolDefinition<S extends z.ZodObject> = {
 	riskFacts?: (args: z.output<S>) => RiskFacts;
 	/** Ação da lista fixa de handoff (trocar senha, aceitar termos…), decidida pela tool a partir dos args tipados. */
 	handoffKind?: (args: z.output<S>) => HandoffKind | undefined;
+	/** O resultado vem de fora (e-mail, web, arquivo, MCP de terceiro, outro bot)? Então é dado, nunca instrução, e vira taint do run. Padrão: confiável. */
+	trust?: "trusted" | "untrusted";
+	/** Obrigatório com `trust: "untrusted"`. */
+	source?: TrustSource;
 	/** A chamada encerra o turno (ex.: pergunta ao dono). */
 	endsTurn?: boolean;
 	execute: (args: z.output<S>, ctx: ToolContext) => Promise<ToolResult> | ToolResult;
@@ -30,6 +35,9 @@ export interface Tool {
 	readonly description: string;
 	readonly effect: Effect;
 	readonly endsTurn: boolean;
+	readonly trust: "trusted" | "untrusted";
+	/** Origem do dado quando `trust` é `untrusted`. */
+	readonly source?: TrustSource;
 	/** JSON Schema dos argumentos, gerado do zod uma vez; estável byte a byte. */
 	readonly jsonSchema: Readonly<Record<string, unknown>>;
 	/** Campos aceitos, na ordem do schema. */
@@ -80,6 +88,8 @@ export function defineTool<S extends z.ZodObject>(def: ToolDefinition<S>): Tool 
 	}
 	if (def.description.trim().length === 0) throw new Error(`defineTool(${def.name}): empty description.`);
 
+	if (def.trust === "untrusted" && !def.source) throw new Error(`defineTool(${def.name}): trust "untrusted" needs a source (email, web, file, mcp, other_bot).`);
+
 	const schema = def.inputSchema;
 	const acceptedFields = Object.freeze(Object.keys(schema.shape));
 	const jsonSchema = Object.freeze(inputJsonSchema(schema));
@@ -90,6 +100,8 @@ export function defineTool<S extends z.ZodObject>(def: ToolDefinition<S>): Tool 
 		description: def.description,
 		effect: baseEffect,
 		endsTurn: def.endsTurn === true,
+		trust: def.trust ?? "trusted",
+		...(def.source && { source: def.source }),
 		jsonSchema,
 		acceptedFields,
 		effectFor(rawArgs) {

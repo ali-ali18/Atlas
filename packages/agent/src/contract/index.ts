@@ -4,3 +4,4 @@ export * from "./authorize.js";
 export * from "./executor.js";
 export * from "./outcome.js";
 export * from "./sanitize.js";
+export * from "./provenance.js";

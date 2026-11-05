@@ -6,6 +6,7 @@ import type { Tool } from "../tools/define-tool.js";
 import type { ToolContext } from "../tools/types.js";
 import { type ApprovalGrant, type Hash, checkGrant, payloadHashOf, requestApproval } from "./approval.js";
 import { type PolicyContext, authorize } from "./authorize.js";
+import { RunProvenance } from "./provenance.js";
 import type { CallOutcome } from "./outcome.js";
 import { sanitizeText } from "./sanitize.js";
 
@@ -15,6 +16,8 @@ export type ExecutorDeps = {
 	ports: Ports;
 	hash: Hash;
 	policy: PolicyContext;
+	/** Proveniência do run. Para retomar, restaure de `ProvenanceSnapshot` (vai no checkpoint). */
+	provenance?: RunProvenance;
 	/** Valores do cofre usados neste run, para redigir mesmo sem padrão reconhecível. */
 	secrets?: () => readonly string[];
 	signal?: AbortSignal;
@@ -32,6 +35,7 @@ const HANDOFF_USER = "Esse passo é só seu. Te explico o que fazer e espero voc
 export function createExecutor(deps: ExecutorDeps) {
 	/** Pedidos de aprovação já executados neste run: o grant vale uma vez. */
 	const consumed = new Set<string>();
+	const provenance = deps.provenance ?? new RunProvenance();
 	const secrets = () => deps.secrets?.() ?? [];
 
 	async function executeCall(call: ToolCall): Promise<CallOutcome> {
@@ -50,7 +54,7 @@ export function createExecutor(deps: ExecutorDeps) {
 			effect,
 			toolName: tool.name,
 			handoffKind: tool.handoffKindFor(args),
-			taint: { untrustedReadInRun: false, argsCarryUntrusted: false },
+			taint: { untrustedReadInRun: provenance.untrustedReadInRun, argsCarryUntrusted: provenance.carries(args) },
 			riskFacts,
 			now: deps.ports.clock.now(),
 		});
@@ -68,13 +72,15 @@ export function createExecutor(deps: ExecutorDeps) {
 
 		const ctx: ToolContext = { runId: deps.runId, ownerId: deps.ownerId, ports: deps.ports, signal: deps.signal };
 		const result = await tool.run(args, ctx);
+		// Dado de fonte não confiável marca o run ANTES de voltar ao modelo (vale também para o texto de erro).
+		if (tool.trust === "untrusted" && tool.source) provenance.record(result.ok ? result.summary : result.error, tool.source);
 		if (!result.ok) {
 			return { status: "error", error: sanitizeText(result.error, secrets()), ...(result.hint && { hint: sanitizeText(result.hint, secrets()) }) };
 		}
 		return { status: "ok", summary: sanitizeText(result.summary, secrets()), ...(result.receipt && { receipt: result.receipt }) };
 	}
 
-	return { executeCall };
+	return { executeCall, provenance };
 }
 
 export type Executor = ReturnType<typeof createExecutor>;
