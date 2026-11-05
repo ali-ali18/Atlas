@@ -7,6 +7,7 @@ import { HomeHeader } from "@/components/home/home-header";
 import { PinnedGrid } from "@/components/home/pinned-grid";
 import { SearchFooter } from "@/components/home/search-footer";
 import { SectionBlock } from "@/components/home/section-block";
+import { Fade } from "@/components/ui/fade";
 import { ScreenFrame } from "@/components/ui/screen-frame";
 import { HomeBotMenu } from "@/components/home/home-bot-menu";
 import { HomeSectionMenu, commitSectionRename, type SectionMenuTarget } from "@/components/home/home-section-menu";
@@ -126,6 +127,8 @@ export default function HomeScreen() {
 				>
 					{body}
 				</ScrollView>
+				<Fade from="top" curve="linear" height={headerHeight + 24} className="absolute left-0 right-0 top-0" />
+				<Fade from="bottom" curve="linear" height={footerHeight + 24} className="absolute bottom-0 left-0 right-0" />
 				<View className="absolute left-0 right-0 top-0 z-10" style={{ paddingTop: insets.top }} onLayout={(event) => setHeaderHeight(Math.round(event.nativeEvent.layout.height))}>
 					<HomeHeader user={{ name, email, image }} onNew={() => router.push("/new-bot" as never)} />
 				</View>
