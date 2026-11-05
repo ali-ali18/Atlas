@@ -1,7 +1,6 @@
 import { parseCompactCommand } from "@workspace/shared";
 import * as React from "react";
-import { LayoutAnimation, Linking, Platform, Pressable, TextInput, useWindowDimensions, View } from "react-native";
-import { useReducedMotion } from "react-native-reanimated";
+import { Linking, Platform, Pressable, TextInput, useWindowDimensions, View } from "react-native";
 
 import type { ReplyQuote } from "@/lib/chat-types";
 import { AttachmentSheet, type AttachmentAction } from "./attachment-sheet";
@@ -10,6 +9,8 @@ import { pickDocuments, pickFromCamera, pickPhotos, type PickOutcome } from "@/l
 import type { OutgoingAttachment } from "@/lib/attachments";
 import type { ApiFetch } from "@/lib/home-sync";
 import { useAttachments } from "@/lib/use-attachments";
+import { COMPOSER_BUTTON, COMPOSER_INSET, COMPOSER_LINE_HEIGHT, COMPOSER_MIN_HEIGHT, COMPOSER_PILL_RADIUS, COMPOSER_STACKED_INSET, COMPOSER_STACKED_RADIUS } from "@/lib/composer-metrics";
+import { useStackedLayout } from "@/lib/use-stacked-layout";
 import { DictationBar } from "./dictation-bar";
 import { MARKER_HEIGHT, MarkerChip } from "./marker-chip";
 import { MentionPopup } from "./mention-popup";
@@ -25,17 +26,14 @@ import { themeColor } from "@/lib/theme";
 import { useSurfaces } from "@/lib/use-surfaces";
 import { useAppColorScheme } from "@/lib/use-theme";
 
-/** Composer magro como o do Grok (medido no print): 47 de altura externa (45 + borda), botões de 30, margem de 19,5. */
-const LINE_HEIGHT = 21;
-const MIN_HEIGHT = 45;
-const BUTTON = 30;
-/** Respiro dos botões na pílula (7,5 = a pílula de 45 fica com os botões de 30 centrados). */
-const INSET = 7.5;
-/** No retângulo (texto em várias linhas) os botões descolam da borda e do canto arredondado. */
-const STACKED_INSET = 10;
-const PILL_RADIUS = 28;
+const LINE_HEIGHT = COMPOSER_LINE_HEIGHT;
+const MIN_HEIGHT = COMPOSER_MIN_HEIGHT;
+const BUTTON = COMPOSER_BUTTON;
+const INSET = COMPOSER_INSET;
+const STACKED_INSET = COMPOSER_STACKED_INSET;
+const PILL_RADIUS = COMPOSER_PILL_RADIUS;
+const STACKED_RADIUS = COMPOSER_STACKED_RADIUS;
 const NO_BOTS: readonly BotCandidate[] = [];
-const STACKED_RADIUS = 24;
 
 /** Aviso do ditado (sem módulo, sem serviço de voz, permissão negada), acima do composer; permissão negada leva às configurações. */
 function DictationNotice({ problem }: { problem: DictationProblem }) {
@@ -167,7 +165,7 @@ export function Composer({ initialText, botName, color, foreground, running, api
 	React.useEffect(() => {
 		if (baselineMarkers.current !== hasMarkers) {
 			baselineMarkers.current = hasMarkers;
-			baseline.current = null;
+			resetBaseline();
 		}
 	}, [hasMarkers]);
 	const filled = hasContent(markers, text);
@@ -201,16 +199,12 @@ export function Composer({ initialText, botName, color, foreground, running, api
 	React.useEffect(() => {
 		if (replyId) inputRef.current?.focus();
 	}, [replyId]);
-	const [stacked, setStacked] = React.useState(false);
+	const { stacked, animate, measure, reset: resetStacked, resetBaseline } = useStackedLayout();
 	const [focused, setFocused] = React.useState(false);
-	const reducedMotion = useReducedMotion();
 	// Modo de escrita: campo com foco ou com texto (ou a folha de modelo aberta). Só nele aparece a pílula e o composer
 	// vira duas linhas (campo em cima, "+" e pílula à esquerda, microfone/enviar à direita). Fora dele, a pílula de uma linha.
 	const writing = focused || hasText || hasAttachments || holdWriting === true;
 	const open = stacked || writing;
-	const animate = () => {
-		if (!reducedMotion && Platform.OS !== "web") LayoutAnimation.configureNext(LayoutAnimation.create(180, LayoutAnimation.Types.easeInEaseOut, LayoutAnimation.Properties.opacity));
-	};
 	React.useEffect(() => {
 		if (writing) onWriting?.();
 		// biome-ignore lint/correctness/useExhaustiveDependencies: só quando entra no modo de escrita
@@ -221,7 +215,6 @@ export function Composer({ initialText, botName, color, foreground, running, api
 		if (held.current && !holdWriting) inputRef.current?.focus();
 		held.current = holdWriting === true;
 	}, [holdWriting]);
-	const baseline = React.useRef<number | null>(null);
 	const [webHeight, setWebHeight] = React.useState(0);
 	// O campo cresce com o texto até 40% da tela e rola por dentro depois disso.
 	const maxFieldHeight = Math.round(useWindowDimensions().height * 0.4);
@@ -232,8 +225,7 @@ export function Composer({ initialText, botName, color, foreground, running, api
 	const clearField = () => {
 		setText("");
 		setMarkers([]);
-		setStacked(false);
-		baseline.current = null;
+		resetStacked();
 	};
 	// Ditado: o falado entra no campo (somado ao que havia) para revisar, ou segue direto para o envio; cancelar não mexe no campo.
 	// `latest` guarda o estado de agora para o callback do controlador, que vive além de um render.
@@ -259,6 +251,11 @@ export function Composer({ initialText, botName, color, foreground, running, api
 	};
 	const dictation = useDictation({ onFinish: onDictationFinish, onProblem: setDictationNotice });
 	const dictating = dictation.phase !== "idle";
+	// A barra de voz empilhou (texto falado quebrou): a caixa troca para o raio do retângulo, como o campo.
+	const [dictationStacked, setDictationStacked] = React.useState(false);
+	React.useEffect(() => {
+		if (!dictating) setDictationStacked(false);
+	}, [dictating]);
 	React.useEffect(() => {
 		if (!dictationNotice) return;
 		const timer = setTimeout(() => setDictationNotice(null), 8000);
@@ -318,11 +315,11 @@ export function Composer({ initialText, botName, color, foreground, running, api
 		<View className="mb-2 gap-2" style={{ marginHorizontal: 19.5 }}>
 			{trigger ? <MentionPopup state={trigger} loading={skillsLoading} failed={skillsFailed} limitReached={skillLimit} onRetry={onSlash} onPick={pick} onPressChange={(down) => { pressing.current = down; }} commandBusy={running} /> : null}
 			{dictationNotice ? <DictationNotice problem={dictationNotice} /> : null}
-			<View className="overflow-hidden border" style={{ borderRadius: (open || replyTo || hasAttachments) && !dictating ? STACKED_RADIUS : PILL_RADIUS, borderColor: surfaces.chromeEdge, backgroundColor: surfaces.chromeFill }}>
+			<View className="overflow-hidden border" style={{ borderRadius: (dictating ? dictationStacked : open || replyTo || hasAttachments) ? STACKED_RADIUS : PILL_RADIUS, borderColor: surfaces.chromeEdge, backgroundColor: surfaces.chromeFill }}>
 				{replyTo && onCancelReply ? <ReplyChip quote={replyTo} onCancel={onCancelReply} /> : null}
 				{!dictating ? <ComposerAttachments drafts={attachments.drafts} notice={pickNotice ?? attachments.notice} onRemove={attachments.remove} /> : null}
 				{dictating ? (
-					<DictationBar spoken={dictation.spoken} color={color} foreground={onColor} busy={dictation.phase === "stopping"} onCancel={dictation.cancel} onStop={() => dictation.stop("review")} onSend={() => dictation.stop("send")} />
+					<DictationBar spoken={dictation.spoken} color={color} foreground={onColor} busy={dictation.phase === "stopping"} onStackedChange={setDictationStacked} onCancel={dictation.cancel} onStop={() => dictation.stop("review")} onSend={() => dictation.stop("send")} />
 				) : null}
 				{/*
 				  Um só TextInput nos dois formatos (assim o foco e o teclado não se perdem na troca). Os botões ficam sempre
@@ -375,8 +372,7 @@ export function Composer({ initialText, botName, color, foreground, running, api
 							if (hasContent(markers, read.text) !== hasText) animate();
 							setText(read.text);
 							if (read.text.length === 0) {
-								setStacked(false);
-								baseline.current = null;
+								resetStacked();
 							}
 						}}
 						onContentSizeChange={(event) => {
@@ -385,10 +381,8 @@ export function Composer({ initialText, botName, color, foreground, running, api
 							if (Platform.OS === "web") setWebHeight(height);
 							// Com chips o composer já é o retângulo e a altura base é outra (sem o respiro): não entra na conta de quebra de linha.
 							if (hasMarkers) return;
-							// A altura de uma linha varia por plataforma (com ou sem o padding): a menor medida é a base.
-							if (baseline.current === null || height < baseline.current) baseline.current = height;
 							// Quebrou em mais de uma linha: vira retângulo. Fica assim até esvaziar (sem vai e volta).
-							else if (height - baseline.current >= LINE_HEIGHT * 0.8) setStacked(true);
+							measure(height);
 						}}
 						selection={forcedSelection}
 						onSelectionChange={(event) => {

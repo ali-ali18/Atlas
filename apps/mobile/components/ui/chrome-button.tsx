@@ -2,8 +2,8 @@ import * as React from "react";
 import { Pressable } from "react-native";
 import { useSurfaces } from "@/lib/use-surfaces";
 
-/** Tamanhos do botão redondo: `lg` é o do topo do chat (47 dp, medido no Grok), `md` o de linha de cabeçalho, `sm` o compacto. */
-export const CHROME_BUTTON_SIZE = { lg: 47, md: 44, sm: 36 } as const;
+/** Tamanhos do botão redondo: `lg` é o do topo do chat (47 dp, medido no Grok), `md` o de linha de cabeçalho, `sm` o compacto, `xs` o dos botões do composer (30). */
+export const CHROME_BUTTON_SIZE = { lg: 47, md: 44, sm: 36, xs: 30 } as const;
 export type ChromeButtonSize = keyof typeof CHROME_BUTTON_SIZE;
 
 export type ChromeButtonProps = { label: string; onPress: () => void; children: React.ReactNode; size?: ChromeButtonSize; disabled?: boolean };
