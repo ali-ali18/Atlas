@@ -1,5 +1,6 @@
 import { DIMENSIONS, DIMENSION_LABELS, dimensionMean, disputedRate, meanQuality, type QualityAgg } from "../quality.js";
-import { passRateOf, type Agg, type MatrixSummary } from "./aggregate.js";
+import { ERROR_KINDS, ERROR_KIND_LABELS } from "../error-kind.js";
+import { cleanPassRateOf, cleanRunsOf, passRateOf, type Agg, type MatrixSummary } from "./aggregate.js";
 
 /** Relatório Markdown do matrix (determinístico: só formata o resumo). */
 
@@ -25,6 +26,18 @@ const qualityCell = (quality: QualityAgg | undefined): string => {
 	return `${score(meanQuality(quality))} (${extra.join(", ")})`;
 };
 
+/** `2 corte(s) de tempo do runtime, 1 erro(s) do provedor`; `-` sem erros de execução. */
+const errorKindsCell = (agg: Agg | undefined): string => {
+	const parts = agg ? ERROR_KINDS.filter((kind) => agg.errorKinds[kind] > 0).map((kind) => `${agg.errorKinds[kind]} ${ERROR_KIND_LABELS[kind]}`) : [];
+	return parts.join(", ") || "-";
+};
+/** Acerto só nas execuções sem erro de execução: `85% (17/20)`; `-` quando não sobrou nenhuma. */
+const cleanCell = (agg: Agg | undefined): string => {
+	if (!agg) return "-";
+	const rate = cleanPassRateOf(agg);
+	return rate === null ? "-" : `${pct(rate)} (${agg.passes}/${cleanRunsOf(agg)})`;
+};
+
 const failing = (agg: Agg): string =>
 	Object.entries(agg.failing)
 		.sort((a, b) => b[1] - a[1])
@@ -37,7 +50,7 @@ export const READING_LEGEND: Record<string, string> = {
 	modelo: "passa no forte e falha só nos baratos (ou só em alguns modelos)",
 	"instável": "as repetições divergem: olhar temperatura, prompt ambíguo, ordem de tools",
 	inconclusivo: "um forte falha onde um barato passa: conferir a expectativa",
-	"erro de execução": "todas as execuções acabaram em erro (chave, rede, tempo)",
+	"erro de execução": "todas as execuções acabaram em erro de execução (corte de tempo do runtime, erro do provedor): não diz nada sobre o modelo. Nos demais vereditos, essas execuções são desconsideradas e a nota diz quantas",
 	indefinido: "sem dados suficientes (pulado pelo teto ou um só modelo fraco que falha)",
 };
 
@@ -85,17 +98,22 @@ export function formatMatrixReport(summary: MatrixSummary): string {
 	out.push("## Por modelo", "");
 	out.push(
 		table(
-			["motor", "modelo", "acerto", "execuções", "pulados", "passos/exec", "tokens in/out por exec", "custo", "duração média"],
+			["motor", "modelo", "acerto", "acerto sem erros de execução", "erros de execução", "execuções", "pulados", "passos/exec", "tokens in/out por exec", "custo", "duração média"],
 			summary.engines.flatMap((engine) =>
 				summary.models.map((model) => {
 					const agg = summary.byModel[engine]?.[model];
-					if (!agg) return [engine, model, "-", "0", "0", "-", "-", usd(0), "-"];
-					return [engine, model, `${pct(passRateOf(agg))} (${agg.passes}/${agg.runs})`, String(agg.runs), String(agg.skipped), avg(agg.steps, agg.runs).toFixed(1), `${ktok(avg(agg.promptTokens, agg.runs))} / ${ktok(avg(agg.completionTokens, agg.runs))}`, usd(agg.costUsd, agg.costUnknown), `${(avg(agg.durationMs, agg.runs) / 1000).toFixed(1)}s`];
+					if (!agg) return [engine, model, "-", "-", "-", "0", "0", "-", "-", usd(0), "-"];
+					return [engine, model, `${pct(passRateOf(agg))} (${agg.passes}/${agg.runs})`, cleanCell(agg), errorKindsCell(agg), String(agg.runs), String(agg.skipped), avg(agg.steps, agg.runs).toFixed(1), `${ktok(avg(agg.promptTokens, agg.runs))} / ${ktok(avg(agg.completionTokens, agg.runs))}`, usd(agg.costUsd, agg.costUnknown), `${(avg(agg.durationMs, agg.runs) / 1000).toFixed(1)}s`];
 				}),
 			),
 		),
 		"",
 	);
+	out.push("`acerto` conta todas as execuções (erro de execução reprova). `acerto sem erros de execução` tira as que acabaram em corte de tempo do runtime ou erro do provedor, que não dizem nada sobre o modelo.", "");
+	const runtimeTimeouts = summary.engines.flatMap((engine) => summary.models.map((model) => ({ engine, model, count: summary.byModel[engine]?.[model]?.errorKinds.runtime_timeout ?? 0 }))).filter((item) => item.count > 0);
+	if (runtimeTimeouts.length > 0) {
+		out.push(`**Corte de tempo do runtime:** ${runtimeTimeouts.map((item) => `${item.count} em \`${item.model}\` (${item.engine})`).join("; ")}. É defeito do harness (o runtime desistiu esperando o provedor ou estourou o prazo da decisão), não falha de raciocínio do modelo: não vai para a coluna "modelo" da leitura harness × modelo, mas também não some do acerto.`, "");
+	}
 	if (summary.engineDeltas.length > 0) {
 		out.push("### Diferença entre motores (pontos percentuais de acerto)", "");
 		out.push(table(["modelo", "motor", "base", "acerto base", "acerto", "Δ pp"], summary.engineDeltas.map((delta) => [delta.model, delta.engine, delta.base, pct(delta.basePassRate), pct(delta.passRate), delta.deltaPp === null ? "-" : `${delta.deltaPp > 0 ? "+" : ""}${delta.deltaPp}`])), "");
@@ -187,13 +205,13 @@ export function formatMatrixReport(summary: MatrixSummary): string {
 	out.push("## Detalhe por cenário × motor × modelo", "");
 	out.push(
 		table(
-			["cenário", "motor", "modelo", "acertos", "checks que falharam", ...(summary.judging ? ["qualidade"] : []), "passos", "tokens in/out", "custo", "duração", "pulados"],
+			["cenário", "motor", "modelo", "acertos", "erros de execução", "checks que falharam", ...(summary.judging ? ["qualidade"] : []), "passos", "tokens in/out", "custo", "duração", "pulados"],
 			summary.scenarios.flatMap((scenario) =>
 				summary.engines.flatMap((engine) =>
 					summary.models.map((model) => {
 						const agg = summary.cells[scenario.id]?.[engine]?.[model];
-						if (!agg) return [scenario.id, engine, model, "-", "-", ...(summary.judging ? ["-"] : []), "-", "-", "-", "-", "0"];
-						return [scenario.id, engine, model, ratio(agg), failing(agg), ...(summary.judging ? [qualityCell(agg.quality)] : []), avg(agg.steps, agg.runs).toFixed(1), `${ktok(avg(agg.promptTokens, agg.runs))} / ${ktok(avg(agg.completionTokens, agg.runs))}`, usd(agg.costUsd, agg.costUnknown), `${(avg(agg.durationMs, agg.runs) / 1000).toFixed(1)}s`, String(agg.skipped)];
+						if (!agg) return [scenario.id, engine, model, "-", "-", "-", ...(summary.judging ? ["-"] : []), "-", "-", "-", "-", "0"];
+						return [scenario.id, engine, model, ratio(agg), errorKindsCell(agg), failing(agg), ...(summary.judging ? [qualityCell(agg.quality)] : []), avg(agg.steps, agg.runs).toFixed(1), `${ktok(avg(agg.promptTokens, agg.runs))} / ${ktok(avg(agg.completionTokens, agg.runs))}`, usd(agg.costUsd, agg.costUnknown), `${(avg(agg.durationMs, agg.runs) / 1000).toFixed(1)}s`, String(agg.skipped)];
 					}),
 				),
 			),

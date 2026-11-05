@@ -119,6 +119,27 @@ describe("matrix real com provedores injetados", () => {
 		await expect(runMatrix({ scenarios, engines: ["v2"], models: MODELS, mode: "real", env: { CLAUDE_KEY: "a", OPENCODE_GO_API_KEY: "b" }, isStrong: strongMatcher() })).rejects.toThrow(/max-usd/);
 	});
 
+	it("timeout do runtime e erro HTTP do provedor saem tipados (errorKind), cada um no seu contador (auditoria F0, C1)", async () => {
+		const timeoutError = () => new DOMException("First event or idle timeout", "TimeoutError");
+		const providers: MatrixProviders = {
+			anthropic: async () => {
+				throw timeoutError();
+			},
+			opencodeGo: async () => {
+				throw new Error("OpenCode Go está indisponível no momento (HTTP 429).");
+			},
+			openrouter: async () => {
+				throw new Error("boom");
+			},
+		};
+		const result = await runMatrix({ scenarios: scenarios.slice(0, 1), engines: ["v2"], models: MODELS, repeat: 1, mode: "real", capUsd: 5, env: { CLAUDE_KEY: "k1", OPENCODE_GO_API_KEY: "k2" }, providers, isStrong: strongMatcher() });
+		const byModel = Object.fromEntries(result.runs.map((item) => [item.model, item.errorKind]));
+		expect(byModel).toEqual({ [MODELS[0]!]: "runtime_timeout", [MODELS[1]!]: "provider" });
+		expect(result.summary.byModel.v2![MODELS[0]!]!.errorKinds).toEqual({ runtime_timeout: 1, provider: 0 });
+		expect(result.summary.byModel.v2![MODELS[1]!]!.errorKinds).toEqual({ runtime_timeout: 0, provider: 1 });
+		expect(result.markdown).toContain("**Corte de tempo do runtime:** 1 em");
+	}, 60_000);
+
 	it("chave que aparece num erro do provedor não chega ao relatório nem ao JSONL", async () => {
 		const secret = "sk-ant-api03-SEGREDO-123456";
 		const outDir = await tmp();

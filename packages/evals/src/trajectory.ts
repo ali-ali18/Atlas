@@ -17,6 +17,8 @@ export type RecordedModelCall = {
 	usage?: { promptTokens?: number; completionTokens?: number; costUsd?: number; costUnknown?: boolean };
 	durationMs: number;
 	error?: string;
+	/** `name` do erro lançado pelo provedor/runtime (ex.: `TimeoutError`, de `DOMException`): classificação sem ler texto. */
+	errorName?: string;
 };
 
 export type RecordedToolCall = { id: string; name: string; args: Record<string, unknown>; argsRaw: string; step?: number };
@@ -36,6 +38,8 @@ export type Trajectory = {
 	/** Por que o run terminou (motivo e detalhe do runtime), quando ele devolve. */
 	stop?: { reason: string; detail?: string };
 	error?: string;
+	/** `name` do erro que encerrou o run (ver `RecordedModelCall.errorName`). */
+	errorName?: string;
 	timedOut?: boolean;
 	modelCalls: RecordedModelCall[];
 	toolCalls: RecordedToolCall[];

@@ -61,6 +61,7 @@ export async function runScenario(scenario: Scenario, options: RunScenarioOption
 	let text = "";
 	let stop: Trajectory["stop"];
 	let error: string | undefined;
+	let errorName: string | undefined;
 
 	const recordingStream: StreamChat = async (params, handlers) => {
 		const call: RecordedModelCall = {
@@ -82,6 +83,7 @@ export async function runScenario(scenario: Scenario, options: RunScenarioOption
 			return result;
 		} catch (caught) {
 			call.error = caught instanceof Error ? caught.message.slice(0, 300) : "erro";
+			if (caught instanceof Error) call.errorName = caught.name;
 			throw caught;
 		} finally {
 			call.durationMs = Date.now() - begin;
@@ -142,6 +144,7 @@ export async function runScenario(scenario: Scenario, options: RunScenarioOption
 		}
 	} catch (caught) {
 		error = caught instanceof Error ? caught.message.slice(0, 500) : "erro desconhecido";
+		if (caught instanceof Error) errorName = caught.name;
 	} finally {
 		clearTimeout(timer);
 	}
@@ -172,6 +175,7 @@ export async function runScenario(scenario: Scenario, options: RunScenarioOption
 		text,
 		...(stop ? { stop } : {}),
 		...(error ? { error } : {}),
+		...(errorName ? { errorName } : {}),
 		...(timedOut ? { timedOut } : {}),
 		modelCalls,
 		toolCalls,

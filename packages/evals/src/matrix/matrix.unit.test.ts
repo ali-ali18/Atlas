@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { CompleteChatWithToolsParams, CompleteChatWithToolsResult } from "@workspace/llm";
-import { capabilityOf, setOf, summarizeMatrix, type MatrixRun } from "./aggregate.js";
+import { capabilityOf, cleanPassRateOf, cleanRunsOf, passRateOf, setOf, summarizeMatrix, type MatrixRun } from "./aggregate.js";
 import { formatMatrixReport } from "./format.js";
 import { BudgetGuard, countThatFit } from "./budget.js";
 import { resolveEngines } from "./engines.js";
@@ -319,6 +319,60 @@ describe("relatório Markdown (auditoria F0, B1)", () => {
 		const columns = (line: string) => line.replace(/\\\|/g, "").split("|").length;
 		const header = lines.find((line) => line.startsWith("| cenário | motor | modelo |"))!;
 		expect(columns(row)).toBe(columns(header));
+	});
+});
+
+describe("erros de execução não são falha do modelo (auditoria F0, C1)", () => {
+	const strong = "anthropic/claude-sonnet-5-5";
+	const cheap = "opencode-go/deepseek-v4.1-flash";
+	const options = { engines: ["v2"], models: [strong, cheap], scenarios: [{ id: "s1", capability: "email" }], repeat: 4, mode: "real" as const, isStrong: strongMatcher(), createdAt: "2026-11-05T00:00:00.000Z" };
+	const timeout = (repeat: number) => run({ model: cheap, provider: "opencode-go", repeat, pass: false, failedChecks: ["completed"], error: "First event or idle timeout", errorKind: "runtime_timeout" });
+	const provider = (repeat: number) => run({ model: cheap, provider: "opencode-go", repeat, pass: false, failedChecks: ["completed"], error: "HTTP 429", errorKind: "provider" });
+	const cheapOk = (repeat: number) => run({ model: cheap, provider: "opencode-go", repeat });
+	const strongOk = [0, 1, 2, 3].map((repeat) => run({ model: strong, repeat }));
+
+	it("agrega acerto de todas as execuções, acerto sem erros de execução e contagem por tipo", () => {
+		const summary = summarizeMatrix([...strongOk, cheapOk(0), cheapOk(1), timeout(2), provider(3)], options);
+		const agg = summary.byModel.v2![cheap]!;
+		expect(agg).toMatchObject({ runs: 4, passes: 2, errors: 2, errorKinds: { runtime_timeout: 1, provider: 1 } });
+		expect(passRateOf(agg)).toBe(0.5);
+		expect(cleanRunsOf(agg)).toBe(2);
+		expect(cleanPassRateOf(agg)).toBe(1);
+		expect(summary.byModel.v2![strong]!.errorKinds).toEqual({ runtime_timeout: 0, provider: 0 });
+	});
+
+	it("o barato que só deu timeout não vira 'modelo' na leitura; o relatório diz o que foi desconsiderado", () => {
+		const runs = [...strongOk, timeout(0), timeout(1), timeout(2), timeout(3)];
+		const summary = summarizeMatrix(runs, options);
+		// Antes: forte 4/4 + barato 0/4 = "modelo". Agora o barato não tem execução limpa.
+		expect(summary.readings.s1!.v2!.verdict).not.toBe("modelo");
+		expect(summary.readings.s1!.v2!.reason).toContain("desconsiderado: 4 corte de tempo do runtime");
+	});
+
+	it("falha real do modelo continua 'modelo' mesmo com timeouts misturados", () => {
+		const wrong = (repeat: number) => run({ model: cheap, provider: "opencode-go", repeat, pass: false, failedChecks: ["tool_called"] });
+		const summary = summarizeMatrix([...strongOk, wrong(0), wrong(1), timeout(2), timeout(3)], options);
+		expect(summary.readings.s1!.v2!.verdict).toBe("modelo");
+		expect(summary.readings.s1!.v2!.reason).toContain("desconsiderado: 2 corte de tempo do runtime");
+	});
+
+	it("tudo em erro de execução = 'erro de execução', não 'harness' nem 'modelo'", () => {
+		const allTimeouts = [0, 1, 2, 3].flatMap((repeat) => [run({ model: strong, repeat, pass: false, failedChecks: ["completed"], error: "tempo esgotado (180s)", errorKind: "runtime_timeout" as const }), timeout(repeat)]);
+		const summary = summarizeMatrix(allTimeouts, options);
+		expect(summary.readings.s1!.v2!.verdict).toBe("erro de execução");
+		expect(summary.readings.s1!.v2!.reason).toContain("não diz nada sobre o modelo");
+	});
+
+	it("o matrix.md mostra as duas colunas de acerto, as contagens por tipo e o corte de tempo como defeito do runtime", () => {
+		const markdown = formatMatrixReport(summarizeMatrix([...strongOk, cheapOk(0), cheapOk(1), timeout(2), provider(3)], options));
+		expect(markdown).toContain("acerto sem erros de execução");
+		expect(markdown).toMatch(/opencode-go\/deepseek-v4\.1-flash \| 50% \(2\/4\) \| 100% \(2\/2\) \| 1 corte de tempo do runtime, 1 erro do provedor \|/);
+		expect(markdown).toContain("**Corte de tempo do runtime:** 1 em `opencode-go/deepseek-v4.1-flash` (v2)");
+		expect(markdown).toContain("defeito do harness");
+	});
+
+	it("sem erros de execução não há aviso de runtime", () => {
+		expect(formatMatrixReport(summarizeMatrix([...strongOk, cheapOk(0)], options))).not.toContain("**Corte de tempo do runtime:**");
 	});
 });
 

@@ -9,6 +9,7 @@ import { pool } from "../runner.js";
 import { runScenario } from "../run-scenario.js";
 import type { Scenario } from "../scenario.js";
 import type { RunRecord } from "../trajectory.js";
+import { classifyRunError } from "../error-kind.js";
 import { capabilityOf, summarizeMatrix, type MatrixRun, type MatrixSummary } from "./aggregate.js";
 import { BudgetGuard } from "./budget.js";
 import { ENGINE_ADAPTERS, resolveEngines, type EngineAdapter } from "./engines.js";
@@ -151,6 +152,7 @@ export async function runMatrix(options: MatrixOptions): Promise<MatrixResult> {
 				failedChecks: checks.filter((item) => !item.pass && !item.skipped).map((item) => item.name),
 				...(quality ? { quality } : {}),
 				...(trajectory.error ? { error: redact(trajectory.error).slice(0, 300) } : {}),
+				...(classifyRunError(trajectory) ? { errorKind: classifyRunError(trajectory)! } : {}),
 				steps: trajectory.modelCalls.filter((call) => call.kind === "main").length,
 				promptTokens: trajectory.tokens.prompt,
 				completionTokens: trajectory.tokens.completion,

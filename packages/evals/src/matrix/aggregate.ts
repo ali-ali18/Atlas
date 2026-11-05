@@ -1,3 +1,4 @@
+import { ERROR_KINDS, ERROR_KIND_LABELS, type ErrorKind } from "../error-kind.js";
 import { addQuality, emptyQualityAgg, type QualityAgg, type RunQuality } from "../quality.js";
 import { diagnose, type ModelStat, type Verdict } from "../verdict.js";
 
@@ -15,6 +16,8 @@ export type MatrixRun = {
 	pass: boolean;
 	failedChecks: string[];
 	error?: string;
+	/** Natureza do erro de execução (corte de tempo do runtime ou erro do provedor); ausente = sem erro, ou erro do modelo. */
+	errorKind?: ErrorKind;
 	steps: number;
 	promptTokens: number;
 	completionTokens: number;
@@ -31,6 +34,8 @@ export type Agg = {
 	runs: number;
 	passes: number;
 	errors: number;
+	/** Execuções por natureza do erro de execução: infraestrutura, não falha do modelo. */
+	errorKinds: Record<ErrorKind, number>;
 	skipped: number;
 	failing: Record<string, number>;
 	steps: number;
@@ -43,7 +48,7 @@ export type Agg = {
 	quality: QualityAgg;
 };
 
-const emptyAgg = (): Agg => ({ runs: 0, passes: 0, errors: 0, skipped: 0, failing: {}, steps: 0, promptTokens: 0, completionTokens: 0, costUsd: 0, costUnknown: false, durationMs: 0, quality: emptyQualityAgg() });
+const emptyAgg = (): Agg => ({ runs: 0, passes: 0, errors: 0, errorKinds: { runtime_timeout: 0, provider: 0 }, skipped: 0, failing: {}, steps: 0, promptTokens: 0, completionTokens: 0, costUsd: 0, costUnknown: false, durationMs: 0, quality: emptyQualityAgg() });
 
 function add(agg: Agg, run: MatrixRun): void {
 	if (run.status === "skipped_budget") {
@@ -53,6 +58,7 @@ function add(agg: Agg, run: MatrixRun): void {
 	agg.runs += 1;
 	if (run.pass) agg.passes += 1;
 	if (run.error) agg.errors += 1;
+	if (run.errorKind) agg.errorKinds[run.errorKind] += 1;
 	for (const name of run.failedChecks) agg.failing[name] = (agg.failing[name] ?? 0) + 1;
 	agg.steps += run.steps;
 	agg.promptTokens += run.promptTokens;
@@ -116,6 +122,15 @@ export type MatrixSummary = {
 	engineDeltas: EngineDelta[];
 };
 
+/** Execuções sem erro de execução (nem corte de tempo do runtime, nem erro do provedor): as que dizem algo sobre o modelo. */
+export const cleanRunsOf = (agg: Pick<Agg, "runs" | "errorKinds">): number => agg.runs - ERROR_KINDS.reduce((sum, kind) => sum + agg.errorKinds[kind], 0);
+
+/** Acerto só nas execuções sem erro de execução (`null` se não sobrou nenhuma). `passes` não inclui erro, então vale o mesmo numerador. */
+export const cleanPassRateOf = (agg: Pick<Agg, "runs" | "passes" | "errorKinds">): number | null => {
+	const clean = cleanRunsOf(agg);
+	return clean <= 0 ? null : agg.passes / clean;
+};
+
 export const passRateOf = (agg: Pick<Agg, "runs" | "passes">): number | null => (agg.runs === 0 ? null : agg.passes / agg.runs);
 
 export function summarizeMatrix(
@@ -148,11 +163,19 @@ export function summarizeMatrix(
 	const readings: MatrixSummary["readings"] = {};
 	for (const scenario of options.scenarios) {
 		for (const engine of options.engines) {
-			const stats: ModelStat[] = options.models.map((model) => {
-				const agg = cells[scenario.id]?.[engine]?.[model] ?? emptyAgg();
-				return { model, runs: agg.runs, passes: agg.passes, errors: agg.errors, failing: agg.failing, costUsd: agg.costUsd, costUnknown: agg.costUnknown };
+			// Timeout do runtime e erro do provedor não são falha do modelo: a leitura harness × modelo usa só as execuções
+			// limpas, e o relatório diz quantas foram desconsideradas e por quê.
+			const aggs = options.models.map((model) => cells[scenario.id]?.[engine]?.[model] ?? emptyAgg());
+			const stats: ModelStat[] = options.models.map((model, index) => {
+				const agg = aggs[index]!;
+				return { model, runs: cleanRunsOf(agg), passes: agg.passes, errors: Math.max(0, agg.errors - ERROR_KINDS.reduce((sum, kind) => sum + agg.errorKinds[kind], 0)), failing: agg.failing, costUsd: agg.costUsd, costUnknown: agg.costUnknown };
 			});
-			const reading = diagnose(stats, options.isStrong);
+			const infra = ERROR_KINDS.map((kind) => ({ kind, count: aggs.reduce((sum, agg) => sum + agg.errorKinds[kind], 0) })).filter((item) => item.count > 0);
+			const infraNote = infra.map((item) => `${item.count} ${ERROR_KIND_LABELS[item.kind]}`).join(", ");
+			let reading = diagnose(stats, options.isStrong);
+			if (infra.length > 0) {
+				reading = stats.every((stat) => stat.runs === 0) ? { verdict: "erro de execução", reason: `todas as execuções acabaram em erro de execução (${infraNote}): não diz nada sobre o modelo` } : { ...reading, reason: `${reading.reason} (desconsiderado: ${infraNote})` };
+			}
 			// Lacuna conhecida do motor (tag `lacuna-<motor>`): continua sendo culpa do harness, mas o relatório diz que já se
 			// sabia (o motor não oferece a ferramenta certa), para ninguém caçar defeito de modelo ou de cenário.
 			const knownGap = (scenario.tags ?? []).includes(`lacuna-${engine}`) && reading.verdict === "harness/instruções";
