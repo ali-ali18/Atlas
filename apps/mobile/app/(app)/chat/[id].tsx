@@ -26,7 +26,7 @@ import { ScreenFrame } from "@/components/ui/screen-frame";
 import { Spinner } from "@/components/ui/spinner";
 import { Text } from "@/components/ui/text";
 import { useAtlasSession } from "@/lib/atlas-session";
-import { botColors } from "@/lib/bot-color";
+import { useAccentColors } from "@/lib/use-bot-accent";
 import { exchangePeerId } from "@/lib/bot-thread";
 import { themeColor } from "@/lib/theme";
 import { useAppColorScheme } from "@/lib/use-theme";
@@ -152,10 +152,7 @@ export default function ChatScreen() {
 	const startReply = React.useCallback((item: ChatItem) => setReplyTo(replyQuoteFor(item)), []);
 	const messageMenu = useMessageMenu({ chat, goBack, composerHeight, onReply: startReply });
 	// Cor do bot para o botão do composer (destaque e o que fica por cima dele).
-	const palette = React.useMemo(
-		() => botColors(resolveColor(bot?.color, id), { accent: themeColor(scheme, "primary"), foreground: themeColor(scheme, "primary-foreground") }),
-		[bot?.color, id, scheme],
-	);
+	const palette = useAccentColors(bot?.color, id);
 	// Balão do usuário na cor do bot, como no web (`grokBubbleColors`: o tom do Grok; texto branco, ou escuro em cor clara); sem cor válida, cinza.
 	const userBubble = React.useMemo(() => grokBubbleColors(bot?.color) ?? undefined, [bot?.color]);
 	// Conversa entre bots: a linha "N mensagens com X" abre a tela somente leitura (o servidor só entrega se os dois são do dono).

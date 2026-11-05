@@ -28,7 +28,7 @@ describe("preferências guardadas no aparelho", () => {
 
 	it("lê o que foi guardado", async () => {
 		getItemAsync.mockResolvedValue('{"theme":"dark","haptics":false,"autoTimezone":true}');
-		await expect(loadPreferences()).resolves.toEqual({ theme: "dark", haptics: false, autoTimezone: true });
+		await expect(loadPreferences()).resolves.toEqual({ theme: "dark", accent: "bot", haptics: false, autoTimezone: true });
 	});
 });
 

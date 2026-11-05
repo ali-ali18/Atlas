@@ -60,7 +60,10 @@ export const colorTokens = {
 	},
 } as const;
 
-export type ColorScheme = keyof typeof colorTokens;
+/** Oito matizes da roda de cores do ícone "Cor do bot" (Aparência): cor de ilustração, não de tela. */
+export const COLOR_WHEEL = ["#e5484d", "#f76b15", "#f5d90a", "#46a758", "#12a594", "#3e63dd", "#6e56cf", "#d6409f"] as const;
+
+export type ColorScheme =keyof typeof colorTokens;
 export type ColorToken = keyof (typeof colorTokens)["light"];
 
 export function themeColor(scheme: ColorScheme, token: ColorToken): string {

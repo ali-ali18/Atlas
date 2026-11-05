@@ -65,8 +65,11 @@ import {
 	ClipboardPaste as LucideClipboardPaste,
 	CircleHelp as LucideCircleHelp,
 	Keyboard as LucideKeyboard,
+	Moon as LucideMoon,
+	Sun as LucideSun,
 } from "lucide-react-native";
-import Svg, { Path, Rect } from "react-native-svg";
+import Svg, { Circle, Path, Rect } from "react-native-svg";
+import { COLOR_WHEEL } from "@/lib/color-tokens";
 import { themeColor, type ColorToken } from "@/lib/theme";
 import { useAppColorScheme } from "@/lib/use-theme";
 
@@ -445,4 +448,49 @@ export function EyeOffIcon({ size = 18, tone = "muted-foreground" }: LineIconPro
 /** Lucide `Camera` (Câmera, no menu de anexos). */
 export function CameraIcon({ size = 20, tone = "foreground" }: LineIconProps) {
 	return <LucideCamera size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Sol (aparência Claro). */
+export function SunIcon({ size = 28, tone = "foreground" }: LineIconProps) {
+	return <LucideSun size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lua (aparência Escuro). */
+export function MoonIcon({ size = 28, tone = "foreground" }: LineIconProps) {
+	return <LucideMoon size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Meio-círculo (aparência Sistema): disco com a metade direita cheia. */
+export function HalfCircleIcon({ size = 28, tone = "foreground" }: LineIconProps) {
+	const color = useStroke(tone);
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24">
+			<Circle cx={12} cy={12} r={9} fill="none" stroke={color} strokeWidth={2} />
+			<Path d="M12 3a9 9 0 0 1 0 18Z" fill={color} />
+		</Svg>
+	);
+}
+
+/** Disco cheio na cor do texto (destaque Neutro). */
+export function SolidDotIcon({ size = 28, tone = "foreground" }: LineIconProps) {
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24">
+			<Circle cx={12} cy={12} r={11} fill={useStroke(tone)} />
+		</Svg>
+	);
+}
+
+/** Roda de cores (destaque "Cor do bot"): oito fatias. */
+export function ColorWheelIcon({ size = 28 }: IconProps) {
+	const point = (index: number) => {
+		const angle = (index * Math.PI) / 4 - Math.PI / 2;
+		return `${(12 + 11 * Math.cos(angle)).toFixed(2)} ${(12 + 11 * Math.sin(angle)).toFixed(2)}`;
+	};
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24">
+			{COLOR_WHEEL.map((color, index) => (
+				<Path key={color} d={`M12 12L${point(index)}A11 11 0 0 1 ${point(index + 1)}Z`} fill={color} />
+			))}
+		</Svg>
+	);
 }

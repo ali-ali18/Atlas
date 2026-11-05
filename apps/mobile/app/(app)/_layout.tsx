@@ -18,6 +18,7 @@ export default function AppLayout() {
 			<Stack.Screen name="settings" options={{ presentation: "modal", animation: "slide_from_bottom" }} />
 			<Stack.Screen name="settings/account" options={{ animation: "slide_from_right" }} />
 			<Stack.Screen name="settings/usage" options={{ animation: "slide_from_right" }} />
+			<Stack.Screen name="settings/appearance" options={{ animation: "slide_from_right" }} />
 		</Stack>
 	);
 }

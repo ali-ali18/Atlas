@@ -13,7 +13,7 @@ import { SurfaceGroup, SurfaceRow } from "@/components/ui/surface-card";
 import { Text } from "@/components/ui/text";
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import { runStatusLine, useBotRun } from "@/lib/run-store";
-import { botColors } from "@/lib/bot-color";
+import { useAccentColors } from "@/lib/use-bot-accent";
 import { useHomeData } from "@/lib/home-data";
 import { LIST_POSE } from "@/lib/avatar-pose";
 import { themeColor } from "@/lib/theme";
@@ -37,6 +37,7 @@ export default function ProfileScreen() {
 	const { snapshot } = useHomeData();
 	const bot = snapshot?.bots.find((item) => item.id === id);
 	const run = useBotRun(id);
+	const { accent } = useAccentColors(bot?.color, id);
 	const [soon, setSoon] = React.useState<string | null>(null);
 	const goBack = () => (router.canGoBack() ? router.back() : router.replace("/"));
 	return (
@@ -66,7 +67,7 @@ export default function ProfileScreen() {
 						<SurfaceGroup>
 							<SurfaceRow className="min-h-16 justify-between">
 								<Text className="text-lg">Notificações</Text>
-								<ToggleSwitch accessibilityLabel="Notificações (em breve)" value={false} onValueChange={() => setSoon("Notificações")} color={botColors(resolveColor(bot.color, bot.id), { accent: themeColor(scheme, "primary"), foreground: themeColor(scheme, "primary-foreground") }).accent} />
+								<ToggleSwitch accessibilityLabel="Notificações (em breve)" value={false} onValueChange={() => setSoon("Notificações")} color={accent} />
 							</SurfaceRow>
 						</SurfaceGroup>
 						<Text variant="muted" className="px-2 text-control">

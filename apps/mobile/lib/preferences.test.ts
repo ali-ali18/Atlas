@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_PREFERENCES, THEME_OPTIONS, parsePreferences, resolveColorScheme, serializePreferences, themePreferenceLabel } from "./preferences";
+import { accentPreferenceLabel, DEFAULT_PREFERENCES, resolveAccent, THEME_OPTIONS, parsePreferences, resolveColorScheme, serializePreferences, themePreferenceLabel } from "./preferences";
 
 describe("resolveColorScheme", () => {
 	it("escolha explícita vence o sistema", () => {
@@ -23,11 +23,28 @@ describe("parsePreferences", () => {
 		expect(parsePreferences("7")).toEqual(DEFAULT_PREFERENCES);
 	});
 	it("campo inválido volta ao padrão sem perder os outros", () => {
-		expect(parsePreferences(JSON.stringify({ theme: "roxo", haptics: false, autoTimezone: "sim" }))).toEqual({ theme: "system", haptics: false, autoTimezone: null });
+		expect(parsePreferences(JSON.stringify({ theme: "roxo", haptics: false, autoTimezone: "sim" }))).toEqual({ theme: "system", accent: "bot", haptics: false, autoTimezone: null });
 	});
 	it("ida e volta", () => {
-		const preferences = { theme: "dark", haptics: false, autoTimezone: false } as const;
+		const preferences = { theme: "dark", accent: "neutral", haptics: false, autoTimezone: false } as const;
 		expect(parsePreferences(serializePreferences(preferences))).toEqual(preferences);
+	});
+});
+
+describe("destaque", () => {
+	it("padrão é a cor do bot e valor estranho (ou guardado antes do campo existir) volta a ele", () => {
+		expect(DEFAULT_PREFERENCES.accent).toBe("bot");
+		expect(parsePreferences(JSON.stringify({ theme: "dark", haptics: true }))).toMatchObject({ theme: "dark", accent: "bot" });
+		expect(parsePreferences(JSON.stringify({ accent: "rosa" })).accent).toBe("bot");
+		expect(parsePreferences(JSON.stringify({ accent: "neutral" })).accent).toBe("neutral");
+	});
+	it("neutro escolhe o par do tema; bot escolhe o do bot", () => {
+		expect(resolveAccent("neutral", "bot", "neutro")).toBe("neutro");
+		expect(resolveAccent("bot", "bot", "neutro")).toBe("bot");
+	});
+	it("rótulos em pt-BR", () => {
+		expect(accentPreferenceLabel("neutral")).toBe("Neutro");
+		expect(accentPreferenceLabel("bot")).toBe("Cor do bot");
 	});
 });
 
