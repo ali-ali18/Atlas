@@ -44,3 +44,56 @@ test("upload multipart de 9 MiB passa pelo middleware JSON e pela rota real", as
 	excessive.set("file", new File([new Uint8Array(10 * 1024 * 1024 + 1)], "large.png", { type: "image/png" }));
 	assert.equal((await app.request("/v1/uploads/images", { method: "POST", body: excessive })).status, 413);
 });
+
+function appWithUploads(persisted: { bytes: number }) {
+	const now = new Date();
+	const app = new Hono<AuthEnv>();
+	app.use("*", jsonBodyLimit);
+	app.use("*", async (c, next) => {
+		c.set("session", {
+			user: { id: "upload-limit-owner", name: "Owner", email: "owner@example.com", emailVerified: true, createdAt: now, updatedAt: now },
+			session: { id: "s", token: "test", userId: "upload-limit-owner", expiresAt: now, createdAt: now, updatedAt: now, ipAddress: null, userAgent: null },
+		});
+		await next();
+	});
+	app.route("/", createUploadRoutes({
+		persistArtifact: async (input) => {
+			persisted.bytes = input.bytes.byteLength;
+			return { id: "file-limit", kind: "file", meta: { mime: input.mime }, runId: null, conversationId: null, createdAt: now };
+		},
+	}));
+	app.post("/v1/runs", (c) => c.json({ ok: true }));
+	return app;
+}
+
+function pdfForm(size: number) {
+	const bytes = new Uint8Array(size);
+	bytes.set(Buffer.from("%PDF-1.4\n"));
+	const form = new FormData();
+	form.set("file", new File([bytes], "grande.pdf", { type: "application/pdf" }));
+	return form;
+}
+
+test("anexo de arquivo de ~2 MiB não recebe o 413 de JSON e chega na rota", async () => {
+	const persisted = { bytes: 0 };
+	const app = appWithUploads(persisted);
+	const response = await app.request("/v1/uploads/files", { method: "POST", body: pdfForm(2 * 1024 * 1024) });
+	assert.equal(response.status, 201);
+	assert.equal(persisted.bytes, 2 * 1024 * 1024);
+});
+
+test("JSON comum acima de 1 MiB em outra rota /v1 continua 413", async () => {
+	const app = appWithUploads({ bytes: 0 });
+	const response = await app.request("/v1/runs", { method: "POST", headers: { "Content-Type": "application/json" }, body: "x".repeat(1024 * 1024 + 1) });
+	assert.equal(response.status, 413);
+	assert.deepEqual(await response.json(), { error: "JSON body exceeds 1 MiB" });
+});
+
+test("anexo acima de 20 MB continua 413, da rota e não do JSON", async () => {
+	const persisted = { bytes: 0 };
+	const app = appWithUploads(persisted);
+	const response = await app.request("/v1/uploads/files", { method: "POST", body: pdfForm(21 * 1024 * 1024) });
+	assert.equal(response.status, 413);
+	assert.deepEqual(await response.json(), { error: "Arquivo maior que 20 MB" });
+	assert.equal(persisted.bytes, 0);
+});
