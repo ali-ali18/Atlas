@@ -127,9 +127,12 @@ export function classifyRunFailure(trace: RunFailureTrace): RunFailureClassifica
 	// se ele reinjetou trabalho velho, e do modelo só quando o contexto estava limpo.
 	const dropped = new Set([...trace.declinedOffers, ...(trace.abandonedTopics ?? [])]);
 	const reoffered = [...new Set(trace.offeredTopics ?? [])].filter((topic) => dropped.has(topic));
-	if (reoffered.length > 0) {
-		if (trace.staleTaskInjected) add("harness.stale_task_injection", `Contexto trouxe tarefa velha e o modelo ofereceu de novo ${reoffered.length} tópico(s) recusado(s) ou largado(s).`);
-		else add("model.nagging", `Contexto limpo e o modelo ofereceu de novo ${reoffered.length} tópico(s) recusado(s) ou largado(s).`);
+	// Injetar tarefa velha já é defeito do harness (cláusula 17), mesmo que o modelo resista e não ofereça de novo:
+	// o mesmo contexto com outro modelo insiste. Por isso a injeção conta sozinha.
+	if (trace.staleTaskInjected) {
+		add("harness.stale_task_injection", reoffered.length > 0 ? `Contexto trouxe tarefa velha e o modelo ofereceu de novo ${reoffered.length} tópico(s) recusado(s) ou largado(s).` : "Contexto trouxe tarefa velha de um run anterior que o dono não retomou.");
+	} else if (reoffered.length > 0) {
+		add("model.nagging", `Contexto limpo e o modelo ofereceu de novo ${reoffered.length} tópico(s) recusado(s) ou largado(s).`);
 	}
 
 	const all = PRIORITY.filter((cls) => found.has(cls));

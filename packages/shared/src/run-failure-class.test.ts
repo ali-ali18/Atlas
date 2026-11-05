@@ -70,8 +70,8 @@ describe("classifyRunFailure", () => {
 		expect(classifyRunFailure(clean({ abandonedTopics: ["resumo-video"], offeredTopics: ["resumo-video"] })).primary).toBe("model.nagging");
 		// oferta de outra coisa não é insistência
 		expect(classifyRunFailure(clean({ ...base, offeredTopics: ["clima"] })).primary).toBe("none");
-		// tarefa velha injetada sem reoferta não é falha por si só
-		expect(classifyRunFailure(clean({ staleTaskInjected: true })).primary).toBe("none");
+		// tarefa velha injetada já é defeito do harness, mesmo sem reoferta (outro modelo insistiria)
+		expect(classifyRunFailure(clean({ staleTaskInjected: true })).primary).toBe("harness.stale_task_injection");
 	});
 
 	it("não lê texto livre: nomes e detalhes com palavras de erro não classificam", () => {
