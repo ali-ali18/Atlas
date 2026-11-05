@@ -33,7 +33,7 @@ export const colorTokens = {
 		ring: "#9f9fa9",
 	},
 	dark: {
-		background: "#141414",
+		background: "#1a1a1a",
 		foreground: "#fafafa",
 		card: "#18181b",
 		"card-foreground": "#fafafa",
