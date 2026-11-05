@@ -64,7 +64,7 @@
 - [x] F0.5 (05/11; relatório em `docs/ops/v4-baseline.md`) Rodada do baseline com v2 e v3 em Sonnet, Haiku e 2 baratos de outros provedores, com o relatório em `docs/ops/v4-baseline.md`.
 - [ ] F0.A Auditoria: 5 lentes, verificação, correções com teste, reauditoria e `auditorias/F0.md` fechado.
 
-- [ ] F0.7 Conjunto `generico`: ~16 cenários com outras pessoas, idiomas, países e lojas, e o juiz recebendo o local do cenário (`04` §1.1).
+- [~] F0.7 (05/11, Sonnet) Conjunto `generico`: ~16 cenários com outras pessoas, idiomas, países e lojas, e o juiz recebendo o local do cenário (`04` §1.1).
 - [x] F0.6 (05/11; placar corrigido em `docs/ops/v4-baseline.md`) Corrigir os 4 defeitos do eval listados em `docs/ops/v4-baseline.md` (cenários 11, 22 e 23, `skill_read` no ambiente) e rodar de novo só os afetados.
 
 ### F1: Fundação
