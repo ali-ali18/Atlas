@@ -3,7 +3,7 @@ import type { AfterToolHook, BeforeToolHook, OnRunEndHook, OnWakeHook, ToolCallI
 
 describe("ganchos: nenhum toca o texto do assistente", () => {
 	it("formas permitidas compilam", async () => {
-		const before: BeforeToolHook = (call) => (call.effect === "send" ? { verdict: "ask", riskFacts: { to: ["a@exemplo.test"] } } : undefined);
+		const before: BeforeToolHook = (call) => (call.effect === "send" ? { verdict: "ask", riskFacts: { recipients: ["a@exemplo.test"] } } : undefined);
 		const after: AfterToolHook = () => ({ schedule: [{ kind: "watch", objective: "check delivery", everyMinutes: 120 }], note: "Tracking started." });
 		const end: OnRunEndHook = () => [{ kind: "sleep" }];
 		const wake: OnWakeHook = (item) => item.objective;

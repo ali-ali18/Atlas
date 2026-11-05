@@ -77,13 +77,13 @@ describe("defineTool", () => {
 			inputSchema: z.object({ action: z.enum(["list", "create"]) }),
 			effect: "write_external",
 			effectForArgs: ({ action }) => (action === "list" ? "read" : "write_external"),
-			riskFacts: ({ action }) => ({ action }),
+			riskFacts: ({ action }) => ({ target: action }),
 			execute: () => ({ ok: true, summary: "ok" }),
 		});
 		expect(tool.effectFor({ action: "list" })).toBe("read");
 		expect(tool.effectFor({ action: "create" })).toBe("write_external");
 		expect(tool.effectFor({ action: "?" })).toBe("write_external");
-		expect(tool.riskFactsFor({ action: "create" })).toEqual({ action: "create" });
+		expect(tool.riskFactsFor({ action: "create" })).toEqual({ target: "create" });
 		expect(tool.riskFactsFor({ nope: 1 })).toBeUndefined();
 	});
 

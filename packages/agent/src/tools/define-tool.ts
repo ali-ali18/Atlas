@@ -1,3 +1,4 @@
+import type { HandoffKind } from "@workspace/shared";
 import { z } from "zod";
 import { EFFECT_CLASSES, type Effect, isEffect } from "../contract/effects.js";
 import type { LlmToolSpec } from "../ports/llm.js";
@@ -16,6 +17,8 @@ export type ToolDefinition<S extends z.ZodObject> = {
 	effectForArgs?: (args: z.output<S>) => Effect;
 	/** Fatos tipados para o cartão de aprovação, tirados dos argumentos. */
 	riskFacts?: (args: z.output<S>) => RiskFacts;
+	/** Ação da lista fixa de handoff (trocar senha, aceitar termos…), decidida pela tool a partir dos args tipados. */
+	handoffKind?: (args: z.output<S>) => HandoffKind | undefined;
 	/** A chamada encerra o turno (ex.: pergunta ao dono). */
 	endsTurn?: boolean;
 	execute: (args: z.output<S>, ctx: ToolContext) => Promise<ToolResult> | ToolResult;
@@ -34,6 +37,7 @@ export interface Tool {
 	/** Classe de efeito desta chamada (a base, ou a de `effectForArgs`). Args inválidos usam a base. */
 	effectFor(rawArgs: unknown): Effect;
 	riskFactsFor(rawArgs: unknown): RiskFacts | undefined;
+	handoffKindFor(rawArgs: unknown): HandoffKind | undefined;
 	/** Valida os args, executa e devolve sempre um `ToolResult` honesto; nunca lança. */
 	run(rawArgs: unknown, ctx: ToolContext): Promise<ToolResult>;
 	toLlmToolSpec(): LlmToolSpec;
@@ -100,6 +104,11 @@ export function defineTool<S extends z.ZodObject>(def: ToolDefinition<S>): Tool 
 			if (!def.riskFacts) return undefined;
 			const checked = validateArgs(def.name, schema, acceptedFields, rawArgs);
 			return checked.ok ? def.riskFacts(checked.args) : undefined;
+		},
+		handoffKindFor(rawArgs) {
+			if (!def.handoffKind) return undefined;
+			const checked = validateArgs(def.name, schema, acceptedFields, rawArgs);
+			return checked.ok ? def.handoffKind(checked.args) : undefined;
 		},
 		async run(rawArgs, ctx) {
 			const checked = validateArgs(def.name, schema, acceptedFields, rawArgs);

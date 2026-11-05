@@ -45,6 +45,8 @@ export type StoredReceipt = {
 	toolName: string;
 	effect: string;
 	summary: string;
+	/** Onde o efeito aconteceu (conta, arquivo, URL…). */
+	where?: string;
 	externalId?: string;
 	url?: string;
 	at: Date;
