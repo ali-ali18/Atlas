@@ -17,6 +17,7 @@ const TOKEN_FILES = new Set(["lib/surfaces.ts", "lib/color-tokens.ts"]);
 
 /**
  * Dívida permitida, com motivo:
+ * - abertura (launch-mascot): o sombreado do corpo é o da imagem do splash nativo (cor de desenho, fixa nos dois temas);
  * - splash e mascote: o splash nativo é escuro e fixo nos dois temas (`app.json`), e o branco do mascote é marca;
  * - ícones e avatar: cores de desenho (olhos, estrela, formas), não de pele de tela;
  * - bot-edit: o branco da paleta de cores do avatar do bot (cor de marca do bot, não de pele de tela);
@@ -30,6 +31,7 @@ const TOKEN_FILES = new Set(["lib/surfaces.ts", "lib/color-tokens.ts"]);
  */
 const BASELINE: Record<string, number> = {
 	"components/home/bot-avatar.tsx": 4,
+	"components/launch/launch-mascot.tsx": 4,
 	"lib/bot-edit.ts": 1,
 	"app/(app)/computer/[id].tsx": 2,
 	"components/computer/computer-menu.tsx": 3,
