@@ -1,6 +1,5 @@
 // Escolher e preparar a foto do perfil no aparelho: seletor de fotos com recorte quadrado (expo-image-picker) e redução
 // para 256x256 JPEG com o Skia (já no app; sem módulo nativo novo). A conta é em `profile-image.ts`.
-import { ImageFormat, Skia } from "@shopify/react-native-skia";
 import * as ImagePicker from "expo-image-picker";
 import { centerSquare, fitJpeg, PROFILE_IMAGE_SIZE } from "./profile-image";
 
@@ -8,6 +7,8 @@ export type PhotoOutcome = { kind: "ready"; dataUrl: string } | { kind: "cancele
 
 /** Reduz a imagem em `uri` ao quadrado central de 256 px e codifica em JPEG abaixo do limite. `null` se não deu. */
 export async function prepareProfileImage(uri: string): Promise<string | null> {
+	// require tardio: o Skia só carrega quando o dono troca a foto, nunca na abertura do app (nem ao importar a tela Perfil)
+	const { ImageFormat, Skia } = require("@shopify/react-native-skia") as typeof import("@shopify/react-native-skia");
 	const data = await Skia.Data.fromURI(uri);
 	const image = Skia.Image.MakeImageFromEncoded(data);
 	if (!image) return null;

@@ -14,7 +14,7 @@ export function createHaptics(play: () => unknown, initial = true) {
 			}
 		},
 		setEnabled(value: boolean): void {
-			enabled = value;
+			enabled = value === true;
 		},
 		isEnabled: (): boolean => enabled,
 	};

@@ -77,3 +77,12 @@ function RootShell() {
 		</SafeAreaProvider>
 	);
 }
+
+/** Preferências ficam acima de tudo: `RootShell` já lê o tema escolhido. O provedor nunca bloqueia o desenho. */
+export default function RootLayout() {
+	return (
+		<AppPreferencesProvider>
+			<RootShell />
+		</AppPreferencesProvider>
+	);
+}

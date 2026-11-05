@@ -1,5 +1,4 @@
 import * as React from "react";
-import { Appearance } from "react-native";
 import { setHapticsEnabled } from "./haptics";
 import { DEFAULT_PREFERENCES, type Preferences } from "./preferences";
 import { loadPreferences, savePreferences } from "./preferences-store";
@@ -20,7 +19,7 @@ export function usePreferences(): PreferencesContextValue {
 	return React.useContext(Context) ?? FALLBACK;
 }
 
-/** Lê o que o aparelho guardou, aplica (tema nativo e vibração) e grava a cada mudança. Fica acima de tudo no layout raiz. */
+/** Lê o que o aparelho guardou, aplica (vibração; o tema é resolvido em JS por `useAppColorScheme`, nunca pelo `Appearance.setColorScheme`, que no Android recria a Activity) e grava a cada mudança. Fica acima de tudo no layout raiz. */
 export function AppPreferencesProvider({ children }: { children: React.ReactNode }) {
 	const [preferences, setPreferences] = React.useState<Preferences>(DEFAULT_PREFERENCES);
 	// Só grava depois de ler: senão o padrão atropelaria o que está guardado.
@@ -28,25 +27,21 @@ export function AppPreferencesProvider({ children }: { children: React.ReactNode
 	const [ready, setReady] = React.useState(false);
 	React.useEffect(() => {
 		let alive = true;
-		void loadPreferences().then((saved) => {
-			if (!alive) return;
-			loaded.current = true;
-			setPreferences(saved);
-			setReady(true);
-		});
+		void loadPreferences()
+			.catch(() => DEFAULT_PREFERENCES)
+			.then((saved) => {
+				if (!alive) return;
+				loaded.current = true;
+				setPreferences(saved);
+				setReady(true);
+			});
 		return () => {
 			alive = false;
 		};
 	}, []);
 	React.useEffect(() => {
 		setHapticsEnabled(preferences.haptics);
-		try {
-			// Faz diálogos e barras do sistema seguirem a escolha; "Sistema" devolve o controle ao aparelho.
-			Appearance.setColorScheme(preferences.theme === "system" ? "unspecified" : preferences.theme);
-		} catch {
-			// plataforma sem suporte: o app ainda resolve o tema por `useAppColorScheme`
-		}
-	}, [preferences.haptics, preferences.theme]);
+	}, [preferences.haptics]);
 	const update = React.useCallback((patch: Partial<Preferences>) => {
 		setPreferences((current) => {
 			const next = { ...current, ...patch };
