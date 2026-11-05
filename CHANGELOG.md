@@ -10,6 +10,7 @@ Todas as mudanças relevantes do Atlas. Formato [Keep a Changelog](https://keepa
 - **mobile, ci:** workflow `apk-android.yml` gera o APK Android no GitHub Actions (`eas build --local`, sem fila nem cota do EAS): tag `apk-*` publica Release com o APK, "Run workflow" deixa artifact (14 dias). Exige o secret `EXPO_TOKEN`. Ver `docs/features/apk-android-ci.md`.
 
 ### Corrigido
+- **mobile:** o aviso falso "Não consegui ouvir agora" não aparece mais quando a fala foi reconhecida: o motor emite `error` (ex.: `no-speech`, `client`) junto do fim e o controlador avisava mesmo com o texto já no campo. Agora, com fala na sessão ou depois de pedir para parar, o erro tardio é ignorado e o texto é preservado.
 - **mobile:** o ditado por voz agora vem com pontuação (vírgula, ponto, interrogação): o reconhecimento passa `addsPunctuation` (Android 13+ e iOS 16+; no Android liga o formato de qualidade do motor). Em campo vazio o texto ditado começa com maiúscula.
 - **mobile:** o microfone passa a pedir permissão no Android: o plugin do seletor de imagens com `microphonePermission: false` colocava `RECORD_AUDIO` na lista de bloqueio do manifesto e o ditado ia direto ao aviso "Abrir configurações". Um teste falha se algum plugin voltar a desligá-lo.
 - **mobile:** o upload de anexo não falha mais sempre com "Sem conexão": o `fetch` do Expo 58 não aceita a parte `{ uri, name, type }` do React Native; a parte agora lê os bytes pelo `File` do expo-file-system. Precisa do APK novo.

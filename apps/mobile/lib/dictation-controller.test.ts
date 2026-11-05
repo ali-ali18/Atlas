@@ -206,6 +206,38 @@ describe("dictation controller", () => {
 		expect(h.last()?.phase).toBe("idle");
 	});
 
+	it("resultado final e depois error no-speech/client/network: texto preservado e sem aviso", async () => {
+		for (const code of ["no-speech", "client", "network", "speech-timeout", "aborted"]) {
+			const h = setup();
+			await h.controller.start();
+			say(h, "testando bom dia", true);
+			h.emit("error", code);
+			h.emit("end");
+			expect(h.problems, code).toEqual([]);
+			expect(h.finished, code).toEqual([{ outcome: "review", spoken: "testando bom dia" }]);
+		}
+	});
+
+	it("erro durante o fechamento (depois de parar) não avisa e entrega o texto", async () => {
+		const h = setup();
+		await h.controller.start();
+		say(h, "tudo bem");
+		h.controller.stop("send");
+		h.emit("error", "client");
+		expect(h.problems).toEqual([]);
+		expect(h.finished).toEqual([{ outcome: "send", spoken: "tudo bem" }]);
+	});
+
+	it("erro depois do desfecho (ouvintes já soltos) é ignorado", async () => {
+		const h = setup();
+		await h.controller.start();
+		say(h, "fim", true);
+		h.emit("end");
+		h.emit("error", "client");
+		expect(h.problems).toEqual([]);
+		expect(h.finished).toHaveLength(1);
+	});
+
 	it("repassa o volume para a barra", async () => {
 		const h = setup();
 		await h.controller.start();

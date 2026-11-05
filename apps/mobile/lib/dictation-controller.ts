@@ -186,13 +186,14 @@ export function createDictationController(options: DictationOptions) {
 					begin(mine);
 					return;
 				}
-				const problem = problemFromError(code);
-				if (problem) options.onProblem(problem);
-				// Falou algo antes do erro: o texto não se perde, vai para revisão.
-				if (spokenText(transcript) !== "") {
+				// Já falou algo, ou o usuário já pediu para parar: o texto não se perde (vai para revisão) e erro tardio
+				// ("no-speech", "client", "aborted"...) não vira aviso. O motor costuma emitir `error` junto do `end`.
+				if (spokenText(transcript) !== "" || phase === "stopping") {
 					endNaturally();
 					return;
 				}
+				const problem = problemFromError(code);
+				if (problem) options.onProblem(problem);
 				abortQuietly();
 				detach();
 				move("fail");
