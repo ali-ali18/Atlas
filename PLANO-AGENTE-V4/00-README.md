@@ -3,6 +3,7 @@
 > Status: **rascunho para aprovação do dono** (05/11/2026). Nenhum código foi escrito.
 >
 > Arquivos:
+> - [`PROGRESSO.md`](PROGRESSO.md): **comece por aqui** para executar. Checklist por fase e passagem entre contas.
 > - [`01-diagnostico.md`](01-diagnostico.md): o que v2 e v3 fazem hoje e por que não parecem melhores.
 > - [`02-referencias.md`](02-referencias.md): o que copiar dos harnesses abertos.
 > - [`03-arquitetura.md`](03-arquitetura.md): núcleo, capacidades, ganchos, canais, memória e agenda.
@@ -69,10 +70,11 @@ O v4 é uma **base nova** (`packages/agent`), sem import do legado. A ideia é q
 
 - ~~Compras~~: **cartão salvo no app sem o CVV** (decisão do dono, 05/11). Número, nome, validade e endereço ficam no cofre. Toda compra pede aprovação. Ao aprovar, o dono digita o CVV num campo seguro do cartão de aprovação, e o valor vai direto para o formulário de pagamento da loja no navegador da VM. O modelo nunca vê o CVV, e ele não é guardado (ver F6).
 
-Ainda pendentes:
-1. **Modelos do bench:** 3 baratos e 1 forte.
-2. **Branch `harness/v3`:** congelar (não mergear) e usar só como referência. *(Recomendado, coerente com a base nova.)*
-3. **"EVA":** qual projeto? O candidato mais provável é o Vercel Eve.
+- ~~Modelos~~: Sonnet (conversa), Haiku (rápido, ajudantes, sono) e Opus (código), mais 2 baratos de outros provedores para comparar, escolhidos na F0.5.
+- ~~Branch `harness/v3`~~: **congelado**, só como referência.
+- ~~"EVA"~~: **Vercel Eve**. As ideias aproveitadas estão em `02-referencias.md`.
+
+**Execução:** acompanhe e retome por [`PROGRESSO.md`](PROGRESSO.md). Ele traz o checklist por fase, o protocolo de commit e push por item e o diário de passagem entre contas do Claude.
 
 ## Controle de provedor e modelo (motivo do Atlas existir)
 O problema do Grok Bot não é o preço, é a **cota**. Ela acaba no meio da semana e trava faculdade, trabalho e projetos até sábado. O v4 garante **liberdade de escolha e nunca ficar travado**:
