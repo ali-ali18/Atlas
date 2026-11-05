@@ -58,7 +58,7 @@
 - [x] F0.2 (05/11, Sonnet escreveu, Opus revisou e confirmou os preços da Anthropic) Comando `matrix` no CLI de evals (presets × modelos × repetições, relatório em Markdown e JSON).
 - [x] F0.3 (05/11, Sonnet escreveu, Opus revisou; disputada ou inválida fica "pulada" e é contada à parte) Rubrica de qualidade com juiz offline (2 juízes e teto de discordância).
 - [x] F0.4 (05/11, Sonnet escreveu, Opus revisou e ajustou: tarefa velha injetada conta sozinha como harness) `classifyRunFailure` em shared, com testes por classe (incluindo `harness.stale_task_injection` e `model.nagging`).
-- [ ] F0.5 Rodada do baseline com v2 e v3 em Sonnet, Haiku e 2 baratos de outros provedores, com o relatório em `docs/ops/v4-baseline.md`.
+- [~] F0.5 (05/11, sessão principal, ok do dono para ~US$ 4,10) Rodada do baseline com v2 e v3 em Sonnet, Haiku e 2 baratos de outros provedores, com o relatório em `docs/ops/v4-baseline.md`.
 - [ ] F0.A Auditoria: 5 lentes, verificação, correções com teste, reauditoria e `auditorias/F0.md` fechado.
 
 ### F1: Fundação
