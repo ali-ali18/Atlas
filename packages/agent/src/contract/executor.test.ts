@@ -100,6 +100,17 @@ describe("handoff, hidden e erros", () => {
 		expect(counter.runs).toBe(0);
 	});
 
+	it("userMessage de handoff e de indisponível sai no idioma do bot; sem idioma, no de reserva", async () => {
+		const { tool } = sendTool();
+		const pwd = defineTool({ name: "change_pw", description: "Change a password.", inputSchema: z.object({}), effect: "credential", handoffKind: () => "change_password", execute: () => ({ ok: true, summary: "x" }) });
+		const hiddenPolicy = { ...chatPolicy, surface: "agenda" as const, ownerPresent: false };
+		const call = { callId: "c", step: 1, tool, args: { to: "a@exemplo.test", body: "x" } };
+		const msg = (o: { status: string; userMessage?: string }) => o.userMessage;
+		expect(msg(await setup(chatPolicy, { language: "en-US" }).executor.executeCall({ callId: "c", step: 1, tool: pwd, args: {} }))).toMatch(/yours alone/);
+		expect(msg(await setup(hiddenPolicy, { language: "es-ES" }).executor.executeCall(call))).toMatch(/no está disponible/);
+		expect(msg(await setup(hiddenPolicy).executor.executeCall(call))).toMatch(/não está disponível/);
+	});
+
 	it("erro da tool passa por redação de segredo antes de chegar ao modelo", async () => {
 		const token = ["gh", "p_"].join("") + "b".repeat(30);
 		const tool = defineTool({ name: "read_repo", description: "Read a repo.", inputSchema: z.object({}), effect: "read", execute: () => ({ ok: false, error: `401 with ${token}`, hint: `Bearer ${"z".repeat(20)}` }) });

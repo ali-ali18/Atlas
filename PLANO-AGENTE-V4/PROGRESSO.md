@@ -81,7 +81,7 @@
 - [x] F1.8b Sem corte por economia: compactação só por janela cheia e restaurável, leitura em partes, nenhum teto padrão de pesquisa (decisão do dono, 05/11).
 - [x] F1.9 Ciclo de vida da tarefa: sem herança entre runs, oferta por cartão com estado, `declinedOffers`, replays de insistência.
 - [x] F1.10 Porta `Llm` (notas da revisão: imagem para o papel `vision`; adaptador da porta `Random` com CSPRNG; TTL opcional no `ApprovalGrant`): papéis, cadeia de reserva (`pickModelFor`), troca no meio do run, tetos opcionais, aviso ao dono.
-- [ ] F1.11 Contrato de trabalho (nota da revisão: os textos ao usuário do executor, `userMessage` de handoff e de indisponível, hoje estão fixos em pt-BR; passam a sair no idioma do bot por um módulo de copy) (prompt), com teste de string por seção.
+- [x] F1.11 Contrato de trabalho (nota da revisão: os textos ao usuário do executor, `userMessage` de handoff e de indisponível, hoje estão fixos em pt-BR; passam a sair no idioma do bot por um módulo de copy) (prompt), com teste de string por seção.
 - [ ] F1.12 Eventos (notas da revisão do kernel: `ChannelInput` precisa de papel `assistant` para o histórico, hoje só dono, runtime e dado; fundir mensagens `user` seguidas no adaptador; não duplicar `text_delta` no retry de erro; o adaptador real do Store implementa `conversations`; saúde de provedor compartilhada entre instâncias (Redis)) compatíveis com o contrato SSE e `chooseRunEngine` → `runAgent` atrás da flag.
 - [ ] F1.13 Guardas permanentes: sem regex de comportamento, catraca da ponte, invariantes do contrato, economia.
 - [ ] F1.14 Teste de fumaça ponta a ponta no worker com preset `minimal`.

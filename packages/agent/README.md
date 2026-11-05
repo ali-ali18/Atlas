@@ -17,6 +17,8 @@ Prontos: as **portas** e as guardas (F1.1); na F1.2, as **classes de efeito**, o
 | `capabilities/` | `defineCapability`, registro, índice de uma linha, carga só de acréscimo (`use_capability`), ganchos tipados. Uma pasta por feature virá nas fases seguintes | sim (o mecanismo; sem capacidades concretas) |
 | `agenda/` | lembrete, vigia, intenção por evento | não |
 | `memory/` | perfil, caderno, sessões | não |
+| `prompt/` | contrato de trabalho do prompt estável (`WORK_CONTRACT_PROMPT`) e `buildStablePrompt(registry)`: contrato, canais e índice de capacidades, ordem fixa, sem data nem nonce; o kernel usa quando o run não traz `stableSystem` | sim |
+| `copy/` | textos que o dono lê gerados pelo motor (`copyFor(idioma, id)`), por idioma do bot (`BotLanguage` de `shared`); idioma ausente ou desconhecido cai em `COPY_FALLBACK_LANGUAGE` (pt-BR) | sim |
 | `presets/` | `full` e `minimal` | não |
 
 Tudo de fora entra por porta injetada: o worker monta as implementações reais, o teste monta mocks. Lógica pura compartilhada com o legado vai para `packages/shared`.
@@ -51,6 +53,8 @@ pnpm --filter @workspace/agent typecheck
 ```
 
 - `src/boundary.test.ts`: falha se algo importar `@workspace/agent-runtime` (ou caminho relativo para ele) ou usar `process.env` fora de `adapters/`.
+- `src/prompt/work-contract.test.ts`: uma asserção por seção do contrato, orçamento de tamanho (cresceu mais de 15% sobre a linha de base medida, falha; suba a constante com o motivo), higiene e montagem determinística.
+- `src/copy/copy.test.ts`: todo id em todos os idiomas, nenhum texto com nome interno (snake_case, campo, id).
 - `src/hygiene.test.ts`: falha se o pacote tiver cara de chave de API, e-mail real ou nome da denylist.
 
 ## Kernel: como o laço anda

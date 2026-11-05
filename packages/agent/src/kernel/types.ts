@@ -1,5 +1,6 @@
 // Tipos do kernel: entrada do run, limites, estado serializável (checkpoint) e eventos tipados.
 // O estado inteiro cabe em JSON: é o que `Store.runs.saveCheckpoint` guarda e `runAgent` restaura.
+import type { BotLanguage } from "@workspace/shared";
 import type { CapabilityRegistry } from "../capabilities/index.js";
 import type { ChannelInput } from "../channels/index.js";
 import type { ApprovalGrant, ApprovalRequest, Hash, PolicyContext, ProvenanceSnapshot } from "../contract/index.js";
@@ -68,6 +69,8 @@ export type RunAgentDeps = {
 	hash: Hash;
 	options?: KernelOptions;
 	signal?: AbortSignal;
+	/** Idioma do bot, para os textos ao dono gerados pelo motor. */
+	language?: BotLanguage;
 };
 
 export type PendingCall = { id: string; name: string; args: unknown };

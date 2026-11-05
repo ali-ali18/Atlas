@@ -46,7 +46,7 @@ export async function runAgent(deps: RunAgentDeps): Promise<RunResult> {
 	if (resumed && saved.state === "DONE" && snap.result) return snap.result;
 
 	const loaded = createLoadedSet(registry, snap.loadedIds);
-	const executor = createExecutor({ runId, ownerId, ports, hash: deps.hash, policy: deps.policy, provenance: RunProvenance.restore(snap.provenance), ...(deps.signal && { signal: deps.signal }) });
+	const executor = createExecutor({ runId, ownerId, ports, hash: deps.hash, policy: deps.policy, provenance: RunProvenance.restore(snap.provenance), ...(deps.language && { language: deps.language }), ...(deps.signal && { signal: deps.signal }) });
 	const pageChars = deps.options?.pageChars ?? DEFAULT_PAGE_CHARS;
 	const kernelTools: readonly Tool[] = [createNoteReadTool(pageChars), createAskOwnerTool()];
 	const toolMap = () => new Map<string, Tool>([...kernelTools, ...loaded.toolsForModel()].map((t) => [t.name, t]));
