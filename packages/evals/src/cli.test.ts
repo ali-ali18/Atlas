@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { main, maxCostFlag, parseCliArgs } from "./cli.js";
 import { callIdFromKey } from "./environment.js";
 
@@ -70,6 +70,20 @@ describe("--max-cost do run (auditoria F0, S2)", () => {
 		} finally {
 			if (previous === undefined) delete process.env.OPENROUTER_API_KEY;
 			else process.env.OPENROUTER_API_KEY = previous;
+		}
+	});
+});
+
+describe("ajuda (auditoria F0, B8)", () => {
+	it("`all` é descrito com os três conjuntos: sementes, ouro e genérico", async () => {
+		const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+		try {
+			expect(await main(["--help"])).toBe(0);
+			const help = String(log.mock.calls[0]?.[0]);
+			expect(help).toContain("sementes + conjunto ouro + conjunto genérico");
+			expect(help).toContain("--scenarios generic");
+		} finally {
+			log.mockRestore();
 		}
 	});
 });
