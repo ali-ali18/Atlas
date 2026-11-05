@@ -8,17 +8,17 @@ const HEX = /^#[0-9a-f]{6}$/i;
 describe("surfaceColors", () => {
 	it("escuro: valores medidos no app do Grok", () => {
 		expect(surfaceColors("dark")).toEqual({
-			screen: "#09090b",
+			screen: "#141414",
 			surface: "#2c2c2e",
 			surfaceEdge: "#373739",
 			divider: "#373739",
 			chromeFill: "#2c2c2e",
 			chromeEdge: "#4b4b4d",
 			chromeControl: "#3e3d42",
-			sheet: "#1c1c1e",
-			bubble: "#202020",
-			chatCard: "#232325",
-			chatCardControl: "#343436",
+			sheet: "#1e1e1e",
+			bubble: "#262626",
+			chatCard: "#282829",
+			chatCardControl: "#3a3a3c",
 			link: "#136cd0",
 			switchOff: "#3a3a3c",
 			switchThumb: "#ffffff",

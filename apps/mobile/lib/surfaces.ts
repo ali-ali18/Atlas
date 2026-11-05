@@ -7,7 +7,7 @@ import { type ColorScheme, themeColor } from "./color-tokens";
  * `ChromeInput` e `ToggleSwitch`.
  */
 export type SurfaceColors = {
-	/** Fundo de TODAS as telas (o do chat, a referência: `#09090b` no escuro, decisão do dono). */
+	/** Fundo de TODAS as telas (o do chat; no escuro `#141414`, o cinza neutro medido na home do Grok: o preto `#09090b` dava contraste duro e muita luz no escuro). */
 	screen: string;
 	/** Cartão e grupo de linhas (perfil, rotinas, execuções, cartão de tabela do chat). */
 	surface: string;
@@ -42,17 +42,17 @@ export type SurfaceColors = {
 };
 
 const DARK: SurfaceColors = {
-	screen: "#09090b",
+	screen: "#141414",
 	surface: "#2c2c2e",
 	surfaceEdge: "#373739",
 	divider: "#373739",
 	chromeFill: "#2c2c2e",
 	chromeEdge: "#4b4b4d",
 	chromeControl: "#3e3d42",
-	sheet: "#1c1c1e",
-	bubble: "#202020",
-	chatCard: "#232325",
-	chatCardControl: "#343436",
+	sheet: "#1e1e1e",
+	bubble: "#262626",
+	chatCard: "#282829",
+	chatCardControl: "#3a3a3c",
 	link: "#136cd0",
 	switchOff: "#3a3a3c",
 	switchThumb: "#ffffff",

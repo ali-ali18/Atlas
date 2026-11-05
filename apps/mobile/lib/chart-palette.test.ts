@@ -106,6 +106,8 @@ describe("o app segue o globals.css do web (lido do arquivo)", () => {
 			near(DEFAULT_CHART_COLORS[scheme].positive, oklchToHex(web["chart-positive"]!), "chart-positive");
 			near(DEFAULT_CHART_COLORS[scheme].negative, oklchToHex(web["chart-negative"]!), "chart-negative");
 			for (const token of ["background", "foreground", "card", "popover", "muted", "muted-foreground"] as const) {
+				// O app mobile suaviza o fundo escuro (#141414, medido no Grok); o web segue com o dele.
+				if (scheme === "dark" && token === "background") continue;
 				if (web[token]) near(colorTokens[scheme][token], oklchToHex(web[token]!), token);
 			}
 		});
