@@ -79,7 +79,17 @@ F0 baseline ─► F1 fundação ─► F2 capacidades núcleo ─┬─► F3 p
 
 ## F6: Compras
 - [ ] `product_search` com extração estruturada (JSON-LD e OpenGraph) e card `product` (foto, preço, loja, frete, comparar).
-- [ ] `checkout` (`money`) pelo navegador da VM, com `card_fill` do cofre, mandato opcional e cartão de aprovação com `riskFacts` (cláusulas 4 e 5).
+- [ ] **Cartão salvo (decisão do dono):** número, nome, validade e endereço de cobrança no cofre (`secretsEnc`, escopo por dono, teste IDOR). **O CVV nunca é guardado.**
+- [ ] `checkout` (`money`) pelo navegador da VM:
+  1. O modelo monta o carrinho e chama `checkout`.
+  2. O cartão de aprovação mostra loja, itens, total, frete e o final do cartão, e traz um **campo de CVV** (componente seguro, fora do chat).
+  3. Ao confirmar, a API entrega o CVV direto para `card_fill`, que preenche o formulário de pagamento da loja na VM, junto com os dados do cofre, e o valor é descartado.
+  4. Reserva: se a loja abrir 3DS, app do banco ou captcha, o run estaciona com "Assumir", e o dono termina no navegador da VM.
+- [ ] Testes:
+  - o CVV não aparece em evento SSE, journal, `tool_result`, log, checkpoint nem banco;
+  - aprovação sem CVV não executa;
+  - o CVV só vale para aquele token de aprovação.
+- [ ] Mandato opcional (valor, loja, prazo, usos) para pular só o "confirmar"; o CVV continua sendo pedido.
 - [ ] `record_purchase` grava um `Purchase` novo, e o gancho cria o vigia de entrega sozinho.
 
 ## F7: E-mail e dia

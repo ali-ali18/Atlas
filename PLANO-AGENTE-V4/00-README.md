@@ -36,7 +36,7 @@ O v4 é uma **base nova** (`packages/agent`), sem import do legado. A ideia é q
 | Autônomo, prevê o que eu não pedi (resumo de e-mail com conteúdo e ação) | Contrato de trabalho no prompt (`03` §3), capacidade E-mail (F7) |
 | Busca produtos e mostra muito bem (card com foto, preço, loja) | Capacidade Compras (F6) |
 | Detecta ação perigosa de forma inteligente e pede aprovação | Política por efeito + risco por argumento (`03` §4), sem regex |
-| Faz compras com o cartão salvo, sempre confirmando | Compras (F6): `money` sempre pede cartão; o número do cartão nunca entra no contexto |
+| Faz compras com o cartão salvo, sempre confirmando | Compras (F6): cartão no cofre sem o CVV; o CVV é digitado pelo dono a cada compra, no cartão de aprovação, e vai direto para a loja |
 | Documentos, slides e tabelas incríveis (trabalho da faculdade) | Capacidade Entregáveis (F2): no núcleo, com "renderiza e confere" e ABNT |
 | Usa o computador/VM muito bem | Navegador v3 (`browser-v3`) mantido, com bench real (F0/F8) |
 | Gera lembrete para si mesmo; vigia algo de X em X tempo **sem criar rotina** | Agenda do agente: `remind_me` e `watch` (F4) |
@@ -65,11 +65,12 @@ O v4 é uma **base nova** (`packages/agent`), sem import do legado. A ideia é q
 - ~~Base~~: **base nova, do zero** (decisão do dono, 05/11).
 - ~~"Duet" e "dots"~~: identificados. São o Claude Duet (Anthropic, prévia de 21/10/2026) e os dots do ChatGPT (DevDay de 29/09/2026). Ver a pesquisa.
 
+- ~~Compras~~: **cartão salvo no app sem o CVV** (decisão do dono, 05/11). Número, nome, validade e endereço ficam no cofre. Toda compra pede aprovação. Ao aprovar, o dono digita o CVV num campo seguro do cartão de aprovação, e o valor vai direto para o formulário de pagamento da loja no navegador da VM. O modelo nunca vê o CVV, e ele não é guardado (ver F6).
+
 Ainda pendentes:
-1. **Compras:** checkout pelo navegador da VM com o cartão no cofre e confirmação sempre, com mandato opcional (valor, loja, prazo). *(Recomendado.)* As alternativas são cartão virtual de uso único via provedor, que é mais seguro mas exige integração e conta, ou começar só com busca.
-2. **Modelos do bench:** 3 baratos e 1 forte.
-3. **Branch `harness/v3`:** congelar (não mergear) e usar só como referência. *(Recomendado, coerente com a base nova.)*
-4. **"EVA":** qual projeto? O candidato mais provável é o Vercel Eve.
+1. **Modelos do bench:** 3 baratos e 1 forte.
+2. **Branch `harness/v3`:** congelar (não mergear) e usar só como referência. *(Recomendado, coerente com a base nova.)*
+3. **"EVA":** qual projeto? O candidato mais provável é o Vercel Eve.
 
 ## Controle de provedor e modelo (motivo do Atlas existir)
 O problema do Grok Bot não é o preço, é a **cota**. Ela acaba no meio da semana e trava faculdade, trabalho e projetos até sábado. O v4 garante **liberdade de escolha e nunca ficar travado**:
