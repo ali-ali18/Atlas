@@ -57,7 +57,7 @@
 - [ ] F0.1b Trocar os 17 cenários `real-pendente` por runs reais redigidos (`from-run.ts`), quando houver acesso ao banco de produção.
 - [~] F0.2 (05/11, Sonnet) Comando `matrix` no CLI de evals (presets × modelos × repetições, relatório em Markdown e JSON).
 - [ ] F0.3 Rubrica de qualidade com juiz offline (2 juízes e teto de discordância).
-- [~] F0.4 (05/11, Sonnet, worktree) `classifyRunFailure` em shared, com testes por classe (incluindo `harness.stale_task_injection` e `model.nagging`).
+- [x] F0.4 (05/11, Sonnet escreveu, Opus revisou e ajustou: tarefa velha injetada conta sozinha como harness) `classifyRunFailure` em shared, com testes por classe (incluindo `harness.stale_task_injection` e `model.nagging`).
 - [ ] F0.5 Rodada do baseline com v2 e v3 em Sonnet, Haiku e 2 baratos de outros provedores, com o relatório em `docs/ops/v4-baseline.md`.
 - [ ] F0.A Auditoria: 5 lentes, verificação, correções com teste, reauditoria e `auditorias/F0.md` fechado.
 
