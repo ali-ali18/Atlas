@@ -13,19 +13,18 @@
   - Um teste de catraca (como o `visual-base-guard`) guarda a contagem de pontes. **O número só pode cair.**
   - Quando chegar a zero, `agent-runtime` deixa de ser dependência e é apagado (F10).
 
-## 0.1 Genérico e open-source (decisão do dono, 05/11)
-O motor vai ser publicado como open-source. Por isso ele é **genérico**, e o Atlas é só o primeiro produto que o usa.
-- **Dois pacotes:**
-  - `packages/agent` (núcleo, open-source) traz kernel, contrato (efeitos, política, mandatos, taint, recibos), canais, portas, registro de capacidades, agenda e memória **como interfaces**, presets e o harness de eval genérico (matriz, juízes, classificação de falha).
-  - `packages/agent-atlas` (produto) traz as capacidades do Atlas, o vocabulário de produto (Painel, Biblioteca, Rotina), os cards, as implementações das portas sobre Prisma, BullMQ e a VM, e o prompt com a persona e o idioma.
-- **O núcleo não conhece o Atlas:**
-  - nada de Prisma, `process.env`, nome de produto, texto em pt-BR fixo, host ou provedor fixo;
-  - idioma, persona e textos para o usuário vêm por configuração ou i18n;
-  - provedor de modelo é adaptador; o núcleo traz Anthropic, OpenAI-compatível e OpenCode como exemplos.
-  - Um teste de fronteira falha se `packages/agent` importar `@workspace/db`, `@workspace/queue`, `@workspace/agent-atlas` ou qualquer `apps/*`.
-- **Estável para terceiros:** API pública pequena e versionada (semver), tipos exportados, exemplos mínimos (um agente de terminal com `minimal` e um com duas capacidades) e README próprio.
-- **Licença:** a mesma do repositório (MIT), salvo decisão do dono.
-- **Segredos e dados:** o conjunto ouro do Atlas fica no pacote do produto. O núcleo publica só cenários sintéticos de exemplo, sem dado pessoal.
+## 0.1 Open-source junto com o Atlas (decisão do dono, 05/11)
+O motor é **do Atlas**, feito para o Atlas, e é open-source porque o Atlas inteiro é (MIT). Não é uma biblioteca genérica para outros produtos. O que muda por ser aberto:
+- **Nada do dono no código.**
+  - Nada de chave, e-mail, conta, host ou dado pessoal.
+  - O conjunto ouro usa só domínios `.test` e dados inventados.
+  - Segredos ficam no cofre ou no `.env` (documentados no `.env.example`).
+- **Quem hospeda o próprio Atlas configura tudo.** Provedores e modelos por papel, tetos, VM e conectores vêm de configuração ou da UI, nunca fixos no código. Os padrões funcionam sem nenhuma conta paga específica.
+- **Legível para quem chega.**
+  - Pastas com nomes claros e módulos pequenos.
+  - README do motor explicando o laço, o contrato, as capacidades e como rodar o eval.
+  - Os ADRs contam o porquê das decisões.
+- **Portas continuam, por testabilidade.** LLM, banco, fila, VM, cofre e relógio entram por interface, para testar com mock e trocar implementação. O motor pode usar os pacotes do Atlas (`@workspace/db`, `shared` etc.) pelas portas.
 
 ## 1. Camadas
 ```
@@ -38,10 +37,7 @@ packages/agent/src/
   memory/        perfil, caderno, sessões, procedural (só o lado do agente)
   ports/         interfaces: Llm, Store, Queue, Sandbox, Vault, Clock, Events
   presets/       full | minimal (para o eval)
-packages/agent-atlas/src/   (produto Atlas, não publicado)
-  capabilities/  e-mail, compras, entregáveis, rotinas, bots… sobre as portas
-  adapters/      Store=Prisma, Queue=BullMQ, Sandbox=VM, Vault=cofre, Llm=packages/llm
-  persona/       prompt do Atlas, idioma, vocabulário de produto
+  adapters/      implementações das portas: Prisma, BullMQ, VM, cofre, packages/llm
   legacy-bridge/ temporário, com catraca
 apps/worker      monta as portas e chama `runAgent(runId, ports)`
 apps/worker/src/sleep/   consolidação (sono)

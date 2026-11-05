@@ -45,7 +45,7 @@
 - Modelos por papel: Sonnet (conversa), Haiku (rápido, ajudantes, sono), Opus (código) (05/11).
 - Compras: cartão salvo **sem CVV**. O CVV é digitado pelo dono no cartão de aprovação e vai direto para a loja (05/11).
 - Não insistir em tarefa largada: cláusula 17 (05/11).
-- **Genérico e open-source:** núcleo `packages/agent` sem nada do Atlas; produto em `packages/agent-atlas` (05/11).
+- **Open-source como o Atlas:** o motor é dedicado ao Atlas, não é biblioteca genérica. Nada do dono no código; provedores, modelos e tetos configuráveis por quem hospeda (05/11).
 - **Sem corte por economia:** nada de cortar contexto, pesquisa ou saída de tool para gastar menos. Só o teto que o dono configurar (05/11).
 - O branch `harness/v3` fica **congelado**, só como referência (05/11).
 - "EVA" = **Vercel Eve** (05/11).
@@ -66,7 +66,7 @@
 - [~] F0.6 (05/11, Sonnet) Corrigir os 4 defeitos do eval listados em `docs/ops/v4-baseline.md` (cenários 11, 22 e 23, `skill_read` no ambiente) e rodar de novo só os afetados.
 
 ### F1: Fundação
-- [ ] F1.1 Pacote `packages/agent` (núcleo genérico, open-source) com `ports/` e guarda de fronteira (sem `@workspace/agent-runtime`, `db`, `queue`, `agent-atlas`, `apps/*`, `process.env` nem texto de produto), mais o esqueleto de `packages/agent-atlas`.
+- [ ] F1.1 Pacote `packages/agent` com `ports/`, `adapters/` e guarda de fronteira (sem `@workspace/agent-runtime`), README do motor e varredura que falha com segredo ou dado pessoal no código.
 - [ ] F1.2 `defineTool` (efeito obrigatório) e `defineCapability` (registro, índice, `use_capability`).
 - [ ] F1.3 `decide()` puro em shared: 3 estados, `HANDOFF_ACTIONS`, mandatos, matriz superfície × efeito.
 - [ ] F1.4 Token de aprovação por hash dos argumentos e `riskFacts`.
