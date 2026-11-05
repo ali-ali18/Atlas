@@ -122,3 +122,24 @@ function finish(items: readonly QuestionnaireCardItem[], state: StepState, answe
 }
 
 export const EMPTY_QUESTIONNAIRE_NOTICE = "Responda ao menos uma pergunta para enviar.";
+
+export type AnsweredLine = { name: string; prompt: string; labels: string[] };
+
+/**
+ * Respostas de um questionário já enviado, na ordem das perguntas: o rótulo da opção (não o `value` cru), o texto
+ * livre como veio, várias escolhas como lista. Pergunta sem resposta (pulada) fica de fora.
+ */
+export function answeredSummary(items: readonly QuestionnaireCardItem[], answers: AnswerMap | undefined): AnsweredLine[] {
+	if (!answers) return [];
+	const lines: AnsweredLine[] = [];
+	for (const item of items) {
+		const raw = answers[item.name];
+		if (raw === undefined) continue;
+		const labels = (Array.isArray(raw) ? raw : [raw])
+			.map((value) => value.trim())
+			.filter(Boolean)
+			.map((value) => item.choices?.find((choice) => choice.value === value)?.label ?? value);
+		if (labels.length > 0) lines.push({ name: item.name, prompt: item.prompt, labels });
+	}
+	return lines;
+}

@@ -1,11 +1,12 @@
 import * as React from "react";
 import { Pressable, TextInput, View } from "react-native";
-import { ListChecksIcon } from "@/components/icons";
-import { ChatCard, ChatCardLine } from "@/components/ui/chat-card";
+import { CHAT_CARD_COPY } from "@workspace/ui/lib/chat-card-copy";
+import { CheckIcon, CloseIcon, ListChecksIcon } from "@/components/icons";
+import { ChatCard, ChatCardDetails, ChatCardHeader } from "@/components/ui/chat-card";
 import { Text } from "@/components/ui/text";
 import { chatChrome } from "@/lib/chat-surface";
 import type { ChatItem } from "@/lib/chat-types";
-import { choiceLetter, EMPTY_QUESTIONNAIRE_NOTICE, initialStepState, stepFooter, stepReduce, stepSubtitle, type AnswerMap, type StepAction } from "@/lib/questionnaire";
+import { answeredSummary, choiceLetter, EMPTY_QUESTIONNAIRE_NOTICE, initialStepState, stepFooter, stepReduce, stepSubtitle, type AnswerMap, type StepAction } from "@/lib/questionnaire";
 import { clearQuestionnaireDraft, getQuestionnaireDraft, setQuestionnaireDraft } from "@/lib/request-memory";
 import { themeColor } from "@/lib/theme";
 import { useAppColorScheme } from "@/lib/use-theme";
@@ -25,6 +26,46 @@ function Dots({ count, index }: { count: number; index: number }) {
 }
 
 /**
+ * Questionário que não está mais pendente (respondido, dispensado ou sem perguntas): cartão `card` com ícone, título e
+ * selo de estado, como no web. Respondido traz as respostas recolhidas ("Ver detalhes"): pergunta e o rótulo escolhido.
+ * Vive em `card` (largura cheia) de propósito: na variante `activity` o título `flex-1` encolhia a pílula a só o ícone.
+ */
+function ResolvedQuestionnaire({ item }: { item: Questionnaire }) {
+	const dismissed = item.status === "dismissed";
+	const lines = answeredSummary(item.items, item.answers);
+	const header = (
+		<ChatCardHeader
+			leading={dismissed ? <CloseIcon /> : item.status === "submitted" ? <CheckIcon size={16} tone="success" /> : <ListChecksIcon />}
+			title={item.title || "Perguntas do bot"}
+			badge={dismissed ? { tone: "muted", label: CHAT_CARD_COPY.dismissed } : item.status === "submitted" ? { tone: "success", label: "Respondido" } : undefined}
+		/>
+	);
+	return (
+		<ChatCard className="max-w-[min(68ch,100%)] self-start">
+			{header}
+			{item.status === "submitted" ? (
+				<ChatCardDetails>
+					{lines.length === 0 ? (
+						<Text variant="muted" className="text-body">
+							Respostas enviadas.
+						</Text>
+					) : (
+						lines.map((line) => (
+							<View key={line.name} className="gap-0.5">
+								<Text className="text-body font-medium">{line.prompt}</Text>
+								<Text variant="muted" className="text-body">
+									{line.labels.join(", ")}
+								</Text>
+							</View>
+						))
+					)}
+				</ChatCardDetails>
+			) : null}
+		</ChatCard>
+	);
+}
+
+/**
  * Pergunta do bot, uma por vez no cartão (como o do web): título em negrito, opções com uma letra em caixa (A, B, C…),
  * pontos do passo à esquerda e Voltar · Pular · Avançar à direita; na última, "Enviar". O envio é um só, no fim, com o
  * mesmo mapa de respostas do web (`POST /v1/questionnaire/submit`). A lógica dos passos é pura (`lib/questionnaire.ts`).
@@ -36,17 +77,7 @@ export function QuestionnaireCard({ item, onAnswer }: { item: Questionnaire; onA
 	const [state, setState] = React.useState(() => getQuestionnaireDraft(item.questionnaireId) ?? initialStepState());
 	const [notice, setNotice] = React.useState<string | null>(null);
 	const pending = item.status === "pending";
-	if (!pending || item.items.length === 0) {
-		return (
-			<ChatCard variant="activity" className="self-start">
-				<ChatCardLine leading={<ListChecksIcon />}>
-					<Text numberOfLines={1} className="text-sm font-medium">
-						{item.title}
-					</Text>
-				</ChatCardLine>
-			</ChatCard>
-		);
-	}
+	if (!pending || item.items.length === 0) return <ResolvedQuestionnaire item={item} />;
 	const entry = item.items[Math.min(state.index, item.items.length - 1)]!;
 	const footer = stepFooter(item.items, state);
 	const subtitle = stepSubtitle(entry);

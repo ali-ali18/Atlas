@@ -410,6 +410,16 @@ describe("cartões: toque duplo", () => {
 		expect(calls.submit).toHaveLength(1);
 		expect(deriveView(controller.getSnapshot()).items).toBeDefined();
 	});
+	it("questionário respondido guarda as respostas no cartão enquanto o servidor não grava", async () => {
+		const { controller } = setup({ follow: async () => new Promise<FollowResult>(() => undefined) });
+		await controller.open();
+		const item: Extract<ChatItem, { kind: "questionnaire" }> = { id: "q", kind: "questionnaire", questionnaireId: "q1", title: "Qual?", items: [{ name: "a", prompt: "?", choices: [{ value: "1", label: "Um" }] }], status: "pending" };
+		controller.answer(item, { a: "1" });
+		await flush();
+		const snapshot = controller.getSnapshot();
+		const shown = deriveView({ ...snapshot, persisted: [item] }).items.find((entry) => entry.kind === "questionnaire");
+		expect(shown).toMatchObject({ status: "submitted", title: "Qual?", answers: { a: "1" } });
+	});
 });
 
 describe("cartões de pedido: login e segredo", () => {

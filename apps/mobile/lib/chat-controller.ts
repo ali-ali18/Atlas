@@ -89,7 +89,7 @@ export type ChatSnapshot = {
 	/** Um `/compact` rodando no servidor: a tela mostra "Compactando a conversa…" e segura novos envios. */
 	compacting: boolean;
 	decisions: Record<string, "approved" | "rejected">;
-	answered: Record<string, true>;
+	answered: Record<string, Record<string, string | string[]>>;
 	/** Cartões de proposta (chave `kind|proposalId`): a chamada em voo, a falha ou o resultado, antes do gravado chegar. */
 	cards: Record<string, CardResolution>;
 	/** Logins já resolvidos neste aparelho (vale na hora, antes de o servidor gravar o novo estado). */
@@ -633,7 +633,7 @@ export class ChatController {
 		const convId = this.conversationId;
 		const botId = this.botId;
 		if (!convId || !botId || item.status !== "pending" || this.state.answered[item.questionnaireId]) return;
-		this.set({ error: null, answered: { ...this.state.answered, [item.questionnaireId]: true } });
+		this.set({ error: null, answered: { ...this.state.answered, [item.questionnaireId]: answers } });
 		void (async () => {
 			try {
 				const { runId } = await this.deps.api.submitQuestionnaire({ conversationId: convId, questionnaireId: item.questionnaireId, botId, answers });
@@ -836,7 +836,7 @@ function withLocalDecisions(item: ChatItem, snapshot: ChatSnapshot): ChatItem {
 	if (item.kind === "confirm" && item.status === "pending" && snapshot.decisions[item.confirmId]) return { ...item, status: snapshot.decisions[item.confirmId]! };
 	if (item.kind === "secrets" && item.status === "pending" && snapshot.decisions[item.confirmId]) return { ...item, status: snapshot.decisions[item.confirmId]! };
 	if (item.kind === "login" && item.status === "pending" && snapshot.loginsDone[item.loginId]) return { ...item, status: "done" };
-	if (item.kind === "questionnaire" && item.status === "pending" && snapshot.answered[item.questionnaireId]) return { ...item, status: "submitted" };
+	if (item.kind === "questionnaire" && item.status === "pending" && snapshot.answered[item.questionnaireId]) return { ...item, status: "submitted", answers: snapshot.answered[item.questionnaireId]! };
 	return withProposalResolution(item, snapshot.cards);
 }
 

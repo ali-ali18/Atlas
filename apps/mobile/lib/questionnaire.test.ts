@@ -1,6 +1,6 @@
 import type { QuestionnaireCardItem } from "@workspace/shared";
 import { describe, expect, it } from "vitest";
-import { buildAnswers, choiceLetter, initialStepState, missingRequired, stepAnswered, stepFooter, stepReduce, stepSubtitle, toggleChoice, type StepAction, type StepState } from "./questionnaire";
+import { answeredSummary, buildAnswers, choiceLetter, initialStepState, missingRequired, stepAnswered, stepFooter, stepReduce, stepSubtitle, toggleChoice, type StepAction, type StepState } from "./questionnaire";
 
 const items: QuestionnaireCardItem[] = [
 	{ name: "direction", prompt: "Direção?", required: true, choices: [{ value: "a" }, { value: "b" }] },
@@ -115,5 +115,25 @@ describe("questionário em etapas", () => {
 		const second = stepReduce(optional, stepReduce(optional, first.state, { type: "next" }).state, { type: "skip" });
 		expect(second.submit).toEqual({ a: "x" });
 		expect(second.empty).toBeUndefined();
+	});
+});
+
+describe("resumo do questionário respondido", () => {
+	const asked: QuestionnaireCardItem[] = [
+		{ name: "direction", prompt: "Direção?", choices: [{ value: "both", label: "Ambos" }, { value: "x" }] },
+		{ name: "tags", prompt: "Tags?", multiple: true, choices: [{ value: "a", label: "Alfa" }, { value: "b", label: "Beta" }] },
+		{ name: "skipped", prompt: "Pulada?", choices: [{ value: "z" }] },
+		{ name: "briefing", prompt: "Conte mais", input: { label: "Texto" } },
+	];
+	it("troca o value pelo rótulo, junta várias escolhas e mantém o texto livre", () => {
+		expect(answeredSummary(asked, { direction: "both", tags: ["a", "b"], briefing: " agendar " })).toEqual([
+			{ name: "direction", prompt: "Direção?", labels: ["Ambos"] },
+			{ name: "tags", prompt: "Tags?", labels: ["Alfa", "Beta"] },
+			{ name: "briefing", prompt: "Conte mais", labels: ["agendar"] },
+		]);
+	});
+	it("sem respostas (ou só vazias) não tem linhas", () => {
+		expect(answeredSummary(asked, undefined)).toEqual([]);
+		expect(answeredSummary(asked, { direction: "  ", tags: [] })).toEqual([]);
 	});
 });
