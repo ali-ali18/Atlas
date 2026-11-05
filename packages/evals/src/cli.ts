@@ -88,7 +88,7 @@ run (padrão)
   --judge A[,B]         liga o juiz LLM (rubrica de qualidade) nas verificações "judge"; 2 modelos = dois juízes com teto de
                         discordância (prefixo do provedor: anthropic/, opencode-go/, openrouter/). Desligado por padrão
   --judge-max-gap N     diferença máxima entre os dois juízes por dimensão (padrão 1; acima disso a dimensão fica "disputed")
-  --max-cost USD        para de iniciar execuções depois do teto
+  --max-cost USD        teto de gasto (obrigatório no modo real; > 0): para de iniciar execuções depois dele
   --mock                modelo roteirizado dos cenários (sem rede, sem chave)
   --out DIR             pasta dos resultados (padrão: results/<data-hora>)
   --env-file ARQ        carrega variáveis (OPENROUTER_API_KEY) de um .env
@@ -117,6 +117,19 @@ motor-v1-vs-v2          compara o motor atual (v1) e o novo (v2) em 11 tarefas d
   --price-in N          US$/Mtok de entrada para o custo estimado (padrão 1)   --price-out N (padrão 5)
   --out ARQ             grava o relatório markdown (ex.: docs/ops/motor-v1-vs-v2.md); sem isto imprime`;
 
+/** Teto do `run`: obrigatório no modo real e estrito (0, negativo, NaN e Infinity viravam "sem teto" em silêncio). */
+export function maxCostFlag(args: CliArgs, mock: boolean): number | undefined {
+	const raw = args.flags["max-cost"];
+	if (raw === undefined) {
+		if (mock) return undefined;
+		throw new Error("informe --max-cost USD: o modo real gasta tokens e exige um teto de gasto. Nada foi executado.");
+	}
+	if (raw === true) throw new Error("--max-cost precisa de um valor em US$ (ex.: --max-cost 2). Nada foi executado.");
+	const value = strictNumber("--max-cost", raw);
+	if (!(value > 0)) throw new Error(`--max-cost precisa ser maior que zero (recebido: ${raw}). Nada foi executado.`);
+	return value;
+}
+
 function judgeSpecsFlag(args: CliArgs): string[] {
 	if (args.flags.judge === true) throw new Error("--judge precisa de um ou dois modelos (a ou a,b)");
 	return list(flag(args, "judge"));
@@ -141,6 +154,7 @@ async function commandRun(args: CliArgs): Promise<number> {
 	const models = list(flag(args, "models"));
 	const apiKey = process.env.OPENROUTER_API_KEY?.trim() ?? "";
 	if (!mock && models.length === 0) throw new Error("informe --models (ou use --mock)");
+	const maxCostUsd = maxCostFlag(args, mock);
 	if (!mock && !apiKey) throw new Error("OPENROUTER_API_KEY ausente: exporte a variável ou passe --env-file <.env> (a chave não é impressa)");
 	const scenarios = await loadAll(args);
 	const { runEvaluation } = await import("./runner.js");
@@ -179,7 +193,7 @@ async function commandRun(args: CliArgs): Promise<number> {
 		timeoutMs: number(flag(args, "timeout"), 180) * 1000,
 		variants,
 		...(judge ? { judge, judgeCostUsd: () => judgeUsd } : {}),
-		...(flag(args, "max-cost") ? { maxCostUsd: number(flag(args, "max-cost"), Number.POSITIVE_INFINITY) } : {}),
+		...(maxCostUsd !== undefined ? { maxCostUsd } : {}),
 		isStrong: strongMatcher(list(flag(args, "strong"))),
 		outDir,
 		onProgress: (record, done, total) => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { main, parseCliArgs } from "./cli.js";
+import { main, maxCostFlag, parseCliArgs } from "./cli.js";
 import { callIdFromKey } from "./environment.js";
 
 describe("utilidades do runner", () => {
@@ -40,5 +40,36 @@ describe("flags booleanas (auditoria F0, S1)", () => {
 
 	it("valor inválido nem chega a carregar cenários nem a rede", async () => {
 		await expect(main(["matrix", "--simulate=1", "--models", "anthropic/claude-haiku-5-5"])).rejects.toThrow(/Nada foi executado/);
+	});
+});
+
+describe("--max-cost do run (auditoria F0, S2)", () => {
+	const args = (...argv: string[]) => parseCliArgs(argv);
+
+	it("modo real exige o teto", () => {
+		expect(() => maxCostFlag(args("--models", "a"), false)).toThrow(/informe --max-cost/);
+		expect(maxCostFlag(args("--models", "a", "--max-cost", "2.5"), false)).toBe(2.5);
+	});
+
+	it.each(["0", "-1", "abc", "NaN", "Infinity", "-Infinity", ""])("valor %j é erro (antes virava teto infinito)", (value) => {
+		expect(() => maxCostFlag(parseCliArgs(["--models", "a", `--max-cost=${value}`]), false)).toThrow(/max-cost/);
+		expect(() => maxCostFlag(parseCliArgs(["--mock", `--max-cost=${value}`]), true)).toThrow(/max-cost/);
+	});
+
+	it("flag sem valor é erro; no mock o teto é opcional", () => {
+		expect(() => maxCostFlag(args("--models", "a", "--max-cost"), false)).toThrow(/valor/);
+		expect(maxCostFlag(args("--mock"), true)).toBeUndefined();
+	});
+
+	it("main: run real sem teto falha antes de tocar a rede", async () => {
+		const previous = process.env.OPENROUTER_API_KEY;
+		process.env.OPENROUTER_API_KEY = "sk-or-teste";
+		try {
+			await expect(main(["run", "--models", "a/b"])).rejects.toThrow(/informe --max-cost/);
+			await expect(main(["run", "--models", "a/b", "--max-cost", "0"])).rejects.toThrow(/maior que zero/);
+		} finally {
+			if (previous === undefined) delete process.env.OPENROUTER_API_KEY;
+			else process.env.OPENROUTER_API_KEY = previous;
+		}
 	});
 });
