@@ -61,7 +61,8 @@ const HELP = `Uso: pnpm --filter @workspace/evals run eval -- [comando] [opçõe
 
 run (padrão)
   --models a,b          ids do OpenRouter (obrigatório sem --mock)
-  --scenarios all|ids   ids ou tags separados por vírgula (padrão: all)
+  --scenarios all|ids   ids ou tags separados por vírgula (padrão: all = sementes + conjunto ouro); só o ouro: --scenarios gold
+  --dir DIR             pasta dos cenários (padrão: scenarios/, com subpastas)
   --repeat N            repetições por cenário e modelo (padrão: 1)
   --concurrency N       execuções simultâneas (padrão: 3)
   --timeout S           segundos por execução (padrão: 180)
@@ -91,7 +92,7 @@ motor-v1-vs-v2          compara o motor atual (v1) e o novo (v2) em 11 tarefas d
 async function loadAll(args: CliArgs) {
 	const { loadScenarios, selectScenarios } = await import("./scenario.js");
 	const dir = resolve(flag(args, "dir") ?? join(PACKAGE_DIR, "scenarios"));
-	return selectScenarios(await loadScenarios(dir), flag(args, "scenarios") ?? "all");
+	return selectScenarios(await loadScenarios(dir, { recursive: true }), flag(args, "scenarios") ?? "all");
 }
 
 async function commandRun(args: CliArgs): Promise<number> {

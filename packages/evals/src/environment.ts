@@ -1,6 +1,6 @@
 import { buildMcpToolset, type McpRuntime, type runComputerUse } from "@workspace/agent-runtime";
 import { argsMatch } from "./predicates.js";
-import type { Scenario } from "./scenario.js";
+import type { NativeFixture, Scenario } from "./scenario.js";
 import type { RecordedToolResult } from "./trajectory.js";
 
 /**
@@ -85,6 +85,9 @@ export function buildEnvironment(scenario: Scenario): ScenarioEnvironment {
 	const calls = new Map<string, { name: string; args: unknown }>();
 	const sources = new Map<string, RecordedToolResult["source"]>();
 	const unmocked: string[] = [];
+	const fixtureUses = new Map<NativeFixture, number>();
+	/** A mesma chamada pode ser consultada mais de uma vez: ela consome o fixture uma vez só. */
+	const assigned = new Map<string, NativeFixture>();
 	const real = new Set<string>([...REAL_NATIVE_TOOLS, ...scenario.tools.allowReal]);
 	const mcp = buildConnectors(scenario);
 	const preload = scenario.tools.connectors.filter((connector) => connector.preload).map((connector) => connector.slug);
@@ -96,8 +99,13 @@ export function buildEnvironment(scenario: Scenario): ScenarioEnvironment {
 				const id = callIdFromKey(key, calls.keys());
 				const call = id ? calls.get(id) : undefined;
 				if (!id || !call || call.name.startsWith("mcp__")) return null;
-				const fixture = scenario.tools.fixtures.find((item) => item.tool === call.name && argsMatch(call.args, item.args));
+				const fixture =
+					assigned.get(id) ?? scenario.tools.fixtures.find((item) => item.tool === call.name && argsMatch(call.args, item.args) && (item.uses === undefined || (fixtureUses.get(item) ?? 0) < item.uses));
 				if (fixture) {
+					if (!assigned.has(id)) {
+						assigned.set(id, fixture);
+						fixtureUses.set(fixture, (fixtureUses.get(fixture) ?? 0) + 1);
+					}
 					sources.set(id, "fixture");
 					return { ok: fixture.result.ok, summary: fixture.result.summary };
 				}

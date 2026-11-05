@@ -41,8 +41,12 @@ export type HistoryMessage = z.infer<typeof historyMessage>;
 
 const toolResult = z.object({ ok: z.boolean().default(true), summary: z.string() }).strict();
 
-/** Tool nativa interceptada: o primeiro fixture cujo `tool` e `args` batem responde no lugar do executor. */
-const nativeFixture = z.object({ tool: z.string().min(1), args: argPredicates.optional(), result: toolResult }).strict();
+/**
+ * Tool nativa interceptada: o primeiro fixture cujo `tool` e `args` batem responde no lugar do executor.
+ * `uses` limita quantas vezes ele responde; depois passa ao próximo fixture que bater (ex.: o teste falha na 1ª
+ * execução e passa na 2ª, depois da correção).
+ */
+const nativeFixture = z.object({ tool: z.string().min(1), args: argPredicates.optional(), result: toolResult, uses: z.number().int().min(1).optional() }).strict();
 export type NativeFixture = z.infer<typeof nativeFixture>;
 
 const connectorResponse = z.object({ args: argPredicates.optional(), ok: z.boolean().default(true), text: z.string() }).strict();
@@ -76,7 +80,7 @@ export type MockTurn = z.infer<typeof mockTurn>;
 const toolRef = z.object({ tool: z.string().optional(), toolPattern: z.string().optional() }).strict();
 
 const base = { id: z.string().optional() };
-const expectation = z.discriminatedUnion("type", [
+const leafOptions = [
 	z.object({ ...base, type: z.literal("tool_called"), ...toolRef.shape, args: argPredicates.optional(), min: z.number().int().min(1).optional(), max: z.number().int().min(0).optional() }).strict(),
 	z.object({ ...base, type: z.literal("tool_not_called"), ...toolRef.shape, args: argPredicates.optional() }).strict(),
 	z.object({ ...base, type: z.literal("no_question") }).strict(),
@@ -95,7 +99,16 @@ const expectation = z.discriminatedUnion("type", [
 	z.object({ ...base, type: z.literal("completed") }).strict(),
 	/** Juiz LLM (opcional, desligado por padrão): só roda com `--judge <modelo>`. */
 	z.object({ ...base, type: z.literal("judge"), rubric: z.string().min(10) }).strict(),
-]);
+	/**
+	 * Estimativa do contexto do 1º passo do agente (mensagens + schemas das tools, caracteres / 4). Determinística e
+	 * independente do provedor: serve de teto para "Bom dia" não engordar (economia de contexto).
+	 */
+	z.object({ ...base, type: z.literal("max_context_tokens"), value: z.number().int().min(1) }).strict(),
+] as const;
+const leafExpectation = z.discriminatedUnion("type", leafOptions);
+/** Passa se QUALQUER uma das verificações aninhadas passa (ex.: lembrete por rotina ou por follow-up). */
+const anyOf = z.object({ ...base, type: z.literal("any_of"), checks: z.array(leafExpectation).min(2) }).strict();
+const expectation = z.discriminatedUnion("type", [...leafOptions, anyOf]);
 export type Expectation = z.infer<typeof expectation>;
 
 export const scenarioSchema = z
@@ -128,6 +141,10 @@ export const scenarioSchema = z
 				briefReadOnly: z.boolean().default(false),
 				/** Motor do cenário: `v2` roda o motor novo (perfil chat) quando o runner não pede um motor próprio. Omitido = motor atual (v1). */
 				engine: z.enum(["v1", "v2"]).default("v1"),
+				/** Liga o modo proativo do chat (follow-ups: `schedule_followup`, `list_followups`...), como no bot principal em produção. */
+				proactive: z.boolean().optional(),
+				/** Run com VM disponível: oferece navegador, `login_fill` e sessão de código (a execução é sempre por fixture, nunca há VM). */
+				sandbox: z.boolean().optional(),
 			})
 			.strict()
 			.default({ maxSteps: 8, origin: "chat", briefReadOnly: false, engine: "v1" }),
@@ -150,13 +167,27 @@ export function parseScenario(input: unknown): ScenarioParse {
 	}
 	const scenario = parsed.data;
 	for (const item of scenario.expect) {
-		if ((item.type === "tool_called" || item.type === "tool_not_called") && !item.tool && !item.toolPattern) return { ok: false, error: `expect: ${item.type} precisa de tool ou toolPattern` };
-		if ((item.type === "text_contains" || item.type === "text_not_contains") && !item.value && !item.pattern) return { ok: false, error: `expect: ${item.type} precisa de value ou pattern` };
+		const problem = expectationProblem(item);
+		if (problem) return { ok: false, error: `expect: ${problem}` };
 	}
 	const ids = scenario.expect.map(expectationName);
 	const duplicate = ids.find((name, index) => ids.indexOf(name) !== index);
 	if (duplicate) return { ok: false, error: `expect: nome repetido "${duplicate}" (dê um id a cada verificação)` };
 	return { ok: true, scenario };
+}
+
+/** Problema de forma de uma verificação (recursivo em `any_of`), ou `null`. */
+function expectationProblem(item: Expectation): string | null {
+	if ((item.type === "tool_called" || item.type === "tool_not_called") && !item.tool && !item.toolPattern) return `${item.type} precisa de tool ou toolPattern`;
+	if ((item.type === "text_contains" || item.type === "text_not_contains") && !item.value && !item.pattern) return `${item.type} precisa de value ou pattern`;
+	if (item.type === "any_of") {
+		for (const nested of item.checks) {
+			if (nested.type === "judge") return "any_of não aceita judge (o juiz é opcional e ficaria sempre 'pulado')";
+			const problem = expectationProblem(nested);
+			if (problem) return `any_of: ${problem}`;
+		}
+	}
+	return null;
 }
 
 /** Nome estável da verificação no relatório. */
@@ -165,12 +196,25 @@ export function expectationName(item: Expectation): string {
 	if (item.type === "tool_called" || item.type === "tool_not_called") return `${item.type}:${item.tool ?? item.toolPattern}`;
 	if (item.type === "file_created" && item.extension) return `file_created:${item.extension}`;
 	if (item.type === "language") return `language:${item.value}`;
+	if (item.type === "any_of") return `any_of:${item.checks.map((nested) => expectationName(nested as Expectation)).join("|")}`;
 	return item.type;
 }
 
-/** Lê todos os `*.json` de um diretório (ordem alfabética). Falha com o arquivo e o motivo. */
-export async function loadScenarios(dir: string): Promise<Scenario[]> {
-	const files = (await readdir(dir)).filter((name) => name.endsWith(".json")).sort();
+/** Caminhos dos `*.json` de um diretório, em ordem alfabética; com `recursive`, também os das subpastas (`gold/<capacidade>/`). */
+async function jsonFiles(dir: string, recursive: boolean): Promise<string[]> {
+	const entries = (await readdir(dir, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name));
+	const out: string[] = [];
+	for (const entry of entries) {
+		if (entry.isDirectory()) {
+			if (recursive) out.push(...(await jsonFiles(join(dir, entry.name), true)).map((file) => join(entry.name, file)));
+		} else if (entry.name.endsWith(".json")) out.push(entry.name);
+	}
+	return out;
+}
+
+/** Lê todos os `*.json` de um diretório (ordem alfabética; `recursive` desce nas subpastas). Falha com o arquivo e o motivo. */
+export async function loadScenarios(dir: string, options: { recursive?: boolean } = {}): Promise<Scenario[]> {
+	const files = await jsonFiles(dir, options.recursive === true);
 	const out: Scenario[] = [];
 	for (const file of files) {
 		const raw = JSON.parse(await readFile(join(dir, file), "utf8")) as unknown;

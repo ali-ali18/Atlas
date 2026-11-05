@@ -57,6 +57,13 @@ function check(name: string, problem: string | null): CheckResult {
 	return problem ? { name, pass: false, detail: problem } : { name, pass: true };
 }
 
+/** Estimativa de tokens (caracteres / 4) do pedido do 1º passo: mensagens + schemas das tools oferecidas. */
+export function firstStepContextTokens(trajectory: Pick<Trajectory, "modelCalls">): number | null {
+	const first = mainCalls(trajectory)[0];
+	if (!first) return null;
+	return Math.ceil((JSON.stringify(first.messages).length + (first.toolsChars ?? 0)) / 4);
+}
+
 /** Uma verificação síncrona; `judge` é tratado em `runChecks`. */
 export function evaluateExpectation(item: Exclude<Expectation, { type: "judge" }>, scenario: Scenario, trajectory: Trajectory): CheckResult {
 	const name = expectationName(item);
@@ -134,6 +141,16 @@ export function evaluateExpectation(item: Exclude<Expectation, { type: "judge" }
 				(call.messages as Array<{ role?: string; content?: unknown }>).some((message) => message.role === "user" && contents.some((content) => String(message.content ?? "").includes(content))),
 			);
 			return check(name, delivered ? null : "mensagem do meio do run não chegou ao modelo");
+		}
+		case "max_context_tokens": {
+			const tokens = firstStepContextTokens(trajectory);
+			if (tokens === null) return check(name, "nenhum passo do agente");
+			return check(name, tokens > item.value ? `contexto do 1º passo ~${tokens} tokens (máx ${item.value})` : null);
+		}
+		case "any_of": {
+			const results = item.checks.map((nested) => evaluateExpectation(nested as Exclude<Expectation, { type: "judge" | "any_of" }>, scenario, trajectory));
+			if (results.some((result) => result.pass)) return check(name, null);
+			return check(name, `nenhuma passou: ${results.map((result) => `${result.name} (${result.detail ?? "falhou"})`).join(" | ")}`);
 		}
 		case "completed":
 			return check(name, trajectory.error ? `run falhou: ${trajectory.error.slice(0, 160)}` : trajectory.text.trim() ? null : "resposta vazia");

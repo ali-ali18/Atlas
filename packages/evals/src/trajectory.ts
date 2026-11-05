@@ -10,6 +10,8 @@ export type RecordedModelCall = {
 	model: string;
 	messages: unknown[];
 	tools: string[];
+	/** Tamanho (caracteres do JSON) dos schemas das tools oferecidas: entra na estimativa de contexto do 1º passo. */
+	toolsChars?: number;
 	response?: { content: string | null; toolCalls?: Array<{ name: string; arguments: string }> };
 	finishReason?: string;
 	usage?: { promptTokens?: number; completionTokens?: number; costUsd?: number; costUnknown?: boolean };

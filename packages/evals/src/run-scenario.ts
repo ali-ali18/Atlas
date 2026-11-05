@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { briefToolFilter, runComputerUse, runEngineV2, type EngineV2Options } from "@workspace/agent-runtime";
-import { applyComputerUseEventsToTranscript, TRANSCRIPT_SLOT, type ComputerUseEvent, type SerializedLlmMessage } from "@workspace/shared";
+import { applyComputerUseEventsToTranscript, DEFAULT_PROACTIVE_SETTINGS, TRANSCRIPT_SLOT, type ComputerUseEvent, type SerializedLlmMessage } from "@workspace/shared";
 import { buildEnvironment, EVAL_BOT_ID, EVAL_USER_ID } from "./environment.js";
 import type { StreamChat } from "./mock-model.js";
 import type { Scenario } from "./scenario.js";
@@ -69,6 +69,7 @@ export async function runScenario(scenario: Scenario, options: RunScenarioOption
 			model: params.model,
 			messages: structuredClone(params.messages) as unknown[],
 			tools: params.tools.map((tool) => tool.function.name),
+			toolsChars: JSON.stringify(params.tools).length,
 			durationMs: 0,
 		};
 		modelCalls.push(call);
@@ -94,7 +95,7 @@ export async function runScenario(scenario: Scenario, options: RunScenarioOption
 		getSessionId: async () => {
 			throw new Error("sem sandbox no eval");
 		},
-		sandboxEnabled: false,
+		sandboxEnabled: scenario.run.sandbox === true,
 		apiKey: options.apiKey,
 		model: options.model,
 		runId: `eval-${scenario.id}-${options.repeat ?? 0}-${randomBytes(4).toString("hex")}`,
@@ -106,6 +107,7 @@ export async function runScenario(scenario: Scenario, options: RunScenarioOption
 		abortSignal: abort.signal,
 		...toRunMessages(scenario),
 		...env.params,
+		...(scenario.run.proactive ? { proactive: { settings: DEFAULT_PROACTIVE_SETTINGS } } : {}),
 		...(scenario.run.briefReadOnly ? { toolFilter: briefToolFilter(env.params.mcp) } : {}),
 		onEvent: (event) => {
 			const record = event as unknown as Record<string, unknown>;
