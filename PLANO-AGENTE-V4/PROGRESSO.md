@@ -55,9 +55,9 @@
 ### F0: Baseline medido
 - [x] F0.1 (05/11, Sonnet escreveu, Opus revisou; `feat(evals): cenários em subpastas…` + `test(evals): conjunto ouro…`) Conjunto ouro: 24 tarefas em `packages/evals/tasks/**`, sendo pelo menos 12 de runs reais (`from-run.ts`), incluindo as de insistência.
 - [ ] F0.1b Trocar os 17 cenários `real-pendente` por runs reais redigidos (`from-run.ts`), quando houver acesso ao banco de produção.
-- [ ] F0.2 Comando `matrix` no CLI de evals (presets × modelos × repetições, relatório em Markdown e JSON).
+- [~] F0.2 (05/11, Sonnet) Comando `matrix` no CLI de evals (presets × modelos × repetições, relatório em Markdown e JSON).
 - [ ] F0.3 Rubrica de qualidade com juiz offline (2 juízes e teto de discordância).
-- [ ] F0.4 `classifyRunFailure` em shared, com testes por classe (incluindo `harness.stale_task_injection` e `model.nagging`).
+- [~] F0.4 (05/11, Sonnet, worktree) `classifyRunFailure` em shared, com testes por classe (incluindo `harness.stale_task_injection` e `model.nagging`).
 - [ ] F0.5 Rodada do baseline com v2 e v3 em Sonnet, Haiku e 2 baratos de outros provedores, com o relatório em `docs/ops/v4-baseline.md`.
 - [ ] F0.A Auditoria: 5 lentes, verificação, correções com teste, reauditoria e `auditorias/F0.md` fechado.
 
