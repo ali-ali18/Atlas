@@ -111,12 +111,21 @@ export function listedUrls(args: unknown): string[] | null {
 /**
  * Resposta neutra para tools de consulta que o modelo real chama por conta própria (memória, histórico, hora).
  * Sem isso elas voltavam "indisponível", o modelo desviava e o eval culpava o motor. Fixture do cenário vence.
- * A hora é fixa (quinta, 05/11/2026 10:00 em São Paulo): o eval nunca depende do relógio real.
+ * O instante é fixo (quinta, 05/11/2026 13:00 UTC): o eval nunca depende do relógio real. Ele é escrito no fuso do
+ * `locale` do cenário (sem `locale`, UTC): antes todo cenário recebia a hora de São Paulo e viciava o conjunto genérico.
  */
-export const EVAL_NOW_TEXT = "2026-11-05T10:00:00-03:00 (Thursday, America/Sao_Paulo)";
-export function neutralResult(name: string, args: unknown): { ok: boolean; summary: string } | null {
+export const EVAL_NOW_ISO = "2026-11-05T13:00:00Z";
+
+export function evalNowText(timezone = "UTC"): string {
+	const instant = new Date(EVAL_NOW_ISO);
+	const parts = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: timezone, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", weekday: "long", timeZoneName: "longOffset" }).formatToParts(instant).map((part) => [part.type, part.value]));
+	const offset = /^GMT([+-]\d{2}:\d{2})$/.exec(parts.timeZoneName ?? "")?.[1] ?? "+00:00";
+	return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}${offset} (${parts.weekday}, ${timezone})`;
+}
+
+export function neutralResult(name: string, args: unknown, timezone?: string): { ok: boolean; summary: string } | null {
 	if (name === "memory_search" || name === "session_search") return { ok: true, summary: "No results." };
-	if (name === "current_time") return { ok: true, summary: EVAL_NOW_TEXT };
+	if (name === "current_time") return { ok: true, summary: evalNowText(timezone) };
 	if (name === "memory") {
 		const action = isRecord(args) ? args.action : undefined;
 		return { ok: true, summary: action === "list" || action === undefined ? "No saved memories." : "Saved." };
@@ -164,7 +173,7 @@ export function buildEnvironment(scenario: Scenario): ScenarioEnvironment {
 					return { ok: fixture.result.ok, summary: fixture.result.summary };
 				}
 				if (real.has(call.name)) return null;
-				const neutral = neutralResult(call.name, call.args);
+				const neutral = neutralResult(call.name, call.args, scenario.locale?.timezone);
 				if (neutral) {
 					sources.set(id, "fixture");
 					return neutral;
