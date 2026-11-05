@@ -1,3 +1,4 @@
+import * as React from "react";
 import { resolveColor, resolveShape } from "@workspace/shared/avatar/identity";
 import { CHAT_CARD_COPY } from "@workspace/ui/lib/chat-card-copy";
 import { Pressable, View } from "react-native";
@@ -87,13 +88,25 @@ export function WebCardRow({ item, onOpen, onOpenPage }: { item: WebCard; onOpen
  * Grok (print de referência do dono): lá o vão visível é de ~29 pt entre um marcador e o seguinte e ~26 pt até o
  * balão; aqui são 10 pt de margem em cada lado, que somados ao gap de 6 da lista dão ~34 e ~20 pt visíveis.
  */
-export function MarkerRow({ text }: { text: string }) {
-	return (
-		<View className="items-center py-2.5">
-			<Text variant="caption" className="text-body">
-				{text}
-			</Text>
+export function MarkerRow({ text, icon, struck = false, onPress, accessibilityLabel }: { text: string; icon?: React.ReactNode; struck?: boolean; onPress?: () => void; accessibilityLabel?: string }) {
+	const label = (
+		<Text variant="caption" className={`text-body ${struck ? "line-through" : ""}`}>
+			{text}
+		</Text>
+	);
+	// Com ícone ou toque o marcador é uma linha só, centralizada; sem eles continua o texto puro de sempre.
+	if (!icon && !onPress) return <View className="items-center py-2.5">{label}</View>;
+	const row = (
+		<View className="flex-row items-center justify-center gap-1.5 py-2.5">
+			{icon}
+			{label}
 		</View>
+	);
+	if (!onPress) return row;
+	return (
+		<Pressable role="button" accessibilityLabel={accessibilityLabel ?? text} onPress={onPress} hitSlop={6} className="active:opacity-70">
+			{row}
+		</Pressable>
 	);
 }
 

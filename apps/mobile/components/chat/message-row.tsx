@@ -12,7 +12,7 @@ import type { HomeBot } from "@/lib/home-types";
 import { BotExchangeMarker } from "./bot-exchange-marker";
 import { ImagesRow } from "./image-card";
 import { BotProfileCard, BotProposalCard } from "./bot-cards";
-import { RoutineCard, RoutineProposalRow } from "./routine-cards";
+import { RoutineCard, RoutineGroupRow, RoutineProposalRow } from "./routine-cards";
 import { BotLinkMarkerRow, ConfirmCard, MarkerRow, WebCardRow } from "./cards";
 import { loginVariant } from "@/lib/request-cards";
 import type { RequestActions } from "@/lib/use-request-actions";
@@ -211,6 +211,8 @@ function RowContent({ item, actions, position }: { item: ChatItem; actions: RowA
 			return <WebCardRow item={item} onOpen={actions.onOpenWeb} onOpenPage={actions.onOpenPage} />;
 		case "routine":
 			return <RoutineCard item={item} onOpen={actions.onOpenRoutine} />;
+		case "routine-group":
+			return <RoutineGroupRow group={item} onOpen={actions.onOpenRoutine} />;
 		case "routine-proposal":
 			return <RoutineProposalRow item={item} onOpenWeb={actions.onOpenScreen} onOpen={actions.onOpenRoutine} />;
 		case "images":

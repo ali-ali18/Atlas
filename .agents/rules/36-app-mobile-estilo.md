@@ -56,6 +56,17 @@ Vale para toda tela, folha e componente de `apps/mobile`. Complementa a seção 
 
 ## Chat
 - Card novo = `ChatCard` (variantes `card`/`activity`), largura do balão (`BUBBLE_WIDTH_CLASS`).
+- **Cards de rotina** (`routine`, alerta, webhook/e-mail/GitHub): `ChatCard` `activity` com o ícone do tipo de gatilho, o nome, a frase
+  do agendamento ("Uma vez · 03/10 às 10:00", "A cada 50 min", nunca o cron cru) e o selo do estado ATUAL (Criada, Pausada,
+  Retomada, Apagada). O card reflete o que aconteceu depois: pausa/retomada/edição/exclusão que chega depois de um card da mesma
+  rotina muda o estado dele e não vira card novo (`settleRoutineCards`, por `routineId`; a exclusão só traz o nome). Toque abre a
+  rotina nativa (`/routines/<bot>/<rotina>`); apagada não abre. Secret e URL do webhook nunca entram no item nem no cache.
+- **Ações iguais em sequência viram uma linha-marcador** (como no Grok): 2 ou mais cards de rotina (ou alerta) seguidos viram
+  UMA linha centralizada, discreta, sem casca (`MarkerRow` com ícone do tipo): "Criou 5 rotinas", "Pausou 7 rotinas", "Apagou
+  3 rotinas"; mistura de ações = "Alterou 4 rotinas"; se o estado mudou depois, o estado atual vira o texto ("5 rotinas apagadas",
+  riscado). Tocar abre a gaveta (`DraggableSheet`; `fullHeight` + rolagem acima de 6 itens) com o card de cada um em
+  `SurfaceGroup`/`SurfaceRow`, cada linha com seu selo e tocável para os detalhes. Um card sozinho continua card. A lógica é
+  pura em `lib/routine-cards.ts` (consecutivos, mesmo substantivo; identidade da linha = a da primeira rotina).
 - Anexos no composer: tiles quadrados de 88 pt, raio 14, X branco no canto; erro com borda `destructive` e motivo embaixo.
 - Barra de voz e composer usam a mesma lógica de empilhar (`useStackedLayout`): uma linha = pílula; quebrou = texto em cima
   com largura toda e botões na base.

@@ -9,9 +9,11 @@ import { SurfaceGroup, SurfaceRow } from "@/components/ui/surface-card";
 import { Text } from "@/components/ui/text";
 import { chatCardControl } from "@/lib/chat-surface";
 import type { ChatItem, RoutineCardItem, RoutineListed } from "@/lib/chat-types";
-import { badgeFor, listedSummary, proposalCopy, ROUTINE_SHEET_FULL_AFTER, routineIcon, type RoutineIcon } from "@/lib/routine-cards";
+import { badgeFor, listedSummary, proposalCopy, ROUTINE_SHEET_FULL_AFTER, routineGroupLabel, routineGroupNames, routineIcon, type RoutineIcon } from "@/lib/routine-cards";
 import { useAppColorScheme } from "@/lib/use-theme";
+import { MarkerRow } from "./cards";
 
+type GroupItem = Extract<ChatItem, { kind: "routine-group" }>;
 type ProposalItem = Extract<ChatItem, { kind: "routine-proposal" }>;
 
 /** Ícone do tipo de gatilho: webhook, e-mail, GitHub, alerta, uma vez (relógio) ou recorrente (agenda). */
@@ -132,6 +134,52 @@ function SheetTitle({ text }: { text: string }) {
 		<Text accessibilityRole="header" numberOfLines={2} className="px-1 pb-3 pt-1 text-lg font-semibold">
 			{text}
 		</Text>
+	);
+}
+
+/**
+ * Várias rotinas seguidas, numa linha só no fio ("Pausou 7 rotinas"), como o Grok: ícone do tipo, texto discreto, sem
+ * casca. Tocar abre a gaveta com o cartão de cada uma (o selo mostra o estado atual); cada linha abre os detalhes.
+ */
+export function RoutineGroupRow({ group, onOpen }: { group: GroupItem; onOpen: (routineId: string) => void }) {
+	const [open, setOpen] = React.useState(false);
+	const label = routineGroupLabel(group);
+	const names = routineGroupNames(group.items);
+	return (
+		<>
+			<MarkerRow text={label.text} icon={<RoutineKindIcon kind={group.noun === "alerta" ? "alert" : "schedule"} size={14} />} struck={label.struck} onPress={() => setOpen(true)} accessibilityLabel={`${label.text}: ${names}. Ver lista`} />
+			<DraggableSheet visible={open} onClose={() => setOpen(false)} fullHeight={group.items.length > ROUTINE_SHEET_FULL_AFTER} header={<SheetTitle text={label.text} />}>
+				<SurfaceGroup>
+					{group.items.map((item) => (
+						<GroupRow
+							key={item.id}
+							item={item}
+							onPress={
+								canOpen(item)
+									? () => {
+											setOpen(false);
+											onOpen(item.routineId);
+										}
+									: undefined
+							}
+						/>
+					))}
+				</SurfaceGroup>
+			</DraggableSheet>
+		</>
+	);
+}
+
+function GroupRow({ item, onPress }: { item: RoutineCardItem; onPress?: () => void }) {
+	const badge = badgeFor(item);
+	return (
+		<SurfaceRow onPress={onPress} label={`${item.title}. ${badge.label}`}>
+			<RoutineKindIcon kind={routineIcon(item)} />
+			<View className="min-w-0 flex-1 py-2">
+				<RoutineTexts item={item} />
+			</View>
+			<ChatCardBadge {...badge} />
+		</SurfaceRow>
 	);
 }
 

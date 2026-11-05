@@ -11,6 +11,7 @@ import { cronSentence } from "./routine-summary";
 
 type RoutineItem = RoutineCardItem;
 type ProposalItem = Extract<ChatItem, { kind: "routine-proposal" }>;
+type GroupItem = Extract<ChatItem, { kind: "routine-group" }>;
 
 /** Quantos cartões seguidos já viram uma linha (um par também: 1 cartão fica cartão). */
 export const ROUTINE_GROUP_MIN = 2;
@@ -233,10 +234,79 @@ export function settleRoutineCards(items: readonly ChatItem[]): ChatItem[] {
 	return out;
 }
 
+// ---- 2. agrupar ---------------------------------------------------------------------------------------------------
 
-/** Passo 1 para a tela (o agrupamento vem em seguida). */
+/** Cartão que entra em grupo: de rotina/alerta (não a lista nem a proposta). */
+const groupable = (item: ChatItem): item is RoutineItem => item.kind === "routine" && item.action !== "listed";
+
+/**
+ * Cartões de rotina SEGUIDOS do mesmo substantivo (mínimo 2) viram uma linha só. Qualquer outro item (fala, outro
+ * cartão, marcador) fecha o trecho. A identidade da linha é a da primeira rotina (`routineId` ou nome), a mesma ao
+ * vivo e depois de gravado.
+ */
+export function groupRoutineCards(items: readonly ChatItem[]): ChatItem[] {
+	const out: ChatItem[] = [];
+	let run: RoutineItem[] = [];
+	const flush = () => {
+		if (run.length >= ROUTINE_GROUP_MIN) {
+			const first = run[0]!;
+			out.push({ id: `routine-group:${first.routineId ?? normalizeTitle(first.title)}`, kind: "routine-group", noun: routineNoun(first), items: run, ...(first.createdAt ? { createdAt: first.createdAt } : {}) } satisfies GroupItem);
+		} else out.push(...run);
+		run = [];
+	};
+	for (const item of items) {
+		if (groupable(item)) {
+			if (run.length > 0 && routineNoun(run[0]!) !== routineNoun(item)) flush();
+			run.push(item);
+			continue;
+		}
+		flush();
+		out.push(item);
+	}
+	flush();
+	return out;
+}
+
+const stateOf = (item: RoutineItem): RoutineState => item.settled?.state ?? ownState(item);
+
+const VERB: Record<RoutineState, string> = { created: "Criou", edited: "Editou", notify: "Alterou", paused: "Pausou", resumed: "Retomou", deleted: "Apagou" };
+const PARTICIPLE: Record<RoutineState, { m: string; f: string }> = {
+	created: { m: "criados", f: "criadas" },
+	edited: { m: "editados", f: "editadas" },
+	notify: { m: "alterados", f: "alteradas" },
+	paused: { m: "pausados", f: "pausadas" },
+	resumed: { m: "retomados", f: "retomadas" },
+	deleted: { m: "apagados", f: "apagadas" },
+};
+
+export type RoutineGroupLabel = { text: string; /** Tudo apagado: a linha vem riscada. */ struck: boolean };
+
+/**
+ * Texto da linha. Todos no mesmo estado: verbo no passado ("Pausou 7 rotinas"); se o estado veio de um cartão
+ * posterior (as 5 criadas foram apagadas), o estado atual vira o texto ("5 rotinas apagadas", riscado). Estados
+ * misturados: "Alterou 4 rotinas".
+ */
+export function routineGroupLabel(group: Pick<GroupItem, "items" | "noun">): RoutineGroupLabel {
+	const { items, noun } = group;
+	const plural = noun === "alerta" ? "alertas" : "rotinas";
+	const states = new Set(items.map(stateOf));
+	if (states.size !== 1) return { text: `Alterou ${items.length} ${plural}`, struck: false };
+	const state = [...states][0]!;
+	const changed = items.some((item) => item.settled?.changed);
+	if (changed) return { text: `${items.length} ${plural} ${PARTICIPLE[state][noun === "alerta" ? "m" : "f"]}`, struck: state === "deleted" };
+	return { text: `${VERB[state]} ${items.length} ${plural}`, struck: false };
+}
+
+/** Os nomes que acompanham a linha na gaveta e na leitura em voz alta: "A, B e mais 5". */
+export function routineGroupNames(items: readonly RoutineItem[], max = 3): string {
+	const names = items.map((item) => item.title);
+	if (names.length <= max) return names.length > 1 ? `${names.slice(0, -1).join(", ")} e ${names[names.length - 1]}` : (names[0] ?? "");
+	return `${names.slice(0, max).join(", ")} e mais ${names.length - max}`;
+}
+
+/** Todo o passo 1 + 2 para a tela. */
 export function withRoutineCards(items: readonly ChatItem[]): ChatItem[] {
-	return settleRoutineCards(items);
+	return groupRoutineCards(settleRoutineCards(items));
 }
 
 /** Sentença do cartão de proposta. */

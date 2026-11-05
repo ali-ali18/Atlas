@@ -3,7 +3,7 @@ import { applyRunEvent, createLiveState, type LiveState } from "./chat-live";
 import { parseChat, serializeChat } from "./chat-cache";
 import { reconcile, sessionMessageToItem } from "./chat-thread";
 import type { ChatItem, RoutineCardItem } from "./chat-types";
-import { badgeFor, ownState, routineIcon, routineSummaryOf, settleRoutineCards, withRoutineCards } from "./routine-cards";
+import { badgeFor, groupRoutineCards, ownState, routineGroupLabel, routineIcon, routineSummaryOf, settleRoutineCards, withRoutineCards } from "./routine-cards";
 
 const persisted = (id: string, card: Record<string, unknown>, role = "routine", createdAt = "2026-11-02T10:00:00.000Z") => sessionMessageToItem({ id, conversationId: "c1", role, content: JSON.stringify({ v: 1, kind: role, ...card }), createdAt } as never);
 const routine = (id: string, card: Record<string, unknown>) => persisted(id, { action: "updated", ...card }) as RoutineCardItem;
@@ -70,6 +70,9 @@ describe("o cartão reflete o estado atual", () => {
 		const out = settleRoutineCards(items);
 		expect(out).toHaveLength(6);
 		expect(out.filter((item) => item.kind === "routine").every((item) => (item as RoutineCardItem).settled?.state === "deleted" && (item as RoutineCardItem).settled?.changed)).toBe(true);
+		const grouped = withRoutineCards([...[1, 2, 3, 4, 5].map(created), ...[1, 2, 3, 4, 5].map(deleted)]);
+		expect(grouped).toHaveLength(1);
+		expect(routineGroupLabel(grouped[0] as never)).toEqual({ text: "5 rotinas apagadas", struck: true });
 	});
 	it("pausa com routineId muda o estado do cartão de criação", () => {
 		const out = settleRoutineCards([created(1), paused(1)]);
@@ -90,6 +93,43 @@ describe("o cartão reflete o estado atual", () => {
 	it("a lista nunca é absorvida", () => {
 		const listed = persisted("l", { action: "listed", items: [] }) as RoutineCardItem;
 		expect(settleRoutineCards([created(1), listed, paused(1)])).toHaveLength(2);
+	});
+});
+
+describe("agrupamento de cartões de rotina", () => {
+	const kinds = (items: ChatItem[]) => items.map((item) => item.kind);
+	it("1 cartão fica cartão; 2 já viram a linha; 3 e 7 também", () => {
+		expect(kinds(withRoutineCards([paused(1)]))).toEqual(["routine"]);
+		expect(kinds(withRoutineCards([paused(1), paused(2)]))).toEqual(["routine-group"]);
+		expect(kinds(withRoutineCards([1, 2, 3].map(paused)))).toEqual(["routine-group"]);
+		const seven = withRoutineCards([1, 2, 3, 4, 5, 6, 7].map(paused));
+		expect(seven).toHaveLength(1);
+		expect(routineGroupLabel(seven[0] as never)).toEqual({ text: "Pausou 7 rotinas", struck: false });
+	});
+	it("fala, outro cartão ou lista fecham o trecho", () => {
+		const out = groupRoutineCards([paused(1), paused(2), talk("t"), paused(3), paused(4), paused(5)]);
+		expect(kinds(out)).toEqual(["routine-group", "assistant", "routine-group"]);
+		expect((out[2] as { items: unknown[] }).items).toHaveLength(3);
+	});
+	it("alerta e rotina não se misturam", () => {
+		const alert = (n: number) => routine(`al${n}`, { action: "created", routineId: `ra${n}`, title: `Alerta ${n}`, triggerType: "cron", detail: "Alerta · confere a cada hora\nx" });
+		const out = withRoutineCards([paused(1), paused(2), alert(1), alert(2)]);
+		expect(kinds(out)).toEqual(["routine-group", "routine-group"]);
+		expect(routineGroupLabel(out[1] as never).text).toBe("Criou 2 alertas");
+	});
+	it("estados misturados viram 'Alterou N'; criadas e retomadas dizem o verbo", () => {
+		expect(routineGroupLabel(withRoutineCards([created(1), paused(2)])[0] as never).text).toBe("Alterou 2 rotinas");
+		expect(routineGroupLabel(withRoutineCards([1, 2, 3, 4, 5].map(created))[0] as never).text).toBe("Criou 5 rotinas");
+		const resumed = [1, 2].map((n) => routine(`rs${n}`, { routineId: `x${n}`, title: `X${n}`, detail: "Retomada" }));
+		expect(routineGroupLabel(withRoutineCards(resumed)[0] as never).text).toBe("Retomou 2 rotinas");
+	});
+	it("exclusões novas (sem cartão de criação no fio) dizem 'Apagou N rotinas'", () => {
+		expect(routineGroupLabel(withRoutineCards([deleted(1), deleted(2), deleted(3)])[0] as never)).toEqual({ text: "Apagou 3 rotinas", struck: false });
+	});
+	it("a identidade da linha é a da primeira rotina: igual ao vivo e gravado", () => {
+		const a = withRoutineCards([1, 2, 3].map(paused))[0]!;
+		const b = withRoutineCards([1, 2, 3].map((n) => ({ ...paused(n), id: `live-${n}` })))[0]!;
+		expect(a.id).toBe(b.id);
 	});
 });
 

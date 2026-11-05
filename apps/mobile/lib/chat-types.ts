@@ -61,6 +61,8 @@ export type ChatItem =
 	| RoutineCardItem
 	/** Rotina que o bot propôs sozinho (modo proativo): só leitura no app. */
 	| (Base & { kind: "routine-proposal"; proposalId: string; mode: "suggest" | "auto"; status: "pending" | "accepted" | "declined"; name: string; schedule: string; routineId?: string })
+	/** Cartões de rotina seguidos viram uma linha no fio ("Pausou 7 rotinas"); só nasce de `groupRoutineCards` ao desenhar. */
+	| (Base & { kind: "routine-group"; noun: RoutineNoun; items: RoutineCardItem[] })
 	/** Imagens do fio (anexo do usuário ou imagem gerada/enviada pelo bot), com a legenda do cartão quando há. */
 	| (Base & { kind: "images"; origin: "user" | "assistant"; images: ChatImage[]; caption?: string })
 	/** Marcador de uma linha no fio (conversa compactada, mensagem enviada a outro bot). */
