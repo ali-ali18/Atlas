@@ -53,7 +53,7 @@
 ## Checklist
 
 ### F0: Baseline medido
-- [ ] F0.1 Conjunto ouro: 24 tarefas em `packages/evals/tasks/**`, sendo pelo menos 12 de runs reais (`from-run.ts`), incluindo as de insistência.
+- [~] F0.1 (05/11, sessão principal: Sonnet escreve, Opus revisa) Conjunto ouro: 24 tarefas em `packages/evals/tasks/**`, sendo pelo menos 12 de runs reais (`from-run.ts`), incluindo as de insistência.
 - [ ] F0.2 Comando `matrix` no CLI de evals (presets × modelos × repetições, relatório em Markdown e JSON).
 - [ ] F0.3 Rubrica de qualidade com juiz offline (2 juízes e teto de discordância).
 - [ ] F0.4 `classifyRunFailure` em shared, com testes por classe (incluindo `harness.stale_task_injection` e `model.nagging`).
