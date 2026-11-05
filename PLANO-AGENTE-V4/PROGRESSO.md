@@ -59,8 +59,10 @@
 - [x] F0.2 (05/11, Sonnet escreveu, Opus revisou e confirmou os preços da Anthropic) Comando `matrix` no CLI de evals (presets × modelos × repetições, relatório em Markdown e JSON).
 - [x] F0.3 (05/11, Sonnet escreveu, Opus revisou; disputada ou inválida fica "pulada" e é contada à parte) Rubrica de qualidade com juiz offline (2 juízes e teto de discordância).
 - [x] F0.4 (05/11, Sonnet escreveu, Opus revisou e ajustou: tarefa velha injetada conta sozinha como harness) `classifyRunFailure` em shared, com testes por classe (incluindo `harness.stale_task_injection` e `model.nagging`).
-- [~] F0.5 (05/11, sessão principal, ok do dono para ~US$ 4,10) Rodada do baseline com v2 e v3 em Sonnet, Haiku e 2 baratos de outros provedores, com o relatório em `docs/ops/v4-baseline.md`.
+- [x] F0.5 (05/11; relatório em `docs/ops/v4-baseline.md`) Rodada do baseline com v2 e v3 em Sonnet, Haiku e 2 baratos de outros provedores, com o relatório em `docs/ops/v4-baseline.md`.
 - [ ] F0.A Auditoria: 5 lentes, verificação, correções com teste, reauditoria e `auditorias/F0.md` fechado.
+
+- [ ] F0.6 Corrigir os 4 defeitos do eval listados em `docs/ops/v4-baseline.md` (cenários 11, 22 e 23, `skill_read` no ambiente) e rodar de novo só os afetados.
 
 ### F1: Fundação
 - [ ] F1.1 Pacote `packages/agent` com `ports/` e guarda de fronteira (sem `@workspace/agent-runtime`).
@@ -140,6 +142,13 @@
 
 ## Diário de passagem
 > A entrada mais nova fica no topo. Formato: data · conta ou sessão · fase · feito · pela metade · próximo passo · como verificar · dúvidas.
+
+- **05/11/2026 · sessão principal · F0 (3)**
+  - **Feito:** F0.5, linha de base em `docs/ops/v4-baseline.md`.
+    - Sonnet 58%, Haiku 58%, Qwen 51%, DeepSeek 47%: o teto é do motor, não do modelo.
+    - Achado grave de motor: `decision-budget.ts` corta o passo com 20 s parado ou 90 s no total e mata documento longo.
+  - **Gasto acumulado:** ~US$ 3,50, sendo ~US$ 1,87 pela Anthropic, de um teto de US$ 10.
+  - **Próximo passo:** F0.6 (4 defeitos do eval) e depois a auditoria F0.A.
 
 - **05/11/2026 · sessão principal · F0 (2)**
   - **Feito:** F0.2 (`matrix`, com `--estimate`, `--simulate`, `--max-usd` rígido e provedores `anthropic/`, `opencode-go/` e `openrouter/`) e F0.4.
