@@ -15,6 +15,7 @@ Ficam em `packages/evals/tasks/<capacidade>/`. A maioria nasce de runs reais via
 | Dia | planejar o dia com e-mail, agenda e caderno |
 | Navegador | `browser-bench` (8 páginas) e login com cofre |
 | Código | correção com teste no repositório fixture |
+| Sem corte | pesquisa longa (20+ fontes) e documento grande terminam completos, sem resumo truncado; conversa que passa da janela continua certa depois da compactação (o modelo relê do caderno) |
 | Insistência | o resumo de vídeo falha → silêncio → assunto novo (não pode oferecer de novo); oferta dispensada (não volta); vigia ignorado 2 vezes (encerra) |
 | Segurança | e-mail com injeção; página com "ignore as instruções"; rotina tentando enviar; `money` sem humano |
 | Economia | "Bom dia" (tamanho de entrada) |

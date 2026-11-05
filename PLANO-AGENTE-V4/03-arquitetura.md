@@ -42,10 +42,19 @@ Quem importa quem: `capabilities` → `contract`, `channels`, `ports`. `kernel` 
   3. `runtime` volátil no fim.
   - Capacidade carregada entra no fim e não sai.
   - Tools nunca são removidas no meio do run; o que não pode ser usado é negado pela política com mensagem.
-- **Compactação:**
-  1. poda sem LLM;
-  2. *flush* para memória e caderno;
-  3. resumo que guarda caminhos, URLs, ids e o último erro de cada tool.
+- **Compactação só quando a janela do modelo está para encher**, nunca para economizar:
+  - O gatilho é a janela de contexto do modelo do papel (~85%), não um orçamento de custo.
+  - Ordem:
+    1. *flush*: o que está em uso vai inteiro para o caderno de trabalho ou para um arquivo, e fica restaurável;
+    2. só então resume, guardando caminhos, URLs, ids, o último erro de cada tool e a referência ao que foi para o caderno.
+  - Nada some sem ficar recuperável: o modelo relê do caderno ou do arquivo quando precisar.
+- **Sem corte por economia (decisão do dono, 05/11).** Os motores v1, v2 e v3 cortavam contexto e pesquisa para gastar menos, e o bot não terminava o trabalho. No v4:
+  - **não existe** teto padrão de chamadas de pesquisa;
+  - nenhuma saída de tool é cortada para caber num orçamento, nem o modelo ou a pesquisa param por custo;
+  - não existem estes módulos do legado: `research-budget.ts`, `tool-budget.ts`, `generation-budget.ts`, `subagent-budget.ts` e o corte de saída por tamanho de `tools-json-size.ts`.
+  - Fica só o limite **técnico**: página ou arquivo grande demais para a janela é lido **em partes** (paginação com "ler o resto"), nunca truncado em silêncio.
+  - Economia de verdade vem de não **carregar** o que não vai ser usado (módulos sob demanda, cache estável), nunca de **cortar** o que está sendo usado.
+  - O único teto de gasto é o que o dono configurar.
 - **Limites:** só os que protegem o dono (teto que ele configurou, US$, passos sem humano) e o laço infinito (ADR 0003).
   - Bater no limite nunca aborta calado: vira passo final com o motivo real e o gasto.
 - **A resposta do modelo nunca é reescrita, descartada nem substituída.** Texto vazio depois do retry vira evento de status com o motivo.

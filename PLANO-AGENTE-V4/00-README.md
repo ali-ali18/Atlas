@@ -56,6 +56,7 @@ O v4 é uma **base nova** (`packages/agent`), sem import do legado. A ideia é q
 
 ## Princípios (valem para todo PR do v4)
 0. **Coerência é contrato no código.** As 17 cláusulas de `06` têm mecanismo e teste invariante. A frase do Atlas: "Eu leio, pesquiso, rascunho e organizo sozinho. Antes de enviar, pagar, publicar ou apagar, eu te mostro exatamente o quê. Senha, dinheiro entre contas e aceite de termos ficam com você. Você vê tudo o que eu agendei e aprendi, e pode parar a qualquer momento."
+0.1 **Sem corte por economia.** Nada de cortar contexto, pesquisa ou saída de tool para gastar menos (o que fazia o v2 não terminar pesquisa). Economia vem de não carregar o que não vai ser usado. Compactação só quando a janela está cheia, e sempre restaurável. O único teto de gasto é o do dono.
 1. **Núcleo burro, capacidades espertas.** O laço só chama o modelo, executa tools e persiste. Inteligência de domínio mora na capacidade (skill + tools + ganchos), carregada sob demanda.
 2. **Zero regex sobre texto do usuário ou do modelo para decidir comportamento.** Decisão vem de sinal estrutural: efeito declarado da tool, argumentos tipados, estado do run, configuração do dono. Um teste de guarda varre `engine-v4/` e `capabilities/` (ver F1).
 3. **A resposta do modelo nunca é reescrita, descartada nem trocada.** Não há revisor, rascunho revisado nem portão de entrega. Se algo faltou, o próprio modelo é que nota (via resultado de tool) e age.

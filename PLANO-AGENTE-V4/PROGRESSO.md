@@ -45,6 +45,7 @@
 - Modelos por papel: Sonnet (conversa), Haiku (rápido, ajudantes, sono), Opus (código) (05/11).
 - Compras: cartão salvo **sem CVV**. O CVV é digitado pelo dono no cartão de aprovação e vai direto para a loja (05/11).
 - Não insistir em tarefa largada: cláusula 17 (05/11).
+- **Sem corte por economia:** nada de cortar contexto, pesquisa ou saída de tool para gastar menos. Só o teto que o dono configurar (05/11).
 - O branch `harness/v3` fica **congelado**, só como referência (05/11).
 - "EVA" = **Vercel Eve** (05/11).
 - Base: `harness/v4` criado a partir da `main` (0.4.1-beta) (05/11).
@@ -70,6 +71,7 @@
 - [ ] F1.6 `Receipt` tipado e journal de efeitos.
 - [ ] F1.7 Canais: nonce, `<data trust>` e escape.
 - [ ] F1.8 Kernel: estados, checkpoint, compactação em 3 passos, limites do dono, passo final honesto.
+- [ ] F1.8b Sem corte por economia: compactação só por janela cheia e restaurável, leitura em partes, nenhum teto padrão de pesquisa (decisão do dono, 05/11).
 - [ ] F1.9 Ciclo de vida da tarefa: sem herança entre runs, oferta por cartão com estado, `declinedOffers`, replays de insistência.
 - [ ] F1.10 Porta `Llm`: papéis, cadeia de reserva (`pickModelFor`), troca no meio do run, tetos opcionais, aviso ao dono.
 - [ ] F1.11 Contrato de trabalho (prompt), com teste de string por seção.
