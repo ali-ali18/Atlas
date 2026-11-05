@@ -3,7 +3,7 @@ import { ChatApiError } from "./chat-api";
 import type { HomeBot } from "./home-types";
 import { createNewBotSubmitter, type NewBotDeps } from "./new-bot-submit";
 
-const bot: HomeBot = { id: "b9", name: "Estoquinho", color: "#1084FE", shape: "hex", pinned: false, pinOrder: null, sectionId: null, memberIds: [], isPrimary: false, conversationId: "conv-9", language: "auto", unread: false, lastAt: null, preview: "", previewSent: false };
+const bot: HomeBot = { id: "b9", name: "Estoquinho", color: "#1084FE", shape: "hex", pinned: false, pinOrder: null, sectionId: null, memberIds: [], isPrimary: false, conversationId: "conv-9", language: "auto", unread: false, lastAt: null, preview: "", previewSent: false, previewCard: null };
 const input = { name: "Estoquinho", shape: "hex", color: "#1084FE" };
 const deferred = <T>() => {
 	let resolve!: (value: T) => void;

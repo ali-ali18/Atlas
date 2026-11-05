@@ -152,5 +152,6 @@ export function homeBotFromProposal(item: BotProposalItem, result: { botId: stri
 		lastAt: now.toISOString(),
 		preview: "",
 		previewSent: false,
+		previewCard: null,
 	};
 }

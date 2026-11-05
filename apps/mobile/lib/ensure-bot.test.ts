@@ -4,7 +4,7 @@ import { fetchHome, fetchHomeBot } from "./home-sync";
 import { HomeSyncController } from "./home-sync-controller";
 import type { HomeBot, HomeSnapshot } from "./home-types";
 
-const bot = (id: string, conversationId: string | null): HomeBot => ({ id, name: id, color: "#1084FE", shape: "blob", pinned: false, pinOrder: null, sectionId: null, memberIds: [], isPrimary: false, conversationId, language: "auto", unread: false, lastAt: null, preview: "", previewSent: false });
+const bot = (id: string, conversationId: string | null): HomeBot => ({ id, name: id, color: "#1084FE", shape: "blob", pinned: false, pinOrder: null, sectionId: null, memberIds: [], isPrimary: false, conversationId, language: "auto", unread: false, lastAt: null, preview: "", previewSent: false, previewCard: null });
 const reply = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 const rawBot = (id: string, conversationId: string | null) => ({ id, name: id, snippet: "", color: "#1084FE", shape: "blob", description: null, openRouterModel: null, language: "auto", pinned: false, pinOrder: null, notify: false, sectionId: null, memberIds: [], conversationId, lastMessage: null });
 

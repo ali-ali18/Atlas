@@ -1,6 +1,8 @@
 // O que a home desenha, e só isso. É também o que vai para o cache do aparelho: nada de `policyJson`, descrição,
 // modelo nem o texto inteiro da última mensagem (o cache fica sem criptografia no armazenamento do app).
 
+import type { CardIconKey } from "./card-preview";
+
 export type HomeBot = {
 	id: string;
 	name: string;
@@ -23,6 +25,8 @@ export type HomeBot = {
 	preview: string;
 	/** A última mensagem é este bot enviando algo a outro bot (ícone de envio). */
 	previewSent: boolean;
+	/** A última mensagem é um card: ícone do tipo (a `preview` é o título). `null` em texto e em cache antigo. */
+	previewCard: CardIconKey | null;
 };
 
 export type SectionRef = { id: string; name: string; order: number };

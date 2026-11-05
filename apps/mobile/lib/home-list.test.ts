@@ -69,7 +69,7 @@ describe("toHomeBot e busca", () => {
 	it("copia só o que a home desenha", () => {
 		const full = bot("a", { description: "segredo", policyJson: { x: 1 }, openRouterModel: "m", pinned: true, pinOrder: 2, unreadCount: 3 });
 		const slim = toHomeBot(full);
-		expect(Object.keys(slim).sort()).toEqual(["color", "conversationId", "id", "isPrimary", "language", "lastAt", "memberIds", "name", "pinOrder", "pinned", "preview", "previewSent", "sectionId", "shape", "unread"]);
+		expect(Object.keys(slim).sort()).toEqual(["color", "conversationId", "id", "isPrimary", "language", "lastAt", "memberIds", "name", "pinOrder", "pinned", "preview", "previewCard", "previewSent", "sectionId", "shape", "unread"]);
 		expect(slim).toMatchObject({ pinned: true, pinOrder: 2, unread: true });
 	});
 	it("trunca a prévia", () => {
@@ -107,6 +107,21 @@ describe("previewOf", () => {
 	it("marcador de envio a outro bot", () => {
 		const content = JSON.stringify({ v: 1, kind: "sent", botMessageId: "m", botId: "b", botName: "Grok Bot", title: "Revisar" });
 		expect(previewOf(bot("a", { lastMessage: { role: "bot-link", content, createdAt: "" } }))).toEqual({ text: "Enviou mensagem para Grok Bot: Revisar", sent: true });
+	});
+	it("card vira ícone + título; texto normal segue igual", () => {
+		const page = JSON.stringify({ v: 1, kind: "page", pageId: "p", revision: 1, title: "Resumo financeiro", action: "created", sourceCount: 0 }).slice(0, 200);
+		expect(previewOf(bot("a", { lastMessage: { role: "page", content: page, createdAt: "" } }))).toEqual({ text: "Resumo financeiro", sent: false, card: "panel" });
+		expect(previewOf(bot("a", { lastMessage: { role: "assistant", content: "Oi **você**", createdAt: "" } }))).toEqual({ text: "Oi você", sent: false });
+	});
+	it("marcador interno não mostra JSON cru", () => {
+		expect(previewOf(bot("a", { lastMessage: { role: "tool-budget", content: '{"v":1,"kind":"tool-budget"}', createdAt: "" } })).text).toBe("");
+	});
+	it("toHomeBot guarda o ícone do card e trunca título longo", () => {
+		const title = "T".repeat(300);
+		const slim = toHomeBot(bot("a", { lastMessage: { role: "page", content: JSON.stringify({ v: 1, kind: "page", title }), createdAt: "" } }));
+		expect(slim.previewCard).toBe("panel");
+		expect(slim.preview.length).toBe(PREVIEW_MAX_CHARS + 1);
+		expect(toHomeBot(bot("b", { lastMessage: { role: "assistant", content: "oi", createdAt: "" } })).previewCard).toBeNull();
 	});
 	it("marcador ilegível não mostra JSON cru", () => {
 		expect(previewOf(bot("a", { lastMessage: { role: "bot-link", content: "{oops", createdAt: "" } })).text).toBe("");

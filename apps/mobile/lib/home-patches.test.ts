@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { PendingBotPatches } from "./home-patches";
 import type { HomeBot, HomeSnapshot } from "./home-types";
 
-const bot = (id: string, name: string): HomeBot => ({ id, name, color: "#fff", shape: "blob", pinned: false, pinOrder: null, sectionId: null, memberIds: [], isPrimary: false, conversationId: null, language: "auto", unread: false, lastAt: null, preview: "", previewSent: false });
+const bot = (id: string, name: string): HomeBot => ({ id, name, color: "#fff", shape: "blob", pinned: false, pinOrder: null, sectionId: null, memberIds: [], isPrimary: false, conversationId: null, language: "auto", unread: false, lastAt: null, preview: "", previewSent: false, previewCard: null });
 const snap = (...bots: HomeBot[]): HomeSnapshot => ({ bots, sections: [] });
 
 describe("edições salvas durante uma atualização da home", () => {

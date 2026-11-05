@@ -3,6 +3,7 @@
 // fixado fica só na zona de fixados (fixar e seção são exclusivos), seção some se vazia, e quem não tem seção
 // (ou aponta para uma que não existe) vai para "Sem sessão".
 import { parseBotLinkCard, sourcePreviewPrefix, type Bot } from "@workspace/shared";
+import { cardPreviewOf, isMarkerRole, type CardIconKey } from "./card-preview";
 import type { HomeBot, SectionRef } from "./home-types";
 
 export const NO_SECTION_KEY = "__sem-sessao";
@@ -38,9 +39,9 @@ export function stripMarkdownPreview(text: string): string {
 		.trim();
 }
 
-export type RowPreview = { text: string; /** Mensagem que este bot mandou para outro bot (ícone de envio). */ sent: boolean };
+export type RowPreview = { text: string; /** Mensagem que este bot mandou para outro bot (ícone de envio). */ sent: boolean; /** Última mensagem é um card: o ícone do tipo (o texto é o título dele). */ card?: CardIconKey };
 
-/** Prévia da última mensagem: "Enviou mensagem para X: título" quando é o marcador de bot, senão o texto limpo. */
+/** Prévia da última mensagem: ícone + título quando é um card, "Enviou mensagem para X: título" no marcador de bot, senão o texto limpo. */
 export function previewOf(bot: Pick<Bot, "lastMessage">): RowPreview {
 	const last = bot.lastMessage;
 	if (!last) return { text: "", sent: false };
@@ -49,6 +50,9 @@ export function previewOf(bot: Pick<Bot, "lastMessage">): RowPreview {
 		if (card) return { text: `Enviou mensagem para ${card.botName}${card.title ? `: ${card.title}` : ""}`, sent: true };
 		return { text: "", sent: false };
 	}
+	if (isMarkerRole(last.role)) return { text: "", sent: false };
+	const card = cardPreviewOf(last.role, last.content);
+	if (card) return { text: card.title, sent: false, card: card.icon };
 	const prefix = sourcePreviewPrefix(last.source);
 	const body = stripMarkdownPreview(last.content);
 	return { text: prefix ? `${prefix} · ${body}` : body, sent: false };
@@ -73,6 +77,7 @@ export function toHomeBot(bot: Bot): HomeBot {
 		lastAt: bot.lastMessage?.createdAt ?? null,
 		preview: preview.text.length > PREVIEW_MAX_CHARS ? `${preview.text.slice(0, PREVIEW_MAX_CHARS)}…` : preview.text,
 		previewSent: preview.sent,
+		previewCard: preview.card ?? null,
 	};
 }
 

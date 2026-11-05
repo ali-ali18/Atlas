@@ -116,7 +116,7 @@ describe("removeTrigger", () => {
 describe("mentionableBots", () => {
 	const make = (id: string, name: string, memberIds: string[] = []): HomeBot => ({
 		id, name, color: "#fff", shape: "round", pinned: false, pinOrder: null, sectionId: null, memberIds, isPrimary: false,
-		conversationId: null, language: null, unread: false, lastAt: null, preview: "", previewSent: false,
+		conversationId: null, language: null, unread: false, lastAt: null, preview: "", previewSent: false, previewCard: null,
 	});
 	const all = [make("a", "A"), make("b", "B"), make("g", "G", ["a", "b"]), make("c", "C")];
 	it("no 1:1 oferece os outros bots, sem o atual nem os grupos", () => {

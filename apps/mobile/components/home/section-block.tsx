@@ -2,6 +2,7 @@ import type { HomeBot } from "@/lib/home-types";
 import * as React from "react";
 import { Pressable, View } from "react-native";
 import { ChevronDownIcon, SendIcon } from "@/components/icons";
+import { CardPreviewIcon } from "./card-preview-icon";
 import { Text } from "@/components/ui/text";
 import { formatListDate, NO_SECTION_KEY, type HomeSection } from "@/lib/home-list";
 import { BotAvatar } from "./bot-avatar";
@@ -24,6 +25,7 @@ export function ConversationRow({ bot, bots, now, onOpen, onMenu }: { bot: HomeB
 				</View>
 				<View className="flex-row items-center gap-1.5">
 					{bot.previewSent ? <SendIcon size={16} /> : null}
+					{bot.previewCard ? <CardPreviewIcon card={bot.previewCard} size={16} /> : null}
 					<Text numberOfLines={1} ellipsizeMode="tail" className={`min-w-0 flex-1 text-control ${unread ? "text-foreground" : "text-muted-foreground"}`}>
 						{bot.preview || "Sem mensagens ainda"}
 					</Text>

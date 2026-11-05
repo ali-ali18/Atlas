@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { CACHE_MAX_AGE_MS, CACHE_VERSION, cacheKey, clearHomeCache, loadHomeCache, parseCache, saveHomeCache, serializeCache, type CacheStorage } from "./home-cache";
 import type { HomeBot, HomeSnapshot } from "./home-types";
 
-const bot: HomeBot = { id: "b1", name: "Cookie", color: "#0f0", shape: "blob", pinned: true, pinOrder: 0, sectionId: null, memberIds: [], isPrimary: false, conversationId: null, language: null, unread: false, lastAt: "2026-10-05T12:00:00Z", preview: "Oi", previewSent: false };
+const bot: HomeBot = { id: "b1", name: "Cookie", color: "#0f0", shape: "blob", pinned: true, pinOrder: 0, sectionId: null, memberIds: [], isPrimary: false, conversationId: null, language: null, unread: false, lastAt: "2026-10-05T12:00:00Z", preview: "Oi", previewSent: false, previewCard: null };
 const snapshot: HomeSnapshot = { bots: [bot], sections: [{ id: "s1", name: "Codding", order: 0 }] };
 
 function memory(initial: Record<string, string> = {}, failing = false): CacheStorage & { data: Map<string, string> } {
@@ -66,6 +66,19 @@ describe("cache da home", () => {
 		await expect(saveHomeCache(storage, "k", snapshot, 1)).resolves.toBeUndefined();
 		expect(await loadHomeCache(storage, "k", 1)).toBeNull();
 		expect(await clearHomeCache(storage)).toBe(false);
+	});
+});
+
+describe("previewCard no cache da home", () => {
+	it("guarda o ícone do card e cache antigo sem o campo vira null", () => {
+		const text = serializeCache({ bots: [{ ...bot, preview: "Vendas", previewCard: "chart" }], sections: [] }, 1000);
+		expect(parseCache(text, 2000)?.snapshot.bots[0]).toMatchObject({ preview: "Vendas", previewCard: "chart" });
+		const old = JSON.stringify({ v: 2, savedAt: 1000, bots: [{ id: "a", name: "A", color: "#fff", shape: "blob", pinned: false, pinOrder: null, sectionId: null, memberIds: [], isPrimary: false, unread: false, lastAt: null, preview: "", previewSent: false }], sections: [] });
+		expect(parseCache(old, 2000)?.snapshot.bots[0]?.previewCard).toBeNull();
+	});
+	it("ícone desconhecido no disco invalida o bot (o cache é descartado)", () => {
+		const text = JSON.stringify({ v: CACHE_VERSION, savedAt: 1000, bots: [{ ...bot, previewCard: "inventado" }], sections: [] });
+		expect(parseCache(text, 2000)?.snapshot.bots ?? []).toHaveLength(0);
 	});
 });
 

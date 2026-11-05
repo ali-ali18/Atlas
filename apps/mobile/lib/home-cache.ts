@@ -2,6 +2,7 @@
 // atualiza por cima. A chave leva o servidor e a conta, então trocar de conta nunca mostra a lista da outra,
 // e `clearHomeCache` apaga tudo ao sair. Só vai para o disco o que a home desenha (`HomeBot`): sem política,
 // descrição nem texto inteiro de mensagem, porque o armazenamento do app não é criptografado.
+import { CARD_ICON_KEYS, type CardIconKey } from "./card-preview";
 import type { HomeBot, HomeSnapshot, SectionRef } from "./home-types";
 
 export type CacheStorage = {
@@ -34,6 +35,8 @@ function pickBot(value: unknown): HomeBot | null {
 	// Cache gravado antes de existir `conversationId` continua valendo: o campo ausente é `null`.
 	const conversationId = value.conversationId === undefined ? null : value.conversationId;
 	if (!isNullable(conversationId, isString)) return null;
+	const previewCard = value.previewCard === undefined ? null : value.previewCard;
+	if (previewCard !== null && !CARD_ICON_KEYS.includes(previewCard as CardIconKey)) return null;
 	const language = value.language === undefined ? null : value.language;
 	if (!isNullable(language, isString)) return null;
 	if (!isString(id) || !isString(name) || !isString(color) || !isString(shape) || !isString(preview)) return null;
@@ -41,7 +44,7 @@ function pickBot(value: unknown): HomeBot | null {
 	if (!isNullable(pinOrder, isNumber) || !isNullable(sectionId, isString) || !isNullable(lastAt, isString)) return null;
 	if (!Array.isArray(memberIds) || !memberIds.every(isString)) return null;
 	// Reconstrói campo a campo: qualquer chave a mais que esteja no disco não passa.
-	return { id, name, color, shape, pinned, pinOrder, sectionId, memberIds: [...memberIds], isPrimary, conversationId, language, unread, lastAt, preview, previewSent };
+	return { id, name, color, shape, pinned, pinOrder, sectionId, memberIds: [...memberIds], isPrimary, conversationId, language, unread, lastAt, preview, previewSent, previewCard: previewCard as CardIconKey | null };
 }
 
 function pickSection(value: unknown): SectionRef | null {

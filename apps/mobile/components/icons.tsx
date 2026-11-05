@@ -13,6 +13,7 @@ import {
 	ChevronsDownUp as LucideChevronsDownUp,
 	ChevronsUpDown as LucideChevronsUpDown,
 	Circle as LucideCircle,
+	ChartColumn as LucideChartColumn,
 	CircleCheck as LucideCircleCheck,
 	Check as LucideCheck,
 	CircleUserRound as LucideCircleUserRound,
@@ -29,6 +30,7 @@ import {
 	FileSpreadsheet as LucideFileSpreadsheet,
 	FileText as LucideFileText,
 	Image as LucideImage,
+	Images as LucideImages,
 	LayoutDashboard as LucideLayoutDashboard,
 	Presentation as LucidePresentation,
 	Globe as LucideGlobe,
@@ -58,6 +60,7 @@ import {
 	Square as LucideSquare,
 	Star as LucideStar,
 	TextCursorInput as LucideTextCursorInput,
+	Users as LucideUsers,
 	UserRoundCog as LucideUserRoundCog,
 	UserRoundPlus as LucideUserRoundPlus,
 	Trash2 as LucideTrash2,
@@ -195,6 +198,21 @@ export function CircleIcon({ size = 16, tone = "muted-foreground" }: LineIconPro
 /** Lucide `ListChecks`. */
 export function ListChecksIcon({ size = 16, tone = "muted-foreground" }: LineIconProps) {
 	return <LucideListChecks size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `ChartColumn` (Gráfico, na prévia da conversa). */
+export function ChartColumnIcon({ size = 16, tone = "muted-foreground" }: LineIconProps) {
+	return <LucideChartColumn size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `Images` (várias imagens, na prévia da conversa). */
+export function ImagesIcon({ size = 16, tone = "muted-foreground" }: LineIconProps) {
+	return <LucideImages size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `Users` (subagentes, na prévia da conversa). */
+export function UsersIcon({ size = 16, tone = "muted-foreground" }: LineIconProps) {
+	return <LucideUsers size={size} color={useStroke(tone)} strokeWidth={2} />;
 }
 
 /** Lucide `ExternalLink`. */
