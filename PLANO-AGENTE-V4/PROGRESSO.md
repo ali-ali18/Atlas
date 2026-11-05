@@ -63,7 +63,7 @@
 - [x] F0.3 (05/11, Sonnet escreveu, Opus revisou; disputada ou inválida fica "pulada" e é contada à parte) Rubrica de qualidade com juiz offline (2 juízes e teto de discordância).
 - [x] F0.4 (05/11, Sonnet escreveu, Opus revisou e ajustou: tarefa velha injetada conta sozinha como harness) `classifyRunFailure` em shared, com testes por classe (incluindo `harness.stale_task_injection` e `model.nagging`).
 - [x] F0.5 (05/11; relatório em `docs/ops/v4-baseline.md`) Rodada do baseline com v2 e v3 em Sonnet, Haiku e 2 baratos de outros provedores, com o relatório em `docs/ops/v4-baseline.md`.
-- [~] F0.A (05/11, 5 lentes Sonnet) Auditoria: 5 lentes, verificação, correções com teste, reauditoria e `auditorias/F0.md` fechado.
+- [x] F0.A (05/11, 5 lentes, 24 corrigidos, reauditoria com 2 corrigidos e 4 aceitos; ver `auditorias/F0.md`) Auditoria: 5 lentes, verificação, correções com teste, reauditoria e `auditorias/F0.md` fechado.
 
 - [x] F0.7 (05/11, Sonnet escreveu, Opus revisou; achado: o roteador de intenção do v2 só entende o vocabulário do dono, "folha de cálculo" não carrega arquivos) Conjunto `generico`: ~16 cenários com outras pessoas, idiomas, países e lojas, e o juiz recebendo o local do cenário (`04` §1.1).
 - [x] F0.6 (05/11; placar corrigido em `docs/ops/v4-baseline.md`) Corrigir os 4 defeitos do eval listados em `docs/ops/v4-baseline.md` (cenários 11, 22 e 23, `skill_read` no ambiente) e rodar de novo só os afetados.
