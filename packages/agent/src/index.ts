@@ -5,3 +5,4 @@ export * from "./tools/index.js";
 export * from "./capabilities/index.js";
 export * from "./channels/index.js";
 export * from "./kernel/index.js";
+export * from "./prompt/index.js";

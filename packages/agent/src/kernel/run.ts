@@ -42,7 +42,7 @@ export async function runAgent(deps: RunAgentDeps): Promise<RunResult> {
 
 	const saved = await ports.store.runs.loadCheckpoint(ownerId, runId);
 	const resumed = saved !== null && isSnapshot(saved.payload);
-	const snap = resumed ? structuredClone(saved.payload as ReturnType<typeof initSnapshot>) : initSnapshot(deps.input, ports, await offerNotes());
+	const snap = resumed ? structuredClone(saved.payload as ReturnType<typeof initSnapshot>) : initSnapshot(deps.input, ports, await offerNotes(), deps.registry);
 	if (resumed && saved.state === "DONE" && snap.result) return snap.result;
 
 	const loaded = createLoadedSet(registry, snap.loadedIds);

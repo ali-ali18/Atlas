@@ -1,15 +1,17 @@
 // Montagem e persistência do estado do run (checkpoint por passo).
 import { buildRunMessages, channelMessage, createRunNonce, type RunNonce } from "../channels/index.js";
+import type { CapabilityRegistry } from "../capabilities/index.js";
+import { buildStablePrompt } from "../prompt/index.js";
 import type { Ports } from "../ports/index.js";
 import type { KernelState, KernelSnapshot, RunInput } from "./types.js";
 import { freshGuard } from "./loop-guard.js";
 
-export function initSnapshot(input: RunInput, ports: Ports, runtimeNotes: readonly string[] = []): KernelSnapshot {
+export function initSnapshot(input: RunInput, ports: Ports, runtimeNotes: readonly string[] = [], registry?: CapabilityRegistry): KernelSnapshot {
 	const nonce = createRunNonce(ports.random);
 	return {
 		v: 1,
 		nonce,
-		messages: buildRunMessages({ nonce, stableSystem: input.stableSystem, contextSections: input.contextSections, history: input.history, runtimeNotes }),
+		messages: buildRunMessages({ nonce, stableSystem: input.stableSystem ?? buildStablePrompt(registry), contextSections: input.contextSections, history: input.history, runtimeNotes }),
 		ownerIdx: input.history.flatMap((h, i) => (h.kind === "owner" ? [2 + i] : [])),
 		compacted: { noteIds: [], ownerTexts: [] },
 		compactions: 0,

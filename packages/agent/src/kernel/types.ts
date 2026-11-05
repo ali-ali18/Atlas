@@ -44,8 +44,8 @@ export type ResumeInput = {
 };
 
 export type RunInput = {
-	/** Bloco 1 (igual em todo run). */
-	stableSystem: string;
+	/** Bloco 1 (igual em todo run). Sem valor, o kernel monta o prompt estável (contrato de trabalho + canais + capacidades). */
+	stableSystem?: string;
 	/** Seções do bloco 2 (`[context]`). */
 	contextSections: readonly string[];
 	/** Histórico normal da conversa. O kernel NUNCA injeta estado de tarefa de outro run. */
