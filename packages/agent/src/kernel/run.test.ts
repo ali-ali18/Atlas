@@ -26,6 +26,20 @@ describe("kernel: laço", () => {
 		expect(h.llm.requests[0]?.role).toBe("main");
 	});
 
+	it("conversa anterior (dono, assistente com tool e resultado) entra no pedido na ordem e o run segue", async () => {
+		const h = kernelHarness([reply({ text: "de nada" })]);
+		const history = [
+			{ kind: "owner" as const, text: "quanto é 2+2?" },
+			{ kind: "assistant" as const, text: "Vou calcular.", toolCalls: [{ id: "k1", name: "calc", args: { e: "2+2" } }] },
+			{ kind: "data" as const, source: "tool:calc" as const, text: "4", toolCallId: "k1" },
+			{ kind: "assistant" as const, text: "É 4." },
+			{ kind: "owner" as const, text: "valeu" },
+		];
+		const result = await h.run({ input: { ...h.input, history } });
+		expect(result).toMatchObject({ status: "done", text: "de nada" });
+		expect(h.llm.requests[0]?.messages.slice(2).map((m) => m.role)).toEqual(["user", "assistant", "tool", "assistant", "user"]);
+	});
+
 	it("laço de tool: resultado volta como dado do canal, o histórico só cresce e o checkpoint segue por passo", async () => {
 		const c = { runs: 0 };
 		const h = kernelHarness([reply({ calls: [call("c1", "lookup", { q: "a" })] }), reply({ text: "pronto" })], { tools: [lookup(c)] });

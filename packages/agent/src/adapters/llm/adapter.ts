@@ -32,6 +32,8 @@ export type LlmAdapterConfig = {
 	cooldowns?: Partial<FailureCooldowns>;
 	/** Provedores que aceitam um único `system`: os `system` do começo são fundidos em ordem. Padrão: todos. */
 	singleSystemProviders?: readonly ModelProvider[];
+	/** Provedores que exigem papéis alternados: `user` seguidos são fundidos na requisição (`mergeConsecutiveUser`). Padrão: todos. */
+	mergeUserProviders?: readonly ModelProvider[];
 	contextWindowFor?: (entry: ModelChainEntry) => number | Promise<number>;
 };
 
@@ -78,6 +80,8 @@ export function createLlmAdapter(config: LlmAdapterConfig): Llm {
 	const timeouts = { ...DEFAULT_TRANSPORT, ...config.timeouts };
 	const cooldowns = { ...DEFAULT_COOLDOWNS, ...config.cooldowns };
 	const singleSystem = config.singleSystemProviders ? new Set<ModelProvider>(config.singleSystemProviders) : undefined;
+
+	const mergeUserSet = config.mergeUserProviders ? new Set<ModelProvider>(config.mergeUserProviders) : undefined;
 
 	async function pick(role: LlmRole, tried: ReadonlySet<string>) {
 		const all = await resolve(config.chains);
@@ -129,7 +133,7 @@ export function createLlmAdapter(config: LlmAdapterConfig): Llm {
 				const merge = singleSystem ? singleSystem.has(entry.provider) : true;
 				const call = config.streamChat(
 					{
-						messages: toLegacyMessages(req.messages, { mergeSystem: merge }),
+						messages: toLegacyMessages(req.messages, { mergeSystem: merge, mergeUser: mergeUserSet ? mergeUserSet.has(entry.provider) : true }),
 						model: formatModelRef(entry.provider, entry.model),
 						apiKey,
 						tools: toLegacyTools(req.tools),

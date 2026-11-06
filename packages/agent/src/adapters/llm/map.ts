@@ -26,8 +26,34 @@ export function mergeLeadingSystem(messages: readonly LlmMessage[]): LlmMessage[
 	return [{ role: "system", content: text }, ...messages.slice(end)];
 }
 
-export function toLegacyMessages(messages: readonly LlmMessage[], opts: { mergeSystem: boolean }): LegacyMessage[] {
-	const source = opts.mergeSystem ? mergeLeadingSystem(messages) : messages;
+/**
+ * Funde `user` seguidos numa só mensagem (provedor que exige papéis alternados). Ex.: fala do dono +
+ * nota `<atlas:runtime>` + dado sem `toolCallId`. Texto vira texto com linha em branco entre as partes;
+ * se alguma tem imagem, o resultado é uma lista de partes (texto e imagem na ordem). Não funde nada
+ * além de `user` com `user`: `tool` e `assistant` separam os blocos. Função pura; o kernel guarda as
+ * mensagens SEPARADAS (o checkpoint e as posições de `ownerIdx` dependem disso): a fusão é só da requisição.
+ */
+export function mergeConsecutiveUser(messages: readonly LlmMessage[]): LlmMessage[] {
+	const out: LlmMessage[] = [];
+	for (const m of messages) {
+		const prev = out.at(-1);
+		if (m.role !== "user" || prev?.role !== "user") {
+			out.push(m);
+			continue;
+		}
+		if (typeof prev.content === "string" && typeof m.content === "string") {
+			out[out.length - 1] = { role: "user", content: `${prev.content}\n\n${m.content}` };
+			continue;
+		}
+		const parts = (c: string | LlmUserPart[]): LlmUserPart[] => (typeof c === "string" ? [{ type: "text", text: c }] : c);
+		out[out.length - 1] = { role: "user", content: [...parts(prev.content), ...parts(m.content)] };
+	}
+	return out;
+}
+
+export function toLegacyMessages(messages: readonly LlmMessage[], opts: { mergeSystem: boolean; mergeUser?: boolean }): LegacyMessage[] {
+	const merged = opts.mergeSystem ? mergeLeadingSystem(messages) : messages;
+	const source = opts.mergeUser ? mergeConsecutiveUser(merged) : merged;
 	return source.map((m): LegacyMessage => {
 		switch (m.role) {
 			case "system":

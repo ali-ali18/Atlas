@@ -3,7 +3,7 @@ import type { ProviderStreamChat } from "@workspace/llm";
 import { describe, expect, it } from "vitest";
 import type { LlmChatRequest, LlmStreamEvent } from "../../ports/llm.js";
 import { LlmUnavailableError, createLlmAdapter } from "./adapter.js";
-import { mergeLeadingSystem } from "./map.js";
+import { mergeConsecutiveUser, mergeLeadingSystem } from "./map.js";
 
 type Params = Parameters<ProviderStreamChat>[0];
 type Handlers = NonNullable<Parameters<ProviderStreamChat>[1]>;
@@ -189,6 +189,45 @@ describe("adaptador Llm", () => {
 		const { llm, calls } = setup([ok("x")], { singleSystemProviders: ["opencode-go"] });
 		await collect(llm.chat(req({ messages: [{ role: "system", content: "A" }, { role: "system", content: "B" }, { role: "user", content: "oi" }] })));
 		expect(calls[0]?.messages).toHaveLength(3);
+	});
+
+	it("funde user seguidos na requisição (e só eles)", async () => {
+		const { llm, calls } = setup([ok("x")]);
+		await collect(
+			llm.chat(
+				req({
+					messages: [
+						{ role: "system", content: "S" },
+						{ role: "user", content: "a" },
+						{ role: "user", content: "b" },
+						{ role: "assistant", content: "r", toolCalls: [{ id: "1", name: "t", args: {} }] },
+						{ role: "tool", toolCallId: "1", content: "d" },
+						{ role: "user", content: "c" },
+					],
+				}),
+			),
+		);
+		expect(calls[0]?.messages.map((m) => m.role)).toEqual(["system", "user", "assistant", "tool", "user"]);
+		expect(calls[0]?.messages[1]).toEqual({ role: "user", content: "a\n\nb" });
+	});
+
+	it("mergeUserProviders sem o provedor atual não funde", async () => {
+		const { llm, calls } = setup([ok("x")], { mergeUserProviders: ["openrouter"] });
+		await collect(llm.chat(req({ messages: [{ role: "user", content: "a" }, { role: "user", content: "b" }] })));
+		expect(calls[0]?.messages).toHaveLength(2);
+	});
+
+	it("mergeConsecutiveUser: com imagem vira lista de partes na ordem e não altera a entrada", () => {
+		const input = [
+			{ role: "user" as const, content: "veja" },
+			{ role: "user" as const, content: [{ type: "image" as const, mediaType: "image/png", data: "AA" }] },
+			{ role: "user" as const, content: "e isto" },
+		];
+		const snapshot = structuredClone(input);
+		const out = mergeConsecutiveUser(input);
+		expect(out).toEqual([{ role: "user", content: [{ type: "text", text: "veja" }, { type: "image", mediaType: "image/png", data: "AA" }, { type: "text", text: "e isto" }] }]);
+		expect(input).toEqual(snapshot);
+		expect(mergeConsecutiveUser([])).toEqual([]);
 	});
 
 	it("mapeia imagem (base64 e url) para o papel vision", async () => {
