@@ -66,9 +66,20 @@ export function resetAgentCardDecisionsForTest(): void {
 	cache = null;
 }
 
+/** Outra aba gravou uma decisão: relê o storage e avisa os cards desta. */
+function onStorage(event: StorageEvent) {
+	if (event.key !== STORAGE_KEY) return;
+	cache = null;
+	for (const listener of listeners) listener();
+}
+
 function subscribe(listener: () => void): () => void {
+	if (listeners.size === 0 && typeof window !== "undefined") window.addEventListener("storage", onStorage);
 	listeners.add(listener);
-	return () => listeners.delete(listener);
+	return () => {
+		listeners.delete(listener);
+		if (listeners.size === 0 && typeof window !== "undefined") window.removeEventListener("storage", onStorage);
+	};
 }
 
 export function useAgentCardDecision(key: string): AgentCardDecision | null {

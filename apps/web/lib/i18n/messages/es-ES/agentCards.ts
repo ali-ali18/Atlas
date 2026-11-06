@@ -34,7 +34,6 @@ export const agentCards: NamespaceMessages<typeof ptBR> = {
 	"agentCards.ask.inputLabel": "Tu respuesta",
 	"agentCards.ask.answer": "Responder",
 	"agentCards.ask.answered": "Respondido",
-	"agentCards.ask.yourAnswer": "Respondiste: {answer}",
 	"agentCards.receipt.done": "Hecho",
 	"agentCards.receipt.open": "Abrir",
 	"agentCards.settled": "Resuelto",

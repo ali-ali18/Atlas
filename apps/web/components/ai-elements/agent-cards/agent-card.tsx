@@ -14,7 +14,7 @@ import { formatList } from "@/lib/format";
 import {
 	type AgentCardMessage,
 	agentCardKey,
-	approvalDetailValues,
+	approvalDetails,
 	approvalFacts,
 	approvalNeedsCardCode,
 	describeApproval,
@@ -92,7 +92,7 @@ function ApprovalCard({ card, respond, settled, initialDecision }: InteractivePr
 	const { decision, busy, failed, send, canRespond } = useCardResponse(card, respond, initialDecision);
 	const resolved = Boolean(decision || settled);
 	const facts = approvalFacts(card);
-	const details = approvalDetailValues(card.args);
+	const details = approvalDetails(card);
 	const payment = approvalNeedsCardCode(card);
 	const base = { kind: "approval" as const, requestId: card.requestId, callId: card.callId };
 	return (

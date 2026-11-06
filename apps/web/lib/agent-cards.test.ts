@@ -12,6 +12,7 @@ import {
 	applyAgentCardEvent,
 	applyAgentCardEvents,
 	approvalDetailValues,
+	approvalDetails,
 	approvalNeedsCardCode,
 	describeApproval,
 	handoffSteps,
@@ -140,4 +141,22 @@ test("card gravado na conversa (role = tipo do evento) é restaurado e validado"
 
 test("ids do ao vivo seguem a chave estável", () => {
 	assert.equal(agentCardMessage(approval()).id, "agent-card-approval_request|run-1|req-1");
+});
+
+test("card gravado sem runId no evento usa o run da linha: mesma chave do ao vivo (auditoria)", () => {
+	const { runId: _omit, ...withoutRun } = receipt as Extract<AgentV4Event, { type: "receipt" }>;
+	const stored = agentCardFromStored("db-1", "receipt", JSON.stringify(withoutRun), "run-1");
+	assert.ok(stored);
+	assert.equal(agentCardKey(stored.card), agentCardKey(receipt));
+});
+
+test("resultado de chamada com o mesmo id em outro run não resolve o card (auditoria)", () => {
+	const thread = applyAgentCardEvent([user("u1")], approval());
+	assert.equal(settleAgentCardsForCall(thread, "call-1", "run-2"), thread);
+	assert.notEqual(settleAgentCardsForCall(thread, "call-1", "run-1"), thread);
+});
+
+test("aprovação de credencial não mostra os valores (auditoria)", () => {
+	assert.deepEqual(approvalDetails(approval({ effect: "credential", args: { name: "senha-banco" } })), []);
+	assert.deepEqual(approvalDetails(approval()), ["ana@exemplo.com", "Orçamento"]);
 });

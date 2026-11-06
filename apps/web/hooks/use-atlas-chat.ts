@@ -403,7 +403,7 @@ export function buildSessionMessage(message: SessionMessage): Message | null {
 		return { id: message.id, kind: "assistant", text: message.content };
 	}
 	// Card do motor v4 gravado na conversa: `role` = tipo do evento, `content` = o evento em JSON (validado).
-	if (isAgentV4EventType(message.role)) return agentCardFromStored(message.id, message.role, message.content);
+	if (isAgentV4EventType(message.role)) return agentCardFromStored(message.id, message.role, message.content, message.runId ?? undefined);
 	// Card `questionnaire` (role próprio, não vai ao LLM): parse via
 	// parseConversationCard + narrow para o kind.
 	if ((message.role as string) === "questionnaire") {
@@ -725,7 +725,7 @@ export function createComputerHandlers(params: {
 			// Falha da ferramenta: o texto do indicador não muda, mas o avatar faz cara de erro.
 			params.onAgentActivity?.(result.ok === false ? { phase: "thinking", toolFailed: true } : { phase: "thinking" });
 			// Chamada estacionada num card v4 (aprovação, "isso é com você") teve resultado: o card fica sem botões.
-			params.setMessages((previous) => settleAgentCardsForCall(previous, result.id));
+			params.setMessages((previous) => settleAgentCardsForCall(previous, result.id, params.runId));
 			if (result.name === "generate_image") {
 				params.setMessages((previous) => settleImageGen(previous, result.id, result));
 			}

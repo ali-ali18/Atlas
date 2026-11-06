@@ -50,7 +50,7 @@ export function agentCardMessage(event: AgentV4Event, options: { id?: string; ru
  * Card gravado na conversa (`role` = tipo do evento, `content` = o evento em JSON). Valida com o parser
  * de shared: JSON inválido ou campo fora do contrato = sem card (nunca um card quebrado na tela).
  */
-export function agentCardFromStored(id: string, role: string, content: string): AgentCardMessage | null {
+export function agentCardFromStored(id: string, role: string, content: string, runId?: string): AgentCardMessage | null {
 	if (!isAgentV4EventType(role)) return null;
 	let raw: unknown;
 	try {
@@ -60,7 +60,8 @@ export function agentCardFromStored(id: string, role: string, content: string): 
 	}
 	const event = parseAgentV4Event(raw);
 	if (!event || event.type !== role) return null;
-	return agentCardMessage(event, { id });
+	// O run da linha gravada é a reserva: a chave tem de ser a mesma do card ao vivo (que recebe a do stream).
+	return agentCardMessage(event, { id, ...(runId ? { runId } : {}) });
 }
 
 /** Vale para o ao vivo e para a hidratação: o evento do stream que é um card v4 válido, ou `null`. */
@@ -83,10 +84,12 @@ export function applyAgentCardEvent(previous: Message[], event: AgentV4Event, ru
  * Resultado da chamada estacionada chegou: o pedido foi resolvido (aqui ou em outro aparelho). O card fica,
  * mas sem botões. Sem card dessa chamada, a thread volta igual (mesma referência).
  */
-export function settleAgentCardsForCall(previous: Message[], callId: string): Message[] {
+export function settleAgentCardsForCall(previous: Message[], callId: string, runId?: string): Message[] {
 	let changed = false;
 	const next = previous.map((item) => {
 		if (item.kind !== "agent-card" || item.settled || agentCardCallId(item.card) !== callId) return item;
+		// Id de chamada pode se repetir entre runs (provedor com ids sequenciais): com os dois runs conhecidos, têm de casar.
+		if (runId && item.card.runId && item.card.runId !== runId) return item;
 		changed = true;
 		return { ...item, settled: true };
 	});
@@ -99,7 +102,7 @@ export function applyAgentCardEvents(thread: Message[], events: readonly Compute
 	for (const event of events) {
 		const card = asAgentCardEvent(event);
 		if (card) next = applyAgentCardEvent(next, card, runId);
-		else if (event.type === "tool_result") next = settleAgentCardsForCall(next, event.id);
+		else if (event.type === "tool_result") next = settleAgentCardsForCall(next, event.id, runId);
 	}
 	return next;
 }
@@ -201,6 +204,15 @@ export function approvalNeedsCardCode(event: ApprovalEvent): boolean {
  * dos campos, que são internos. Limitado para não virar um despejo: até `max` valores, cada um curto.
  */
 export function approvalDetailValues(args: unknown, max = 6): string[] {
+	return collectDetailValues(args, max);
+}
+
+/** Valores do card de aprovação para a tela. Credencial não mostra nada: a frase basta e o valor nunca aparece. */
+export function approvalDetails(event: ApprovalEvent, max = 6): string[] {
+	return event.effect === "credential" ? [] : collectDetailValues(event.args, max);
+}
+
+function collectDetailValues(args: unknown, max: number): string[] {
 	const out: string[] = [];
 	const visit = (value: unknown, depth: number) => {
 		if (out.length >= max || depth > 2) return;

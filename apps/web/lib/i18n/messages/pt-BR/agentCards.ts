@@ -32,7 +32,6 @@ export const agentCards = {
 	"agentCards.ask.inputLabel": "Sua resposta",
 	"agentCards.ask.answer": "Responder",
 	"agentCards.ask.answered": "Respondido",
-	"agentCards.ask.yourAnswer": "Você respondeu: {answer}",
 	"agentCards.receipt.done": "Feito",
 	"agentCards.receipt.open": "Abrir",
 	"agentCards.settled": "Resolvido",
