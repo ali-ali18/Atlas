@@ -15,6 +15,7 @@ import { defineTool } from "../tools/define-tool.js";
 import { createHelpers, HELPER_CONCURRENCY, type CreateHelpersDeps } from "./create-helpers.js";
 import { createSpendLedger } from "./spend-ledger.js";
 import { helpersTaint } from "./taint.js";
+import { createResearchCapability } from "../capabilities-builtin/research/index.js";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const random = { bytes: (n: number) => new Uint8Array(n).fill(3) };
@@ -425,5 +426,30 @@ describe("createHelpers: store em memória do filho", () => {
 		expect(r?.status).toBe("done");
 		const last = llm.of("OBJ-A").at(-1)?.messages.filter((m) => m.role === "tool").at(-1) as { content: string };
 		expect(last.content).toContain("Characters 24000-48000 of");
+	});
+});
+
+describe("ponta a ponta (F3): research da mãe com ajudantes reais", () => {
+	it("o plano roda em paralelo nos ajudantes, as fontes lidas voltam por sub-pergunta e a mãe termina marcada como não confiável", async () => {
+		const ledger = createSpendLedger();
+		const search = fakeSearch();
+		const plan = { questions: [{ question: "OBJ-A price", capabilities: ["web"] }, { question: "OBJ-B price", capabilities: ["web"] }], output_format: "table" };
+		const h = kernelHarness([reply({ calls: [call("m0", "use_capability", { id: "research" })] }), reply({ calls: [call("m1", "research", plan)] }), reply({ text: "| A | B |" })]);
+		const llm = new RoutedLlm({
+			"OBJ-A": [reply({ calls: [call("c1", "web_extract", { url: "https://a.test/x" })] }), reply({ text: "A costs 10" })],
+			"OBJ-B": [reply({ calls: [call("c1", "web_extract", { url: "https://b.test/y" })] }), reply({ text: "B costs 12" })],
+		});
+		let provenance: (() => PriorProvenance) | undefined;
+		let registry: ReturnType<typeof createCapabilityRegistry>;
+		const helpers = createHelpers({ runId: "run-1", ownerId: "owner-1", llm, clock: new FakeClock(), random, hash: sha256, motherRegistry: () => registry, motherPolicy: chatPolicy, motherLimits: {}, ledger, search, motherProvenance: () => provenance?.() });
+		registry = createCapabilityRegistry([createWebCapability(search), createResearchCapability(helpers)]);
+		let read: (() => PriorProvenance) | undefined;
+		const result = await runAgent({ ...h.deps({ policy: chatPolicy }), registry, ports: { ...h.ports, llm: h.llm } as Ports, spend: ledger.motherHook(), exposeProvenance: (r) => ((provenance = r), (read = r)) });
+		expect(result.status).toBe("done");
+		expect(search.extracted.sort()).toEqual(["https://a.test/x", "https://b.test/y"]);
+		const toolResult = JSON.stringify(h.llm.requests[2]?.messages.filter((m) => m.role === "tool"));
+		for (const piece of ["A costs 10", "B costs 12", "https://a.test/x", "https://b.test/y"]) expect(toolResult).toContain(piece);
+		expect(llm.requests.every((r) => r.role === "helper")).toBe(true);
+		expect(read?.().untrustedReadInRun).toBe(true);
 	});
 });
