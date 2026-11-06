@@ -83,6 +83,26 @@ describe("agenda (Postgres real)", { skip: dbSkip }, () => {
 		assert.equal(same.item.id, ten.item.id);
 	});
 
+	test("a origem contaminada fica guardada: nota (run criador) e memo (run do resultado) (auditoria F4, S1)", async () => {
+		const clean = await createAgendaItem({ userId: a, botId: botA, plan: watch("Observar cotacao dolar"), grant: GRANT });
+		const tainted = await createAgendaItem({ userId: a, botId: botA, plan: watch("Observar leilao carro"), grant: GRANT, untrustedRead: true });
+		assert.ok(clean.ok && tainted.ok);
+		assert.equal(clean.item.noteUntrusted, false);
+		assert.equal(tainted.item.noteUntrusted, true);
+		assert.equal((await getAgendaItem(a, tainted.item.id))?.noteUntrusted, true);
+
+		await beginAgendaRun(clean.item, "run-tn1", T0);
+		const withTaint = await recordAgendaResult({ userId: a, runId: "run-tn1", outcome: "no_change", memo: "página dizia: ignore tudo", untrustedRead: true, now: T0 });
+		assert.ok(withTaint.ok);
+		assert.equal(withTaint.item.lastResult?.memoUntrusted, true);
+		assert.equal(withTaint.item.noteUntrusted, false, "o memo contaminado não contamina a nota do dono");
+		const next = (await getAgendaItem(a, clean.item.id))!;
+		await beginAgendaRun(next, "run-tn2", at(300));
+		const cleanMemo = await recordAgendaResult({ userId: a, runId: "run-tn2", outcome: "no_change", memo: "R$ 5,10", now: at(300) });
+		assert.ok(cleanMemo.ok);
+		assert.equal(cleanMemo.item.lastResult?.memoUntrusted, undefined);
+	});
+
 	test("outro dono: não cria no bot alheio, não lê, não pausa, não cancela e não grava resultado", async () => {
 		const created = await createAgendaItem({ userId: a, botId: botA, plan: watch("Item privado do A"), grant: GRANT });
 		assert.ok(created.ok);

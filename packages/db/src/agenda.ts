@@ -43,7 +43,16 @@ export class AgendaError extends Error {
 }
 
 /** O que o run de agenda guardou do último resultado. */
-export type AgendaLastResult = { runId: string; outcome: AgendaOutcome | "missing"; at: string; message?: string; memo?: string; pending?: string[] };
+export type AgendaLastResult = {
+	runId: string;
+	outcome: AgendaOutcome | "missing";
+	at: string;
+	message?: string;
+	memo?: string;
+	/** O run que escreveu o memo tinha lido conteúdo não confiável: no próximo wake o memo entra como dado. */
+	memoUntrusted?: boolean;
+	pending?: string[];
+};
 
 /** Permissão decidida na criação: o run de agenda usa só isto (sem dono para perguntar a cada execução). */
 export type AgendaGrant = { autonomy: "always_ask" | "balanced" | "autonomous"; rules: Array<{ match: string; effect?: EffectClass; verdict: "run" | "approve" | "deny" }> };
@@ -72,6 +81,8 @@ export type AgendaItemRecord = {
 	grant: AgendaGrant | null;
 	runId: string | null;
 	endReason: string | null;
+	/** A nota foi escrita por um run que leu conteúdo não confiável (S1): no wake ela é dado, não instrução. */
+	noteUntrusted: boolean;
 	sourceRunId: string | null;
 	/** Reserva ativa (varredura criando o run, ou run de intenção em andamento). */
 	reservedUntil: Date | null;
@@ -97,6 +108,7 @@ function readLastResult(raw: unknown): AgendaLastResult | null {
 		at: r.at,
 		...(typeof r.message === "string" && { message: r.message }),
 		...(typeof r.memo === "string" && { memo: r.memo }),
+		...(r.memoUntrusted === true && { memoUntrusted: true }),
 		...(Array.isArray(r.pending) && { pending: r.pending.filter((p): p is string => typeof p === "string") }),
 	};
 }
@@ -143,6 +155,7 @@ function toRecord(row: Row): AgendaItemRecord | null {
 		grant: readGrant(row.grantJson),
 		runId: row.runId,
 		endReason: row.endReason,
+		noteUntrusted: row.noteUntrusted,
 		sourceRunId: row.sourceRunId,
 		reservedUntil: row.claimedUntil,
 		createdAt: row.createdAt,
@@ -166,7 +179,15 @@ export type CreateAgendaResult = { ok: true; item: AgendaItemRecord; duplicate: 
  * Cria um item já planejado (`planAgendaItem`). Devolve o existente quando é o mesmo pedido. O limite de itens ativos por
  * dono vale aqui (servidor), seja o que o modelo pedir.
  */
-export async function createAgendaItem(input: { userId: string; botId: string; plan: AgendaPlan; grant: AgendaGrant; sourceRunId?: string | null }): Promise<CreateAgendaResult> {
+export async function createAgendaItem(input: {
+	userId: string;
+	botId: string;
+	plan: AgendaPlan;
+	grant: AgendaGrant;
+	sourceRunId?: string | null;
+	/** O run criador já tinha lido conteúdo não confiável (`untrustedReadInRun`): a nota é guardada como contaminada. */
+	untrustedRead?: boolean;
+}): Promise<CreateAgendaResult> {
 	if (!validOwner(input.userId)) return { ok: false, error: "Bot não encontrado" };
 	const bot = await prisma.bot.findFirst({ where: { id: input.botId, ownerId: input.userId }, select: { id: true, conversationId: true } });
 	if (!bot) return { ok: false, error: "Bot não encontrado" };
@@ -188,6 +209,7 @@ export async function createAgendaItem(input: { userId: string; botId: string; p
 			kind: plan.kind === "watch" || plan.kind === "intent" ? "check" : "reminder",
 			source: "chat",
 			sourceRunId: input.sourceRunId ?? null,
+			noteUntrusted: input.untrustedRead === true,
 			agendaKind: plan.kind,
 			intervalMinutes: plan.intervalMinutes,
 			untilAt: plan.untilAt,
@@ -371,6 +393,8 @@ export type RecordAgendaResultInput = {
 	message?: string;
 	memo?: string;
 	pending?: string[];
+	/** O run do resultado tinha lido conteúdo não confiável: o memo é guardado como contaminado. */
+	untrustedRead?: boolean;
 	now?: Date;
 };
 
@@ -395,7 +419,7 @@ export async function recordAgendaResult(input: RecordAgendaResultInput): Promis
 		outcome: input.outcome,
 		at: now.toISOString(),
 		...(input.message?.trim() && input.outcome !== "no_change" && { message: input.message.trim() }),
-		...(input.memo?.trim() && { memo: input.memo.trim() }),
+		...(input.memo?.trim() && { memo: input.memo.trim(), ...(input.untrustedRead === true && { memoUntrusted: true }) }),
 		...(input.pending && input.pending.length > 0 && { pending: input.pending }),
 	};
 	// Compare-and-set pelo run: duas entregas do mesmo resultado não aplicam o espaçamento duas vezes.

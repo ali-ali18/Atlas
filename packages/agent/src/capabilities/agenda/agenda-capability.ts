@@ -52,12 +52,12 @@ function describeItem(item: AgendaItemView, timeZone: string): string {
 }
 
 export function createAgendaCapability(agenda: Agenda) {
-	async function schedule(request: AgendaRequest, ctx: { ownerId: string; runId: string; now: Date }, noun: string) {
+	async function schedule(request: AgendaRequest, ctx: { ownerId: string; runId: string; now: Date; untrustedRead: boolean }, noun: string) {
 		const settings = await agenda.settings(ctx.ownerId);
 		const planned = planAgendaItem({ request, now: ctx.now, settings });
 		if (!planned.ok) return { ok: false as const, error: planned.error, hint: "Fix the field named in the error and call again." };
 		const { plan } = planned;
-		const created = await agenda.create(ctx.ownerId, plan, { sourceRunId: ctx.runId });
+		const created = await agenda.create(ctx.ownerId, plan, { sourceRunId: ctx.runId, untrustedRead: ctx.untrustedRead });
 		if (!created.ok) return { ok: false as const, error: created.error, hint: "Use agenda_list to see the active items, then agenda_change to cancel one." };
 		const { item } = created;
 		const tz = settings.timezone;
@@ -87,7 +87,7 @@ export function createAgendaCapability(agenda: Agenda) {
 		}),
 		effect: "write_internal",
 		riskFacts: () => ({ target: "Agenda" }),
-		execute: (args, ctx) => schedule({ kind: "remind", ...args }, { ownerId: ctx.ownerId, runId: ctx.runId, now: ctx.ports.clock.now() }, "reminder"),
+		execute: (args, ctx) => schedule({ kind: "remind", ...args }, { ownerId: ctx.ownerId, runId: ctx.runId, now: ctx.ports.clock.now(), untrustedRead: ctx.untrustedReadInRun === true }, "reminder"),
 	});
 
 	const watch = defineTool({
@@ -107,7 +107,7 @@ export function createAgendaCapability(agenda: Agenda) {
 		}),
 		effect: "write_internal",
 		riskFacts: () => ({ target: "Agenda" }),
-		execute: (args, ctx) => schedule({ kind: "watch", ...args }, { ownerId: ctx.ownerId, runId: ctx.runId, now: ctx.ports.clock.now() }, "watch"),
+		execute: (args, ctx) => schedule({ kind: "watch", ...args }, { ownerId: ctx.ownerId, runId: ctx.runId, now: ctx.ports.clock.now(), untrustedRead: ctx.untrustedReadInRun === true }, "watch"),
 	});
 
 	const onEvent = defineTool({
@@ -129,7 +129,7 @@ export function createAgendaCapability(agenda: Agenda) {
 		execute: ({ note, source, from, subjectContains, hasAttachment, until, maxRuns }, ctx) =>
 			schedule(
 				{ kind: "intent", note, eventFilter: { source, ...(from !== undefined && { from }), ...(subjectContains !== undefined && { subjectContains }), ...(hasAttachment !== undefined && { hasAttachment }) }, ...(until !== undefined && { until }), ...(maxRuns !== undefined && { maxRuns }) },
-				{ ownerId: ctx.ownerId, runId: ctx.runId, now: ctx.ports.clock.now() },
+				{ ownerId: ctx.ownerId, runId: ctx.runId, now: ctx.ports.clock.now(), untrustedRead: ctx.untrustedReadInRun === true },
 				"event trigger",
 			),
 	});
@@ -197,7 +197,7 @@ export function createAgendaRunCapability(agenda: Agenda) {
 			if (outcome === "no_change" && message !== undefined) return { ok: false, error: "no_change must not carry a message: the owner is not told when nothing changed.", hint: "If there is news, use update with a message; otherwise call no_change without message." };
 			if (outcome === "update" && message === undefined) return { ok: false, error: "update needs a message: it is what the owner will read.", hint: "Write the news in the owner's language, or use no_change if there is none." };
 			if (outcome === "no_change" && pending !== undefined && pending.length > 0) return { ok: false, error: "pending needs the owner, so the owner must hear about it: use update with a message that mentions it.", hint: "Use outcome update and put it in the message, or drop pending." };
-			const reported = await agenda.reportResult(ctx.ownerId, ctx.runId, { outcome, ...(message !== undefined && { message }), ...(memo !== undefined && { memo }), ...(pending !== undefined && { pending }) });
+			const reported = await agenda.reportResult(ctx.ownerId, ctx.runId, { outcome, ...(message !== undefined && { message }), ...(memo !== undefined && { memo }), ...(pending !== undefined && { pending }) }, { untrustedRead: ctx.untrustedReadInRun === true });
 			if (!reported.ok) return { ok: false, error: reported.error, hint: "This tool only works in a run woken by the agenda." };
 			const said = outcome === "no_change" ? "nothing will be posted" : message ? "the message will be delivered" : "the item ends without a message";
 			return { ok: true, summary: `Result recorded (${outcome}); ${said}. The run ends now.`, receipt: { what: `Agenda result: ${outcome}`, where: "Agenda" } };
