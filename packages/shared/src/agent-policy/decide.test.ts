@@ -171,6 +171,11 @@ describe("egress (auditoria F1, S2)", () => {
 		expect(kind({ effect: "read", egress: true, taint: { untrustedReadInRun: false, argsCarryUntrusted: false, privateReadInRun: true } })).toBe("run");
 		expect(kind({ effect: "read", egress: true, taint: trifecta })).toBe("approve");
 	});
+	it("trifeta sem dono (rotina, ou dono ausente) fica fora em vez de estacionar com cartão que ninguém vê", () => {
+		expect(kind({ effect: "read", egress: true, taint: trifecta, surface: "routine" })).toBe("hidden");
+		expect(kind({ effect: "read", egress: true, taint: trifecta, ownerPresent: false })).toBe("hidden");
+		expect(kind({ effect: "read", egress: true, taint: tainted, surface: "routine" })).toBe("run");
+	});
 	it("read sem egress continua rodando com taint, e regra 'run' do dono não afrouxa o egress com taint", () => {
 		expect(kind({ effect: "read", taint: tainted })).toBe("run");
 		expect(kind({ effect: "read", egress: true, taint: trifecta, rules: [{ match: "*", verdict: "run" }] })).toBe("approve");
