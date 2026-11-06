@@ -7,7 +7,7 @@ import { after, before, describe, test } from "node:test";
 import { prisma } from "./client.js";
 import { addMemoryEntry } from "./memory-entries.js";
 import { listSleepChanges } from "./notes.js";
-import { SLEEP_STALE_MS, claimSleepSlot, dismissSleepProposal, finishSleepReport, getPreviousSleepEnd, getSleepReport, listBotsForSleep, listMemoryForDoctor, listSleepReports, loadSleepDay } from "./sleep-reports.js";
+import { SLEEP_STALE_MS, claimSleepSlot, dismissSleepProposal, finishSleepReport, getPreviousSleepEnd, getSleepReport, listBotsForSleep, listMemoryForDoctor, listSleepReports, loadSleepDay, sumSleepCostUsd } from "./sleep-reports.js";
 import { createTestBot, createTestUser, dbSkip } from "./testing/test-db.js";
 
 describe("sono (Postgres real)", { skip: dbSkip }, () => {
@@ -100,6 +100,21 @@ describe("sono (Postgres real)", { skip: dbSkip }, () => {
 		assert.ok(day.notes.some((n) => n.title === "n"));
 		// O outro dono não lê o dia do bot do A, nem passando o id certo.
 		assert.equal(await loadSleepDay({ userId: userB, botId: botA, from: at("2026-11-01T00:00:00Z"), to: at("2026-11-09T00:00:00Z") }), null);
+	});
+
+	test("custo do sono: soma os relatórios do dono (feitos, quietos e falhos), por bot e por período; nunca os de outro dono (auditoria F5, C1)", async () => {
+		const bot = (await createTestBot(userA, { name: "custo" })).id;
+		const other = (await createTestBot(userB, { name: "custo-b" })).id;
+		const at = (iso: string) => new Date(iso);
+		for (const [slot, status, cost, day] of [["2026-10-01", "done", 0.01, "2026-10-02T02:30:00Z"], ["2026-10-02", "failed", 0.005, "2026-10-03T02:30:00Z"], ["2026-10-03", "skipped", 0, "2026-10-04T02:30:00Z"]] as const) {
+			const claim = await claimSleepSlot({ userId: userA, botId: bot, kind: "daily", slot, now: at(day) });
+			await finishSleepReport({ userId: userA, id: claim!.id, status, stats: { costUsd: cost }, now: at(day) });
+		}
+		const foreign = await claimSleepSlot({ userId: userB, botId: other, kind: "daily", slot: "2026-10-01", now: at("2026-10-02T02:30:00Z") });
+		await finishSleepReport({ userId: userB, id: foreign!.id, status: "done", stats: { costUsd: 9 }, now: at("2026-10-02T02:30:00Z") });
+		assert.equal(await sumSleepCostUsd({ userId: userA, botId: bot, since: at("2026-10-01T00:00:00Z") }), 0.015);
+		assert.equal(await sumSleepCostUsd({ userId: userA, botId: bot, since: at("2026-10-03T00:00:00Z") }), 0.005);
+		assert.equal(await sumSleepCostUsd({ userId: userB, botId: bot, since: at("2026-10-01T00:00:00Z") }), 0);
 	});
 
 	test("bots para dormir: só os dos donos pedidos, com conversa direta", async () => {

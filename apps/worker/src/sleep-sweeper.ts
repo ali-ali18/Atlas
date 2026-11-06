@@ -12,7 +12,7 @@ import { isEngineV4Enabled, isDoctorDay, isSleepDue, readSleepEnabled, reflectio
 import type { WorkerConfig } from "./config.js";
 import { engineV4GateFromEnv } from "./engine-choice.js";
 import { createSleepLlm } from "./sleep-llm.js";
-import { runDailySleep, runDoctor, type DoctorPorts, type SleepOutcome, type SleepPorts } from "./sleep-run.js";
+import { SleepRunError, runDailySleep, runDoctor, type DoctorPorts, type SleepOutcome, type SleepPorts } from "./sleep-run.js";
 
 export const SLEEP_SWEEP_INTERVAL_MS = 5 * 60_000;
 
@@ -89,7 +89,7 @@ async function execute(job: Job, deps: SleepSweepDeps, now: Date): Promise<void>
 		// O motivo vai para o relatório e o log sem segredo; a janela não avança, então o dia entra na próxima leitura.
 		const detail = sanitizeErrorMessage(error);
 		deps.log(`[sleep] bot=${bot.id} ${kind} ${slot.key} falhou: ${detail}`);
-		await deps.db.finish({ userId, id: claimId, status: "failed", detail, now }).catch(() => undefined);
+		await deps.db.finish({ userId, id: claimId, status: "failed", detail, ...(error instanceof SleepRunError && { stats: error.stats }), now }).catch(() => undefined);
 	}
 }
 

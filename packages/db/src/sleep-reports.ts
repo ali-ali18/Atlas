@@ -82,6 +82,18 @@ export async function getPreviousSleepEnd(userId: string, botId: string): Promis
 	return row?.windowEnd ?? null;
 }
 
+/**
+ * Quanto o sono do dono gastou (US$) desde `since`, somando `statsJson.costUsd` dos relatórios (feitos, dia quieto e
+ * falhos: a tentativa que falha também gasta). Hoje NÃO existe teto de gasto por período (conta ou bot): só o teto por
+ * tarefa longa, que não se aplica ao sono. Este é o ponto de entrada para quando existir: o agendador consulta aqui
+ * antes de reservar o slot. Sempre filtra pelo dono.
+ */
+export async function sumSleepCostUsd(input: { userId: string; since: Date; botId?: string }): Promise<number> {
+	const rows = await prisma.sleepReport.findMany({ where: { userId: input.userId, createdAt: { gte: input.since }, ...(input.botId && { botId: input.botId }) }, select: { statsJson: true } });
+	const total = rows.reduce((sum, row) => sum + (numbersOf(row.statsJson).costUsd ?? 0), 0);
+	return Math.round(total * 1_000_000) / 1_000_000;
+}
+
 export async function listSleepReports(input: { userId: string; botId?: string; kind?: SleepReportKind; cursor?: string; limit?: number }): Promise<{ reports: SleepReportView[]; nextCursor: string | null }> {
 	const take = Math.min(Math.max(input.limit ?? SLEEP_REPORTS_PAGE_SIZE, 1), SLEEP_REPORTS_MAX_PAGE_SIZE);
 	const rows = await prisma.sleepReport.findMany({

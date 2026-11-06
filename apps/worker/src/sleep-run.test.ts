@@ -7,7 +7,7 @@ import { test } from "node:test";
 import type { Llm, LlmChatRequest, LlmStreamEvent } from "@workspace/agent";
 import type { OwnerNoteView } from "@workspace/shared";
 import { SLEEP_SYSTEM_PROMPT, SUBMIT_DOCTOR_TOOL, SUBMIT_SLEEP_TOOL } from "./sleep-prompt.js";
-import { runDailySleep, runDoctor, type DoctorPorts, type SleepPorts } from "./sleep-run.js";
+import { SleepRunError, runDailySleep, runDoctor, type DoctorPorts, type SleepPorts } from "./sleep-run.js";
 
 function scriptedLlm(...scripts: Array<{ tool: string; args: unknown } | null>): Llm & { requests: LlmChatRequest[] } {
 	const requests: LlmChatRequest[] = [];
@@ -193,4 +193,14 @@ test("doctor: o id de cada proposta cabe no limite da rota de dispensar mesmo co
 	assert.equal(out.proposals.length, 1);
 	assert.ok(out.proposals[0]!.id.length <= 64, `id com ${out.proposals[0]!.id.length} caracteres`);
 	assert.equal(new Set(out.proposals.map((p) => p.id)).size, out.proposals.length);
+});
+
+test("sono que falha depois de chamar o modelo leva o gasto junto no erro (o gasto da tentativa também conta)", async () => {
+	const llm = scriptedLlm({ tool: SUBMIT_SLEEP_TOOL, args: { facts: [{ layer: "owner", content: "Mora em Curitiba", sources: ["m1"] }], notes: [], skills: [] } });
+	const { ports: base } = ports(llm, { messages: talk });
+	const broken: SleepPorts = { ...base, addFact: async () => { throw new Error("banco indisponível"); } };
+	await assert.rejects(
+		runDailySleep({ ports: broken, botId: "b1", window, slotKey: "2026-11-04", language: "pt-BR" }),
+		(error) => error instanceof SleepRunError && error.message === "banco indisponível" && error.stats.llmCalls === 1 && error.stats.costUsd === 0.001,
+	);
 });

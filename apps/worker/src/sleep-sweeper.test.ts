@@ -12,9 +12,9 @@ import type { SleepPorts } from "./sleep-run.js";
 
 const bot = (id: string, ownerId: string, over: Partial<SleepBotRef> = {}): SleepBotRef => ({ id, ownerId, name: id, language: "pt-BR", conversationId: `c-${id}`, policyJson: null, ...over });
 
-function harness(input: { bots: SleepBotRef[]; zones?: Record<string, string>; gate?: EngineV4Gate; now: string; taken?: Set<string>; failBots?: Set<string> }) {
+function harness(input: { bots: SleepBotRef[]; zones?: Record<string, string>; gate?: EngineV4Gate; now: string; taken?: Set<string>; failBots?: Set<string>; failAfterModel?: Set<string> }) {
 	const log: string[] = [];
-	const finished: Array<{ id: string; status: string; windowEnd?: Date; detail?: string }> = [];
+	const finished: Array<{ id: string; status: string; windowEnd?: Date; detail?: string; stats?: Record<string, number> }> = [];
 	const claims: string[] = [];
 	const listed: string[][] = [];
 	const windows: Array<{ bot: string; from: Date; to: Date }> = [];
@@ -31,16 +31,20 @@ function harness(input: { bots: SleepBotRef[]; zones?: Record<string, string>; g
 				if (input.taken?.has(key)) return null;
 				return { id: `rep:${key}` };
 			},
-			finish: (async (f: { id: string; status: string; windowEnd?: Date; detail?: string }) => void finished.push({ id: f.id, status: f.status, ...(f.windowEnd && { windowEnd: f.windowEnd }), ...(f.detail && { detail: f.detail }) })) as unknown as SleepSweepDeps["db"]["finish"],
+			finish: (async (f: { id: string; status: string; windowEnd?: Date; detail?: string; stats?: Record<string, number> }) => void finished.push({ id: f.id, status: f.status, ...(f.windowEnd && { windowEnd: f.windowEnd }), ...(f.detail && { detail: f.detail }), ...(f.stats && { stats: f.stats }) })) as unknown as SleepSweepDeps["db"]["finish"],
 			previousEnd: async () => null,
 		},
 		portsFor: async (b) => {
 			if (input.failBots?.has(b.id)) throw new Error("sem chave do provedor");
+			const late = input.failAfterModel?.has(b.id) ?? false;
 			const ports: SleepPorts & { memory: () => Promise<[]>; notes: () => Promise<[]> } = {
-				llm: { contextWindow: async () => 1, async *chat() { yield { type: "tool_call", call: { id: "c", name: SUBMIT_SLEEP_TOOL, args: { facts: [], notes: [], skills: [] } } }; yield { type: "done", finishReason: "stop", usage: { inputTokens: 1, outputTokens: 1 }, served: { provider: "p", model: "m" } }; } },
+				llm: { contextWindow: async () => 1, async *chat() { yield { type: "tool_call", call: { id: "c", name: SUBMIT_SLEEP_TOOL, args: { facts: late ? [{ layer: "owner", content: "Mora em Curitiba", sources: ["m1"] }] : [], notes: [], skills: [] } } }; yield { type: "done", finishReason: "stop", usage: { inputTokens: 1, outputTokens: 1, ...(late && { costUsd: 0.002 }) }, served: { provider: "p", model: "m" } }; } },
 				loadDay: async (w) => (windows.push({ bot: b.id, ...w }), { messages: [{ id: "m1", role: "user", content: "oi", origin: null }], runs: [], notes: [] }),
 				existingFacts: async () => [],
-				addFact: async () => ({ status: "added" }),
+				addFact: async () => {
+					if (late) throw new Error("banco indisponível");
+					return { status: "added" };
+				},
 				addNote: async () => ({ status: "added" }),
 				memory: async () => [],
 				notes: async () => [],
@@ -124,4 +128,12 @@ test("a falha de um bot vira relatório falho sem avançar a janela e não imped
 	assert.deepEqual([failed?.status, failed?.windowEnd, failed?.detail], ["failed", undefined, "sem chave do provedor"]);
 	assert.equal(h.finished.find((f) => f.id.includes("b2"))?.status, "done");
 	assert.ok(h.log.some((line) => line.includes("bot=b1") && line.includes("falhou")));
+});
+
+test("relatório falho guarda o gasto do modelo até a falha (C1)", async () => {
+	const h = harness({ bots: [bot("b1", "u1")], now: AFTER, failAfterModel: new Set(["b1"]) });
+	await sleepTick(h.deps, new Set());
+	const failed = h.finished.find((f) => f.id.includes("b1"));
+	assert.equal(failed?.status, "failed");
+	assert.deepEqual([failed?.stats?.llmCalls, failed?.stats?.costUsd], [1, 0.002]);
 });
