@@ -37,6 +37,19 @@ export function isForbiddenImport(spec: string, fromFile: string): boolean {
 	return /(^|\/)packages\/agent-runtime(\/|$)/.test(spec);
 }
 
+/** Pacotes do workspace que o motor v4 pode declarar: só o transporte de modelo e os tipos/funções puras. Todo o resto (db, queue, sandbox, agent-runtime…) chega por porta injetada. */
+export const ALLOWED_WORKSPACE_DEPS: readonly string[] = ["@workspace/llm", "@workspace/shared", "@workspace/typescript-config"];
+
+/** Dependências de `@workspace/*` declaradas no package.json que não estão na lista permitida (inclui o agent-runtime). */
+export function forbiddenManifestDeps(manifest: Record<string, unknown>): string[] {
+	const sections = ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"];
+	return sections.flatMap((section) => {
+		const deps = manifest[section];
+		if (typeof deps !== "object" || deps === null) return [];
+		return Object.keys(deps).filter((name) => (name.startsWith("@workspace/") || name === "agent-runtime") && !ALLOWED_WORKSPACE_DEPS.includes(name)).map((name) => `${section}: ${name}`);
+	});
+}
+
 export function usesEnv(code: string): boolean {
 	return code.includes(ENV_ACCESS);
 }
@@ -55,6 +68,12 @@ describe("fronteira do motor v4", () => {
 				.map((spec) => `${relative(SRC, file)} -> ${spec}`),
 		);
 		expect(bad).toEqual([]);
+	});
+
+	it("o package.json não declara o agent-runtime nem outro pacote do workspace fora da lista permitida (auditoria F1, T3)", () => {
+		const manifest = JSON.parse(readFileSync(join(SRC, "..", "package.json"), "utf8")) as Record<string, unknown>;
+		expect(forbiddenManifestDeps(manifest)).toEqual([]);
+		expect(JSON.stringify(manifest)).not.toContain(RUNTIME_NAME);
 	});
 
 	it("variáveis de ambiente só em src/adapters/ (configuração chega injetada)", () => {
@@ -85,6 +104,11 @@ describe("fronteira do motor v4", () => {
 			expect(isForbiddenImport("@workspace/shared", from)).toBe(false);
 			expect(isForbiddenImport("./ports/index.js", from)).toBe(false);
 			expect(isForbiddenImport("node:fs", from)).toBe(false);
+		});
+		it("pega dependência proibida no package.json, em qualquer seção", () => {
+			expect(forbiddenManifestDeps({ dependencies: { [RUNTIME_NAME]: "workspace:*" } })).toEqual([`dependencies: ${RUNTIME_NAME}`]);
+			expect(forbiddenManifestDeps({ devDependencies: { "@workspace/db": "workspace:*" }, peerDependencies: { "@workspace/queue": "*" } })).toEqual(["devDependencies: @workspace/db", "peerDependencies: @workspace/queue"]);
+			expect(forbiddenManifestDeps({ dependencies: { "@workspace/llm": "workspace:*", "@workspace/shared": "workspace:*", zod: "^4" }, devDependencies: { "@workspace/typescript-config": "workspace:*" } })).toEqual([]);
 		});
 		it("pega uso de env e ignora código limpo", () => {
 			expect(usesEnv(`const k = ${ENV_ACCESS}.KEY;`)).toBe(true);
