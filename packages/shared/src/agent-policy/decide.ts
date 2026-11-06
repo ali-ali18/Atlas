@@ -55,7 +55,8 @@ function lastMatchingRule(rules: readonly PolicyRule[], effect: EffectClass, too
  *  3. sem dono (superfície agenda/rotina/subagente/bot_to_bot, ou dono ausente): efeito externo, dinheiro,
  *     credencial e destrutivo viram `hidden`. Não há quem aprove e a agenda não vê o que pode enviar.
  *  4. base pela classe de efeito e autonomia.
- *  5. taint: send/write_external/public_link nunca ficam em `run` com leitura ou argumento não confiável.
+ *  5. taint: send/write_external/public_link (e tool com `egress`, mesmo `read`) nunca ficam em `run` com leitura ou
+ *     argumento não confiável.
  *  6. mandato válido: só `money`, só sem taint, só pula o cartão (nunca o `hidden` do passo 3).
  *  7. regra do dono (a última que casa): `approve` aperta qualquer coisa; `run` só afrouxa
  *     draft/write_internal/write_external, e nunca por cima de taint.
@@ -75,7 +76,7 @@ export function decide(input: DecideInput): Verdict {
 	let verdict = baseVerdict(effect, autonomy);
 
 	const tainted = taint.untrustedReadInRun || taint.argsCarryUntrusted;
-	const taintFloor = tainted && TAINT_EFFECTS.has(effect);
+	const taintFloor = tainted && (TAINT_EFFECTS.has(effect) || input.egress === true);
 	if (taintFloor && verdict.kind === "run") verdict = { kind: "approve", reason: "untrusted data in the run: confirm first" };
 
 	if (effect === "money" && input.mandate && input.riskFacts && !tainted) {

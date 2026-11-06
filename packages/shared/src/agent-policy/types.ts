@@ -50,6 +50,8 @@ export type DecideInput = {
 	action?: { toolName: string; handoffKind?: string };
 	now: Date;
 	riskFacts?: RiskFacts;
+	/** A tool manda dado escolhido pelo modelo (URL, consulta) a um terceiro: com taint conta como `send` (cláusula 8). */
+	egress?: boolean;
 };
 
 type KeysDeep<T> = T extends object ? keyof T | { [K in keyof T]: KeysDeep<T[K]> }[keyof T] : never;

@@ -65,6 +65,7 @@ export function createExecutor(deps: ExecutorDeps) {
 			handoffKind: tool.handoffKindFor(args),
 			taint: { untrustedReadInRun: provenance.untrustedReadInRun, argsCarryUntrusted: provenance.carries(args) },
 			riskFacts,
+			egress: tool.egress,
 			now: deps.ports.clock.now(),
 		});
 

@@ -13,6 +13,8 @@ export function createWebCapability(search: Search) {
 		description: "Search the web for fresh or unknown facts. Returns titles, URLs and snippets; cite the URLs you rely on. Do not use for content the owner already shared.",
 		inputSchema: z.object({ query: z.string().min(1).max(300), limit: z.number().int().min(1).max(MAX_RESULTS).optional() }),
 		effect: "read",
+		// A consulta e a URL são escolhidas pelo modelo e saem para um terceiro: com taint no run pedem aprovação (S2).
+		egress: true,
 		trust: "untrusted",
 		source: "web",
 		async execute({ query, limit }, ctx) {
@@ -26,6 +28,7 @@ export function createWebCapability(search: Search) {
 		description: "Read the text of one web page by URL (http or https). Use after web_search when a snippet is not enough. Do not use for files in the workspace.",
 		inputSchema: z.object({ url: z.url().max(2000) }),
 		effect: "read",
+		egress: true,
 		trust: "untrusted",
 		source: "web",
 		async execute({ url }, ctx) {
