@@ -1,5 +1,6 @@
 import { lookup as dnsLookup } from "node:dns/promises";
 import { isIP } from "node:net";
+import { INLINE_TAGS, decodeEntities, duckDuckGoParams, parseDuckDuckGoHtml, stripTags } from "@workspace/shared";
 import { isPrivateExtractAddress } from "@workspace/search";
 import {
   extractWebPage,
@@ -36,6 +37,9 @@ import {
  * Segurança: só http(s) para IP público — bloqueia loopback, rede privada,
  * link-local (metadata de nuvem) inclusive após redirects.
  */
+
+// Funções puras movidas para `@workspace/shared` (compartilhadas com o motor v4); reexportadas por compatibilidade.
+export { decodeEntities, parseDuckDuckGoHtml };
 
 export const NATIVE_FETCH_TIMEOUT_MS = 15_000;
 export const NATIVE_MAX_HTML_BYTES = 2_000_000;
@@ -144,41 +148,6 @@ async function safeFetch(
 }
 
 // ---------------------------------------------------------------- HTML → texto
-
-const ENTITIES: Record<string, string> = {
-	amp: "&",
-	lt: "<",
-	gt: ">",
-	quot: '"',
-	apos: "'",
-	nbsp: " ",
-	ndash: "–",
-	mdash: "—",
-	hellip: "…",
-	laquo: "«",
-	raquo: "»",
-	copy: "©",
-	reg: "®",
-	euro: "€",
-};
-
-export function decodeEntities(text: string): string {
-	return text.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (match, code: string) => {
-		if (code[0] === "#") {
-			const value = code[1]?.toLowerCase() === "x" ? Number.parseInt(code.slice(2), 16) : Number(code.slice(1));
-			return Number.isFinite(value) && value > 0 && value < 0x110000 ? String.fromCodePoint(value) : match;
-		}
-		return ENTITIES[code.toLowerCase()] ?? match;
-	});
-}
-
-const INLINE_TAGS = /<\/?(b|i|u|em|strong|span|small|mark|sup|sub|abbr|code|s|a)\b[^>]*>/gi;
-
-function stripTags(html: string): string {
-	return decodeEntities(html.replace(INLINE_TAGS, "").replace(/<[^>]+>/g, " "))
-		.replace(/\s+/g, " ")
-		.trim();
-}
 
 function pickMainHtml(html: string): string {
 	for (const tag of ["article", "main"]) {
@@ -346,56 +315,6 @@ export async function nativeWebExtract(args: WebExtractArgs, options: NativeOpti
 
 // ---------------------------------------------------------------- search
 
-const RECENCY_TO_DF: Record<string, string> = { day: "d", week: "w", month: "m", year: "y" };
-
-function localeToRegion(locale: string | undefined): string {
-	const [lang, country] = (locale ?? "pt-BR").toLowerCase().split(/[-_]/);
-	return country ? `${country}-${lang}` : "wt-wt";
-}
-
-function unwrapDuckUrl(href: string, depth = 0): string | null {
-	const absolute = href.startsWith("//") ? `https:${href}` : href;
-	try {
-		const url = new URL(absolute, "https://duckduckgo.com");
-		if (url.hostname.endsWith("duckduckgo.com")) {
-			if (url.pathname.startsWith("/y.js")) return null; // anúncio
-			const target = url.searchParams.get("uddg");
-			// Anúncio real vem embrulhado 2x: uddg → duckduckgo.com/y.js?ad_domain=…
-			return target && depth < 2 && /^https?:/.test(target)
-				? unwrapDuckUrl(target, depth + 1)
-				: null;
-		}
-		return /^https?:/.test(url.toString()) ? url.toString() : null;
-	} catch {
-		return null;
-	}
-}
-
-/** Resultados da página HTML do DuckDuckGo (puro, testável). */
-export function parseDuckDuckGoHtml(html: string, num = WEB_SEARCH_DEFAULT_NUM): WebSearchResult[] {
-	const results: WebSearchResult[] = [];
-	const seen = new Set<string>();
-	const blocks = html.split(/<div[^>]+class="[^"]*\bresult\b/i).slice(1);
-	for (const block of blocks) {
-		if (/result--ad\b/i.test(block.slice(0, 200))) continue;
-		const link = block.match(/<a[^>]+class="[^"]*result__a[^"]*"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/i)
-			?? block.match(/<a[^>]+href="([^"]+)"[^>]+class="[^"]*result__a[^"]*"[^>]*>([\s\S]*?)<\/a>/i);
-		if (!link?.[1]) continue;
-		const url = unwrapDuckUrl(decodeEntities(link[1]));
-		if (!url || seen.has(url)) continue;
-		const snippet = block.match(/class="[^"]*result__snippet[^"]*"[^>]*>([\s\S]*?)<\/(?:a|div|td)>/i);
-		seen.add(url);
-		results.push({
-			url,
-			title: stripTags(link[2] ?? "") || url,
-			snippet: snippet?.[1] ? stripTags(snippet[1]) : "",
-			source: "duckduckgo",
-		});
-		if (results.length >= num) break;
-	}
-	return results;
-}
-
 export async function nativeWebSearch(args: WebSearchArgs, options: NativeOptions = {}): Promise<WebSearchResult[]> {
   const query = String(args.query ?? "").trim();
   if (!query) {
@@ -426,9 +345,7 @@ export async function nativeWebSearch(args: WebSearchArgs, options: NativeOption
       // Cai para o DuckDuckGo direto abaixo.
     }
   }
-  const params = new URLSearchParams({ q: query, kl: localeToRegion(args.locale) });
-	const df = args.recency ? RECENCY_TO_DF[args.recency.toLowerCase()] : undefined;
-	if (df) params.set("df", df);
+  const params = duckDuckGoParams(query, { locale: args.locale, recency: args.recency });
 	const fetchFn = options.fetchFn ?? (globalThis.fetch as NativeFetchFn);
 	let html: string;
 	try {
