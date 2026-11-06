@@ -58,7 +58,8 @@ function sourcesText(result: HelperResult): string {
 function sectionBody(index: number, question: string, result: HelperResult): string {
 	const head = `### ${index + 1}. ${question}`;
 	if (result.status !== "done") return `${head}\nHELPER ${result.status.toUpperCase()}: ${result.error ?? "no reason given"}${result.text ? `\nPartial text:\n${result.text}` : ""}`;
-	return `${head}\n${result.text.length > 0 ? result.text : "(the helper returned no text)"}\n${sourcesText(result)}`;
+	const partial = result.partial ? `NOT CONFIRMED (partial answer): ${result.error ?? "the helper did not finish every step"}. Do not present it as confirmed.\n` : "";
+	return `${head}\n${partial}${result.text.length > 0 ? result.text : "(the helper returned no text)"}\n${sourcesText(result)}`;
 }
 
 /**
@@ -121,12 +122,14 @@ export function createResearchTool(helpers: Helpers) {
 				return { ok: false, error: `Every research helper failed.\n${reasons}`, hint: "Say plainly what could not be found, or try web_search directly." };
 			}
 
-			const status = failed.length > 0 ? `${failed.length} of ${sections.length} helper(s) failed (listed below with the reason); the others are valid. Retry only the failed ones or say what is missing.\n\n` : "";
+			const partials = sections.filter((s) => s.result.status === "done" && s.result.partial);
+			const partialNote = partials.length > 0 ? `${partials.length} answer(s) are partial (marked NOT CONFIRMED with the reason): say what is not confirmed; do not present them as settled.\n\n` : "";
+			const status = partialNote + (failed.length > 0 ? `${failed.length} of ${sections.length} helper(s) failed (listed below with the reason); the others are valid. Retry only the failed ones or say what is missing.\n\n` : "");
 			const big = body.length > INLINE_RESULT_CHARS;
 			const content = big
 				? sections
 						.map((s) => {
-							const sources = s.result.status === "done" ? `${s.result.sources.length} source(s)` : `${s.result.status.toUpperCase()}: ${s.result.error ?? "no reason given"}`;
+							const sources = s.result.status === "done" ? `${s.result.partial ? "NOT CONFIRMED (partial answer), " : ""}${s.result.sources.length} source(s)` : `${s.result.status.toUpperCase()}: ${s.result.error ?? "no reason given"}`;
 							return `${s.index + 1}. ${s.question}\n   ${sources}. Full answer and sources: note_read(id="${noteId}", offset=${s.start}).`;
 						})
 						.join("\n")

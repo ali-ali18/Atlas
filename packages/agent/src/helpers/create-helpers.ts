@@ -112,13 +112,14 @@ export function buildChildRegistry(input: { requested: readonly string[]; mother
 }
 
 /** Resultado do kernel → resultado do ajudante. O texto do modelo passa como está. */
-export function helperStatusOf(result: RunResult): Pick<HelperResult, "status" | "error"> {
+export function helperStatusOf(result: RunResult): Pick<HelperResult, "status" | "error" | "partial"> {
 	if (result.status === "done") return { status: "done" };
 	if (result.status === "parked") return { status: "failed", error: "The helper reached an action that needs the owner. Helpers only read, so it was not run." };
 	if (result.status === "failed") return result.reason === "cancelled" ? { status: "stopped", error: "cancelled" } : { status: "failed", error: result.error ?? result.reason ?? "the helper run failed" };
 	// not_done: parou por um limite que protege o dono (ele diz qual) ou terminou com a última chamada de tool em erro.
 	if (result.stop) return { status: "stopped", error: `stopped by ${result.stop.label}` };
-	if (result.text.trim().length > 0) return { status: "done" };
+	// Texto com chamada de tool ainda em erro: a resposta vale, mas é PARCIAL (a mãe não a trata como confirmada).
+	if (result.text.trim().length > 0) return { status: "done", partial: true, error: `partial answer: the last tool call(s) failed (${Object.entries(result.unresolved).map(([name, why]) => `${name}: ${why}`).join("; ") || "unknown"})` };
 	return { status: "failed", error: result.reason ?? `the helper ended without an answer (last tool errors: ${Object.keys(result.unresolved).join(", ") || "none"})` };
 }
 

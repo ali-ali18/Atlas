@@ -12,7 +12,7 @@ import { chatPolicy } from "../testing/contract-helpers.js";
 import { FakeClock, sha256 } from "../testing/fake-ports.js";
 import { call, kernelHarness, reply, type Turn } from "../testing/kernel-fakes.js";
 import { defineTool } from "../tools/define-tool.js";
-import { createHelpers, HELPER_CONCURRENCY, type CreateHelpersDeps } from "./create-helpers.js";
+import { createHelpers, helperStatusOf, HELPER_CONCURRENCY, type CreateHelpersDeps } from "./create-helpers.js";
 import { createSpendLedger } from "./spend-ledger.js";
 import { helpersTaint } from "./taint.js";
 import { createResearchCapability } from "../capabilities-builtin/research/index.js";
@@ -368,6 +368,20 @@ describe("createHelpers: retomada da mãe e o teto do dono (auditoria F3, S1)", 
 		expect(r?.status).toBe("stopped");
 		expect(r?.error).toContain("the spending limit the owner set (US$ 1.00)");
 		expect(r?.spentUsd).toBeLessThan(0.2);
+	});
+});
+
+describe("helperStatusOf: resposta parcial (auditoria F3, B2)", () => {
+	const base = { steps: 3, spentUsd: 0, unresolved: {} as Record<string, string> };
+
+	it("not_done com texto vira done PARCIAL, com o que ficou sem resolver", () => {
+		const out = helperStatusOf({ ...base, status: "not_done", text: "half", unresolved: { web_extract: "timeout" } });
+		expect(out).toMatchObject({ status: "done", partial: true });
+		expect(out.error).toContain("web_extract: timeout");
+	});
+
+	it("done limpo não é parcial", () => {
+		expect(helperStatusOf({ ...base, status: "done", text: "all" })).toEqual({ status: "done" });
 	});
 });
 

@@ -75,6 +75,19 @@ describe("tool research", () => {
 		expect((await h.notes.get("owner-1", `${WORK_NOTE_PREFIX}run-1:research:s1:x`))?.body).toContain("achado A");
 	});
 
+	it("resposta parcial do ajudante aparece como \"not confirmed\" com o motivo, na resposta inline e no índice (auditoria F3, B2)", async () => {
+		const partial = (text: string): HelperResult => ({ ...done(text), partial: true, error: "partial answer: the last tool call(s) failed (web_extract: timeout)" });
+		const h = kernelHarness([]);
+		const inline = await createResearchTool(new FakeHelpers((t) => (t.objective === "B" ? partial("so metade") : done("inteiro")))).run(plan("A", "B"), ctxFor(h));
+		const text = inline.ok ? inline.summary : "";
+		expect(text).toContain("1 answer(s) are partial");
+		expect(text).toContain("NOT CONFIRMED (partial answer): partial answer: the last tool call(s) failed (web_extract: timeout)");
+		expect(text).toContain("### 2. B\nNOT CONFIRMED (partial answer)");
+		expect(text).toContain("### 1. A\ninteiro");
+		const big = await createResearchTool(new FakeHelpers(() => partial("x".repeat(INLINE_RESULT_CHARS)))).run(plan("A"), { ...ctxFor(h), callId: "s9:big" });
+		expect(big.ok && big.summary).toContain("NOT CONFIRMED (partial answer), 1 source(s)");
+	});
+
 	it("falha parcial: diz qual ajudante falhou e o motivo real; os outros seguem", async () => {
 		const helpers = new FakeHelpers((task, index) => (index === 1 ? { status: "failed", text: "", sources: [], spentUsd: 0, untrustedRead: false, error: "timeout ao ler a página" } : done(`ok ${task.objective}`)));
 		const h = kernelHarness([]);
