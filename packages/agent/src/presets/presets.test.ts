@@ -5,7 +5,7 @@ import { defineTool } from "../tools/define-tool.js";
 import { kernelHarness, reply, call } from "../testing/kernel-fakes.js";
 import { fakeToolContext } from "../testing.js";
 import { WORK_CONTRACT_PROMPT } from "../prompt/work-contract.js";
-import { FakeDeliverables, FakeFileStore, FakeMemory, FakeSearch, FakeSettings, FakeTaskListStore } from "./fakes.js";
+import { FakeDeliverables, FakeFileStore, FakeHelpers, FakeMemory, FakeSearch, FakeSettings, FakeTaskListStore } from "./fakes.js";
 import { buildPresetRegistry, isPresetId, PRESETS, setupPreset } from "./presets.js";
 import { createDeliverablesLiteCapability } from "./deliverables-lite.js";
 import { createWebCapability } from "./web.js";
@@ -51,7 +51,7 @@ describe("preset com entregas ricas", () => {
 	});
 });
 
-const fullDeps = () => ({ ...deps(), memory: new FakeMemory(), settings: new FakeSettings(), taskLists: new FakeTaskListStore() });
+const fullDeps = () => ({ ...deps(), memory: new FakeMemory(), settings: new FakeSettings(), taskLists: new FakeTaskListStore(), helpers: new FakeHelpers() });
 
 describe("preset full: memory, tasks e settings (F2.4)", () => {
 	it("entram como capacidades lazy: só o índice vai no prompt, as tools ficam de fora do primeiro passo", async () => {
@@ -79,7 +79,7 @@ describe("preset full: memory, tasks e settings (F2.4)", () => {
 
 	it("porta ausente: a capacidade não entra e `unavailable` diz qual (nada some em silêncio)", () => {
 		const setup = setupPreset("full", deps());
-		expect(setup.unavailable).toEqual(["memory", "tasks", "settings"]);
+		expect(setup.unavailable).toEqual(["memory", "tasks", "settings", "research"]);
 		expect(setup.registry.ids()).toEqual(expect.not.arrayContaining(["memory"]));
 		expect(setupPreset("minimal", deps()).unavailable).toEqual([]);
 	});
@@ -230,5 +230,19 @@ describe("URL do web_extract (auditoria F1, S3)", () => {
 			const out = await extract().run({ url }, fakeToolContext());
 			expect(out.ok, url).toBe(true);
 		}
+	});
+});
+
+describe("preset full: research (F3.2)", () => {
+	it("a capacidade lazy research só entra com a porta de ajudantes", () => {
+		const { helpers: _none, ...noHelpers } = fullDeps();
+		const without = setupPreset("full", noHelpers);
+		expect(without.unavailable).toContain("research");
+		expect(without.registry.ids()).not.toContain("research");
+		const withHelpers = setupPreset("full", { ...fullDeps(), helpers: new FakeHelpers() });
+		expect(withHelpers.unavailable).not.toContain("research");
+		expect(withHelpers.registry.toolByName("research")).toBeDefined();
+		expect(withHelpers.registry.core().map((c) => c.id)).not.toContain("research");
+		expect(withHelpers.stableSystem).toContain("- research:");
 	});
 });

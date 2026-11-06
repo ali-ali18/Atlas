@@ -1,6 +1,7 @@
 // Search e FileStore falsos para teste (sem rede, sem disco). Exportados pelo pacote para o worker e os evals.
 import type { ChartSpec, CreateFileInput, PageSpec } from "@workspace/shared";
 import type { ChartStore, DeliverablePorts, DeliverableFiles, FileInspection, InspectPage, PageStore } from "../ports/deliverables.js";
+import type { Helpers, HelperResult, HelperTask } from "../ports/helpers.js";
 import type { FileStore, StoredFile } from "../ports/file-store.js";
 import type { Memory, MemoryAddInput, MemoryItem, MemoryLayer } from "../ports/memory.js";
 import type { Search, SearchExtract, SearchHit } from "../ports/search.js";
@@ -139,5 +140,32 @@ export class FakeTaskListStore implements TaskListStore {
 	}
 	async set(userId: string, runId: string, state: TaskListState): Promise<void> {
 		this.states.set(`${userId}:${runId}`, structuredClone(state));
+	}
+}
+
+/**
+ * Ajudantes falsos: cada tarefa responde por `respond(task, index)` (padrão: um resultado `done` com uma fonte).
+ * Registra as chamadas e o instante de início/fim de cada tarefa, para provar o paralelismo sem relógio real.
+ */
+export class FakeHelpers implements Helpers {
+	readonly calls: Array<{ tasks: readonly HelperTask[] }> = [];
+	/** Quantas tarefas estavam em andamento ao mesmo tempo, no máximo. */
+	maxConcurrent = 0;
+	private running = 0;
+	constructor(private readonly respond: (task: HelperTask, index: number) => HelperResult | Promise<HelperResult> = (task) => ({ status: "done", text: `Resposta: ${task.objective}`, sources: [{ url: `https://example.test/${encodeURIComponent(task.objective)}`, title: "Fonte de teste" }], spentUsd: 0, untrustedRead: true })) {}
+	async runAll(tasks: readonly HelperTask[]): Promise<HelperResult[]> {
+		this.calls.push({ tasks });
+		return Promise.all(
+			tasks.map(async (task, index) => {
+				this.running++;
+				this.maxConcurrent = Math.max(this.maxConcurrent, this.running);
+				try {
+					await Promise.resolve();
+					return await this.respond(task, index);
+				} finally {
+					this.running--;
+				}
+			}),
+		);
 	}
 }
