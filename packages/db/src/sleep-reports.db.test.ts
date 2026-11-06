@@ -1,0 +1,116 @@
+/**
+ * Sono do bot contra Postgres real (F5.3): reserva do slot, relatórios, propostas e a leitura do dia, tudo por dono.
+ * Pulado sem ATLAS_TEST_DB_URL. Runner: `pnpm --filter @workspace/db test:db`.
+ */
+import assert from "node:assert/strict";
+import { after, before, describe, test } from "node:test";
+import { prisma } from "./client.js";
+import { addMemoryEntry } from "./memory-entries.js";
+import { listSleepChanges } from "./notes.js";
+import { SLEEP_STALE_MS, claimSleepSlot, dismissSleepProposal, finishSleepReport, getPreviousSleepEnd, getSleepReport, listBotsForSleep, listMemoryForDoctor, listSleepReports, loadSleepDay } from "./sleep-reports.js";
+import { createTestBot, createTestUser, dbSkip } from "./testing/test-db.js";
+
+describe("sono (Postgres real)", { skip: dbSkip }, () => {
+	let userA: string;
+	let userB: string;
+	let botA: string;
+	let convA: string;
+	let groupConv: string;
+
+	before(async () => {
+		userA = (await createTestUser("sleep-a")).id;
+		userB = (await createTestUser("sleep-b")).id;
+		botA = (await createTestBot(userA, { name: "A" })).id;
+		convA = (await prisma.conversation.create({ data: { userId: userA } })).id;
+		groupConv = (await prisma.conversation.create({ data: { userId: userA } })).id;
+		await prisma.bot.update({ where: { id: botA }, data: { conversationId: convA } });
+	});
+	after(async () => {
+		await prisma.$disconnect();
+	});
+
+	const now = new Date("2026-11-05T02:30:00Z");
+
+	test("a reserva do slot é única por bot, tipo e dia; o abandonado é reassumido", async () => {
+		const first = await claimSleepSlot({ userId: userA, botId: botA, kind: "daily", slot: "2026-11-04", now });
+		assert.ok(first);
+		assert.equal(await claimSleepSlot({ userId: userA, botId: botA, kind: "daily", slot: "2026-11-04", now: new Date(now.getTime() + 1000) }), null);
+		assert.ok(await claimSleepSlot({ userId: userA, botId: botA, kind: "doctor", slot: "2026-11-04", now }));
+		assert.ok(await claimSleepSlot({ userId: userA, botId: botA, kind: "daily", slot: "2026-11-05", now }));
+		const later = new Date(now.getTime() + SLEEP_STALE_MS + 1000);
+		const reclaimed = await claimSleepSlot({ userId: userA, botId: botA, kind: "daily", slot: "2026-11-04", now: later });
+		assert.equal(reclaimed?.id, first.id);
+		await finishSleepReport({ userId: userA, id: first.id, status: "done" });
+		assert.equal(await claimSleepSlot({ userId: userA, botId: botA, kind: "daily", slot: "2026-11-04", now: new Date(later.getTime() + SLEEP_STALE_MS * 2) }), null);
+	});
+
+	test("o fim da janela do último sono concluído é o começo do próximo", async () => {
+		const bot = (await createTestBot(userA, { name: "janela" })).id;
+		assert.equal(await getPreviousSleepEnd(userA, bot), null);
+		const day1 = await claimSleepSlot({ userId: userA, botId: bot, kind: "daily", slot: "2026-11-01", now });
+		await finishSleepReport({ userId: userA, id: day1!.id, status: "done", windowEnd: new Date("2026-11-02T02:30:00Z") });
+		const day2 = await claimSleepSlot({ userId: userA, botId: bot, kind: "daily", slot: "2026-11-02", now });
+		await finishSleepReport({ userId: userA, id: day2!.id, status: "failed", detail: "sem chave", windowEnd: new Date("2026-11-03T02:30:00Z") });
+		assert.equal((await getPreviousSleepEnd(userA, bot))?.toISOString(), "2026-11-02T02:30:00.000Z");
+		assert.equal(await getPreviousSleepEnd(userB, bot), null);
+	});
+
+	test("relatórios e propostas: só o dono lista, lê e dispensa", async () => {
+		const bot = (await createTestBot(userA, { name: "relatorio" })).id;
+		const claim = await claimSleepSlot({ userId: userA, botId: bot, kind: "daily", slot: "2026-11-10", now });
+		const proposals = [{ id: "skill:x", kind: "skill" as const, status: "open" as const, name: "N", description: "D", instructions: "I" }];
+		await finishSleepReport({ userId: userA, id: claim!.id, status: "done", summary: "Guardei 2 coisas.", proposals, stats: { facts: 2, notes: 0 } });
+		const listed = await listSleepReports({ userId: userA, botId: bot });
+		assert.deepEqual(listed.reports.map((r) => [r.id, r.status, r.summary, r.stats.facts, r.proposals.length]), [[claim!.id, "done", "Guardei 2 coisas.", 2, 1]]);
+		assert.deepEqual((await listSleepReports({ userId: userB })).reports.filter((r) => r.botId === bot), []);
+		assert.equal(await getSleepReport(userB, claim!.id), null);
+		assert.equal(await dismissSleepProposal({ userId: userB, reportId: claim!.id, proposalId: "skill:x" }), null);
+		assert.equal((await getSleepReport(userA, claim!.id))?.proposals[0]?.status, "open");
+		assert.equal(await dismissSleepProposal({ userId: userA, reportId: claim!.id, proposalId: "nao-existe" }), null);
+		const dismissed = await dismissSleepProposal({ userId: userA, reportId: claim!.id, proposalId: "skill:x" });
+		assert.equal(dismissed?.proposals[0]?.status, "dismissed");
+	});
+
+	test("a leitura do dia traz só a conversa direta do bot, na janela, e os runs v4 de chat", async () => {
+		const at = (iso: string) => new Date(iso);
+		await prisma.conversationMessage.createMany({
+			data: [
+				{ conversationId: convA, role: "user", content: "antes da janela", createdAt: at("2026-11-01T12:00:00Z") },
+				{ conversationId: convA, role: "user", content: "moro em Curitiba", createdAt: at("2026-11-04T12:00:00Z") },
+				{ conversationId: convA, role: "assistant", content: "anotado", createdAt: at("2026-11-04T12:01:00Z") },
+				{ conversationId: convA, role: "user", content: "resumo de e-mail", origin: "email", createdAt: at("2026-11-04T13:00:00Z") },
+				{ conversationId: groupConv, role: "user", content: "segredo do grupo", createdAt: at("2026-11-04T12:00:00Z") },
+			],
+		});
+		const run = await prisma.agentRun.create({ data: { userId: userA, botId: botA, conversationId: convA, origin: "chat", objective: "faz X", status: "completed", model: "m", createdAt: at("2026-11-04T12:00:00Z"), stopReason: "loop_repeat" } });
+		await prisma.agentJournalEntry.create({ data: { runId: run.id, userId: userA, step: 1, idempotencyKey: "k1", toolName: "web_search", argsHash: "h", state: "succeeded" } });
+		await prisma.agentRun.create({ data: { userId: userA, botId: botA, conversationId: convA, origin: "chat", objective: "sem v4", status: "completed", model: "m", createdAt: at("2026-11-04T12:00:00Z") } });
+		await prisma.note.create({ data: { userId: userA, botId: botA, title: "n", body: "b" } });
+
+		const day = await loadSleepDay({ userId: userA, botId: botA, from: at("2026-11-04T02:30:00Z"), to: at("2026-11-05T02:30:00Z") });
+		assert.ok(day);
+		assert.deepEqual(day.messages.map((m) => [m.content, m.origin]), [["moro em Curitiba", null], ["anotado", null], ["resumo de e-mail", "email"]]);
+		assert.deepEqual(day.runs.map((r) => [r.objective, r.stopReason, r.journal.length]), [["faz X", "loop_repeat", 1]]);
+		assert.ok(day.notes.some((n) => n.title === "n"));
+		// O outro dono não lê o dia do bot do A, nem passando o id certo.
+		assert.equal(await loadSleepDay({ userId: userB, botId: botA, from: at("2026-11-01T00:00:00Z"), to: at("2026-11-09T00:00:00Z") }), null);
+	});
+
+	test("bots para dormir: só os dos donos pedidos, com conversa direta", async () => {
+		const bots = await listBotsForSleep([userA]);
+		assert.ok(bots.some((b) => b.id === botA && b.ownerId === userA));
+		assert.ok(bots.every((b) => b.ownerId === userA));
+		assert.deepEqual(await listBotsForSleep([]), []);
+		assert.deepEqual(await listBotsForSleep([userB]), []);
+	});
+
+	test("fato do sono entra pela memória com origem sleep e relatório, e aparece no 'o que o sono fez'", async () => {
+		const added = await addMemoryEntry({ userId: userA, botId: botA, target: "memory", content: "usa Linux no trabalho", source: "sleep", origin: "sleep", reportId: "rep-fact" });
+		assert.ok(added.ok);
+		const page = await listSleepChanges({ userId: userA, botId: botA, reportId: "rep-fact" });
+		assert.deepEqual(page.changes.map((c) => [c.target, c.action, c.source, c.after]), [["memory", "add", "sleep", "usa Linux no trabalho"]]);
+		const doctor = await listMemoryForDoctor({ userId: userA, botId: botA });
+		assert.ok(doctor.some((m) => m.content === "usa Linux no trabalho" && m.scope === "bot"));
+		assert.deepEqual(await listMemoryForDoctor({ userId: userB, botId: botA }), []);
+	});
+});

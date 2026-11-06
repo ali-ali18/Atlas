@@ -34,6 +34,8 @@ model User {
   settings      UserSettings?
   memories      MemoryEntry[]
   memoryChanges MemoryChange[]
+  notes Note[]
+  sleepReports SleepReport[]
   botLessons    BotLesson[]
   pages         Page[]
   runs          AgentRun[]
@@ -258,6 +260,10 @@ model MemoryChange {
   beforeMeta Json?
   /// chat | reflection | user
   source    String
+  /// Metadados do estado posterior (nota do caderno: título e fixada). Nulo nas entradas de memória.
+  afterMeta Json?
+  /// Relatório do sono que fez a mudança (`sleep_reports.id`), para agrupar "o que o sono fez". Sem FK: o relatório pode sumir.
+  reportId  String?
   /// Se esta linha é um "desfazer", o id da mudança desfeita (não pode ser desfeita de novo).
   undoOfId  String?
   createdAt DateTime  @default(now())
@@ -265,6 +271,7 @@ model MemoryChange {
 
   @@index([userId, createdAt])
   @@index([userId, botId, createdAt])
+  @@index([userId, target, createdAt])
   @@map("memory_changes")
 }
 
@@ -1646,4 +1653,58 @@ model AgentV4Request {
   @@index([runId])
   @@index([userId, conversationId, kind, state])
   @@map("agent_v4_requests")
+}
+
+/// Caderno do dono (Motor v4, F5.1): notas duráveis, além do caderno de trabalho de um run (`agent_notes`, notas `work:`).
+/// Tabela própria porque o ciclo de vida é outro: nota de trabalho é descartável e grande (saída de tool) com chave composta;
+/// nota do dono é pequena, fixável, aparece na Biblioteca e entra no histórico desfazível. Escopo por dono SEMPRE:
+/// toda consulta filtra `userId`. `botId` nulo = do dono (todos os bots leem); preenchido = só deste bot.
+/// `botId` sem FK de propósito (como `memory_entries`): apagar o bot não apaga as notas do dono.
+model Note {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  botId       String?
+  title       String
+  body        String
+  pinned      Boolean  @default(false)
+  /// owner (UI/API) | agent (tool, a pedido do dono) | sleep (sono do bot)
+  source      String   @default("owner")
+  sourceRunId String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId, pinned, updatedAt])
+  @@index([userId, botId, updatedAt])
+  @@map("notes")
+}
+
+/// Relatório do sono (Motor v4, F5.3): uma linha por bot e por slot (dia local do dono; domingo no doctor). A unicidade
+/// é também a reserva do trabalho: dois workers nunca dormem o mesmo bot no mesmo dia. Guarda o resumo para o dono e as
+/// propostas que não se aplicam sozinhas (habilidades, casos de eval, achados do doctor).
+model SleepReport {
+  id            String    @id @default(cuid())
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Restrict)
+  botId         String
+  /// daily | doctor
+  kind          String
+  /// Dia local do dono (`YYYY-MM-DD`).
+  slot          String
+  /// running | done | skipped | failed
+  status        String    @default("running")
+  /// Motivo curto de skipped/failed (sem segredo).
+  detail        String?
+  /// Frase para o dono (pt-BR ou idioma do bot).
+  summary       String?
+  proposalsJson Json?
+  statsJson     Json?
+  /// Fim da janela lida (o início do próximo sono).
+  windowEnd     DateTime?
+  createdAt     DateTime  @default(now())
+  finishedAt    DateTime?
+
+  @@unique([botId, kind, slot])
+  @@index([userId, createdAt])
+  @@map("sleep_reports")
 }

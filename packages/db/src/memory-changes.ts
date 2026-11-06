@@ -19,6 +19,15 @@ export type MemoryEntryMeta = {
 	validUntil: string | null;
 };
 
+/** Título e fixada de uma nota, guardados antes/depois para o desfazer restaurar a nota inteira. */
+export type NoteChangeMeta = { title: string; pinned: boolean };
+
+export function parseNoteMeta(value: unknown): NoteChangeMeta | null {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+	const raw = value as Record<string, unknown>;
+	return typeof raw.title === "string" && typeof raw.pinned === "boolean" ? { title: raw.title, pinned: raw.pinned } : null;
+}
+
 export function memoryMetaOf(row: {
 	category?: string | null;
 	confidence?: number | null;
@@ -49,13 +58,18 @@ export async function recordMemoryChange(
 		userId: string;
 		botId?: string | null;
 		entryId?: string | null;
-		target: MemoryTarget;
+		/** `note` = nota do caderno do dono (F5.1): `entryId` é o id da nota. */
+		target: MemoryTarget | "note";
 		action: MemoryChangeAction;
 		before?: string | null;
 		after?: string | null;
-		beforeMeta?: MemoryEntryMeta | null;
+		beforeMeta?: MemoryEntryMeta | NoteChangeMeta | null;
+		/** Estado posterior das notas (título e fixada); entradas de memória não usam. */
+		afterMeta?: NoteChangeMeta | null;
 		source: MemoryChangeSource;
 		undoOfId?: string | null;
+		/** Relatório do sono que fez a mudança. */
+		reportId?: string | null;
 	},
 ): Promise<{ id: string }> {
 	return db.memoryChange.create({
@@ -68,8 +82,10 @@ export async function recordMemoryChange(
 			before: input.before ?? null,
 			after: input.after ?? null,
 			beforeMeta: input.beforeMeta ?? undefined,
+			afterMeta: input.afterMeta ?? undefined,
 			source: input.source,
 			undoOfId: input.undoOfId ?? null,
+			reportId: input.reportId ?? null,
 		},
 		select: { id: true },
 	});
@@ -87,6 +103,9 @@ type ChangeRow = {
 	undoOfId: string | null;
 	createdAt: Date;
 	undoneAt: Date | null;
+	beforeMeta?: unknown;
+	afterMeta?: unknown;
+	reportId?: string | null;
 };
 
 export function toMemoryChange(row: ChangeRow): MemoryChange {
@@ -94,10 +113,12 @@ export function toMemoryChange(row: ChangeRow): MemoryChange {
 		id: row.id,
 		botId: row.botId,
 		entryId: row.entryId,
-		target: row.target as MemoryTarget,
+		target: row.target as MemoryTarget | "note",
 		action: row.action as MemoryChangeAction,
 		before: row.before,
 		after: row.after,
+		...(row.target === "note" && { beforeNote: parseNoteMeta(row.beforeMeta), afterNote: parseNoteMeta(row.afterMeta) }),
+		...(row.reportId && { reportId: row.reportId }),
 		source: row.source as MemoryChangeSource,
 		undoOfId: row.undoOfId,
 		createdAt: row.createdAt.toISOString(),
