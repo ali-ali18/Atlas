@@ -4,6 +4,9 @@ Todas as mudanças relevantes do Atlas. Formato [Keep a Changelog](https://keepa
 
 ## [Não lançado]
 
+### Adicionado
+- **agent, db, worker, api:** o Motor v4 (desligado por padrão) passa a ter histórico da conversa, retomada com aprovação e taint entre runs (F2.6, frente R). O run novo recebe as falas do dono e do assistente (mensagem de outro bot, rotina ou webhook entra como dado não confiável) e as respostas a cartões; a conversa que já leu conteúdo não confiável continua pedindo aprovação para efeito externo no run seguinte. O dono responde pedidos pela API (`POST /v1/agent-v4/runs/:runId/requests/:key/respond` com aprovar, "Agora não" ou handoff concluído; `POST /v1/agent-v4/cards/:cardId/respond`), o run estacionado é retomado e a aprovação executa uma vez só. Pedido sem resposta vence em 24h e o modelo é avisado ao retomar. Tabela nova `agent_v4_requests` (migration aditiva). O cartão no app ainda não existe.
+
 ### Corrigido
 - **agent:** quem tem muitos conectores voltou a conseguir criar bot pelo chat: a busca de ferramentas achava algo parecido num conector (ex.: Figma, GitHub) e devolvia só isso, escondendo `propose_bot`. Grupo nativo pequeno (até 2 tools) que casa por palavra distintiva agora carrega junto. O índice e o resultado da carga lembram o modelo de não citar nome de ferramenta ao usuário.
 
