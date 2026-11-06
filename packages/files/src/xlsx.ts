@@ -1,9 +1,13 @@
 import type ExcelJS from "exceljs";
-import type { SheetCell, SheetInput } from "@workspace/shared";
+import { findDangerousFormulaFunctions, isFormulaCell, type SheetCell, type SheetInput } from "@workspace/shared";
 
 function toCellValue(cell: SheetCell): ExcelJS.CellValue {
-	// Texto que começa com "=" vira fórmula.
-	if (typeof cell === "string" && cell.length > 1 && cell.startsWith("=")) return { formula: cell.slice(1) };
+	// Texto que começa com "=" vira fórmula. Função de rede/execução dispara ao abrir: recusa (auditoria F2, S4).
+	if (isFormulaCell(cell)) {
+		const bad = findDangerousFormulaFunctions(cell.slice(1));
+		if (bad.length > 0) throw new Error(`Formula not accepted: ${bad.join(", ")} reaches the network or runs code when the file opens.`);
+		return { formula: cell.slice(1) };
+	}
 	return cell;
 }
 
