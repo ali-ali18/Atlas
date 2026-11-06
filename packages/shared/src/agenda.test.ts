@@ -128,6 +128,35 @@ describe("planAgendaItem: intent e brief", () => {
 	});
 });
 
+describe("planAgendaItem: when textual atravessando o horário de verão (auditoria F4, T4)", () => {
+	const at = (when: string, now: string) => {
+		const out = planAgendaItem({ request: { kind: "remind", note: "Ligar para o banco", when }, now: new Date(now), settings: NY });
+		if (!out.ok) throw new Error(out.error);
+		return out.plan;
+	};
+
+	it('"amanhã 9h" na véspera do fim do horário de verão (dia de 25h) cai às 9h locais, 14:00Z (UTC-5)', () => {
+		// Sábado 31/10/2026 15:00 em Nova York (EDT, UTC-4); domingo 01/11 o relógio volta uma hora.
+		const plan = at("amanhã 9h", "2026-10-31T19:00:00.000Z");
+		expect(local(plan.dueAt, NY.timezone)).toBe("2026-11-01 09:00");
+		expect(plan.dueAt.toISOString()).toBe("2026-11-01T14:00:00.000Z");
+		expect(plan.movedForQuietHours).toBe(false);
+	});
+
+	it('"amanhã 9h" na véspera do início do horário de verão (dia de 23h) cai às 9h locais, 13:00Z (UTC-4)', () => {
+		// Sábado 13/03/2027 12:00 em Nova York (EST, UTC-5); domingo 14/03 o relógio avança uma hora às 02:00.
+		const plan = at("amanhã 9h", "2027-03-13T17:00:00.000Z");
+		expect(local(plan.dueAt, NY.timezone)).toBe("2027-03-14 09:00");
+		expect(plan.dueAt.toISOString()).toBe("2027-03-14T13:00:00.000Z");
+	});
+
+	it("o mesmo texto no mesmo fuso sem DST no meio não muda a hora local; ISO sem fuso também respeita a virada", () => {
+		expect(local(at("amanhã 9h", "2026-11-04T19:00:00.000Z").dueAt, NY.timezone)).toBe("2026-11-05 09:00");
+		const iso = at("2026-11-01T09:00", "2026-10-31T19:00:00.000Z");
+		expect(iso.dueAt.toISOString()).toBe("2026-11-01T14:00:00.000Z");
+	});
+});
+
 describe("findDuplicateAgendaItem", () => {
 	const H = 3_600_000;
 	const item = (kind: string, note: string, dueAt: Date, intervalMinutes: number | null = null) => ({ kind, note, dueAt, intervalMinutes });
