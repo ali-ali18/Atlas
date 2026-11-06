@@ -229,3 +229,10 @@ test("card v4 só ao vivo (sem gravado ainda) continua na tela depois da reconci
 	const result = reconcilePersistedThread([user("db-u1")], live);
 	assert.deepEqual(kinds(result), ["user", "agent-card"]);
 });
+
+test("card v4 resolvido ao vivo continua resolvido quando o gravado o substitui (auditoria: botões voltavam)", () => {
+	const live: Message[] = [user("db-u1"), agentCard("agent-card-approval_request|run-1|req-1", true)];
+	const persisted: Message[] = [user("db-u1"), agentCard("db-card")];
+	const card = reconcilePersistedThread(persisted, live).find((message) => message.kind === "agent-card");
+	assert.ok(card?.kind === "agent-card" && card.id === "db-card" && card.settled === true);
+});

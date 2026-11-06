@@ -245,6 +245,16 @@ export function collapseAgentCards(messages: Message[]): Message[] {
 	});
 }
 
+/**
+ * O card v4 ao vivo que já sabe que a chamada foi resolvida (chegou o `tool_result`) sai da tela quando o
+ * gravado chega; o gravado não sabe disso. Passa o "resolvido" para ele antes, senão os botões voltariam.
+ */
+function settlePersistedAgentCards(persisted: Message[], live: Message[]): Message[] {
+	const settled = new Set(live.flatMap((message) => (message.kind === "agent-card" && message.settled ? [agentCardKey(message.card)] : [])));
+	if (settled.size === 0) return persisted;
+	return persisted.map((message) => (message.kind === "agent-card" && !message.settled && settled.has(agentCardKey(message.card)) ? { ...message, settled: true } : message));
+}
+
 /** Cards iguais consecutivos ou com o mesmo id aparecem uma vez; turnos diferentes ficam. */
 export function dedupeCards(input: Message[]): Message[] {
 	const messages = collapseAgentCards(collapseContextSummaries(collapseRoutineCreatedCards(collapsePageCards(collapseBotProposalCards(collapseSkillProposalCards(collapseConfirmCards(collapseSubagentGroups(collapseDevSessionCards(input)))))))));
@@ -270,7 +280,8 @@ export function dedupeCards(input: Message[]): Message[] {
 }
 
 /** Usa a thread persistida como fonte principal e mantém apenas bolhas live ainda sem equivalente. */
-export function reconcilePersistedThread(persisted: Message[], live: Message[], resultText?: string | null): Message[] {
+export function reconcilePersistedThread(persistedRows: Message[], live: Message[], resultText?: string | null): Message[] {
+	const persisted = settlePersistedAgentCards(persistedRows, live);
 	const persistedIds = new Set(persisted.map((message) => message.id));
 	const persistedImageKeys = new Set(persisted.filter((message) => isDedupedLiveCard(message)).map((message) => cardDedupeKey(message)));
 	const firstOverlap = live.findIndex((message) => persistedIds.has(message.id));
