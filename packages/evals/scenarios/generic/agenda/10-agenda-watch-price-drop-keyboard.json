@@ -139,5 +139,70 @@
         "say": "Got it: I'll check the Northpeak K3 price and tell you if it drops below $89.99."
       }
     ]
+  },
+  "engineOverrides": {
+    "v4": {
+      "expect": [
+        {
+          "type": "completed"
+        },
+        {
+          "id": "scheduled-a-watch",
+          "type": "tool_called",
+          "tool": "watch",
+          "args": {
+            "note": {
+              "contains": "keyforge.test"
+            }
+          }
+        },
+        {
+          "id": "first-check-in-6h-in-the-owners-zone",
+          "type": "tool_result",
+          "tool": "watch",
+          "pattern": "first run 2026-11-05 12:00 \\(America/Chicago\\)"
+        },
+        {
+          "id": "did-not-create-a-user-routine",
+          "type": "tool_not_called",
+          "tool": "propose_routine"
+        },
+        {
+          "type": "no_question"
+        },
+        {
+          "type": "no_internals"
+        }
+      ],
+      "mock": {
+        "turns": [
+          {
+            "calls": [
+              {
+                "name": "use_capability",
+                "args": {
+                  "id": "agenda"
+                }
+              }
+            ]
+          },
+          {
+            "calls": [
+              {
+                "name": "watch",
+                "args": {
+                  "note": "Check the current price of the Northpeak K3 at https://www.keyforge.test/northpeak-k3 (was $89.99 on 2026-11-05). Tell the owner only if it is lower.",
+                  "everyMinutes": 360,
+                  "maxRuns": 40
+                }
+              }
+            ]
+          },
+          {
+            "say": "Got it: I'll check the Northpeak K3 price and tell you if it drops below $89.99."
+          }
+        ]
+      }
+    }
   }
 }

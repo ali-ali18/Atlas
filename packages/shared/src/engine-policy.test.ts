@@ -316,6 +316,21 @@ describe("motor v4 atrás de flag por conta (F1.12)", () => {
 		expect(chooseRunEngine({ ...base, userId: "default", v4Gate: readEngineV4Gate("true", "default") })).toBe("v2");
 	});
 
+	it("run acordado pela agenda (proativo com item ligado ao run) vai ao v4; proativo comum não, nem agenda em grupo ou subagente", () => {
+		const base = { policy: readEnginePolicy({}), origin: "proactive", isGroupRun: false, userId: "u1", v4Gate: gateOn };
+		expect(chooseRunEngine({ ...base, agenda: true })).toBe("v4");
+		expect(chooseRunEngine(base)).not.toBe("v4");
+		expect(chooseRunEngine({ ...base, agenda: true, userId: "u3" })).not.toBe("v4");
+		expect(chooseRunEngine({ ...base, agenda: true, v4Gate: ENGINE_V4_OFF })).not.toBe("v4");
+		expect(chooseRunEngine({ ...base, agenda: true, isGroupRun: true })).not.toBe("v4");
+		expect(chooseRunEngine({ ...base, agenda: true, isSubagent: true })).not.toBe("v4");
+		expect(chooseRunEngine({ ...base, origin: "routine", agenda: true })).not.toBe("v4");
+		expect(chooseRunEngine({ ...base, policy: readEnginePolicy({ engine: "v1" }), agenda: true })).toBe("v1");
+		// o v4 gravado no run de agenda segue; se a flag cai, recomeça no motor padrão
+		expect(chooseRunEngine({ ...base, agenda: true, stored: "v4" })).toBe("v4");
+		expect(chooseRunEngine({ ...base, agenda: true, stored: "v4", v4Gate: ENGINE_V4_OFF })).not.toBe("v4");
+	});
+
 	it("v4 não atende rotina, bot→bot, proativo, webhook, e-mail, grupo nem subagente, e v1 explícito do bot vence a flag", () => {
 		for (const origin of ["routine", "bot", "webhook", "email", "proactive", "subagent"]) {
 			expect(chooseRunEngine({ policy: readEnginePolicy({}), origin, isGroupRun: false, userId: "u1", v4Gate: gateOn }), origin).not.toBe("v4");

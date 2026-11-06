@@ -3,7 +3,7 @@
 import "dotenv/config";
 import { closeSharedMcpPool, shutdownSharedExtractor } from "@workspace/agent-runtime";
 import { DelayedError, UnrecoverableError, Worker, type Job } from "bullmq";
-import { engineV4GateFromEnv } from "./engine-choice.js";
+import { engineDefaultFromEnv, engineV4GateFromEnv } from "./engine-choice.js";
 import { createActiveTracker, drainAgentWork } from "./shutdown.js";
 import { WorkerShuttingDownError } from "./lease-guards.js";
 import { randomUUID } from "node:crypto";
@@ -100,6 +100,7 @@ import { startBotMessageSweeper } from "./bot-messages.js";
 import { processDataRetention, scheduleDataRetention } from "./data-retention.js";
 import { createGroupJev, createGroupRouter, startGroupSweeper } from "./bot-groups.js";
 import { createAutoBriefEnsurer } from "./brief-auto.js";
+import { startAgendaSweeper } from "./agenda-wake.js";
 import { startProactiveSweeper } from "./proactive.js";
 import { briefDeliveryDeps, createBriefFlusher, createDelayedBriefFlush, flushPendingBriefs } from "./daily-brief.js";
 import { startReflectionSweeper } from "./reflection.js";
@@ -514,6 +515,12 @@ const proactiveSweeper = startProactiveSweeper(
 	},
 );
 agentWorker.on("completed", () => proactiveSweeper.kick());
+// Agenda do agente (Motor v4, F4.3): itens vencidos viram runs v4 sem humano. Só existe com `ATLAS_ENGINE_V4` ligada;
+// desligada (padrão) nada é varrido nem consultado. Mesmo padrão do modo proativo: o banco guarda tudo e reinício retoma.
+const agendaSweeper = engineV4GateFromEnv().enabled
+	? startAgendaSweeper({ v4Gate: engineV4GateFromEnv(), enqueueRun: enqueueChainedRun, engineDefault: engineDefaultFromEnv(), envDefaultModel: config.openRouterModel })
+	: undefined;
+agentWorker.on("completed", () => agendaSweeper?.kick());
 // Run que falhou só libera o brief; o modo proativo (follow-ups, reflexão) não roda por falha, como antes.
 agentWorker.on("failed", () => void flushBriefs());
 // A conversa só fica livre ~5 s depois do fim de um run (margem de calma): uma varredura agendada para logo
@@ -754,6 +761,7 @@ async function shutdown() {
 	botMessageSweeper.stop();
 	groupSweeper.stop();
 	proactiveSweeper.stop();
+	agendaSweeper?.stop();
 	reflectionSweeper.stop();
 	clearInterval(summarySweeper);
 	clearInterval(deliverySweeper);

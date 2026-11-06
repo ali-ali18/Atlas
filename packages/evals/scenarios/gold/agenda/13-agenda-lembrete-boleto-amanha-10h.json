@@ -135,5 +135,68 @@
         "say": "Combinado: amanhã às 10h te lembro de pagar o boleto."
       }
     ]
+  },
+  "engineOverrides": {
+    "v4": {
+      "expect": [
+        {
+          "type": "completed"
+        },
+        {
+          "id": "criou-o-lembrete",
+          "type": "tool_called",
+          "tool": "remind_me"
+        },
+        {
+          "id": "agendou-amanha-as-10h-no-fuso-do-dono",
+          "type": "tool_result",
+          "tool": "remind_me",
+          "pattern": "first run 2026-11-06 10:00 \\(America/Sao_Paulo\\)"
+        },
+        {
+          "type": "tool_not_called",
+          "tool": "propose_questionnaire"
+        },
+        {
+          "type": "no_question"
+        },
+        {
+          "id": "diz-o-horario",
+          "type": "text_contains",
+          "pattern": "10h|10:00|10 horas"
+        },
+        {
+          "type": "no_internals"
+        }
+      ],
+      "mock": {
+        "turns": [
+          {
+            "calls": [
+              {
+                "name": "use_capability",
+                "args": {
+                  "id": "agenda"
+                }
+              }
+            ]
+          },
+          {
+            "calls": [
+              {
+                "name": "remind_me",
+                "args": {
+                  "note": "Lembrar o dono de pagar o boleto.",
+                  "when": "2026-11-06T10:00"
+                }
+              }
+            ]
+          },
+          {
+            "say": "Combinado: amanhã às 10h te lembro de pagar o boleto."
+          }
+        ]
+      }
+    }
   }
 }

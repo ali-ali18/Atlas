@@ -104,12 +104,14 @@ export async function pickRunEngine(input: {
 	/** Dono do run e a flag do v4 (`engineV4GateFromEnv()`); sem eles o v4 não é possível e a decisão é a de antes. */
 	userId?: string;
 	v4Gate?: EngineV4Gate;
+	/** Run acordado por um item da agenda do v4 (a origem `proactive` só vai ao v4 com isto). */
+	agenda?: boolean;
 	/** Grava a escolha no run de forma atômica e devolve o motor que ficou valendo (o gravado agora ou o que já estava). */
 	record: (choice: { engine: RunEngine; profile: RunProfile }) => Promise<RunEngine | null>;
 }): Promise<EngineChoice> {
 	const policy = readEnginePolicy(input.policyJson);
 	const stored = readRunEngine(input.run.budgetJson) ?? (input.hasCheckpoint ? "v1" : undefined);
-	const engine = !stored && input.forceV1 ? "v1" : chooseRunEngine({ stored, policy, origin: input.run.origin, isGroupRun: input.isGroupRun, globalDefault: input.globalDefault, userId: input.userId, v4Gate: input.v4Gate });
+	const engine = !stored && input.forceV1 ? "v1" : chooseRunEngine({ stored, policy, origin: input.run.origin, isGroupRun: input.isGroupRun, globalDefault: input.globalDefault, userId: input.userId, v4Gate: input.v4Gate, agenda: input.agenda });
 	if (engine === "v1") return { engine, profile: "chat" };
 	const profile =
 		readRunProfile(input.run.budgetJson) ?? (input.shortRun ? "chat" : resolveRunProfile({ policy }));

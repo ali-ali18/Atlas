@@ -2,6 +2,7 @@
 export * from "./ports/index.js";
 export * from "./contract/index.js";
 export * from "./tools/index.js";
+export * from "./agenda/index.js";
 export * from "./capabilities/index.js";
 export * from "./channels/index.js";
 export * from "./kernel/index.js";

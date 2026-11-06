@@ -364,6 +364,8 @@ export type RunEngineV4Input = {
 	log?: (message: string) => void;
 	/** Recebe os ajudantes deste run assim que montados (os mesmos que `PresetDeps.helpers` entrega à capacidade `research`). Teste e telemetria. */
 	onHelpers?: (helpers: Helpers) => void;
+	/** Run acordado pela agenda (F4.3): `agenda_result` no núcleo, sem a capacidade `agenda`. A política deve ser `agendaRunPolicy`. */
+	agendaRun?: boolean;
 	/** Prompt estável do preset (sem ele, o kernel monta o completo com o contrato de trabalho). */
 	stableSystem?: string;
 	policy?: PolicyContext;
@@ -459,6 +461,8 @@ export async function runEngineV4(input: RunEngineV4Input): Promise<V4EngineResu
 				...(input.log && { log: input.log }),
 				...(input.language && { locale: input.language }),
 				makeHelpers,
+				policy: basePolicy,
+				...(input.agendaRun && { agendaRun: true }),
 			});
 	const registry = input.registry ?? built!.registry;
 	motherRegistry = registry;
@@ -480,6 +484,8 @@ export async function runEngineV4(input: RunEngineV4Input): Promise<V4EngineResu
 		policy: basePolicy,
 		limits: input.limits,
 		hash: sha256,
+		// Run de agenda: não há dono para responder, então a pergunta ao dono nem é oferecida.
+		...(input.agendaRun && { askOwner: false }),
 		spend: ledger.motherHook(),
 		exposeProvenance: (read) => {
 			motherProvenance = read;

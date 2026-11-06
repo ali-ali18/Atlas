@@ -34,6 +34,8 @@ export type ToolDefinition<S extends z.ZodObject> = {
 	confirm?: "always" | "when_untrusted";
 	/** A chamada encerra o turno (ex.: pergunta ao dono). */
 	endsTurn?: boolean;
+	/** A chamada encerra o RUN sem outra chamada ao modelo e sem cartão (ex.: `agenda_result`, que fecha o run de agenda). */
+	endsRun?: boolean;
 	execute: (args: z.output<S>, ctx: ToolContext) => Promise<ToolResult> | ToolResult;
 };
 
@@ -43,6 +45,8 @@ export interface Tool {
 	readonly description: string;
 	readonly effect: Effect;
 	readonly endsTurn: boolean;
+	/** Ver `ToolDefinition.endsRun`. */
+	readonly endsRun: boolean;
 	/** Ver `ToolDefinition.privateData`. */
 	readonly privateData: boolean;
 	/** Ver `ToolDefinition.ownerData`. */
@@ -121,6 +125,7 @@ export function defineTool<S extends z.ZodObject>(def: ToolDefinition<S>): Tool 
 		description: def.description,
 		effect: baseEffect,
 		endsTurn: def.endsTurn === true,
+		endsRun: def.endsRun === true,
 		privateData: def.privateData === true,
 		...(def.ownerData && { ownerData: def.ownerData }),
 		egress: def.egress === true,

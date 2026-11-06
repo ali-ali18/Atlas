@@ -1,5 +1,5 @@
 import { createDeliverablesCapability } from "../capabilities-builtin/deliverables/index.js";
-import { FakeDeliverables, FakeHelpers, FakeFileStore, FakeMemory, FakeSearch, FakeSettings, FakeTaskListStore } from "../presets/fakes.js";
+import { FakeAgenda, FakeDeliverables, FakeHelpers, FakeFileStore, FakeMemory, FakeSearch, FakeSettings, FakeTaskListStore } from "../presets/fakes.js";
 import { setupPreset } from "../presets/presets.js";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -8,7 +8,7 @@ import { EFFECT_CLASSES as SHARED_EFFECTS, HANDOFF_ACTIONS, SURFACES, decide, ty
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { USE_CAPABILITY_TOOL, createCapabilityRegistry, createLoadedSet, defineCapability } from "../capabilities/index.js";
+import { USE_CAPABILITY_TOOL, createAgendaRunCapability, createCapabilityRegistry, createLoadedSet, defineCapability } from "../capabilities/index.js";
 import { EFFECT_CLASSES, type Effect, RunProvenance, createExecutor, grantApproval, isEffect, type ApprovalGrant, type PolicyContext } from "../contract/index.js";
 import { TOOL_SEARCH_TOOL } from "../connectors/capability.js";
 import { ASK_OWNER_TOOL, createAskOwnerTool } from "../kernel/ask-owner.js";
@@ -35,7 +35,7 @@ const hash = sha256;
 
 /** Todas as portas do preset `full`: assim nenhuma capacidade fica de fora do registro de teste. */
 function fullDeps() {
-	return { search: new FakeSearch(), files: new FakeFileStore(), memory: new FakeMemory(), settings: new FakeSettings(), taskLists: new FakeTaskListStore(), helpers: new FakeHelpers() };
+	return { search: new FakeSearch(), files: new FakeFileStore(), memory: new FakeMemory(), settings: new FakeSettings(), taskLists: new FakeTaskListStore(), helpers: new FakeHelpers(), agenda: new FakeAgenda() };
 }
 
 /** Todas as tools que existem hoje em `packages/agent` (núcleo do kernel + as de capacidade). */
@@ -46,7 +46,9 @@ function allRegisteredTools(): Tool[] {
 	const preset = setupPreset("full", fullDeps());
 	// `deliverables` (F2.3) substitui a lite quando as portas existem; as duas são conferidas.
 	const rich = createDeliverablesCapability(new FakeDeliverables().ports());
-	return [...kernelCapability.tools, loaded.useCapabilityTool, ...preset.registry.capabilities.flatMap((c) => c.tools), ...rich.tools];
+	// `agenda-run` (F4.2) só existe nos runs de agenda: não faz parte do preset, mas a tool tem de declarar efeito igual.
+	const agendaRun = createAgendaRunCapability(new FakeAgenda());
+	return [...kernelCapability.tools, loaded.useCapabilityTool, ...preset.registry.capabilities.flatMap((c) => c.tools), ...rich.tools, ...agendaRun.tools];
 }
 
 function listTs(dir: string): string[] {
@@ -93,7 +95,7 @@ describe("A. toda tool registrada declara efeito", () => {
 	const tools = allRegisteredTools();
 
 	it("o registro de teste cobre o kernel de verdade", () => {
-		expect(tools.map((t) => t.name).sort()).toEqual([ASK_OWNER_TOOL, NOTE_READ_TOOL, USE_CAPABILITY_TOOL, "create_file", "create_file", "create_page", "chart", "inspect_file", "web_extract", "web_search", "memory_list", "memory_add", "memory_update", "memory_remove", "update_task_list", "settings_get", "settings_update", "set_role_model", "update_bot_profile", "research"].sort());
+		expect(tools.map((t) => t.name).sort()).toEqual([ASK_OWNER_TOOL, NOTE_READ_TOOL, USE_CAPABILITY_TOOL, "create_file", "create_file", "create_page", "chart", "inspect_file", "web_extract", "web_search", "memory_list", "memory_add", "memory_update", "memory_remove", "update_task_list", "settings_get", "settings_update", "set_role_model", "update_bot_profile", "research", "remind_me", "watch", "on_event", "agenda_list", "agenda_change", "agenda_result"].sort());
 	});
 
 	it("o vocabulário de efeitos do motor é o mesmo de shared", () => {

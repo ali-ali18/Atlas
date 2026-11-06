@@ -17,8 +17,8 @@ import { strongMatcher } from "./verdict.js";
  */
 
 const GENERIC_DIR = fileURLToPath(new URL("../scenarios/generic", import.meta.url));
-const COUNT = 16;
-const CAPACITIES: Record<string, number> = { email: 2, compras: 2, entregaveis: 2, pesquisa: 2, agenda: 2, dia: 1, navegador: 1, seguranca: 2, insistencia: 1, economia: 1 };
+const COUNT = 17;
+const CAPACITIES: Record<string, number> = { email: 2, compras: 2, entregaveis: 2, pesquisa: 2, agenda: 3, dia: 1, navegador: 1, seguranca: 2, insistencia: 1, economia: 1 };
 
 async function genericFiles(): Promise<Array<{ capacity: string; file: string }>> {
 	const out: Array<{ capacity: string; file: string }> = [];
@@ -46,7 +46,7 @@ describe("conjunto genérico: forma", () => {
 		expect(counts).toEqual(CAPACITIES);
 	});
 
-	it("arquivos numerados 01..16 em sequência, `<nn>-<slug>.json`, e o slug é o final do id", async () => {
+	it("arquivos numerados 01..17 em sequência, `<nn>-<slug>.json`, e o slug é o final do id", async () => {
 		const files = await genericFiles();
 		expect(files.map(({ file }) => file.slice(0, 2))).toEqual(Array.from({ length: COUNT }, (_, index) => String(index + 1).padStart(2, "0")));
 		const scenarios = await loadGeneric();

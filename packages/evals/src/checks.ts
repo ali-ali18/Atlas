@@ -89,6 +89,15 @@ export function evaluateExpectation(item: Exclude<Expectation, { type: "judge" }
 			const hit = called.find((call) => matches(call.name) && argsMatch(call.args, item.args));
 			return check(name, hit ? `chamou ${hit.name}` : null);
 		}
+		case "tool_result": {
+			const pattern = new RegExp(item.pattern, "i");
+			const results = trajectory.toolResults.filter((result) => result.name === item.tool);
+			const hits = results.filter((result) => result.ok === item.ok && pattern.test(result.summary));
+			const min = item.min ?? (item.max === 0 ? 0 : 1);
+			if (hits.length < min) return check(name, results.length === 0 ? `${item.tool} não devolveu resultado` : `resultado de ${item.tool} sem /${item.pattern}/: ${results.map((result) => result.summary.slice(0, 80)).join(" | ")}`);
+			if (item.max !== undefined && hits.length > item.max) return check(name, `${hits.length} resultados de ${item.tool} com /${item.pattern}/ (máx ${item.max})`);
+			return check(name, null);
+		}
 		case "no_question": {
 			if (called.some((call) => call.name === QUESTIONNAIRE_TOOL)) return check(name, "abriu questionário");
 			return check(name, endsWithQuestion(trajectory.text) ? "terminou com pergunta" : null);

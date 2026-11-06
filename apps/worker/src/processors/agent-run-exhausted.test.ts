@@ -115,3 +115,24 @@ test("esgotado: o motivo de término é retries_exhausted", async () => {
 	await finalizeExhaustedAgentRun("r1", new Error("boom"), 3, {}, fakes);
 	assert.deepEqual(calls.fail!.stop, { reason: "retries_exhausted" });
 });
+
+test("run de agenda que esgotou as tentativas: sem balão de falha nem retomada; o item é fechado como sem resultado (auditoria F4, C1/B1)", async () => {
+	const { calls, io: fakes } = io({ origin: "proactive" });
+	const agendaRun = { id: "r1", userId: "u1", origin: "proactive", conversationId: "c1", objective: "Agenda wake (remind): Pagar o condomínio" } as unknown as AgentRun;
+	const settled: Array<{ userId: string; runId: string }> = [];
+	const err = Object.assign(new Error("Provider returned error: 429 raw upstream text"), { status: 429, name: "OpenRouterError" });
+	const out = await finalizeExhaustedAgentRun("r1", err, 3, {}, {
+		...fakes,
+		getRun: async () => agendaRun,
+		settleAgenda: (async (input: { userId: string; runId: string }) => (settled.push({ userId: input.userId, runId: input.runId }), { closed: true, delivered: false })) as never,
+	});
+	assert.equal(out, true);
+	assert.match(calls.fail!.error, /^Falha após 3 tentativas/);
+	assert.equal(calls.fail!.resultText, "", "nada vai ao chat");
+	assert.deepEqual(settled, [{ userId: "u1", runId: "r1" }]);
+	assert.equal(calls.settle, undefined);
+	// run proativo comum (v2) continua como antes
+	const plain = io({ origin: "proactive" });
+	await finalizeExhaustedAgentRun("r1", err, 3, {}, plain.io);
+	assert.ok(plain.calls.fail!.resultText);
+});

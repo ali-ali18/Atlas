@@ -8,6 +8,8 @@ export type ToolContext = {
 	signal?: AbortSignal;
 	/** Id desta chamada, único no run e estável na retomada (`s<passo>:<id da chamada>`). Tools usam para ids determinísticos, sem estado em memória. */
 	callId?: string;
+	/** Alguma tool não confiável (e-mail, web, arquivo…) já devolveu resultado neste run. Tools que GUARDAM texto para depois (agenda) marcam a origem. */
+	untrustedReadInRun?: boolean;
 };
 
 /**

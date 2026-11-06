@@ -2,7 +2,7 @@
   "version": 1,
   "id": "generic-agenda-reminder-tomorrow-0730-toronto",
   "title": "'Remind me tomorrow at 7:30am to renew my parking permit' (nurse, Toronto) → one-time reminder for 7:30 in the user's time zone, no questionnaire",
-  "description": "Mesma capacidade do ouro 13 (lembrete de uma vez, com horário relativo), outro fuso: enfermeira em Toronto (America/Toronto, UTC-5 depois do fim do horário de verão em 01/11/2026). O horário só vale no fuso do usuário: o cenário aceita `07:30` (hora local, como o runtime recebe) ou `12:30` (o mesmo instante em UTC). O fuso que o runtime usa vem da conta, não do cenário; a `locale` do cenário só orienta o juiz.",
+  "description": "Mesma capacidade do ouro 13 (lembrete de uma vez, com horário relativo), outro fuso: enfermeira em Toronto (America/Toronto, UTC-5 depois do fim do horário de verão em 01/11/2026). O horário só vale no fuso do usuário: o cenário aceita `07:30` (hora local, como o runtime recebe) ou `12:30` (o mesmo instante em UTC). O fuso que o runtime usa vem da conta, não do cenário; a `locale` do cenário só orienta o juiz. No v4 a conferência olha o que o motor RESOLVEU (auditoria F4, T1): 7:30 cai no silêncio padrão (22:00 a 08:00), então o primeiro horário permitido é 8:00 e a resposta tem de dizer isso, não 7:30.",
   "tags": [
     "generic",
     "agenda"
@@ -134,5 +134,69 @@
         "say": "Done: tomorrow at 7:30 am I will remind you to renew your parking permit."
       }
     ]
+  },
+  "engineOverrides": {
+    "v4": {
+      "expect": [
+        {
+          "type": "completed"
+        },
+        {
+          "id": "created-the-reminder",
+          "type": "tool_called",
+          "tool": "remind_me"
+        },
+        {
+          "id": "scheduled-0800-the-first-allowed-time-after-quiet-hours",
+          "type": "tool_result",
+          "tool": "remind_me",
+          "pattern": "first run 2026-11-06 08:00 \\(America/Toronto\\)\\. Adjusted: moved out of the owner's quiet hours"
+        },
+        {
+          "type": "tool_not_called",
+          "tool": "propose_questionnaire"
+        },
+        {
+          "type": "no_question"
+        },
+        {
+          "id": "says-the-real-time",
+          "type": "text_contains",
+          "pattern": "8:00|08:00|8 ?am",
+          "ignoreCase": true
+        },
+        {
+          "type": "no_internals"
+        }
+      ],
+      "mock": {
+        "turns": [
+          {
+            "calls": [
+              {
+                "name": "use_capability",
+                "args": {
+                  "id": "agenda"
+                }
+              }
+            ]
+          },
+          {
+            "calls": [
+              {
+                "name": "remind_me",
+                "args": {
+                  "note": "Remind the owner to renew the parking permit.",
+                  "when": "2026-11-06T07:30"
+                }
+              }
+            ]
+          },
+          {
+            "say": "Done: tomorrow at 8:00 am I will remind you to renew your parking permit (7:30 falls in your quiet hours, so I moved it to the first moment after them)."
+          }
+        ]
+      }
+    }
   }
 }
