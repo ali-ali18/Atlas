@@ -344,6 +344,31 @@ describe("adaptador Llm", () => {
 		expect(b.calls[0]).toMatchObject({ idleTimeoutMs: 300_000, firstEventTimeoutMs: 120_000 });
 	});
 
+	it("cadeia de uma entrada: erro transitório não põe o único provedor em quarentena e o retry tenta de novo (auditoria F1, C3)", async () => {
+		const chains = { ...EXAMPLE_ROLE_CHAINS, main: [EXAMPLE_ROLE_CHAINS.main[0]!] };
+		const { llm, calls } = setup([fail(503), ok("voltou")], { chains });
+		const first = await collect(llm.chat(req())).catch((e: unknown) => e);
+		expect(first).toBeInstanceOf(LlmUnavailableError);
+		const second = await collect(llm.chat(req()));
+		expect(calls).toHaveLength(2);
+		expect(second.map((e) => e.type)).toEqual(["text_delta", "done"]);
+	});
+
+	it("contextWindow lembra a última janela conhecida em vez de cair para 128k (auditoria F1, C3)", async () => {
+		let fails = false;
+		const { llm } = setup([fail(429), ok("x")], {
+			chains: { ...EXAMPLE_ROLE_CHAINS, main: [EXAMPLE_ROLE_CHAINS.main[0]!, EXAMPLE_ROLE_CHAINS.main[1]!] },
+			contextWindowFor: async () => {
+				if (fails) throw new Error("capacidades fora do ar");
+				return 200_000;
+			},
+		});
+		expect(await llm.contextWindow("main")).toBe(200_000);
+		fails = true;
+		expect(await llm.contextWindow("main")).toBe(200_000);
+		expect(await llm.contextWindow("helper")).toBe(128_000);
+	});
+
 	it("contextWindow usa a entrada atual do papel", async () => {
 		const { llm } = setup([ok("x")], { contextWindowFor: (e) => (e.provider === "anthropic" ? 200_000 : 1) });
 		expect(await llm.contextWindow("main")).toBe(200_000);

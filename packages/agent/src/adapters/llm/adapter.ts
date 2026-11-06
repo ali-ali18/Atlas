@@ -67,6 +67,7 @@ export function describeNone(reason: NoModelReason, language?: unknown): string 
 
 const label = (e: ModelChainEntry) => `${e.provider}/${e.model}`;
 const resolve = async <T>(v: T | (() => T | Promise<T>)): Promise<T> => (typeof v === "function" ? (v as () => T | Promise<T>)() : v);
+const DEFAULT_CONTEXT_WINDOW = 128_000;
 const ZERO_USAGE: LlmUsage = { inputTokens: 0, outputTokens: 0 };
 
 /**
@@ -202,7 +203,10 @@ export function createLlmAdapter(config: LlmAdapterConfig): Llm {
 
 				const verdict = classifyFailure(outcome.error, cooldowns, req.signal);
 				if (verdict.kind === "fatal") throw outcome.error;
-				if (verdict.markHealth) health.mark(entry.provider, { until: config.clock.now().getTime() + verdict.cooldownMs, reason: verdict.reason });
+				// Cadeia de UMA entrada: não há para onde trocar, e pôr o único provedor em quarentena faria o retry de transporte
+				// do kernel (que chama `chat` de novo) falhar na hora com "tudo indisponível". Sem quarentena o retry tenta a mesma entrada.
+				const soleEntry = ((await resolve(config.chains))[req.role]?.length ?? 0) <= 1;
+				if (verdict.markHealth && !soleEntry) health.mark(entry.provider, { until: config.clock.now().getTime() + verdict.cooldownMs, reason: verdict.reason });
 				if (delivered) {
 					// Sem emenda: o parcial fica como está e o kernel refaz o passo na próxima entrada.
 					yield { type: "done", finishReason: "error", usage: ZERO_USAGE, served: { provider: entry.provider, model: entry.model } };
@@ -217,12 +221,23 @@ export function createLlmAdapter(config: LlmAdapterConfig): Llm {
 		}
 	}
 
+	// Última janela conhecida por papel: com a entrada em quarentena ou a consulta de capacidades falhando, a compactação
+	// segue com o valor real em vez de cair para 128k (que dispararia compactação cedo demais ou tarde demais).
+	const lastWindow = new Map<LlmRole, number>();
 	return {
 		chat,
 		async contextWindow(role) {
-			const picked = await pick(role, new Set());
-			if ("none" in picked) return 128_000;
-			return config.contextWindowFor ? config.contextWindowFor(picked.entry) : 128_000;
+			const remembered = lastWindow.get(role) ?? DEFAULT_CONTEXT_WINDOW;
+			const picked = await pick(role, new Set()).catch(() => ({ none: { kind: "no_chain" } }) as const);
+			if ("none" in picked || !config.contextWindowFor) return remembered;
+			try {
+				const window = await config.contextWindowFor(picked.entry);
+				if (!Number.isFinite(window) || window <= 0) return remembered;
+				lastWindow.set(role, window);
+				return window;
+			} catch {
+				return remembered;
+			}
 		},
 	};
 }
