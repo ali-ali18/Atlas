@@ -74,3 +74,15 @@ test("conexão de outro dono devolvida pela porta é descartada (defesa em profu
 	const setup = await buildV4Registry({ ...base, userId: "user-b", botId: "bot-1", deps: { ...deps, mcp: { ...deps.mcp, listConnected: async (userId) => (userId === "user-a" ? [other] : []) } } });
 	assert.ok(!setup.registry.ids().includes("connectors"));
 });
+
+test("ajudantes: a fábrica recebe a mesma porta de busca da mãe, uma vez por montagem", async () => {
+	const seen: unknown[] = [];
+	const helpers = { runAll: async () => [] };
+	const setup = await buildV4Registry({ ...base, botId: "bot-1", deps: fakeAdapterDeps(), makeHelpers: ({ search }) => (seen.push(search), helpers) });
+	assert.equal(seen.length, 1);
+	assert.equal(typeof (seen[0] as { extract: unknown }).extract, "function");
+	assert.deepEqual(setup.unavailable, []);
+	// sem a fábrica, nada muda
+	await buildV4Registry({ ...base, botId: "bot-1", deps: fakeAdapterDeps() });
+	assert.equal(seen.length, 1);
+});

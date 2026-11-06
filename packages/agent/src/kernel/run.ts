@@ -44,18 +44,31 @@ export async function runAgent(deps: RunAgentDeps): Promise<RunResult> {
 	const resumed = saved !== null && isSnapshot(saved.payload);
 	const snap = resumed ? structuredClone(saved.payload as ReturnType<typeof initSnapshot>) : initSnapshot(deps.input, ports, await offerNotes(), deps.registry);
 	if (resumed && saved.state === "DONE" && snap.result) return snap.result;
+	deps.spend?.report(snap.spentUsd);
 
 	const loaded = createLoadedSet(registry, snap.loadedIds);
 	// Toda tool recebe o cofre "rastreado": o valor que ele entrega entra na redação do run (ver vault-tracking.ts).
 	const tracked = ports.vault ? trackVault(ports.vault) : undefined;
 	const executor = createExecutor({ runId, ownerId, ports: tracked ? { ...ports, vault: tracked.vault } : ports, ...(tracked && { secrets: tracked.secrets }), hash: deps.hash, policy: deps.policy, provenance: RunProvenance.restore(snap.provenance), ...(snap.mandateUsesLeft !== undefined && { mandateUsesLeft: snap.mandateUsesLeft }), ...(deps.language && { language: deps.language }), ...(deps.signal && { signal: deps.signal }) });
+	deps.exposeProvenance?.(() => {
+		const { untrustedReadInRun, privateReadInRun, sources } = executor.provenance.snapshot();
+		return { untrustedReadInRun, ...(privateReadInRun !== undefined && { privateReadInRun }), sources };
+	});
+	const role = deps.role ?? "main";
+	// Gasto de ajudantes: o que já valia antes da retomada (no checkpoint) + o que os filhos gastam agora (ao vivo).
+	const outsideBefore = snap.outsideUsd ?? 0;
+	const outside = () => outsideBefore + (deps.spend?.outsideUsd() ?? 0);
+	/** Total para o teto do dono (próprio + de fora) e total do resultado (de fora só entra na mãe). */
+	const totalUsd = () => snap.spentUsd + outside();
+	const resultUsd = () => (deps.spend?.countInResult === false ? snap.spentUsd : totalUsd());
 	const pageChars = deps.options?.pageChars ?? DEFAULT_PAGE_CHARS;
-	const kernelTools: readonly Tool[] = [createNoteReadTool(pageChars), createAskOwnerTool()];
+	const kernelTools: readonly Tool[] = [createNoteReadTool(pageChars), ...(deps.askOwner === false ? [] : [createAskOwnerTool()])];
 	const toolMap = () => new Map<string, Tool>([...kernelTools, ...loaded.toolsForModel()].map((t) => [t.name, t]));
 	const specs = (): LlmToolSpec[] => [...kernelTools.map((t) => t.toLlmToolSpec()), ...loaded.specsForModel()];
 	const save = async (state: KernelState) => {
 		snap.loadedIds = [...loaded.loadedIds()];
 		snap.provenance = executor.provenance.snapshot();
+		if (deps.spend && deps.spend.countInResult !== false) snap.outsideUsd = outside();
 		const usesLeft = executor.mandateUsesLeft();
 		if (usesLeft !== undefined) snap.mandateUsesLeft = usesLeft;
 		await saveCheckpoint(ports, ownerId, runId, state, snap);
@@ -67,7 +80,7 @@ export async function runAgent(deps: RunAgentDeps): Promise<RunResult> {
 	await ports.store.runs.setStatus(ownerId, runId, "running");
 
 	async function finish(status: RunResult["status"], text: string, extra: Partial<RunResult> = {}): Promise<RunResult> {
-		const result: RunResult = { status, text, steps: snap.step, spentUsd: snap.spentUsd, unresolved: { ...snap.lastErrors }, ...(snap.stop && { stop: snap.stop }), ...extra };
+		const result: RunResult = { status, text, steps: snap.step, spentUsd: resultUsd(), unresolved: { ...snap.lastErrors }, ...(snap.stop && { stop: snap.stop }), ...extra };
 		if (status === "parked") {
 			await save("PARKED");
 			await ports.store.runs.setStatus(ownerId, runId, "parked");
@@ -76,7 +89,7 @@ export async function runAgent(deps: RunAgentDeps): Promise<RunResult> {
 		snap.result = result;
 		await save("DONE");
 		await ports.store.runs.setStatus(ownerId, runId, status === "failed" ? "failed" : "done");
-		await emit({ type: "final", data: { text, status, steps: snap.step, spentUsd: snap.spentUsd, ...(snap.stop && { stop: snap.stop }), ...(result.reason && { reason: result.reason }) } });
+		await emit({ type: "final", data: { text, status, steps: snap.step, spentUsd: resultUsd(), ...(snap.stop && { stop: snap.stop }), ...(result.reason && { reason: result.reason }) } });
 		return result;
 	}
 	const endStatus = (): RunResult["status"] => (snap.stop || Object.keys(snap.lastErrors).length > 0 ? "not_done" : "done");
@@ -102,7 +115,7 @@ export async function runAgent(deps: RunAgentDeps): Promise<RunResult> {
 
 	/** Compacta só com a janela do modelo quase cheia (nunca por custo): flush no caderno, depois resumo. */
 	async function maybeCompact() {
-		const window = await ports.llm.contextWindow("main");
+		const window = await ports.llm.contextWindow(role);
 		const ratio = deps.options?.compactAtRatio ?? DEFAULT_COMPACT_RATIO;
 		if (!compactionDue(snap, window, ratio)) return;
 		const done = await compactContext({ snap, llm: ports.llm, store: ports.store, ownerId, runId, keepRecent: deps.options?.keepRecent ?? DEFAULT_KEEP_RECENT, ...(tracked && { secrets: tracked.secrets }), ...(deps.signal && { signal: deps.signal }) });
@@ -116,10 +129,10 @@ export async function runAgent(deps: RunAgentDeps): Promise<RunResult> {
 		for (;;) {
 			if (state === "PREPARE") {
 				const compactionsBefore = snap.compactions;
-				const hit = reachedLimit({ step: snap.step, spentUsd: snap.spentUsd, limits: deps.limits });
+				const hit = reachedLimit({ step: snap.step, spentUsd: totalUsd(), limits: deps.limits });
 				if (hit) {
 					snap.stop = hit;
-					addRuntimeNote(snap, finalStepNote(hit.label, spendText(snap.spentUsd, snap.stepsWithoutPrice, snap.step)));
+					addRuntimeNote(snap, finalStepNote(hit.label, spendText(resultUsd(), snap.stepsWithoutPrice, snap.step)));
 					state = "FINAL";
 				} else {
 					await maybeCompact();
@@ -135,12 +148,13 @@ export async function runAgent(deps: RunAgentDeps): Promise<RunResult> {
 					llm: ports.llm,
 					messages: snap.messages,
 					nonce: snap.nonce as RunNonce,
-					request: { role: "main", tools: specs(), ...(isFinal && { toolChoice: "none" as const }), ...(deps.signal && { signal: deps.signal }) },
+					request: { role, tools: specs(), ...(isFinal && { toolChoice: "none" as const }), ...(deps.signal && { signal: deps.signal }) },
 					onText: (text) => emit({ type: "text_delta", data: { text } }),
 					onRetract: () => emit({ type: "retract", data: { reason: "transport_retry" } }),
 				});
 				// O custo conhecido entra sempre (inclusive de tentativa que falhou no meio do stream); o que não tem preço é contado à parte.
 				snap.spentUsd += reply.costUsd;
+				deps.spend?.report(snap.spentUsd);
 				snap.stepsWithoutPrice += reply.unpricedCalls;
 				reply.calls = uniqueCallIds(reply.calls);
 				snap.lastText = reply.text;
@@ -192,7 +206,7 @@ export async function runAgent(deps: RunAgentDeps): Promise<RunResult> {
 				if (guardAction === "note") addRuntimeNote(snap, REPEAT_NOTE);
 				if (guardAction === "final") {
 					snap.stop = { kind: "repeated", label: "repeated identical calls" };
-					addRuntimeNote(snap, finalStepNote("repeated identical calls that were not making progress", spendText(snap.spentUsd, snap.stepsWithoutPrice, snap.step)));
+					addRuntimeNote(snap, finalStepNote("repeated identical calls that were not making progress", spendText(resultUsd(), snap.stepsWithoutPrice, snap.step)));
 					state = "FINAL";
 				} else state = "PREPARE";
 				await save(state);

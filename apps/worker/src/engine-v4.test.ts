@@ -4,7 +4,7 @@
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createCapabilityRegistry, createSseMapper, type Llm, type LlmChatRequest, type LlmStreamEvent, type RunEvent } from "@workspace/agent";
+import { createCapabilityRegistry, createSseMapper, type Helpers, type Llm, type LlmChatRequest, type LlmStreamEvent, type RunEvent } from "@workspace/agent";
 import type { ProviderStreamChat } from "@workspace/llm";
 import type { ComputerUseEvent } from "@workspace/shared";
 import { buildV4RoleChains, cheapModelFromEnv, createMinimalEventMapper, createV4Llm, dropProcessorOwnedEvents, meterLlm, ownerStepsLimit, runEngineV4, stoppedEffectsNote, storeBackendFromDb, unavailableQueue, unavailableSandbox, V4_CHEAP_MODEL_DEFAULT, vaultBackendFromService, type V4Db } from "./engine-v4.js";
@@ -333,4 +333,40 @@ test("preset full sem bot no run: configurações indisponíveis vão ao log té
 	assert.equal(out.text, "Oi");
 	assert.equal(logs.length, 1);
 	assert.match(logs[0] as string, /capacidades sem porta: settings/);
+});
+
+// F3.1: ajudantes por run. O worker monta `Helpers` com as portas da mãe (busca pelo adaptador do worker), o papel `helper`
+// e o teto do dono compartilhado. A capacidade `research` (frente R) os recebe em `PresetDeps.helpers`.
+test("ajudantes do run: leem pela busca do worker, pedem o papel helper, voltam com as fontes lidas e o gasto entra no teto", async () => {
+	const searched: string[] = [];
+	const { db } = fakeDb();
+	const llm = scripted([
+		[{ type: "text_delta", text: "Oi" }, done(0.01)],
+		// ajudante: lê uma página e responde
+		[{ type: "tool_call", call: { id: "h1", name: "web_extract", args: { url: "https://example.test/p" } } }, done(0.01)],
+		[{ type: "text_delta", text: "Achados do ajudante" }, done(0.01)],
+	]);
+	let helpers: Helpers | undefined;
+	const { registry: _omit, ...input } = baseInput(llm, [], db);
+	await runEngineV4({ ...input, botId: "bot-1", adapters: fakeAdapters(searched), limits: { ownerMaxUsd: 5 }, onHelpers: (h) => (helpers = h) });
+	assert.ok(helpers, "o worker monta os ajudantes do run");
+	const [result] = await helpers.runAll([{ objective: "Leia a página", capabilities: ["web"] }]);
+	assert.equal(result?.status, "done");
+	assert.equal(result?.text, "Achados do ajudante");
+	assert.deepEqual(result?.sources, [{ url: "https://example.test/p" }]);
+	assert.equal(result?.untrustedRead, true);
+	assert.ok((result?.spentUsd ?? 0) > 0);
+	assert.deepEqual(llm.requests.map((r) => r.role), ["main", "helper", "helper"]);
+});
+
+test("ajudante pedindo capacidade que a mãe não tem (o preset sem bot não tem settings) falha sozinho", async () => {
+	const { db } = fakeDb();
+	const llm = scripted([[{ type: "text_delta", text: "Oi" }, done()]]);
+	let helpers: Helpers | undefined;
+	const { registry: _omit, ...input } = baseInput(llm, [], db);
+	await runEngineV4({ ...input, adapters: fakeAdapters([]), log: () => undefined, onHelpers: (h) => (helpers = h) });
+	const [result] = await helpers!.runAll([{ objective: "x", capabilities: ["settings"] }]);
+	assert.equal(result?.status, "failed");
+	assert.match(result?.error ?? "", /does not have the capability "settings"/);
+	assert.equal(llm.requests.length, 1, "o modelo não foi chamado pelo ajudante");
 });
