@@ -101,7 +101,7 @@ test("falha do modelo vira erro (nunca sucesso falso) e 'Parar' propaga o abort"
 			throw new Error("provedor caiu");
 		},
 	};
-	await assert.rejects(runEngineV4(baseInput(failing, [], db)), /Motor v4 falhou/);
+	await assert.rejects(runEngineV4(baseInput(failing, [], db)), /v4 engine failed/);
 	const controller = new AbortController();
 	controller.abort(new Error("parar"));
 	await assert.rejects(runEngineV4({ ...baseInput(scripted([[{ type: "text_delta", text: "x" }, done()]]), [], db), signal: controller.signal }));

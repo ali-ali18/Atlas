@@ -413,7 +413,7 @@ export async function runEngineV4(input: RunEngineV4Input): Promise<V4EngineResu
 	// trata o abort pelo caminho de cancelamento de sempre.
 	if (input.signal?.aborted) await announceStoppedEffects(ports, input);
 	input.signal?.throwIfAborted();
-	if (result.status === "failed") throw new Error(`Motor v4 falhou: ${result.reason ?? "erro desconhecido"}`);
+	if (result.status === "failed") throw new Error(`v4 engine failed: ${result.reason ?? "unknown"}${result.error ? ` (${result.error})` : ""}`);
 	const { stop, hitWall } = stopOf(result);
 	// Estacionado (aprovação/entrega ao dono): o kernel não emite `final`; quem fecha o stream é o processador, que lança
 	// `AgentRunPausedError("awaiting_owner")` (evento `paused` + lease solto). O checkpoint v4 já está salvo.
