@@ -4,7 +4,10 @@
  * `AgentRun.budgetJson` no começo do run, para a retomada continuar no motor em que nasceu.
  */
 
-export type RunEngine = "v1" | "v2";
+import { engineV4SupportsRun, isEngineV4Enabled, type EngineV4Gate } from "./engine-policy-v4.js";
+
+/** `v4` só nasce atrás da flag por conta (ver `engine-policy-v4.ts`); `Bot.policyJson.engine` continua aceitando só v1/v2. */
+export type RunEngine = "v1" | "v2" | "v4";
 export type RunProfile = "chat" | "long_work";
 /** `auto` decide pelo pedido; os outros dois forçam o perfil. */
 export type WorkProfileSetting = "auto" | RunProfile;
@@ -124,7 +127,7 @@ export function resolveBotEngineRouting(policy: EnginePolicy, globalDefault: Eng
 /** Motor gravado no `budgetJson` do run (`undefined` = o run ainda não escolheu). */
 export function readRunEngine(budgetJson: unknown): RunEngine | undefined {
 	const engine = asRecord(budgetJson).engine;
-	return engine === "v1" || engine === "v2" ? engine : undefined;
+	return engine === "v1" || engine === "v2" || engine === "v4" ? engine : undefined;
 }
 
 /** Perfil gravado no `budgetJson` do run (retomada mantém o perfil do começo). */
@@ -180,8 +183,17 @@ export function chooseRunEngine(input: {
 	isGroupRun: boolean;
 	isSubagent?: boolean;
 	globalDefault?: EngineDefault;
+	/** Dono do run e a flag do v4. Sem eles (ou com a flag desligada) a decisão é a de antes, sem v4 possível. */
+	userId?: string;
+	v4Gate?: EngineV4Gate;
 }): RunEngine {
-	if (input.stored) return input.stored;
+	const v4Allowed = isEngineV4Enabled(input.v4Gate, input.userId);
+	if (input.stored) {
+		// Desligar a flag é a emergência do v4: o run gravado no v4 volta ao v1 em vez de seguir no motor desligado.
+		return input.stored === "v4" && !v4Allowed ? "v1" : input.stored;
+	}
+	// `engine: "v1"` explícito no bot nunca vai a um motor novo, nem pela flag da conta.
+	if (v4Allowed && input.policy.explicit !== "v1" && engineV4SupportsRun(input)) return "v4";
 	const routing = resolveBotEngineRouting(input.policy, input.globalDefault);
 	if (routing.engine !== "v2") return "v1";
 	return engineV2SupportsRun({ ...input, scope: routing.scope }) ? "v2" : "v1";

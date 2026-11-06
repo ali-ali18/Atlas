@@ -3,6 +3,12 @@ export {
 	resolveRedisUrl,
 } from "./connection.js";
 export {
+	AGENT_V4_QUEUE_NAME,
+	createAgentV4Queue,
+	type AgentV4JobData,
+	type AgentV4Queue,
+} from "./agent-v4-queue.js";
+export {
 	CHAT_QUEUE_NAME,
 	createChatCompletionQueue,
 	type ChatCompletionQueue,

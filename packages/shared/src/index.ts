@@ -1020,6 +1020,7 @@ export {
 export * from "./run-stop-reason.js";
 export * from "./run-failure-class.js";
 export * from "./engine-policy.js";
+export * from "./engine-policy-v4.js";
 export * from "./reasoning-effort.js";
 export * from "./engine-helpers.js";
 export * from "./engine-settings.js";

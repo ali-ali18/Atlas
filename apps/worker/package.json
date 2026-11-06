@@ -14,6 +14,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@workspace/agent": "workspace:*",
     "@workspace/agent-runtime": "workspace:*",
     "@workspace/db": "workspace:*",
     "@workspace/llm": "workspace:*",

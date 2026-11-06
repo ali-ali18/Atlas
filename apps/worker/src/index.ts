@@ -3,6 +3,7 @@
 import "dotenv/config";
 import { closeSharedMcpPool, shutdownSharedExtractor } from "@workspace/agent-runtime";
 import { DelayedError, UnrecoverableError, Worker, type Job } from "bullmq";
+import { engineV4GateFromEnv } from "./engine-choice.js";
 import { createActiveTracker, drainAgentWork } from "./shutdown.js";
 import { WorkerShuttingDownError } from "./lease-guards.js";
 import { randomUUID } from "node:crypto";
@@ -38,6 +39,7 @@ import {
 	CHAT_QUEUE_NAME,
 	ROUTINE_QUEUE_NAME,
 	createAgentRunQueue,
+	createAgentV4Queue,
 	createChatCompletionQueue,
 	createRedisConnection,
 	closeRunSignals,
@@ -121,6 +123,8 @@ function traced<T, R>(fn: (job: Job<T, R>) => Promise<R>): (job: Job<T, R>) => P
 }
 const chatQueue = createChatCompletionQueue(connection);
 const agentRunQueue = createAgentRunQueue(connection);
+// Fila do motor v4: só existe com `ATLAS_ENGINE_V4` ligada; desligado (padrão) nada é criado no Redis.
+const agentV4Queue = engineV4GateFromEnv().enabled ? createAgentV4Queue(connection) : undefined;
 const routineQueue = createRoutineQueue(connection);
 const leaseOwner = `worker-${randomUUID().slice(0, 8)}`;
 
@@ -277,6 +281,7 @@ const agentWorker = new Worker<AgentRunJobPayload, AgentRunJobResult>(
 		try {
 		return await processAgentRunJob(job.data, config, buildRunLeaseOwner(leaseOwner, job), {
 			notify,
+			...(agentV4Queue ? { v4Queue: agentV4Queue } : {}),
 			shutdownSignal: shutdownController.signal,
 			subscribeRunSignals,
 			extendLock: async () => {
@@ -775,6 +780,7 @@ async function shutdown() {
 	await Promise.all([
 		chatQueue.close(),
 		agentRunQueue.close(),
+		...(agentV4Queue ? [agentV4Queue.close()] : []),
 		routineQueue.close(),
 	]);
 	await closeSharedMcpPool().catch(() => undefined);

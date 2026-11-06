@@ -17,6 +17,7 @@ import {
 	withBotEngine,
 	withRunEngine,
 } from "./engine-policy.js";
+import { ENGINE_V4_OFF, readEngineV4Gate } from "./engine-policy-v4.js";
 
 describe("readEnginePolicy", () => {
 	it("bot sem política usa o motor novo (padrão) em todas as origens, perfil automático, sem limite de gasto e sem tempo máximo explícito (longWorkMinutes só vale se o dono preencheu)", () => {
@@ -284,5 +285,72 @@ describe("tetos do run gravados no budgetJson (valor e origem)", () => {
 		// Origem inventada ou lixo no JSON não vira texto para o usuário.
 		expect(readRunCaps({ caps: { costUsd: 0.5, costSource: "hacker", wallMs: -1 } })).toEqual({ costUsd: 0.5 });
 		expect(readRunCaps(null)).toEqual({});
+	});
+});
+
+describe("motor v4 atrás de flag por conta (F1.12)", () => {
+	const gateOn = readEngineV4Gate("true", "u1, u2 ,u1");
+	const botsV4: unknown[] = [{}, { engine: "v1" }, { engine: "v2" }, { engine: "v2", engineScope: "chat" }];
+	const origins = ["chat", "routine", "bot", "webhook", "email", "proactive", "subagent"];
+	const cases = botsV4.flatMap((bot) => origins.flatMap((origin) => [false, true].map((isGroupRun) => ({ bot, origin, isGroupRun }))));
+
+	it("lê a flag: só valor afirmativo liga; contas em lista sem duplicata, vazios nem 'default'", () => {
+		expect(gateOn).toEqual({ enabled: true, accounts: ["u1", "u2"] });
+		for (const flag of [undefined, "", "0", "false", "off", "tru", "ligado", 1, null]) expect(readEngineV4Gate(flag, "u1").enabled, String(flag)).toBe(false);
+		for (const flag of ["1", "true", "TRUE", " on ", "yes"]) expect(readEngineV4Gate(flag, "u1").enabled, flag).toBe(true);
+		expect(readEngineV4Gate("1", " , default,,").accounts).toEqual([]);
+		expect(readEngineV4Gate("1", undefined).accounts).toEqual([]);
+		expect(ENGINE_V4_OFF).toEqual({ enabled: false, accounts: [] });
+	});
+
+	it("v4 só com a flag ligada E a conta na lista (id exato), no chat direto", () => {
+		const policy = readEnginePolicy({});
+		const base = { policy, origin: "chat", isGroupRun: false };
+		expect(chooseRunEngine({ ...base, userId: "u1", v4Gate: gateOn })).toBe("v4");
+		expect(chooseRunEngine({ ...base, userId: "u2", v4Gate: gateOn })).toBe("v4");
+		expect(chooseRunEngine({ ...base, userId: "u3", v4Gate: gateOn })).toBe("v2");
+		expect(chooseRunEngine({ ...base, userId: "u", v4Gate: gateOn })).toBe("v2");
+		expect(chooseRunEngine({ ...base, userId: "u1", v4Gate: readEngineV4Gate("false", "u1") })).toBe("v2");
+		expect(chooseRunEngine({ ...base, userId: "u1", v4Gate: readEngineV4Gate("true", "") })).toBe("v2");
+		expect(chooseRunEngine({ ...base, v4Gate: gateOn })).toBe("v2");
+		expect(chooseRunEngine({ ...base, userId: "default", v4Gate: readEngineV4Gate("true", "default") })).toBe("v2");
+	});
+
+	it("v4 não atende rotina, bot→bot, proativo, webhook, e-mail, grupo nem subagente, e v1 explícito do bot vence a flag", () => {
+		for (const origin of ["routine", "bot", "webhook", "email", "proactive", "subagent"]) {
+			expect(chooseRunEngine({ policy: readEnginePolicy({}), origin, isGroupRun: false, userId: "u1", v4Gate: gateOn }), origin).not.toBe("v4");
+		}
+		expect(chooseRunEngine({ policy: readEnginePolicy({}), origin: "chat", isGroupRun: true, userId: "u1", v4Gate: gateOn })).toBe("v2");
+		expect(chooseRunEngine({ policy: readEnginePolicy({}), origin: "chat", isGroupRun: false, isSubagent: true, userId: "u1", v4Gate: gateOn })).not.toBe("v4");
+		expect(chooseRunEngine({ policy: readEnginePolicy({ engine: "v1" }), origin: "chat", isGroupRun: false, userId: "u1", v4Gate: gateOn })).toBe("v1");
+	});
+
+	it("regressão: com a flag desligada ou a conta fora da lista, TODA decisão v1/v2 é idêntica à de antes", () => {
+		for (const globalDefault of ["off", "chat", "all", undefined] as const) {
+			for (const { bot, origin, isGroupRun } of cases) {
+				const policy = readEnginePolicy(bot);
+				const before = chooseRunEngine({ policy, origin, isGroupRun, globalDefault });
+				for (const gate of [undefined, ENGINE_V4_OFF, readEngineV4Gate("false", "u1"), readEngineV4Gate("true", "outra-conta"), readEngineV4Gate("true", "")]) {
+					const picked = chooseRunEngine({ policy, origin, isGroupRun, globalDefault, userId: "u1", v4Gate: gate });
+					expect(picked, JSON.stringify({ bot, origin, isGroupRun, globalDefault })).toBe(before);
+					expect(["v1", "v2"]).toContain(picked);
+				}
+			}
+		}
+	});
+
+	it("motor gravado: v1 e v2 seguem como estão; v4 gravado só segue com a flag ligada para a conta (senão volta ao v1)", () => {
+		const base = { policy: readEnginePolicy({}), origin: "chat", isGroupRun: false };
+		expect(readRunEngine({ engine: "v4" })).toBe("v4");
+		expect(readRunEngine({ engine: "v3" })).toBeUndefined();
+		for (const gate of [undefined, gateOn]) {
+			expect(chooseRunEngine({ ...base, stored: "v1", userId: "u1", v4Gate: gate })).toBe("v1");
+			expect(chooseRunEngine({ ...base, stored: "v2", userId: "u1", v4Gate: gate })).toBe("v2");
+		}
+		expect(chooseRunEngine({ ...base, stored: "v4", userId: "u1", v4Gate: gateOn })).toBe("v4");
+		expect(chooseRunEngine({ ...base, stored: "v4", userId: "u1", v4Gate: ENGINE_V4_OFF })).toBe("v1");
+		expect(chooseRunEngine({ ...base, stored: "v4", userId: "u3", v4Gate: gateOn })).toBe("v1");
+		expect(chooseRunEngine({ ...base, stored: "v4" })).toBe("v1");
+		expect(withRunEngine(null, { engine: "v4", profile: "chat" })).toEqual({ engine: "v4", engineProfile: "chat" });
 	});
 });
