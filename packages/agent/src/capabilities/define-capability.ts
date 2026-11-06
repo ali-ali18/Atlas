@@ -13,6 +13,8 @@ export type CapabilityDefinition = {
 	tools: readonly Tool[];
 	/** Caminho do skill.md; o texto só entra ao carregar a capacidade. */
 	skill?: string;
+	/** Instrução lazy (inglês, curta): volta no resultado de `use_capability` ao carregar, nunca no prompt sempre carregado. */
+	instructions?: string;
 	hooks?: CapabilityHooks;
 	/** Tipos de card (definidos em shared). */
 	cards?: readonly string[];
@@ -23,6 +25,7 @@ export type CapabilityDefinition = {
 export type Capability = Readonly<Required<Pick<CapabilityDefinition, "id" | "title" | "summary" | "tools">>> & {
 	readonly core: boolean;
 	readonly skill?: string;
+	readonly instructions?: string;
 	readonly hooks: CapabilityHooks;
 	readonly cards: readonly string[];
 	readonly evals: readonly string[];
@@ -60,6 +63,7 @@ export function defineCapability(def: CapabilityDefinition): Capability {
 		core: def.core === true,
 		tools: Object.freeze([...def.tools]),
 		skill: def.skill,
+		instructions: def.instructions,
 		hooks,
 		cards: Object.freeze([...(def.cards ?? [])]),
 		evals: Object.freeze([...(def.evals ?? [])]),

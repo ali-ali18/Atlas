@@ -44,11 +44,11 @@ export function createLoadedSet(registry: CapabilityRegistry, restoreIds: readon
 		execute: ({ id }) => {
 			const result = set.load(id);
 			if (!result.ok) return { ok: false, error: result.error, hint: `Valid ids: ${registry.ids().join(", ")}.` };
-			const title = registry.get(id)?.title ?? id;
-			return {
-				ok: true,
-				summary: result.added.length > 0 ? `Loaded "${title}". New tools: ${result.added.join(", ")}.` : `"${title}" was already loaded.`,
-			};
+			const capability = registry.get(id);
+			const title = capability?.title ?? id;
+			if (result.added.length === 0) return { ok: true, summary: `"${title}" was already loaded.` };
+			const notes = capability?.instructions ? `\n\n${capability.instructions}` : "";
+			return { ok: true, summary: `Loaded "${title}". New tools: ${result.added.join(", ")}.${notes}` };
 		},
 	});
 
