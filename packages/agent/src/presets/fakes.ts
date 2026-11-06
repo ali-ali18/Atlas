@@ -191,7 +191,8 @@ export class FakeAgenda implements Agenda {
 	}
 	async create(userId: string, plan: AgendaPlan): Promise<AgendaCreateResult> {
 		const active = [...this.items.values()].filter((i) => i.userId === userId && (i.status === "pending" || i.status === "paused"));
-		const same = findDuplicateAgendaItem(active, plan);
+		const found = findDuplicateAgendaItem(active.map((i) => ({ ...i, dueAt: new Date(i.nextRunAt), intervalMinutes: i.everyMinutes })), plan);
+		const same = found ? this.items.get(found.id) : undefined;
 		if (same) return { ok: true, item: this.view(same), duplicate: true };
 		if (active.length >= AGENDA_MAX_ACTIVE_PER_OWNER) return { ok: false, error: `There are already ${AGENDA_MAX_ACTIVE_PER_OWNER} active agenda items. Cancel or finish one before adding another.` };
 		const id = `ag-${++this.seq}`;

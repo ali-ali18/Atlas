@@ -9,7 +9,7 @@
  * Nenhuma decisão aqui lê texto livre do dono ou do modelo para decidir comportamento: o filtro de evento compara
  * CAMPOS declarados (remetente, assunto contém, anexo) e os freios usam contadores e datas.
  */
-import { nextAllowedTime, normalizeForDedupe, resolveFollowupWhen, type ProactiveSettings } from "./proactive.js";
+import { findDuplicateFollowup, nextAllowedTime, resolveFollowupWhen, type ProactiveSettings } from "./proactive.js";
 
 export const AGENDA_KINDS = ["remind", "watch", "intent", "brief"] as const;
 export type AgendaKind = (typeof AGENDA_KINDS)[number];
@@ -248,10 +248,21 @@ export function planAgendaItem(input: { request: AgendaRequest; now: Date; setti
 	};
 }
 
-/** Já existe um item ativo igual (mesmo tipo e mesma nota)? Evita o modelo recriar a cada turno. */
-export function findDuplicateAgendaItem<T extends { kind: string; note: string }>(items: readonly T[], plan: Pick<AgendaPlan, "kind" | "note">): T | undefined {
-	const wanted = normalizeForDedupe(plan.note);
-	return items.find((item) => item.kind === plan.kind && normalizeForDedupe(item.note) === wanted);
+/**
+ * Já existe um item ativo igual? Mesmo tipo e mesma nota (critério do v2, `findDuplicateFollowup`: nota normalizada ou
+ * 80% das palavras) E horário próximo (janela de ~2h): "me lembra às 10h e às 20h" são DOIS itens. Item recorrente
+ * (mesmo intervalo) e `intent` (acorda por evento, `dueAt` é só o fim da vigência) não têm horário a comparar.
+ * Evita o modelo recriar a cada turno.
+ */
+export function findDuplicateAgendaItem<T extends { kind: string; note: string; dueAt: Date; intervalMinutes?: number | null }>(
+	items: readonly T[],
+	plan: Pick<AgendaPlan, "kind" | "note" | "dueAt" | "intervalMinutes">,
+): T | undefined {
+	const sameKind = items.filter((item) => item.kind === plan.kind);
+	const timeless = plan.kind === "intent";
+	const recurring = plan.intervalMinutes !== null;
+	const candidates = sameKind.map((item) => ({ item, note: item.note, dueAt: timeless || (recurring && item.intervalMinutes === plan.intervalMinutes) ? plan.dueAt : item.dueAt }));
+	return findDuplicateFollowup(candidates, { note: plan.note, dueAt: plan.dueAt })?.item;
 }
 
 // ---------------------------------------------------------------------------

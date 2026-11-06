@@ -71,6 +71,18 @@ describe("agenda (Postgres real)", { skip: dbSkip }, () => {
 		assert.ok((await listAgendaItems(a)).some((i) => i.id === created.item.id));
 	});
 
+	test("me lembra às 10h e às 20h: dois itens; o mesmo horário devolve o existente (auditoria F4, C2)", async () => {
+		const ten = await createAgendaItem({ userId: a, botId: botA, plan: plan({ kind: "remind", note: "Revisar o contrato", when: "2026-11-10T10:00" }), grant: GRANT });
+		const twenty = await createAgendaItem({ userId: a, botId: botA, plan: plan({ kind: "remind", note: "Revisar o contrato", when: "2026-11-10T20:00" }), grant: GRANT });
+		assert.ok(ten.ok && twenty.ok);
+		assert.equal(ten.duplicate, false);
+		assert.equal(twenty.duplicate, false);
+		assert.notEqual(ten.item.id, twenty.item.id);
+		const same = await createAgendaItem({ userId: a, botId: botA, plan: plan({ kind: "remind", note: "revisar o contrato", when: "2026-11-10T10:30" }), grant: GRANT });
+		assert.ok(same.ok && same.duplicate);
+		assert.equal(same.item.id, ten.item.id);
+	});
+
 	test("outro dono: não cria no bot alheio, não lê, não pausa, não cancela e não grava resultado", async () => {
 		const created = await createAgendaItem({ userId: a, botId: botA, plan: watch("Item privado do A"), grant: GRANT });
 		assert.ok(created.ok);
@@ -91,11 +103,13 @@ describe("agenda (Postgres real)", { skip: dbSkip }, () => {
 		await changeAgendaItem(a, id, "cancel");
 	});
 
+	// Notas sem palavras em comum: o dedupe herdado do v2 trata notas com 80% das palavras iguais como o mesmo pedido.
+	const TOPICS = ["notebook", "passagem", "ingresso", "aluguel", "cotacao", "voo", "hotel", "fatura", "pedido", "encomenda", "boleto", "consulta", "exame", "vacina", "revisao", "seguro", "imposto", "matricula", "estoque", "premio"];
 	test("limite de itens ativos por dono", async () => {
 		const user = (await createTestUser("agL")).id;
 		const conv = (await prisma.conversation.create({ data: { userId: user } })).id;
 		const bot = (await prisma.bot.create({ data: { ownerId: user, name: "L", isPrimary: true, conversationId: conv }, select: { id: true } })).id;
-		for (let i = 0; i < 20; i++) assert.ok((await createAgendaItem({ userId: user, botId: bot, plan: watch(`item numero ${i} distinto`), grant: GRANT })).ok);
+		for (let i = 0; i < 20; i++) assert.ok((await createAgendaItem({ userId: user, botId: bot, plan: watch(`${TOPICS[i]} acompanhar`), grant: GRANT })).ok);
 		const over = await createAgendaItem({ userId: user, botId: bot, plan: watch("um a mais"), grant: GRANT });
 		assert.ok(!over.ok && over.error.includes("20 active"));
 		const first = (await listAgendaItems(user))[0]!;

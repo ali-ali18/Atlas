@@ -54,7 +54,9 @@ describe("capacidade agenda: criação", () => {
 		const again = await t.watch!.run({ note: "preço do notebook", everyMinutes: 120 }, ctx());
 		expect(again.ok && again.summary).toContain("Already scheduled (nothing new created)");
 		expect(agenda.items.size).toBe(1);
-		for (let i = 0; i < 19; i++) await t.watch!.run({ note: `acompanhar coisa distinta numero ${i}`, everyMinutes: 120 }, ctx());
+		// Notas sem palavras em comum: com 80% das palavras iguais o dedupe (critério do v2) as trata como o mesmo pedido.
+		const topics = ["passagem", "ingresso", "aluguel", "cotacao", "voo", "hotel", "fatura", "pedido", "encomenda", "boleto", "consulta", "exame", "vacina", "revisao", "seguro", "imposto", "matricula", "estoque", "premio"];
+		for (const topic of topics) await t.watch!.run({ note: `acompanhar ${topic}`, everyMinutes: 120 }, ctx());
 		const over = await t.watch!.run({ note: "mais um item", everyMinutes: 120 }, ctx());
 		expect(over).toMatchObject({ ok: false, error: expect.stringContaining("20 active"), hint: expect.stringContaining("agenda_list") });
 	});

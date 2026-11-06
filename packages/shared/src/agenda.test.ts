@@ -125,10 +125,34 @@ describe("planAgendaItem: intent e brief", () => {
 });
 
 describe("findDuplicateAgendaItem", () => {
-	it("mesmo tipo e nota (ignora caixa e acento) é duplicata; tipo diferente não", () => {
-		const items = [{ kind: "watch", note: "Preço do Notebook" }, { kind: "remind", note: "ligar" }];
-		expect(findDuplicateAgendaItem(items, { kind: "watch", note: "preco do notebook" })).toBe(items[0]);
-		expect(findDuplicateAgendaItem(items, { kind: "remind", note: "preço do notebook" })).toBeUndefined();
+	const H = 3_600_000;
+	const item = (kind: string, note: string, dueAt: Date, intervalMinutes: number | null = null) => ({ kind, note, dueAt, intervalMinutes });
+	const plan = (kind: "remind" | "watch" | "intent", note: string, dueAt: Date, intervalMinutes: number | null = null) => ({ kind, note, dueAt, intervalMinutes });
+
+	it("mesmo tipo, mesma nota (ignora caixa e acento) e mesmo horário é duplicata; tipo diferente não", () => {
+		const items = [item("watch", "Preço do Notebook", NOW, 120), item("remind", "ligar", NOW)];
+		expect(findDuplicateAgendaItem(items, plan("watch", "preco do notebook", NOW, 120))).toBe(items[0]);
+		expect(findDuplicateAgendaItem(items, plan("remind", "preço do notebook", NOW))).toBeUndefined();
+	});
+
+	it("me lembra às 10h e às 20h com a mesma nota são DOIS itens; o mesmo horário (janela de 2h) dedupa (auditoria F4, C2)", () => {
+		const ten = planAgendaItem({ request: { kind: "remind", note: "Tomar o remédio", when: "2026-11-05T10:00" }, now: NOW, settings: SP });
+		const twenty = planAgendaItem({ request: { kind: "remind", note: "Tomar o remédio", when: "2026-11-05T20:00" }, now: NOW, settings: SP });
+		const near = planAgendaItem({ request: { kind: "remind", note: "tomar o remedio", when: "2026-11-05T10:45" }, now: NOW, settings: SP });
+		if (!ten.ok || !twenty.ok || !near.ok) throw new Error("plano inválido");
+		const stored = [{ kind: "remind", note: ten.plan.note, dueAt: ten.plan.dueAt, intervalMinutes: null }];
+		expect(findDuplicateAgendaItem(stored, twenty.plan)).toBeUndefined();
+		expect(findDuplicateAgendaItem(stored, ten.plan)).toBe(stored[0]);
+		expect(findDuplicateAgendaItem(stored, near.plan)).toBe(stored[0]);
+		expect(findDuplicateAgendaItem(stored, plan("remind", "Tomar o remédio", new Date(ten.plan.dueAt.getTime() + 3 * H)))).toBeUndefined();
+	});
+
+	it("recorrente com o mesmo intervalo e intenção por evento não comparam horário", () => {
+		const watching = [item("watch", "Preço do notebook", new Date(NOW.getTime() + 50 * H), 120)];
+		expect(findDuplicateAgendaItem(watching, plan("watch", "Preço do notebook", NOW, 120))).toBe(watching[0]);
+		expect(findDuplicateAgendaItem(watching, plan("watch", "Preço do notebook", NOW, 240))).toBeUndefined();
+		const intents = [item("intent", "Resumir a fatura", new Date(NOW.getTime() + 20 * 24 * H))];
+		expect(findDuplicateAgendaItem(intents, plan("intent", "Resumir a fatura", new Date(NOW.getTime() + 30 * 24 * H)))).toBe(intents[0]);
 	});
 });
 
