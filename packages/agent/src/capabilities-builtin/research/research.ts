@@ -5,6 +5,7 @@ import { z } from "zod";
 import { WORK_NOTE_PREFIX } from "../../kernel/work-notes.js";
 import type { HelperResult, Helpers, HelperTask } from "../../ports/helpers.js";
 import { defineTool } from "../../tools/define-tool.js";
+import type { ToolContext } from "../../tools/types.js";
 
 /** Capacidades que um ajudante de pesquisa pode receber (ids do preset filho). */
 export const RESEARCH_HELPER_CAPABILITIES = ["web"] as const;
@@ -57,12 +58,27 @@ function sourcesText(result: HelperResult): string {
 function sectionBody(index: number, question: string, result: HelperResult): string {
 	const head = `### ${index + 1}. ${question}`;
 	if (result.status !== "done") return `${head}\nHELPER ${result.status.toUpperCase()}: ${result.error ?? "no reason given"}${result.text ? `\nPartial text:\n${result.text}` : ""}`;
-	return `${head}\n${result.text.length > 0 ? result.text : "(the helper returned no text)"}\n${sourcesText(result)}`;
+	const partial = result.partial ? `NOT CONFIRMED (partial answer): ${result.error ?? "the helper did not finish every step"}. Do not present it as confirmed.\n` : "";
+	return `${head}\n${partial}${result.text.length > 0 ? result.text : "(the helper returned no text)"}\n${sourcesText(result)}`;
+}
+
+/**
+ * Id da nota desta chamada, sem estado em memória (a tool é recriada na retomada). Com `callId` (único no run e estável):
+ * `work:<run>:research:<callId>`. Sem ele, o primeiro índice livre no caderno. Nunca sobrescreve uma nota que já existe
+ * (a mesma chamada reexecutada depois de um corte recebe o sufixo seguinte).
+ */
+async function freeNoteId(ctx: ToolContext): Promise<string> {
+	const base = `${WORK_NOTE_PREFIX}${ctx.runId}:research:`;
+	const exists = async (id: string) => (await ctx.ports.store.notes.get(ctx.ownerId, id)) !== null;
+	if (ctx.callId) {
+		const first = `${base}${ctx.callId}`;
+		if (!(await exists(first))) return first;
+		for (let again = 2; ; again++) if (!(await exists(`${first}:${again}`))) return `${first}:${again}`;
+	}
+	for (let n = 1; ; n++) if (!(await exists(`${base}${n}`))) return `${base}${n}`;
 }
 
 export function createResearchTool(helpers: Helpers) {
-	// Contador por run: cada chamada de `research` grava uma nota própria (`work:<run>:research:<n>`).
-	const calls = new Map<string, number>();
 	return defineTool({
 		name: "research",
 		description:
@@ -97,9 +113,7 @@ export function createResearchTool(helpers: Helpers) {
 				body += `${text}\n\n`;
 			});
 
-			const n = (calls.get(ctx.runId) ?? 0) + 1;
-			calls.set(ctx.runId, n);
-			const noteId = `${WORK_NOTE_PREFIX}${ctx.runId}:research:${n}`;
+			const noteId = await freeNoteId(ctx);
 			await ctx.ports.store.notes.save({ id: noteId, userId: ctx.ownerId, title: "Research findings", body, pinned: false });
 
 			const failed = sections.filter((s) => s.result.status !== "done");
@@ -108,12 +122,14 @@ export function createResearchTool(helpers: Helpers) {
 				return { ok: false, error: `Every research helper failed.\n${reasons}`, hint: "Say plainly what could not be found, or try web_search directly." };
 			}
 
-			const status = failed.length > 0 ? `${failed.length} of ${sections.length} helper(s) failed (listed below with the reason); the others are valid. Retry only the failed ones or say what is missing.\n\n` : "";
+			const partials = sections.filter((s) => s.result.status === "done" && s.result.partial);
+			const partialNote = partials.length > 0 ? `${partials.length} answer(s) are partial (marked NOT CONFIRMED with the reason): say what is not confirmed; do not present them as settled.\n\n` : "";
+			const status = partialNote + (failed.length > 0 ? `${failed.length} of ${sections.length} helper(s) failed (listed below with the reason); the others are valid. Retry only the failed ones or say what is missing.\n\n` : "");
 			const big = body.length > INLINE_RESULT_CHARS;
 			const content = big
 				? sections
 						.map((s) => {
-							const sources = s.result.status === "done" ? `${s.result.sources.length} source(s)` : `${s.result.status.toUpperCase()}: ${s.result.error ?? "no reason given"}`;
+							const sources = s.result.status === "done" ? `${s.result.partial ? "NOT CONFIRMED (partial answer), " : ""}${s.result.sources.length} source(s)` : `${s.result.status.toUpperCase()}: ${s.result.error ?? "no reason given"}`;
 							return `${s.index + 1}. ${s.question}\n   ${sources}. Full answer and sources: note_read(id="${noteId}", offset=${s.start}).`;
 						})
 						.join("\n")

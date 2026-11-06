@@ -23,8 +23,10 @@ export type HelperResult = {
 	spentUsd: number;
 	/** O run filho leu conteúdo não confiável: a mãe herda o taint. */
 	untrustedRead: boolean;
-	/** Motivo real quando `status` não é `done`. */
+	/** Motivo real quando `status` não é `done`; num `done` parcial, o que ficou sem resolver. */
 	error?: string;
+	/** `done` com resposta parcial: terminou com texto, mas a última chamada de tool falhou (nem tudo foi confirmado). */
+	partial?: boolean;
 };
 
 export interface Helpers {

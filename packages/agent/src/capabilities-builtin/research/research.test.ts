@@ -52,6 +52,42 @@ describe("tool research", () => {
 		expect((await h.notes.list("owner-1")).map((n) => n.id).sort()).toEqual([`${WORK_NOTE_PREFIX}run-1:research:1`, `${WORK_NOTE_PREFIX}run-1:research:2`]);
 	});
 
+	it("retomada: duas instâncias da tool (a tool é recriada) não sobrescrevem a nota da pesquisa anterior (auditoria F3, C2/B1)", async () => {
+		const h = kernelHarness([]);
+		const first = await createResearchTool(new FakeHelpers(() => done("achado UM"))).run(plan("P1"), { ...ctxFor(h), callId: "s1:call-a" });
+		const second = await createResearchTool(new FakeHelpers(() => done("achado DOIS"))).run(plan("P2"), { ...ctxFor(h), callId: "s2:call-b" });
+		const ids = (await h.notes.list("owner-1")).map((n) => n.id).sort();
+		expect(ids).toEqual([`${WORK_NOTE_PREFIX}run-1:research:s1:call-a`, `${WORK_NOTE_PREFIX}run-1:research:s2:call-b`]);
+		expect((await h.notes.get("owner-1", ids[0] as string))?.body).toContain("achado UM");
+		expect(first.ok && first.summary).toContain("research:s1:call-a");
+		expect(second.ok && second.summary).toContain("research:s2:call-b");
+	});
+
+	it("sem callId, ou a mesma chamada reexecutada: pega o próximo id livre, nunca sobrescreve", async () => {
+		const h = kernelHarness([]);
+		await createResearchTool(new FakeHelpers(() => done("achado UM"))).run(plan("P1"), ctxFor(h));
+		await createResearchTool(new FakeHelpers(() => done("achado DOIS"))).run(plan("P2"), ctxFor(h));
+		await createResearchTool(new FakeHelpers(() => done("achado A"))).run(plan("P3"), { ...ctxFor(h), callId: "s1:x" });
+		await createResearchTool(new FakeHelpers(() => done("achado B"))).run(plan("P3"), { ...ctxFor(h), callId: "s1:x" });
+		const notes = await h.notes.list("owner-1");
+		expect(notes).toHaveLength(4);
+		expect((await h.notes.get("owner-1", `${WORK_NOTE_PREFIX}run-1:research:1`))?.body).toContain("achado UM");
+		expect((await h.notes.get("owner-1", `${WORK_NOTE_PREFIX}run-1:research:s1:x`))?.body).toContain("achado A");
+	});
+
+	it("resposta parcial do ajudante aparece como \"not confirmed\" com o motivo, na resposta inline e no índice (auditoria F3, B2)", async () => {
+		const partial = (text: string): HelperResult => ({ ...done(text), partial: true, error: "partial answer: the last tool call(s) failed (web_extract: timeout)" });
+		const h = kernelHarness([]);
+		const inline = await createResearchTool(new FakeHelpers((t) => (t.objective === "B" ? partial("so metade") : done("inteiro")))).run(plan("A", "B"), ctxFor(h));
+		const text = inline.ok ? inline.summary : "";
+		expect(text).toContain("1 answer(s) are partial");
+		expect(text).toContain("NOT CONFIRMED (partial answer): partial answer: the last tool call(s) failed (web_extract: timeout)");
+		expect(text).toContain("### 2. B\nNOT CONFIRMED (partial answer)");
+		expect(text).toContain("### 1. A\ninteiro");
+		const big = await createResearchTool(new FakeHelpers(() => partial("x".repeat(INLINE_RESULT_CHARS)))).run(plan("A"), { ...ctxFor(h), callId: "s9:big" });
+		expect(big.ok && big.summary).toContain("NOT CONFIRMED (partial answer), 1 source(s)");
+	});
+
 	it("falha parcial: diz qual ajudante falhou e o motivo real; os outros seguem", async () => {
 		const helpers = new FakeHelpers((task, index) => (index === 1 ? { status: "failed", text: "", sources: [], spentUsd: 0, untrustedRead: false, error: "timeout ao ler a página" } : done(`ok ${task.objective}`)));
 		const h = kernelHarness([]);

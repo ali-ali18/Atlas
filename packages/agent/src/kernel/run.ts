@@ -45,6 +45,7 @@ export async function runAgent(deps: RunAgentDeps): Promise<RunResult> {
 	const snap = resumed ? structuredClone(saved.payload as ReturnType<typeof initSnapshot>) : initSnapshot(deps.input, ports, await offerNotes(), deps.registry);
 	if (resumed && saved.state === "DONE" && snap.result) return snap.result;
 	deps.spend?.report(snap.spentUsd);
+	if (resumed && snap.outsideUsd) deps.spend?.seedOutside?.(snap.outsideUsd);
 
 	const loaded = createLoadedSet(registry, snap.loadedIds);
 	// Toda tool recebe o cofre "rastreado": o valor que ele entrega entra na redação do run (ver vault-tracking.ts).

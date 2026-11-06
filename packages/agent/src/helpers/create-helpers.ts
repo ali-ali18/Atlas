@@ -19,6 +19,7 @@ import type { BotLanguage } from "@workspace/shared";
 import { childPolicy } from "@workspace/shared";
 import { createCapabilityRegistry, type Capability, type CapabilityRegistry } from "../capabilities/index.js";
 import { redactDeep, type Hash, type PolicyContext } from "../contract/index.js";
+import type { ChannelInput } from "../channels/envelope.js";
 import { runAgent } from "../kernel/run.js";
 import type { PriorProvenance, RunLimits, RunResult } from "../kernel/types.js";
 import type { Clock } from "../ports/clock.js";
@@ -34,8 +35,8 @@ import type { Vault } from "../ports/vault.js";
 import { createWebCapability } from "../presets/web.js";
 import { buildStablePrompt } from "../prompt/work-contract.js";
 import { createMemoryStore } from "./memory-store.js";
-import { HELPER_PROMPT } from "./prompt.js";
-import { recordSources } from "./sources.js";
+import { HELPER_PROMPT, LEAD_TASK_LABEL } from "./prompt.js";
+import { recordSources, type ExtractCache } from "./sources.js";
 import type { SpendLedger } from "./spend-ledger.js";
 import { inheritedProvenance } from "./taint.js";
 
@@ -111,14 +112,27 @@ export function buildChildRegistry(input: { requested: readonly string[]; mother
 }
 
 /** Resultado do kernel → resultado do ajudante. O texto do modelo passa como está. */
-export function helperStatusOf(result: RunResult): Pick<HelperResult, "status" | "error"> {
+export function helperStatusOf(result: RunResult): Pick<HelperResult, "status" | "error" | "partial"> {
 	if (result.status === "done") return { status: "done" };
 	if (result.status === "parked") return { status: "failed", error: "The helper reached an action that needs the owner. Helpers only read, so it was not run." };
 	if (result.status === "failed") return result.reason === "cancelled" ? { status: "stopped", error: "cancelled" } : { status: "failed", error: result.error ?? result.reason ?? "the helper run failed" };
 	// not_done: parou por um limite que protege o dono (ele diz qual) ou terminou com a última chamada de tool em erro.
 	if (result.stop) return { status: "stopped", error: `stopped by ${result.stop.label}` };
-	if (result.text.trim().length > 0) return { status: "done" };
+	// Texto com chamada de tool ainda em erro: a resposta vale, mas é PARCIAL (a mãe não a trata como confirmada).
+	if (result.text.trim().length > 0) return { status: "done", partial: true, error: `partial answer: the last tool call(s) failed (${Object.entries(result.unresolved).map(([name, why]) => `${name}: ${why}`).join("; ") || "unknown"})` };
 	return { status: "failed", error: result.reason ?? `the helper ended without an answer (last tool errors: ${Object.keys(result.unresolved).join(", ") || "none"})` };
+}
+
+/**
+ * Histórico do filho (S2). `objective` e `context` vêm do MODELO da mãe, que pode ter lido páginas: nenhum dos dois ganha a
+ * autoridade de dono nem de sistema. O contexto é sempre DADO não confiável (`<data source="bot:lead" trust="untrusted">`,
+ * com escape). O objetivo é rotulado como pedido da assistente principal, nunca como fala do dono; se a mãe já leu conteúdo
+ * não confiável, ele também vira dado. O prompt do filho explica os dois rótulos.
+ */
+export function helperHistory(task: Pick<HelperTask, "objective" | "context">, motherReadUntrusted: boolean): ChannelInput[] {
+	const context: ChannelInput[] = task.context ? [{ kind: "data", source: "bot:lead", text: `Context from the lead agent:\n${task.context}` }] : [];
+	const objective: ChannelInput = motherReadUntrusted ? { kind: "data", source: "bot:lead", text: `Task from the lead agent:\n${task.objective}` } : { kind: "owner", text: `${LEAD_TASK_LABEL}\n${task.objective}` };
+	return [...context, objective];
 }
 
 export function createHelpers(deps: CreateHelpersDeps): Helpers {
@@ -126,9 +140,9 @@ export function createHelpers(deps: CreateHelpersDeps): Helpers {
 	const forbidden = deps.forbiddenCapabilities ?? HELPER_FORBIDDEN_CAPABILITIES;
 	let counter = 0;
 
-	async function runOne(task: HelperTask, signal: AbortSignal | undefined): Promise<HelperResult> {
+	async function runOne(task: HelperTask, signal: AbortSignal | undefined, cache: ExtractCache): Promise<HelperResult> {
 		if (signal?.aborted) return stopped("cancelled");
-		const recorder = deps.search ? recordSources(deps.search) : undefined;
+		const recorder = deps.search ? recordSources(deps.search, cache) : undefined;
 		const built = buildChildRegistry({ requested: task.capabilities, mother: deps.motherRegistry(), forbidden, ...(recorder && { web: recorder.search }) });
 		if (!built.ok) return failed(built.error);
 		const { registry } = built;
@@ -150,8 +164,10 @@ export function createHelpers(deps: CreateHelpersDeps): Helpers {
 		const ports: Ports = { llm: deps.llm, store: createMemoryStore(), queue: noQueue, sandbox: noSandbox, vault: noVault, clock: deps.clock, random: deps.random, events };
 		const prior = inheritedProvenance(deps.motherProvenance?.());
 		const policy = childPolicy(deps.motherPolicy);
-		const { ownerMaxUsd, ownerMaxSteps, unattendedMaxSteps, safetyMaxSteps } = deps.motherLimits;
-		const limits: RunLimits = { unattended: true, ...(ownerMaxUsd !== undefined && { ownerMaxUsd }), ...(ownerMaxSteps !== undefined && { ownerMaxSteps }), ...(unattendedMaxSteps !== undefined && { unattendedMaxSteps }), ...(safetyMaxSteps !== undefined && { safetyMaxSteps }) };
+		const { ownerMaxUsd, ownerMaxSteps, unattended, unattendedMaxSteps, safetyMaxSteps } = deps.motherLimits;
+		// O filho herda o teto de passos da MÃE (o do dono; sem ele, a rede de segurança dela). Só entra no teto de run sem
+		// dono quando a própria mãe está nele: o filho não tem dono presente (política), mas isso não corta pesquisa de chat.
+		const limits: RunLimits = { ...(unattended && { unattended: true }), ...(ownerMaxUsd !== undefined && { ownerMaxUsd }), ...(ownerMaxSteps !== undefined && { ownerMaxSteps }), ...(unattendedMaxSteps !== undefined && { unattendedMaxSteps }), ...(safetyMaxSteps !== undefined && { safetyMaxSteps }) };
 
 		try {
 			const result = await runAgent({
@@ -159,10 +175,8 @@ export function createHelpers(deps: CreateHelpersDeps): Helpers {
 				ownerId: deps.ownerId,
 				input: {
 					stableSystem: `${buildStablePrompt(registry, { workContract: false })}\n\n${HELPER_PROMPT}`,
-					// O que a mãe sabe vai no bloco `[context]`, que passa pelo escape de canais: o texto vem do modelo da mãe e pode
-					// carregar conteúdo de página; no canal `runtime` (sem escape) ele poderia forjar um bloco do sistema.
-					contextSections: task.context ? [`Context from the lead agent:\n${task.context}`] : [],
-					history: [{ kind: "owner", text: task.objective }],
+					contextSections: [],
+					history: helperHistory(task, prior?.untrustedReadInRun === true),
 					...(prior && { priorProvenance: prior }),
 				},
 				ports,
@@ -185,10 +199,12 @@ export function createHelpers(deps: CreateHelpersDeps): Helpers {
 	return {
 		async runAll(tasks, signal) {
 			const results = new Array<HelperResult>(tasks.length);
+			// Uma leitura por URL neste lote (C3): os ajudantes do mesmo `runAll` dividem as páginas já extraídas.
+			const cache: ExtractCache = new Map();
 			let next = 0;
 			// Fila com N trabalhadores: a ordem do resultado é a das tarefas, não a de término.
 			const worker = async () => {
-				for (let i = next++; i < tasks.length; i = next++) results[i] = await runOne(tasks[i] as HelperTask, signal);
+				for (let i = next++; i < tasks.length; i = next++) results[i] = await runOne(tasks[i] as HelperTask, signal, cache);
 			};
 			await Promise.all(Array.from({ length: Math.min(concurrency, tasks.length) }, worker));
 			return results;
