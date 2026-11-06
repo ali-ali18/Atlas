@@ -511,6 +511,19 @@ describe("agenda (Postgres real)", { skip: dbSkip }, () => {
 		assert.equal(released.reservedUntil, null);
 		assert.equal(released.runId, null);
 		assert.equal(released.dueAt.getTime(), created.item.dueAt.getTime());
+		assert.equal(released.eventWindowCount, 0, "a vaga do teto diário volta junto");
+		await changeAgendaItem(a, id, "cancel");
+	});
+
+	test("releaseAgendaRun: run devolvido sem executar não queima vaga do teto de 8 por dia (reauditoria F4, N3)", async () => {
+		const created = await createAgendaItem({ userId: a, botId: botA, plan: plan({ kind: "intent", note: "Avisar de fatura", eventFilter: { source: "email", from: "fatura.com" } }), grant: GRANT });
+		assert.ok(created.ok);
+		const id = created.item.id;
+		for (let n = 0; n < 10; n++) {
+			await beginAgendaRun((await getAgendaItem(a, id))!, `run-rel-cap${n}`, at(n, T0));
+			assert.equal(await releaseAgendaRun({ userId: a, runId: `run-rel-cap${n}`, dueAt: at(30), error: "x" }), 1);
+		}
+		assert.equal((await getAgendaItem(a, id))?.eventWindowCount, 0);
 		await changeAgendaItem(a, id, "cancel");
 	});
 });

@@ -417,7 +417,10 @@ export async function releaseAgendaRun(input: { userId: string; runId: string; d
 	if (!validOwner(input.userId) || !input.runId) return 0;
 	const base = { userId: input.userId, runId: input.runId, status: "pending", runCount: { gt: 0 } } as const;
 	const data = { runCount: { decrement: 1 }, runId: null, claimedUntil: null, lastError: input.error.slice(0, 300) };
-	const intent = await prisma.botFollowup.updateMany({ where: { ...base, agendaKind: "intent" }, data });
+	// Intenção: o run devolvido sem executar também devolve a vaga do teto diário (`beginAgendaRun` a gastou).
+	const intentWithSlot = await prisma.botFollowup.updateMany({ where: { ...base, agendaKind: "intent", eventWindowCount: { gt: 0 } }, data: { ...data, eventWindowCount: { decrement: 1 } } });
+	const intentNoSlot = await prisma.botFollowup.updateMany({ where: { ...base, agendaKind: "intent", eventWindowCount: 0 }, data });
+	const intent = { count: intentWithSlot.count + intentNoSlot.count };
 	const clock = await prisma.botFollowup.updateMany({ where: { ...base, AND: [{ agendaKind: { not: null } }, { agendaKind: { not: "intent" } }] }, data: { ...data, dueAt: input.dueAt } });
 	return intent.count + clock.count;
 }
