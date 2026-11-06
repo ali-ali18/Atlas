@@ -55,5 +55,6 @@ export async function saveCheckpoint(ports: Ports, ownerId: string, runId: strin
 export function isOwnershipLoss(error: unknown): boolean {
 	if (typeof error !== "object" || error === null) return false;
 	const e = error as { name?: unknown; code?: unknown; message?: unknown };
+	// guard-allow: format-validation identificador fixo de erro lançado pelo adaptador do banco (`lease_lost`), não texto livre
 	return e.message === "lease_lost" || e.code === "lease_lost" || e.name === "ResourceOwnershipError" || e.code === "RESOURCE_NOT_FOUND";
 }
