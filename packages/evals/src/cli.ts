@@ -82,7 +82,7 @@ from-run --inspect ARQ [--events ARQ] [--user TEXTO] [--id ID] [--language en-US
 list                    lista os cenários
 
 matrix                  cenários × motores × modelos × repetições, com teto rígido de gasto
-  --scenarios gold|ids  cenários (padrão: gold)           --engines v2[,v1]  motores (padrão: v2)
+  --scenarios gold|ids  cenários (padrão: gold)           --engines v2[,v1,v4]  motores (padrão: v2)
   --models a,b          anthropic/<m> (CLAUDE_KEY) · opencode-go/<m> (OPENCODE_GO_API_KEY) · openrouter/<id> ou id (OPENROUTER_API_KEY)
   --repeat N            repetições (padrão: 1)            --max-usd N   teto rígido em US$ (obrigatório no modo real)
   --estimate            só estima o custo (sem rede) e sai  --estimate-factor N  passos extras do modelo real (padrão 2)

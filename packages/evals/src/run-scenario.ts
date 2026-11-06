@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { briefToolFilter, runComputerUse, runEngineV2, type EngineV2Options } from "@workspace/agent-runtime";
 import { applyComputerUseEventsToTranscript, DEFAULT_PROACTIVE_SETTINGS, TRANSCRIPT_SLOT, type ComputerUseEvent, type SerializedLlmMessage } from "@workspace/shared";
+import { runScenarioV4 } from "./run-v4.js";
 import { buildEnvironment, EVAL_BOT_ID, EVAL_USER_ID } from "./environment.js";
 import type { StreamChat } from "./mock-model.js";
 import type { Scenario } from "./scenario.js";
@@ -89,8 +90,10 @@ export async function runScenario(scenario: Scenario, options: RunScenarioOption
 	};
 
 	const engineV2 = options.engineV2 ?? (scenario.run.engine === "v2" ? ({ profile: "chat" } satisfies EngineV2Options) : undefined);
+	const useV4 = scenario.run.engine === "v4" && !options.engineV2;
 	const runner = (engineV2 ? (params: RunParams) => runEngineV2(params, engineV2) : runComputerUse) as typeof runComputerUse;
-	const run = runner({
+	const runV1V2 = (params: RunParams) => runner(params);
+	const runParams: RunParams = {
 		manager: {} as RunParams["manager"],
 		getSessionId: async () => {
 			throw new Error("sem sandbox no eval");
@@ -123,7 +126,10 @@ export async function runScenario(scenario: Scenario, options: RunScenarioOption
 		},
 		streamChat: recordingStream,
 		...(options.runtimeOverrides ?? {}),
-	});
+	};
+	const run: Promise<{ text: string; stop?: Trajectory["stop"] }> = useV4
+		? runScenarioV4({ scenario, apiKey: options.apiKey, model: options.model, runId: runParams.runId ?? "eval-v4", streamChat: recordingStream, maxSteps: scenario.run.maxSteps, signal: abort.signal, onEvent: runParams.onEvent as (event: ComputerUseEvent) => void })
+		: runV1V2(runParams);
 
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	const timeout = new Promise<"timeout">((resolve) => {

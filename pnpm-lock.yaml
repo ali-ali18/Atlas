@@ -584,6 +584,9 @@ importers:
 
   packages/evals:
     dependencies:
+      '@workspace/agent':
+        specifier: workspace:*
+        version: link:../agent
       '@workspace/agent-runtime':
         specifier: workspace:*
         version: link:../agent-runtime
