@@ -57,6 +57,11 @@ export type DecideInput = {
 	riskFacts?: RiskFacts;
 	/** A tool manda dado escolhido pelo modelo (URL, consulta) a um terceiro: com taint conta como `send` (cláusula 8). */
 	egress?: boolean;
+	/**
+	 * Confirmação declarada pela tool (enum, nunca texto). `always`: o dono confirma toda chamada. `when_untrusted`: só quando o
+	 * run leu dado não confiável. Em ambos, regra `run` do dono não afrouxa e, sem dono, a tool fica fora (`hidden`).
+	 */
+	confirm?: "always" | "when_untrusted";
 };
 
 type KeysDeep<T> = T extends object ? keyof T | { [K in keyof T]: KeysDeep<T[K]> }[keyof T] : never;

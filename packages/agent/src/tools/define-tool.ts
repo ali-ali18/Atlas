@@ -30,6 +30,8 @@ export type ToolDefinition<S extends z.ZodObject> = {
 	ownerData?: OwnerDataKind;
 	/** A tool manda dado escolhido pelo modelo (URL, consulta) a um terceiro. Pede aprovação só com a trifeta completa no run (não confiável + privado; cláusula 8). Padrão: não. */
 	egress?: boolean;
+	/** Confirmação declarada: `always` = o dono confirma toda chamada (mesmo em autonomia total); `when_untrusted` = só se o run leu dado não confiável. Sem dono, a tool fica fora. Padrão: nenhuma. */
+	confirm?: "always" | "when_untrusted";
 	/** A chamada encerra o turno (ex.: pergunta ao dono). */
 	endsTurn?: boolean;
 	execute: (args: z.output<S>, ctx: ToolContext) => Promise<ToolResult> | ToolResult;
@@ -47,6 +49,8 @@ export interface Tool {
 	readonly ownerData?: OwnerDataKind;
 	/** Ver `ToolDefinition.egress`. */
 	readonly egress: boolean;
+	/** Ver `ToolDefinition.confirm`. */
+	readonly confirm?: "always" | "when_untrusted";
 	readonly trust: "trusted" | "untrusted";
 	/** Origem do dado quando `trust` é `untrusted`. */
 	readonly source?: TrustSource;
@@ -120,6 +124,7 @@ export function defineTool<S extends z.ZodObject>(def: ToolDefinition<S>): Tool 
 		privateData: def.privateData === true,
 		...(def.ownerData && { ownerData: def.ownerData }),
 		egress: def.egress === true,
+		...(def.confirm && { confirm: def.confirm }),
 		trust: def.trust ?? "trusted",
 		...(def.source && { source: def.source }),
 		jsonSchema,

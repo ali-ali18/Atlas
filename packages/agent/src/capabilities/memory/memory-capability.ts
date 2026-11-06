@@ -44,6 +44,7 @@ export function createMemoryCapability(memory: Memory) {
 			category: z.string().trim().min(1).max(40).optional().describe("Short label, e.g. identity, preference, work."),
 		}),
 		effect: "write_internal",
+		confirm: "when_untrusted",
 		riskFacts: ({ layer }) => ({ target: LAYER_LABEL[layer] }),
 		async execute({ layer, content, category }, ctx) {
 			const saved = await memory.add(ctx.ownerId, { layer, content, ...(category && { category }) });
@@ -60,6 +61,7 @@ export function createMemoryCapability(memory: Memory) {
 		description: "Replace the text of one saved entry. Use it when the owner corrects a fact. Do not use it to add a new fact (use memory_add).",
 		inputSchema: z.object({ id: z.string().trim().min(1).max(64), content: z.string().trim().min(1).max(MEMORY_CONTENT_MAX_CHARS) }),
 		effect: "write_internal",
+		confirm: "when_untrusted",
 		riskFacts: ({ id }) => ({ target: `memory entry ${id}` }),
 		async execute({ id, content }, ctx) {
 			const saved = await memory.replace(ctx.ownerId, id, content);
@@ -73,6 +75,7 @@ export function createMemoryCapability(memory: Memory) {
 		description: "Forget one saved entry. Use it only when the owner asks to forget something or the fact is wrong. Do not use it to rewrite a fact (use memory_update).",
 		inputSchema: z.object({ id: z.string().trim().min(1).max(64) }),
 		effect: "write_internal",
+		confirm: "when_untrusted",
 		riskFacts: ({ id }) => ({ target: `memory entry ${id}` }),
 		async execute({ id }, ctx) {
 			const removed = await memory.remove(ctx.ownerId, id);

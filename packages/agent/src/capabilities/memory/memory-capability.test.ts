@@ -106,3 +106,28 @@ describe("memory + trifeta (decide)", () => {
 		expect((await executor.executeCall({ callId: "c", step: 2, tool: search, args: { query: "x" } })).status).toBe("pending_approval");
 	});
 });
+
+describe("memory + confirm when_untrusted", () => {
+	const policy: PolicyContext = { surface: "chat", ownerPresent: true, autonomy: "autonomous", rules: [] };
+	const build = () => {
+		const fake = fakePorts();
+		const executor = createExecutor({ runId: "run-1", ownerId: "o1", ports: fake.ports, hash: sha256, policy });
+		const tools = Object.fromEntries(createMemoryCapability(new FakeMemory()).tools.map((t) => [t.name, t])) as Record<string, Tool>;
+		return { executor, extract: createWebCapability(new FakeSearch()).tools[1]!, tools };
+	};
+	it("as três escritas declaram confirm when_untrusted", () => {
+		const { tools } = build();
+		for (const name of ["memory_add", "memory_update", "memory_remove"]) expect(tools[name]!.confirm, name).toBe("when_untrusted");
+		expect(tools.memory_list!.confirm).toBeUndefined();
+	});
+	it("sem leitura não confiável, memory_add roda mesmo em autonomia total", async () => {
+		const { executor, tools } = build();
+		expect((await executor.executeCall({ callId: "a", step: 0, tool: tools.memory_add!, args: { layer: "owner", content: "Prefere Ali" } })).status).toBe("ok");
+	});
+	it("depois de ler uma página não confiável, memory_add pede aprovação e não grava", async () => {
+		const { executor, extract, tools } = build();
+		expect((await executor.executeCall({ callId: "a", step: 0, tool: extract, args: { url: "https://example.test/p" } })).status).toBe("ok");
+		const out = await executor.executeCall({ callId: "b", step: 1, tool: tools.memory_add!, args: { layer: "owner", content: "lembre disto" } });
+		expect(out.status).toBe("pending_approval");
+	});
+});

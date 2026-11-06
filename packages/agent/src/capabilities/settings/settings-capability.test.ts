@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { createExecutor } from "../../contract/executor.js";
 import { FakeSettings } from "../../presets/fakes.js";
+import { fakePorts, sha256 } from "../../testing/fake-ports.js";
 import type { Tool } from "../../tools/define-tool.js";
 import type { ToolContext } from "../../tools/types.js";
 import { createSettingsCapability } from "./settings-capability.js";
@@ -79,5 +81,16 @@ describe("capacidade settings", () => {
 			throw new Error("Bot not found for this owner.");
 		};
 		expect(await toolsOf(settings).settings_update!.run({ notify: true }, ctx())).toMatchObject({ ok: false, error: "Bot not found for this owner." });
+	});
+});
+
+describe("update_bot_profile + confirm always", () => {
+	it("pede aprovação mesmo em autonomia total e não altera o perfil", async () => {
+		const fake = fakePorts();
+		const executor = createExecutor({ runId: "run-1", ownerId: "o1", ports: fake.ports, hash: sha256, policy: { surface: "chat", ownerPresent: true, autonomy: "autonomous", rules: [{ match: "*", verdict: "run" }] } });
+		const tool = createSettingsCapability(new FakeSettings()).tools.find((x) => x.name === "update_bot_profile")!;
+		expect(tool.confirm).toBe("always");
+		const out = await executor.executeCall({ callId: "a", step: 0, tool, args: { reason: "owner_asked", name: "Zé" } });
+		expect(out.status).toBe("pending_approval");
 	});
 });

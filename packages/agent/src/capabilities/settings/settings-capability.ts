@@ -99,6 +99,7 @@ export function createSettingsCapability(settings: Settings) {
 			description: z.string().trim().min(1).max(DESCRIPTION_MAX_CHARS).optional(),
 		}),
 		effect: "write_internal",
+		confirm: "always",
 		riskFacts: () => ({ target: "Bot profile" }),
 		async execute({ name, snippet, description }, ctx) {
 			const profile = { ...(name && { name }), ...(snippet && { snippet }), ...(description && { description }) };
