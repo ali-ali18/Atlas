@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { Hono } from "hono";
-import { patchRuleInPolicy, readLearnedRules, removeRuleFromPolicy, ruleId } from "@workspace/shared";
+import { LEARNED_RULES_MAX, patchRuleInPolicy, readLearnedRules, removeRuleFromPolicy, ruleId } from "@workspace/shared";
 import type { AuthEnv } from "../middleware/auth.js";
 import { createBotRuleRoutes, type BotRuleRouteDeps } from "./bot-rules.js";
 
@@ -23,6 +23,7 @@ function appWith(userId = "u1") {
 			if (!bot) return { ok: false, reason: "not_found" };
 			const next = patchRuleInPolicy(bot.policy, id, patch);
 			if (!next) return { ok: false, reason: "rule_not_found" };
+			if ("refused" in next) return { ok: false, reason: "refused", message: next.refused };
 			bot.policy = next.policyJson;
 			return { ok: true, rule: next.rule };
 		},
@@ -71,4 +72,14 @@ test("IDOR: o usuário B não vê, edita nem apaga as regras do bot do A (404) e
 	assert.equal((await app.request(`/v1/bots/b1/rules/${SEND}`, send("PATCH", { verdict: "run" }))).status, 404);
 	assert.equal((await app.request(`/v1/bots/b1/rules/${SEND}`, send("DELETE"))).status, 404);
 	assert.equal(readLearnedRules(bots.get("b1")?.policy).find((r) => r.id === SEND)?.verdict, "approve");
+});
+
+test("edição acima do teto de regras é recusada com 422 e mensagem honesta, sem cortar nada (auditoria F5, S2)", async () => {
+	const { app, bots } = appWith();
+	const many = Array.from({ length: LEARNED_RULES_MAX + 1 }, (_, i) => ({ match: `tool_${i}`, verdict: "run" }));
+	bots.get("b1")!.policy = { rules: many };
+	const res = await app.request(`/v1/bots/b1/rules/${ruleId({ match: "tool_0" })}`, send("PATCH", { verdict: "deny" }));
+	assert.equal(res.status, 422);
+	assert.match(((await res.json()) as { error: string }).error, /máximo é 100/);
+	assert.equal((bots.get("b1")!.policy.rules as unknown[]).length, LEARNED_RULES_MAX + 1);
 });

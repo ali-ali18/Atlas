@@ -39,14 +39,10 @@ export function fnv1a(text: string): string {
 
 export const ruleId = (rule: { match: string; effect?: EffectClass | null }): string => `rule_${fnv1a(`${rule.match}\n${rule.effect ?? "*"}`)}`;
 
-const ruleSchema = z.object({
-	match: z.string().trim().min(1).max(RULE_MATCH_MAX_CHARS),
-	effect: z.enum(EFFECT_CLASSES).optional(),
-	verdict: z.enum(RULE_VERDICTS),
-	note: z.string().trim().max(RULE_NOTE_MAX_CHARS).optional(),
-	source: z.enum(RULE_SOURCES).optional(),
-	learnedAt: z.string().max(40).optional(),
-});
+/** Erro honesto se a lista passaria do teto; `null` se cabe. Escrever acima do teto é recusado, nunca cortado. */
+export function rulesCeilingError(count: number): string | null {
+	return count > LEARNED_RULES_MAX ? `O bot já tem regras demais (${count}; o máximo é ${LEARNED_RULES_MAX}). Apague algumas antes de mudar.` : null;
+}
 
 function rawRules(policyJson: unknown): unknown[] {
 	if (typeof policyJson !== "object" || policyJson === null || Array.isArray(policyJson)) return [];
@@ -54,18 +50,44 @@ function rawRules(policyJson: unknown): unknown[] {
 	return Array.isArray(list) ? list : [];
 }
 
-/** Regras válidas da política, na ordem guardada. Entrada inválida é ignorada (o autorizador também a ignoraria). */
+/**
+ * Leitura TOLERANTE de uma regra guardada. O autorizador só precisa de `match`, `effect` e `verdict`, então um campo
+ * decorativo estragado (observação longa, origem desconhecida) não pode tirar a regra de vigor: vira o padrão. Duas
+ * decisões de segurança: `verdict` desconhecido ou `match` vazio não é regra; `effect` desconhecido numa regra que
+ * LIBERA ou PERGUNTA descarta a regra (liberaria mais do que o dono quis), e numa `deny` vira "qualquer efeito" (nega mais).
+ */
+function parseStoredRule(item: unknown): LearnedRuleView | null {
+	if (typeof item !== "object" || item === null || Array.isArray(item)) return null;
+	const raw = item as Record<string, unknown>;
+	const match = typeof raw.match === "string" ? raw.match.trim() : "";
+	if (match.length === 0) return null;
+	const verdict = (RULE_VERDICTS as readonly string[]).includes(raw.verdict as string) ? (raw.verdict as PolicyRule["verdict"]) : null;
+	if (!verdict) return null;
+	let effect: EffectClass | null = null;
+	if (raw.effect !== undefined && raw.effect !== null) {
+		if ((EFFECT_CLASSES as readonly string[]).includes(raw.effect as string)) effect = raw.effect as EffectClass;
+		else if (verdict !== "deny") return null;
+	}
+	const note = typeof raw.note === "string" && raw.note.trim().length > 0 && raw.note.trim().length <= RULE_NOTE_MAX_CHARS ? raw.note.trim() : null;
+	const source = (RULE_SOURCES as readonly string[]).includes(raw.source as string) ? (raw.source as RuleSource) : "owner";
+	const learnedAt = typeof raw.learnedAt === "string" && raw.learnedAt.length <= 40 ? raw.learnedAt : null;
+	return { id: ruleId({ match, effect }), match, effect, verdict, note, source, learnedAt };
+}
+
+/**
+ * Regras da política, na ordem guardada, sem perder nenhuma que valha: item sem `match`/`verdict` válido é ignorado (o
+ * autorizador também o ignoraria) e NENHUMA regra válida é cortada por teto (o teto vale na ESCRITA; ver
+ * `rulesCeilingError`), então uma `deny` antiga continua valendo. Ler nunca grava.
+ */
 export function readLearnedRules(policyJson: unknown): LearnedRuleView[] {
 	const byId = new Map<string, LearnedRuleView>();
 	for (const item of rawRules(policyJson)) {
-		const parsed = ruleSchema.safeParse(item);
-		if (!parsed.success) continue;
-		const rule = parsed.data;
-		const view: LearnedRuleView = { id: ruleId(rule), match: rule.match, effect: rule.effect ?? null, verdict: rule.verdict, note: rule.note ?? null, source: rule.source ?? "owner", learnedAt: rule.learnedAt ?? null };
+		const view = parseStoredRule(item);
+		if (!view) continue;
 		byId.delete(view.id);
 		byId.set(view.id, view);
 	}
-	return [...byId.values()].slice(-LEARNED_RULES_MAX);
+	return [...byId.values()];
 }
 
 /** As regras no formato do autorizador (`PolicyContext.rules`): só o que ele lê. */
@@ -73,20 +95,13 @@ export function toPolicyRules(policyJson: unknown): PolicyRule[] {
 	return readLearnedRules(policyJson).map((rule) => ({ match: rule.match, ...(rule.effect && { effect: rule.effect }), verdict: rule.verdict }));
 }
 
-const toStored = (rule: LearnedRuleView) => ({
-	match: rule.match,
-	...(rule.effect && { effect: rule.effect }),
-	verdict: rule.verdict,
-	...(rule.note && { note: rule.note }),
-	source: rule.source,
-	...(rule.learnedAt && { learnedAt: rule.learnedAt }),
-});
-
-function withRules(policyJson: unknown, rules: readonly LearnedRuleView[]): Record<string, unknown> {
+function withRawRules(policyJson: unknown, rules: readonly unknown[]): Record<string, unknown> {
 	const base = typeof policyJson === "object" && policyJson !== null && !Array.isArray(policyJson) ? { ...(policyJson as Record<string, unknown>) } : {};
-	base[LEARNED_RULES_KEY] = rules.map(toStored);
+	base[LEARNED_RULES_KEY] = rules;
 	return base;
 }
+
+const idOfRaw = (item: unknown): string | null => parseStoredRule(item)?.id ?? null;
 
 /** Corpo de `PATCH /v1/bots/:id/rules/:ruleId`: o dono muda o veredito e/ou a observação. O alvo (`match`) não muda. */
 export const rulePatchSchema = z
@@ -102,20 +117,39 @@ export function parseRulePatch(raw: unknown): { ok: true; value: RulePatch } | {
 	return { ok: false, error: issue?.message ?? "Pedido inválido." };
 }
 
-/** Aplica a edição; `null` se a regra não existe. A política devolvida mantém todas as outras chaves. */
-export function patchRuleInPolicy(policyJson: unknown, id: string, patch: RulePatch): { policyJson: Record<string, unknown>; rule: LearnedRuleView } | null {
-	const rules = readLearnedRules(policyJson);
-	const index = rules.findIndex((rule) => rule.id === id);
+export type RuleEdit = { policyJson: Record<string, unknown>; rule: LearnedRuleView };
+/** A edição foi recusada com um motivo para o dono (a rota responde 422). */
+export type RuleEditRefused = { refused: string };
+
+/**
+ * Aplica a edição SÓ na regra alvo (a última com esse id): as outras ficam exatamente como estão guardadas, com os campos
+ * que a tela não conhece. `null` se a regra não existe. A política devolvida mantém todas as outras chaves.
+ */
+export function patchRuleInPolicy(policyJson: unknown, id: string, patch: RulePatch): RuleEdit | RuleEditRefused | null {
+	const raws = rawRules(policyJson);
+	let index = -1;
+	raws.forEach((item, i) => {
+		if (idOfRaw(item) === id) index = i;
+	});
 	if (index < 0) return null;
-	const current = rules[index]!;
-	const rule: LearnedRuleView = { ...current, ...(patch.verdict && { verdict: patch.verdict }), ...(patch.note !== undefined && { note: patch.note && patch.note.length > 0 ? patch.note : null }) };
-	return { policyJson: withRules(policyJson, rules.map((item, i) => (i === index ? rule : item))), rule };
+	const ceiling = rulesCeilingError(raws.length);
+	if (ceiling) return { refused: ceiling };
+	const current = parseStoredRule(raws[index])!;
+	const nextNote = patch.note !== undefined ? (patch.note && patch.note.length > 0 ? patch.note : null) : current.note;
+	const stored: Record<string, unknown> = { ...(raws[index] as Record<string, unknown>) };
+	if (patch.verdict) stored.verdict = patch.verdict;
+	if (patch.note !== undefined) {
+		if (nextNote) stored.note = nextNote;
+		else delete stored.note;
+	}
+	const rule: LearnedRuleView = { ...current, verdict: patch.verdict ?? current.verdict, note: nextNote };
+	return { policyJson: withRawRules(policyJson, raws.map((item, i) => (i === index ? stored : item))), rule };
 }
 
-/** Tira a regra; `null` se não existe. */
-export function removeRuleFromPolicy(policyJson: unknown, id: string): { policyJson: Record<string, unknown>; rule: LearnedRuleView } | null {
-	const rules = readLearnedRules(policyJson);
-	const rule = rules.find((item) => item.id === id);
+/** Tira a regra alvo (todas as entradas com esse id são redundantes); as outras ficam como estão. `null` se não existe. */
+export function removeRuleFromPolicy(policyJson: unknown, id: string): RuleEdit | null {
+	const raws = rawRules(policyJson);
+	const rule = readLearnedRules(policyJson).find((item) => item.id === id);
 	if (!rule) return null;
-	return { policyJson: withRules(policyJson, rules.filter((item) => item.id !== id)), rule };
+	return { policyJson: withRawRules(policyJson, raws.filter((item) => idOfRaw(item) !== id)), rule };
 }
