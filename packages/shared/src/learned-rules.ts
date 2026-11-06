@@ -28,7 +28,7 @@ export type LearnedRuleView = {
 };
 
 /** Hash FNV-1a de 32 bits: estável, sem dependência (o shared roda também no celular). */
-function fnv1a(text: string): string {
+export function fnv1a(text: string): string {
 	let hash = 0x811c9dc5;
 	for (let i = 0; i < text.length; i += 1) {
 		hash ^= text.charCodeAt(i);

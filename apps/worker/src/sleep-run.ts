@@ -9,7 +9,7 @@
  *
  * O que o sono NUNCA faz: apagar ou editar o que já existe, fixar nota, mexer no perfil do bot, ler conversa de grupo.
  */
-import { renderSleepTranscript, selectSleepTurns, chunkSleepTurns, evalCasesFromRuns, planSleepWrites, parseSleepProposal, parseConflictFindings, analyzeMemoryHealth, doctorSummary, skillProposalId, sleepSummary, sleepSummaryLanguage, SLEEP_CHUNK_CHARS, SLEEP_MODEL_ROLE, type DoctorFinding, type OwnerNoteView, type SleepFactProposal, type SleepNoteProposal, type SleepProposal, type SleepStoredProposal } from "@workspace/shared";
+import { renderSleepTranscript, selectSleepTurns, chunkSleepTurns, evalCasesFromRuns, planSleepWrites, parseSleepProposal, parseConflictFindings, analyzeMemoryHealth, doctorSummary, skillProposalId, doctorProposalId, sleepSummary, sleepSummaryLanguage, SLEEP_CHUNK_CHARS, SLEEP_MODEL_ROLE, type DoctorFinding, type OwnerNoteView, type SleepFactProposal, type SleepNoteProposal, type SleepProposal, type SleepStoredProposal } from "@workspace/shared";
 import type { Llm, LlmUsage } from "@workspace/agent";
 import type { SleepDayInput } from "@workspace/db";
 import { SUBMIT_DOCTOR_SPEC, SUBMIT_DOCTOR_TOOL, SUBMIT_SLEEP_SPEC, SUBMIT_SLEEP_TOOL, DOCTOR_SYSTEM_PROMPT, SLEEP_SYSTEM_PROMPT, buildDoctorUserMessage, buildSleepUserMessage } from "./sleep-prompt.js";
@@ -151,7 +151,7 @@ export async function runDoctor(input: { ports: DoctorPorts; now: Date; slotKey:
 		const args = await callSleepModel(input.ports.llm, { system: DOCTOR_SYSTEM_PROMPT, user: buildDoctorUserMessage({ memory, notes: sent }), tool: SUBMIT_DOCTOR_SPEC, usage, ...(input.signal && { signal: input.signal }) });
 		findings.push(...parseConflictFindings(args, { memory: new Set(memory.map((m) => m.id)), note: new Set(sent.map((n) => n.id)) }));
 	}
-	const proposals: SleepStoredProposal[] = findings.map((finding) => ({ id: `doctor:${input.slotKey}:${finding.type}:${finding.subject}:${finding.ids.join("+")}`, kind: "doctor", status: "open", finding }));
+	const proposals: SleepStoredProposal[] = findings.map((finding) => ({ id: doctorProposalId(input.slotKey, finding), kind: "doctor", status: "open", finding }));
 	return {
 		status: "done",
 		summary: doctorSummary(findings),

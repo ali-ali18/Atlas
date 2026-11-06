@@ -4,6 +4,7 @@
  * cita ids que existem. O resultado é SEMPRE proposta: o doctor nunca apaga nem edita nada sozinho.
  */
 import { z } from "zod";
+import { fnv1a } from "./learned-rules.js";
 import { normalizeForDedupe, wordOverlap } from "./proactive.js";
 import type { DoctorFinding } from "./sleep.js";
 
@@ -78,6 +79,16 @@ export function parseConflictFindings(raw: unknown, validIds: { memory: Readonly
 		if (out.length >= DOCTOR_MAX_FINDINGS_PER_TYPE) break;
 	}
 	return out;
+}
+
+/**
+ * Id curto e estável da proposta de um achado: `doctor:<dia>:<16 hex>`. O id antigo listava os ids do item e passava de 64
+ * caracteres, o limite das rotas, e o dono não conseguia dispensar a proposta. O hash cobre tipo, assunto e ids (em ordem),
+ * então o mesmo achado no mesmo dia tem sempre o mesmo id e achados diferentes não se confundem.
+ */
+export function doctorProposalId(slotKey: string, finding: Pick<DoctorFinding, "type" | "subject" | "ids">): string {
+	const key = `${finding.type}\n${finding.subject}\n${finding.ids.join("\n")}`;
+	return `doctor:${slotKey}:${fnv1a(key)}${fnv1a(`${key.length}\n${[...key].reverse().join("")}`)}`;
 }
 
 /** Resumo de uma frase para o dono (pt-BR, sem nome interno). Sem achado, diz que está tudo em ordem. */

@@ -183,3 +183,14 @@ test("doctor: memória vazia ou com um item só não chama o modelo", async () =
 	await runDoctor({ ports: doctorPorts(llm, [mem("m1", "Um fato só")], []), now: new Date("2026-11-08T12:00:00Z"), slotKey: "s", language: "pt-BR" });
 	assert.equal(llm.requests.length, 0);
 });
+
+test("doctor: o id de cada proposta cabe no limite da rota de dispensar mesmo com ids reais (cuid de 25 caracteres)", async () => {
+	const cuid = (n: number) => `cm${String(n).padStart(23, "0")}`;
+	const llm = scriptedLlm({ tool: SUBMIT_DOCTOR_TOOL, args: { conflicts: [{ subject: "memory", ids: [cuid(1), cuid(3), cuid(5), cuid(6), cuid(7), cuid(8)], reason: "Dizem coisas diferentes." }] } });
+	const topics = ["Mora em Curitiba", "Trabalha como engenheira", "Toma café sem açúcar", "Corre toda manhã cedo", "Estuda alemão à noite", "Viaja para Lisboa em maio"];
+	const memory = [1, 3, 5, 6, 7, 8].map((n, i) => mem(cuid(n), topics[i]!));
+	const out = await runDoctor({ ports: doctorPorts(llm, memory, []), now: new Date("2026-11-08T12:00:00Z"), slotKey: "2026-11-08", language: "pt-BR" });
+	assert.equal(out.proposals.length, 1);
+	assert.ok(out.proposals[0]!.id.length <= 64, `id com ${out.proposals[0]!.id.length} caracteres`);
+	assert.equal(new Set(out.proposals.map((p) => p.id)).size, out.proposals.length);
+});

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { analyzeMemoryHealth, doctorSummary, parseConflictFindings } from "./memory-doctor.js";
+import { analyzeMemoryHealth, doctorProposalId, doctorSummary, parseConflictFindings } from "./memory-doctor.js";
 
 const now = new Date("2026-11-08T12:00:00Z");
 const mem = (id: string, content: string, over: Partial<{ scope: string; updatedAt: string; validUntil: string | null }> = {}) => ({ id, scope: "owner", content, updatedAt: "2026-11-01T00:00:00Z", ...over });
@@ -55,5 +55,28 @@ describe("doctorSummary", () => {
 		expect(doctorSummary([])).toContain("em ordem");
 		const text = doctorSummary([{ type: "duplicate", subject: "memory", ids: ["a", "b"], reason: "" }, { type: "stale", subject: "note", ids: ["n"], reason: "" }, { type: "stale", subject: "note", ids: ["m"], reason: "" }]);
 		expect(text).toBe("Achei 1 repetido, 2 velhos. Nada foi apagado: você decide o que fazer.");
+	});
+});
+
+describe("doctorProposalId", () => {
+	const cuid = (n: number) => `c${String(n).padStart(24, "0")}`;
+	const finding = { type: "conflict" as const, subject: "memory" as const, ids: [1, 2, 3, 4, 5, 6].map(cuid) };
+
+	it("cabe no limite de 64 caracteres das rotas mesmo com 6 ids de 25 caracteres", () => {
+		const id = doctorProposalId("2026-11-08", finding);
+		expect(id.length).toBeLessThanOrEqual(64);
+		expect(id).toMatch(/^doctor:2026-11-08:[0-9a-f]{16}$/);
+	});
+
+	it("é estável para o mesmo achado e diferente para achados diferentes", () => {
+		expect(doctorProposalId("2026-11-08", finding)).toBe(doctorProposalId("2026-11-08", { ...finding }));
+		const other = [
+			{ ...finding, ids: finding.ids.slice(0, 5) },
+			{ ...finding, type: "duplicate" as const },
+			{ ...finding, subject: "note" as const },
+			{ ...finding, ids: [...finding.ids].reverse() },
+		];
+		const all = new Set([doctorProposalId("2026-11-08", finding), ...other.map((f) => doctorProposalId("2026-11-08", f))]);
+		expect(all.size).toBe(5);
 	});
 });
