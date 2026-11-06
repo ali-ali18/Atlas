@@ -7,7 +7,7 @@ import { test } from "node:test";
 import type { SleepBotRef } from "@workspace/db";
 import type { EngineV4Gate } from "@workspace/shared";
 import { SUBMIT_SLEEP_TOOL } from "./sleep-prompt.js";
-import { sleepTick, type SleepSweepDeps } from "./sleep-sweeper.js";
+import { cachedTimezone, sleepTick, type SleepSweepDeps } from "./sleep-sweeper.js";
 import type { SleepPorts } from "./sleep-run.js";
 
 const bot = (id: string, ownerId: string, over: Partial<SleepBotRef> = {}): SleepBotRef => ({ id, ownerId, name: id, language: "pt-BR", conversationId: `c-${id}`, policyJson: null, ...over });
@@ -154,4 +154,30 @@ test("reserva que lança não perde o dia: o bot tenta de novo no passo seguinte
 	await sleepTick(h.deps, done);
 	assert.deepEqual(h.claims, ["b2:daily:2026-11-04", "b1:daily:2026-11-04"]);
 	assert.deepEqual(h.finished.map((f) => [f.id, f.status]), [["rep:b2:daily:2026-11-04", "done"], ["rep:b1:daily:2026-11-04", "done"]]);
+});
+
+test("fuso do dono em cache com validade curta: uma consulta por dono e por janela, não por passo (auditoria F5, C3)", async () => {
+	let clock = Date.parse("2026-11-05T00:00:00Z");
+	const loads: string[] = [];
+	const zone = cachedTimezone(async (userId) => (loads.push(userId), userId === "u1" ? "America/Sao_Paulo" : "UTC"), () => new Date(clock), 60_000);
+	assert.equal(await zone("u1"), "America/Sao_Paulo");
+	assert.equal(await zone("u1"), "America/Sao_Paulo");
+	assert.equal(await zone("u2"), "UTC");
+	clock += 59_000;
+	await zone("u1");
+	assert.deepEqual(loads, ["u1", "u2"]);
+	clock += 2_000;
+	await zone("u1");
+	assert.deepEqual(loads, ["u1", "u2", "u1"]);
+});
+
+test("o passo usa o fuso em cache e o comportamento não muda (mesmo dono com 2 bots: uma consulta)", async () => {
+	const h = harness({ bots: [bot("b1", "u1"), bot("b2", "u1")], now: AFTER });
+	let calls = 0;
+	const base = h.deps.db.timezoneOf;
+	h.deps.db.timezoneOf = cachedTimezone(async (u) => (calls += 1, base(u)), h.deps.now);
+	await sleepTick(h.deps, new Set());
+	await sleepTick(h.deps, new Set());
+	assert.equal(calls, 1);
+	assert.deepEqual(h.claims, ["b1:daily:2026-11-04", "b2:daily:2026-11-04", "b1:daily:2026-11-04", "b2:daily:2026-11-04"]);
 });

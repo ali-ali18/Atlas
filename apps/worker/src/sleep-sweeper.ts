@@ -31,6 +31,25 @@ export type SleepSweepDeps = {
 	portsFor(bot: SleepBotRef, reportId: string): Promise<SleepPorts & DoctorPorts>;
 };
 
+/** Quanto tempo o fuso de um dono fica em memória: o fuso muda raramente e o passo roda a cada 5 minutos. */
+export const SLEEP_TIMEZONE_TTL_MS = 30 * 60_000;
+
+/**
+ * Cache do fuso por dono com validade curta. Sem ele cada passo fazia um `getAccountConfig` por dono; com ele, no máximo
+ * um por dono a cada `ttlMs`. Quem muda o fuso vale na próxima janela de validade (o sono é por dia, não por minuto).
+ */
+export function cachedTimezone(load: (userId: string) => Promise<string>, now: () => Date, ttlMs = SLEEP_TIMEZONE_TTL_MS): (userId: string) => Promise<string> {
+	const cache = new Map<string, { zone: string; expiresAt: number }>();
+	return async (userId) => {
+		const hit = cache.get(userId);
+		const at = now().getTime();
+		if (hit && hit.expiresAt > at) return hit.zone;
+		const zone = await load(userId);
+		cache.set(userId, { zone, expiresAt: at + ttlMs });
+		return zone;
+	};
+}
+
 export const realSleepDb: SleepSweepDeps["db"] = {
 	listBots: listBotsForSleep,
 	timezoneOf: async (userId) => reflectionTimeZone((await getAccountConfig(userId).catch(() => null))?.general?.timezone),
@@ -126,7 +145,8 @@ export async function sleepTick(deps: SleepSweepDeps, done: Set<string>): Promis
 
 export function startSleepSweeper(input: { config: WorkerConfig; now?: () => Date; log?: (line: string) => void; intervalMs?: number; deps?: Partial<SleepSweepDeps> }): { kick: () => void; stop: () => void } {
 	const log = input.log ?? ((line: string) => console.log(line));
-	const deps: SleepSweepDeps = { gate: () => engineV4GateFromEnv(), now: input.now ?? (() => new Date()), log, db: realSleepDb, portsFor: realPortsFor(input.config, log), ...input.deps };
+	const now = input.now ?? (() => new Date());
+	const deps: SleepSweepDeps = { gate: () => engineV4GateFromEnv(), now, log, db: { ...realSleepDb, timezoneOf: cachedTimezone(realSleepDb.timezoneOf, now) }, portsFor: realPortsFor(input.config, log), ...input.deps };
 	const done = new Set<string>();
 	let running = false;
 	const kick = (): void => {
