@@ -8,6 +8,7 @@ import { after, before, describe, test } from "node:test";
 import {
 	appendAgentJournalEntry,
 	appendAgentReceipt,
+	assertAgentV4Lease,
 	findAgentJournalEntry,
 	getAgentConversationState,
 	getAgentNote,
@@ -72,6 +73,17 @@ describe("agent-v4-store (Postgres real)", { skip: dbSkip }, () => {
 		const results = await Promise.all(Array.from({ length: 8 }, () => appendAgentJournalEntry(entry({ idempotencyKey: key }))));
 		assert.equal(results.filter((r) => r.claimed).length, 1);
 		assert.equal((await listAgentJournalEntries(a, runA)).filter((e) => e.idempotencyKey === key).length, 1);
+	});
+
+	test("S5: assertAgentV4Lease só passa com dono, token e validade do lease", async () => {
+		const run = (await prisma.agentRun.create({ data: { userId: a, objective: "o", model: "m", status: "running", leaseOwner: "w1", leaseToken: "tok", leaseUntil: new Date(Date.now() + 60_000) } })).id;
+		await assertAgentV4Lease(a, run, { owner: "w1", token: "tok" });
+		await assert.rejects(assertAgentV4Lease(a, run, { owner: "w1", token: "outro" }), /lease_lost/);
+		await assert.rejects(assertAgentV4Lease(a, run, { owner: "w2", token: "tok" }), /lease_lost/);
+		await assert.rejects(assertAgentV4Lease(b, run, { owner: "w1", token: "tok" }), /lease_lost/);
+		await prisma.agentRun.update({ where: { id: run }, data: { leaseUntil: new Date(Date.now() - 1000) } });
+		await assert.rejects(assertAgentV4Lease(a, run, { owner: "w1", token: "tok" }), /lease_lost/);
+		await assert.rejects(assertAgentV4Lease("default", run, { owner: "w1", token: "tok" }), ResourceOwnershipError);
 	});
 
 	test("journal: dono B não lê, não grava no run de A e a chave dele não colide com a de A", async () => {

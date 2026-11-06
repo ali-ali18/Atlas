@@ -16,6 +16,8 @@ export type CallOutcome =
 	| { status: "not_available"; reason: string; message: string; userMessage: string }
 	/** Retomada: a escrita começou e não terminou. Não repete às cegas. */
 	| { status: "interrupted_write"; hint: string }
+	/** Outra execução já tem esta escrita (claim do journal perdido). Não repete. */
+	| { status: "already_in_progress"; hint: string }
 	/** Retomada: a mesma chamada (mesmos argumentos) já terminou com sucesso. */
 	| { status: "already_done"; hint: string }
 	/** Bug da tool (ex.: efeito sem recibo). Nunca é mostrado como sucesso. */

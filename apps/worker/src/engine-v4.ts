@@ -46,6 +46,7 @@ import {
 import type { ProviderStreamChat } from "@workspace/llm";
 import {
 	appendAgentJournalEntry,
+	assertAgentV4Lease,
 	appendAgentReceipt,
 	findAgentJournalEntry,
 	getAgentConversationState,
@@ -67,6 +68,8 @@ export type V4Db = {
 	saveCheckpoint: typeof saveAgentV4Checkpoint;
 	loadCheckpoint: typeof loadAgentV4Checkpoint;
 	appendJournal: typeof appendAgentJournalEntry;
+	/** Opcional: o teste que não simula lease pode omitir. */
+	assertLease?: typeof assertAgentV4Lease;
 	findJournal: typeof findAgentJournalEntry;
 	listJournal: typeof listAgentJournalEntries;
 	appendReceipt: typeof appendAgentReceipt;
@@ -83,6 +86,7 @@ export const realV4Db: V4Db = {
 	saveCheckpoint: saveAgentV4Checkpoint,
 	loadCheckpoint: loadAgentV4Checkpoint,
 	appendJournal: appendAgentJournalEntry,
+	assertLease: assertAgentV4Lease,
 	findJournal: findAgentJournalEntry,
 	listJournal: listAgentJournalEntries,
 	appendReceipt: appendAgentReceipt,
@@ -106,6 +110,8 @@ export function storeBackendFromDb(db: V4Db, lease: Pick<RunLease, "owner" | "to
 		loadCheckpoint: (userId, runId) => db.loadCheckpoint(userId, runId),
 		setStatus: async () => undefined,
 		appendJournal: (entry) => db.appendJournal(entry),
+		// Antes de cada efeito o executor confere o lease (S5); sem lease (teste) não há o que conferir.
+		...(lease && db.assertLease && { assertLease: (userId: string, runId: string) => db.assertLease!(userId, runId, lease) }),
 		findJournal: (userId, runId, key) => db.findJournal(userId, runId, key),
 		listJournal: (userId, runId) => db.listJournal(userId, runId),
 		appendReceipt: (receipt) => db.appendReceipt({ ...receipt, userId: receipt.userId }),

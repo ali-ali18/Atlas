@@ -24,7 +24,10 @@ export type StoreBackend = {
 	loadCheckpoint(userId: string, runId: string): Promise<{ runId: string; userId: string; step: number; state: string; payload: unknown } | null>;
 	/** Status do run no banco. O worker é quem fecha o run (conclusão, erro, cancelamento); ver `mapStatus` no worker. */
 	setStatus(userId: string, runId: string, status: RunStatus): Promise<void>;
-	appendJournal(entry: JournalEntry): Promise<void>;
+	/** Com `started`, o backend faz o claim atômico e devolve `{ claimed }`; sem retorno, vale `claimed: true`. */
+	appendJournal(entry: JournalEntry): Promise<void | { claimed: boolean }>;
+	/** Lease vigente do run para esta execução; lança `lease_lost` se perdeu. */
+	assertLease?(userId: string, runId: string): Promise<void>;
 	findJournal(userId: string, runId: string, idempotencyKey: string): Promise<JournalEntry | null>;
 	listJournal(userId: string, runId: string): Promise<JournalEntry[]>;
 	appendReceipt(receipt: StoredReceipt): Promise<void>;
@@ -65,9 +68,13 @@ export function createStoreAdapter(backend: StoreBackend): Store {
 			return { runId: saved.runId, userId: saved.userId, step: saved.step, state: saved.state as RunCheckpoint["state"], payload: saved.payload };
 		},
 		setStatus: (userId, runId, status) => backend.setStatus(userId, runId, status),
+		...(backend.assertLease && { assertLease: backend.assertLease.bind(backend) }),
 	};
 	const journal: JournalStore = {
-		append: (entry) => backend.appendJournal(entry),
+		async append(entry) {
+			const result = await backend.appendJournal(entry);
+			return { claimed: result?.claimed ?? true };
+		},
 		find: (userId, runId, key) => backend.findJournal(userId, runId, key),
 		list: (userId, runId) => backend.listJournal(userId, runId),
 	};

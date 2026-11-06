@@ -65,6 +65,19 @@ export async function saveAgentV4Checkpoint(userId: string, checkpoint: AgentV4C
 	}
 }
 
+/**
+ * O lease do run ainda é desta execução (dono, token e validade)? Senão lança `lease_lost`. O executor do motor chama
+ * antes de cada efeito (S5): um worker zumbi, de lease vencido, não repete `send`/`money` que outro worker já assumiu.
+ */
+export async function assertAgentV4Lease(userId: string, runId: string, lease: Pick<RunLease, "owner" | "token">): Promise<void> {
+	if (!owned(userId)) throw new ResourceOwnershipError();
+	const rows = await prisma.$queryRaw<Array<{ ok: number }>>`
+		SELECT 1 AS "ok" FROM "agent_runs"
+		WHERE "id" = ${runId} AND "userId" = ${userId}
+			AND "leaseOwner" = ${lease.owner} AND "leaseToken" = ${lease.token} AND "leaseUntil" > now()`;
+	if (rows.length === 0) throw new Error("lease_lost");
+}
+
 export async function loadAgentV4Checkpoint(userId: string, runId: string): Promise<AgentV4Checkpoint | null> {
 	if (!owned(userId)) return null;
 	const rows = await prisma.$queryRaw<Array<{ v4: { step: number; state: string; payload: unknown } | null }>>`

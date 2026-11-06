@@ -22,6 +22,12 @@ export interface RunStateStore {
 	saveCheckpoint(checkpoint: RunCheckpoint): Promise<void>;
 	loadCheckpoint(userId: string, runId: string): Promise<RunCheckpoint | null>;
 	setStatus(userId: string, runId: string, status: RunStatus): Promise<void>;
+	/**
+	 * Confere que esta execução ainda é a dona do run (lease vigente). O executor chama antes de cada efeito: um worker
+	 * zumbi (lease vencido, outro worker assumiu) falha com `lease_lost` em vez de repetir `send`/`money`. Opcional:
+	 * armazenamento sem lease (testes, avaliações) não tem o que conferir.
+	 */
+	assertLease?(userId: string, runId: string): Promise<void>;
 }
 
 export type JournalEntry = {
@@ -36,9 +42,14 @@ export type JournalEntry = {
 	outcome: "started" | "succeeded" | "failed";
 };
 
-/** Journal de escrita: evita repetir efeito na retomada. */
+/**
+ * Journal de escrita: evita repetir efeito na retomada.
+ * `append` com `outcome: "started"` é o CLAIM atômico da escrita: `claimed: false` = outra execução já a tem (ou ela já
+ * terminou) e quem recebeu NÃO executa. Uma entrada `failed` pode ser reassumida (volta a `started`). Para `succeeded` e
+ * `failed` o retorno é sempre `claimed: true`.
+ */
 export interface JournalStore {
-	append(entry: JournalEntry): Promise<void>;
+	append(entry: JournalEntry): Promise<{ claimed: boolean }>;
 	find(userId: string, runId: string, idempotencyKey: string): Promise<JournalEntry | null>;
 	list(userId: string, runId: string): Promise<JournalEntry[]>;
 }

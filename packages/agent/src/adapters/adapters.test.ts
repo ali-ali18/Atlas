@@ -95,6 +95,20 @@ describe("createStoreAdapter", () => {
 		expect(await store.conversations.get("b", "conv")).toEqual({ offers: [], declinedOffers: [] });
 	});
 
+	it("S5: journal repassa o claim do backend ({ claimed }) e assertLease só existe se o backend tiver", async () => {
+		const backend = memoryBackend();
+		expect(createStoreAdapter(backend).runs.assertLease).toBeUndefined();
+		backend.appendJournal = async (entry) => ({ claimed: entry.idempotencyKey !== "ocupada" });
+		backend.assertLease = async () => {
+			throw new Error("lease_lost");
+		};
+		const store = createStoreAdapter(backend);
+		const base = { runId: "r1", userId: "a", step: 1, toolName: "send", argsHash: "h", outcome: "started" as const };
+		expect(await store.journal.append({ ...base, idempotencyKey: "livre" })).toEqual({ claimed: true });
+		expect(await store.journal.append({ ...base, idempotencyKey: "ocupada" })).toEqual({ claimed: false });
+		await expect(store.runs.assertLease!("a", "r1")).rejects.toThrow("lease_lost");
+	});
+
 	it("estado de checkpoint desconhecido (outra versão) vira 'sem checkpoint'", async () => {
 		const backend = memoryBackend();
 		backend.loadCheckpoint = async () => ({ runId: "r", userId: "a", step: 1, state: "FUTURE", payload: {} });

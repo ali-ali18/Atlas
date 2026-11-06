@@ -30,6 +30,7 @@ export function outcomeText(outcome: CallOutcome): string {
 			return outcome.message;
 		case "interrupted_write":
 		case "already_done":
+		case "already_in_progress":
 			return outcome.hint;
 		case "contract_error":
 			return `Error: ${outcome.error}`;

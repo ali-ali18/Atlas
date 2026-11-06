@@ -35,6 +35,8 @@ const HIDDEN_MESSAGE =
 	"This action is not available in this context. Tell the owner what you would do and offer what is possible: a draft, a note, or preparing it for them to confirm in the chat. Do not retry it.";
 const INTERRUPTED_HINT =
 	"This write was started in an earlier attempt and never confirmed, so it may or may not have happened. Do not repeat it blindly: check the target first (or ask the owner), then decide.";
+const IN_PROGRESS_HINT =
+	"Another attempt is already running this exact write. Do not repeat it; check the target before deciding anything else.";
 const ALREADY_DONE_HINT = "This exact call already finished successfully earlier in this run. Do not repeat it; use the receipt.";
 const HANDOFF_MESSAGE = "This step is always the owner's. Explain what they need to do and wait; do not attempt it.";
 
@@ -78,8 +80,9 @@ export function createExecutor(deps: ExecutorDeps) {
 		const scopedCallId = `s${call.step}:${call.callId}`;
 		const idempotencyKey = `${deps.runId}:${scopedCallId}:${payloadHash}`;
 		const journalBase = { runId: deps.runId, userId: deps.ownerId, step: call.step, idempotencyKey, toolName: tool.name, argsHash: payloadHash } as const;
+		let prior: Awaited<ReturnType<typeof deps.ports.store.journal.find>> = null;
 		if (effectful) {
-			const prior = await deps.ports.store.journal.find(deps.ownerId, deps.runId, idempotencyKey);
+			prior = await deps.ports.store.journal.find(deps.ownerId, deps.runId, idempotencyKey);
 			if (prior?.outcome === "started") return { status: "interrupted_write", hint: INTERRUPTED_HINT };
 			if (prior?.outcome === "succeeded") return { status: "already_done", hint: ALREADY_DONE_HINT };
 		}
@@ -87,12 +90,20 @@ export function createExecutor(deps: ExecutorDeps) {
 		if (verdict.kind === "approve") {
 			const request = requestApproval({ runId: deps.runId, callId: scopedCallId, toolName: tool.name, effect, args, riskFacts, hash: deps.hash, secrets: secrets() });
 			if (!call.grant) return { status: "pending_approval", request };
+			// O grant só é consumido junto com o claim do journal. Entrada `failed` = o efeito já gastou este grant (talvez em
+			// outro processo, onde `consumed` está vazio): não vale de novo (S5).
+			if (prior?.outcome === "failed") return { status: "approval_invalid", reason: "approval already used", request };
 			const check = checkGrant(call.grant, request, consumed);
 			if (!check.ok) return { status: "approval_invalid", reason: check.reason, request };
 			consumed.add(request.id);
 		}
 
-		if (effectful) await deps.ports.store.journal.append({ ...journalBase, outcome: "started" });
+		if (effectful) {
+			// Worker zumbi: sem lease vigente não há efeito. Depois, o claim atômico do journal (S5).
+			await deps.ports.store.runs.assertLease?.(deps.ownerId, deps.runId);
+			const claim = await deps.ports.store.journal.append({ ...journalBase, outcome: "started" });
+			if (!claim.claimed) return { status: "already_in_progress", hint: IN_PROGRESS_HINT };
+		}
 		const ctx: ToolContext = { runId: deps.runId, ownerId: deps.ownerId, ports: deps.ports, signal: deps.signal };
 		const result = await tool.run(args, ctx);
 		// Dado de fonte não confiável marca o run ANTES de voltar ao modelo (vale também para o texto de erro).
