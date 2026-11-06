@@ -38,8 +38,9 @@
 | Fase | Branch | Status | PR |
 |---|---|---|---|
 | F0 baseline | `feat/harness-v4-f0-baseline` | **concluída, juntada em `harness/v4`** | #150 |
-| F1 fundação | `feat/harness-v4-f1-fundacao` | **concluída** (auditoria fechada); PR para `harness/v4` aguarda o dono | — |
-| F2 capacidades | `feat/harness-v4-f2-capacidades` (a partir da F1) | em andamento: frentes A (arquivos), B (web e núcleo), C (conectores) | — |
+| F1 fundação | `feat/harness-v4-f1-fundacao` | **concluída, juntada em `harness/v4`** | #151 |
+| F2 capacidades | `feat/harness-v4-f2-capacidades` | **concluída, juntada em `harness/v4`** | #152 |
+| F3 pesquisa | `feat/harness-v4-f3-pesquisa` | em andamento: frentes H (ajudantes) e R (`research`) | — |
 
 ## Decisões do dono (não reabrir)
 - Base nova, do zero, em `packages/agent`, sem import do legado (05/11).
