@@ -21,7 +21,7 @@ import {
 	type AgendaGrant,
 } from "./agenda.js";
 import { prisma } from "./client.js";
-import { claimDueFollowups, createFollowup, listFollowups } from "./proactive.js";
+import { abandonFollowup, cancelFollowup, claimDueFollowups, completeFollowup, createFollowup, fireFollowupStage, listFollowups, rescheduleFollowup, rescheduleOwnedFollowup } from "./proactive.js";
 import { createTestUser, dbSkip } from "./testing/test-db.js";
 
 const SETTINGS: ProactiveSettings = { ...DEFAULT_PROACTIVE_SETTINGS, enabled: true, timezone: "America/Sao_Paulo" };
@@ -178,6 +178,29 @@ describe("agenda (Postgres real)", { skip: dbSkip }, () => {
 		assert.ok(same.every((r) => r.ok));
 		assert.equal(same.filter((r) => r.ok && !r.duplicate).length, 1);
 		assert.equal((await listAgendaItems(other)).length, 1);
+	});
+
+	test("as mutações do v2 não mexem num item da agenda, nem com o id certo (auditoria F4, B7)", async () => {
+		const created = await createAgendaItem({ userId: a, botId: botA, plan: watch("Intocável pelo v2 marcador"), grant: GRANT });
+		assert.ok(created.ok);
+		const { item } = created;
+		const before = (await getAgendaItem(a, item.id))!;
+		assert.equal(await cancelFollowup(a, item.id), false);
+		assert.equal(await cancelFollowup(a, item.id, botA), false);
+		const moved = await rescheduleOwnedFollowup({ userId: a, botId: botA, followupId: item.id, when: "2026-11-30T10:00", now: T0 });
+		assert.deepEqual(moved.ok, false);
+		await completeFollowup(item.id, "run-x", T0);
+		await rescheduleFollowup(item.id, { dueAt: at(5000), error: "x", countAttempt: true });
+		await abandonFollowup(item.id, "x", T0);
+		const record = { id: item.id, userId: a, botId: botA, conversationId: convA, dueAt: item.dueAt, requestedFor: item.requestedFor, stages: [{ at: item.dueAt.toISOString(), firedAt: null }], note: item.note, kind: "check" as const, status: "pending" as const, source: "chat" as const, runId: null, attempts: 0, createdAt: item.createdAt };
+		await fireFollowupStage(record, "run-x", T0);
+		const after = (await getAgendaItem(a, item.id))!;
+		assert.equal(after.status, "pending");
+		assert.equal(after.dueAt.toISOString(), before.dueAt.toISOString());
+		assert.equal(after.runId, null);
+		assert.equal(after.missingResults, 0);
+		assert.equal(after.endReason, null);
+		assert.equal(await cancelFollowup(a, "id-que-nao-existe"), false);
 	});
 
 	test("pausar tira da varredura, retomar zera os contadores; cancelar encerra", async () => {
