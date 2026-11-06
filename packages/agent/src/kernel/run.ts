@@ -18,7 +18,7 @@ import { finalStepNote, reachedLimit, spendText } from "./limits.js";
 import { observeCall, REPEAT_NOTE, signatureOf } from "./loop-guard.js";
 import { compactContext, contextTokens, DEFAULT_COMPACT_RATIO, DEFAULT_KEEP_RECENT, shouldCompact } from "./compaction.js";
 import { callModel } from "./model-step.js";
-import { addRuntimeNote, initSnapshot, isSnapshot, saveCheckpoint } from "./session.js";
+import { addRuntimeNote, initSnapshot, isOwnershipLoss, isSnapshot, saveCheckpoint } from "./session.js";
 import { runPending } from "./tool-step.js";
 import { createNoteReadTool, DEFAULT_PAGE_CHARS, fitOutput } from "./work-notes.js";
 import type { KernelEvent, KernelState, PendingCall, RunAgentDeps, RunResult } from "./types.js";
@@ -179,10 +179,12 @@ export async function runAgent(deps: RunAgentDeps): Promise<RunResult> {
 			} else return await finish(endStatus(), "");
 		}
 	} catch (error) {
+		// Perdeu o lease ou o dono do run mudou: outro worker assumiu. Nada de status, evento nem `failed` aqui.
+		if (isOwnershipLoss(error)) throw error;
 		const message = error instanceof Error ? error.message : String(error);
 		const aborted = deps.signal?.aborted === true;
 		await emit({ type: "status", data: { reason: aborted ? "cancelled" : "kernel_error", message: aborted ? "The run was cancelled." : redactDeep(message) } });
 		await ports.store.runs.setStatus(ownerId, runId, aborted ? "cancelled" : "failed");
-		return { status: "failed", text: "", steps: snap.step, spentUsd: snap.spentUsd, unresolved: { ...snap.lastErrors }, reason: aborted ? "cancelled" : "kernel_error" };
+		return { status: "failed", text: "", steps: snap.step, spentUsd: snap.spentUsd, unresolved: { ...snap.lastErrors }, reason: aborted ? "cancelled" : "kernel_error", ...(!aborted && { error: redactDeep(message) }) };
 	}
 }

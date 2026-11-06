@@ -125,6 +125,8 @@ export type RunResult = {
 	unresolved: Record<string, string>;
 	/** Motivo real quando o run acabou por falha de transporte ou resposta vazia. */
 	reason?: string;
+	/** Mensagem original (redigida) quando `reason` é `kernel_error`. */
+	error?: string;
 	/** Chamadas estacionadas (cartões abertos). */
 	parked?: Record<string, ParkedCall>;
 	/** Cartão de pergunta ao dono que encerrou o turno (F1.9). */

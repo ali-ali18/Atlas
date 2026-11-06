@@ -51,9 +51,11 @@ export class MemoryRuns implements RunStateStore {
 	saves = 0;
 	/** Simula queda: lança ao salvar o checkpoint de número N (1-based). */
 	crashOnSave?: number;
+	/** Erro lançado no lugar do "crash simulado" (ex.: o `lease_lost` do adaptador). */
+	crashError?: Error;
 	async saveCheckpoint(c: RunCheckpoint) {
 		this.saves++;
-		if (this.crashOnSave === this.saves) throw new Error("crash simulado");
+		if (this.crashOnSave === this.saves) throw this.crashError ?? new Error("crash simulado");
 		this.checkpoints.set(`${c.userId}:${c.runId}`, structuredClone(c));
 	}
 	async loadCheckpoint(userId: string, runId: string) {

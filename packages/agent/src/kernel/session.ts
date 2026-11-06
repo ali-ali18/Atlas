@@ -44,3 +44,14 @@ export function addRuntimeNote(snap: KernelSnapshot, text: string): void {
 export async function saveCheckpoint(ports: Ports, ownerId: string, runId: string, state: KernelState, snap: KernelSnapshot): Promise<void> {
 	await ports.store.runs.saveCheckpoint({ runId, userId: ownerId, step: snap.step, state, payload: structuredClone(snap) });
 }
+
+/**
+ * Identificadores que o adaptador da porta `Store` lança quando o run deixou de ser deste worker: `lease_lost`
+ * (outro worker assumiu; `message`/`code`) e `ResourceOwnershipError` (`name`). Comparação exata do identificador,
+ * nunca de texto livre. Esses erros sobem sem tocar no estado do run: quem manda agora é o outro worker.
+ */
+export function isOwnershipLoss(error: unknown): boolean {
+	if (typeof error !== "object" || error === null) return false;
+	const e = error as { name?: unknown; code?: unknown; message?: unknown };
+	return e.message === "lease_lost" || e.code === "lease_lost" || e.name === "ResourceOwnershipError" || e.code === "RESOURCE_NOT_FOUND";
+}

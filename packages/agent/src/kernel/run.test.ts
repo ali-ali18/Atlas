@@ -184,4 +184,22 @@ describe("kernel: retomada e segurança", () => {
 		expect(b?.at(-1)).toBe("web_read");
 		expect((h.runs.checkpoints.get("owner-1:run-1")?.payload as { loadedIds: string[] }).loadedIds).toEqual(["core", "extra"]);
 	});
+
+	it("lease_lost / dono trocado no checkpoint sobe sem virar kernel_error nem marcar o run como failed (B2)", async () => {
+		for (const error of [new Error("lease_lost"), Object.assign(new Error("Recurso não encontrado"), { name: "ResourceOwnershipError", code: "RESOURCE_NOT_FOUND" })]) {
+			const h = kernelHarness([reply({ text: "oi" })]);
+			h.runs.crashOnSave = 2;
+			h.runs.crashError = error;
+			await expect(h.run()).rejects.toBe(error);
+			expect(h.runs.statuses.get("owner-1:run-1")).toBe("running");
+			expect(h.log.of("status").some((s) => s.reason === "kernel_error")).toBe(false);
+		}
+	});
+
+	it("outro erro do checkpoint continua kernel_error e o RunResult guarda a mensagem original (B2)", async () => {
+		const h = kernelHarness([reply({ text: "oi" })]);
+		h.runs.crashOnSave = 2;
+		const out = await h.run();
+		expect(out).toMatchObject({ status: "failed", reason: "kernel_error", error: "crash simulado" });
+	});
 });
