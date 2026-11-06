@@ -84,8 +84,8 @@
 - [x] F1.11 Contrato de trabalho (nota da revisão: os textos ao usuário do executor, `userMessage` de handoff e de indisponível, hoje estão fixos em pt-BR; passam a sair no idioma do bot por um módulo de copy) (prompt), com teste de string por seção.
 - [x] F1.12 (06/11; histórico com assistente, cofre na redação, eventos no contrato SSE, tabelas novas por acréscimo, adaptadores reais, motor v4 atrás de flag por conta e desligado por padrão. Pendências antes de ligar para o dono: cartão de aprovação do v4 no app e a retomada com o clique (grants), histórico da conversa no run, registro de capacidades vazio até a F2, saúde de provedor em Redis, consumidor da fila `atlas-agent-v4`)
 - [x] F1.13 (05/11; achou e corrigiu vazamento de segredo no recibo devolvido ao laço; pendente: kernel passar ao executor os valores resolvidos do cofre, ver `it.todo`) Guardas permanentes: sem regex de comportamento, catraca da ponte, invariantes do contrato, economia.
-- [ ] F1.14 Teste de fumaça ponta a ponta no worker com preset `minimal`.
-- [ ] F1.A Auditoria: 5 lentes, verificação, correções com teste, reauditoria e `auditorias/F1.md` fechado.
+- [x] F1.14 (06/11: bom dia, pesquisa e arquivo pelo worker de verdade com fakes, presets minimal e full, v4 na matriz de evals; ligar o preset e as portas reais de busca e arquivo ao processador fica para a F2) Teste de fumaça ponta a ponta no worker com preset `minimal`.
+- [~] F1.A (06/11) Auditoria: 5 lentes, verificação, correções com teste, reauditoria e `auditorias/F1.md` fechado.
 
 ### F2: Capacidades do núcleo
 - [ ] F2.1 `web` (busca e extração).
