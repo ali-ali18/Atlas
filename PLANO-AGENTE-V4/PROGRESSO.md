@@ -41,7 +41,7 @@
 | F1 fundação | `feat/harness-v4-f1-fundacao` | **concluída, juntada em `harness/v4`** | #151 |
 | F2 capacidades | `feat/harness-v4-f2-capacidades` | **concluída, juntada em `harness/v4`** | #152 |
 | F3 pesquisa | `feat/harness-v4-f3-pesquisa` | **concluída, juntada em `harness/v4`** | #153 |
-| F4 agenda | `feat/harness-v4-f4-agenda` | em andamento (backend; a seção da Biblioteca vem numa frente de UI com prévias) | — |
+| F4 agenda | `feat/harness-v4-f4-agenda` | **backend concluído** (auditoria fechada); a seção da Biblioteca vem na frente de UI | — |
 | F5 memória | `feat/harness-v4-f5-memoria` | em andamento (backend; Caderno e regras na Biblioteca na frente de UI) | — |
 
 ## Decisões do dono (não reabrir)
