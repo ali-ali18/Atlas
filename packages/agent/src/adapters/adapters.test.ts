@@ -107,6 +107,9 @@ describe("createStoreAdapter", () => {
 		await store.runs.setStatus("a", "r1", "parked");
 		expect(backend.statuses).toEqual(["a:r1:parked"]);
 		await expect(store.agenda.upsert({ id: "1", userId: "a", kind: "reminder", dueAt: null, spec: {}, ignoredStreak: 0, status: "active" })).rejects.toThrow(AGENDA_UNAVAILABLE);
+		// texto que volta ao modelo (60-agente): inglês e sem nome interno (auditoria F1, A2)
+		expect(AGENDA_UNAVAILABLE).toMatch(/^Scheduling is not available/);
+		expect(AGENDA_UNAVAILABLE).not.toMatch(/v4|motor|agenda/i);
 		expect(await store.agenda.get("a", "1")).toBeNull();
 		expect(await store.agenda.listActive("a")).toEqual([]);
 	});
@@ -154,8 +157,8 @@ describe("createQueueAdapter", () => {
 
 	it("recusa dono vazio/default, nome vazio e atraso inválido", async () => {
 		const adapter = createQueueAdapter(fakeQueue().queue);
-		await expect(adapter.enqueue({ name: "n", userId: "default", payload: {} })).rejects.toThrow(/dono/);
-		await expect(adapter.enqueue({ name: " ", userId: "a", payload: {} })).rejects.toThrow(/nome/);
+		await expect(adapter.enqueue({ name: "n", userId: "default", payload: {} })).rejects.toThrow(/no valid owner/);
+		await expect(adapter.enqueue({ name: " ", userId: "a", payload: {} })).rejects.toThrow(/has no name/);
 		for (const delayMs of [-1, Number.NaN, 366 * 24 * 3600 * 1000]) await expect(adapter.enqueue({ name: "n", userId: "a", payload: {}, delayMs })).rejects.toThrow(RangeError);
 	});
 });

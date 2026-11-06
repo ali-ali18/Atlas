@@ -142,7 +142,7 @@ export function vaultBackendFromService(service: VaultServiceLike): VaultBackend
 /** Sem adaptador de VM no v4 ainda: a tool que pedir recebe o motivo real (resultado honesto), o run segue. */
 export const unavailableSandbox: Sandbox = {
 	async run() {
-		return { ok: false, error: "O computador (VM e navegador) ainda não está disponível no motor v4." };
+		return { ok: false, error: "The computer (virtual machine and browser) is not available in this version. Tell the owner plainly, and offer an alternative that does not need it." };
 	},
 	async release() {
 		return undefined;
@@ -152,7 +152,7 @@ export const unavailableSandbox: Sandbox = {
 /** Fila indisponível (flag ligada sem a fila criada): enfileirar falha com o motivo, nunca em silêncio. */
 export const unavailableQueue: BullLikeQueue = {
 	async add() {
-		throw new Error("A fila do motor v4 não está configurada neste worker.");
+		throw new Error("Scheduling is not available right now. Tell the owner plainly that you cannot schedule this, and offer an alternative.");
 	},
 	async getJob() {
 		return null;

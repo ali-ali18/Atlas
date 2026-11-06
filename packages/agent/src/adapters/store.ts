@@ -41,7 +41,7 @@ export type StoreBackend = {
 
 const CHECKPOINT_STATES: ReadonlySet<string> = new Set(["PREPARE", "MODEL", "TOOLS", "SETTLE", "PARKED", "FINAL", "DONE"]);
 
-export const AGENDA_UNAVAILABLE = "A agenda do motor v4 ainda não está disponível nesta versão.";
+export const AGENDA_UNAVAILABLE = "Scheduling is not available in this version yet. Tell the owner plainly that you cannot schedule this, and offer an alternative.";
 
 const unavailableAgenda: AgendaStore = {
 	async upsert() {

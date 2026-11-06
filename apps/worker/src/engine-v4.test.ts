@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Llm, LlmChatRequest, LlmStreamEvent } from "@workspace/agent";
 import type { ComputerUseEvent } from "@workspace/shared";
-import { createMinimalEventMapper, meterLlm, runEngineV4, storeBackendFromDb, vaultBackendFromService, type V4Db } from "./engine-v4.js";
+import { createMinimalEventMapper, meterLlm, runEngineV4, storeBackendFromDb, unavailableQueue, unavailableSandbox, vaultBackendFromService, type V4Db } from "./engine-v4.js";
 
 const served = { provider: "fake", model: "m-1" };
 const done = (costUsd?: number): LlmStreamEvent => ({ type: "done", finishReason: "stop", usage: { inputTokens: 10, outputTokens: 5, ...(costUsd !== undefined ? { costUsd } : {}) }, served });
@@ -157,4 +157,14 @@ test("store do worker: setStatus não grava no banco e o recibo/nota passam o do
 	await store.setStatus("a", "r", "done");
 	await store.saveNote({ id: "n", userId: "a", title: "t", body: "b", pinned: false });
 	assert.deepEqual(calls.map((c) => [c.fn, c.userId]), [["saveNote", "a"]]);
+});
+
+test("sandbox e fila indisponíveis devolvem ao modelo um texto em inglês, sem nome interno (auditoria F1, A2)", async () => {
+	const sandbox = await unavailableSandbox.run("u", {} as never);
+	assert.equal(sandbox.ok, false);
+	const texts = [(sandbox as { error: string }).error, await unavailableQueue.add("n", { userId: "u", payload: {} }).catch((e: Error) => e.message)];
+	for (const text of texts) {
+		assert.match(text, /^(The computer|Scheduling)/);
+		assert.doesNotMatch(text, /v4|worker|motor|VM e|fila/i);
+	}
 });

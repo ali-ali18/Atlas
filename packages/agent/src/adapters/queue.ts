@@ -21,17 +21,17 @@ export function dedupeJobId(userId: string, dedupeKey: string): string {
 export function createQueueAdapter(queue: BullLikeQueue): Queue {
 	return {
 		async enqueue(job: QueueJob) {
-			if (!job.userId.trim() || job.userId === "default") throw new Error("Job sem dono válido.");
-			if (!job.name.trim()) throw new Error("Job sem nome.");
+			if (!job.userId.trim() || job.userId === "default") throw new Error("Cannot schedule: this request has no valid owner.");
+			if (!job.name.trim()) throw new Error("Cannot schedule: the item has no name.");
 			if (job.delayMs !== undefined && (!Number.isFinite(job.delayMs) || job.delayMs < 0 || job.delayMs > MAX_QUEUE_DELAY_MS)) {
-				throw new RangeError("delayMs deve estar entre 0 e 1 ano.");
+				throw new RangeError("Cannot schedule: the delay must be between 0 and 1 year.");
 			}
 			const jobId = job.dedupeKey ? dedupeJobId(job.userId, job.dedupeKey) : undefined;
 			const added = await queue.add(job.name, { userId: job.userId, payload: job.payload }, {
 				...(job.delayMs !== undefined && { delay: Math.round(job.delayMs) }),
 				...(jobId && { jobId }),
 			});
-			if (!added.id) throw new Error("A fila não devolveu o id do job.");
+			if (!added.id) throw new Error("Scheduling was not confirmed, so the item may not be saved. Do not tell the owner it was scheduled.");
 			return { jobId: String(added.id) };
 		},
 		async cancel(userId, jobId) {
