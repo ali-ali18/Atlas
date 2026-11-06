@@ -77,10 +77,18 @@ export interface AgendaStore {
 
 export type Note = { id: string; userId: string; title: string; body: string; pinned: boolean };
 
+/** Trecho de uma nota: `text` são os `length` caracteres (UTF-16) a partir de `offset`; `total` é o tamanho da nota inteira. */
+export type NoteRange = { text: string; total: number };
+
 /** Caderno do dono (memória do lado do agente). */
 export interface NoteStore {
 	save(note: Note): Promise<void>;
 	get(userId: string, id: string): Promise<Note | null>;
+	/**
+	 * Leitura por faixa, para paginar nota grande sem carregá-la inteira a cada página. Opcional: sem ela, quem lê
+	 * usa `readNoteRange` (que cai em `get` + fatia).
+	 */
+	getRange?(userId: string, id: string, offset: number, length: number): Promise<NoteRange | null>;
 	list(userId: string): Promise<Note[]>;
 	remove(userId: string, id: string): Promise<void>;
 }
@@ -111,3 +119,10 @@ export type Store = {
 	notes: NoteStore;
 	conversations: ConversationStore;
 };
+
+/** Faixa de uma nota: pelo `getRange` do adaptador, se existir; senão `get` + fatia (fakes e adaptadores antigos). */
+export async function readNoteRange(notes: NoteStore, userId: string, id: string, offset: number, length: number): Promise<NoteRange | null> {
+	if (notes.getRange) return notes.getRange(userId, id, offset, length);
+	const note = await notes.get(userId, id);
+	return note ? { text: note.body.slice(offset, offset + length), total: note.body.length } : null;
+}

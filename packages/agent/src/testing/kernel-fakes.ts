@@ -69,6 +69,8 @@ export class MemoryRuns implements RunStateStore {
 
 export class MemoryNotes implements NoteStore {
 	items = new Map<string, Note>();
+	/** Os testes podem instalar uma leitura por faixa (o adaptador real a terá); sem ela vale o `get` + fatia. */
+	getRange?: NoteStore["getRange"];
 	async save(n: Note) {
 		this.items.set(`${n.userId}:${n.id}`, structuredClone(n));
 	}

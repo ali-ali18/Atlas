@@ -5,7 +5,7 @@
 // Invariante (testado): nenhuma saída chega ao modelo truncada sem ponteiro.
 import { z } from "zod";
 import { defineTool, type Tool } from "../tools/define-tool.js";
-import type { Store } from "../ports/store.js";
+import { readNoteRange, type Store } from "../ports/store.js";
 
 export const WORK_NOTE_PREFIX = "work:";
 export const NOTE_READ_TOOL = "note_read";
@@ -22,6 +22,17 @@ export function pageOf(text: string, offset: number, pageChars: number): Page {
 		if (code >= 0xd800 && code <= 0xdbff) end--;
 	}
 	return { text: text.slice(start, end), start, end, total: text.length };
+}
+
+/** Página a partir de uma faixa já lida (`part.text` começa em `start`), com a mesma regra do par substituto de `pageOf`. */
+export function pageOfRange(part: { text: string; total: number }, start: number): Page {
+	const from = Math.min(start, part.total);
+	let text = part.text;
+	if (from + text.length < part.total && text.length > 1) {
+		const code = text.charCodeAt(text.length - 1);
+		if (code >= 0xd800 && code <= 0xdbff) text = text.slice(0, -1);
+	}
+	return { text, start: from, end: from + text.length, total: part.total };
 }
 
 export function pointerText(id: string, page: Page): string {
@@ -48,11 +59,13 @@ export function createNoteReadTool(pageChars: number): Tool {
 		inputSchema: z.object({ id: z.string().describe("Work note id from a pointer."), offset: z.number().int().min(0).optional().describe("Character offset to start from; default 0.") }),
 		effect: "read",
 		execute: async ({ id, offset }, ctx) => {
-			if (!id.startsWith(WORK_NOTE_PREFIX)) return { ok: false, error: `"${id}" is not a work note.`, hint: `Work note ids start with "${WORK_NOTE_PREFIX}" and come from a pointer.` };
-			const note = await ctx.ports.store.notes.get(ctx.ownerId, id);
-			if (!note) return { ok: false, error: `Work note "${id}" was not found.`, hint: "Use the id exactly as the pointer shows it." };
-			const page = pageOf(note.body, offset ?? 0, pageChars);
-			if (page.text.length === 0 && note.body.length > 0) return { ok: false, error: `Offset ${offset} is past the end (${note.body.length} characters).` };
+			// Só as notas de trabalho DESTE run: as de outro run (ou do dono) não se leem por aqui.
+			if (!id.startsWith(`${WORK_NOTE_PREFIX}${ctx.runId}:`)) return { ok: false, error: `"${id}" is not a work note of this run.`, hint: `Work note ids of this run start with "${WORK_NOTE_PREFIX}${ctx.runId}:" and come from a pointer.` };
+			const start = Math.max(0, Math.floor(offset ?? 0));
+			const part = await readNoteRange(ctx.ports.store.notes, ctx.ownerId, id, start, pageChars);
+			if (!part) return { ok: false, error: `Work note "${id}" was not found.`, hint: "Use the id exactly as the pointer shows it." };
+			const page = pageOfRange(part, start);
+			if (page.text.length === 0 && part.total > 0) return { ok: false, error: `Offset ${offset} is past the end (${part.total} characters).` };
 			return { ok: true, summary: `${page.text.length > 0 ? page.text : "(empty note)"}\n\n${pointerText(id, page)}` };
 		},
 	});

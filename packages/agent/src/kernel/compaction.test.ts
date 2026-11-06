@@ -167,10 +167,36 @@ describe("saída grande: páginas com ponteiro, nunca truncada em silêncio", ()
 		await h.run();
 		const results = h.log.of("tool_result").map((r) => r.content as string);
 		expect(results[0]).toContain("not a work note");
-		expect(results[1]).toContain("was not found");
+		expect(results[1]).toContain("not a work note of this run");
 		expect(results[1]).not.toContain("do outro dono");
 		expect(results[2]).toContain("curta");
 		expect(results[2]).toContain("End of the content");
+	});
+
+	it("note_read lê só nota do run atual: a de outro run do mesmo dono é recusada (S7)", async () => {
+		const h = kernelHarness([reply({ calls: [call("1", NOTE_READ_TOOL, { id: "work:run-9:out:z" })] }), reply({ text: "ok" })]);
+		await h.notes.save({ id: "work:run-9:out:z", userId: "owner-1", title: "t", body: "conteúdo de outro run", pinned: false });
+		await h.run();
+		const result = h.log.of("tool_result")[0]?.content as string;
+		expect(result).toContain("not a work note of this run");
+		expect(result).not.toContain("conteúdo de outro run");
+	});
+
+	it("note_read pagina pela leitura por faixa do adaptador, sem carregar a nota inteira (C7)", async () => {
+		const body = big(30_000, "linha");
+		const h = kernelHarness([reply({ calls: [call("1", NOTE_READ_TOOL, { id: "work:run-1:out:q", offset: 10_000 })] }), reply({ text: "ok" })]);
+		await h.notes.save({ id: "work:run-1:out:q", userId: "owner-1", title: "t", body, pinned: false });
+		const asked: Array<[number, number]> = [];
+		h.notes.get = async () => {
+			throw new Error("get não deve ser chamado quando há getRange");
+		};
+		h.notes.getRange = async (_u, _id, offset, length) => (asked.push([offset, length]), { text: body.slice(offset, offset + length), total: body.length });
+		await h.run({ options: { pageChars: 5000 } });
+		expect(asked).toEqual([[10_000, 5000]]);
+		const result = h.log.of("tool_result")[0]?.content as string;
+		expect(result).toContain(body.slice(10_000, 10_040));
+		expect(result).toContain("Characters 10000-15000 of 30000");
+		expect(result).toContain("offset=15000");
 	});
 
 	it("fitOutput de texto pequeno devolve igual e não grava nada", async () => {
