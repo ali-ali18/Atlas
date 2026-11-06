@@ -9,7 +9,9 @@ import { createCapabilityRegistry, createSseMapper, defineCapability, defineTool
 import type { ComputerUseEvent } from "@workspace/shared";
 import { z } from "zod";
 import { AGENT_V4_REQUEST_TTL_MS } from "@workspace/db";
+import { AgentRunPausedError } from "@workspace/agent-runtime";
 import { runEngineV4, type V4Db } from "./engine-v4.js";
+import { runV4Turn } from "./v4-turn.js";
 import { buildV4History, prepareV4Run, requestsFromParked, resumeInputFromDecisions, type V4RunContextDb } from "./v4-run-context.js";
 
 const served = { provider: "fake", model: "m-1" };
@@ -470,4 +472,79 @@ test("T2: dois pedidos, um aprovado e o outro não; o run reestaciona só com o 
 	const fourth = await turn({ ctx, v4: mem.db, llm: scripted([say("ok, enviei os dois")]), runId: "run-two", objective: "manda dois", registry });
 	assert.equal(fourth.out.parked, false);
 	assert.equal(counter.runs, 2);
+});
+
+// ----------------------------------------------------------------------- T3: o turno v4 do processador
+
+/** O que o ramo v4 do processador faz: `runV4Turn` com o preparo do banco e o motor real (kernel real, LLM roteirizado). */
+function processorTurn(opts: { ctx: ReturnType<typeof fakeContextDb>; mem: ReturnType<typeof memoryV4Db>; llm: Llm; runId: string; registry: ReturnType<typeof registryOf>; order?: string[] }) {
+	opts.ctx.useCheckpointsOf(opts.mem.db);
+	return runV4Turn({
+		prepare: async () => {
+			opts.order?.push("prepare");
+			return prepareV4Run({ userId: "user-a", runId: opts.runId, conversationId: "conv-1", objective: "manda", chat: true, db: opts.ctx.db, now: () => new Date("2026-11-06T12:00:00Z") });
+		},
+		engine: async (prepared) => {
+			opts.order?.push("engine");
+			const mapper = createSseMapper({ runId: opts.runId, model: "fake/m-1" });
+			return runEngineV4({
+				runId: opts.runId,
+				userId: "user-a",
+				conversationId: "conv-1",
+				objective: "manda",
+				...(prepared.history && { history: prepared.history }),
+				...(prepared.resume && { resume: prepared.resume }),
+				llm: opts.llm,
+				lease: { owner: "w1", token: "t1" },
+				persistEvent: () => undefined,
+				mapEvent: prepared.observe((e: RunEvent) => mapper.mapRunEvent(e)),
+				limits: {},
+				ownerPresent: true,
+				db: opts.mem.db,
+				registry: opts.registry,
+				policy: { surface: "chat", ownerPresent: true, autonomy: "autonomous", rules: [] },
+			});
+		},
+	});
+}
+
+test("T3: turno que conclui devolve o resultado do motor e não pausa", async () => {
+	const ctx = fakeContextDb({ cards: [{ cardId: "run-0:ask1", response: "dismissed" }] });
+	const result = await processorTurn({ ctx, mem: memoryV4Db(), llm: scripted([say("pronto")]), runId: "run-t3a", registry: registryOf(sendEmail({ runs: 0 })) });
+	assert.equal(result.text, "pronto");
+	assert.equal(result.model, "fake/m-1");
+	assert.deepEqual(ctx.consumed, ["run-0:ask1"], "a resposta de cartão foi entregue ao kernel e marcada");
+	assert.equal(ctx.requests.length, 0);
+});
+
+test("T3: turno que estaciona registra os pedidos ANTES de sinalizar a pausa (awaiting_owner)", async () => {
+	const ctx = fakeContextDb();
+	const order: string[] = [];
+	const register = ctx.db.registerRequests;
+	ctx.db.registerRequests = (async (...args: never[]) => (order.push("register"), (register as (...a: never[]) => Promise<void>)(...args))) as never;
+	await assert.rejects(
+		processorTurn({ ctx, mem: memoryV4Db(), llm: scripted([callTool("c1", "send_email", { to: "a@example.com", body: "oi" })]), runId: "run-t3b", registry: registryOf(sendEmail({ runs: 0 })), order }),
+		(error: unknown) => error instanceof AgentRunPausedError && error.message === "awaiting_owner",
+	);
+	assert.deepEqual(order, ["prepare", "engine", "register"]);
+	assert.equal(ctx.requests.length, 1);
+	assert.equal(ctx.requests[0]!.state, "pending");
+});
+
+test("T3 (B1): registro que lança depois do checkpoint PARKED; a reentrega registra e pausa de novo, sem perder o pedido", async () => {
+	const ctx = fakeContextDb();
+	const mem = memoryV4Db();
+	const registry = registryOf(sendEmail({ runs: 0 }));
+	const real = ctx.db.registerRequests;
+	ctx.db.registerRequests = (async () => {
+		throw new Error("db fora do ar");
+	}) as never;
+	await assert.rejects(processorTurn({ ctx, mem, llm: scripted([callTool("c1", "send_email", { to: "a@example.com", body: "oi" })]), runId: "run-t3c", registry }), /db fora do ar/);
+	assert.equal(ctx.requests.length, 0);
+	assert.equal(((await ctx.db.loadCheckpoint("user-a", "run-t3c")) as { state: string } | null)?.state, "PARKED", "o checkpoint PARKED já estava gravado");
+
+	ctx.db.registerRequests = real;
+	await assert.rejects(processorTurn({ ctx, mem, llm: scripted([]), runId: "run-t3c", registry }), AgentRunPausedError);
+	assert.equal(ctx.requests.length, 1);
+	assert.equal(ctx.requests[0]!.callId, "c1");
 });
