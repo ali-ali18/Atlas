@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { NoteStore } from "@workspace/agent";
-import { buildV4Registry, mergePolicyRules, type V4AdapterDeps } from "./index.js";
+import { buildV4Registry, type V4AdapterDeps } from "./index.js";
 
 type Connected = Awaited<ReturnType<V4AdapterDeps["mcp"]["listConnected"]>>;
 
@@ -40,8 +40,8 @@ test("com bot e portas reais montadas, o preset full não tem capacidade indispo
 	assert.deepEqual(setup.registry.ids(), ["connectors", "deliverables", "memory", "settings", "tasks", "web"]);
 	assert.match(setup.stableSystem, /Work contract/);
 	assert.match(setup.stableSystem, /connectors/);
-	// confirmWrites do conector vira regra `approve` sobre a tool genérica de escrita
-	assert.deepEqual(setup.policyRules, [{ match: "mcp_agenda_write", verdict: "approve" }]);
+	// confirmWrites do conector vira `confirm: "always"` na tool genérica de escrita
+	assert.equal(setup.registry.toolByName("mcp_agenda_write")?.confirm, "always");
 });
 
 test("sem bot no run: configurações ficam de fora e vão ao log técnico", async () => {
@@ -56,7 +56,6 @@ test("sem bot no run: configurações ficam de fora e vão ao log técnico", asy
 test("dono sem conexão: sem capacidade connectors nem regra", async () => {
 	const setup = await buildV4Registry({ ...base, botId: "bot-1", deps: fakeAdapterDeps({ connections: [] }) });
 	assert.ok(!setup.registry.ids().includes("connectors"));
-	assert.deepEqual(setup.policyRules, []);
 });
 
 test("falha ao listar conexões não derruba o run e o log não carrega o segredo do erro", async () => {
@@ -74,10 +73,4 @@ test("conexão de outro dono devolvida pela porta é descartada (defesa em profu
 	// a porta amarra o dono: pedir como user-b nunca devolve as conexões de user-a
 	const setup = await buildV4Registry({ ...base, userId: "user-b", botId: "bot-1", deps: { ...deps, mcp: { ...deps.mcp, listConnected: async (userId) => (userId === "user-a" ? [other] : []) } } });
 	assert.ok(!setup.registry.ids().includes("connectors"));
-});
-
-test("as regras do dono vão depois das dos conectores", () => {
-	const owner = [{ match: "mcp_agenda_write", verdict: "run" as const }];
-	const merged = mergePolicyRules([{ match: "mcp_agenda_write", verdict: "approve" }], owner);
-	assert.deepEqual(merged.map((r) => r.verdict), ["approve", "run"]);
 });

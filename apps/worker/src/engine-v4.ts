@@ -61,7 +61,7 @@ import {
 	saveAgentV4Checkpoint,
 	type RunLease,
 } from "@workspace/db";
-import { buildV4Registry, mergePolicyRules, type V4AdapterDeps } from "./v4-adapters/index.js";
+import { buildV4Registry, type V4AdapterDeps } from "./v4-adapters/index.js";
 import { MODEL_ROLES, formatModelRef, isMaintenanceModel, parseModelRef, type BotLanguage, type ComputerUseEvent, type ModelChainEntry, type RoleChains, type RunStop, type RunUsage } from "@workspace/shared";
 
 /** As funções de persistência do v4 (as de `@workspace/db`); injetáveis para o teste. */
@@ -439,7 +439,7 @@ export async function runEngineV4(input: RunEngineV4Input): Promise<V4EngineResu
 		},
 		ports,
 		registry: input.registry ?? built!.registry,
-		policy: built && built.policyRules.length > 0 ? { ...basePolicy, rules: mergePolicyRules(built.policyRules, basePolicy.rules) } : basePolicy,
+		policy: basePolicy,
 		limits: input.limits,
 		hash: sha256,
 		...(input.signal && { signal: input.signal }),
