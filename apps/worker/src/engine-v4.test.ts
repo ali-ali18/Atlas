@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createSseMapper, type Llm, type LlmChatRequest, type LlmStreamEvent, type RunEvent } from "@workspace/agent";
 import type { ComputerUseEvent } from "@workspace/shared";
-import { createMinimalEventMapper, dropProcessorOwnedEvents, meterLlm, runEngineV4, storeBackendFromDb, unavailableQueue, unavailableSandbox, vaultBackendFromService, type V4Db } from "./engine-v4.js";
+import { createMinimalEventMapper, dropProcessorOwnedEvents, meterLlm, ownerStepsLimit, runEngineV4, storeBackendFromDb, unavailableQueue, unavailableSandbox, vaultBackendFromService, type V4Db } from "./engine-v4.js";
 
 const served = { provider: "fake", model: "m-1" };
 const done = (costUsd?: number): LlmStreamEvent => ({ type: "done", finishReason: "stop", usage: { inputTokens: 10, outputTokens: 5, ...(costUsd !== undefined ? { costUsd } : {}) }, served });
@@ -216,4 +216,10 @@ test("fim do run: o mapa do kernel não repete o done/error/cancelled nem o teto
 	const cost = await runWith("filtered", scripted([[{ type: "tool_call", call: { id: "c1", name: "note_read", args: { id: "x" } } }, done(5)], [{ type: "text_delta", text: "resumo" }, done(0.1)]]), { ownerMaxUsd: 1 });
 	assert.equal(cost.events.filter((e) => e.type === "status" && e.status === "budget_exhausted").length, 1);
 	assert.deepEqual(terminals(cost.events), []);
+});
+
+test("teto de passos do dono: só repassa ao kernel quando veio de configuração (auditoria F1, B4)", () => {
+	assert.equal(ownerStepsLimit({ steps: 12, stepsSource: "bot" }), 12);
+	assert.equal(ownerStepsLimit({ steps: 12, stepsSource: "account" }), 12);
+	assert.equal(ownerStepsLimit({ steps: 200 }), undefined, "o de segurança é do kernel");
 });

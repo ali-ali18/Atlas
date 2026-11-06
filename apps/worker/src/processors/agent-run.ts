@@ -140,7 +140,7 @@ import {
 	resolveBudget,
 	wallClockAnchors,
 } from "@workspace/agent-runtime";
-import { createV4Llm, dropProcessorOwnedEvents, runEngineV4, vaultBackendFromService } from "../engine-v4.js";
+import { createV4Llm, dropProcessorOwnedEvents, ownerStepsLimit, runEngineV4, vaultBackendFromService } from "../engine-v4.js";
 import { earlyWallMs, engineDefaultFromEnv, engineV4GateFromEnv, pickRunEngine, resolveRunLimits, runSelectedEngine } from "../engine-choice.js";
 import { getVaultService, type RunComputerUseResult } from "@workspace/agent-runtime";
 import { createSseMapper, type BullLikeQueue } from "@workspace/agent";
@@ -1240,7 +1240,9 @@ async function executeLeasedRun(ctx: {
 			persistEvent: emit,
 			// O fim do stream (done/error/cancelled/teto de passos) é do processador, uma vez: o mapa do kernel não o repete.
 			mapEvent: dropProcessorOwnedEvents(((mapper) => (event) => mapper.mapRunEvent(event))(createSseMapper({ runId, model: run.model, language: systemLanguage }))),
-			limits: { ...(effectiveCostCap !== undefined ? { ownerMaxUsd: effectiveCostCap } : {}), unattended: !(run.origin === "chat" && readRunHumanTurn(run)) },
+			// Teto de passos do dono (pedido > bot > conta) só quando tem origem; sem ele vale o de segurança do kernel. Tetos de gasto
+			// por período (dia/semana/mês) da conta/bot ainda não existem na configuração do worker: só o teto por execução vale.
+			limits: { ...(effectiveCostCap !== undefined ? { ownerMaxUsd: effectiveCostCap } : {}), ...(ownerStepsLimit(stepsCap) !== undefined ? { ownerMaxSteps: ownerStepsLimit(stepsCap)! } : {}), unattended: !(run.origin === "chat" && readRunHumanTurn(run)) },
 			ownerPresent: run.origin === "chat" && readRunHumanTurn(run),
 			signal: aborter.signal,
 			vault: vaultBackendFromService(getVaultService()),

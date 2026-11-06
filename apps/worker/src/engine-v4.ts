@@ -245,6 +245,11 @@ export function dropProcessorOwnedEvents(map: (event: RunEvent) => readonly Comp
 	return (event) => map(event).filter((mapped) => !processorOwned(mapped));
 }
 
+/** Teto de passos do DONO para o kernel: só vale quando veio de configuração (tem origem); o de segurança é do kernel. */
+export function ownerStepsLimit(stepsCap: { steps: number; stepsSource?: unknown }): number | undefined {
+	return stepsCap.stepsSource ? stepsCap.steps : undefined;
+}
+
 export type V4EngineResult = { text: string; model: string; hitWall: boolean; usage: RunUsage; stop: RunStop; parked: boolean };
 
 export type RunEngineV4Input = {
