@@ -137,6 +137,8 @@ export function createLlmAdapter(config: LlmAdapterConfig): Llm {
 						model: formatModelRef(entry.provider, entry.model),
 						apiKey,
 						tools: toLegacyTools(req.tools),
+						// "none" no passo final: as tools seguem no pedido (prefixo/cache estáveis), mas o provedor não as aceita como chamada.
+						...(req.toolChoice ? { toolChoice: req.toolChoice } : {}),
 						signal: internal.signal,
 						timeoutMs: timeouts.totalMs,
 						progressTimeoutMs: timeouts.totalMs,

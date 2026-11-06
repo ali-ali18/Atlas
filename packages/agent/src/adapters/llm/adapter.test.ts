@@ -284,6 +284,17 @@ describe("adaptador Llm", () => {
 		expect(events.at(-1)).toMatchObject({ finishReason: "tool_calls" });
 	});
 
+	it("toolChoice 'none' (passo final de um limite) chega ao provedor; omitido, não manda nada (auditoria F1, B3/C4)", async () => {
+		const tools = [{ name: "ler", description: "lê", inputSchema: { type: "object", properties: {} } }];
+		const a = setup([ok("x")]);
+		await collect(a.llm.chat(req({ tools, toolChoice: "none" })));
+		expect(a.calls[0]?.toolChoice).toBe("none");
+		expect(a.calls[0]?.tools).toHaveLength(1);
+		const b = setup([ok("x")]);
+		await collect(b.llm.chat(req({ tools })));
+		expect(b.calls[0]).not.toHaveProperty("toolChoice");
+	});
+
 	it("timeouts de transporte são generosos e configuráveis, sem corte de 30s/20s/90s", async () => {
 		const a = setup([ok("x")]);
 		await collect(a.llm.chat(req()));
