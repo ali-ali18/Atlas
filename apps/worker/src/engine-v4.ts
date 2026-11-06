@@ -17,6 +17,7 @@
  */
 import { createHash } from "node:crypto";
 import {
+	copyFor,
 	createCapabilityRegistry,
 	createEventsAdapter,
 	createLlmAdapter,
@@ -352,6 +353,27 @@ function stopOf(result: RunResult): { stop: RunStop; hitWall: boolean } {
 	return { stop: { reason: "answered" }, hitWall: false };
 }
 
+/** Máximo de recibos citados na nota de parada (o resto fica no cartão de cada recibo, já emitido ao vivo). */
+const STOPPED_LIST_MAX = 8;
+
+/** Texto "o que já foi feito" para a nota de parada; vazio quando nenhum efeito foi consumado. Função pura. */
+export function stoppedEffectsNote(receipts: ReadonlyArray<{ summary: string }>, language?: unknown): string {
+	const done = receipts.map((r) => r.summary.trim()).filter(Boolean);
+	if (done.length === 0) return "";
+	const shown = done.slice(0, STOPPED_LIST_MAX).join("; ");
+	return copyFor(language, "stopped_with_effects", { list: done.length > STOPPED_LIST_MAX ? `${shown}; +${done.length - STOPPED_LIST_MAX}` : shown });
+}
+
+/** Melhor esforço: falhar ao listar os recibos nunca atrapalha o cancelamento. */
+async function announceStoppedEffects(ports: Ports, input: RunEngineV4Input): Promise<void> {
+	try {
+		const detail = stoppedEffectsNote(await ports.store.receipts.listForRun(input.userId, input.runId), input.language);
+		if (detail) await input.persistEvent({ type: "status", status: "stopped_with_effects", detail, stopReason: "cancelled" });
+	} catch {
+		// sem a nota, o `cancelled` do processador ainda fecha o run
+	}
+}
+
 export async function runEngineV4(input: RunEngineV4Input): Promise<V4EngineResult> {
 	const meter = meterLlm(input.llm);
 	const ports: Ports = {
@@ -381,7 +403,9 @@ export async function runEngineV4(input: RunEngineV4Input): Promise<V4EngineResu
 		...(input.signal && { signal: input.signal }),
 		...(input.language && { language: input.language }),
 	});
-	// "Parar" no meio do run: o processador trata o abort pelo caminho de cancelamento de sempre.
+	// "Parar" no meio do run: parar não desfaz (cláusula 12), então o dono vê o que já foi feito; depois o processador
+	// trata o abort pelo caminho de cancelamento de sempre.
+	if (input.signal?.aborted) await announceStoppedEffects(ports, input);
 	input.signal?.throwIfAborted();
 	if (result.status === "failed") throw new Error(`Motor v4 falhou: ${result.reason ?? "erro desconhecido"}`);
 	const { stop, hitWall } = stopOf(result);

@@ -42,6 +42,12 @@ export const COPY = {
 		"en-US": "I stopped at the spending limit you set. The answer above is the best I have so far.",
 		"es-ES": "Me detuve en el tope de gasto que configuraste. La respuesta de arriba es lo mejor que tengo hasta ahora.",
 	},
+	/** Parou a pedido do dono depois de efeitos já feitos: parar não desfaz (cláusula 12). `{list}` = o que foi feito. */
+	stopped_with_effects: {
+		"pt-BR": "Parei como você pediu. O que já foi feito continua valendo: {list}.",
+		"en-US": "I stopped as you asked. What was already done stays in place: {list}.",
+		"es-ES": "Me detuve como pediste. Lo que ya se hizo sigue vigente: {list}.",
+	},
 	/** Nenhum modelo configurado para a tarefa. */
 	model_none: {
 		"pt-BR": "Nenhum modelo está configurado para esta tarefa.",

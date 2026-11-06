@@ -7,7 +7,7 @@ import { test } from "node:test";
 import { createSseMapper, type Llm, type LlmChatRequest, type LlmStreamEvent, type RunEvent } from "@workspace/agent";
 import type { ProviderStreamChat } from "@workspace/llm";
 import type { ComputerUseEvent } from "@workspace/shared";
-import { buildV4RoleChains, cheapModelFromEnv, createMinimalEventMapper, createV4Llm, dropProcessorOwnedEvents, meterLlm, ownerStepsLimit, runEngineV4, storeBackendFromDb, unavailableQueue, unavailableSandbox, V4_CHEAP_MODEL_DEFAULT, vaultBackendFromService, type V4Db } from "./engine-v4.js";
+import { buildV4RoleChains, cheapModelFromEnv, createMinimalEventMapper, createV4Llm, dropProcessorOwnedEvents, meterLlm, ownerStepsLimit, runEngineV4, stoppedEffectsNote, storeBackendFromDb, unavailableQueue, unavailableSandbox, V4_CHEAP_MODEL_DEFAULT, vaultBackendFromService, type V4Db } from "./engine-v4.js";
 
 const served = { provider: "fake", model: "m-1" };
 const done = (costUsd?: number): LlmStreamEvent => ({ type: "done", finishReason: "stop", usage: { inputTokens: 10, outputTokens: 5, ...(costUsd !== undefined ? { costUsd } : {}) }, served });
@@ -285,4 +285,13 @@ test("Llm do v4: o aviso de indisponibilidade segue o idioma do bot (auditoria F
 		for await (const _ of llm.chat({ role: "main", messages: [{ role: "user", content: "x" }] })) void _;
 	})().catch((e: Error) => e);
 	assert.match((error as Error).message, /^The configured models are unavailable right now/);
+});
+
+test("nota de parada: vazia sem efeitos, no idioma do bot, e corta a lista longa (auditoria F1, T2)", () => {
+	assert.equal(stoppedEffectsNote([]), "");
+	assert.equal(stoppedEffectsNote([{ summary: "  " }]), "");
+	assert.equal(stoppedEffectsNote([{ summary: "Arquivo y.md criado" }]), "Parei como você pediu. O que já foi feito continua valendo: Arquivo y.md criado.");
+	assert.match(stoppedEffectsNote([{ summary: "a" }, { summary: "b" }], "es-ES"), /^Me detuve como pediste\. .*: a; b\.$/);
+	const many = Array.from({ length: 11 }, (_, i) => ({ summary: `r${i}` }));
+	assert.match(stoppedEffectsNote(many, "en-US"), /r7; \+3\.$/);
 });

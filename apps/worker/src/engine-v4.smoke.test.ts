@@ -140,3 +140,34 @@ test("(c) arquivo: create_file grava, emite recibo e a resposta fecha o run", as
 	assert.equal(out.text, "Criei o arquivo y.md.");
 	assert.ok(bubbles.some((b) => b.kind === "assistant" && b.text === "Criei o arquivo y.md."));
 });
+
+test("(d) parar no meio lista os recibos já emitidos e depois propaga o cancelamento (cláusula 12, auditoria F1, T2)", async () => {
+	const setup = setupPreset("minimal", { search: new FakeSearch(), files: new FakeFileStore() });
+	const mem = memoryDb();
+	const stored: Array<{ summary: string }> = [];
+	const baseAppend = mem.db.appendReceipt;
+	mem.db.appendReceipt = async (r) => {
+		stored.push(r as unknown as { summary: string });
+		return baseAppend(r);
+	};
+	mem.db.listReceipts = async () => stored as never;
+	const stop = new AbortController();
+	const llm = scripted([callTool("c1", "create_file", { name: "y.md", content: "# Y" })]);
+	// 2ª chamada ao modelo: o dono aperta "Parar" antes da resposta
+	const inner = llm.chat.bind(llm);
+	let calls = 0;
+	llm.chat = (request) => {
+		if (++calls === 2) stop.abort(new Error("parar"));
+		return inner(request);
+	};
+	const events: ComputerUseEvent[] = [];
+	const mapper = createSseMapper({ runId: "run-smoke", model: "fake/m-1" });
+	await assert.rejects(
+		runEngineV4({ runId: "run-smoke", userId: "user-a", objective: "cria y.md", language: "en-US", llm, lease: { owner: "w1", token: "t1" }, persistEvent: (e) => void events.push(e), mapEvent: (e) => mapper.mapRunEvent(e), limits: {}, ownerPresent: true, db: mem.db, registry: setup.registry, stableSystem: setup.stableSystem, signal: stop.signal }),
+	);
+	assert.equal(stored.length, 1, "o recibo do arquivo foi gravado antes do parar");
+	const note = events.find((e) => e.type === "status" && e.status === "stopped_with_effects") as { detail: string } | undefined;
+	assert.ok(note, "nota de parada com o que já foi feito");
+	assert.match(note.detail, /^I stopped as you asked\. What was already done stays in place: .*y\.md/);
+	assert.equal(events.filter((e) => e.type === "receipt").length, 1, "o cartão do recibo foi emitido ao vivo");
+});
