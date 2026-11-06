@@ -25,6 +25,7 @@ import type { Vault } from "../ports/vault.js";
 
 const SRC = join(dirname(fileURLToPath(import.meta.url)), "..");
 const AUTONOMIES = ["always_ask", "balanced", "autonomous"] as const;
+type AutonomyName = (typeof AUTONOMIES)[number];
 const HIGH_RISK: readonly Effect[] = ["send", "money", "public_link", "destructive", "write_external"];
 const hash = sha256;
 
@@ -102,18 +103,32 @@ describe("A. toda tool registrada declara efeito", () => {
 		expect(missing, `Tool(s) ${missing.join(", ")} existem no código mas não estão em allRegisteredTools() (guards/contract-invariants.test.ts). Registre-as para que o contrato de efeito seja conferido.`).toEqual([]);
 	});
 
-	it("o executor trata cada tool conforme o efeito: leitura sem journal, efeito com journal e recibo", async () => {
+	// Resultado esperado por efeito (literal, escrito a partir do contrato e não derivado do código): [1ª chamada, chamada com grant].
+	// A tool de prova NÃO devolve recibo, então todo efeito que sai de `read` termina em `contract_error` (efeito sem recibo nunca vira sucesso).
+	const EXPECTED_BY_EFFECT: Record<Effect, readonly [string, string]> = {
+		read: ["ok", "ok"],
+		draft: ["contract_error", "contract_error"],
+		write_internal: ["contract_error", "contract_error"],
+		write_external: ["contract_error", "contract_error"],
+		send: ["pending_approval", "contract_error"],
+		money: ["pending_approval", "contract_error"],
+		public_link: ["pending_approval", "contract_error"],
+		credential: ["pending_approval", "contract_error"],
+		destructive: ["pending_approval", "contract_error"],
+	};
+
+	it("o executor trata cada tool conforme o efeito: leitura sem journal, efeito com journal e sem sucesso sem recibo (auditoria F1, T5)", async () => {
+		expect(Object.keys(EXPECTED_BY_EFFECT).sort()).toEqual([...EFFECT_CLASSES].sort());
 		for (const effect of EFFECT_CLASSES) {
 			const tool = defineTool({ name: "probe", description: "p", inputSchema: z.object({}), effect, execute: () => ({ ok: true, summary: "ok" }) });
 			const fake = fakePorts();
 			const policy: PolicyContext = { surface: "chat", ownerPresent: true, autonomy: "autonomous", rules: [] };
 			const executor = createExecutor({ runId: "r", ownerId: "o", ports: fake.ports, hash, policy });
-			// Efeito sem recibo nunca vira sucesso: o executor acusa a tool, mesmo com grant.
-			let outcome = await executor.executeCall({ callId: "c1", step: 0, tool, args: {} });
-			if (outcome.status === "pending_approval") outcome = await executor.executeCall({ callId: "c1", step: 0, tool, args: {}, grant: grantApproval(outcome.request, fake.clock.now()) });
-			if (effect === "read") expect(outcome.status).toBe("ok");
-			else expect(["contract_error", "handoff", "not_available"]).toContain(outcome.status);
-			if (effect === "read") expect(fake.journal.entries).toHaveLength(0);
+			const first = await executor.executeCall({ callId: "c1", step: 0, tool, args: {} });
+			const final = first.status === "pending_approval" ? await executor.executeCall({ callId: "c1", step: 0, tool, args: {}, grant: grantApproval(first.request, fake.clock.now()) }) : first;
+			expect([first.status, final.status], effect).toEqual(EXPECTED_BY_EFFECT[effect]);
+			if (effect === "read") expect(fake.journal.entries, effect).toHaveLength(0);
+			else expect(fake.journal.entries.length, effect).toBeGreaterThan(0);
 		}
 	});
 });
@@ -217,6 +232,62 @@ describe("B. sem grant válido, efeito de alto risco não executa quando decide 
 		expect(seen.approve).toBeGreaterThan(50);
 		expect(seen.run).toBeGreaterThan(0);
 		expect(seen.hidden).toBeGreaterThan(0);
+	});
+
+	// Paridade entre superfícies (cláusula 16), com a tabela ESCRITA À MÃO a partir do contrato (06): não usa `decide` para
+	// montar a expectativa, então uma regressão em `decide` não se aprova sozinha. Dono presente, sem taint.
+	type V = "approve" | "hidden" | "run";
+	const OWNER_SURFACES = ["chat", "api"] as const;
+	const NO_OWNER = ["agenda", "routine", "subagent", "bot_to_bot"] as const;
+	const critical = (owner: V, noOwner: V): Record<(typeof SURFACES)[number], V> => ({ chat: owner, api: owner, agenda: noOwner, routine: noOwner, subagent: noOwner, bot_to_bot: noOwner });
+	const PARITY: Record<Effect, Record<AutonomyName, Record<(typeof SURFACES)[number], V>>> = {
+		read: { always_ask: critical("run", "run"), balanced: critical("run", "run"), autonomous: critical("run", "run") },
+		draft: { always_ask: critical("run", "run"), balanced: critical("run", "run"), autonomous: critical("run", "run") },
+		write_internal: { always_ask: critical("approve", "approve"), balanced: critical("run", "run"), autonomous: critical("run", "run") },
+		write_external: { always_ask: critical("approve", "hidden"), balanced: critical("approve", "hidden"), autonomous: critical("run", "hidden") },
+		send: { always_ask: critical("approve", "hidden"), balanced: critical("approve", "hidden"), autonomous: critical("approve", "hidden") },
+		money: { always_ask: critical("approve", "hidden"), balanced: critical("approve", "hidden"), autonomous: critical("approve", "hidden") },
+		public_link: { always_ask: critical("approve", "hidden"), balanced: critical("approve", "hidden"), autonomous: critical("approve", "hidden") },
+		credential: { always_ask: critical("approve", "hidden"), balanced: critical("approve", "hidden"), autonomous: critical("approve", "hidden") },
+		destructive: { always_ask: critical("approve", "hidden"), balanced: critical("approve", "hidden"), autonomous: critical("approve", "hidden") },
+	};
+	const STATUS_OF: Record<V, string> = { approve: "pending_approval", hidden: "not_available", run: "ok" };
+
+	it("paridade de superfícies: a tabela literal vale para `decide` e para o executor (auditoria F1, T6)", async () => {
+		expect([...OWNER_SURFACES, ...NO_OWNER].sort()).toEqual([...SURFACES].sort());
+		let checked = 0;
+		for (const effect of EFFECT_CLASSES) {
+			for (const autonomy of AUTONOMIES) {
+				for (const surface of SURFACES) {
+					const want = PARITY[effect][autonomy][surface];
+					const policy: PolicyContext = { surface, ownerPresent: true, autonomy, rules: [] };
+					const label = JSON.stringify({ effect, autonomy, surface });
+					expect(verdictFor(effect, policy, false).kind, label).toBe(want);
+					const counter: Counter = { runs: 0 };
+					const out = await executorFor(policy, false).executor.executeCall({ callId: "c1", step: 0, tool: probeTool(effect, counter), args: {} });
+					expect(out.status, label).toBe(STATUS_OF[want]);
+					expect(counter.runs, label).toBe(want === "run" ? 1 : 0);
+					checked++;
+				}
+			}
+		}
+		expect(checked).toBe(EFFECT_CLASSES.length * AUTONOMIES.length * SURFACES.length);
+	});
+
+	it("paridade com taint e sem dono: leitura não confiável tira o 'run' de envio/escrita externa/link; dono ausente esconde o que é só do dono (auditoria F1, T6)", async () => {
+		const taintedExpect: Partial<Record<Effect, V>> = { write_external: "approve", send: "approve", public_link: "approve", write_internal: "run", read: "run" };
+		for (const [effect, want] of Object.entries(taintedExpect) as Array<[Effect, V]>) {
+			for (const surface of OWNER_SURFACES) {
+				const policy: PolicyContext = { surface, ownerPresent: true, autonomy: "autonomous", rules: [] };
+				expect(verdictFor(effect, policy, true).kind, `${effect}/${surface}`).toBe(want);
+			}
+		}
+		for (const effect of ["send", "money", "public_link", "credential", "destructive", "write_external"] as const) {
+			for (const surface of OWNER_SURFACES) {
+				const policy: PolicyContext = { surface, ownerPresent: false, autonomy: "autonomous", rules: [] };
+				expect(verdictFor(effect, policy, false).kind, `${effect}/${surface}`).toBe("hidden");
+			}
+		}
 	});
 
 	it("regra do dono 'run' nunca solta send/money/public_link/destructive", async () => {
