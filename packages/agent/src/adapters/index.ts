@@ -5,3 +5,4 @@ export * from "./queue.js";
 export * from "./random.js";
 export * from "./store.js";
 export * from "./vault.js";
+export * from "./web.js";
