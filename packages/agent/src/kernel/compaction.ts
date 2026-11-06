@@ -81,7 +81,7 @@ export async function compactContext(env: CompactEnv): Promise<{ noteId: string;
 		summary = `(No summary was written: ${summaryFailed}. The full material is in the work notes above.)`;
 	}
 
-	const errors = Object.entries(snap.lastErrors).map(([tool, e]) => `- ${tool}: ${e}`);
+	const errors = Object.entries(snap.lastErrors).map(([tool, e]) => `- ${tool}: ${escapeReserved(e)}`);
 	const body = [
 		"Earlier context was compacted because the model window was almost full. Nothing was deleted: the full material is saved in work notes.",
 		`Work notes (read with ${NOTE_READ_TOOL}(id, offset)): ${snap.compacted.noteIds.join(", ")}`,
