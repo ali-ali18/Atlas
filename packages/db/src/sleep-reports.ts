@@ -78,7 +78,7 @@ export async function finishSleepReport(input: { userId: string; id: string; sta
 			status: input.status,
 			detail: input.detail ?? null,
 			summary: input.summary ?? null,
-			proposalsJson: (input.proposals ?? []) as unknown as Prisma.InputJsonValue,
+			proposalsJson: [...(input.proposals ?? [])],
 			statsJson: (input.stats ?? {}) as Prisma.InputJsonValue,
 			...(input.windowEnd && { windowEnd: input.windowEnd }),
 			finishedAt: input.now ?? new Date(),
@@ -132,7 +132,7 @@ export async function dismissSleepProposal(input: { userId: string; reportId: st
 		const proposals = readStoredProposals(row.proposalsJson);
 		if (!proposals.some((proposal) => proposal.id === input.proposalId)) return null;
 		const next = proposals.map((proposal) => (proposal.id === input.proposalId ? { ...proposal, status: "dismissed" as const } : proposal));
-		const updated = await tx.sleepReport.update({ where: { id: row.id }, data: { proposalsJson: next as unknown as Prisma.InputJsonValue } });
+		const updated = await tx.sleepReport.update({ where: { id: row.id }, data: { proposalsJson: next } });
 		return toSleepReport(updated);
 	});
 }
