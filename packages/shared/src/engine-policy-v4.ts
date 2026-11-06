@@ -29,9 +29,11 @@ export function isEngineV4Enabled(gate: EngineV4Gate | undefined, userId: string
 }
 
 /**
- * Origens que o v4 atende hoje: só a conversa direta do dono (chat, fora de grupo). Rotina, bot→bot, proativo, webhook,
- * e-mail, grupo e subagente seguem no motor de antes até o v4 cobri-los.
+ * Origens que o v4 atende hoje: a conversa direta do dono (chat, fora de grupo) e o run ACORDADO PELA AGENDA do v4 (F4.3:
+ * origem `proactive` com um item da agenda ligado ao run, sinal estrutural vindo do banco). Rotina, bot→bot, proativo
+ * comum, webhook, e-mail, grupo e subagente seguem no motor de antes até o v4 cobri-los.
  */
-export function engineV4SupportsRun(input: { origin: string; isGroupRun: boolean; isSubagent?: boolean }): boolean {
-	return input.origin === "chat" && !input.isGroupRun && input.isSubagent !== true;
+export function engineV4SupportsRun(input: { origin: string; isGroupRun: boolean; isSubagent?: boolean; agenda?: boolean }): boolean {
+	if (input.isGroupRun || input.isSubagent === true) return false;
+	return input.origin === "chat" || (input.origin === "proactive" && input.agenda === true);
 }
