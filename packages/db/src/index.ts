@@ -1,4 +1,5 @@
 export { prisma } from "./client.js";
+export * from "./agent-v4-store.js";
 export * from "./message-reactions.js";
 export * from "./message-run-context.js";
 export * from "./reaction-only.js";

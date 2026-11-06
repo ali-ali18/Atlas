@@ -358,6 +358,9 @@ importers:
 
   apps/worker:
     dependencies:
+      '@workspace/agent':
+        specifier: workspace:*
+        version: link:../../packages/agent
       '@workspace/agent-runtime':
         specifier: workspace:*
         version: link:../../packages/agent-runtime
@@ -404,6 +407,31 @@ importers:
       typescript:
         specifier: ^5
         version: 5.9.3
+
+  packages/agent:
+    dependencies:
+      '@workspace/llm':
+        specifier: workspace:*
+        version: link:../llm
+      '@workspace/shared':
+        specifier: workspace:*
+        version: link:../shared
+      zod:
+        specifier: ^4.4.3
+        version: 4.6.5
+    devDependencies:
+      '@types/node':
+        specifier: ^20.19.41
+        version: 20.19.41
+      '@workspace/typescript-config':
+        specifier: workspace:*
+        version: link:../typescript-config
+      typescript:
+        specifier: ^5
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.12
+        version: 4.1.12(@opentelemetry/api@1.9.1)(@types/node@20.19.41)(vite@7.3.7(@types/node@20.19.41)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.51.2)(tsx@4.23.13)(yaml@2.6.0))
 
   packages/agent-runtime:
     dependencies:
@@ -556,6 +584,9 @@ importers:
 
   packages/evals:
     dependencies:
+      '@workspace/agent':
+        specifier: workspace:*
+        version: link:../agent
       '@workspace/agent-runtime':
         specifier: workspace:*
         version: link:../agent-runtime

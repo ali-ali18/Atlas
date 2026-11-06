@@ -140,7 +140,10 @@ import {
 	resolveBudget,
 	wallClockAnchors,
 } from "@workspace/agent-runtime";
-import { earlyWallMs, engineDefaultFromEnv, pickRunEngine, resolveRunLimits, runSelectedEngine } from "../engine-choice.js";
+import { cheapModelFromEnv, createV4Llm, dropProcessorOwnedEvents, ownerStepsLimit, runEngineV4, vaultBackendFromService } from "../engine-v4.js";
+import { earlyWallMs, engineDefaultFromEnv, engineV4GateFromEnv, pickRunEngine, resolveRunLimits, runSelectedEngine } from "../engine-choice.js";
+import { getVaultService, type RunComputerUseResult } from "@workspace/agent-runtime";
+import { createSseMapper, type BullLikeQueue } from "@workspace/agent";
 import { isReadOnlyConnectorOrigin, budgetStopFallbackText, isBotConfigEventObjective, createReviewerClient, resolveMaintenanceCandidates } from "@workspace/agent-runtime";
 import { runToolFilter } from "../run-tool-filter.js";
 import { briefDeliveryDeps, deliverBriefFailure, deliverDailyBrief, findRoutineRunIdWithRetry, isDetachedBriefRun } from "../daily-brief.js";
@@ -260,6 +263,8 @@ export type AgentRunProcessorDeps = {
 	/** Revisão de skill após tarefa complexa e bem-sucedida (um job por run). */
 	enqueueSkillReview?: (payload: SkillReviewJobPayload) => Promise<void>;
 	enqueueNextRun?: (runId: string, options?: { delayMs?: number }) => Promise<boolean>;
+	/** Fila do motor v4 (só criada com `ATLAS_ENGINE_V4` ligada). */
+	v4Queue?: BullLikeQueue;
 	/** Teste: troca a ligação da retomada automática com banco e fila. */
 	autoContinueIo?: AutoContinueIo;
 	extendLock?: () => Promise<void>;
@@ -1175,6 +1180,9 @@ async function executeLeasedRun(ctx: {
 		// Brief e lembrete `check` pedem mais fôlego que o chat (no v1 não têm teto de custo): piso de orçamento, sem trabalho longo.
 		longerShortRun: isDetachedBriefRun(run) || isFollowupCheckObjective(run.origin, run.objective),
 		globalDefault: engineDefaultFromEnv(),
+		// Motor v4: só com `ATLAS_ENGINE_V4` ligada e a conta em `ATLAS_ENGINE_V4_ACCOUNTS`; desligado, tudo como antes.
+		userId: runUserId,
+		v4Gate: engineV4GateFromEnv(),
 		record: (choice) => recordRunEngine(runId, choice),
 	});
 	// Trabalho longo no v2 com orçamento gravado no bot: o dono do bot vale mais que o teto por execução da conta.
@@ -1201,7 +1209,7 @@ async function executeLeasedRun(ctx: {
 	// Melhor esforço: falhar em gravar o teto nunca derruba o run.
 	// Teto de passos: pedido > bot > conta; sem nenhum, é o limite de segurança (sem origem, o texto não diz "que você configurou").
 	const stepsCap = effectiveStepsCap({
-		engine: engineChoice.engine,
+		engine: engineChoice.engine === "v4" ? "v1" : engineChoice.engine,
 		hardMaxSteps: budget.hardMaxSteps,
 		source: stepsSourceOf({ request: requestBudget.hardMaxSteps, bot: botPolicy.hardMaxSteps, account: accountBudgetPolicy(configSnapshot, run.maxSteps).hardMaxSteps }),
 	});
@@ -1219,8 +1227,33 @@ async function executeLeasedRun(ctx: {
 	const planSeeded = Boolean(!checkpoint?.llmMessages?.length && checkpoint?.transcriptSeed?.taskList?.length);
 	const v2 = engineChoice.engine === "v2";
 	const seedTaskList = v2 && !planSeeded && autoContinueAttempt === 0 ? undefined : priorTaskList;
+	// Motor v4 (atrás de flag): mesmo contrato de saída do v1/v2; conclusão, eventos e lease seguem neste processador.
+	const runV4 = async (): Promise<RunComputerUseResult> => {
+		const out = await runEngineV4({
+			runId,
+			userId: runUserId,
+			conversationId: run.conversationId,
+			objective: run.objective ?? "",
+			language: systemLanguage,
+			llm: createV4Llm({ model: run.model, streamChat: providers.streamChat, openRouterKey: apiKey, language: systemLanguage, cheapModel: cheapModelFromEnv(), contextWindow: (modelId) => providers.capabilities(modelId).then((caps) => caps.contextTokens, () => null) }),
+			lease,
+			persistEvent: emit,
+			// O fim do stream (done/error/cancelled/teto de passos) é do processador, uma vez: o mapa do kernel não o repete.
+			mapEvent: dropProcessorOwnedEvents(((mapper) => (event) => mapper.mapRunEvent(event))(createSseMapper({ runId, model: run.model, language: systemLanguage }))),
+			// Teto de passos do dono (pedido > bot > conta) só quando tem origem; sem ele vale o de segurança do kernel. Tetos de gasto
+			// por período (dia/semana/mês) da conta/bot ainda não existem na configuração do worker: só o teto por execução vale.
+			limits: { ...(effectiveCostCap !== undefined ? { ownerMaxUsd: effectiveCostCap } : {}), ...(ownerStepsLimit(stepsCap) !== undefined ? { ownerMaxSteps: ownerStepsLimit(stepsCap)! } : {}), unattended: !(run.origin === "chat" && readRunHumanTurn(run)) },
+			ownerPresent: run.origin === "chat" && readRunHumanTurn(run),
+			signal: aborter.signal,
+			vault: vaultBackendFromService(getVaultService()),
+			...(deps.v4Queue ? { queue: deps.v4Queue } : {}),
+		});
+		// Estacionado: o processador fecha o stream com `paused` (motivo `awaiting_owner`) e solta o lease; a retomada recarrega o checkpoint v4.
+		if (out.parked) throw new AgentRunPausedError("awaiting_owner");
+		return { text: out.text, model: out.model, hitWall: out.hitWall, usage: out.usage, stop: out.stop };
+	};
 	try {
-		const result = await runSelectedEngine({ ...engineChoice, modelMaxOutputTokens: (modelId) => providers.capabilities(modelId).then((caps) => caps.maxOutputTokens, () => null) }, {
+		const result = engineChoice.engine === "v4" ? await runV4() : await runSelectedEngine({ ...engineChoice, modelMaxOutputTokens: (modelId) => providers.capabilities(modelId).then((caps) => caps.maxOutputTokens, () => null) }, {
 			messageTriageModel,
 			onAwayNote: createAwayNoteHandler({
 				userId: runUserId,

@@ -431,3 +431,38 @@ test("teto de passos: a origem só existe quando o dono configurou; acima do lim
 	assert.deepEqual(effectiveStepsCap({ engine: "v1", hardMaxSteps: 300, source: "account" }), { steps: 300, stepsSource: "account" });
 	assert.deepEqual(runCapsOf({ costCapUsd: undefined, wallMs: undefined, sources: {}, stepsCap: { steps: 80, stepsSource: "bot" } }), { steps: 80, stepsSource: "bot" });
 });
+
+test("motor v4: só com a flag ligada e a conta na lista; fora disso a decisão e o que é gravado são os de antes", async () => {
+	const { readEngineV4Gate } = await import("@workspace/shared");
+	const { engineV4GateFromEnv } = await import("./engine-choice.js");
+	assert.deepEqual(engineV4GateFromEnv({}), { enabled: false, accounts: [] });
+	assert.deepEqual(engineV4GateFromEnv({ ATLAS_ENGINE_V4: "1", ATLAS_ENGINE_V4_ACCOUNTS: "u1,u2" }), { enabled: true, accounts: ["u1", "u2"] });
+	assert.deepEqual(engineV4GateFromEnv({ ATLAS_ENGINE_V4_ACCOUNTS: "u1" }), { enabled: false, accounts: ["u1"] });
+
+	const on = readEngineV4Gate("true", "u1");
+	for (const gate of [undefined, readEngineV4Gate("false", "u1"), readEngineV4Gate("true", "outra"), readEngineV4Gate("true", "")]) {
+		const recorded: Array<{ engine: string; profile: string }> = [];
+		const choice = await pickRunEngine({ run: { origin: "chat", budgetJson: null }, policyJson: null, isGroupRun: false, hasCheckpoint: false, userId: "u1", v4Gate: gate, record: async (c) => (recorded.push(c), c.engine) });
+		assert.equal(choice.engine, "v2");
+		assert.deepEqual(recorded, [{ engine: "v2", profile: "chat" }]);
+	}
+
+	const recorded: Array<{ engine: string; profile: string }> = [];
+	const v4 = await pickRunEngine({ run: { origin: "chat", budgetJson: null }, policyJson: null, isGroupRun: false, hasCheckpoint: false, userId: "u1", v4Gate: on, record: async (c) => (recorded.push(c), c.engine) });
+	assert.deepEqual(v4, { engine: "v4", profile: "chat" });
+	assert.deepEqual(recorded, [{ engine: "v4", profile: "chat" }]);
+
+	// Não conseguiu gravar a escolha: o run fica no v1 (a retomada não pode trocar de motor).
+	const notRecorded = await pickRunEngine({ run: { origin: "chat", budgetJson: null }, policyJson: null, isGroupRun: false, hasCheckpoint: false, userId: "u1", v4Gate: on, record: async () => null });
+	assert.equal(notRecorded.engine, "v1");
+
+	// Retomada: v4 gravado segue no v4 com a flag; com a flag desligada recomeça no motor padrão do bot (v2), sem gravar de novo.
+	const resumed = setup({ budgetJson: { engine: "v4" } });
+	assert.equal((await pickRunEngine({ run: { origin: "chat", budgetJson: { engine: "v4" } }, policyJson: null, isGroupRun: false, hasCheckpoint: true, userId: "u1", v4Gate: on, record: async () => "v4" })).engine, "v4");
+	assert.equal((await pickRunEngine({ run: { origin: "chat", budgetJson: { engine: "v4" } }, policyJson: null, isGroupRun: false, hasCheckpoint: true, userId: "u1", record: async () => "v4" })).engine, "v2");
+	assert.deepEqual(resumed.recorded, []);
+
+	// runSelectedEngine nunca executa o v4 por engano (cairia no v1).
+	const { runSelectedEngine } = await import("./engine-choice.js");
+	await assert.rejects(runSelectedEngine({ engine: "v4", profile: "chat" }, {} as never), /runEngineV4/);
+});

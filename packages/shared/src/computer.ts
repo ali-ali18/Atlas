@@ -15,6 +15,7 @@ import type { BotProposalEvent } from "./bot-proposal.js";
 import type { LoginConnector } from "./login-connector.js";
 import type { LoginVaultOffer } from "./login-wall.js";
 import type { AgentPointerEvent } from "./agent-pointer.js";
+import type { AgentV4Event } from "./agent-v4-events.js";
 import type { ContextCompactedEvent, ContextUsageEvent, DevSessionEvent, DevTimingEvent } from "./dev-session.js";
 
 /**
@@ -76,6 +77,8 @@ export type ComputerUseEvent =
 	 */
 	| { type: "assistant_discard"; id?: string; reason?: DraftRevisionReason }
 	| AgentPointerEvent
+	/** Eventos do motor v4 sem equivalente antigo (aprovação, handoff, pergunta ao dono, recibo). Cliente antigo ignora. */
+	| AgentV4Event
 	| DevSessionEvent
 	| ContextCompactedEvent
 	| ContextUsageEvent

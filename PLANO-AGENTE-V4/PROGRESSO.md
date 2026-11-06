@@ -37,7 +37,8 @@
 ## Fase atual
 | Fase | Branch | Status | PR |
 |---|---|---|---|
-| F0 baseline | `feat/harness-v4-f0-baseline` | em andamento | — |
+| F0 baseline | `feat/harness-v4-f0-baseline` | **concluída, juntada em `harness/v4`** | #150 |
+| F1 fundação | `feat/harness-v4-f1-fundacao` | em andamento (começou em paralelo ao fim da F0) | — |
 
 ## Decisões do dono (não reabrir)
 - Base nova, do zero, em `packages/agent`, sem import do legado (05/11).
@@ -69,22 +70,22 @@
 - [x] F0.6 (05/11; placar corrigido em `docs/ops/v4-baseline.md`) Corrigir os 4 defeitos do eval listados em `docs/ops/v4-baseline.md` (cenários 11, 22 e 23, `skill_read` no ambiente) e rodar de novo só os afetados.
 
 ### F1: Fundação
-- [ ] F1.1 Pacote `packages/agent` com `ports/`, `adapters/` e guarda de fronteira (sem `@workspace/agent-runtime`), README do motor e varredura que falha com segredo ou dado pessoal no código.
-- [ ] F1.2 `defineTool` (efeito obrigatório) e `defineCapability` (registro, índice, `use_capability`).
-- [ ] F1.3 `decide()` puro em shared: 3 estados, `HANDOFF_ACTIONS`, mandatos, matriz superfície × efeito.
-- [ ] F1.4 Token de aprovação por hash dos argumentos e `riskFacts`.
-- [ ] F1.5 Proveniência (taint) e a regra da trifeta.
-- [ ] F1.6 `Receipt` tipado e journal de efeitos.
-- [ ] F1.7 Canais: nonce, `<data trust>` e escape.
-- [ ] F1.8 Kernel: estados, checkpoint, compactação em 3 passos, limites do dono, passo final honesto.
-- [ ] F1.8b Sem corte por economia: compactação só por janela cheia e restaurável, leitura em partes, nenhum teto padrão de pesquisa (decisão do dono, 05/11).
-- [ ] F1.9 Ciclo de vida da tarefa: sem herança entre runs, oferta por cartão com estado, `declinedOffers`, replays de insistência.
-- [ ] F1.10 Porta `Llm`: papéis, cadeia de reserva (`pickModelFor`), troca no meio do run, tetos opcionais, aviso ao dono.
-- [ ] F1.11 Contrato de trabalho (prompt), com teste de string por seção.
-- [ ] F1.12 Eventos compatíveis com o contrato SSE e `chooseRunEngine` → `runAgent` atrás da flag.
-- [ ] F1.13 Guardas permanentes: sem regex de comportamento, catraca da ponte, invariantes do contrato, economia.
-- [ ] F1.14 Teste de fumaça ponta a ponta no worker com preset `minimal`.
-- [ ] F1.A Auditoria: 5 lentes, verificação, correções com teste, reauditoria e `auditorias/F1.md` fechado.
+- [x] F1.1 (05/11, Sonnet escreveu, Opus revisou; nota: a porta `Llm` ainda só leva texto — imagem para o papel `vision` entra na F1.10) Pacote `packages/agent` com `ports/`, `adapters/` e guarda de fronteira (sem `@workspace/agent-runtime`), README do motor e varredura que falha com segredo ou dado pessoal no código.
+- [x] F1.2 (05/11, Sonnet escreveu, Opus revisou) `defineTool` (efeito obrigatório) e `defineCapability` (registro, índice, `use_capability`).
+- [x] F1.3 (05/11, Sonnet escreveu, Opus revisou; taint anula mandato, subagente sem envio/dinheiro, `balanced` = escrita externa pede aprovação) `decide()` puro em shared: 3 estados, `HANDOFF_ACTIONS`, mandatos, matriz superfície × efeito.
+- [x] F1.4 (05/11) Token de aprovação por hash dos argumentos e `riskFacts`.
+- [x] F1.5 (05/11) Proveniência (taint) e a regra da trifeta.
+- [x] F1.6 (05/11) `Receipt` tipado e journal de efeitos.
+- [x] F1.7 (05/11) Canais: nonce, `<data trust>` e escape.
+- [x] F1.8 Kernel (notas da revisão: persistir e restaurar `RunProvenance.snapshot()` no checkpoint, senão a retomada perde o taint; o `[context]` é o 2º `system` e o adaptador funde se o provedor aceitar só um): estados, checkpoint, compactação em 3 passos, limites do dono, passo final honesto.
+- [x] F1.8b Sem corte por economia: compactação só por janela cheia e restaurável, leitura em partes, nenhum teto padrão de pesquisa (decisão do dono, 05/11).
+- [x] F1.9 Ciclo de vida da tarefa: sem herança entre runs, oferta por cartão com estado, `declinedOffers`, replays de insistência.
+- [x] F1.10 Porta `Llm` (notas da revisão: imagem para o papel `vision`; adaptador da porta `Random` com CSPRNG; TTL opcional no `ApprovalGrant`): papéis, cadeia de reserva (`pickModelFor`), troca no meio do run, tetos opcionais, aviso ao dono.
+- [x] F1.11 Contrato de trabalho (nota da revisão: os textos ao usuário do executor, `userMessage` de handoff e de indisponível, hoje estão fixos em pt-BR; passam a sair no idioma do bot por um módulo de copy) (prompt), com teste de string por seção.
+- [x] F1.12 (06/11; histórico com assistente, cofre na redação, eventos no contrato SSE, tabelas novas por acréscimo, adaptadores reais, motor v4 atrás de flag por conta e desligado por padrão. Pendências antes de ligar para o dono: cartão de aprovação do v4 no app e a retomada com o clique (grants), histórico da conversa no run, registro de capacidades vazio até a F2, saúde de provedor em Redis, consumidor da fila `atlas-agent-v4`)
+- [x] F1.13 (05/11; achou e corrigiu vazamento de segredo no recibo devolvido ao laço; pendente: kernel passar ao executor os valores resolvidos do cofre, ver `it.todo`) Guardas permanentes: sem regex de comportamento, catraca da ponte, invariantes do contrato, economia.
+- [x] F1.14 (06/11: bom dia, pesquisa e arquivo pelo worker de verdade com fakes, presets minimal e full, v4 na matriz de evals; ligar o preset e as portas reais de busca e arquivo ao processador fica para a F2) Teste de fumaça ponta a ponta no worker com preset `minimal`.
+- [x] F1.A (06/11: ~50 achados, nenhum crítico; altos corrigidos; reauditoria com 7 novos, 4 corrigidos) Auditoria: 5 lentes, verificação, correções com teste, reauditoria e `auditorias/F1.md` fechado.
 
 ### F2: Capacidades do núcleo
 - [ ] F2.1 `web` (busca e extração).
@@ -148,6 +149,13 @@
 
 ## Diário de passagem
 > A entrada mais nova fica no topo. Formato: data · conta ou sessão · fase · feito · pela metade · próximo passo · como verificar · dúvidas.
+
+- **06/11/2026 · sessão principal · F1**
+  - **Feito:** F0 juntada em `harness/v4` (#150). F1.1 a F1.13 prontos em `feat/harness-v4-f1-fundacao`.
+    - Testes: agent 261, shared 2.734, worker 539, `turbo typecheck` 17/17.
+    - O motor v4 está atrás de `ATLAS_ENGINE_V4` + `ATLAS_ENGINE_V4_ACCOUNTS` e desligado por padrão.
+    - Com a flag desligada, um run v4 recomeça no motor padrão do bot.
+  - **Próximo passo:** F1.14, o teste de fumaça ponta a ponta, e depois a auditoria F1.A.
 
 - **05/11/2026 · sessão principal · F0 (5)**
   - **Feito:** linha de base do conjunto genérico. O Haiku cai de 75% no ouro para 56% no genérico, o que confirma o vício do v2 no uso do dono. Resumo de e-mail e plano do dia falham em todos os modelos.

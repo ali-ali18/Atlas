@@ -11,6 +11,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@workspace/agent": "workspace:*",
     "@workspace/agent-runtime": "workspace:*",
     "@workspace/llm": "workspace:*",
     "@workspace/shared": "workspace:*",

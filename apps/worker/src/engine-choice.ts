@@ -13,12 +13,14 @@ import { runComputerUse, runEngineV2, type ComputerUseParams, type RunComputerUs
 import {
 	chooseRunEngine,
 	readEngineDefault,
+	readEngineV4Gate,
 	readEnginePolicy,
 	readHelperPolicy,
 	readRunEngine,
 	readRunProfile,
 	resolveRunProfile,
 	type EngineDefault,
+	type EngineV4Gate,
 	type RunEngine,
 	type RunConfigSnapshot,
 	type RunProfile,
@@ -27,6 +29,14 @@ import {
 /** Padrão do deploy (`all` sem a variável). Única leitura do env: aqui, na borda do worker (a decisão é pura, em `shared`). */
 export function engineDefaultFromEnv(env: Record<string, string | undefined> = process.env): EngineDefault {
 	return readEngineDefault(env.ATLAS_ENGINE_V2_DEFAULT);
+}
+
+/**
+ * Flag do motor v4 (`ATLAS_ENGINE_V4` + `ATLAS_ENGINE_V4_ACCOUNTS`, lista de ids de usuário). Desligada por padrão: sem as
+ * variáveis nenhum run vai ao v4 e a decisão é a de antes. Leitura do env só aqui; a decisão é pura, em `shared`.
+ */
+export function engineV4GateFromEnv(env: Record<string, string | undefined> = process.env): EngineV4Gate {
+	return readEngineV4Gate(env.ATLAS_ENGINE_V4, env.ATLAS_ENGINE_V4_ACCOUNTS);
 }
 
 export type EngineChoice = {
@@ -91,12 +101,15 @@ export async function pickRunEngine(input: {
 	longerShortRun?: boolean;
 	/** Padrão do deploy (`engineDefaultFromEnv()`); ausente = o padrão novo (`all`). */
 	globalDefault?: EngineDefault;
+	/** Dono do run e a flag do v4 (`engineV4GateFromEnv()`); sem eles o v4 não é possível e a decisão é a de antes. */
+	userId?: string;
+	v4Gate?: EngineV4Gate;
 	/** Grava a escolha no run de forma atômica e devolve o motor que ficou valendo (o gravado agora ou o que já estava). */
 	record: (choice: { engine: RunEngine; profile: RunProfile }) => Promise<RunEngine | null>;
 }): Promise<EngineChoice> {
 	const policy = readEnginePolicy(input.policyJson);
 	const stored = readRunEngine(input.run.budgetJson) ?? (input.hasCheckpoint ? "v1" : undefined);
-	const engine = !stored && input.forceV1 ? "v1" : chooseRunEngine({ stored, policy, origin: input.run.origin, isGroupRun: input.isGroupRun, globalDefault: input.globalDefault });
+	const engine = !stored && input.forceV1 ? "v1" : chooseRunEngine({ stored, policy, origin: input.run.origin, isGroupRun: input.isGroupRun, globalDefault: input.globalDefault, userId: input.userId, v4Gate: input.v4Gate });
 	if (engine === "v1") return { engine, profile: "chat" };
 	const profile =
 		readRunProfile(input.run.budgetJson) ?? (input.shortRun ? "chat" : resolveRunProfile({ policy }));
@@ -106,8 +119,10 @@ export async function pickRunEngine(input: {
 			console.error("record run engine failed; running on v1", error);
 			return null;
 		});
-		if (recorded !== "v2") return { engine: "v1", profile: "chat" };
+		if (recorded !== engine) return { engine: "v1", profile: "chat" };
 	}
+	// O v4 tem os próprios limites e não usa perfil, trabalho longo nem ajudantes do v2.
+	if (engine === "v4") return { engine, profile: "chat" };
 	const helpers = readHelperPolicy(input.policyJson);
 	const budgetFloor = input.longerShortRun ? { minutes: policy.longWorkMinutesExplicit ? Math.max(policy.longWorkMinutes, V1_SHORT_RUN_WALL_MINUTES) : V1_SHORT_RUN_WALL_MINUTES } : undefined;
 	// `longWorkMinutes` só segue adiante se o dono preencheu: sem isso o trabalho longo não tem teto de tempo.
@@ -173,6 +188,8 @@ export function runSelectedEngine(
 	params: ComputerUseParams,
 	promotion: { canPromote: boolean; onPromoted?: () => void | Promise<void>; capSources?: { cost?: "account" | "server" | "bot"; wall?: "account" | "bot"; steps?: "account" | "bot" | "request" } } = { canPromote: false },
 ): Promise<RunComputerUseResult> {
+	// O v4 não passa por aqui: o processador chama `runEngineV4` (engine-v4.ts) antes. Cair aqui seria rodar o v1 por engano.
+	if (choice.engine === "v4") return Promise.reject(new Error("runSelectedEngine não executa o motor v4; use runEngineV4."));
 	if (choice.engine === "v2") {
 		return runEngineV2(params, {
 			promotable: promotion.canPromote,

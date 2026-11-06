@@ -142,6 +142,17 @@ export type {
 	SkillListItemData,
 } from "./computer.js";
 export {
+	AGENT_V4_EVENT_TYPES,
+	AGENT_V4_TEXT_MAX,
+	isAgentV4EventType,
+	parseAgentV4Event,
+	type AgentV4Event,
+	type ApprovalRequestEvent,
+	type AskOwnerEvent,
+	type HandoffRequestEvent,
+	type ReceiptEvent,
+} from "./agent-v4-events.js";
+export {
 	AGENT_POINTER_NAME_MAX,
 	type AgentPointerAction,
 	type AgentPointerEvent,
@@ -1009,6 +1020,7 @@ export {
 export * from "./run-stop-reason.js";
 export * from "./run-failure-class.js";
 export * from "./engine-policy.js";
+export * from "./engine-policy-v4.js";
 export * from "./reasoning-effort.js";
 export * from "./engine-helpers.js";
 export * from "./engine-settings.js";
@@ -1018,3 +1030,5 @@ export * from "./agent-activity.js";
 export * from "./avatar-activity.js";
 export * from "./avatar-governor.js";
 export * from "./vtt.js";
+export * from "./agent-policy/index.js";
+export * from "./model-roles/index.js";
