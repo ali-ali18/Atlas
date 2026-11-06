@@ -261,7 +261,12 @@ export async function getAgentConversationState(userId: string, conversationId: 
 	};
 }
 
-/** Substitui o estado da conversa (ofertas e rótulos declinados) numa transação, só dentro do escopo do dono. */
+/**
+ * Substitui o estado da conversa (ofertas e rótulos declinados) numa transação serializada por conversa (lock
+ * consultivo): duas gravações simultâneas não se intercalam. Os rótulos declinados NÃO são apagados e recriados: cada
+ * um é `upsert` (o que já existe mantém o `createdAt`, então a ordem de inserção sobrevive) e só os que saíram da lista
+ * são removidos. Rótulo novo ganha `createdAt` crescente na ordem recebida (B16).
+ */
 export async function saveAgentConversationState(userId: string, conversationId: string, state: AgentConversationStateRecord): Promise<void> {
 	requireOwner(userId);
 	checkText("conversationId", conversationId, LABEL_MAX);
@@ -270,10 +275,18 @@ export async function saveAgentConversationState(userId: string, conversationId:
 		return { userId, conversationId, cardId: checkText("cardId", o.cardId, LABEL_MAX), label: checkText("label", o.label, LABEL_MAX), state: o.state, position };
 	});
 	const declined = [...new Set(state.declinedOffers.map((label) => checkText("label", label, LABEL_MAX)))].slice(-AGENT_DECLINED_MAX);
-	await prisma.$transaction([
-		prisma.agentConversationOffer.deleteMany({ where: { userId, conversationId } }),
-		prisma.agentConversationDeclined.deleteMany({ where: { userId, conversationId } }),
-		prisma.agentConversationOffer.createMany({ data: offers, skipDuplicates: true }),
-		prisma.agentConversationDeclined.createMany({ data: declined.map((label) => ({ userId, conversationId, label })), skipDuplicates: true }),
-	]);
+	const base = Date.now();
+	await prisma.$transaction(async (tx) => {
+		await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`agent_conversation:${userId}:${conversationId}`}))`;
+		await tx.agentConversationOffer.deleteMany({ where: { userId, conversationId } });
+		await tx.agentConversationOffer.createMany({ data: offers, skipDuplicates: true });
+		for (const [index, label] of declined.entries()) {
+			await tx.agentConversationDeclined.upsert({
+				where: { userId_conversationId_label: { userId, conversationId, label } },
+				create: { userId, conversationId, label, createdAt: new Date(base + index) },
+				update: {},
+			});
+		}
+		await tx.agentConversationDeclined.deleteMany({ where: { userId, conversationId, label: { notIn: declined } } });
+	});
 }

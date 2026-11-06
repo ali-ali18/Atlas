@@ -154,6 +154,28 @@ describe("agent-v4-store (Postgres real)", { skip: dbSkip }, () => {
 		assert.equal(got.offers.at(-1)?.cardId, "k59");
 	});
 
+	test("declinedOffers (B16): mantém a ordem de inserção entre gravações e não recria o que já existe", async () => {
+		const conv = "conv-order";
+		await saveAgentConversationState(a, conv, { offers: [], declinedOffers: ["zeta", "alfa", "meio"] });
+		assert.deepEqual((await getAgentConversationState(a, conv)).declinedOffers, ["zeta", "alfa", "meio"]);
+		const before = await prisma.agentConversationDeclined.findMany({ where: { userId: a, conversationId: conv }, orderBy: { label: "asc" } });
+		await saveAgentConversationState(a, conv, { offers: [], declinedOffers: ["zeta", "alfa", "meio", "novo"] });
+		assert.deepEqual((await getAgentConversationState(a, conv)).declinedOffers, ["zeta", "alfa", "meio", "novo"]);
+		const after = await prisma.agentConversationDeclined.findMany({ where: { userId: a, conversationId: conv, label: { in: ["zeta", "alfa", "meio"] } }, orderBy: { label: "asc" } });
+		assert.deepEqual(after.map((r) => r.createdAt.getTime()), before.map((r) => r.createdAt.getTime()), "createdAt original preservado (sem delete+recreate)");
+		await saveAgentConversationState(a, conv, { offers: [], declinedOffers: ["alfa", "novo"] });
+		assert.deepEqual((await getAgentConversationState(a, conv)).declinedOffers, ["alfa", "novo"]);
+	});
+
+	test("declinedOffers (B16): gravações simultâneas não corrompem nem falham, e o resultado é uma das listas inteiras", async () => {
+		const conv = "conv-race";
+		const lists = Array.from({ length: 6 }, (_, i) => Array.from({ length: 5 }, (_, j) => `r${i}-${j}`));
+		await Promise.all(lists.map((declinedOffers) => saveAgentConversationState(a, conv, { offers: [{ cardId: "c", label: "L", state: "open" }], declinedOffers })));
+		const final = (await getAgentConversationState(a, conv)).declinedOffers;
+		assert.ok(lists.some((l) => JSON.stringify(l) === JSON.stringify(final)), `lista final inconsistente: ${final.join(",")}`);
+		assert.equal((await getAgentConversationState(a, conv)).offers.length, 1);
+	});
+
 	test("checkpoint: grava em checkpointJson.v4 sem apagar as chaves do v2; B não lê nem grava", async () => {
 		await saveAgentV4CheckpointUnfenced(a, { runId: runA, userId: a, step: 2, state: "TOOLS", payload: { v: 1, messages: ["oi"] } });
 		assert.deepEqual(await loadAgentV4Checkpoint(a, runA), { runId: runA, userId: a, step: 2, state: "TOOLS", payload: { v: 1, messages: ["oi"] } });
