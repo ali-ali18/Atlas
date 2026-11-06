@@ -367,6 +367,8 @@ export type RunEngineV4Input = {
 	/** Prompt estável do preset (sem ele, o kernel monta o completo com o contrato de trabalho). */
 	stableSystem?: string;
 	policy?: PolicyContext;
+	/** Regras do dono (`Bot.policyJson.rules`, as aprendidas e as que ele editou): entram na política padrão do run. Ignorado se `policy` vier pronta. */
+	rules?: PolicyContext["rules"];
 	mapEvent?: (event: RunEvent) => readonly ComputerUseEvent[];
 };
 
@@ -414,7 +416,7 @@ export async function runEngineV4(input: RunEngineV4Input): Promise<V4EngineResu
 		random: createSystemRandom(),
 		events: createEventsAdapter({ runId: input.runId, userId: input.userId, map: input.mapEvent ?? createMinimalEventMapper(input.runId), persist: input.persistEvent }),
 	};
-	const basePolicy: PolicyContext = input.policy ?? { surface: "chat", ownerPresent: input.ownerPresent, autonomy: "balanced", rules: [] };
+	const basePolicy: PolicyContext = input.policy ?? { surface: "chat", ownerPresent: input.ownerPresent, autonomy: "balanced", rules: input.rules ?? [] };
 	// Ajudantes (F3.1): runs filhos do próprio kernel, com as mesmas portas da mãe (a busca vem do registro), o papel `helper`
 	// da cadeia de modelos, o medidor da mãe (o uso aparece no run) e o teto do dono compartilhado pelo livro de gasto.
 	const ledger = createSpendLedger();

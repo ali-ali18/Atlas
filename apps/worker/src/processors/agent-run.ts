@@ -142,6 +142,7 @@ import {
 } from "@workspace/agent-runtime";
 import { prepareV4Run } from "../v4-run-context.js";
 import { runV4Turn } from "../v4-turn.js";
+import { loadNotebookContext } from "../v4-adapters/notebook.js";
 import { cheapModelFromEnv, createV4Llm, dropProcessorOwnedEvents, ownerStepsLimit, runEngineV4, vaultBackendFromService } from "../engine-v4.js";
 import { earlyWallMs, engineDefaultFromEnv, engineV4GateFromEnv, pickRunEngine, resolveRunLimits, runSelectedEngine } from "../engine-choice.js";
 import { getVaultService, type RunComputerUseResult } from "@workspace/agent-runtime";
@@ -150,7 +151,7 @@ import { isReadOnlyConnectorOrigin, budgetStopFallbackText, isBotConfigEventObje
 import { runToolFilter } from "../run-tool-filter.js";
 import { briefDeliveryDeps, deliverBriefFailure, deliverDailyBrief, findRoutineRunIdWithRetry, isDetachedBriefRun } from "../daily-brief.js";
 import { appendConversationMessage, getLanguageContext, listRecentLoginAsks } from "@workspace/db";
-import { resolveReplyLanguage, stopOfCompletion, systemMessages, type BotLanguage, type RunStop } from "@workspace/shared";
+import { toPolicyRules, resolveReplyLanguage, stopOfCompletion, systemMessages, type BotLanguage, type RunStop } from "@workspace/shared";
 import { stopOfBudgetError, stopOfFailure } from "../run-stop.js";
 import { runSystemLanguage } from "../system-language.js";
 import {
@@ -1238,6 +1239,8 @@ async function executeLeasedRun(ctx: {
 				const mapV4Event = dropProcessorOwnedEvents(((mapper) => (event) => mapper.mapRunEvent(event))(createSseMapper({ runId, model: run.model, language: systemLanguage })));
 				// Bot do run: escopo da camada de memória do bot, das configurações e dos painéis (sem bot, essas partes ficam indisponíveis).
 				const v4Bot = run.botId ? await getBotProfile(run.botId, runUserId).catch(() => null) : null;
+				// Títulos das notas fixadas do caderno (F5.1): só id e título, no [context]; sem nota fixada, nenhuma seção.
+				const notebookContext = await loadNotebookContext({ userId: runUserId, botId: run.botId ?? null });
 				return runEngineV4({
 					runId,
 					userId: runUserId,
@@ -1245,6 +1248,9 @@ async function executeLeasedRun(ctx: {
 					botId: run.botId ?? null,
 					botName: v4Bot?.name ?? null,
 					objective: run.objective ?? "",
+					...(notebookContext ? { contextSections: [notebookContext] } : {}),
+					// Regras do dono sobre ferramentas (`policyJson.rules`, visíveis e editáveis em /v1/bots/:id/rules): valem no autorizador.
+					rules: toPolicyRules(rawBotPolicy),
 					...(prepared.history ? { history: prepared.history } : {}),
 					...(prepared.cardResponses ? { cardResponses: prepared.cardResponses } : {}),
 					...(prepared.priorProvenance ? { priorProvenance: prepared.priorProvenance } : {}),
