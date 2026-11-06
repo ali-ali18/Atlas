@@ -2,9 +2,11 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MatrixSummary } from "./aggregate.js";
 import { runMatrix } from "./run.js";
+import { seededUnit, simulatedFailRate } from "./simulate.js";
+import { resolveModelSpec } from "./models.js";
 import type { MatrixProviders } from "./providers.js";
 import { loadScenarios, type Scenario } from "../scenario.js";
 import { strongMatcher } from "../verdict.js";
@@ -23,6 +25,20 @@ beforeAll(async () => {
 });
 afterAll(async () => {
 	await Promise.all(dirs.map((dir) => rm(dir, { recursive: true, force: true })));
+});
+
+/** Nenhum teste deste arquivo pode tocar a rede: `fetch` global lança, e o afterEach prova que ninguém o chamou (auditoria F0, T2). */
+const fetchSpy = vi.fn(async () => {
+	throw new Error("fetch real chamado em teste: sem rede");
+});
+beforeEach(() => {
+	fetchSpy.mockClear();
+	vi.stubGlobal("fetch", fetchSpy);
+});
+afterEach(() => {
+	const calls = fetchSpy.mock.calls.length;
+	vi.unstubAllGlobals();
+	expect(calls, "nenhuma chamada real de fetch").toBe(0);
 });
 
 const tmp = async (): Promise<string> => {
@@ -69,7 +85,7 @@ describe("matrix --simulate", () => {
 		expect(key(first.runs)).toEqual(key(second.runs));
 	}, 120_000);
 
-	it("teto rígido: para de agendar, marca skipped_budget, nunca passa do teto e ainda grava o relatório", async () => {
+	it("teto: pula o que não cabe, marca skipped_budget e ainda grava o relatório", async () => {
 		const outDir = await tmp();
 		const all = await runMatrix({ scenarios, engines: ["v2", "v1"], models: MODELS, repeat: 3, mode: "simulate", isStrong: strongMatcher() });
 		// Metade do gasto de uma rodada completa: dá para rodar parte e cortar o resto.
@@ -84,12 +100,60 @@ describe("matrix --simulate", () => {
 		expect(done.length).toBeGreaterThan(0);
 		expect(summary.budgetStopped).toBe(true);
 		expect(summary.skippedBudget).toBe(skipped.length);
-		expect(summary.spentUsd).toBeLessThanOrEqual(capUsd);
-		// Parou de agendar: tudo que ficou depois da primeira pulada também foi pulado.
-		const firstSkipped = runs.findIndex((item) => item.status === "skipped_budget");
-		expect(runs.slice(firstSkipped).every((item) => item.status === "skipped_budget")).toBe(true);
+		// O teto vale pelo gasto real: passa, no máximo, pelas chamadas em andamento (aqui, uma execução inteira é um limite folgado).
+		expect(summary.spentUsd).toBeLessThanOrEqual(capUsd + 2 * Math.max(...all.runs.map((item) => item.costUsd)));
+		expect(summary.stoppedBudget + summary.skippedBudget).toBeGreaterThan(0);
+		// Pulou só o que não cabia: a execução pulada tinha estimativa maior que o que sobrava do teto.
+		for (const item of skipped) expect(item.estimatedUsd).toBeGreaterThan(0);
 		expect(await readFile(join(outDir, "matrix.md"), "utf8")).toContain("skipped_budget");
 	}, 120_000);
+
+	it("o stub de fetch está ativo: uma chamada real seria vista e falharia (auditoria F0, T2)", async () => {
+		await expect(fetch("https://example.test/")).rejects.toThrow(/sem rede/);
+		expect(fetchSpy).toHaveBeenCalledTimes(1);
+		fetchSpy.mockClear();
+	});
+
+	it("falhas simuladas são determinísticas: o barato falha ao menos uma vez, o forte nunca, e a execução degradada reprova (auditoria F0, T1)", async () => {
+		const cheap = MODELS[1]!;
+		const strong = MODELS[0]!;
+		const options = { scenarios, engines: ["v2"], models: [strong, cheap], repeat: 8, mode: "simulate" as const, isStrong: strongMatcher() };
+		const first = await runMatrix(options);
+		const second = await runMatrix(options);
+		const outcome = (items: typeof first.runs) => items.map((item) => `${item.scenarioId}|${item.model}|${item.repeat}|${item.pass}|${item.failedChecks.join("+")}`);
+		expect(outcome(first.runs)).toEqual(outcome(second.runs));
+		// A sorteio é função pura de (modelo, cenário, motor, repetição) e da taxa do modelo.
+		expect(simulatedFailRate(resolveModelSpec(strong))).toBe(0);
+		expect(simulatedFailRate(resolveModelSpec(cheap))).toBe(0.35);
+		expect(seededUnit("a|b|c|0")).toBe(seededUnit("a|b|c|0"));
+		expect(seededUnit("a|b|c|0")).not.toBe(seededUnit("a|b|c|1"));
+		const degradedExpected = (run: (typeof first.runs)[number]) => seededUnit(`${run.model}|${run.scenarioId}|${run.engine}|${run.repeat}`) < simulatedFailRate(resolveModelSpec(run.model));
+		const strongRuns = first.runs.filter((run) => run.model === strong);
+		const cheapRuns = first.runs.filter((run) => run.model === cheap);
+		expect(strongRuns.every((run) => run.pass && run.failedChecks.length === 0)).toBe(true);
+		// o forte nunca sorteia falha; o barato sorteia (e o conjunto sorteado bate com o resultado)
+		expect(strongRuns.some(degradedExpected)).toBe(false);
+		const degraded = cheapRuns.filter(degradedExpected);
+		expect(degraded.length).toBeGreaterThan(0);
+		expect(degraded.length).toBeLessThan(cheapRuns.length);
+		// execução degradada (responde sem tools): reprova e diz quais verificações falharam
+		for (const run of degraded) {
+			expect(run.pass, `${run.scenarioId} #${run.repeat}`).toBe(false);
+			expect(run.failedChecks.length).toBeGreaterThan(0);
+		}
+		// as não sorteadas rodam o roteiro inteiro e passam
+		for (const run of cheapRuns.filter((item) => !degradedExpected(item))) expect(run.pass, `${run.scenarioId} #${run.repeat}`).toBe(true);
+		// a falha entra na leitura e no acerto agregado
+		expect(first.summary.byModel.v2![cheap]!.passes).toBe(cheapRuns.length - degraded.length);
+		expect(first.summary.byModel.v2![strong]!.passes).toBe(strongRuns.length);
+	}, 120_000);
+
+	it("modelo repetido em --models conta uma vez só (auditoria F0, B7)", async () => {
+		const result = await runMatrix({ scenarios: scenarios.slice(0, 1), engines: ["v2"], models: [MODELS[0]!, MODELS[1]!, MODELS[0]!, ` ${MODELS[1]!} `], repeat: 1, mode: "simulate", isStrong: strongMatcher() });
+		expect(result.runs).toHaveLength(2);
+		expect(result.summary.models).toEqual(MODELS);
+		expect(result.summary.byModel.v2![MODELS[0]!]!.runs).toBe(1);
+	});
 
 	it("teto menor que a primeira estimativa: nada roda e o relatório sai mesmo assim", async () => {
 		const result = await runMatrix({ scenarios, engines: ["v2"], models: MODELS, repeat: 1, mode: "simulate", capUsd: 0.000001, isStrong: strongMatcher() });
@@ -112,23 +176,61 @@ describe("matrix real com provedores injetados", () => {
 		await expect(runMatrix({ scenarios, engines: ["v2"], models: MODELS, mode: "real", env: { CLAUDE_KEY: "a", OPENCODE_GO_API_KEY: "b" }, isStrong: strongMatcher() })).rejects.toThrow(/max-usd/);
 	});
 
-	it("chave que aparece num erro do provedor não chega ao relatório nem ao JSONL", async () => {
-		const secret = "sk-ant-api03-SEGREDO-123456";
-		const outDir = await tmp();
+	it("timeout do runtime e erro HTTP do provedor saem tipados (errorKind), cada um no seu contador (auditoria F0, C1)", async () => {
+		const timeoutError = () => new DOMException("First event or idle timeout", "TimeoutError");
 		const providers: MatrixProviders = {
 			anthropic: async () => {
-				throw new Error(`401 invalid x-api-key ${secret}`);
+				throw timeoutError();
 			},
 			opencodeGo: async () => {
-				throw new Error("boom");
+				throw new Error("OpenCode Go está indisponível no momento (HTTP 429).");
 			},
 			openrouter: async () => {
 				throw new Error("boom");
 			},
 		};
-		const result = await runMatrix({ scenarios: scenarios.slice(0, 1), engines: ["v2"], models: ["anthropic/claude-haiku-5-5"], repeat: 1, mode: "real", capUsd: 5, env: { CLAUDE_KEY: secret }, providers, isStrong: strongMatcher(), outDir });
-		expect(result.runs[0]!.status).toBe("done");
-		expect(result.runs[0]!.pass).toBe(false);
-		for (const file of ["matrix.md", "matrix.json", "runs.jsonl"]) expect(await readFile(join(outDir, file), "utf8")).not.toContain(secret);
+		const result = await runMatrix({ scenarios: scenarios.slice(0, 1), engines: ["v2"], models: MODELS, repeat: 1, mode: "real", capUsd: 5, env: { CLAUDE_KEY: "k1", OPENCODE_GO_API_KEY: "k2" }, providers, isStrong: strongMatcher() });
+		const byModel = Object.fromEntries(result.runs.map((item) => [item.model, item.errorKind]));
+		expect(byModel).toEqual({ [MODELS[0]!]: "runtime_timeout", [MODELS[1]!]: "provider" });
+		expect(result.summary.byModel.v2![MODELS[0]!]!.errorKinds).toEqual({ runtime_timeout: 1, provider: 0 });
+		expect(result.summary.byModel.v2![MODELS[1]!]!.errorKinds).toEqual({ runtime_timeout: 0, provider: 1 });
+		expect(result.markdown).toContain("**Corte de tempo do runtime:** 1 em");
+	}, 60_000);
+
+	it("duas chaves diferentes que aparecem em erros dos provedores (e do juiz) não chegam ao relatório, ao JSON nem ao JSONL (auditoria F0, T5)", async () => {
+		const secrets = { anthropic: "sk-ant-api03-SEGREDO-ANTHROPIC-123456", go: "go-token-SEGREDO-OPENCODE-654321" };
+		const outDir = await tmp();
+		const providers: MatrixProviders = {
+			anthropic: async () => {
+				throw new Error(`401 invalid x-api-key ${secrets.anthropic}`);
+			},
+			opencodeGo: async () => {
+				// o erro do Go cita as DUAS chaves (ex.: proxy que ecoa os cabeçalhos)
+				throw new Error(`403 forbidden for ${secrets.go} (also saw ${secrets.anthropic})`);
+			},
+			openrouter: async () => {
+				throw new Error("boom");
+			},
+		};
+		const result = await runMatrix({
+			scenarios: scenarios.slice(0, 1),
+			engines: ["v2"],
+			models: ["anthropic/claude-haiku-5-5", "opencode-go/qwen3.8-flash"],
+			repeat: 1,
+			mode: "real",
+			capUsd: 5,
+			env: { CLAUDE_KEY: secrets.anthropic, OPENCODE_GO_API_KEY: secrets.go },
+			providers,
+			isStrong: strongMatcher(),
+			outDir,
+		});
+		expect(result.runs.map((run) => run.status)).toEqual(["done", "done"]);
+		expect(result.runs.every((run) => run.error)).toBe(true);
+		for (const file of ["matrix.md", "matrix.json", "runs.jsonl"]) {
+			const content = await readFile(join(outDir, file), "utf8");
+			for (const secret of Object.values(secrets)) expect(content, `${file} vazou ${secret.slice(0, 12)}`).not.toContain(secret);
+		}
+		expect(result.markdown).not.toContain(secrets.go);
+		expect(JSON.stringify(result.runs)).not.toContain(secrets.anthropic);
 	}, 60_000);
 });

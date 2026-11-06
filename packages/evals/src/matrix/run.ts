@@ -9,8 +9,9 @@ import { pool } from "../runner.js";
 import { runScenario } from "../run-scenario.js";
 import type { Scenario } from "../scenario.js";
 import type { RunRecord } from "../trajectory.js";
+import { classifyRunError } from "../error-kind.js";
 import { capabilityOf, summarizeMatrix, type MatrixRun, type MatrixSummary } from "./aggregate.js";
-import { BudgetGuard } from "./budget.js";
+import { BudgetGuard, withBudgetGate, type BudgetLease } from "./budget.js";
 import { ENGINE_ADAPTERS, resolveEngines, type EngineAdapter } from "./engines.js";
 import { DEFAULT_ESTIMATE_FACTOR, estimateExecutionUsd, estimateJudgeUsd, hasJudgeExpectation, profileKey, profileScenarios, FALLBACK_PROFILE, type ExecutionProfile } from "./estimate.js";
 import { formatMatrixReport } from "./format.js";
@@ -24,7 +25,11 @@ export type MatrixOptions = {
 	engines: string[];
 	models: string[];
 	repeat?: number;
-	/** Teto RÍGIDO em US$ desta invocação. Obrigatório no modo real. */
+	/**
+	 * Teto de gasto em US$ desta invocação. Obrigatório no modo real. Vale para o início de cada execução (estimativa) e
+	 * para o gasto real, cobrado a cada chamada; ao atingi-lo as execuções em andamento são interrompidas. O gasto final
+	 * pode passar do teto só pelas chamadas já em andamento (ver `budget.ts`).
+	 */
 	capUsd?: number;
 	mode: "real" | "simulate";
 	/** Variáveis de ambiente (chaves). Padrão: `process.env`. */
@@ -34,6 +39,8 @@ export type MatrixOptions = {
 	concurrency?: number;
 	timeoutMs?: number;
 	estimateFactor?: number;
+	/** Quanto esperar (ms) as chamadas em voo de uma execução interrompida terminarem e serem cobradas. Padrão 3000. */
+	drainMs?: number;
 	/** Juízes da rubrica (1 ou 2 ids com prefixo de provedor). Sem eles, nenhum juiz roda. */
 	judgeModels?: string[];
 	/** Teto de discordância por dimensão (padrão 1). */
@@ -56,10 +63,11 @@ export async function runMatrix(options: MatrixOptions): Promise<MatrixResult> {
 	const real = options.mode === "real";
 	const repeat = Math.max(1, Math.floor(options.repeat ?? 1));
 	const engines = resolveEngines(options.engines, options.engineTable ?? ENGINE_ADAPTERS);
-	const models = resolveModelSpecs(options.models);
+	// Modelo repetido em `--models` contaria em dobro (execuções, gasto e acerto): vale a 1ª ocorrência.
+	const models = resolveModelSpecs([...new Set(options.models.map((spec) => spec.trim()))]);
 	if (models.length === 0) throw new Error("informe --models");
 	if (options.scenarios.length === 0) throw new Error("nenhum cenário selecionado");
-	if (real && options.capUsd === undefined) throw new Error("informe --max-usd: o modo real exige um teto de gasto rígido");
+	if (real && options.capUsd === undefined) throw new Error("informe --max-usd: o modo real exige um teto de gasto");
 	const judgeModels = resolveModelSpecs(options.judgeModels ?? []);
 	if (judgeModels.length > 2) throw new Error("--judge aceita no máximo 2 modelos");
 	const judgeMaxGap = options.judgeMaxGap ?? DEFAULT_MAX_GAP;
@@ -75,20 +83,25 @@ export async function runMatrix(options: MatrixOptions): Promise<MatrixResult> {
 	const guard = new BudgetGuard(options.capUsd);
 	const realProviders = real ? (options.providers ?? createRealProviders(env)) : undefined;
 	let judgeUsd = 0;
-	// O gasto do juiz sai do MESMO teto que as execuções (`guard.charge`).
-	const rubricJudges: RubricJudge[] = judgeModels.map((judgeModel) => {
-		const router = withCostAccounting(createMatrixRouter(realProviders ? withSessionId(realProviders, "matrix-judge") : simulatedJudgeProviders(judgeModel)), { ...(options.priceTable ? { table: options.priceTable } : {}), onCost: (usd) => guard.charge(usd) });
-		return createRubricJudge({
-			model: judgeModel.internalId,
-			apiKey: "matrix",
-			streamChat: (params) =>
-				router(params, {}).then((result) => {
-					judgeUsd += result.usage?.costUsd ?? 0;
-					return result;
-				}) as ReturnType<StreamChat>,
+	// Os juízes são montados por execução: o gasto deles sai do MESMO teto (`lease.charge`) e a chamada é barrada se o
+	// teto já foi atingido.
+	const judgeFor = (lease: BudgetLease, onSpend: (usd: number) => void): Judge | undefined => {
+		const rubricJudges: RubricJudge[] = judgeModels.map((judgeModel) => {
+			const router = withBudgetGate(
+				withCostAccounting(createMatrixRouter(realProviders ? withSessionId(realProviders, "matrix-judge") : simulatedJudgeProviders(judgeModel)), {
+					...(options.priceTable ? { table: options.priceTable } : {}),
+					onCost: (usd) => {
+						lease.charge(usd);
+						onSpend(usd);
+						judgeUsd += usd;
+					},
+				}),
+				lease,
+			);
+			return createRubricJudge({ model: judgeModel.internalId, apiKey: "matrix", streamChat: (params) => router(params, {}) as ReturnType<StreamChat> });
 		});
-	});
-	const judge: Judge | undefined = rubricJudges.length > 0 ? createJudgePanel({ judges: rubricJudges, maxGap: judgeMaxGap }) : undefined;
+		return rubricJudges.length > 0 ? createJudgePanel({ judges: rubricJudges, maxGap: judgeMaxGap }) : undefined;
+	};
 
 	const jobs: Job[] = [];
 	// Repetição por fora: se o teto cortar, as repetições já feitas cobrem todas as células.
@@ -97,7 +110,7 @@ export async function runMatrix(options: MatrixOptions): Promise<MatrixResult> {
 			for (const engine of engines) {
 				for (const model of models) {
 					const profile: ExecutionProfile = profiles.get(profileKey(scenario.id, engine.id)) ?? FALLBACK_PROFILE;
-					jobs.push({ scenario, engine, model, repeat: index, estimatedUsd: estimateExecutionUsd(profile, priceFor(model.priceKey, options.priceTable).price, factor) + (hasJudgeExpectation(scenario) ? estimateJudgeUsd(judgeModels, options.priceTable) : 0) });
+					jobs.push({ scenario, engine, model, repeat: index, estimatedUsd: estimateExecutionUsd(profile, priceFor(model.priceKey, options.priceTable).price, factor) + (hasJudgeExpectation(scenario) ? estimateJudgeUsd(judgeModels, profile, options.priceTable) : 0) });
 				}
 			}
 		}
@@ -114,17 +127,21 @@ export async function runMatrix(options: MatrixOptions): Promise<MatrixResult> {
 		options.onProgress?.(run, runs.length, jobs.length);
 	};
 
+	const drainMs = options.drainMs ?? 3000;
 	await pool(jobs, options.concurrency ?? 3, async (job) => {
-		if (!guard.tryReserve(job.estimatedUsd)) {
+		// Reserva a estimativa; o que não cabe (ou o teto já atingido) é pulado SÓ nesta execução.
+		const lease = guard.reserve(job.estimatedUsd);
+		if (!lease) {
 			emit({ ...base(job), status: "skipped_budget", pass: false, failedChecks: [], steps: 0, promptTokens: 0, completionTokens: 0, costUsd: 0, costUnknown: false, durationMs: 0 });
 			return;
 		}
-		let actual = 0;
+		let judgedUsd = 0;
 		try {
 			const providers = realProviders
 				? withSessionId(realProviders, `matrix-${job.scenario.id}-${job.engine.id}-${job.repeat}`)
 				: simulatedProviders({ scenario: job.scenario, engine: job.engine.id, model: job.model, repeat: job.repeat });
-			const stream = withCostAccounting(createMatrixRouter(providers), options.priceTable ? { table: options.priceTable } : {});
+			// Cada chamada concluída cobra o custo real na hora; depois do estouro nenhuma chamada nova começa.
+			const stream = withBudgetGate(withCostAccounting(createMatrixRouter(providers), { ...(options.priceTable ? { table: options.priceTable } : {}), onCost: (usd) => lease.charge(usd) }), lease);
 			const patched = job.engine.patchScenario(job.scenario);
 			const trajectory = await runScenario(patched, {
 				model: job.model.internalId,
@@ -133,16 +150,43 @@ export async function runMatrix(options: MatrixOptions): Promise<MatrixResult> {
 				streamChat: stream as unknown as StreamChat,
 				variant: job.engine.id,
 				repeat: job.repeat,
+				abortSignal: lease.signal,
 				...(options.timeoutMs ? { timeoutMs: options.timeoutMs } : {}),
 				...(job.engine.runOptions?.() ?? {}),
 			});
 			trajectory.model = job.model.spec;
-			actual = trajectory.costUsd;
-			const checks = await runChecks(patched, trajectory, judge ? { judge } : {});
+			// Interrompida pelo teto: abortada de fora, ou a próxima chamada ao modelo foi barrada por ele.
+			const stoppedByBudget = trajectory.interrupted === true || trajectory.modelCalls.some((call) => call.errorName === "BudgetExhaustedError");
+			if (stoppedByBudget) {
+				// Espera as chamadas em voo terminarem (custam de verdade) e guarda o custo parcial.
+				await lease.drain(drainMs);
+				const record: RunRecord = { scenarioId: job.scenario.id, model: job.model.spec, variant: job.engine.id, repeat: job.repeat, pass: false, checks: [], trajectory };
+				records.push(record);
+				if (runsFile) await appendFile(runsFile, `${redact(JSON.stringify(record))}\n`);
+				emit({
+					...base(job),
+					status: "stopped_budget",
+					pass: false,
+					failedChecks: [],
+					error: "interrompida: teto de gasto atingido",
+					steps: trajectory.modelCalls.filter((call) => call.kind === "main").length,
+					promptTokens: trajectory.tokens.prompt,
+					completionTokens: trajectory.tokens.completion,
+					costUsd: lease.spentUsd,
+					costUnknown: trajectory.costUnknown,
+					durationMs: trajectory.durationMs,
+				});
+				return;
+			}
+			const checks = await runChecks(patched, trajectory, (() => {
+				const judge = judgeFor(lease, (usd) => (judgedUsd += usd));
+				return judge ? { judge } : {};
+			})());
 			const quality = summarizeRunQuality(checks.map((item) => item.quality));
 			const record: RunRecord = { scenarioId: job.scenario.id, model: job.model.spec, variant: job.engine.id, repeat: job.repeat, pass: passed(checks), checks, trajectory };
 			records.push(record);
 			if (runsFile) await appendFile(runsFile, `${redact(JSON.stringify(record))}\n`);
+			const errorKind = classifyRunError(trajectory);
 			emit({
 				...base(job),
 				status: "done",
@@ -150,6 +194,7 @@ export async function runMatrix(options: MatrixOptions): Promise<MatrixResult> {
 				failedChecks: checks.filter((item) => !item.pass && !item.skipped).map((item) => item.name),
 				...(quality ? { quality } : {}),
 				...(trajectory.error ? { error: redact(trajectory.error).slice(0, 300) } : {}),
+				...(errorKind ? { errorKind } : {}),
 				steps: trajectory.modelCalls.filter((call) => call.kind === "main").length,
 				promptTokens: trajectory.tokens.prompt,
 				completionTokens: trajectory.tokens.completion,
@@ -158,9 +203,11 @@ export async function runMatrix(options: MatrixOptions): Promise<MatrixResult> {
 				durationMs: trajectory.durationMs,
 			});
 		} catch (error) {
-			emit({ ...base(job), status: "done", pass: false, failedChecks: ["completed"], error: redact(error instanceof Error ? error.message : "erro desconhecido").slice(0, 300), steps: 0, promptTokens: 0, completionTokens: 0, costUsd: 0, costUnknown: false, durationMs: 0 });
+			// A execução lançou: o que as chamadas já cobraram é gasto real e precisa aparecer (antes contava 0).
+			if (lease.aborted) await lease.drain(drainMs);
+			emit({ ...base(job), status: "done", pass: false, failedChecks: ["completed"], error: redact(error instanceof Error ? error.message : "erro desconhecido").slice(0, 300), steps: 0, promptTokens: 0, completionTokens: 0, costUsd: Math.max(0, lease.spentUsd - judgedUsd), costUnknown: false, durationMs: 0 });
 		} finally {
-			guard.settle(job.estimatedUsd, actual);
+			lease.release();
 		}
 	});
 

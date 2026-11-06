@@ -1,3 +1,4 @@
+import { ERROR_KINDS, ERROR_KIND_LABELS, type ErrorKind } from "../error-kind.js";
 import { addQuality, emptyQualityAgg, type QualityAgg, type RunQuality } from "../quality.js";
 import { diagnose, type ModelStat, type Verdict } from "../verdict.js";
 
@@ -11,10 +12,13 @@ export type MatrixRun = {
 	model: string;
 	provider: string;
 	repeat: number;
-	status: "done" | "skipped_budget";
+	/** `skipped_budget`: não começou (a estimativa não coube ou o teto já tinha sido atingido). `stopped_budget`: começou e foi interrompida quando o teto foi atingido (custo parcial; sem nota de acerto). */
+	status: "done" | "skipped_budget" | "stopped_budget";
 	pass: boolean;
 	failedChecks: string[];
 	error?: string;
+	/** Natureza do erro de execução (corte de tempo do runtime ou erro do provedor); ausente = sem erro, ou erro do modelo. */
+	errorKind?: ErrorKind;
 	steps: number;
 	promptTokens: number;
 	completionTokens: number;
@@ -31,7 +35,11 @@ export type Agg = {
 	runs: number;
 	passes: number;
 	errors: number;
+	/** Execuções por natureza do erro de execução: infraestrutura, não falha do modelo. */
+	errorKinds: Record<ErrorKind, number>;
 	skipped: number;
+	/** Interrompidas em andamento pelo teto: o custo entra, mas não contam como execução nem como acerto. */
+	stopped: number;
 	failing: Record<string, number>;
 	steps: number;
 	promptTokens: number;
@@ -43,16 +51,26 @@ export type Agg = {
 	quality: QualityAgg;
 };
 
-const emptyAgg = (): Agg => ({ runs: 0, passes: 0, errors: 0, skipped: 0, failing: {}, steps: 0, promptTokens: 0, completionTokens: 0, costUsd: 0, costUnknown: false, durationMs: 0, quality: emptyQualityAgg() });
+const emptyAgg = (): Agg => ({ runs: 0, passes: 0, errors: 0, errorKinds: { runtime_timeout: 0, provider: 0 }, skipped: 0, stopped: 0, failing: {}, steps: 0, promptTokens: 0, completionTokens: 0, costUsd: 0, costUnknown: false, durationMs: 0, quality: emptyQualityAgg() });
 
 function add(agg: Agg, run: MatrixRun): void {
 	if (run.status === "skipped_budget") {
 		agg.skipped += 1;
 		return;
 	}
+	if (run.status === "stopped_budget") {
+		agg.stopped += 1;
+		agg.promptTokens += run.promptTokens;
+		agg.completionTokens += run.completionTokens;
+		agg.costUsd += run.costUsd;
+		agg.costUnknown ||= run.costUnknown;
+		agg.durationMs += run.durationMs;
+		return;
+	}
 	agg.runs += 1;
 	if (run.pass) agg.passes += 1;
 	if (run.error) agg.errors += 1;
+	if (run.errorKind) agg.errorKinds[run.errorKind] += 1;
 	for (const name of run.failedChecks) agg.failing[name] = (agg.failing[name] ?? 0) + 1;
 	agg.steps += run.steps;
 	agg.promptTokens += run.promptTokens;
@@ -96,6 +114,8 @@ export type MatrixSummary = {
 	/** Juízes da rubrica (vazio = sem juiz) e o teto de discordância. */
 	judging: { models: string[]; maxGap: number } | null;
 	skippedBudget: number;
+	/** Execuções interrompidas em andamento quando o teto foi atingido (`stopped_budget`). */
+	stoppedBudget: number;
 	budgetStopped: boolean;
 	costUnknown: boolean;
 	scenarios: Array<{ id: string; capability: string; tags?: string[] }>;
@@ -114,6 +134,15 @@ export type MatrixSummary = {
 	/** cenário → motor → leitura "modelo ou harness" (ver 04-avaliacao §3). */
 	readings: Record<string, Record<string, { verdict: Verdict; reason: string }>>;
 	engineDeltas: EngineDelta[];
+};
+
+/** Execuções sem erro de execução (nem corte de tempo do runtime, nem erro do provedor): as que dizem algo sobre o modelo. */
+export const cleanRunsOf = (agg: Pick<Agg, "runs" | "errorKinds">): number => agg.runs - ERROR_KINDS.reduce((sum, kind) => sum + agg.errorKinds[kind], 0);
+
+/** Acerto só nas execuções sem erro de execução (`null` se não sobrou nenhuma). `passes` não inclui erro, então vale o mesmo numerador. */
+export const cleanPassRateOf = (agg: Pick<Agg, "runs" | "passes" | "errorKinds">): number | null => {
+	const clean = cleanRunsOf(agg);
+	return clean <= 0 ? null : agg.passes / clean;
 };
 
 export const passRateOf = (agg: Pick<Agg, "runs" | "passes">): number | null => (agg.runs === 0 ? null : agg.passes / agg.runs);
@@ -136,9 +165,9 @@ export function summarizeMatrix(
 		add(slot(cells, run.scenarioId, run.engine, run.model), run);
 		add(slot(byCapability, run.capability, run.engine, run.model), run);
 		add(((byModel[run.engine] ??= {})[run.model] ??= emptyAgg()), run);
-		if (run.status === "done") {
+		if (run.status !== "skipped_budget") {
 			const provider = (byProvider[run.provider] ??= { runs: 0, costUsd: 0, costUnknown: false, promptTokens: 0, completionTokens: 0 });
-			provider.runs += 1;
+			if (run.status === "done") provider.runs += 1;
 			provider.costUsd += run.costUsd;
 			provider.costUnknown ||= run.costUnknown;
 			provider.promptTokens += run.promptTokens;
@@ -148,11 +177,19 @@ export function summarizeMatrix(
 	const readings: MatrixSummary["readings"] = {};
 	for (const scenario of options.scenarios) {
 		for (const engine of options.engines) {
-			const stats: ModelStat[] = options.models.map((model) => {
-				const agg = cells[scenario.id]?.[engine]?.[model] ?? emptyAgg();
-				return { model, runs: agg.runs, passes: agg.passes, errors: agg.errors, failing: agg.failing, costUsd: agg.costUsd, costUnknown: agg.costUnknown };
+			// Timeout do runtime e erro do provedor não são falha do modelo: a leitura harness × modelo usa só as execuções
+			// limpas, e o relatório diz quantas foram desconsideradas e por quê.
+			const aggs = options.models.map((model) => cells[scenario.id]?.[engine]?.[model] ?? emptyAgg());
+			const stats: ModelStat[] = options.models.map((model, index) => {
+				const agg = aggs[index]!;
+				return { model, runs: cleanRunsOf(agg), passes: agg.passes, errors: Math.max(0, agg.errors - ERROR_KINDS.reduce((sum, kind) => sum + agg.errorKinds[kind], 0)), failing: agg.failing, costUsd: agg.costUsd, costUnknown: agg.costUnknown };
 			});
-			const reading = diagnose(stats, options.isStrong);
+			const infra = ERROR_KINDS.map((kind) => ({ kind, count: aggs.reduce((sum, agg) => sum + agg.errorKinds[kind], 0) })).filter((item) => item.count > 0);
+			const infraNote = infra.map((item) => `${item.count} ${ERROR_KIND_LABELS[item.kind]}`).join(", ");
+			let reading = diagnose(stats, options.isStrong);
+			if (infra.length > 0) {
+				reading = stats.every((stat) => stat.runs === 0) ? { verdict: "erro de execução", reason: `todas as execuções acabaram em erro de execução (${infraNote}): não diz nada sobre o modelo` } : { ...reading, reason: `${reading.reason} (desconsiderado: ${infraNote})` };
+			}
 			// Lacuna conhecida do motor (tag `lacuna-<motor>`): continua sendo culpa do harness, mas o relatório diz que já se
 			// sabia (o motor não oferece a ferramenta certa), para ninguém caçar defeito de modelo ou de cenário.
 			const knownGap = (scenario.tags ?? []).includes(`lacuna-${engine}`) && reading.verdict === "harness/instruções";
@@ -169,6 +206,7 @@ export function summarizeMatrix(
 		}
 	}
 	const skippedBudget = runs.filter((run) => run.status === "skipped_budget").length;
+	const stoppedBudget = runs.filter((run) => run.status === "stopped_budget").length;
 	const spentUsd = runs.reduce((sum, run) => sum + run.costUsd, 0) + (options.judgeUsd ?? 0);
 	return {
 		v: 1,
@@ -182,7 +220,8 @@ export function summarizeMatrix(
 		judgeUsd: options.judgeUsd ?? 0,
 		judging: options.judging && options.judging.models.length > 0 ? options.judging : null,
 		skippedBudget,
-		budgetStopped: skippedBudget > 0,
+		stoppedBudget,
+		budgetStopped: skippedBudget > 0 || stoppedBudget > 0,
 		costUnknown: runs.some((run) => run.costUnknown),
 		scenarios: options.scenarios,
 		cells,

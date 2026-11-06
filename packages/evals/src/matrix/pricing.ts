@@ -14,6 +14,11 @@ export type PriceEntry = Prices & {
 	cachedRatio: number;
 	/** Múltiplo do preço de entrada para token gravado no cache. */
 	writeRatio: number;
+	/**
+	 * Preço de contexto longo: uma chamada com MAIS de `abovePromptTokens` tokens de entrada (cache incluído) custa
+	 * esta tarifa inteira, não só o excedente. O corte é por chamada, nunca pelo total da execução.
+	 */
+	longContext?: { abovePromptTokens: number; promptUsdPerMTok: number; completionUsdPerMTok: number };
 	source: string;
 	/** false = valor a confirmar com a tabela oficial antes de confiar no número. */
 	confirmed: boolean;
@@ -28,7 +33,7 @@ export const PRICE_TABLE: Record<string, PriceEntry> = {
 	"opencode-go/qwen3.8-flash": { promptUsdPerMTok: 0.15, completionUsdPerMTok: 0.47, cachedRatio: 0.1, writeRatio: 1, source: GO_SOURCE, confirmed: true },
 	"opencode-go/claude-haiku-5-5": { promptUsdPerMTok: 0.1, completionUsdPerMTok: 0.5, cachedRatio: 0.1, writeRatio: 1, source: GO_SOURCE, confirmed: true },
 	// Anthropic direto (gravação de cache 1,25x). Leitura de cache: sonnet e opus 5.5 a US$ 0,20 (0,1x e 0,05x).
-	"anthropic/claude-haiku-5-5": { promptUsdPerMTok: 0.1, completionUsdPerMTok: 0.5, cachedRatio: 0.1, writeRatio: 1.25, source: ANTHROPIC_SOURCE, confirmed: true },
+	"anthropic/claude-haiku-5-5": { promptUsdPerMTok: 0.1, completionUsdPerMTok: 0.5, cachedRatio: 0.1, writeRatio: 1.25, longContext: { abovePromptTokens: 100_000, promptUsdPerMTok: 0.5, completionUsdPerMTok: 2.5 }, source: ANTHROPIC_SOURCE, confirmed: true },
 	"anthropic/claude-sonnet-5-5": { promptUsdPerMTok: 2, completionUsdPerMTok: 10, cachedRatio: 0.1, writeRatio: 1.25, source: ANTHROPIC_SOURCE, confirmed: true },
 	"anthropic/claude-opus-5-5": { promptUsdPerMTok: 4, completionUsdPerMTok: 20, cachedRatio: 0.05, writeRatio: 1.25, source: ANTHROPIC_SOURCE, confirmed: true },
 };
@@ -43,12 +48,19 @@ export function priceFor(key: string, table: Record<string, PriceEntry> = PRICE_
 
 export type TokenUsage = { promptTokens?: number; completionTokens?: number; cachedTokens?: number; cacheWriteTokens?: number };
 
-/** `promptTokens` já inclui cache lido e gravado (convenção do adaptador). */
+/** Tarifa que vale para UMA chamada com `promptTokens` de entrada (contexto longo acima do corte). */
+export function rateFor(price: PriceEntry, promptTokens: number): { promptUsdPerMTok: number; completionUsdPerMTok: number } {
+	const tier = price.longContext;
+	return tier && promptTokens > tier.abovePromptTokens ? tier : price;
+}
+
+/** Custo de UMA chamada. `promptTokens` já inclui cache lido e gravado (convenção do adaptador). */
 export function costFromTokens(usage: TokenUsage, price: PriceEntry): number {
 	const prompt = Math.max(0, usage.promptTokens ?? 0);
 	const cached = Math.min(Math.max(0, usage.cachedTokens ?? 0), prompt);
 	const written = Math.min(Math.max(0, usage.cacheWriteTokens ?? 0), prompt - cached);
 	const fresh = prompt - cached - written;
 	const promptEquivalent = fresh + cached * price.cachedRatio + written * price.writeRatio;
-	return (promptEquivalent * price.promptUsdPerMTok + Math.max(0, usage.completionTokens ?? 0) * price.completionUsdPerMTok) / 1_000_000;
+	const rate = rateFor(price, prompt);
+	return (promptEquivalent * rate.promptUsdPerMTok + Math.max(0, usage.completionTokens ?? 0) * rate.completionUsdPerMTok) / 1_000_000;
 }

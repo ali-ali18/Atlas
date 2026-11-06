@@ -24,6 +24,8 @@ export type RunnerOptions = {
 	/** Fábrica do modelo real (OpenRouter); injetável em teste. */
 	realStreamChat?: StreamChat;
 	apiKey?: string;
+	/** Outros segredos (chaves dos juízes, de outros provedores) que também saem de tudo o que vai ao disco. */
+	extraSecrets?: string[];
 	repeat?: number;
 	concurrency?: number;
 	timeoutMs?: number;
@@ -71,7 +73,7 @@ export async function runEvaluation(options: RunnerOptions): Promise<RunnerResul
 	if (models.length === 0) throw new Error("nenhum modelo");
 	const variants = options.variants ?? [["base", { description: "padrão" }]];
 	const repeat = Math.max(1, options.repeat ?? 1);
-	const secrets = options.apiKey ? [options.apiKey] : [];
+	const secrets = [...(options.apiKey ? [options.apiKey] : []), ...(options.extraSecrets ?? [])].filter(Boolean);
 	const runsFile = options.outDir ? join(options.outDir, "runs.jsonl") : undefined;
 	if (options.outDir) await mkdir(options.outDir, { recursive: true });
 

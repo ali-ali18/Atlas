@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { runEvaluation } from "../runner.js";
 import { loadScenarios, type Scenario } from "../scenario.js";
 import { createJudgePanel, createRubricJudge } from "../judge.js";
@@ -32,6 +32,20 @@ beforeAll(async () => {
 afterAll(async () => {
 	await Promise.all(dirs.map((dir) => rm(dir, { recursive: true, force: true })));
 });
+/** Sem rede: `fetch` global lança e o afterEach prova que ninguém o chamou (auditoria F0, T2). */
+const fetchSpy = vi.fn(async () => {
+	throw new Error("fetch real chamado em teste: sem rede");
+});
+beforeEach(() => {
+	fetchSpy.mockClear();
+	vi.stubGlobal("fetch", fetchSpy);
+});
+afterEach(() => {
+	const calls = fetchSpy.mock.calls.length;
+	vi.unstubAllGlobals();
+	expect(calls, "nenhuma chamada real de fetch").toBe(0);
+});
+
 const tmp = async (): Promise<string> => {
 	const dir = await mkdtemp(join(tmpdir(), "evals-judge-"));
 	dirs.push(dir);

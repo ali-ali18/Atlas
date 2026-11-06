@@ -8,6 +8,20 @@ Rodadas usadas, depois da correção do ambiente do eval (`74037cc8`):
 
 `results/` fica fora do git; este arquivo é o registro.
 
+## Placar final, com erro de execução separado (depois da auditoria F0, C1)
+Recalculado dos mesmos `runs.jsonl`, sem gasto novo. **Corte** é o corte de tempo do runtime v2 (`decision-budget`: 30 s até o 1º evento, 20 s parado, 90 s no total). **Provedor** é erro de transporte. "Sem erros" é o acerto só nas execuções que terminaram. Fica fora a tarefa de código.
+
+| modelo | ouro: todas | ouro: sem erros | genérico: todas | genérico: sem erros | cortes + provedor (ouro / genérico) |
+|---|---|---|---|---|---|
+| Haiku 5.5 | 75% | 75% | 56% | 56% | 0 / 0 |
+| Sonnet 5.5 (1 rep.) | 65% | 68% | 69% | 73% | 1 / 1 |
+| Qwen 3.8 Flash | 61% | 64% | 58% | 61% | 3 / 2 |
+| DeepSeek V4.1 Flash | 58% | **71%** | 54% | **72%** | **13 / 12** |
+
+Leitura:
+- **O DeepSeek é tão bom quanto o Haiku quando a execução termina.** Ele perdia por causa do corte de tempo do v2: 13 de 69 execuções no ouro morreram esperando o 1º evento. Esse é defeito do motor, não do modelo, e o v4 não tem esse corte.
+- **O vício no uso do dono continua.** O Haiku não teve nenhum erro de execução e mesmo assim cai de 75% para 56% no genérico.
+
 ## Placar corrigido (depois da F0.6)
 As 4 tarefas com defeito de eval (11, 22 e 23, mais o ABNT, que não tinha as skills de fábrica) rodaram de novo com o eval corrigido (US$ 0,41). A tarefa de código fica fora porque o eval não oferece a sessão de código. Sobram 23 tarefas.
 

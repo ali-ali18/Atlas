@@ -193,14 +193,63 @@ export function parseScenario(input: unknown): ScenarioParse {
 		const problem = expectationProblem(item);
 		if (problem) return { ok: false, error: `expect: ${problem}` };
 	}
+	// Regex inválida falhava só na avaliação (derrubava o `any_of` inteiro): aqui o cenário nem carrega.
+	for (const fixture of scenario.tools.fixtures) {
+		const problem = predicatesRegexProblem(fixture.args);
+		if (problem) return { ok: false, error: `tools.fixtures(${fixture.tool}).args: ${problem}` };
+	}
+	for (const conn of scenario.tools.connectors) {
+		for (const tool of conn.tools) {
+			for (const response of tool.responses) {
+				const problem = predicatesRegexProblem(response.args);
+				if (problem) return { ok: false, error: `tools.connectors(${conn.slug}.${tool.name}).responses.args: ${problem}` };
+			}
+		}
+	}
 	const ids = scenario.expect.map(expectationName);
 	const duplicate = ids.find((name, index) => ids.indexOf(name) !== index);
 	if (duplicate) return { ok: false, error: `expect: nome repetido "${duplicate}" (dê um id a cada verificação)` };
 	return { ok: true, scenario };
 }
 
+/** Mensagem do erro de compilar a regex (como o runtime a usa), ou `null` se for válida. */
+function regexError(source: string, flags: string): string | null {
+	try {
+		new RegExp(source, flags);
+		return null;
+	} catch (error) {
+		return error instanceof Error ? error.message : "regex inválida";
+	}
+}
+
+function predicatesRegexProblem(predicates: ArgPredicates | undefined): string | null {
+	for (const [path, predicate] of Object.entries(predicates ?? {})) {
+		if (predicate.matches === undefined) continue;
+		const message = regexError(predicate.matches, "i");
+		if (message) return `${path}.matches é uma regex inválida /${predicate.matches}/ (${message})`;
+	}
+	return null;
+}
+
 /** Problema de forma de uma verificação (recursivo em `any_of`), ou `null`. */
 function expectationProblem(item: Expectation): string | null {
+	const label = expectationName(item as Expectation);
+	if ((item.type === "tool_called" || item.type === "tool_not_called") && item.toolPattern) {
+		const message = regexError(item.toolPattern, "i");
+		if (message) return `${label}: toolPattern é uma regex inválida /${item.toolPattern}/ (${message})`;
+	}
+	if ((item.type === "text_contains" || item.type === "text_not_contains") && item.pattern) {
+		const message = regexError(item.pattern, item.ignoreCase ? "i" : "");
+		if (message) return `${label}: pattern é uma regex inválida /${item.pattern}/ (${message})`;
+	}
+	if (item.type === "no_model_note") {
+		const message = regexError(item.pattern, "i");
+		if (message) return `${label}: pattern é uma regex inválida /${item.pattern}/ (${message})`;
+	}
+	if (item.type === "tool_called" || item.type === "tool_not_called" || item.type === "chart") {
+		const problem = predicatesRegexProblem(item.type === "chart" ? item.spec : item.args);
+		if (problem) return `${label}: ${problem}`;
+	}
 	if ((item.type === "tool_called" || item.type === "tool_not_called") && !item.tool && !item.toolPattern) return `${item.type} precisa de tool ou toolPattern`;
 	if ((item.type === "text_contains" || item.type === "text_not_contains") && !item.value && !item.pattern) return `${item.type} precisa de value ou pattern`;
 	if (item.type === "any_of") {
