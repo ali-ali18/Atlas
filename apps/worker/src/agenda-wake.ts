@@ -12,8 +12,11 @@
  */
 import {
 	AGENDA_EVENT_MIN_GAP_MINUTES,
+	chooseRunEngine,
 	isEngineV4Enabled,
+	readEnginePolicy,
 	type AgendaEvent,
+	type EngineDefault,
 	type EngineV4Gate,
 } from "@workspace/shared";
 import {
@@ -32,6 +35,8 @@ import {
 	stopAgendaItem,
 	type AgendaItemRecord,
 } from "@workspace/db";
+import { claimPendingEventItems, clearPendingEvent, markPendingEvent } from "./agenda-pending-event.js";
+import { settleAbortedAgendaRun } from "./agenda-run.js";
 import { singleFlight } from "./single-flight.js";
 
 const SWEEP_INTERVAL_MS = 60_000;
@@ -39,9 +44,12 @@ const BUSY_RETRY_MS = 2 * 60_000;
 const IN_FLIGHT_RETRY_MS = 10 * 60_000;
 const ERROR_RETRY_MS = 5 * 60_000;
 const V4_OFF_RETRY_MS = 6 * 60 * 60_000;
+/** Bot com o motor fixado fora do v4: tenta de novo mais cedo (o dono pode trocar o motor a qualquer hora). */
+const ENGINE_RETRY_MS = 30 * 60_000;
 const MAX_ATTEMPTS = 5;
 const OBJECTIVE_NOTE_CHARS = 160;
 const EVENT_MARKER = "\nEvent: ";
+const OBJECTIVE_PREFIX = "Agenda wake (";
 
 export type AgendaWakeResult = { run: number; deferred: number; stopped: number; coalesced: number };
 
@@ -53,11 +61,13 @@ export type AgendaWakeDeps = {
 	v4Gate: EngineV4Gate;
 	/** Enfileira o job do run (worker); `false` = a reconciliação de runs `queued` repete. */
 	enqueueRun: (runId: string) => Promise<boolean>;
+	/** Padrão de motor do deploy (`engineDefaultFromEnv()`); entra na mesma escolha de motor que o processador faz. */
+	engineDefault?: EngineDefault;
 	envDefaultModel: string;
 	now?: () => Date;
 	log?: (line: string) => void;
 	claimDue?: typeof claimDueAgendaItems;
-	loadBot?: (userId: string, botId: string) => Promise<{ id: string; conversationId: string | null } | null>;
+	loadBot?: (userId: string, botId: string) => Promise<{ id: string; conversationId: string | null; policyJson?: unknown } | null>;
 	loadSettings?: typeof loadAgendaSettings;
 	decide?: typeof decideAgendaWake;
 	inFlight?: typeof isAgendaRunInFlight;
@@ -68,16 +78,26 @@ export type AgendaWakeDeps = {
 	stop?: typeof stopAgendaItem;
 	reserve?: typeof reserveAgendaItem;
 	findForEvent?: typeof findAgendaItemsForEvent;
+	/** Fecha o run anterior que morreu sem resultado (B1). */
+	settleDead?: typeof settleAbortedAgendaRun;
+	markPending?: typeof markPendingEvent;
+	clearPending?: typeof clearPendingEvent;
+	claimPending?: typeof claimPendingEventItems;
 	resolveModel?: (botId: string, userId: string, envDefault: string) => Promise<string>;
 };
 
 const defaultLoadBot: NonNullable<AgendaWakeDeps["loadBot"]> = (userId, botId) =>
-	prisma.bot.findFirst({ where: { id: botId, ownerId: userId }, select: { id: true, conversationId: true } });
+	prisma.bot.findFirst({ where: { id: botId, ownerId: userId }, select: { id: true, conversationId: true, policyJson: true } });
 
 /** Objetivo legível do run (o inspetor mostra); o evento, quando há, vai em uma linha final em JSON que só este arquivo escreve e lê. */
 export function agendaObjective(item: Pick<AgendaItemRecord, "kind" | "note">, event?: AgendaEvent): string {
 	const note = item.note.split(/\s+/).filter(Boolean).join(" ").slice(0, OBJECTIVE_NOTE_CHARS);
-	return `Agenda wake (${item.kind}): ${note}${event ? `${EVENT_MARKER}${JSON.stringify(event)}` : ""}`;
+	return `${OBJECTIVE_PREFIX}${item.kind}): ${note}${event ? `${EVENT_MARKER}${JSON.stringify(event)}` : ""}`;
+}
+
+/** O objetivo é de um run de agenda criado por este arquivo (`agendaObjective`): sinal de que o run PRECISA do contexto do item. */
+export function isAgendaWakeObjective(objective: string | null | undefined): boolean {
+	return typeof objective === "string" && objective.startsWith(OBJECTIVE_PREFIX);
 }
 
 /** Evento que acordou o item, lido do objetivo do run. `null` = sem evento (acordou por relógio) ou formato inesperado. */
@@ -98,7 +118,7 @@ export function parseAgendaEvent(objective: string | null | undefined): AgendaEv
  * Um item reservado: aplica os freios e, se passar, cria o run. Nunca lança por causa de um item. `event` só vem do
  * caminho por evento. O item sai da reserva em todos os caminhos (run criado, adiado ou encerrado).
  */
-export async function dispatchAgendaItem(item: AgendaItemRecord, deps: AgendaWakeDeps, result: AgendaWakeResult, event?: AgendaEvent): Promise<void> {
+export async function dispatchAgendaItem(item: AgendaItemRecord, deps: AgendaWakeDeps, result: AgendaWakeResult, event?: AgendaEvent, options: { pendingEvent?: boolean } = {}): Promise<void> {
 	const log = deps.log ?? ((line: string) => console.log(line));
 	const now = (deps.now ?? (() => new Date()))();
 	const reschedule = deps.reschedule ?? rescheduleAgendaItem;
@@ -121,10 +141,25 @@ export async function dispatchAgendaItem(item: AgendaItemRecord, deps: AgendaWak
 			}
 			return await defer("no_bot", ERROR_RETRY_MS, { error: "bot indisponível", countAttempt: true });
 		}
+		// O run só roda no v4 se o processador escolher o v4 para ele: o bot pode ter o motor fixado em v1/v2. Mesma função de
+		// escolha do processador; se não for v4 o item volta sem consumir (o run vazio fecharia um lembrete sem entregar).
+		const engine = chooseRunEngine({ policy: readEnginePolicy(bot.policyJson), origin: "proactive", isGroupRun: false, globalDefault: deps.engineDefault, userId: item.userId, v4Gate: deps.v4Gate, agenda: true });
+		if (engine !== "v4") return await defer("engine_not_v4", ENGINE_RETRY_MS);
+		// O run anterior morreu (falhou, foi cancelado ou o worker caiu) sem devolver resultado? Fecha como "sem resultado" ANTES
+		// de decidir: senão `maxRuns` consome em silêncio um lembrete que nunca foi entregue (B1).
+		const runAlive = item.runId ? await (deps.inFlight ?? isAgendaRunInFlight)(item.userId, item.runId, now) : false;
+		if (item.runId && !runAlive && item.lastResult?.runId !== item.runId) {
+			await (deps.settleDead ?? settleAbortedAgendaRun)({ userId: item.userId, runId: item.runId });
+			// A intenção por evento não tem relógio para voltar: o evento que a acordou fica marcado para a próxima passada.
+			if (item.kind === "intent") await (deps.markPending ?? markPendingEvent)(item.userId, item.id);
+			result.deferred += 1;
+			log(`[agenda] item=${item.id} deferred reason=previous_run_dead run=${item.runId}`);
+			return;
+		}
 		const settings = await (deps.loadSettings ?? loadAgendaSettings)(item.userId, item.botId);
 		const decision = await (deps.decide ?? decideAgendaWake)(item, now, settings);
 		// Intenção pega pelo relógio (sem evento) só serve para expirar: se a vigência não acabou, solta a reserva e não roda.
-		if (item.kind === "intent" && event === undefined && decision.action !== "stop") return await defer("intent_without_event", V4_OFF_RETRY_MS);
+		if (item.kind === "intent" && event === undefined && !options.pendingEvent && decision.action !== "stop") return await defer("intent_without_event", V4_OFF_RETRY_MS);
 		if (decision.action === "stop") {
 			result.stopped += 1;
 			log(`[agenda] item=${item.id} stopped reason=${decision.reason}`);
@@ -136,7 +171,7 @@ export async function dispatchAgendaItem(item: AgendaItemRecord, deps: AgendaWak
 			return;
 		}
 		// O run anterior ainda vive (rodando ou parado num cartão): não empilha outro.
-		if (await (deps.inFlight ?? isAgendaRunInFlight)(item.userId, item.runId, now)) return await defer("run_in_flight", IN_FLIGHT_RETRY_MS);
+		if (runAlive) return await defer("run_in_flight", IN_FLIGHT_RETRY_MS);
 		if (((await (deps.activeRuns ?? listActiveRunsForConversation)(bot.conversationId))).length > 0) return await defer("bot_busy", BUSY_RETRY_MS);
 		const model = await (deps.resolveModel ?? resolveProactiveModel)(item.botId, item.userId, deps.envDefaultModel);
 		const objective = agendaObjective(item, event);
@@ -148,6 +183,8 @@ export async function dispatchAgendaItem(item: AgendaItemRecord, deps: AgendaWak
 		// Corrida: um run ativo entrou na conversa entre a checagem e o create (o create devolve o ativo).
 		if (run.origin !== "proactive" || run.objective !== objective.trim()) return await defer("bot_busy_race", BUSY_RETRY_MS);
 		await (deps.begin ?? beginAgendaRun)(decision.item, run.id, now);
+		// O run vai ler o que chegou: o evento pendente (se havia) foi absorvido. Os que chegarem de agora em diante remarcam.
+		if (item.kind === "intent") await (deps.clearPending ?? clearPendingEvent)(item.userId, item.id).catch(() => undefined);
 		const enqueued = await deps.enqueueRun(run.id).catch(() => false);
 		result.run += 1;
 		log(`[agenda] item=${item.id} run=${run.id} kind=${item.kind} n=${item.runCount + 1} enqueued=${enqueued}`);
@@ -169,6 +206,12 @@ export async function processAgenda(deps: AgendaWakeDeps): Promise<AgendaWakeRes
 	const result = emptyResult();
 	const due = await (deps.claimDue ?? claimDueAgendaItems)(now);
 	for (const item of due) await dispatchAgendaItem(item, deps, result);
+	// Eventos que chegaram com a intenção ocupada: acorda quando o run anterior terminou (B5).
+	const pending = await (deps.claimPending ?? claimPendingEventItems)(now, AGENDA_EVENT_MIN_GAP_MINUTES).catch((error) => {
+		(deps.log ?? console.error)(`[agenda] varredura de eventos pendentes falhou: ${error instanceof Error ? error.message : String(error)}`);
+		return [] as AgendaItemRecord[];
+	});
+	for (const item of pending) await dispatchAgendaItem(item, deps, result, undefined, { pendingEvent: true });
 	return result;
 }
 
@@ -182,10 +225,14 @@ export async function wakeAgendaForEvent(input: { userId: string; event: AgendaE
 	const result = emptyResult();
 	const { matched, coalesced } = await (deps.findForEvent ?? findAgendaItemsForEvent)(input.userId, input.event, now, AGENDA_EVENT_MIN_GAP_MINUTES);
 	result.coalesced = coalesced.length;
+	const markPending = deps.markPending ?? markPendingEvent;
+	// Juntar não pode perder: o item ocupado (ou que acordou há pouco) roda de novo quando o run atual terminar.
+	for (const item of coalesced) await markPending(item.userId, item.id).catch(() => undefined);
 	for (const item of matched) {
 		// Compare-and-set no banco: o mesmo evento em dois workers acorda o item uma vez só.
 		if (!(await (deps.reserve ?? reserveAgendaItem)(item.userId, item.id, now))) {
 			result.coalesced += 1;
+			await markPending(item.userId, item.id).catch(() => undefined);
 			continue;
 		}
 		await dispatchAgendaItem(item, deps, result, input.event);
