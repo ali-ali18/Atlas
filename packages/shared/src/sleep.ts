@@ -320,10 +320,13 @@ export function readStoredProposals(raw: unknown): SleepStoredProposal[] {
 	});
 }
 
+/** Chave em `policyJson` que liga/desliga o sono do bot. */
+export const SLEEP_POLICY_KEY = "sleep";
+
 /** O sono é padrão para o bot (conta no v4). O dono desliga por bot com `policyJson.sleep = false`; qualquer outro valor mantém ligado. */
 export function readSleepEnabled(policyJson: unknown): boolean {
 	if (typeof policyJson !== "object" || policyJson === null || Array.isArray(policyJson)) return true;
-	return (policyJson as Record<string, unknown>).sleep !== false;
+	return (policyJson as Record<string, unknown>)[SLEEP_POLICY_KEY] !== false;
 }
 
 export type SleepSummaryCounts = { facts: number; notes: number; skills: number; evalCases: number };
