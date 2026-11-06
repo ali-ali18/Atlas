@@ -14,6 +14,30 @@ const eventTool = (counter = { runs: 0 }) =>
 	defineTool({ name: "create_event", description: "Create an event.", inputSchema: z.object({ title: z.string() }), effect: "write_external", execute: ({ title }) => (counter.runs++, { ok: true, summary: `created ${title}`, receipt: { what: "Evento criado", externalId: "ev-1" } }) });
 const autonomous = { ...chatPolicy, autonomy: "autonomous" as const };
 
+describe("kernel: tool que encerra o run (endsRun)", () => {
+	const closer = (counter = { runs: 0 }) =>
+		defineTool({ name: "close_run", description: "Close the run.", inputSchema: z.object({}), effect: "read", endsRun: true, execute: () => (counter.runs++, { ok: true, summary: "closed" }) });
+
+	it("fecha o run na hora: sem outra chamada ao modelo, sem cartão de pergunta e com o texto do mesmo passo", async () => {
+		const counter = { runs: 0 };
+		const h = kernelHarness([reply({ text: "Feito.", calls: [call("a", "close_run", {})] })], { tools: [closer(counter)] });
+		const result = await h.run();
+		expect(result).toMatchObject({ status: "done", text: "Feito.", steps: 1 });
+		expect(result.awaiting).toBeUndefined();
+		expect(counter.runs).toBe(1);
+		expect(h.llm.requests).toHaveLength(1);
+		expect(h.log.events.some((e) => e.type === "card")).toBe(false);
+	});
+
+	it("duas no mesmo passo: a segunda volta ao modelo com erro honesto, sem executar", async () => {
+		const counter = { runs: 0 };
+		const h = kernelHarness([reply({ calls: [call("a", "close_run", {}), call("b", "close_run", {})] })], { tools: [closer(counter)] });
+		await h.run();
+		expect(counter.runs).toBe(1);
+		expect(JSON.stringify(h.log.of("tool_result"))).toContain("only one such call is allowed per step");
+	});
+});
+
 describe("kernel: laço", () => {
 	it("resposta sem tool encerra o turno e o texto do modelo passa byte a byte", async () => {
 		const text = "  Olá!\n\n<b>não mexa</b>  ç— com espaços no fim   ";

@@ -75,7 +75,7 @@ export async function runPending(env: ToolStepEnv): Promise<{ malformed: number 
 		}
 		// Uma pergunta por turno: a segunda `endsTurn` do passo volta ao modelo com erro honesto, sem executar. A reserva é
 		// síncrona (antes de qualquer await), então vale a ordem declarada mesmo com as leituras em paralelo.
-		if (tool.endsTurn) {
+		if (tool.endsTurn || tool.endsRun) {
 			if (snap.endedBy !== undefined || (turnEnder !== undefined && turnEnder !== call.id)) {
 				return finish(call, "error", `Error: ${tool.name} ends the turn and only one such call is allowed per step. Hint: put everything you need to ask into a single ${tool.name} call.`);
 			}
@@ -122,7 +122,7 @@ export async function runPending(env: ToolStepEnv): Promise<{ malformed: number 
 		if (outcome.status === "error" || outcome.status === "contract_error") snap.lastErrors[call.name] = outcome.error;
 		else if (outcome.status === "ok") {
 			delete snap.lastErrors[call.name];
-			if (tool.endsTurn) snap.endedBy = call.id;
+			if (tool.endsTurn || tool.endsRun) snap.endedBy = call.id;
 		}
 		if (outcome.status === "ok" && outcome.receipt) {
 			const { what, where, externalId, url } = outcome.receipt;

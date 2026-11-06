@@ -193,6 +193,8 @@ export async function runAgent(deps: RunAgentDeps): Promise<RunResult> {
 				snap.pending = [];
 				snap.results = {};
 				snap.step++;
+				// Tool que encerra o run (`agenda_result`): fecha agora, sem nova chamada ao modelo e sem cartão de pergunta.
+				if (asked && toolMap().get(asked.name)?.endsRun) return await finish(endStatus(), snap.lastText);
 				if (asked) {
 					// A pergunta fica no texto final (recarregar a conversa a mostra). O texto do modelo segue intacto; a pergunta é acrescentada depois dele (ou é o próprio texto, se ele não disse nada ou disse exatamente ela).
 					const question = (asked.args as { question?: string }).question ?? "";
