@@ -82,8 +82,10 @@ function fakeContextDb(base: Partial<{ history: unknown[]; provenance: { untrust
 	const swept: string[] = [];
 	const register = { calls: 0 };
 	let checkpoints = new Map<string, { runId: string; userId: string; step: number; state: string; payload: unknown }>();
+	const loads = { calls: 0 };
 	const db: V4RunContextDb = {
-		loadCheckpoint: (async (userId: string, runId: string) => structuredClone(checkpoints.get(`${userId}:${runId}`) ?? null)) as never,
+		hasCheckpoint: (async (userId: string, runId: string) => checkpoints.has(`${userId}:${runId}`)) as never,
+		loadCheckpoint: (async (userId: string, runId: string) => (loads.calls++, structuredClone(checkpoints.get(`${userId}:${runId}`) ?? null))) as never,
 		listHistory: (async () => base.history ?? []) as never,
 		conversationProvenance: (async () => base.provenance ?? { untrustedReadInRun: false, privateReadInRun: false, sources: [] }) as never,
 		listCardResponses: (async () => base.cards ?? []) as never,
@@ -105,7 +107,7 @@ function fakeContextDb(base: Partial<{ history: unknown[]; provenance: { untrust
 			for (const item of items) if (!requests.some((r) => r.runId === runId && r.kind === item.kind && r.key === item.key)) requests.push({ ...item, runId, state: "pending", expiresAt: new Date(now.getTime() + AGENT_V4_REQUEST_TTL_MS) });
 		}) as never,
 	};
-	return { db, requests, consumed, swept, register, useCheckpointsOf: (v4: V4Db) => void (checkpoints = (v4 as unknown as { __checkpoints: typeof checkpoints }).__checkpoints) };
+	return { db, requests, consumed, swept, register, loads, useCheckpointsOf: (v4: V4Db) => void (checkpoints = (v4 as unknown as { __checkpoints: typeof checkpoints }).__checkpoints) };
 }
 
 const sendEmail = (counter: { runs: number }) =>
@@ -564,4 +566,17 @@ test("C1/T4: os sinais de proveniência saem do snapshot REAL do kernel (quebra 
 	assert.equal(clean.out.text, "oi");
 	const cleanCp = (mem.db as unknown as { __checkpoints: Map<string, { payload: unknown }> }).__checkpoints.get("user-a:run-clean2");
 	assert.deepEqual(agentV4ProvenanceOf(cleanCp?.payload), { untrustedReadInRun: false, privateReadInRun: false, sources: [] });
+});
+
+test("C5: decidir run novo x retomada usa a consulta de existência e não carrega o checkpoint; só o `finish` estacionado o lê", async () => {
+	const ctx = fakeContextDb();
+	const mem = memoryV4Db();
+	const registry = registryOf(sendEmail({ runs: 0 }));
+	await turn({ ctx, v4: mem.db, llm: scripted([say("oi")]), runId: "run-c5a", objective: "oi", registry });
+	assert.equal(ctx.loads.calls, 0, "run novo que conclui: nenhum checkpoint carregado");
+	await turn({ ctx, v4: mem.db, llm: scripted([callTool("c1", "send_email", { to: "a@example.com", body: "oi" })]), runId: "run-c5b", objective: "manda", registry });
+	assert.equal(ctx.loads.calls, 1, "só o registro dos pedidos do run estacionado lê o checkpoint");
+	const resumed = await turn({ ctx, v4: mem.db, llm: scripted([]), runId: "run-c5b", objective: "manda", registry });
+	assert.ok(resumed.prepared.resume, "o checkpoint existente faz o preparo montar a retomada");
+	assert.equal(ctx.loads.calls, 2, "a retomada que reestaciona lê uma vez, no finish");
 });

@@ -12,6 +12,7 @@ import {
 	consumeAgentV4CardResponses,
 	expireDueAgentV4Requests,
 	getAgentV4ConversationProvenance,
+	hasAgentV4Checkpoint,
 	listAgentV4CardResponses,
 	listAgentV4History,
 	loadAgentV4Checkpoint,
@@ -25,6 +26,8 @@ import {
 /** As funções de banco do contexto do run v4; injetáveis para o teste. */
 export type V4RunContextDb = {
 	loadCheckpoint: typeof loadAgentV4Checkpoint;
+	/** Existência barata do checkpoint (decide run novo x retomada sem trazer o payload). */
+	hasCheckpoint: typeof hasAgentV4Checkpoint;
 	listHistory: typeof listAgentV4History;
 	conversationProvenance: typeof getAgentV4ConversationProvenance;
 	listCardResponses: typeof listAgentV4CardResponses;
@@ -36,6 +39,7 @@ export type V4RunContextDb = {
 
 export const realV4RunContextDb: V4RunContextDb = {
 	loadCheckpoint: loadAgentV4Checkpoint,
+	hasCheckpoint: hasAgentV4Checkpoint,
 	listHistory: listAgentV4History,
 	conversationProvenance: getAgentV4ConversationProvenance,
 	listCardResponses: listAgentV4CardResponses,
@@ -158,7 +162,7 @@ export async function prepareV4Run(input: PrepareV4RunInput): Promise<PreparedV4
 	};
 
 	// Retomada: o kernel restaura mensagens e proveniência do checkpoint; falta só o que o dono decidiu (e o que venceu).
-	if ((await db.loadCheckpoint(input.userId, input.runId)) !== null) {
+	if (await db.hasCheckpoint(input.userId, input.runId)) {
 		return { ...base, resume: resumeInputFromDecisions(await db.loadDecisions(input.userId, input.runId, now())) };
 	}
 

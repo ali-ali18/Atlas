@@ -148,6 +148,19 @@ export async function loadAgentV4Checkpoint(userId: string, runId: string): Prom
 	return v4 && typeof v4 === "object" ? { runId, userId, step: v4.step, state: v4.state, payload: v4.payload } : null;
 }
 
+/**
+ * O run já tem checkpoint v4? Consulta barata para decidir "run novo ou retomada" sem trazer o checkpoint (grande) à
+ * memória (auditoria F2, C5). Todo save v4 grava `v4Provenance`, então a coluna pequena responde quase sempre; o teste da
+ * chave dentro do `checkpointJson` só roda para quem ainda não tem a coluna (run novo, v2, ou checkpoint de antes dela).
+ */
+export async function hasAgentV4Checkpoint(userId: string, runId: string): Promise<boolean> {
+	if (!owned(userId)) return false;
+	const rows = await prisma.$queryRaw<Array<{ found: boolean }>>`
+		SELECT ("v4Provenance" IS NOT NULL OR jsonb_exists("checkpointJson", 'v4')) AS "found"
+		FROM "agent_runs" WHERE "id" = ${runId} AND "userId" = ${userId}`;
+	return rows[0]?.found === true;
+}
+
 // ------------------------------------------------------------------- journal
 
 export type AgentJournalRecord = {
