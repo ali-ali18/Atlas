@@ -50,6 +50,7 @@ import { TaskListCard } from "./task-list-card";
 import { PageCard } from "@/components/ai-elements/pages";
 import { PlanCard, type PlanCardStatus } from "@workspace/ui/components/plan-card";
 import { CompactionCard } from "./compaction-card";
+import { AgentCard } from "@/components/ai-elements/agent-cards";
 import { ImagePendingCard } from "@/components/ai-elements/images/image-pending-card";
 import { MemoryUpdatedMarker } from "./memory-updated-marker";
 import { ImageGallery } from "@/components/ai-elements/images/image-gallery";
@@ -268,6 +269,8 @@ export const MessageRow = memo(function MessageRow({
 			return <PageCard botName={botName} card={message} />;
 		case "task-list":
 			return <TaskListCard items={message.items} />;
+		case "agent-card":
+			return <AgentCard message={message} />;
 		case "compaction":
 			return <CompactionCard after={message.after} before={message.before} focus={message.focus} summary={message.summary} />;
 		case "memory-updated":
