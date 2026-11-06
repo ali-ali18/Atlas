@@ -36,7 +36,7 @@ import { createWebCapability } from "../presets/web.js";
 import { buildStablePrompt } from "../prompt/work-contract.js";
 import { createMemoryStore } from "./memory-store.js";
 import { HELPER_PROMPT, LEAD_TASK_LABEL } from "./prompt.js";
-import { recordSources } from "./sources.js";
+import { recordSources, type ExtractCache } from "./sources.js";
 import type { SpendLedger } from "./spend-ledger.js";
 import { inheritedProvenance } from "./taint.js";
 
@@ -140,9 +140,9 @@ export function createHelpers(deps: CreateHelpersDeps): Helpers {
 	const forbidden = deps.forbiddenCapabilities ?? HELPER_FORBIDDEN_CAPABILITIES;
 	let counter = 0;
 
-	async function runOne(task: HelperTask, signal: AbortSignal | undefined): Promise<HelperResult> {
+	async function runOne(task: HelperTask, signal: AbortSignal | undefined, cache: ExtractCache): Promise<HelperResult> {
 		if (signal?.aborted) return stopped("cancelled");
-		const recorder = deps.search ? recordSources(deps.search) : undefined;
+		const recorder = deps.search ? recordSources(deps.search, cache) : undefined;
 		const built = buildChildRegistry({ requested: task.capabilities, mother: deps.motherRegistry(), forbidden, ...(recorder && { web: recorder.search }) });
 		if (!built.ok) return failed(built.error);
 		const { registry } = built;
@@ -199,10 +199,12 @@ export function createHelpers(deps: CreateHelpersDeps): Helpers {
 	return {
 		async runAll(tasks, signal) {
 			const results = new Array<HelperResult>(tasks.length);
+			// Uma leitura por URL neste lote (C3): os ajudantes do mesmo `runAll` dividem as páginas já extraídas.
+			const cache: ExtractCache = new Map();
 			let next = 0;
 			// Fila com N trabalhadores: a ordem do resultado é a das tarefas, não a de término.
 			const worker = async () => {
-				for (let i = next++; i < tasks.length; i = next++) results[i] = await runOne(tasks[i] as HelperTask, signal);
+				for (let i = next++; i < tasks.length; i = next++) results[i] = await runOne(tasks[i] as HelperTask, signal, cache);
 			};
 			await Promise.all(Array.from({ length: Math.min(concurrency, tasks.length) }, worker));
 			return results;

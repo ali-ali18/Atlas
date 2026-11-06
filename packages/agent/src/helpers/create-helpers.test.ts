@@ -437,6 +437,35 @@ describe("createHelpers: fontes", () => {
 	});
 });
 
+describe("createHelpers: uma extração por URL no lote (auditoria F3, C3)", () => {
+	const readA = (text: string): Turn[] => [reply({ calls: [call("c1", "web_extract", { url: "https://a.test/x" })] }), reply({ text })];
+
+	it("dois ajudantes do mesmo runAll que leem a mesma URL extraem uma vez; as duas fontes continuam registradas", async () => {
+		const { helpers, search } = setup({ "OBJ-A": readA("A done"), "OBJ-B": readA("B done") });
+		const [a, b] = await helpers.runAll([task("OBJ-A"), task("OBJ-B")]);
+		expect(search.extracted).toEqual(["https://a.test/x"]);
+		expect(a?.sources).toEqual([{ url: "https://a.test/x", title: "Page A" }]);
+		expect(b?.sources).toEqual([{ url: "https://a.test/x", title: "Page A" }]);
+	});
+
+	it("o cache vale por runAll: outro lote lê de novo (nada de cache entre pesquisas)", async () => {
+		const { helpers, search } = setup({ "OBJ-A": [...readA("1"), ...readA("2")] });
+		await helpers.runAll([task("OBJ-A")]);
+		await helpers.runAll([task("OBJ-A")]);
+		expect(search.extracted).toEqual(["https://a.test/x", "https://a.test/x"]);
+	});
+
+	it("leitura que falhou não fica no cache: o outro ajudante tenta de novo", async () => {
+		let calls = 0;
+		const search: Search & { extracted: string[] } = { extracted: [], search: async () => [], extract: async (_u, url) => (++calls === 1 ? Promise.reject(new Error("flaky")) : { url, title: "Page A", text: "ok" }) };
+		const route = (text: string): Turn[] => [reply({ calls: [call("c1", "web_extract", { url: "https://a.test/x" })] }), reply({ text })];
+		const { helpers } = setup({ "OBJ-A": route("A"), "OBJ-B": route("B") }, { search });
+		const results = await helpers.runAll([task("OBJ-A"), task("OBJ-B")]);
+		expect(calls).toBe(2);
+		expect(results.flatMap((r) => r.sources)).toHaveLength(1);
+	});
+});
+
 describe("createHelpers: taint nos dois sentidos", () => {
 	const web = (): Turn[] => [reply({ calls: [call("c1", "web_search", { query: "q" })] }), reply({ text: "searched" })];
 
