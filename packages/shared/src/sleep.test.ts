@@ -224,3 +224,56 @@ describe("sono x reflexão do v2 (auditoria F5, R1)", () => {
 		expect(sleepReplacesScheduledReflection(gate, "u1", { conversationId: null, policyJson: {} })).toBe(false);
 	});
 });
+
+describe("horário do sono com horário de verão (America/New_York) e nas bordas do dia (auditoria F5, T2)", () => {
+	const NY = "America/New_York";
+	const iso = (date: Date) => date.toISOString();
+
+	it("virada de março (domingo 08/03, 02:00 vira 03:00): o slot do sábado é em EST e o do domingo em EDT", () => {
+		const sat = sleepSlotFor(new Date("2026-03-07T15:00:00Z"), NY);
+		expect([sat.key, iso(sat.at), sat.weekday]).toEqual(["2026-03-07", "2026-03-08T04:30:00.000Z", 6]);
+		const sun = sleepSlotFor(new Date("2026-03-08T15:00:00Z"), NY);
+		expect([sun.key, iso(sun.at), sun.weekday]).toEqual(["2026-03-08", "2026-03-09T03:30:00.000Z", 0]);
+		expect(isDoctorDay(sun)).toBe(true);
+		expect(isDoctorDay(sat)).toBe(false);
+		// A janela entre os dois sonos tem 23 h (o dia curto), contígua.
+		const window = sleepWindow({ slotAt: sun.at, previousEnd: sat.at });
+		expect([iso(window.from), iso(window.to)]).toEqual(["2026-03-08T04:30:00.000Z", "2026-03-09T03:30:00.000Z"]);
+		expect((window.to.getTime() - window.from.getTime()) / 3_600_000).toBe(23);
+	});
+
+	it("virada de novembro (domingo 01/11, 02:00 volta para 01:00): o dia longo tem 25 h e o domingo continua dia do doctor", () => {
+		const sat = sleepSlotFor(new Date("2026-10-31T15:00:00Z"), NY);
+		expect([sat.key, iso(sat.at)]).toEqual(["2026-10-31", "2026-11-01T03:30:00.000Z"]);
+		const sun = sleepSlotFor(new Date("2026-11-01T15:00:00Z"), NY);
+		expect([sun.key, iso(sun.at), sun.weekday]).toEqual(["2026-11-01", "2026-11-02T04:30:00.000Z", 0]);
+		expect(isDoctorDay(sun)).toBe(true);
+		expect((sleepWindow({ slotAt: sun.at, previousEnd: sat.at }).to.getTime() - sat.at.getTime()) / 3_600_000).toBe(25);
+	});
+
+	it("nas duas viradas o sono fica devido exatamente às 23:30 locais, nem um minuto antes", () => {
+		for (const [before, at] of [
+			["2026-03-09T03:29:00Z", "2026-03-09T03:30:00Z"], // domingo 08/03, EDT
+			["2026-03-08T04:29:00Z", "2026-03-08T04:30:00Z"], // sábado 07/03, EST
+			["2026-11-02T04:29:00Z", "2026-11-02T04:30:00Z"], // domingo 01/11, EST
+			["2026-11-01T03:29:00Z", "2026-11-01T03:30:00Z"], // sábado 31/10, EDT
+		]) {
+			expect(isSleepDue(new Date(before!), NY).due).toBe(false);
+			expect(isSleepDue(new Date(at!), NY).due).toBe(true);
+		}
+	});
+
+	it("borda 23:30: 23:29 ainda não, 23:30 sim; 00:10 já é o dia seguinte (outro slot, outra chave, ainda não devido)", () => {
+		expect(isSleepDue(new Date("2026-11-05T02:29:59Z"), SP).due).toBe(false);
+		expect(isSleepDue(new Date("2026-11-05T02:30:00Z"), SP).due).toBe(true);
+		const after = isSleepDue(new Date("2026-11-05T03:10:00Z"), SP); // 00:10 de 05/11 em São Paulo
+		expect(after.slot.key).toBe("2026-11-05");
+		expect(after.due).toBe(false);
+		// 00:10 de domingo em Nova York (EDT em março): já é o slot de domingo, dia do doctor, ainda não devido.
+		const sunday = isSleepDue(new Date("2026-03-08T05:10:00Z"), NY);
+		expect([sunday.slot.key, sunday.slot.weekday, sunday.due]).toEqual(["2026-03-08", 0, false]);
+		// 00:10 de domingo na virada de novembro (ainda EDT): idem.
+		const novSunday = isSleepDue(new Date("2026-11-01T04:10:00Z"), NY);
+		expect([novSunday.slot.key, novSunday.slot.weekday, novSunday.due]).toEqual(["2026-11-01", 0, false]);
+	});
+});
