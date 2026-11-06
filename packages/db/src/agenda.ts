@@ -84,10 +84,10 @@ export type AgendaItemRecord = {
 	runId: string | null;
 	endReason: string | null;
 	/** A nota foi escrita por um run que leu conteúdo não confiável (S1): no wake ela é dado, não instrução. */
-	noteUntrusted: boolean;
-	/** Janela de 24h do `intent` (teto de acordares por dia). */
-	eventWindowAt: Date | null;
-	eventWindowCount: number;
+	noteUntrusted?: boolean;
+	/** Janela de 24h do `intent` (teto de acordares por dia). Ausente = janela fechada. */
+	eventWindowAt?: Date | null;
+	eventWindowCount?: number;
 	sourceRunId: string | null;
 	/** Reserva ativa (varredura criando o run, ou run de intenção em andamento). */
 	reservedUntil: Date | null;
@@ -391,7 +391,7 @@ export async function decideAgendaWake(item: AgendaItemRecord, now: Date, settin
  */
 export async function beginAgendaRun(item: AgendaItemRecord, runId: string, now: Date): Promise<void> {
 	// Intenção por evento gasta um acordar da janela de 24h (teto diário por item).
-	const window = item.kind === "intent" ? nextAgendaEventWindow({ windowStartAt: item.eventWindowAt, windowCount: item.eventWindowCount }, now) : null;
+	const window = item.kind === "intent" ? nextAgendaEventWindow({ windowStartAt: item.eventWindowAt ?? null, windowCount: item.eventWindowCount ?? 0 }, now) : null;
 	await prisma.botFollowup.updateMany({
 		where: { id: item.id, userId: item.userId, agendaKind: { not: null }, status: "pending" },
 		data: {
@@ -473,7 +473,7 @@ export type FinalizeAgendaRunResult =
 			 * Lembrete que não devolveu resultado nem texto depois de várias tentativas: o dono recebe a PRÓPRIA nota
 			 * (o worker monta o texto com `copyFor(language, "agenda_reminder_note", { note })`). Nunca some calado.
 			 */
-			deliverNote: boolean;
+			deliverNote?: boolean;
 			note: string;
 	  };
 
@@ -533,7 +533,7 @@ export async function findAgendaItemsForEvent(userId: string, event: AgendaEvent
 	for (const item of hits) {
 		// Run em andamento (reserva ativa), acordou há pouco ou gastou o teto do dia: o evento é juntado, e o próximo run lê o que chegou.
 		const busy = item.reservedUntil !== null && item.reservedUntil.getTime() > now.getTime();
-		const verdict = planAgendaEventWake({ now, lastWakeAt: item.lastResult ? new Date(item.lastResult.at) : null, minGapMinutes, window: { windowStartAt: item.eventWindowAt, windowCount: item.eventWindowCount } });
+		const verdict = planAgendaEventWake({ now, lastWakeAt: item.lastResult ? new Date(item.lastResult.at) : null, minGapMinutes, window: { windowStartAt: item.eventWindowAt ?? null, windowCount: item.eventWindowCount ?? 0 } });
 		(busy || verdict !== "wake" ? coalesced : matched).push(item);
 	}
 	return { matched, coalesced };
