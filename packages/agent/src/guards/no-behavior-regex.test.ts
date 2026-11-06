@@ -11,14 +11,18 @@ import { describe, expect, it } from "vitest";
 // e `packages/shared/src/agent-policy` e falha quando uma operação de padrão/texto é aplicada a uma
 // expressão cujo nome está na denylist de FONTES DE TEXTO LIVRE (objective, content, text, message...).
 //
+// Também pega IGUALDADE com literal de texto (`text === "sim"`, `switch (text) { case "sim": }`); comparar com "" é
+// checagem de vazio e não conta.
+//
 // Operações: literal RegExp, `new RegExp`, `.match/.matchAll/.search/.test/.exec/.includes/.startsWith/.endsWith`
 // e `.replace/.replaceAll/.split` quando o padrão é um RegExp.
 //
 // Limites (análise conservadora, de propósito simples; ela pega o caso comum, não prova ausência):
 // - olha o NOME: caminho `a.b.text`, `a?.text`, `a["text"]`, `text!`, `(text as X)`, e cadeias de
 //   transformação de texto (`text.trim().toLowerCase().match(...)` conta como `text`);
-// - segue UM nível de alias local no arquivo (`const t = msg.content; t.includes(...)`);
-// - não segue valor que atravessa função, campo renomeado ou desestruturação com outro nome.
+// - segue alias local no arquivo, em cadeia (`const t = msg.content; const u = t.trim(); u.includes(...)`) e por
+//   desestruturação com outro nome (`const { text: t } = x`);
+// - não segue valor que atravessa função nem campo renomeado em outro objeto.
 // Exceção: validação de FORMATO (id, nome, nonce, sanitização de caracteres), com o comentário
 //   // guard-allow: format-validation <por quê>
 // na mesma linha da operação ou na linha de cima. O "por quê" é obrigatório.
@@ -45,10 +49,23 @@ export const FREE_TEXT_NAMES: ReadonlySet<string> = new Set([
 	"question",
 	"summary",
 	"transcript",
+	// Variações comuns de texto do dono/modelo (conservador: nomes genéricos como `input`, `value`, `line` ou `str`
+	// ficam de fora, porque nomeiam muita coisa que não é texto livre e gerariam falso positivo em toda validação).
+	"userMessage",
+	"ownerMessage",
+	"assistantMessage",
+	"modelText",
+	"rawText",
+	"fullText",
+	"finalText",
+	"responseText",
+	"userInput",
+	"msg",
+	"title",
 ]);
 
 /** Métodos de texto que são "padrão sobre texto" por si só. */
-const TEXT_METHODS: ReadonlySet<string> = new Set(["match", "matchAll", "search", "includes", "startsWith", "endsWith"]);
+const TEXT_METHODS: ReadonlySet<string> = new Set(["match", "matchAll", "search", "includes", "startsWith", "endsWith", "indexOf", "lastIndexOf"]);
 /** Métodos de texto que só contam com um RegExp como padrão. */
 const REGEX_ONLY_METHODS: ReadonlySet<string> = new Set(["replace", "replaceAll", "split"]);
 /** Métodos de RegExp: o texto é o ARGUMENTO. */
@@ -93,13 +110,25 @@ export function findViolations(code: string, file = "snippet.ts"): Violation[] {
 	const lines = code.split("\n");
 	const found: Violation[] = [];
 
-	// Aliases de um nível: `const t = <fonte de texto livre>`.
+	// Aliases: `const t = <fonte de texto livre>` (em cadeia, até estabilizar) e `const { text: t } = x`.
 	const aliases = new Set<string>();
 	const collectAliases = (node: ts.Node) => {
-		if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer && freeTextName(node.initializer, new Set()) !== undefined) aliases.add(node.name.text);
+		if (ts.isVariableDeclaration(node)) {
+			if (ts.isIdentifier(node.name) && node.initializer && freeTextName(node.initializer, aliases) !== undefined) aliases.add(node.name.text);
+			if (ts.isObjectBindingPattern(node.name)) {
+				for (const element of node.name.elements) {
+					const source = element.propertyName ?? element.name;
+					const sourceName = ts.isIdentifier(source) ? source.text : ts.isStringLiteralLike(source) ? source.text : undefined;
+					if (ts.isIdentifier(element.name) && sourceName !== undefined && FREE_TEXT_NAMES.has(sourceName)) aliases.add(element.name.text);
+				}
+			}
+		}
 		ts.forEachChild(node, collectAliases);
 	};
-	collectAliases(source);
+	for (let size = -1; size !== aliases.size; ) {
+		size = aliases.size;
+		collectAliases(source);
+	}
 
 	const allowed = (line0: number) => ALLOW.test(lines[line0] ?? "") || ALLOW.test(lines[line0 - 1] ?? "");
 	const report = (node: ts.Node, why: string) => {
@@ -108,7 +137,23 @@ export function findViolations(code: string, file = "snippet.ts"): Violation[] {
 		found.push({ file, line: line0 + 1, text: (lines[line0] ?? "").trim(), why });
 	};
 
+	// Literal de texto não vazio: comparar com ele é decidir pelo conteúdo; "" é checagem de vazio.
+	const isTextLiteral = (node: ts.Node): boolean => {
+		const n = unwrap(node);
+		return (ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)) && n.text !== "";
+	};
+	const EQUALITY = new Set([ts.SyntaxKind.EqualsEqualsToken, ts.SyntaxKind.EqualsEqualsEqualsToken, ts.SyntaxKind.ExclamationEqualsToken, ts.SyntaxKind.ExclamationEqualsEqualsToken]);
+
 	const visit = (node: ts.Node) => {
+		if (ts.isBinaryExpression(node) && EQUALITY.has(node.operatorToken.kind)) {
+			const [side, other] = [node.left, node.right];
+			const name = (isTextLiteral(other) && freeTextName(side, aliases)) || (isTextLiteral(side) && freeTextName(other, aliases)) || undefined;
+			if (name) report(node, `igualdade com literal sobre texto livre "${name}"`);
+		}
+		if (ts.isSwitchStatement(node)) {
+			const name = freeTextName(node.expression, aliases);
+			if (name && node.caseBlock.clauses.some((c) => ts.isCaseClause(c) && isTextLiteral(c.expression))) report(node, `switch sobre texto livre "${name}"`);
+		}
 		if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
 			const method = node.expression.name.text;
 			const receiver = node.expression.expression;
@@ -174,6 +219,31 @@ describe("guarda: auto-testes da análise", () => {
 		expect(bad("const t = req.text; if (t.includes('a')) go();")).toBe(1);
 		expect(bad("RE.exec(`${text}`);")).toBe(1);
 		expect(bad("text.replace(/a/g, 'b');")).toBe(1);
+	});
+
+	it("pega indexOf/lastIndexOf, igualdade e switch com literal, nomes ampliados e aliases por desestruturação (auditoria F1, T4)", () => {
+		expect(bad("if (message.indexOf('sim') >= 0) go();")).toBe(1);
+		expect(bad("if (userText.lastIndexOf('?') > 0) go();")).toBe(1);
+		expect(bad("if (text === 'sim') go();")).toBe(1);
+		expect(bad("if ('sim' !== answer.trim().toLowerCase()) go();")).toBe(1);
+		expect(bad("if (state.objective == `pare`) go();")).toBe(1);
+		expect(bad("switch (reply) { case 'sim': go(); break; }")).toBe(1);
+		expect(bad("switch (text.trim()) { case 'a': case 'b': go(); }")).toBe(1);
+		expect(bad("if (userMessage.includes('x')) go();")).toBe(1);
+		expect(bad("if (msg.startsWith('x')) go();")).toBe(1);
+		expect(bad("const { text: t } = req; if (t.includes('a')) go();")).toBe(1);
+		expect(bad("const { content } = req; if (content.includes('a')) go();")).toBe(1);
+		expect(bad("const t = text; const u = t.trim(); if (u.endsWith('a')) go();")).toBe(1);
+	});
+
+	it("não acusa checagem de vazio, igualdade sem literal de texto nem campos que não são texto livre", () => {
+		expect(bad("if (text === '') return;")).toBe(0);
+		expect(bad("if (message.role === 'user') go();")).toBe(0);
+		expect(bad("if (text === other) go();")).toBe(0);
+		expect(bad("switch (kind) { case 'a': go(); }")).toBe(0);
+		expect(bad("switch (text) { default: go(); }")).toBe(0);
+		expect(bad("const { id: t } = req; if (t.includes('a')) go();")).toBe(0);
+		expect(bad("if (ids.indexOf(id) >= 0) go();")).toBe(0);
 	});
 
 	it("deixa passar o que não é texto livre ou não é padrão", () => {
