@@ -40,8 +40,17 @@ export const AGENDA_IGNORED_NOTICE_LIMIT = 2;
 export const AGENDA_MISSING_RESULT_LIMIT = 3;
 /** Lembrete que acordou sem resultado e sem texto: tenta de novo neste prazo (empurrado para fora do silêncio). */
 export const AGENDA_REMIND_RETRY_MINUTES = 30;
-/** Um item `intent` não acorda de novo antes disto (várias mensagens seguidas viram um run só; o run lê o que chegou). */
-export const AGENDA_EVENT_MIN_GAP_MINUTES = 10;
+/**
+ * Um item `intent` não acorda de novo antes disto (várias mensagens seguidas viram um run só; o run lê o que chegou).
+ * 30 min: com 10 min um filtro largo (ex.: todo e-mail com anexo) gastava até 144 runs/dia por item.
+ */
+export const AGENDA_EVENT_MIN_GAP_MINUTES = 30;
+/**
+ * Teto de acordares de um item `intent` por janela de 24h (custo de LLM por item; "sem polling caro"). 8 cobre o uso real
+ * (fatura, entrega, resposta de alguém: um a poucos por dia) e limita o pior caso a 8 runs/dia/item (20 itens = 160).
+ * Passado o teto os eventos ficam juntados: o próximo run, na janela seguinte, lê o que chegou.
+ */
+export const AGENDA_EVENT_MAX_WAKES_PER_DAY = 8;
 
 const MINUTE_MS = 60_000;
 const DAY_MS = 24 * 60 * MINUTE_MS;
@@ -352,6 +361,32 @@ export function planAgendaWake(input: { item: AgendaWakeItem; now: Date; setting
 		if (allowed.getTime() > now.getTime()) return { action: "defer", dueAt: allowed, reason: "quiet_hours", ignoredStreak };
 	}
 	return { action: "run", ignoredStreak };
+}
+
+// ---------------------------------------------------------------------------
+// Acordar por evento: espaçamento e teto diário
+// ---------------------------------------------------------------------------
+
+export type AgendaEventWakeVerdict = "wake" | "gap" | "daily_cap";
+
+/** Janela de 24h do item `intent`: quando abriu e quantos acordares já gastou. */
+export type AgendaEventWindow = { windowStartAt: Date | null; windowCount: number };
+
+const windowOpen = (window: AgendaEventWindow, now: Date): boolean => window.windowStartAt !== null && now.getTime() - window.windowStartAt.getTime() < DAY_MS;
+
+/**
+ * Este evento acorda o item `intent` agora? `gap` = acordou há menos de `minGapMinutes` (o evento é juntado ao run que lê o
+ * que chegou); `daily_cap` = já gastou `AGENDA_EVENT_MAX_WAKES_PER_DAY` acordares na janela de 24h.
+ */
+export function planAgendaEventWake(input: { now: Date; lastWakeAt: Date | null; minGapMinutes: number; window: AgendaEventWindow }): AgendaEventWakeVerdict {
+	if (input.lastWakeAt && input.now.getTime() - input.lastWakeAt.getTime() < input.minGapMinutes * MINUTE_MS) return "gap";
+	if (windowOpen(input.window, input.now) && input.window.windowCount >= AGENDA_EVENT_MAX_WAKES_PER_DAY) return "daily_cap";
+	return "wake";
+}
+
+/** A janela depois de mais um acordar: abre uma nova se a anterior passou de 24h. */
+export function nextAgendaEventWindow(window: AgendaEventWindow, now: Date): { windowStartAt: Date; windowCount: number } {
+	return windowOpen(window, now) ? { windowStartAt: window.windowStartAt!, windowCount: window.windowCount + 1 } : { windowStartAt: now, windowCount: 1 };
 }
 
 // ---------------------------------------------------------------------------

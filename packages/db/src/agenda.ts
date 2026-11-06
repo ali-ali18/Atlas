@@ -10,7 +10,9 @@ import {
 	AGENDA_MAX_ACTIVE_PER_OWNER,
 	findDuplicateAgendaItem,
 	matchEventFilter,
+	nextAgendaEventWindow,
 	parseAgendaEventFilter,
+	planAgendaEventWake,
 	planAgendaWake,
 	readProactiveSettings,
 	settleAgendaRun,
@@ -83,6 +85,9 @@ export type AgendaItemRecord = {
 	endReason: string | null;
 	/** A nota foi escrita por um run que leu conteúdo não confiável (S1): no wake ela é dado, não instrução. */
 	noteUntrusted: boolean;
+	/** Janela de 24h do `intent` (teto de acordares por dia). */
+	eventWindowAt: Date | null;
+	eventWindowCount: number;
 	sourceRunId: string | null;
 	/** Reserva ativa (varredura criando o run, ou run de intenção em andamento). */
 	reservedUntil: Date | null;
@@ -156,6 +161,8 @@ function toRecord(row: Row): AgendaItemRecord | null {
 		runId: row.runId,
 		endReason: row.endReason,
 		noteUntrusted: row.noteUntrusted,
+		eventWindowAt: row.eventWindowAt,
+		eventWindowCount: row.eventWindowCount,
 		sourceRunId: row.sourceRunId,
 		reservedUntil: row.claimedUntil,
 		createdAt: row.createdAt,
@@ -372,6 +379,8 @@ export async function decideAgendaWake(item: AgendaItemRecord, now: Date, settin
  * resultado ele volta; `recordAgendaResult`/`finalizeAgendaRun` fixam o horário certo).
  */
 export async function beginAgendaRun(item: AgendaItemRecord, runId: string, now: Date): Promise<void> {
+	// Intenção por evento gasta um acordar da janela de 24h (teto diário por item).
+	const window = item.kind === "intent" ? nextAgendaEventWindow({ windowStartAt: item.eventWindowAt, windowCount: item.eventWindowCount }, now) : null;
 	await prisma.botFollowup.updateMany({
 		where: { id: item.id, userId: item.userId, agendaKind: { not: null }, status: "pending" },
 		data: {
@@ -379,6 +388,7 @@ export async function beginAgendaRun(item: AgendaItemRecord, runId: string, now:
 			runCount: { increment: 1 },
 			ignoredStreak: item.ignoredStreak,
 			lastNoticeAt: null,
+			...(window && { eventWindowAt: window.windowStartAt, eventWindowCount: window.windowCount }),
 			// Relógio: volta à fila neste prazo se o run morrer. Intenção por evento não tem relógio: só reserva o item.
 			...(item.kind === "intent" ? { claimedUntil: new Date(now.getTime() + AGENDA_RUN_RETRY_MS) } : { dueAt: new Date(now.getTime() + AGENDA_RUN_RETRY_MS), claimedUntil: null }),
 			lastError: null,
@@ -507,14 +517,13 @@ export async function findAgendaItemsForEvent(userId: string, event: AgendaEvent
 	if (!validOwner(userId)) return { matched: [], coalesced: [] };
 	const rows = await prisma.botFollowup.findMany({ where: { userId, agendaKind: "intent", status: "pending", OR: [{ untilAt: null }, { untilAt: { gt: now } }] } });
 	const hits = records(rows).filter((item) => item.eventFilter !== null && matchEventFilter(item.eventFilter, event));
-	const gapMs = minGapMinutes * 60_000;
-	const lastWake = (item: AgendaItemRecord) => (item.lastResult ? Date.parse(item.lastResult.at) : 0);
 	const matched: AgendaItemRecord[] = [];
 	const coalesced: AgendaItemRecord[] = [];
 	for (const item of hits) {
-		// Run em andamento (reserva ativa) ou acordou há pouco: o evento é juntado ao run que está por vir, que lê o que chegou.
+		// Run em andamento (reserva ativa), acordou há pouco ou gastou o teto do dia: o evento é juntado, e o próximo run lê o que chegou.
 		const busy = item.reservedUntil !== null && item.reservedUntil.getTime() > now.getTime();
-		(busy || now.getTime() - lastWake(item) < gapMs ? coalesced : matched).push(item);
+		const verdict = planAgendaEventWake({ now, lastWakeAt: item.lastResult ? new Date(item.lastResult.at) : null, minGapMinutes, window: { windowStartAt: item.eventWindowAt, windowCount: item.eventWindowCount } });
+		(busy || verdict !== "wake" ? coalesced : matched).push(item);
 	}
 	return { matched, coalesced };
 }

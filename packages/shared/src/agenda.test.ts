@@ -5,7 +5,11 @@ import {
 	AGENDA_MIN_INTERVAL_MINUTES,
 	findDuplicateAgendaItem,
 	matchEventFilter,
+	nextAgendaEventWindow,
 	nextIgnoredStreak,
+	planAgendaEventWake,
+	AGENDA_EVENT_MAX_WAKES_PER_DAY,
+	AGENDA_EVENT_MIN_GAP_MINUTES,
 	nextWatchDelay,
 	parseAgendaEventFilter,
 	planAgendaItem,
@@ -401,5 +405,40 @@ describe("settleAgendaRunWithoutResult", () => {
 		expect(settle({}, "watch", true)).toMatchObject({ status: "pending", post: false, missingResults: 1 });
 		expect(settle({ missingResults: 1 }, "watch", true)).toMatchObject({ status: "pending", missingResults: 2 });
 		expect(settle({ missingResults: 2 }, "watch", true)).toMatchObject({ status: "done", endReason: "no_result", post: true, missingResults: 3 });
+	});
+});
+
+describe("acordar por evento: espaçamento e teto diário (auditoria F4, B4)", () => {
+	const MIN = 60_000;
+	const closed = { windowStartAt: null, windowCount: 0 };
+
+	it("valores: 30 min entre acordares e 8 por dia (pior caso 8 runs/dia/item, antes ~144)", () => {
+		expect(AGENDA_EVENT_MIN_GAP_MINUTES).toBe(30);
+		expect(AGENDA_EVENT_MAX_WAKES_PER_DAY).toBe(8);
+	});
+
+	it("caso legítimo: um e-mail por dia acorda sempre; rajada dentro do espaçamento é juntada", () => {
+		expect(planAgendaEventWake({ now: NOW, lastWakeAt: null, minGapMinutes: 30, window: closed })).toBe("wake");
+		expect(planAgendaEventWake({ now: NOW, lastWakeAt: new Date(NOW.getTime() - 20 * MIN), minGapMinutes: 30, window: closed })).toBe("gap");
+		expect(planAgendaEventWake({ now: NOW, lastWakeAt: new Date(NOW.getTime() - 31 * MIN), minGapMinutes: 30, window: closed })).toBe("wake");
+	});
+
+	it("o teto de 8 por janela de 24h segura o resto; passadas 24h a janela reabre", () => {
+		const start = new Date(NOW.getTime() - 5 * 3_600_000);
+		const full = { windowStartAt: start, windowCount: AGENDA_EVENT_MAX_WAKES_PER_DAY };
+		const lastWakeAt = new Date(NOW.getTime() - 40 * MIN);
+		expect(planAgendaEventWake({ now: NOW, lastWakeAt, minGapMinutes: 30, window: full })).toBe("daily_cap");
+		expect(planAgendaEventWake({ now: NOW, lastWakeAt, minGapMinutes: 30, window: { ...full, windowCount: 7 } })).toBe("wake");
+		const nextDay = new Date(start.getTime() + 24 * 3_600_000 + MIN);
+		expect(planAgendaEventWake({ now: nextDay, lastWakeAt, minGapMinutes: 30, window: full })).toBe("wake");
+	});
+
+	it("a janela conta cada acordar e reabre depois de 24h", () => {
+		const first = nextAgendaEventWindow(closed, NOW);
+		expect(first).toEqual({ windowStartAt: NOW, windowCount: 1 });
+		const later = new Date(NOW.getTime() + 3_600_000);
+		expect(nextAgendaEventWindow(first, later)).toEqual({ windowStartAt: NOW, windowCount: 2 });
+		const nextDay = new Date(NOW.getTime() + 25 * 3_600_000);
+		expect(nextAgendaEventWindow({ windowStartAt: NOW, windowCount: 8 }, nextDay)).toEqual({ windowStartAt: nextDay, windowCount: 1 });
 	});
 });

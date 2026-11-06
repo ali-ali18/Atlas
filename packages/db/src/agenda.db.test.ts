@@ -103,6 +103,31 @@ describe("agenda (Postgres real)", { skip: dbSkip }, () => {
 		assert.equal(cleanMemo.item.lastResult?.memoUntrusted, undefined);
 	});
 
+	test("intenção por evento: no máximo 8 acordares por 24h por item; passado o dia, volta a acordar (auditoria F4, B4)", async () => {
+		const created = await createAgendaItem({ userId: a, botId: botA, plan: plan({ kind: "intent", note: "Avisar de qualquer anexo novo", eventFilter: { source: "email", hasAttachment: true } }), grant: GRANT });
+		assert.ok(created.ok);
+		const id = created.item.id;
+		const event = { source: "email" as const, from: "qualquer@x.com", subject: "arquivo", hasAttachment: true };
+		const gap = 30;
+		let woke = 0;
+		for (let n = 0; n < 12; n++) {
+			const now = at(n * 40, T0); // um evento a cada 40 min, acima do espaçamento de 30
+			const hit = await findAgendaItemsForEvent(a, event, now, gap);
+			if (!hit.matched.some((i) => i.id === id)) continue;
+			woke += 1;
+			await beginAgendaRun((await getAgendaItem(a, id))!, `run-cap${n}`, now);
+			await recordAgendaResult({ userId: a, runId: `run-cap${n}`, outcome: "no_change", now });
+		}
+		assert.equal(woke, 8, "o 9o evento do dia fica juntado");
+		const item = (await getAgendaItem(a, id))!;
+		assert.equal(item.eventWindowCount, 8);
+		const nextDay = at(60 * 25, T0);
+		assert.ok((await findAgendaItemsForEvent(a, event, nextDay, gap)).matched.some((i) => i.id === id));
+		await beginAgendaRun(item, "run-cap-next", nextDay);
+		assert.equal((await getAgendaItem(a, id))?.eventWindowCount, 1);
+		await changeAgendaItem(a, id, "cancel");
+	});
+
 	test("outro dono: não cria no bot alheio, não lê, não pausa, não cancela e não grava resultado", async () => {
 		const created = await createAgendaItem({ userId: a, botId: botA, plan: watch("Item privado do A"), grant: GRANT });
 		assert.ok(created.ok);
