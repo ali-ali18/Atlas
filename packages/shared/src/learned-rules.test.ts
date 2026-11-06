@@ -13,6 +13,11 @@ const policy = {
 };
 
 describe("leitura", () => {
+	it("effect null explícito: deny vale para qualquer efeito; run e approve são descartadas (reauditoria F5, N2)", () => {
+		const rules = readLearnedRules({ rules: [{ match: "a", effect: null, verdict: "run" }, { match: "b", effect: null, verdict: "approve" }, { match: "c", effect: null, verdict: "deny" }] });
+		expect(rules.map((r) => [r.match, r.verdict, r.effect])).toEqual([["c", "deny", null]]);
+	});
+
 	it("lê só as válidas, com id estável e padrões", () => {
 		const rules = readLearnedRules(policy);
 		expect(rules.map((r) => [r.match, r.effect, r.verdict, r.source])).toEqual([["gmail_send", "send", "approve", "learned"], ["web_*", null, "run", "owner"]]);

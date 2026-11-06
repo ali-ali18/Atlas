@@ -64,6 +64,8 @@ function parseStoredRule(item: unknown): LearnedRuleView | null {
 	const verdict = (RULE_VERDICTS as readonly string[]).includes(raw.verdict as string) ? (raw.verdict as PolicyRule["verdict"]) : null;
 	if (!verdict) return null;
 	let effect: EffectClass | null = null;
+	// `effect: null` explícito não é "qualquer efeito" para quem libera: só uma `deny` pode valer mais larga (reauditoria F5, N2).
+	if (raw.effect === null && verdict !== "deny") return null;
 	if (raw.effect !== undefined && raw.effect !== null) {
 		if ((EFFECT_CLASSES as readonly string[]).includes(raw.effect as string)) effect = raw.effect as EffectClass;
 		else if (verdict !== "deny") return null;
