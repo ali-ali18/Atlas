@@ -8,8 +8,11 @@ import { test } from "node:test";
 import { createCapabilityRegistry, createSseMapper, defineCapability, defineTool, type Llm, type LlmChatRequest, type LlmStreamEvent, type RunEvent } from "@workspace/agent";
 import type { ComputerUseEvent } from "@workspace/shared";
 import { z } from "zod";
+import { AGENT_V4_HISTORY_MAX, AGENT_V4_REQUEST_TTL_MS, agentV4ProvenanceOf } from "@workspace/db";
+import { AgentRunPausedError } from "@workspace/agent-runtime";
 import { runEngineV4, type V4Db } from "./engine-v4.js";
-import { buildV4History, prepareV4Run, resumeInputFromDecisions, type V4RunContextDb } from "./v4-run-context.js";
+import { runV4Turn } from "./v4-turn.js";
+import { buildV4History, prepareV4Run, requestsFromParked, resumeInputFromDecisions, type V4RunContextDb } from "./v4-run-context.js";
 
 const served = { provider: "fake", model: "m-1" };
 const done = (): LlmStreamEvent => ({ type: "done", finishReason: "stop", usage: { inputTokens: 10, outputTokens: 5, costUsd: 0.001 }, served });
@@ -38,6 +41,7 @@ function memoryV4Db(): { db: V4Db; conversations: Map<string, { offers: Array<{ 
 	const journal = new Map<string, { outcome: string; [k: string]: unknown }>();
 	const conversations = new Map<string, { offers: Array<{ cardId: string; label: string; state: string }>; declinedOffers: string[] }>();
 	const db = {
+		__checkpoints: checkpoints,
 		saveCheckpoint: async (userId: string, cp: { runId: string; userId: string; step: number; state: string; payload: unknown }) => void checkpoints.set(`${userId}:${cp.runId}`, structuredClone(cp)),
 		loadCheckpoint: async (userId: string, runId: string) => structuredClone(checkpoints.get(`${userId}:${runId}`) ?? null),
 		appendJournal: async (e: { userId: string; runId: string; idempotencyKey: string; outcome: string }) => {
@@ -65,33 +69,46 @@ function memoryV4Db(): { db: V4Db; conversations: Map<string, { offers: Array<{ 
 	return { db, conversations };
 }
 
-type FakeRequestRow = { kind: "approval" | "handoff"; key: string; callId: string; payloadHash?: string; toolName?: string; state: string };
+type FakeRequestRow = { runId: string; kind: "approval" | "handoff"; key: string; callId: string; payloadHash?: string; toolName?: string; state: string; expiresAt: Date };
 
-/** Banco do contexto em memória: registra pedidos, guarda decisões e entrega o que o teste preparou. */
-function fakeContextDb(base: Partial<{ history: unknown[]; provenance: { untrustedReadInRun: boolean; privateReadInRun: boolean; sources: string[] }; cards: Array<{ cardId: string; response: "answered" | "dismissed" }> }> = {}) {
+/**
+ * Banco do contexto em memória: registra pedidos, guarda decisões e entrega o que o teste preparou. Reproduz o que o
+ * Postgres garante: unicidade `(run, tipo, chave)` (registrar de novo não duplica nem reabre) e expiração por prazo
+ * (pendente vencido vira `expired` ao carregar as decisões). O checkpoint é o do banco do motor (`useCheckpointsOf`).
+ */
+function fakeContextDb(base: Partial<{ omitted: number; history: unknown[]; provenance: { untrustedReadInRun: boolean; privateReadInRun: boolean; sources: string[] }; cards: Array<{ cardId: string; response: "answered" | "dismissed" }> }> = {}) {
 	const requests: FakeRequestRow[] = [];
 	const consumed: string[] = [];
 	const swept: string[] = [];
-	const checkpointRuns = new Set<string>();
+	const register = { calls: 0 };
+	let checkpoints = new Map<string, { runId: string; userId: string; step: number; state: string; payload: unknown }>();
+	const loads = { calls: 0 };
 	const db: V4RunContextDb = {
-		loadCheckpoint: (async (_u: string, runId: string) => (checkpointRuns.has(runId) ? { runId } : null)) as never,
+		hasCheckpoint: (async (userId: string, runId: string) => checkpoints.has(`${userId}:${runId}`)) as never,
+		loadCheckpoint: (async (userId: string, runId: string) => (loads.calls++, structuredClone(checkpoints.get(`${userId}:${runId}`) ?? null))) as never,
 		listHistory: (async () => base.history ?? []) as never,
+		countHistoryOmitted: (async () => base.omitted ?? 0) as never,
 		conversationProvenance: (async () => base.provenance ?? { untrustedReadInRun: false, privateReadInRun: false, sources: [] }) as never,
 		listCardResponses: (async () => base.cards ?? []) as never,
 		consumeCardResponses: (async (_u: string, _c: string, ids: string[]) => void consumed.push(...ids)) as never,
 		expireDue: (async (_u: string, conversationId: string) => (swept.push(conversationId), 0)) as never,
-		loadDecisions: (async () => ({
-			approved: requests.filter((r) => r.state === "approved").map((r) => ({ requestId: r.key, payloadHash: r.payloadHash!, grantedAt: new Date("2026-11-06T12:00:00Z") })),
-			denied: requests.filter((r) => r.state === "denied").map((r) => r.key),
-			handoffDone: requests.filter((r) => r.state === "done").map((r) => r.callId),
-			expired: requests.filter((r) => r.state === "expired").map((r) => r.key),
-			pending: requests.filter((r) => r.state === "pending").length,
-		})) as never,
-		registerRequests: (async (_u: string, _r: string, _c: string | null, items: Array<Omit<FakeRequestRow, "state">>) => {
-			for (const item of items) if (!requests.some((r) => r.key === item.key)) requests.push({ ...item, state: "pending" });
+		loadDecisions: (async (_u: string, runId: string, now: Date) => {
+			const mine = requests.filter((r) => r.runId === runId);
+			for (const r of mine) if (r.state === "pending" && r.expiresAt.getTime() <= now.getTime()) r.state = "expired";
+			return {
+				approved: mine.filter((r) => r.state === "approved").map((r) => ({ requestId: r.key, payloadHash: r.payloadHash!, grantedAt: new Date("2026-11-06T12:00:00Z") })),
+				denied: mine.filter((r) => r.state === "denied").map((r) => r.key),
+				handoffDone: mine.filter((r) => r.state === "done").map((r) => r.callId),
+				expired: mine.filter((r) => r.state === "expired").map((r) => r.key),
+				pending: mine.filter((r) => r.state === "pending").length,
+			};
+		}) as never,
+		registerRequests: (async (_u: string, runId: string, _c: string | null, items: Array<Omit<FakeRequestRow, "state" | "runId" | "expiresAt">>, now: Date) => {
+			register.calls++;
+			for (const item of items) if (!requests.some((r) => r.runId === runId && r.kind === item.kind && r.key === item.key)) requests.push({ ...item, runId, state: "pending", expiresAt: new Date(now.getTime() + AGENT_V4_REQUEST_TTL_MS) });
 		}) as never,
 	};
-	return { db, requests, consumed, swept, markCheckpoint: (runId: string) => checkpointRuns.add(runId) };
+	return { db, requests, consumed, swept, register, loads, useCheckpointsOf: (v4: V4Db) => void (checkpoints = (v4 as unknown as { __checkpoints: typeof checkpoints }).__checkpoints) };
 }
 
 const sendEmail = (counter: { runs: number }) =>
@@ -113,8 +130,9 @@ const createEvent = (counter: { runs: number }) =>
 const registryOf = (...tools: ReturnType<typeof defineTool>[]) => createCapabilityRegistry([defineCapability({ id: "core", title: "Core", summary: "core tools", core: true, tools })]);
 
 /** Um turno do worker: prepara o contexto do banco, roda o motor com o kernel real e fecha como o processador. */
-async function turn(opts: { ctx: ReturnType<typeof fakeContextDb>; v4: V4Db; llm: Llm; runId: string; objective: string; registry?: ReturnType<typeof registryOf>; events?: ComputerUseEvent[] }) {
-	const prepared = await prepareV4Run({ userId: "user-a", runId: opts.runId, conversationId: "conv-1", objective: opts.objective, chat: true, db: opts.ctx.db, now: () => new Date("2026-11-06T12:00:00Z") });
+async function turn(opts: { ctx: ReturnType<typeof fakeContextDb>; v4: V4Db; llm: Llm; runId: string; objective: string; registry?: ReturnType<typeof registryOf>; events?: ComputerUseEvent[]; now?: Date; skipFinish?: boolean }) {
+	opts.ctx.useCheckpointsOf(opts.v4);
+	const prepared = await prepareV4Run({ userId: "user-a", runId: opts.runId, conversationId: "conv-1", objective: opts.objective, chat: true, db: opts.ctx.db, now: () => opts.now ?? new Date("2026-11-06T12:00:00Z") });
 	const mapper = createSseMapper({ runId: opts.runId, model: "fake/m-1" });
 	const out = await runEngineV4({
 		runId: opts.runId,
@@ -135,8 +153,7 @@ async function turn(opts: { ctx: ReturnType<typeof fakeContextDb>; v4: V4Db; llm
 		...(opts.registry && { registry: opts.registry }),
 		policy: { surface: "chat", ownerPresent: true, autonomy: "autonomous", rules: [] },
 	});
-	await prepared.finish({ parked: out.parked });
-	opts.ctx.markCheckpoint(opts.runId);
+	if (!opts.skipFinish) await prepared.finish({ parked: out.parked });
 	return { out, prepared };
 }
 
@@ -318,4 +335,275 @@ test("flag: sem conversa ou fora do chat o preparo não toca no banco do histór
 	const prepared = await prepareV4Run({ userId: "user-a", runId: "r", conversationId: null, objective: "x", chat: true, db: ctx.db });
 	assert.equal(prepared.history, undefined);
 	assert.equal(prepared.priorProvenance, undefined);
+});
+
+// ------------------------------------------------------------------- auditoria F2 (B1, T2, T5)
+
+/** Leitura que o dono sempre confirma: duas num passo estacionam juntas (as escritas estacionam uma por vez). */
+const confirmedLookup = (counter: { runs: number }) => defineTool({ name: "lookup_private", description: "Look up a private record.", inputSchema: z.object({ q: z.string() }), effect: "read", confirm: "always", execute: ({ q }) => (counter.runs++, { ok: true, summary: `found ${q}` }) });
+const changePassword = () => defineTool({ name: "change_password", description: "Change a password.", inputSchema: z.object({}), effect: "credential", handoffKind: () => "change_password", execute: () => ({ ok: true, summary: "x", receipt: { what: "x" } }) });
+
+test("requestsFromParked: reconstrói aprovação (com hash) e handoff do checkpoint; entrada sem hash ou malformada é ignorada", () => {
+	assert.deepEqual(
+		requestsFromParked({ parked: { c1: { kind: "approval", requestId: "r1", payloadHash: "h1", toolName: "send_email" }, c2: { kind: "handoff" }, c3: { kind: "approval", requestId: "r3" }, c4: null } }),
+		[
+			{ kind: "approval", key: "r1", callId: "c1", payloadHash: "h1", toolName: "send_email" },
+			{ kind: "handoff", key: "c2", callId: "c2" },
+		],
+	);
+	assert.deepEqual(requestsFromParked(undefined), []);
+	assert.deepEqual(requestsFromParked({ parked: "x" }), []);
+});
+
+test("B1: queda entre o checkpoint PARKED e o registro; a retomada reconstrói o pedido do checkpoint e o dono consegue aprovar", async () => {
+	const ctx = fakeContextDb();
+	const mem = memoryV4Db();
+	const counter = { runs: 0 };
+	const registry = registryOf(sendEmail(counter));
+	const args = { to: "a@example.com", body: "oi" };
+	// 1ª execução: o kernel estaciona e grava o checkpoint, mas o worker cai antes do `finish` (nada registrado)
+	const first = await turn({ ctx, v4: mem.db, llm: scripted([callTool("c1", "send_email", args)]), runId: "run-b1", objective: "manda", registry, skipFinish: true });
+	assert.equal(first.out.parked, true);
+	assert.equal(ctx.requests.length, 0, "sem registro: sem linha, a API daria 404");
+
+	// reentrega: o kernel só reestaciona (não reemite o cartão); o `finish` registra a partir do `parked` do checkpoint
+	const events: ComputerUseEvent[] = [];
+	const second = await turn({ ctx, v4: mem.db, llm: scripted([]), runId: "run-b1", objective: "manda", registry, events });
+	assert.equal(second.out.parked, true);
+	assert.ok(!events.some((e) => e.type === "approval_request"), "a retomada não reemite o cartão");
+	assert.equal(ctx.requests.length, 1);
+	assert.deepEqual({ kind: ctx.requests[0]!.kind, callId: ctx.requests[0]!.callId, toolName: ctx.requests[0]!.toolName, state: ctx.requests[0]!.state }, { kind: "approval", callId: "c1", toolName: "send_email", state: "pending" });
+	assert.match(ctx.requests[0]!.payloadHash!, /^[0-9a-f]{64}$/);
+
+	// o dono aprova e a retomada executa uma vez só
+	ctx.requests[0]!.state = "approved";
+	const third = await turn({ ctx, v4: mem.db, llm: scripted([say("enviado")]), runId: "run-b1", objective: "manda", registry });
+	assert.equal(third.out.text, "enviado");
+	assert.equal(counter.runs, 1);
+});
+
+test("B1: o registro que lança na 1ª execução é refeito na reentrega, sem duplicar o que já tinha entrado", async () => {
+	const ctx = fakeContextDb();
+	const mem = memoryV4Db();
+	const registry = registryOf(sendEmail({ runs: 0 }));
+	const realRegister = ctx.db.registerRequests;
+	ctx.db.registerRequests = (async () => {
+		throw new Error("db fora do ar");
+	}) as never;
+	await assert.rejects(turn({ ctx, v4: mem.db, llm: scripted([callTool("c1", "send_email", { to: "a@example.com", body: "oi" })]), runId: "run-b1b", objective: "manda", registry }), /db fora do ar/);
+	ctx.db.registerRequests = realRegister;
+	await turn({ ctx, v4: mem.db, llm: scripted([]), runId: "run-b1b", objective: "manda", registry });
+	await turn({ ctx, v4: mem.db, llm: scripted([]), runId: "run-b1b", objective: "manda", registry });
+	assert.equal(ctx.requests.length, 1);
+});
+
+test("T2: handoff registra pelo callId; 'feito' retoma e continua", async () => {
+	const ctx = fakeContextDb();
+	const mem = memoryV4Db();
+	const registry = registryOf(changePassword());
+	const first = await turn({ ctx, v4: mem.db, llm: scripted([callTool("p1", "change_password", {})]), runId: "run-h1", objective: "troca a senha", registry });
+	assert.equal(first.out.parked, true);
+	assert.deepEqual(ctx.requests.map((r) => ({ kind: r.kind, key: r.key, callId: r.callId })), [{ kind: "handoff", key: "p1", callId: "p1" }]);
+	ctx.requests[0]!.state = "done";
+	const llm2 = scripted([say("seguimos")]);
+	const second = await turn({ ctx, v4: mem.db, llm: llm2, runId: "run-h1", objective: "troca a senha", registry });
+	assert.deepEqual(second.prepared.resume?.handoffDone, ["p1"]);
+	assert.equal(second.out.parked, false);
+	assert.equal(second.out.text, "seguimos");
+	assert.match(messagesText(llm2), /The owner took over this step/);
+});
+
+test("T2: handoff que passou do prazo vence pela chave callId e o modelo recebe o texto de expirado", async () => {
+	const ctx = fakeContextDb();
+	const mem = memoryV4Db();
+	const registry = registryOf(changePassword());
+	await turn({ ctx, v4: mem.db, llm: scripted([callTool("p1", "change_password", {})]), runId: "run-h2", objective: "troca a senha", registry });
+	// 25h depois ninguém respondeu: `loadDecisions` expira o pedido (prazo de 24h) e o kernel o recebe pela chave callId
+	const llm2 = scripted([say("deixo para depois")]);
+	const late = new Date("2026-11-06T12:00:00Z").getTime() + AGENT_V4_REQUEST_TTL_MS + 60 * 60 * 1000;
+	const second = await turn({ ctx, v4: mem.db, llm: llm2, runId: "run-h2", objective: "troca a senha", registry, now: new Date(late) });
+	assert.deepEqual(second.prepared.resume?.expired, ["p1"]);
+	assert.equal(second.out.parked, false);
+	assert.match(messagesText(llm2), /did not answer this request and it expired/);
+});
+
+test("T5: pedido ainda dentro do prazo não expira ao retomar", async () => {
+	const ctx = fakeContextDb();
+	const mem = memoryV4Db();
+	const registry = registryOf(sendEmail({ runs: 0 }));
+	await turn({ ctx, v4: mem.db, llm: scripted([callTool("c1", "send_email", { to: "a@example.com", body: "oi" })]), runId: "run-t5", objective: "manda", registry });
+	const soon = new Date(new Date("2026-11-06T12:00:00Z").getTime() + AGENT_V4_REQUEST_TTL_MS - 1000);
+	const again = await turn({ ctx, v4: mem.db, llm: scripted([]), runId: "run-t5", objective: "manda", registry, now: soon });
+	assert.deepEqual(again.prepared.resume?.expired, []);
+	assert.equal(again.out.parked, true);
+	assert.equal(ctx.requests[0]!.state, "pending");
+});
+
+test("T2: dois pedidos, um aprovado e o outro não; o run reestaciona só com o pendente e o `finish` não duplica", async () => {
+	const ctx = fakeContextDb();
+	const mem = memoryV4Db();
+	const counter = { runs: 0 };
+	const registry = registryOf(confirmedLookup(counter));
+	const llm1 = scripted([
+		[
+			{ type: "tool_call", call: { id: "c1", name: "lookup_private", args: { q: "um" } } },
+			{ type: "tool_call", call: { id: "c2", name: "lookup_private", args: { q: "dois" } } },
+			{ type: "done", finishReason: "tool_calls", usage: { inputTokens: 10, outputTokens: 5, costUsd: 0.001 }, served },
+		],
+	]);
+	const first = await turn({ ctx, v4: mem.db, llm: llm1, runId: "run-two", objective: "manda dois", registry });
+	assert.equal(first.out.parked, true);
+	assert.equal(ctx.requests.length, 2);
+	assert.deepEqual(ctx.requests.map((r) => r.callId).sort(), ["c1", "c2"]);
+
+	// só o primeiro foi aprovado
+	ctx.requests.find((r) => r.callId === "c1")!.state = "approved";
+	const second = await turn({ ctx, v4: mem.db, llm: scripted([]), runId: "run-two", objective: "manda dois", registry });
+	assert.equal(second.out.parked, true, "o pendente segura o run");
+	assert.equal(counter.runs, 1, "o aprovado executou uma vez");
+	assert.equal(ctx.requests.length, 2, "nada duplicado");
+	assert.equal(second.prepared.resume?.grants?.length, 1);
+
+	// terceira passagem sem mudança: o aprovado NÃO executa de novo
+	const third = await turn({ ctx, v4: mem.db, llm: scripted([]), runId: "run-two", objective: "manda dois", registry });
+	assert.equal(third.out.parked, true);
+	assert.equal(counter.runs, 1);
+	assert.equal(ctx.requests.length, 2);
+
+	// o dono aprova o segundo: agora o run termina com os dois executados uma vez cada
+	ctx.requests.find((r) => r.callId === "c2")!.state = "approved";
+	const fourth = await turn({ ctx, v4: mem.db, llm: scripted([say("ok, enviei os dois")]), runId: "run-two", objective: "manda dois", registry });
+	assert.equal(fourth.out.parked, false);
+	assert.equal(counter.runs, 2);
+});
+
+// ----------------------------------------------------------------------- T3: o turno v4 do processador
+
+/** O que o ramo v4 do processador faz: `runV4Turn` com o preparo do banco e o motor real (kernel real, LLM roteirizado). */
+function processorTurn(opts: { ctx: ReturnType<typeof fakeContextDb>; mem: ReturnType<typeof memoryV4Db>; llm: Llm; runId: string; registry: ReturnType<typeof registryOf>; order?: string[] }) {
+	opts.ctx.useCheckpointsOf(opts.mem.db);
+	return runV4Turn({
+		prepare: async () => {
+			opts.order?.push("prepare");
+			return prepareV4Run({ userId: "user-a", runId: opts.runId, conversationId: "conv-1", objective: "manda", chat: true, db: opts.ctx.db, now: () => new Date("2026-11-06T12:00:00Z") });
+		},
+		engine: async (prepared) => {
+			opts.order?.push("engine");
+			const mapper = createSseMapper({ runId: opts.runId, model: "fake/m-1" });
+			return runEngineV4({
+				runId: opts.runId,
+				userId: "user-a",
+				conversationId: "conv-1",
+				objective: "manda",
+				...(prepared.history && { history: prepared.history }),
+				...(prepared.resume && { resume: prepared.resume }),
+				llm: opts.llm,
+				lease: { owner: "w1", token: "t1" },
+				persistEvent: () => undefined,
+				mapEvent: prepared.observe((e: RunEvent) => mapper.mapRunEvent(e)),
+				limits: {},
+				ownerPresent: true,
+				db: opts.mem.db,
+				registry: opts.registry,
+				policy: { surface: "chat", ownerPresent: true, autonomy: "autonomous", rules: [] },
+			});
+		},
+	});
+}
+
+test("T3: turno que conclui devolve o resultado do motor e não pausa", async () => {
+	const ctx = fakeContextDb({ cards: [{ cardId: "run-0:ask1", response: "dismissed" }] });
+	const result = await processorTurn({ ctx, mem: memoryV4Db(), llm: scripted([say("pronto")]), runId: "run-t3a", registry: registryOf(sendEmail({ runs: 0 })) });
+	assert.equal(result.text, "pronto");
+	assert.equal(result.model, "fake/m-1");
+	assert.deepEqual(ctx.consumed, ["run-0:ask1"], "a resposta de cartão foi entregue ao kernel e marcada");
+	assert.equal(ctx.requests.length, 0);
+});
+
+test("T3: turno que estaciona registra os pedidos ANTES de sinalizar a pausa (awaiting_owner)", async () => {
+	const ctx = fakeContextDb();
+	const order: string[] = [];
+	const register = ctx.db.registerRequests;
+	ctx.db.registerRequests = (async (...args: never[]) => (order.push("register"), (register as (...a: never[]) => Promise<void>)(...args))) as never;
+	await assert.rejects(
+		processorTurn({ ctx, mem: memoryV4Db(), llm: scripted([callTool("c1", "send_email", { to: "a@example.com", body: "oi" })]), runId: "run-t3b", registry: registryOf(sendEmail({ runs: 0 })), order }),
+		(error: unknown) => error instanceof AgentRunPausedError && error.message === "awaiting_owner",
+	);
+	assert.deepEqual(order, ["prepare", "engine", "register"]);
+	assert.equal(ctx.requests.length, 1);
+	assert.equal(ctx.requests[0]!.state, "pending");
+});
+
+test("T3 (B1): registro que lança depois do checkpoint PARKED; a reentrega registra e pausa de novo, sem perder o pedido", async () => {
+	const ctx = fakeContextDb();
+	const mem = memoryV4Db();
+	const registry = registryOf(sendEmail({ runs: 0 }));
+	const real = ctx.db.registerRequests;
+	ctx.db.registerRequests = (async () => {
+		throw new Error("db fora do ar");
+	}) as never;
+	await assert.rejects(processorTurn({ ctx, mem, llm: scripted([callTool("c1", "send_email", { to: "a@example.com", body: "oi" })]), runId: "run-t3c", registry }), /db fora do ar/);
+	assert.equal(ctx.requests.length, 0);
+	assert.equal(((await ctx.db.loadCheckpoint("user-a", "run-t3c")) as { state: string } | null)?.state, "PARKED", "o checkpoint PARKED já estava gravado");
+
+	ctx.db.registerRequests = real;
+	await assert.rejects(processorTurn({ ctx, mem, llm: scripted([]), runId: "run-t3c", registry }), AgentRunPausedError);
+	assert.equal(ctx.requests.length, 1);
+	assert.equal(ctx.requests[0]!.callId, "c1");
+});
+
+// ------------------------------------------------------------------------------------ T4 / C1: formato real
+
+test("C1/T4: os sinais de proveniência saem do snapshot REAL do kernel (quebra se o formato do checkpoint mudar)", async () => {
+	const webRead = defineTool({ name: "web_read", description: "Read a web page.", inputSchema: z.object({ url: z.string() }), effect: "read", trust: "untrusted", source: "web", execute: () => ({ ok: true, summary: "page text" }) });
+	const mem = memoryV4Db();
+	const ctx = fakeContextDb();
+	await turn({ ctx, v4: mem.db, llm: scripted([callTool("w1", "web_read", { url: "https://example.com" }), say("li a página")]), runId: "run-prov", objective: "leia", registry: registryOf(webRead) });
+	const checkpoint = (mem.db as unknown as { __checkpoints: Map<string, { payload: unknown }> }).__checkpoints.get("user-a:run-prov");
+	assert.deepEqual(agentV4ProvenanceOf(checkpoint?.payload), { untrustedReadInRun: true, privateReadInRun: false, sources: ["web"] });
+
+	// run que só conversou: sem leitura de fora, sem sinal
+	const clean = await turn({ ctx: fakeContextDb(), v4: mem.db, llm: scripted([say("oi")]), runId: "run-clean2", objective: "oi", registry: registryOf(webRead) });
+	assert.equal(clean.out.text, "oi");
+	const cleanCp = (mem.db as unknown as { __checkpoints: Map<string, { payload: unknown }> }).__checkpoints.get("user-a:run-clean2");
+	assert.deepEqual(agentV4ProvenanceOf(cleanCp?.payload), { untrustedReadInRun: false, privateReadInRun: false, sources: [] });
+});
+
+test("C5: decidir run novo x retomada usa a consulta de existência e não carrega o checkpoint; só o `finish` estacionado o lê", async () => {
+	const ctx = fakeContextDb();
+	const mem = memoryV4Db();
+	const registry = registryOf(sendEmail({ runs: 0 }));
+	await turn({ ctx, v4: mem.db, llm: scripted([say("oi")]), runId: "run-c5a", objective: "oi", registry });
+	assert.equal(ctx.loads.calls, 0, "run novo que conclui: nenhum checkpoint carregado");
+	await turn({ ctx, v4: mem.db, llm: scripted([callTool("c1", "send_email", { to: "a@example.com", body: "oi" })]), runId: "run-c5b", objective: "manda", registry });
+	assert.equal(ctx.loads.calls, 1, "só o registro dos pedidos do run estacionado lê o checkpoint");
+	const resumed = await turn({ ctx, v4: mem.db, llm: scripted([]), runId: "run-c5b", objective: "manda", registry });
+	assert.ok(resumed.prepared.resume, "o checkpoint existente faz o preparo montar a retomada");
+	assert.equal(ctx.loads.calls, 2, "a retomada que reestaciona lê uma vez, no finish");
+});
+
+test("C4: histórico cortado no teto avisa o modelo, em runtime, quantas falas antigas não foram carregadas", async () => {
+	const rows = Array.from({ length: AGENT_V4_HISTORY_MAX }, (_, i) => ({ role: i % 2 === 0 ? ("user" as const) : ("assistant" as const), content: `fala ${i}`, origin: null, fromBotName: null, sourceKind: null }));
+	// pura: o aviso vem antes das falas e o plural acompanha
+	const built = buildV4History(rows.slice(0, 2), "agora", 3);
+	assert.deepEqual(built[0], { kind: "runtime", text: "The 3 oldest messages of this conversation were not loaded. If the owner refers to something earlier that you cannot see, say so instead of guessing." });
+	assert.match((buildV4History([], "x", 1)[0] as { text: string }).text, /^The 1 oldest message of this/);
+	assert.equal(buildV4History(rows.slice(0, 2), "agora", 0)[0]!.kind, "owner", "sem corte não há aviso");
+
+	// pelo preparo: janela cheia consulta o total e o aviso chega ao kernel no canal de runtime
+	const ctx = fakeContextDb({ history: rows, omitted: 42 });
+	const { db } = memoryV4Db();
+	const llm = scripted([say("ok")]);
+	await turn({ ctx, v4: db, llm, runId: "run-c4", objective: "e antes disso?" });
+	const runtime = llm.requests[0]!.messages.find((m) => String(m.content).includes("oldest messages of this conversation were not loaded"));
+	assert.ok(runtime, "o aviso está no pedido ao modelo");
+	assert.match(String(runtime!.content), /^<atlas:runtime id="/, "no canal de runtime, não no de dado");
+	assert.match(String(runtime!.content), /The 42 oldest messages/);
+
+	// janela que não encheu: nem consulta o total
+	let counted = 0;
+	const short = fakeContextDb({ history: rows.slice(0, 10) });
+	short.db.countHistoryOmitted = (async () => (counted++, 5)) as never;
+	await prepareV4Run({ userId: "user-a", runId: "r", conversationId: "conv-1", objective: "x", chat: true, db: short.db });
+	assert.equal(counted, 0);
 });

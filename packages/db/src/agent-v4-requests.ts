@@ -207,24 +207,49 @@ export async function listAgentV4History(userId: string, conversationId: string,
 	return rows.reverse().map((row) => ({ role: row.role as "user" | "assistant", content: row.content, origin: row.origin, fromBotName: row.fromBotName, sourceKind: row.sourceKind, runId: row.runId, createdAt: row.createdAt }));
 }
 
+/**
+ * Quantas falas (dono e assistente) da conversa ficaram de fora do histórico carregado (`AGENT_V4_HISTORY_MAX`): total da
+ * conversa menos o que cabe na janela. Só se chama quando a janela veio cheia (auditoria F2, C4). Mesmos filtros de
+ * `listAgentV4History`; conversa de outro dono = 0.
+ */
+export async function countAgentV4HistoryOmitted(userId: string, conversationId: string, options: { excludeRunId?: string } = {}): Promise<number> {
+	const owners = ownerIds(userId);
+	if (owners.length === 0) return 0;
+	const total = await prisma.conversationMessage.count({
+		where: {
+			conversationId,
+			conversation: { userId: { in: owners } },
+			role: { in: ["user", "assistant"] },
+			...(options.excludeRunId ? { OR: [{ runId: null }, { runId: { not: options.excludeRunId } }] } : {}),
+		},
+	});
+	return Math.max(0, total - AGENT_V4_HISTORY_MAX);
+}
+
 // --------------------------------------------------------------- proveniência
 
 export type AgentV4ConversationProvenance = { untrustedReadInRun: boolean; privateReadInRun: boolean; sources: string[] };
 
 /**
- * Sinais de proveniência dos OUTROS runs v4 da conversa (S8). Lê só os campos do jsonb (nunca os textos indexados, que
- * podem ter centenas de KB). Run de outro motor não tem a chave e não conta. Uma instrução, escopada por dono.
+ * Sinais de proveniência dos OUTROS runs v4 da conversa (S8). Lê só a coluna pequena `v4Provenance`, gravada junto com o
+ * checkpoint (nunca o `checkpointJson`, que pode ter centenas de KB em TOAST: C1). Run de outro motor não tem a coluna e
+ * não conta. Uma instrução, escopada por dono.
+ *
+ * Limite conhecido e aceito (auditoria F2, S6): só runs v4 deixam proveniência. Um run v2 anterior na mesma conversa não
+ * contamina o v4 seguinte; o dono só liga o v4 quando ele estiver completo (flag por conta), então a conversa não mistura
+ * motores em produção. Runs v4 gravados antes da coluna existir também não contam (o v4 ainda não saiu da flag).
  */
 export async function getAgentV4ConversationProvenance(userId: string, conversationId: string, excludeRunId: string): Promise<AgentV4ConversationProvenance> {
 	const none: AgentV4ConversationProvenance = { untrustedReadInRun: false, privateReadInRun: false, sources: [] };
 	if (!owned(userId)) return none;
 	const rows = await prisma.$queryRaw<Array<{ untrusted: boolean; priv: boolean; sources: unknown }>>`
-		SELECT ("checkpointJson"#>>'{v4,payload,provenance,untrustedReadInRun}') = 'true' AS "untrusted",
-			("checkpointJson"#>>'{v4,payload,provenance,privateReadInRun}') = 'true' AS "priv",
-			COALESCE("checkpointJson"#>'{v4,payload,provenance,sources}', '[]'::jsonb) AS "sources"
+		SELECT ("v4Provenance"->>'untrustedReadInRun') = 'true' AS "untrusted",
+			("v4Provenance"->>'privateReadInRun') = 'true' AS "priv",
+			COALESCE("v4Provenance"->'sources', '[]'::jsonb) AS "sources"
 		FROM "agent_runs"
 		WHERE "userId" = ${userId} AND "conversationId" = ${conversationId} AND "id" <> ${excludeRunId}
-			AND (("checkpointJson"#>>'{v4,payload,provenance,untrustedReadInRun}') = 'true' OR ("checkpointJson"#>>'{v4,payload,provenance,privateReadInRun}') = 'true')
+			AND "v4Provenance" IS NOT NULL
+			AND (("v4Provenance"->>'untrustedReadInRun') = 'true' OR ("v4Provenance"->>'privateReadInRun') = 'true')
 		LIMIT 200`;
 	const sources = new Set<string>();
 	for (const row of rows) if (Array.isArray(row.sources)) for (const s of row.sources) if (typeof s === "string") sources.add(s);

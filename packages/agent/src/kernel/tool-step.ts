@@ -109,7 +109,7 @@ export async function runPending(env: ToolStepEnv): Promise<{ malformed: number 
 		}
 		const outcome = await env.executor.executeCall({ callId: call.id, step: snap.step, tool, args: call.args, ...(grant && { grant }) });
 		if (outcome.status === "pending_approval" || outcome.status === "approval_invalid") {
-			snap.parked[call.id] = { kind: "approval", requestId: outcome.request.id };
+			snap.parked[call.id] = { kind: "approval", requestId: outcome.request.id, payloadHash: outcome.request.payloadHash, toolName: outcome.request.toolName };
 			await env.emit({ type: "card", data: { kind: "approval", callId: call.id, request: outcome.request } });
 			return;
 		}

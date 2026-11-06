@@ -101,6 +101,8 @@ describe("kernel: aprovação e handoff", () => {
 		expect(h.runs.statuses.get("owner-1:run-1")).toBe("parked");
 		const card = h.log.of("card")[0] as { kind: string; request: ApprovalRequest };
 		expect(card.kind).toBe("approval");
+		// o checkpoint guarda o suficiente para reconstruir o pedido do dono sem o cartão (auditoria F2, B1)
+		expect(first.parked?.s1).toEqual({ kind: "approval", requestId: card.request.id, payloadHash: card.request.payloadHash, toolName: "send_email" });
 		// retomar sem decisão não executa nem repete o cartão
 		expect((await h.run()).status).toBe("parked");
 		expect(h.log.of("card")).toHaveLength(1);
