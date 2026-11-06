@@ -215,6 +215,29 @@ export async function getAgendaItem(userId: string, id: string): Promise<AgendaI
 	return row ? toRecord(row) : null;
 }
 
+/** O item que este run está executando (liga o run à agenda). `null` = não é run de agenda, ou o item não é do dono. */
+export async function getAgendaItemByRunId(userId: string, runId: string): Promise<AgendaItemRecord | null> {
+	if (!validOwner(userId) || !runId) return null;
+	const row = await prisma.botFollowup.findFirst({ where: { userId, runId, agendaKind: { not: null } } });
+	return row ? toRecord(row) : null;
+}
+
+/** Um paused parado há mais que isto (cartão de aprovação sem resposta, que expira em 24h) já não segura o item. */
+const PAUSED_RUN_HOLD_MS = 25 * 60 * 60_000;
+
+/**
+ * O run anterior do item ainda está vivo (na fila, rodando ou esperando o dono)? Então o item não acorda de novo: um
+ * run de agenda parado num cartão não pode empilhar outro por cima.
+ */
+export async function isAgendaRunInFlight(userId: string, runId: string | null, now: Date): Promise<boolean> {
+	if (!runId || !validOwner(userId)) return false;
+	const run = await prisma.agentRun.findFirst({
+		where: { id: runId, userId, OR: [{ status: { in: ["queued", "running", "retrying"] } }, { status: "paused", updatedAt: { gt: new Date(now.getTime() - PAUSED_RUN_HOLD_MS) } }] },
+		select: { id: true },
+	});
+	return run !== null;
+}
+
 export type AgendaAction = "pause" | "resume" | "cancel";
 
 /** Pausa, retoma ou cancela um item DO DONO. `null` = não existe, não é dele ou a ação não cabe no estado dele. */
@@ -250,6 +273,19 @@ export async function claimDueAgendaItems(now: Date, limit = SWEEP_BATCH): Promi
 	return records(rows);
 }
 
+/**
+ * Reserva UM item para acordá-lo agora (evento): compare-and-set no banco, então dois workers que recebem o mesmo evento
+ * não criam dois runs. `false` = já reservado, pausado, encerrado ou de outro dono.
+ */
+export async function reserveAgendaItem(userId: string, id: string, now: Date): Promise<boolean> {
+	if (!validOwner(userId)) return false;
+	const result = await prisma.botFollowup.updateMany({
+		where: { id, userId, agendaKind: { not: null }, status: "pending", OR: [{ claimedUntil: null }, { claimedUntil: { lte: now } }] },
+		data: { claimedUntil: new Date(now.getTime() + AGENDA_CLAIM_MS), updatedAt: now },
+	});
+	return result.count === 1;
+}
+
 /** Devolve o item à fila com novo horário (silêncio, conversa ocupada, falha ao criar o run). */
 export async function rescheduleAgendaItem(userId: string, id: string, input: { dueAt: Date; error?: string; countAttempt?: boolean }): Promise<void> {
 	await prisma.botFollowup.updateMany({
@@ -261,11 +297,11 @@ export async function rescheduleAgendaItem(userId: string, id: string, input: { 
 const STOP_STATUS: Record<AgendaStopReason, "done" | "cancelled"> = { expired: "done", max_runs: "done", ignored_notices: "cancelled" };
 
 /** Encerra por conta própria (freio estrutural). A razão fica em `endReason` para a Agenda mostrar. */
-export async function stopAgendaItem(userId: string, id: string, reason: AgendaStopReason | "no_result", extra: { ignoredStreak?: number; now?: Date } = {}): Promise<void> {
+export async function stopAgendaItem(userId: string, id: string, reason: AgendaStopReason | "no_result" | "unavailable", extra: { ignoredStreak?: number; now?: Date } = {}): Promise<void> {
 	const now = extra.now ?? new Date();
 	await prisma.botFollowup.updateMany({
 		where: { id, userId, agendaKind: { not: null }, status: { in: ["pending", "paused"] } },
-		data: { status: reason === "no_result" ? "done" : STOP_STATUS[reason], doneAt: now, claimedUntil: null, endReason: reason, ...(extra.ignoredStreak !== undefined ? { ignoredStreak: extra.ignoredStreak } : {}) },
+		data: { status: reason === "no_result" || reason === "unavailable" ? "done" : STOP_STATUS[reason], doneAt: now, claimedUntil: null, endReason: reason, ...(extra.ignoredStreak !== undefined ? { ignoredStreak: extra.ignoredStreak } : {}) },
 	});
 }
 

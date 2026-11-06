@@ -14,6 +14,8 @@ import {
 	finalizeAgendaRun,
 	findAgendaItemsForEvent,
 	getAgendaItem,
+	getAgendaItemByRunId,
+	isAgendaRunInFlight,
 	listAgendaItems,
 	recordAgendaResult,
 	type AgendaGrant,
@@ -314,6 +316,26 @@ describe("agenda (Postgres real)", { skip: dbSkip }, () => {
 		assert.equal(res.item.dueAt.toISOString(), created.item.untilAt?.toISOString());
 		assert.equal((await findAgendaItemsForEvent(a, event, at(5), 10)).coalesced.length, 1);
 		assert.equal((await findAgendaItemsForEvent(a, event, at(20), 10)).matched.length, 1);
+		await changeAgendaItem(a, created.item.id, "cancel");
+	});
+
+	test("liga o run ao item (só do dono) e sabe se o run anterior ainda está vivo", async () => {
+		const created = await createAgendaItem({ userId: a, botId: botA, plan: watch("Run vivo"), grant: GRANT });
+		assert.ok(created.ok);
+		const run = await prisma.agentRun.create({ data: { userId: a, conversationId: convA, objective: "o", model: "m", status: "running", origin: "proactive" } });
+		await beginAgendaRun(created.item, run.id, T0);
+		assert.equal((await getAgendaItemByRunId(a, run.id))?.id, created.item.id);
+		assert.equal(await getAgendaItemByRunId(b, run.id), null);
+		assert.equal(await getAgendaItemByRunId(a, "run-que-nao-existe"), null);
+		assert.equal(await isAgendaRunInFlight(a, run.id, T0), true);
+		assert.equal(await isAgendaRunInFlight(b, run.id, T0), false);
+		assert.equal(await isAgendaRunInFlight(a, null, T0), false);
+		await prisma.agentRun.update({ where: { id: run.id }, data: { status: "paused" } });
+		assert.equal(await isAgendaRunInFlight(a, run.id, new Date()), true);
+		// parado há mais de 25h (cartão expirado): já não segura o item
+		assert.equal(await isAgendaRunInFlight(a, run.id, new Date(Date.now() + 26 * 3600_000)), false);
+		await prisma.agentRun.update({ where: { id: run.id }, data: { status: "completed" } });
+		assert.equal(await isAgendaRunInFlight(a, run.id, new Date()), false);
 		await changeAgendaItem(a, created.item.id, "cancel");
 	});
 

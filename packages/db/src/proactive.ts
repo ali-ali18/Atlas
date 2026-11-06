@@ -463,7 +463,7 @@ export type ProactiveSweepResult = {
 	reflections: number;
 };
 
-async function resolveProactiveModel(botId: string, userId: string, envDefault: string): Promise<string> {
+export async function resolveProactiveModel(botId: string, userId: string, envDefault: string): Promise<string> {
 	const override = process.env.ATLAS_PROACTIVE_MODEL?.trim();
 	if (override) return override;
 	const botModel = await getBotModelForUser(botId, userId);
