@@ -1,5 +1,5 @@
 import { createDeliverablesCapability } from "../capabilities-builtin/deliverables/index.js";
-import { FakeDeliverables, FakeFileStore, FakeSearch } from "../presets/fakes.js";
+import { FakeDeliverables, FakeFileStore, FakeMemory, FakeSearch, FakeSettings, FakeTaskListStore } from "../presets/fakes.js";
 import { setupPreset } from "../presets/presets.js";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -33,12 +33,17 @@ const hash = sha256;
 
 // ---------------------------------------------------------------- A. efeito declarado
 
+/** Todas as portas do preset `full`: assim nenhuma capacidade fica de fora do registro de teste. */
+function fullDeps() {
+	return { search: new FakeSearch(), files: new FakeFileStore(), memory: new FakeMemory(), settings: new FakeSettings(), taskLists: new FakeTaskListStore() };
+}
+
 /** Todas as tools que existem hoje em `packages/agent` (núcleo do kernel + as de capacidade). */
 function allRegisteredTools(): Tool[] {
 	const kernelCapability = defineCapability({ id: "kernel", title: "Kernel", summary: "kernel tools", core: true, tools: [createNoteReadTool(DEFAULT_PAGE_CHARS), createAskOwnerTool()] });
 	const registry = createCapabilityRegistry([kernelCapability]);
 	const loaded = createLoadedSet(registry);
-	const preset = setupPreset("full", { search: new FakeSearch(), files: new FakeFileStore() });
+	const preset = setupPreset("full", fullDeps());
 	// `deliverables` (F2.3) substitui a lite quando as portas existem; as duas são conferidas.
 	const rich = createDeliverablesCapability(new FakeDeliverables().ports());
 	return [...kernelCapability.tools, loaded.useCapabilityTool, ...preset.registry.capabilities.flatMap((c) => c.tools), ...rich.tools];
@@ -88,7 +93,7 @@ describe("A. toda tool registrada declara efeito", () => {
 	const tools = allRegisteredTools();
 
 	it("o registro de teste cobre o kernel de verdade", () => {
-		expect(tools.map((t) => t.name).sort()).toEqual([ASK_OWNER_TOOL, NOTE_READ_TOOL, USE_CAPABILITY_TOOL, "create_file", "create_file", "create_page", "chart", "inspect_file", "web_extract", "web_search"].sort());
+		expect(tools.map((t) => t.name).sort()).toEqual([ASK_OWNER_TOOL, NOTE_READ_TOOL, USE_CAPABILITY_TOOL, "create_file", "create_file", "create_page", "chart", "inspect_file", "web_extract", "web_search", "memory_list", "memory_add", "memory_update", "memory_remove", "update_task_list", "settings_get", "settings_update", "set_role_model", "update_bot_profile"].sort());
 	});
 
 	it("o vocabulário de efeitos do motor é o mesmo de shared", () => {
@@ -98,6 +103,14 @@ describe("A. toda tool registrada declara efeito", () => {
 	it.each(allRegisteredTools().map((t) => [t.name, t] as const))("%s: efeito válido, para qualquer argumento", (_name, tool) => {
 		expect(isEffect(tool.effect)).toBe(true);
 		for (const args of [{}, { id: "x" }, null, "texto", 42]) expect(isEffect(tool.effectFor(args))).toBe(true);
+	});
+
+	it("tool que lê dado privado do dono declara privateData, e só leitura leva a flag (auditoria F1, N2)", () => {
+		const byName = new Map(tools.map((t) => [t.name, t]));
+		for (const name of ["memory_list"]) expect(byName.get(name)?.privateData, name).toBe(true);
+		const flagged = tools.filter((t) => t.privateData);
+		expect(flagged.length).toBeGreaterThan(0);
+		expect(flagged.every((t) => t.effect === "read")).toBe(true);
 	});
 
 	it("tool sem efeito (ou com efeito inventado) nem chega a existir", () => {
