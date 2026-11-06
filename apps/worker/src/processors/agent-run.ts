@@ -140,6 +140,7 @@ import {
 	resolveBudget,
 	wallClockAnchors,
 } from "@workspace/agent-runtime";
+import { isAgendaWakeObjective } from "../agenda-wake.js";
 import { closeAgendaRun, loadAgendaRunContextOrFail, mergeProvenance, releaseUnstartedAgendaRun, settleAbortedAgendaRun } from "../agenda-run.js";
 import { prepareV4Run } from "../v4-run-context.js";
 import { runV4Turn } from "../v4-turn.js";
@@ -1926,6 +1927,9 @@ async function executeLeasedRun(ctx: {
 		// vai pro chat; o detalhe fica no log e em `error` do run.
 		if (run.origin === "proactive") console.error(`proactive run failed run=${runId}`, error);
 		const displayMessage = proactiveFailureDisplay(run.origin, describeRunError(error, systemLanguage).message, systemLanguage);
+		// Run de agenda é silencioso (auditoria F4, C1): a falha não vira balão no chat. O item reagenda em 30 min e a nota do
+		// lembrete só sai na 3ª falha, por `settleAbortedAgendaRun`.
+		const chatFailureText = agendaRun ? undefined : displayMessage;
 		const failureStop = stopOfFailure(error, kind);
 		await emit({ type: "error", error: displayMessage, stopReason: failureStop.reason });
 		await coalescer.flush().catch(() => undefined);
@@ -1939,7 +1943,7 @@ async function executeLeasedRun(ctx: {
 					? undefined
 					: ((error instanceof AgentRunLoopDetectedError
 							? error.finalText
-							: undefined) ?? displayMessage),
+							: undefined) ?? chatFailureText),
 			usage: error instanceof AgentRunLoopDetectedError ? error.usage : undefined,
 			sandboxSessionId: cachedSessionId,
 			lease,
@@ -1953,7 +1957,7 @@ async function executeLeasedRun(ctx: {
 			throw finishError;
 		});
 		if (kind !== "waiting_user") {
-			await settleDelivery("failed", displayMessage);
+			await settleDelivery("failed", chatFailureText);
 			await notifyRoutineRunFailure({ origin: run.origin, agentRunId: runId, userId: runUserId, error: message }, routineRunFailureDeps(deps));
 			await briefFailureDelivery(run, deps);
 			await chainRunFollowUp(run, runUserId, deps);
@@ -1975,6 +1979,8 @@ async function executeLeasedRun(ctx: {
 export type ExhaustedRunIo = {
 	getRun: (runId: string) => Promise<AgentRun | null>;
 	failRun: (runId: string, error: string, display: { resultText: string }, stop?: RunStop) => Promise<boolean>;
+	/** Run de agenda que esgotou as tentativas: fecha o item como "sem resultado" (padrão: `settleAbortedAgendaRun`). */
+	settleAgenda?: typeof settleAbortedAgendaRun;
 	settle: (input: { userId: string; runId: string; end: RunEnd; resultText: string }) => Promise<void>;
 	chain: (run: AgentRun, userId: string, deps: AgentRunProcessorDeps) => Promise<void>;
 	/** Retomada automática de falha transitória (padrão: banco e fila reais quando há `enqueueNextRun`). */
@@ -2016,7 +2022,14 @@ export async function finalizeExhaustedAgentRun(
 		const autoPlan: AutoContinueDecision = autoIo && run?.userId
 			? await planAutoContinue(run, { cause: autoContinueCauseOfFailure(err) }, autoIo).catch((): AutoContinueDecision => ({ schedule: false, reason: "not_recoverable" }))
 			: { schedule: false, reason: "not_recoverable" };
+		// Run de agenda é silencioso: nada de balão de falha nem retomada automática; o item reagenda ou entrega a nota (C1).
+		const agendaWake = run?.origin === "proactive" && isAgendaWakeObjective(run.objective);
 		const display = autoPlan.schedule ? systemMessages(language).autoContinueStatus : failureDisplay;
+		if (agendaWake && run?.userId) {
+			const closed = await d.failRun(runId, technical, { resultText: "" }, { reason: "retries_exhausted" });
+			if (closed) await (d.settleAgenda ?? settleAbortedAgendaRun)({ userId: run.userId, runId, language });
+			return closed;
+		}
 		const finalized = await d.failRun(runId, technical, { resultText: display }, { reason: "retries_exhausted" });
 		if (!finalized || !run) return finalized;
 		if (autoPlan.schedule && autoIo && run.userId) {

@@ -7,7 +7,7 @@ import { test } from "node:test";
 import type { AgendaItemRecord } from "@workspace/db";
 import { DEFAULT_PROACTIVE_SETTINGS } from "@workspace/shared";
 import { agendaObjective } from "./agenda-wake.js";
-import { closeAgendaRun, loadAgendaRunContext, mergeProvenance, loadAgendaRunContextOrFail, releaseUnstartedAgendaRun, settleAbortedAgendaRun, type AgendaAbortDeps, type AgendaRunDb } from "./agenda-run.js";
+import { agendaDeliveryText, closeAgendaRun, loadAgendaRunContext, mergeProvenance, loadAgendaRunContextOrFail, releaseUnstartedAgendaRun, settleAbortedAgendaRun, type AgendaAbortDeps, type AgendaRunDb } from "./agenda-run.js";
 
 const NOW = new Date("2026-11-05T12:00:00.000Z");
 const item = (over: Partial<AgendaItemRecord> = {}): AgendaItemRecord => ({
@@ -89,15 +89,14 @@ test("falha ao fechar: lembrete não se perde (o texto sai), vigia fica calado",
 // Auditoria F4: B1 (run morto), B2/B3 (run que não chegou a executar)
 // ---------------------------------------------------------------------------
 
+const closedOf = (over: Partial<Extract<Awaited<ReturnType<AgendaRunDb["finalize"]>>, { agenda: true }>> = {}): Awaited<ReturnType<AgendaRunDb["finalize"]>> => ({ agenda: true, itemId: "i1", text: "", stoppedWithoutResult: false, deliverNote: false, note: "n", ...over });
+
 const abortDb = (over: { row?: AgendaItemRecord; finalize?: AgendaRunDb["finalize"] } = {}) => {
 	const delivered: Array<{ conversationId: string; text: string }> = [];
 	const finalized: Array<{ runId: string; text: string }> = [];
 	const row = over.row ?? item({ kind: "remind", runId: "run-1" });
-	// 1ª leitura = antes do fechamento (sem resultado deste run); depois dele, a linha como o teste a descreve.
-	let reads = 0;
 	const abort: AgendaAbortDeps = {
-		...db([row], over.finalize ?? (async (input) => (finalized.push({ runId: input.runId, text: input.text }), { agenda: true, itemId: "i1", text: "", stoppedWithoutResult: false, note: row.note }))),
-		getByRunId: async () => (reads++ === 0 ? { ...row, lastResult: null, lastNoticeAt: null } : row),
+		...db([row], over.finalize ?? (async (input) => (finalized.push({ runId: input.runId, text: input.text }), closedOf({ note: row.note })))),
 		deliver: async (conversationId, text) => void delivered.push({ conversationId, text }),
 	};
 	return { abort, delivered, finalized };
@@ -110,17 +109,35 @@ test("B1: run que falhou/foi cancelado/caiu é fechado como sem resultado (texto
 	assert.equal(out.closed, true);
 });
 
-test("B1: lembrete que o fechamento encerrou sem entregar sai com a nota (nunca some em silêncio); se continua na fila, não repete", async () => {
-	const doneRow = item({ kind: "remind", status: "done", endReason: "completed", runId: "run-1", conversationId: "conv-1", note: "Ligar para a Ana", lastResult: { runId: "run-1", outcome: "missing", at: NOW.toISOString() } });
-	const lost = abortDb({ row: doneRow });
-	assert.deepEqual(await settleAbortedAgendaRun({ userId: "user-a", runId: "run-1", language: "pt-BR", db: lost.abort }), { closed: true, delivered: true });
-	assert.deepEqual(lost.delivered, [{ conversationId: "conv-1", text: "Lembrete: Ligar para a Ana" }]);
-	const pending = abortDb({ row: { ...doneRow, status: "pending", endReason: null } });
-	assert.equal((await settleAbortedAgendaRun({ userId: "user-a", runId: "run-1", language: "pt-BR", db: pending.abort })).delivered, false);
-	assert.deepEqual(pending.delivered, []);
-	// vigia encerrado do mesmo jeito não vira "lembrete"
-	const watch = abortDb({ row: { ...doneRow, kind: "watch" } });
+test("C1/B1: falha 1 e 2 do lembrete reagendam sem postar; a 3ª entrega a própria nota UMA vez, no idioma do bot (mesmo caminho do run que esqueceu o resultado)", async () => {
+	const row = item({ kind: "remind", runId: "run-1", conversationId: "conv-1", note: "Ligar   para a Ana" });
+	let calls = 0;
+	const sequence = [closedOf({ note: row.note }), closedOf({ note: row.note }), closedOf({ note: row.note, deliverNote: true })];
+	const run = abortDb({ row, finalize: async () => sequence[calls++]! });
+	await settleAbortedAgendaRun({ userId: "user-a", runId: "run-1", language: "pt-BR", db: run.abort });
+	await settleAbortedAgendaRun({ userId: "user-a", runId: "run-1", language: "pt-BR", db: run.abort });
+	assert.deepEqual(run.delivered, [], "falhas 1 e 2 não postam");
+	assert.deepEqual(await settleAbortedAgendaRun({ userId: "user-a", runId: "run-1", language: "pt-BR", db: run.abort }), { closed: true, delivered: true });
+	assert.deepEqual(run.delivered, [{ conversationId: "conv-1", text: "Lembrete: Ligar para a Ana" }]);
+	// o texto vem da copy do idioma, nunca de um "Lembrete:" fixo
+	const en = abortDb({ row, finalize: async () => closedOf({ note: row.note, deliverNote: true }) });
+	await settleAbortedAgendaRun({ userId: "user-a", runId: "run-1", language: "en-US", db: en.abort });
+	assert.deepEqual(en.delivered.map((d) => d.text), ["Reminder: Ligar para a Ana"]);
+	// vigia que falhou direto não vira "lembrete": o db não manda a nota
+	const watch = abortDb({ row: { ...row, kind: "watch" } });
 	assert.equal((await settleAbortedAgendaRun({ userId: "user-a", runId: "run-1", language: "pt-BR", db: watch.abort })).delivered, false);
+});
+
+test("C1: a nota do lembrete é normalizada (espaços) e limitada a 200 caracteres; o fechamento do run que terminou entrega pelo mesmo texto", async () => {
+	const long = `Pagar  o condomínio ${"x".repeat(400)}`;
+	const closed = closedOf({ note: long, deliverNote: true });
+	assert.ok(closed.agenda);
+	const text = agendaDeliveryText(closed, "pt-BR");
+	assert.equal(text, `Lembrete: ${long.split(/\s+/).join(" ").slice(0, 200)}`);
+	const ctx = (await loadAgendaRunContext({ userId: "user-a", runId: "run-1", origin: "proactive", objective: "", now: () => NOW, db: db([item({ kind: "remind" })]) }))!;
+	assert.equal(await closeAgendaRun({ userId: "user-a", runId: "run-1", text: "", language: "es-ES", context: ctx, db: db([item({ kind: "remind" })], async () => closedOf({ note: "Llamar a Ana", deliverNote: true })) }), "Recordatorio: Llamar a Ana");
+	// mensagem declarada tem prioridade sobre a nota
+	assert.equal(agendaDeliveryText(closedOf({ text: "Caiu.", deliverNote: true, note: "x" }) as Parameters<typeof agendaDeliveryText>[0], "pt-BR"), "Caiu.");
 });
 
 test("B1: mensagem que o run já declarou e a morte impediu de postar sai agora; parada por falha avisa uma vez", async () => {
@@ -178,12 +195,17 @@ test("B3/C4: erro ao carregar o contexto de um run de agenda falha fechado; run 
 	assert.ok(ok.context);
 });
 
-test("B1: reentrega do fechamento (o run já tinha sido fechado) não repete o aviso", async () => {
+test("B1/C1: reentrega do fechamento (o run já tinha sido fechado) não repete o aviso nem a nota, nem no abort nem no fechamento normal", async () => {
 	const row = item({ kind: "remind", status: "done", runId: "run-1", conversationId: "conv-1", lastResult: { runId: "run-1", outcome: "missing", at: NOW.toISOString() } });
-	const delivered: string[] = [];
-	const abort: AgendaAbortDeps = { ...db([row], async () => ({ agenda: true, itemId: "i1", text: "", stoppedWithoutResult: true, note: "n" })), deliver: async (_c, text) => void delivered.push(text) };
-	assert.deepEqual(await settleAbortedAgendaRun({ userId: "user-a", runId: "run-1", db: abort }), { closed: true, delivered: false });
-	assert.deepEqual(delivered, []);
+	for (const flags of [{ stoppedWithoutResult: true }, { deliverNote: true }]) {
+		const delivered: string[] = [];
+		const finalize: AgendaRunDb["finalize"] = async () => closedOf(flags);
+		const abort: AgendaAbortDeps = { ...db([row], finalize), deliver: async (_c, text) => void delivered.push(text) };
+		assert.deepEqual(await settleAbortedAgendaRun({ userId: "user-a", runId: "run-1", language: "pt-BR", db: abort }), { closed: true, delivered: false });
+		assert.deepEqual(delivered, []);
+		const ctx = (await loadAgendaRunContext({ userId: "user-a", runId: "run-1", origin: "proactive", objective: "", now: () => NOW, db: db([row]) }))!;
+		assert.equal(await closeAgendaRun({ userId: "user-a", runId: "run-1", text: "", language: "pt-BR", context: ctx, db: db([row], finalize) }), "");
+	}
 });
 
 test("S1: nota/memo de run contaminado entram como dado no wake e o run nasce contaminado; sem taint, nada é semeado", async () => {
