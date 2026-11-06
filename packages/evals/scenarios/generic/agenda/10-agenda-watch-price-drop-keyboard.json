@@ -157,6 +157,12 @@
           }
         },
         {
+          "id": "first-check-in-6h-in-the-owners-zone",
+          "type": "tool_result",
+          "tool": "watch",
+          "pattern": "first run 2026-11-05 12:00 \\(America/Chicago\\)"
+        },
+        {
           "id": "did-not-create-a-user-routine",
           "type": "tool_not_called",
           "tool": "propose_routine"
