@@ -114,6 +114,9 @@ export async function getSleepReport(userId: string, id: string): Promise<SleepR
 /** O dono dispensa uma proposta (habilidade, caso de eval, achado do doctor). `null` = relatório ou proposta inexistente. */
 export async function dismissSleepProposal(input: { userId: string; reportId: string; proposalId: string }): Promise<SleepReportView | null> {
 	return prisma.$transaction(async (tx) => {
+		// Trava a linha do relatório até o fim da transação: dois "dispensar" ao mesmo tempo se enfileiram, e o segundo
+		// relê o que o primeiro gravou em vez de sobrescrevê-lo (ler-alterar-gravar sem trava perdia uma dispensa).
+		await tx.$queryRaw`SELECT "id" FROM "sleep_reports" WHERE "id" = ${input.reportId} AND "userId" = ${input.userId} FOR UPDATE`;
 		const row = await tx.sleepReport.findFirst({ where: { id: input.reportId, userId: input.userId } });
 		if (!row) return null;
 		const proposals = readStoredProposals(row.proposalsJson);

@@ -77,6 +77,17 @@ describe("sono (Postgres real)", { skip: dbSkip }, () => {
 		assert.equal(dismissed?.proposals[0]?.status, "dismissed");
 	});
 
+	test("dois dispensar ao mesmo tempo não perdem nenhum (auditoria F5, B3)", async () => {
+		const bot = (await createTestBot(userA, { name: "dispensa" })).id;
+		const claim = await claimSleepSlot({ userId: userA, botId: bot, kind: "doctor", slot: "2026-11-15", now });
+		const ids = Array.from({ length: 6 }, (_, i) => `doctor:2026-11-15:${i}`);
+		const finding = { type: "stale" as const, subject: "memory" as const, ids: ["m"], reason: "r" };
+		await finishSleepReport({ userId: userA, id: claim!.id, status: "done", proposals: ids.map((id) => ({ id, kind: "doctor" as const, status: "open" as const, finding })) });
+		await Promise.all(ids.map((proposalId) => dismissSleepProposal({ userId: userA, reportId: claim!.id, proposalId })));
+		const report = await getSleepReport(userA, claim!.id);
+		assert.deepEqual(report?.proposals.map((p) => p.status), ids.map(() => "dismissed"));
+	});
+
 	test("a leitura do dia traz só a conversa direta do bot, na janela, e os runs v4 de chat", async () => {
 		const at = (iso: string) => new Date(iso);
 		await prisma.conversationMessage.createMany({
@@ -122,9 +133,10 @@ describe("sono (Postgres real)", { skip: dbSkip }, () => {
 		const conv = (await prisma.conversation.create({ data: { userId: userA } })).id;
 		await prisma.bot.update({ where: { id: bot }, data: { conversationId: conv } });
 		const same = new Date("2026-11-04T12:00:00Z");
-		await prisma.conversationMessage.createMany({ data: Array.from({ length: 8 }, (_, i) => ({ id: `long-${i}`, conversationId: conv, role: "user", content: `fala ${i}`, createdAt: i < 5 ? same : new Date(same.getTime() + i * 1000) })) });
+		const tag = `long-${Date.now()}`;
+		await prisma.conversationMessage.createMany({ data: Array.from({ length: 8 }, (_, i) => ({ id: `${tag}-${i}`, conversationId: conv, role: "user", content: `fala ${i}`, createdAt: i < 5 ? same : new Date(same.getTime() + i * 1000) })) });
 		const day = await loadSleepDay({ userId: userA, botId: bot, from: new Date("2026-11-04T02:30:00Z"), to: new Date("2026-11-05T02:30:00Z"), pageSize: 3 });
-		assert.deepEqual(day?.messages.map((m) => m.id), Array.from({ length: 8 }, (_, i) => `long-${i}`));
+		assert.deepEqual(day?.messages.map((m) => m.id), Array.from({ length: 8 }, (_, i) => `${tag}-${i}`));
 		const exact = await loadSleepDay({ userId: userA, botId: bot, from: new Date("2026-11-04T02:30:00Z"), to: new Date("2026-11-05T02:30:00Z"), pageSize: 4 });
 		assert.equal(exact?.messages.length, 8, "página cheia no final não deixa nada de fora");
 	});
