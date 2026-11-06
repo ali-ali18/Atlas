@@ -6,6 +6,9 @@ import {
 	evalCasesFromRuns,
 	isDoctorDay,
 	isSleepDue,
+	readSleepEnabled,
+	sleepSummary,
+	sleepSummaryLanguage,
 	parseSleepProposal,
 	planSleepWrites,
 	readStoredProposals,
@@ -181,5 +184,24 @@ describe("propostas guardadas", () => {
 		const stored = readStoredProposals([{ id: "a", kind: "skill", status: "open" }, { id: "b", kind: "x", status: "open" }, null, { id: "c", kind: "doctor", status: "dismissed" }]);
 		expect(stored.map((p) => p.id)).toEqual(["a", "c"]);
 		expect(readStoredProposals("x")).toEqual([]);
+	});
+});
+
+describe("opt-out e resumo", () => {
+	it("o sono é padrão; só sleep:false desliga", () => {
+		expect(readSleepEnabled(null)).toBe(true);
+		expect(readSleepEnabled({})).toBe(true);
+		expect(readSleepEnabled({ sleep: "off" })).toBe(true);
+		expect(readSleepEnabled({ sleep: false })).toBe(false);
+	});
+	it("o resumo conta, pluraliza e fala o idioma do bot, sem nome interno", () => {
+		expect(sleepSummary({ facts: 2, notes: 1, skills: 0, evalCases: 0 })).toBe("Guardei 2 fatos e 1 nota. Dá para desfazer cada mudança.");
+		expect(sleepSummary({ facts: 1, notes: 0, skills: 2, evalCases: 1 })).toBe("Guardei 1 fato. Tenho para você olhar: 2 habilidades e 1 caso de teste das falhas. Dá para desfazer cada mudança.");
+		expect(sleepSummary({ facts: 0, notes: 0, skills: 0, evalCases: 0 })).toBe("Nada novo para guardar hoje.");
+		expect(sleepSummary({ facts: 3, notes: 0, skills: 0, evalCases: 0 }, "en")).toBe("I saved 3 facts. Every change can be undone.");
+		expect(sleepSummaryLanguage("en-US")).toBe("en");
+		expect(sleepSummaryLanguage("es-ES")).toBe("es");
+		expect(sleepSummaryLanguage("auto")).toBe("pt");
+		expect(sleepSummaryLanguage(undefined)).toBe("pt");
 	});
 });

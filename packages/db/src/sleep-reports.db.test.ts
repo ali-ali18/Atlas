@@ -51,7 +51,13 @@ describe("sono (Postgres real)", { skip: dbSkip }, () => {
 		await finishSleepReport({ userId: userA, id: day1!.id, status: "done", windowEnd: new Date("2026-11-02T02:30:00Z") });
 		const day2 = await claimSleepSlot({ userId: userA, botId: bot, kind: "daily", slot: "2026-11-02", now });
 		await finishSleepReport({ userId: userA, id: day2!.id, status: "failed", detail: "sem chave", windowEnd: new Date("2026-11-03T02:30:00Z") });
+		// Falha não avança a janela: o dia que falhou entra na próxima leitura.
 		assert.equal((await getPreviousSleepEnd(userA, bot))?.toISOString(), "2026-11-02T02:30:00.000Z");
+		// Dia quieto (skipped) avança.
+		const day3 = await claimSleepSlot({ userId: userA, botId: bot, kind: "daily", slot: "2026-11-03", now });
+		await finishSleepReport({ userId: userA, id: day3!.id, status: "skipped", detail: "sem fala do dono na janela", windowEnd: new Date("2026-11-04T02:30:00Z") });
+		assert.equal((await getPreviousSleepEnd(userA, bot))?.toISOString(), "2026-11-04T02:30:00.000Z");
+		assert.deepEqual((await listSleepReports({ userId: userA, botId: bot })).reports.map((r) => r.status), ["failed"]);
 		assert.equal(await getPreviousSleepEnd(userB, bot), null);
 	});
 

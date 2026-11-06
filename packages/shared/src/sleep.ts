@@ -319,3 +319,37 @@ export function readStoredProposals(raw: unknown): SleepStoredProposal[] {
 		return typeof value.id === "string" && (value.kind === "skill" || value.kind === "eval_case" || value.kind === "doctor") && (value.status === "open" || value.status === "dismissed");
 	});
 }
+
+/** O sono é padrão para o bot (conta no v4). O dono desliga por bot com `policyJson.sleep = false`; qualquer outro valor mantém ligado. */
+export function readSleepEnabled(policyJson: unknown): boolean {
+	if (typeof policyJson !== "object" || policyJson === null || Array.isArray(policyJson)) return true;
+	return (policyJson as Record<string, unknown>).sleep !== false;
+}
+
+export type SleepSummaryCounts = { facts: number; notes: number; skills: number; evalCases: number };
+export type SleepSummaryLanguage = "pt" | "en" | "es";
+
+/** Idioma do resumo a partir do idioma do bot (padrão pt-BR; "auto" e desconhecido também). */
+export function sleepSummaryLanguage(botLanguage: unknown): SleepSummaryLanguage {
+	const value = typeof botLanguage === "string" ? botLanguage.toLowerCase() : "";
+	return value.startsWith("en") ? "en" : value.startsWith("es") ? "es" : "pt";
+}
+
+const SUMMARY_WORDS = {
+	pt: { none: "Nada novo para guardar hoje.", saved: "Guardei", fact: ["fato", "fatos"], note: ["nota", "notas"], propose: "Tenho para você olhar", skill: ["habilidade", "habilidades"], eval: ["caso de teste das falhas", "casos de teste das falhas"], tail: "Dá para desfazer cada mudança.", and: "e" },
+	en: { none: "Nothing new to keep today.", saved: "I saved", fact: ["fact", "facts"], note: ["note", "notes"], propose: "For you to review", skill: ["skill", "skills"], eval: ["test case from failures", "test cases from failures"], tail: "Every change can be undone.", and: "and" },
+	es: { none: "Nada nuevo que guardar hoy.", saved: "Guardé", fact: ["dato", "datos"], note: ["nota", "notas"], propose: "Para que revises", skill: ["habilidad", "habilidades"], eval: ["caso de prueba de fallos", "casos de prueba de fallos"], tail: "Puedes deshacer cada cambio.", and: "y" },
+} as const;
+
+/** Resumo de uma frase para o dono, sem nome interno (pt-BR por padrão). */
+export function sleepSummary(counts: SleepSummaryCounts, language: SleepSummaryLanguage = "pt"): string {
+	const w = SUMMARY_WORDS[language];
+	const list = (items: Array<[number, readonly [string, string]]>) => {
+		const parts = items.filter(([n]) => n > 0).map(([n, [one, many]]) => `${n} ${n === 1 ? one : many}`);
+		return parts.length <= 1 ? parts.join("") : `${parts.slice(0, -1).join(", ")} ${w.and} ${parts.at(-1)}`;
+	};
+	const saved = list([[counts.facts, w.fact], [counts.notes, w.note]]);
+	const proposed = list([[counts.skills, w.skill], [counts.evalCases, w.eval]]);
+	if (!saved && !proposed) return w.none;
+	return [saved && `${w.saved} ${saved}.`, proposed && `${w.propose}: ${proposed}.`, saved && w.tail].filter(Boolean).join(" ");
+}

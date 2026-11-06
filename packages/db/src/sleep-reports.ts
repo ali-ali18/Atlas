@@ -76,16 +76,16 @@ export async function finishSleepReport(input: { userId: string; id: string; sta
 	});
 }
 
-/** Fim da janela do último sono concluído do bot: o começo do próximo. `null` = nunca dormiu. */
+/** Fim da janela do último sono do bot que leu o dia (feito ou dia quieto): o começo do próximo. `null` = nunca dormiu. */
 export async function getPreviousSleepEnd(userId: string, botId: string): Promise<Date | null> {
-	const row = await prisma.sleepReport.findFirst({ where: { userId, botId, kind: "daily", status: "done", windowEnd: { not: null } }, orderBy: { windowEnd: "desc" }, select: { windowEnd: true } });
+	const row = await prisma.sleepReport.findFirst({ where: { userId, botId, kind: "daily", status: { in: ["done", "skipped"] }, windowEnd: { not: null } }, orderBy: { windowEnd: "desc" }, select: { windowEnd: true } });
 	return row?.windowEnd ?? null;
 }
 
 export async function listSleepReports(input: { userId: string; botId?: string; kind?: SleepReportKind; cursor?: string; limit?: number }): Promise<{ reports: SleepReportView[]; nextCursor: string | null }> {
 	const take = Math.min(Math.max(input.limit ?? SLEEP_REPORTS_PAGE_SIZE, 1), SLEEP_REPORTS_MAX_PAGE_SIZE);
 	const rows = await prisma.sleepReport.findMany({
-		where: { userId: input.userId, status: { not: "running" }, ...(input.botId && { botId: input.botId }), ...(input.kind && { kind: input.kind }) },
+		where: { userId: input.userId, status: { in: ["done", "failed"] }, ...(input.botId && { botId: input.botId }), ...(input.kind && { kind: input.kind }) },
 		orderBy: [{ createdAt: "desc" }, { id: "desc" }],
 		take: take + 1,
 		...(input.cursor ? { cursor: { id: input.cursor }, skip: 1 } : {}),
