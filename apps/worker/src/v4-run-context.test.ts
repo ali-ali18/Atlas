@@ -8,7 +8,7 @@ import { test } from "node:test";
 import { createCapabilityRegistry, createSseMapper, defineCapability, defineTool, type Llm, type LlmChatRequest, type LlmStreamEvent, type RunEvent } from "@workspace/agent";
 import type { ComputerUseEvent } from "@workspace/shared";
 import { z } from "zod";
-import { AGENT_V4_REQUEST_TTL_MS, agentV4ProvenanceOf } from "@workspace/db";
+import { AGENT_V4_HISTORY_MAX, AGENT_V4_REQUEST_TTL_MS, agentV4ProvenanceOf } from "@workspace/db";
 import { AgentRunPausedError } from "@workspace/agent-runtime";
 import { runEngineV4, type V4Db } from "./engine-v4.js";
 import { runV4Turn } from "./v4-turn.js";
@@ -76,7 +76,7 @@ type FakeRequestRow = { runId: string; kind: "approval" | "handoff"; key: string
  * Postgres garante: unicidade `(run, tipo, chave)` (registrar de novo não duplica nem reabre) e expiração por prazo
  * (pendente vencido vira `expired` ao carregar as decisões). O checkpoint é o do banco do motor (`useCheckpointsOf`).
  */
-function fakeContextDb(base: Partial<{ history: unknown[]; provenance: { untrustedReadInRun: boolean; privateReadInRun: boolean; sources: string[] }; cards: Array<{ cardId: string; response: "answered" | "dismissed" }> }> = {}) {
+function fakeContextDb(base: Partial<{ omitted: number; history: unknown[]; provenance: { untrustedReadInRun: boolean; privateReadInRun: boolean; sources: string[] }; cards: Array<{ cardId: string; response: "answered" | "dismissed" }> }> = {}) {
 	const requests: FakeRequestRow[] = [];
 	const consumed: string[] = [];
 	const swept: string[] = [];
@@ -87,6 +87,7 @@ function fakeContextDb(base: Partial<{ history: unknown[]; provenance: { untrust
 		hasCheckpoint: (async (userId: string, runId: string) => checkpoints.has(`${userId}:${runId}`)) as never,
 		loadCheckpoint: (async (userId: string, runId: string) => (loads.calls++, structuredClone(checkpoints.get(`${userId}:${runId}`) ?? null))) as never,
 		listHistory: (async () => base.history ?? []) as never,
+		countHistoryOmitted: (async () => base.omitted ?? 0) as never,
 		conversationProvenance: (async () => base.provenance ?? { untrustedReadInRun: false, privateReadInRun: false, sources: [] }) as never,
 		listCardResponses: (async () => base.cards ?? []) as never,
 		consumeCardResponses: (async (_u: string, _c: string, ids: string[]) => void consumed.push(...ids)) as never,
@@ -579,4 +580,30 @@ test("C5: decidir run novo x retomada usa a consulta de existência e não carre
 	const resumed = await turn({ ctx, v4: mem.db, llm: scripted([]), runId: "run-c5b", objective: "manda", registry });
 	assert.ok(resumed.prepared.resume, "o checkpoint existente faz o preparo montar a retomada");
 	assert.equal(ctx.loads.calls, 2, "a retomada que reestaciona lê uma vez, no finish");
+});
+
+test("C4: histórico cortado no teto avisa o modelo, em runtime, quantas falas antigas não foram carregadas", async () => {
+	const rows = Array.from({ length: AGENT_V4_HISTORY_MAX }, (_, i) => ({ role: i % 2 === 0 ? ("user" as const) : ("assistant" as const), content: `fala ${i}`, origin: null, fromBotName: null, sourceKind: null }));
+	// pura: o aviso vem antes das falas e o plural acompanha
+	const built = buildV4History(rows.slice(0, 2), "agora", 3);
+	assert.deepEqual(built[0], { kind: "runtime", text: "The 3 oldest messages of this conversation were not loaded. If the owner refers to something earlier that you cannot see, say so instead of guessing." });
+	assert.match((buildV4History([], "x", 1)[0] as { text: string }).text, /^The 1 oldest message of this/);
+	assert.equal(buildV4History(rows.slice(0, 2), "agora", 0)[0]!.kind, "owner", "sem corte não há aviso");
+
+	// pelo preparo: janela cheia consulta o total e o aviso chega ao kernel no canal de runtime
+	const ctx = fakeContextDb({ history: rows, omitted: 42 });
+	const { db } = memoryV4Db();
+	const llm = scripted([say("ok")]);
+	await turn({ ctx, v4: db, llm, runId: "run-c4", objective: "e antes disso?" });
+	const runtime = llm.requests[0]!.messages.find((m) => String(m.content).includes("oldest messages of this conversation were not loaded"));
+	assert.ok(runtime, "o aviso está no pedido ao modelo");
+	assert.match(String(runtime!.content), /^<atlas:runtime id="/, "no canal de runtime, não no de dado");
+	assert.match(String(runtime!.content), /The 42 oldest messages/);
+
+	// janela que não encheu: nem consulta o total
+	let counted = 0;
+	const short = fakeContextDb({ history: rows.slice(0, 10) });
+	short.db.countHistoryOmitted = (async () => (counted++, 5)) as never;
+	await prepareV4Run({ userId: "user-a", runId: "r", conversationId: "conv-1", objective: "x", chat: true, db: short.db });
+	assert.equal(counted, 0);
 });

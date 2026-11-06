@@ -6,7 +6,9 @@
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import {
+	AGENT_V4_HISTORY_MAX,
 	AGENT_V4_REQUEST_TTL_MS,
+	countAgentV4HistoryOmitted,
 	consumeAgentV4CardResponses,
 	decideAgentV4Request,
 	expireDueAgentV4Requests,
@@ -110,5 +112,17 @@ describe("agent-v4-requests (Postgres real)", { skip: dbSkip }, () => {
 		assert.deepEqual(await getAgentV4ConversationProvenance(a, conv, runA), { untrustedReadInRun: true, privateReadInRun: false, sources: ["web"] });
 		assert.deepEqual(await getAgentV4ConversationProvenance(a, conv, other.id), { untrustedReadInRun: false, privateReadInRun: false, sources: [] });
 		assert.deepEqual(await getAgentV4ConversationProvenance(b, conv, runA), { untrustedReadInRun: false, privateReadInRun: false, sources: [] });
+	});
+
+	test("C4: histórico limitado ao teto e countAgentV4HistoryOmitted diz quantas falas ficaram de fora (só do dono)", async () => {
+		const big = (await prisma.conversation.create({ data: { userId: a } })).id;
+		const total = AGENT_V4_HISTORY_MAX + 7;
+		await prisma.conversationMessage.createMany({ data: Array.from({ length: total }, (_, i) => ({ conversationId: big, role: i % 2 === 0 ? "user" : "assistant", content: `m${i}`, createdAt: new Date(t0.getTime() + i * 1000) })) });
+		const rows = await listAgentV4History(a, big);
+		assert.equal(rows.length, AGENT_V4_HISTORY_MAX);
+		assert.equal(rows.at(-1)!.content, `m${total - 1}`, "as mais recentes ficam");
+		assert.equal(await countAgentV4HistoryOmitted(a, big), 7);
+		assert.equal(await countAgentV4HistoryOmitted(b, big), 0, "outro dono não conta");
+		assert.equal(await countAgentV4HistoryOmitted(a, conv), 0, "conversa curta: nada fora");
 	});
 });

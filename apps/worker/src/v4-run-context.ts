@@ -9,7 +9,9 @@
 import type { ChannelInput, RunEvent, RunInput, TrustSource } from "@workspace/agent";
 import { TRUST_SOURCES } from "@workspace/agent";
 import {
+	AGENT_V4_HISTORY_MAX,
 	consumeAgentV4CardResponses,
+	countAgentV4HistoryOmitted,
 	expireDueAgentV4Requests,
 	getAgentV4ConversationProvenance,
 	hasAgentV4Checkpoint,
@@ -29,6 +31,7 @@ export type V4RunContextDb = {
 	/** Existência barata do checkpoint (decide run novo x retomada sem trazer o payload). */
 	hasCheckpoint: typeof hasAgentV4Checkpoint;
 	listHistory: typeof listAgentV4History;
+	countHistoryOmitted: typeof countAgentV4HistoryOmitted;
 	conversationProvenance: typeof getAgentV4ConversationProvenance;
 	listCardResponses: typeof listAgentV4CardResponses;
 	consumeCardResponses: typeof consumeAgentV4CardResponses;
@@ -41,6 +44,7 @@ export const realV4RunContextDb: V4RunContextDb = {
 	loadCheckpoint: loadAgentV4Checkpoint,
 	hasCheckpoint: hasAgentV4Checkpoint,
 	listHistory: listAgentV4History,
+	countHistoryOmitted: countAgentV4HistoryOmitted,
 	conversationProvenance: getAgentV4ConversationProvenance,
 	listCardResponses: listAgentV4CardResponses,
 	consumeCardResponses: consumeAgentV4CardResponses,
@@ -55,10 +59,12 @@ export const realV4RunContextDb: V4RunContextDb = {
  * aqui: o banco guarda só as falas, e o que a tool trouxe já está resumido na fala do assistente.
  *
  * O último turno do dono é o `objective` do run (é ele que traz anexos e citação): se a última entrada é do dono, ela é
- * trocada pelo objetivo; senão o objetivo entra no fim. Função pura.
+ * trocada pelo objetivo; senão o objetivo entra no fim. `omitted` > 0 = a conversa tem falas mais antigas que não foram
+ * carregadas (teto de leitura): o modelo é avisado, em inglês curto, pelo canal de runtime (C4). Função pura.
  */
-export function buildV4History(rows: readonly Pick<AgentV4HistoryRow, "role" | "content" | "origin" | "fromBotName" | "sourceKind">[], objective: string): ChannelInput[] {
+export function buildV4History(rows: readonly Pick<AgentV4HistoryRow, "role" | "content" | "origin" | "fromBotName" | "sourceKind">[], objective: string, omitted = 0): ChannelInput[] {
 	const history: ChannelInput[] = [];
+	if (omitted > 0) history.push({ kind: "runtime", text: `The ${omitted} oldest message${omitted === 1 ? "" : "s"} of this conversation were not loaded. If the owner refers to something earlier that you cannot see, say so instead of guessing.` });
 	for (const row of rows) {
 		const text = row.content;
 		if (text.trim().length === 0) continue;
@@ -175,10 +181,12 @@ export async function prepareV4Run(input: PrepareV4RunInput): Promise<PreparedV4
 		db.conversationProvenance(input.userId, input.conversationId, input.runId),
 	]);
 	deliveredCards = cardResponses.map((c) => c.cardId);
+	// A janela veio cheia: há falas mais antigas fora dela. Conta quantas só nesse caso (uma consulta a mais, rara).
+	const omitted = rows.length >= AGENT_V4_HISTORY_MAX ? await db.countHistoryOmitted(input.userId, input.conversationId, { excludeRunId: input.runId }) : 0;
 	const tainted = provenance.untrustedReadInRun || provenance.privateReadInRun;
 	return {
 		...base,
-		history: buildV4History(rows, input.objective),
+		history: buildV4History(rows, input.objective, omitted),
 		...(cardResponses.length > 0 && { cardResponses }),
 		...(tainted && { priorProvenance: { untrustedReadInRun: provenance.untrustedReadInRun, privateReadInRun: provenance.privateReadInRun, sources: provenance.sources.filter(isTrustSource) } }),
 	};

@@ -207,6 +207,25 @@ export async function listAgentV4History(userId: string, conversationId: string,
 	return rows.reverse().map((row) => ({ role: row.role as "user" | "assistant", content: row.content, origin: row.origin, fromBotName: row.fromBotName, sourceKind: row.sourceKind, runId: row.runId, createdAt: row.createdAt }));
 }
 
+/**
+ * Quantas falas (dono e assistente) da conversa ficaram de fora do histórico carregado (`AGENT_V4_HISTORY_MAX`): total da
+ * conversa menos o que cabe na janela. Só se chama quando a janela veio cheia (auditoria F2, C4). Mesmos filtros de
+ * `listAgentV4History`; conversa de outro dono = 0.
+ */
+export async function countAgentV4HistoryOmitted(userId: string, conversationId: string, options: { excludeRunId?: string } = {}): Promise<number> {
+	const owners = ownerIds(userId);
+	if (owners.length === 0) return 0;
+	const total = await prisma.conversationMessage.count({
+		where: {
+			conversationId,
+			conversation: { userId: { in: owners } },
+			role: { in: ["user", "assistant"] },
+			...(options.excludeRunId ? { OR: [{ runId: null }, { runId: { not: options.excludeRunId } }] } : {}),
+		},
+	});
+	return Math.max(0, total - AGENT_V4_HISTORY_MAX);
+}
+
 // --------------------------------------------------------------- proveniência
 
 export type AgentV4ConversationProvenance = { untrustedReadInRun: boolean; privateReadInRun: boolean; sources: string[] };
