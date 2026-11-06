@@ -131,7 +131,9 @@ export function createLlmAdapter(config: LlmAdapterConfig): Llm {
 				let outcome: { ok: true; result: Awaited<ReturnType<ProviderStreamChat>> } | { ok: false; error: unknown } | undefined;
 				let wake: (() => void) | undefined;
 				const merge = singleSystem ? singleSystem.has(entry.provider) : true;
-				const call = config.streamChat(
+				// `new Promise` captura também o throw SÍNCRONO do roteador (chave ausente, schema inválido): ele passa por
+				// `classifyFailure` como qualquer outra falha, em vez de escapar do laço da cadeia.
+				const call = new Promise<Awaited<ReturnType<ProviderStreamChat>>>((resolveCall) => resolveCall(config.streamChat(
 					{
 						messages: toLegacyMessages(req.messages, { mergeSystem: merge, mergeUser: mergeUserSet ? mergeUserSet.has(entry.provider) : true }),
 						model: formatModelRef(entry.provider, entry.model),
@@ -151,7 +153,7 @@ export function createLlmAdapter(config: LlmAdapterConfig): Llm {
 							wake?.();
 						},
 					},
-				);
+				)));
 				void Promise.resolve(call).then(
 					(result) => {
 						outcome = { ok: true, result };

@@ -74,12 +74,19 @@ export function toLegacyMessages(messages: readonly LlmMessage[], opts: { mergeS
 	});
 }
 
+/**
+ * Converte as tools para o formato do legado. O schema vai INTEIRO (`anyOf`/`oneOf`/`additionalProperties`/`enum`
+ * aninhados chegam ao provedor): descartar essas chaves em silêncio deixaria o modelo chamar a tool com argumentos
+ * que o executor recusa. Schema que não é de objeto não é aceito pelos provedores de tools: falha alto.
+ */
 export function toLegacyTools(tools: readonly LlmToolSpec[] | undefined): ChatTool[] {
 	return (tools ?? []).map((t) => {
 		const schema = t.inputSchema;
+		if (schema.type !== undefined && schema.type !== "object") throw new Error(`Schema da tool "${t.name}" precisa ser do tipo object (veio ${JSON.stringify(schema.type)}).`);
 		const properties = schema.properties && typeof schema.properties === "object" ? (schema.properties as Record<string, unknown>) : {};
 		const required = Array.isArray(schema.required) ? schema.required.filter((r): r is string => typeof r === "string") : undefined;
-		return { type: "function", function: { name: t.name, description: t.description, parameters: { type: "object", properties, ...(required ? { required } : {}) } } };
+		const parameters: ChatTool["function"]["parameters"] & Record<string, unknown> = { ...schema, type: "object", properties, ...(required ? { required } : {}) };
+		return { type: "function", function: { name: t.name, description: t.description, parameters } };
 	});
 }
 

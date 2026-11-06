@@ -295,6 +295,29 @@ describe("adaptador Llm", () => {
 		expect(b.calls[0]).not.toHaveProperty("toolChoice");
 	});
 
+	it("throw síncrono do streamChat passa pela classificação e troca de entrada (auditoria F1, B17)", async () => {
+		let n = 0;
+		const streamChat = ((params: Params, handlers: Handlers = {}) => {
+			calls.push(params);
+			if (n++ === 0) throw Object.assign(new Error("HTTP 503"), { status: 503 });
+			return ok("certo")(params, handlers);
+		}) as ProviderStreamChat;
+		const calls: Params[] = [];
+		const llm = createLlmAdapter({ streamChat, chains: EXAMPLE_ROLE_CHAINS, apiKeyFor: () => "k", clock });
+		const events = await collect(llm.chat(req()));
+		expect(calls).toHaveLength(2);
+		expect(events.map((e) => e.type)).toEqual(["notice", "text_delta", "done"]);
+	});
+
+	it("o schema da tool vai inteiro (anyOf/oneOf não somem) e schema que não é objeto falha alto (auditoria F1, B17)", async () => {
+		const schema = { type: "object", properties: { a: { type: "string" } }, anyOf: [{ required: ["a"] }, { required: ["b"] }], additionalProperties: false };
+		const { llm, calls } = setup([ok("x")]);
+		await collect(llm.chat(req({ tools: [{ name: "t", description: "d", inputSchema: schema }] })));
+		expect(calls[0]?.tools?.[0]?.function.parameters).toMatchObject({ anyOf: schema.anyOf, additionalProperties: false });
+		const bad = setup([ok("x")]);
+		await expect(collect(bad.llm.chat(req({ tools: [{ name: "t", description: "d", inputSchema: { type: "array" } }] })))).rejects.toThrow(/tipo object/);
+	});
+
 	it("timeouts de transporte são generosos e configuráveis, sem corte de 30s/20s/90s", async () => {
 		const a = setup([ok("x")]);
 		await collect(a.llm.chat(req()));
