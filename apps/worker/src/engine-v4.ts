@@ -10,11 +10,10 @@
  * - eventos: texto, chamada e resultado de tool viram eventos do contrato SSE; o resto não é gravado ainda;
  * - capacidades: sem `registry` injetado, monta o preset `full` com as portas reais do run (`v4-adapters/`: web, entregas,
  *   memória, configurações, tarefas, conectores MCP); sandbox indisponível com erro honesto;
- * - run estacionado: devolve `parked: true` e o processador pausa o run (`paused`, motivo `awaiting_owner`). FOLLOW-UP:
- *   levar o clique do dono (`ResumeInput.grants`/`denied`) da API até `runAgent` na retomada; hoje a retomada só recarrega
- *   o checkpoint. Com a flag desligada (padrão) nada disso roda.
- * - FOLLOW-UP: trocar `createMinimalEventMapper` por `createSseMapper(...).mapRunEvent` (kernel/sse-map, parte A) quando
- *   as duas branches se juntarem; `mapEvent` já é injetável.
+ * - run estacionado: devolve `parked: true` e o processador pausa o run (`paused`, motivo `awaiting_owner`). A decisão do
+ *   dono chega pela api (`routes/agent-v4.ts`) e volta na retomada como `resume` (`v4-run-context.ts`).
+ * - eventos: o processador injeta `createSseMapper(...).mapRunEvent` em `mapEvent`.
+ * Com a flag desligada (padrão) nada disso roda.
  */
 import { createHash } from "node:crypto";
 import {

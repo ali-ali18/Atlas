@@ -1233,10 +1233,14 @@ async function executeLeasedRun(ctx: {
 		// Histórico da conversa, respostas a cartões e taint herdado (run novo) ou a decisão do dono (retomada), do banco.
 		const prepared = await prepareV4Run({ userId: runUserId, runId, conversationId: run.conversationId, objective: run.objective ?? "", chat: run.origin === "chat" });
 		const mapV4Event = dropProcessorOwnedEvents(((mapper) => (event) => mapper.mapRunEvent(event))(createSseMapper({ runId, model: run.model, language: systemLanguage })));
+		// Bot do run: escopo da camada de memória do bot, das configurações e dos painéis (sem bot, essas partes ficam indisponíveis).
+		const v4Bot = run.botId ? await getBotProfile(run.botId, runUserId).catch(() => null) : null;
 		const out = await runEngineV4({
 			runId,
 			userId: runUserId,
 			conversationId: run.conversationId,
+			botId: run.botId ?? null,
+			botName: v4Bot?.name ?? null,
 			objective: run.objective ?? "",
 			...(prepared.history ? { history: prepared.history } : {}),
 			...(prepared.cardResponses ? { cardResponses: prepared.cardResponses } : {}),
