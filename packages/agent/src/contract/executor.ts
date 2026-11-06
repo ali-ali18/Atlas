@@ -89,7 +89,8 @@ export function createExecutor(deps: ExecutorDeps) {
 		const ctx: ToolContext = { runId: deps.runId, ownerId: deps.ownerId, ports: deps.ports, signal: deps.signal };
 		const result = await tool.run(args, ctx);
 		// Dado de fonte não confiável marca o run ANTES de voltar ao modelo (vale também para o texto de erro).
-		if (tool.trust === "untrusted" && tool.source) provenance.record(result.ok ? result.summary : result.error, tool.source);
+		// Redigido ANTES de registrar: a proveniência vai no checkpoint e não pode guardar segredo que a tool deixou escapar.
+		if (tool.trust === "untrusted" && tool.source) provenance.record(sanitizeText(result.ok ? result.summary : result.error, secrets()), tool.source);
 		if (!result.ok) {
 			if (effectful) await deps.ports.store.journal.append({ ...journalBase, outcome: "failed" });
 			return { status: "error", error: sanitizeText(result.error, secrets()), ...(result.hint && { hint: sanitizeText(result.hint, secrets()) }) };

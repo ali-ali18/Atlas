@@ -9,7 +9,7 @@
 // (model-step.ts), as travas que protegem o dono (limits.ts) e o laço infinito (loop-guard.ts).
 import { createLoadedSet } from "../capabilities/index.js";
 import { channelMessage, type RunNonce } from "../channels/index.js";
-import { createExecutor, RunProvenance, redactDeep } from "../contract/index.js";
+import { createExecutor, RunProvenance, redactDeep, trackVault } from "../contract/index.js";
 import type { LlmToolSpec } from "../ports/llm.js";
 import type { Tool } from "../tools/define-tool.js";
 import { createAskOwnerTool, ASK_OWNER_TOOL } from "./ask-owner.js";
@@ -46,7 +46,9 @@ export async function runAgent(deps: RunAgentDeps): Promise<RunResult> {
 	if (resumed && saved.state === "DONE" && snap.result) return snap.result;
 
 	const loaded = createLoadedSet(registry, snap.loadedIds);
-	const executor = createExecutor({ runId, ownerId, ports, hash: deps.hash, policy: deps.policy, provenance: RunProvenance.restore(snap.provenance), ...(deps.language && { language: deps.language }), ...(deps.signal && { signal: deps.signal }) });
+	// Toda tool recebe o cofre "rastreado": o valor que ele entrega entra na redação do run (ver vault-tracking.ts).
+	const tracked = ports.vault ? trackVault(ports.vault) : undefined;
+	const executor = createExecutor({ runId, ownerId, ports: tracked ? { ...ports, vault: tracked.vault } : ports, ...(tracked && { secrets: tracked.secrets }), hash: deps.hash, policy: deps.policy, provenance: RunProvenance.restore(snap.provenance), ...(deps.language && { language: deps.language }), ...(deps.signal && { signal: deps.signal }) });
 	const pageChars = deps.options?.pageChars ?? DEFAULT_PAGE_CHARS;
 	const kernelTools: readonly Tool[] = [createNoteReadTool(pageChars), createAskOwnerTool()];
 	const toolMap = () => new Map<string, Tool>([...kernelTools, ...loaded.toolsForModel()].map((t) => [t.name, t]));

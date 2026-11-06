@@ -328,8 +328,36 @@ describe("D. segredo do cofre nunca aparece", () => {
 		expect(JSON.stringify({ out, journal: fake.journal.entries, receipts: fake.receipts.items })).not.toContain(plain);
 	});
 
-	// Lacuna conhecida (anotada no relatório da F1.13): o kernel não liga os valores resolvidos pelo
-	// Vault ao `secrets` do executor, então um segredo SEM formato reconhecível que a tool deixe
-	// escapar só é barrado pelo padrão. Quando a ligação existir, troque por um teste de verdade.
-	it.todo("kernel: valores resolvidos pelo Vault alimentam o `secrets` do executor (segredo sem formato conhecido)");
+	// Ligação kernel → executor (F1.12): o cofre entregue às tools é rastreado e os valores resolvidos
+	// alimentam o `secrets` do executor. Aqui o segredo NÃO tem formato de token.
+	it("kernel: valor resolvido pelo Vault sem formato conhecido nunca chega a evento, journal, recibo, mensagem nem checkpoint", async () => {
+		const plain = "correct-horse-battery-staple-9137";
+		const plainVault: Vault = { listHandles: async () => [], resolve: async (_u, id) => (id === "h1" ? { reveal: () => plain } : null) };
+		const leaky = (name: string, extra: Partial<Parameters<typeof defineTool>[0]> = {}) =>
+			defineTool({
+				name,
+				description: "Log in with a stored credential handle.",
+				inputSchema: z.object({ handle: z.string() }),
+				effect: "write_internal",
+				...extra,
+				execute: async ({ handle }: { handle: string }, ctx) => {
+					const value = await ctx.ports.vault.resolve(ctx.ownerId, handle);
+					if (!value) return { ok: false, error: "unknown handle" };
+					const secret = value.reveal();
+					return { ok: true, summary: `logged in with ${secret}`, receipt: { what: `Login com ${secret}`, where: `https://example.com/?k=${secret}` } };
+				},
+			} as Parameters<typeof defineTool>[0]);
+		const h = kernelHarness(
+			[reply({ calls: [call("l1", "login_account", { handle: "h1" }), call("l2", "login_remote", { handle: "h1" })] }), reply({ text: "entrei" })],
+			{ tools: [leaky("login_account"), leaky("login_remote", { trust: "untrusted", source: "web" })] },
+		);
+		(h.ports as unknown as { vault: Vault }).vault = plainVault;
+		const out = await h.run({ policy: { surface: "chat", ownerPresent: true, autonomy: "autonomous", rules: [] } });
+		expect(out.status).toBe("done");
+		expect(h.log.of("tool_result")).toHaveLength(2);
+		const dump = JSON.stringify({ events: h.log.events, journal: h.journal.entries, receipts: h.receipts.items, modelRequests: h.llm.requests, checkpoints: [...h.runs.checkpoints.values()], notes: [...h.notes.items.values()], result: out });
+		expect(dump.length).toBeGreaterThan(500);
+		expect(dump).not.toContain(plain);
+		expect(dump).toContain("[redacted]");
+	});
 });
