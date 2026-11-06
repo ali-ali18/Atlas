@@ -5,7 +5,7 @@ import { defineTool } from "../tools/define-tool.js";
 import { kernelHarness, reply, call } from "../testing/kernel-fakes.js";
 import { fakeToolContext } from "../testing.js";
 import { WORK_CONTRACT_PROMPT } from "../prompt/work-contract.js";
-import { FakeDeliverables, FakeFileStore, FakeHelpers, FakeMemory, FakeSearch, FakeSettings, FakeTaskListStore } from "./fakes.js";
+import { FakeAgenda, FakeDeliverables, FakeFileStore, FakeHelpers, FakeMemory, FakeSearch, FakeSettings, FakeTaskListStore } from "./fakes.js";
 import { buildPresetRegistry, isPresetId, PRESETS, setupPreset } from "./presets.js";
 import { createDeliverablesLiteCapability } from "./deliverables-lite.js";
 import { createWebCapability } from "./web.js";
@@ -51,18 +51,18 @@ describe("preset com entregas ricas", () => {
 	});
 });
 
-const fullDeps = () => ({ ...deps(), memory: new FakeMemory(), settings: new FakeSettings(), taskLists: new FakeTaskListStore(), helpers: new FakeHelpers() });
+const fullDeps = () => ({ ...deps(), memory: new FakeMemory(), settings: new FakeSettings(), taskLists: new FakeTaskListStore(), helpers: new FakeHelpers(), agenda: new FakeAgenda() });
 
 describe("preset full: memory, tasks e settings (F2.4)", () => {
 	it("entram como capacidades lazy: só o índice vai no prompt, as tools ficam de fora do primeiro passo", async () => {
 		const setup = setupPreset("full", fullDeps());
 		expect(setup.unavailable).toEqual([]);
-		expect(setup.registry.ids()).toEqual(expect.arrayContaining(["memory", "tasks", "settings"]));
+		expect(setup.registry.ids()).toEqual(expect.arrayContaining(["memory", "tasks", "settings", "agenda"]));
 		expect(setup.registry.core().map((c) => c.id)).toEqual(["deliverables-lite", "web"]);
 		const h = kernelHarness([reply({ text: "Bom dia!" })], { capabilities: [...setup.registry.capabilities] });
 		await h.run({ input: { stableSystem: setup.stableSystem, contextSections: [], history: [{ kind: "owner", text: "Bom dia" }] } });
 		const names = h.llm.requests[0]?.tools?.map((t) => t.name) ?? [];
-		for (const lazy of ["memory_list", "memory_add", "update_task_list", "settings_get", "set_role_model", "update_bot_profile"]) expect(names).not.toContain(lazy);
+		for (const lazy of ["memory_list", "memory_add", "update_task_list", "settings_get", "set_role_model", "update_bot_profile", "remind_me", "watch", "on_event", "agenda_result"]) expect(names).not.toContain(lazy);
 	});
 
 	it("o modelo carrega memory e usa a tool no passo seguinte", async () => {
@@ -79,7 +79,7 @@ describe("preset full: memory, tasks e settings (F2.4)", () => {
 
 	it("porta ausente: a capacidade não entra e `unavailable` diz qual (nada some em silêncio)", () => {
 		const setup = setupPreset("full", deps());
-		expect(setup.unavailable).toEqual(["memory", "tasks", "settings", "research"]);
+		expect(setup.unavailable).toEqual(["memory", "tasks", "settings", "research", "agenda"]);
 		expect(setup.registry.ids()).toEqual(expect.not.arrayContaining(["memory"]));
 		expect(setupPreset("minimal", deps()).unavailable).toEqual([]);
 	});

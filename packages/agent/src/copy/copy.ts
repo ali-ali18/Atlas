@@ -48,6 +48,12 @@ export const COPY = {
 		"en-US": "I stopped as you asked. What was already done stays in place: {list}.",
 		"es-ES": "Me detuve como pediste. Lo que ya se hizo sigue vigente: {list}.",
 	},
+	/** A agenda parou de acompanhar um item porque o run não devolveu resultado várias vezes seguidas. `{note}` = o que era. */
+	agenda_stopped_no_result: {
+		"pt-BR": "Parei de acompanhar \"{note}\": não consegui conferir três vezes seguidas. Me peça de novo se ainda quiser.",
+		"en-US": "I stopped following \"{note}\": I couldn't check it three times in a row. Ask me again if you still want it.",
+		"es-ES": "Dejé de seguir \"{note}\": no pude comprobarlo tres veces seguidas. Pídemelo de nuevo si todavía lo quieres.",
+	},
 	/** Nenhum modelo configurado para a tarefa. */
 	model_none: {
 		"pt-BR": "Nenhum modelo está configurado para esta tarefa.",

@@ -3,8 +3,9 @@ import { createCapabilityRegistry, defineCapability } from "../capabilities/inde
 import { createConnectorsCapability } from "../connectors/capability.js";
 import { FakeMcp } from "../connectors/fake-mcp.js";
 import { createDeliverablesCapability } from "../capabilities-builtin/deliverables/index.js";
+import { createAgendaCapability } from "../capabilities/agenda/index.js";
 import { createResearchCapability } from "../capabilities-builtin/research/index.js";
-import { FakeDeliverables, FakeHelpers } from "../presets/fakes.js";
+import { FakeAgenda, FakeDeliverables, FakeHelpers } from "../presets/fakes.js";
 import { call, kernelHarness, reply } from "../testing/kernel-fakes.js";
 
 // Economia (05-fases, guardas permanentes #5): "Bom dia" é barato.
@@ -115,6 +116,27 @@ describe("economia: Bom dia", () => {
 		expect((first?.tools ?? []).map((t) => t.name)).not.toContain("research");
 		expect((second?.tools ?? []).map((t) => t.name)).toContain("research");
 		expect(JSON.stringify(second?.messages)).toContain("One source per claim");
+	});
+
+	it("a capacidade agenda é lazy: 'Bom dia' não ganha remind_me, watch nem on_event, só uma linha do índice", async () => {
+		const base = await measureGoodMorning();
+		const withAgenda = await measureGoodMorning([createAgendaCapability(new FakeAgenda())]);
+		expect(withAgenda.toolNames).toEqual(base.toolNames);
+		for (const name of ["remind_me", "watch", "on_event", "agenda_list", "agenda_change", "agenda_result"]) expect(withAgenda.toolNames).not.toContain(name);
+		expect(withAgenda.tokens - base.tokens).toBeLessThan(60);
+		expect(JSON.stringify(withAgenda.result)).not.toContain("Agenda rules");
+		expect(withAgenda.tokens).toBeLessThanOrEqual(GOOD_MORNING_INPUT_TOKENS_CEILING + 60);
+	});
+
+	it("o pedido de lembrete carrega a capacidade no passo 1 e as instruções só então", async () => {
+		const core = defineCapability({ id: "core", title: "Core", summary: "core tools", core: true, tools: [] });
+		const h = kernelHarness([reply({ calls: [call("c1", "use_capability", { id: "agenda" })] }), reply({ text: "Pronto." })], { capabilities: [core, createAgendaCapability(new FakeAgenda())] });
+		await h.run({ input: { contextSections: [], history: [{ kind: "owner", text: "Me lembra amanhã às 10h de ligar para o contador" }] } });
+		const [first, second] = h.llm.requests;
+		expect(JSON.stringify(first?.messages)).not.toContain("Agenda rules");
+		expect((first?.tools ?? []).map((t) => t.name)).not.toContain("remind_me");
+		expect((second?.tools ?? []).map((t) => t.name)).toEqual(expect.arrayContaining(["remind_me", "watch", "on_event", "agenda_list", "agenda_change"]));
+		expect(JSON.stringify(second?.messages)).toContain("Agenda rules");
 	});
 
 	it("o teto é o medido + 15% (o teto só desce: se o núcleo encolher, baixe o medido e o teto no mesmo commit)", () => {
