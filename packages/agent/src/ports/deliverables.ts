@@ -6,20 +6,27 @@ import type { StoredFile } from "./file-store.js";
 
 export type DeliverableFile = StoredFile & { /** Versão do mesmo nome na conversa (1 = primeira). */ version?: number };
 
+/** Qual parte do arquivo ler. Texto: `offset` (caractere). Planilha: `sheet` + `startRow` (1 = primeira linha). */
+export type InspectPage = { offset?: number; sheet?: string; startRow?: number };
+
 export type FileInspection = {
 	name: string;
 	bytes: number;
-	/** Texto extraído (ou Markdown do documento). Ausente para planilha, que vem em `sheets`. */
+	/** Trecho do texto extraído (ou Markdown do documento). Ausente para planilha, que vem em `sheets`. */
 	text?: string;
-	sheets?: ReadonlyArray<{ name: string; rows: string[][]; truncated: boolean }>;
+	/** Posição do trecho no texto inteiro (caracteres): `end < total` = ainda há o que ler a partir de `end`. */
+	textRange?: { start: number; end: number; total: number };
+	/** Linhas lidas por aba; `startRow`/`totalRows` dizem onde está o trecho (`startRow + rows.length - 1 < totalRows` = há mais). */
+	sheets?: ReadonlyArray<{ name: string; rows: string[][]; truncated: boolean; startRow?: number; totalRows?: number }>;
+	/** Há conteúdo além do que veio (sem faixa informada, a tool só avisa). */
 	truncated: boolean;
 };
 
 /** Cria (renderiza + guarda) e inspeciona arquivos do dono. */
 export interface DeliverableFiles {
 	create(userId: string, runId: string, input: CreateFileInput): Promise<DeliverableFile>;
-	/** `null` quando o arquivo não existe OU é de outro dono (o adaptador não distingue). */
-	inspect(userId: string, fileId: string): Promise<FileInspection | null>;
+	/** `null` quando o arquivo não existe OU é de outro dono (o adaptador não distingue). Parte inválida (offset além do fim, aba inexistente) lança erro com o motivo. */
+	inspect(userId: string, fileId: string, page?: InspectPage): Promise<FileInspection | null>;
 }
 
 export type StoredPage = { id: string; title: string; url?: string };

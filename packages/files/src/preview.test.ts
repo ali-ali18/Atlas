@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseCreateFileArgs } from "@workspace/shared";
-import { buildFilePreview, parseDelimited } from "./preview.js";
+import { INSPECT_LIMITS, buildFilePreview, parseDelimited } from "./preview.js";
 import { renderFile } from "./render.js";
 
 async function make(args: Record<string, unknown>) {
@@ -65,5 +65,20 @@ describe("buildFilePreview", () => {
 describe("parseDelimited", () => {
 	it("aspas escapadas e quebra de linha CRLF", () => {
 		expect(parseDelimited('a,"b ""c"""\r\n1,2', ",")).toEqual([["a", 'b "c"'], ["1", "2"]]);
+	});
+});
+
+describe("buildFilePreview com tetos de leitura em partes (auditoria F2, C2)", () => {
+	it("texto e csv passam do teto da tela quando o chamador passa INSPECT_LIMITS", async () => {
+		const text = "x".repeat(250_000);
+		const ui = await buildFilePreview({ id: "t", filename: "a.txt", bytes: new TextEncoder().encode(text) });
+		const full = await buildFilePreview({ id: "t", filename: "a.txt", bytes: new TextEncoder().encode(text) }, INSPECT_LIMITS);
+		expect(ui.kind === "text" && ui.truncated).toBe(true);
+		expect(full.kind === "text" && full.text.length).toBe(250_000);
+		expect(full.kind === "text" && full.truncated).toBe(false);
+		const csv = Array.from({ length: 700 }, (_, i) => String(i)).join("\n");
+		const sheets = await buildFilePreview({ id: "c", filename: "a.csv", bytes: new TextEncoder().encode(csv) }, INSPECT_LIMITS);
+		expect(sheets.kind === "sheets" && sheets.sheets[0]?.rows.length).toBe(700);
+		expect(sheets.kind === "sheets" && sheets.sheets[0]?.truncated).toBe(false);
 	});
 });

@@ -5,10 +5,10 @@
 // Escopo: tudo recebe o `userId` do run. `inspect` lê só artefato do dono (`loadArtifactForUser` filtra por dono); arquivo
 // de outro dono e id inexistente dão o mesmo `null` (a tool devolve o mesmo erro).
 import { createHash } from "node:crypto";
-import type { ChartStore, DeliverableFile, DeliverablePorts, DeliverableFiles, FileInspection, FileStore, PageStore } from "@workspace/agent";
+import type { ChartStore, DeliverableFile, DeliverablePorts, DeliverableFiles, FileInspection, FileStore, InspectPage, PageStore } from "@workspace/agent";
 import { renderFile, type RenderedFile } from "@workspace/files/render";
 import { printPdfWithChromium } from "@workspace/files/pdf-chromium";
-import { buildFilePreview } from "@workspace/files/preview";
+import { INSPECT_LIMITS, buildFilePreview } from "@workspace/files/preview";
 import { countRunFileArtifacts, createPage, loadArtifactForUser, nextFileVersion, persistConversationCardFromEvent, persistUserArtifact } from "@workspace/db";
 import { FILES_PER_RUN_MAX, decodeEntities, deckImageIds, type ChartSpec, type ComputerUseEvent, type CreateFileInput, type FileArtifactMeta, type PageSpec } from "@workspace/shared";
 
@@ -62,6 +62,32 @@ export function htmlToPlainText(html: string): string {
 		.trim();
 }
 
+/** Limite técnico POR PÁGINA de `inspect_file` (o arquivo inteiro se lê em várias páginas; nada é descartado). */
+export const INSPECT_PAGE_CHARS = 20_000;
+export const INSPECT_PAGE_ROWS = 200;
+
+function pageOfText(base: { name: string; bytes: number }, full: string, page: InspectPage): FileInspection {
+	if (page.sheet !== undefined || page.startRow !== undefined) throw new Error("sheet and start_row apply to spreadsheets only; this file is text. Use offset to read further.");
+	const start = page.offset ?? 0;
+	if (start > 0 && start >= full.length) throw new Error(`offset ${start} is past the end of the text (${full.length} characters). Use an offset below ${full.length}.`);
+	const end = Math.min(start + INSPECT_PAGE_CHARS, full.length);
+	return { ...base, text: full.slice(start, end), textRange: { start, end, total: full.length }, truncated: end < full.length };
+}
+
+function pageOfSheets(base: { name: string; bytes: number }, sheets: ReadonlyArray<{ name: string; rows: string[][] }>, page: InspectPage): FileInspection {
+	if (page.offset !== undefined) throw new Error("offset applies to text files only; this file is a spreadsheet. Use sheet and start_row.");
+	if (page.startRow !== undefined && page.sheet === undefined) throw new Error(`start_row needs sheet. Sheets: ${sheets.map((s) => s.name).join(", ")}.`);
+	const chosen = page.sheet === undefined ? sheets : sheets.filter((sheet) => sheet.name === page.sheet);
+	if (chosen.length === 0) throw new Error(`Sheet "${page.sheet}" not found. Sheets: ${sheets.map((s) => s.name).join(", ")}.`);
+	const startRow = page.startRow ?? 1;
+	const parts = chosen.map((sheet) => {
+		if (startRow > 1 && startRow > sheet.rows.length) throw new Error(`start_row ${startRow} is past the end of "${sheet.name}" (${sheet.rows.length} rows).`);
+		const rows = sheet.rows.slice(startRow - 1, startRow - 1 + INSPECT_PAGE_ROWS);
+		return { name: sheet.name, rows, startRow, totalRows: sheet.rows.length, truncated: startRow - 1 + rows.length < sheet.rows.length };
+	});
+	return { ...base, sheets: parts, truncated: parts.some((part) => part.truncated) };
+}
+
 const NO_TEXT_NOTE = "No text can be read from this file type here (PDF, image or presentation). Tell the owner plainly and offer another way, e.g. to share the text.";
 
 function createFiles(scope: V4DeliverablesScope, deps: V4DeliverablesDeps): DeliverableFiles {
@@ -88,22 +114,23 @@ function createFiles(scope: V4DeliverablesScope, deps: V4DeliverablesDeps): Deli
 			const file: DeliverableFile = { id: artifact.id, name: input.filename, bytes: rendered.bytes.byteLength, version };
 			return file;
 		},
-		async inspect(userId, fileId): Promise<FileInspection | null> {
+		async inspect(userId, fileId, page: InspectPage = {}): Promise<FileInspection | null> {
 			const artifact = await deps.loadArtifact(fileId, userId);
 			// Só arquivo (gerado ou enviado pelo dono); screenshot e resultado de tool não são "arquivo do dono".
 			if (!artifact || artifact.kind !== "file") return null;
 			const name = typeof artifact.meta.filename === "string" && artifact.meta.filename ? artifact.meta.filename : `file-${artifact.id}`;
-			const bytes = artifact.bytes.byteLength;
-			const preview = await deps.preview({ id: artifact.id, filename: name, bytes: artifact.bytes });
+			const base = { name, bytes: artifact.bytes.byteLength };
+			// Teto técnico alto: a leitura é paginada aqui, não cortada pela prévia da tela.
+			const preview = await deps.preview({ id: artifact.id, filename: name, bytes: artifact.bytes }, INSPECT_LIMITS);
 			switch (preview.kind) {
 				case "text":
-					return { name, bytes, text: preview.text, truncated: preview.truncated };
+					return pageOfText(base, preview.text, page);
 				case "html":
-					return { name, bytes, text: htmlToPlainText(preview.html), truncated: false };
+					return pageOfText(base, htmlToPlainText(preview.html), page);
 				case "sheets":
-					return { name, bytes, sheets: preview.sheets.map((sheet) => ({ name: sheet.name, rows: sheet.rows, truncated: sheet.truncated })), truncated: preview.sheets.some((sheet) => sheet.truncated) };
+					return pageOfSheets(base, preview.sheets, page);
 				default:
-					return { name, bytes, text: NO_TEXT_NOTE, truncated: false };
+					return { ...base, text: NO_TEXT_NOTE, truncated: false };
 			}
 		},
 	};

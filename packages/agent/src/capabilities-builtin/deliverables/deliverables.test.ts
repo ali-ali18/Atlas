@@ -219,6 +219,38 @@ describe("inspect_file", () => {
 		expect(JSON.stringify(other)).not.toContain("do outro dono");
 	});
 
+	it("texto em partes: diz o total e como pedir a próxima; repassa offset ao porto (auditoria F2, C2)", async () => {
+		const { fake, tool, ctx } = setup();
+		fake.inspectable.set("owner-1:f5", { name: "longo.txt", bytes: 90, text: "aaaa", textRange: { start: 0, end: 4, total: 10 }, truncated: true });
+		const first = await tool("inspect_file").run({ file_id: "f5" }, ctx);
+		expect(first.ok && first.summary).toContain("characters 0-4 of 10");
+		expect(first.ok && first.summary).toContain("offset=4");
+		fake.inspectable.set("owner-1:f5", { name: "longo.txt", bytes: 90, text: "bbbbbb", textRange: { start: 4, end: 10, total: 10 }, truncated: false });
+		const last = await tool("inspect_file").run({ file_id: "f5", offset: 4 }, ctx);
+		expect(last.ok && last.summary).not.toContain("More text");
+		expect(fake.inspected.map((c) => c.page)).toEqual([{}, { offset: 4 }]);
+	});
+
+	it("planilha em partes: faixa de linhas por aba e dica com sheet e start_row", async () => {
+		const { fake, tool, ctx } = setup();
+		fake.inspectable.set("owner-1:f6", { name: "g.xlsx", bytes: 9, sheets: [{ name: "Dados", rows: [["1"], ["2"]], truncated: true, startRow: 1, totalRows: 5 }], truncated: true });
+		const out = await tool("inspect_file").run({ file_id: "f6", sheet: "Dados", start_row: 1 }, ctx);
+		expect(out.ok && out.summary).toContain("## Dados (rows 1-2 of 5)");
+		expect(out.ok && out.summary).toContain('sheet="Dados" and start_row=3');
+		expect(fake.inspected[0]?.page).toEqual({ sheet: "Dados", startRow: 1 });
+	});
+
+	it("args de paginação inválidos falham com os campos aceitos", async () => {
+		const { fake, tool, ctx } = setup();
+		fake.inspectable.set("owner-1:f7", { name: "a.txt", bytes: 1, text: "x", truncated: false });
+		for (const bad of [{ offset: -1 }, { offset: 1.5 }, { start_row: 0 }, { sheet: "" }, { page: 2 }]) {
+			const out = await tool("inspect_file").run({ file_id: "f7", ...bad }, ctx);
+			expect(out.ok, JSON.stringify(bad)).toBe(false);
+		}
+		const unknown = await tool("inspect_file").run({ file_id: "f7", page: 2 }, ctx);
+		expect(!unknown.ok && unknown.hint).toContain("offset");
+	});
+
 	it("marca truncado e rejeita args inválidos", async () => {
 		const { fake, tool, ctx } = setup();
 		fake.inspectable.set("owner-1:f4", { name: "g.txt", bytes: 99, text: "x", truncated: true });

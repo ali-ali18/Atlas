@@ -1,6 +1,6 @@
 // Search e FileStore falsos para teste (sem rede, sem disco). Exportados pelo pacote para o worker e os evals.
 import type { ChartSpec, CreateFileInput, PageSpec } from "@workspace/shared";
-import type { ChartStore, DeliverablePorts, DeliverableFiles, FileInspection, PageStore } from "../ports/deliverables.js";
+import type { ChartStore, DeliverablePorts, DeliverableFiles, FileInspection, InspectPage, PageStore } from "../ports/deliverables.js";
 import type { FileStore, StoredFile } from "../ports/file-store.js";
 import type { Memory, MemoryAddInput, MemoryItem, MemoryLayer } from "../ports/memory.js";
 import type { Search, SearchExtract, SearchHit } from "../ports/search.js";
@@ -36,6 +36,8 @@ export class FakeDeliverables {
 	readonly charts: Array<{ userId: string; runId: string; spec: ChartSpec; id: string }> = [];
 	/** Arquivos inspecionáveis: chave `userId:fileId`. */
 	readonly inspectable = new Map<string, FileInspection>();
+	/** Chamadas de `inspect` (a parte pedida), para conferir o que a tool repassa. */
+	readonly inspected: Array<{ userId: string; fileId: string; page?: InspectPage }> = [];
 
 	readonly files: DeliverableFiles = {
 		create: async (userId, runId, input) => {
@@ -43,7 +45,10 @@ export class FakeDeliverables {
 			this.created.push({ userId, runId, input, id });
 			return { id, name: input.filename, bytes: 1024, url: `https://files.test/${id}`, version: 1 };
 		},
-		inspect: async (userId, fileId) => this.inspectable.get(`${userId}:${fileId}`) ?? null,
+		inspect: async (userId, fileId, page) => {
+			this.inspected.push({ userId, fileId, ...(page && { page }) });
+			return this.inspectable.get(`${userId}:${fileId}`) ?? null;
+		},
 	};
 	readonly pageStore: PageStore = {
 		save: async (userId, runId, spec) => {
