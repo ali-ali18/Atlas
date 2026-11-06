@@ -61,6 +61,16 @@ export async function claimSleepSlot(input: { userId: string; botId: string; kin
 	return row;
 }
 
+/**
+ * Batimento do sono em andamento: renova o instante da reserva (`createdAt` já é "quando este worker assumiu"), para que
+ * um sono lento (modelo demorando) não seja tomado como abandonado depois de `SLEEP_STALE_MS`. `false` se a reserva já
+ * não é deste relatório em andamento (terminou ou outro worker a reassumiu).
+ */
+export async function renewSleepClaim(input: { userId: string; id: string; now: Date }): Promise<boolean> {
+	const renewed = await prisma.sleepReport.updateMany({ where: { id: input.id, userId: input.userId, status: "running" }, data: { createdAt: input.now } });
+	return renewed.count === 1;
+}
+
 export async function finishSleepReport(input: { userId: string; id: string; status: Exclude<SleepReportStatus, "running">; detail?: string; summary?: string; proposals?: readonly SleepStoredProposal[]; stats?: Record<string, number>; windowEnd?: Date; now?: Date }): Promise<void> {
 	await prisma.sleepReport.updateMany({
 		where: { id: input.id, userId: input.userId },

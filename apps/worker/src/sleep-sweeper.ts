@@ -7,7 +7,7 @@
  * Uma falha de um bot vira relatório `failed` (sem avançar a janela, o dia entra na próxima leitura) e nunca derruba o laço.
  * Mesmo desenho do varredor da reflexão (`reflection.ts`): o banco é a fonte da verdade, sem sobreposição, nunca lança.
  */
-import { addMemoryEntry, claimSleepSlot, createNote, finishSleepReport, getAccountConfig, getMemorySnapshot, getPreviousSleepEnd, listBotsForSleep, listMemoryForDoctor, listNotes, loadSleepDay, type SleepBotRef } from "@workspace/db";
+import { addMemoryEntry, claimSleepSlot, createNote, finishSleepReport, renewSleepClaim, getAccountConfig, getMemorySnapshot, getPreviousSleepEnd, listBotsForSleep, listMemoryForDoctor, listNotes, loadSleepDay, type SleepBotRef } from "@workspace/db";
 import { isEngineV4Enabled, isDoctorDay, isSleepDue, readSleepEnabled, reflectionTimeZone, sanitizeErrorMessage, sleepWindow, type EngineV4Gate, type SleepReportKind, type SleepSlot } from "@workspace/shared";
 import type { WorkerConfig } from "./config.js";
 import { engineV4GateFromEnv } from "./engine-choice.js";
@@ -15,16 +15,22 @@ import { createSleepLlm } from "./sleep-llm.js";
 import { SleepRunError, runDailySleep, runDoctor, type DoctorPorts, type SleepOutcome, type SleepPorts } from "./sleep-run.js";
 
 export const SLEEP_SWEEP_INTERVAL_MS = 5 * 60_000;
+/** Bem abaixo do prazo de abandono (30 min): perder uma ou duas batidas não solta a reserva. */
+export const SLEEP_HEARTBEAT_MS = 5 * 60_000;
 
 export type SleepSweepDeps = {
 	gate: () => EngineV4Gate;
 	now: () => Date;
 	log: (line: string) => void;
+	/** Intervalo do batimento (padrão `SLEEP_HEARTBEAT_MS`); teste usa um curto. */
+	heartbeatMs?: number;
 	db: {
 		listBots(ownerIds: readonly string[]): Promise<SleepBotRef[]>;
 		timezoneOf(userId: string): Promise<string>;
 		claim(input: { userId: string; botId: string; kind: SleepReportKind; slot: string; now: Date }): Promise<{ id: string } | null>;
 		finish: typeof finishSleepReport;
+		/** Batimento enquanto o sono roda: a reserva não pode parecer abandonada (`SLEEP_STALE_MS`) com o worker vivo. */
+		renew(input: { userId: string; id: string; now: Date }): Promise<boolean>;
 		previousEnd(userId: string, botId: string): Promise<Date | null>;
 	};
 	/** Portas do bot (modelo e banco), montadas só quando o bot vai dormir de fato. */
@@ -55,6 +61,7 @@ export const realSleepDb: SleepSweepDeps["db"] = {
 	timezoneOf: async (userId) => reflectionTimeZone((await getAccountConfig(userId).catch(() => null))?.general?.timezone),
 	claim: claimSleepSlot,
 	finish: finishSleepReport,
+	renew: renewSleepClaim,
 	previousEnd: getPreviousSleepEnd,
 };
 
@@ -91,6 +98,8 @@ type Job = { bot: SleepBotRef; slot: SleepSlot; kind: SleepReportKind; claimId: 
 async function execute(job: Job, deps: SleepSweepDeps, now: Date): Promise<void> {
 	const { bot, slot, kind, claimId } = job;
 	const userId = bot.ownerId;
+	const beat = setInterval(() => void deps.db.renew({ userId, id: claimId, now: deps.now() }).catch(() => undefined), deps.heartbeatMs ?? SLEEP_HEARTBEAT_MS);
+	beat.unref?.();
 	try {
 		const ports = await deps.portsFor(bot, claimId);
 		let outcome: SleepOutcome;
@@ -109,6 +118,8 @@ async function execute(job: Job, deps: SleepSweepDeps, now: Date): Promise<void>
 		const detail = sanitizeErrorMessage(error);
 		deps.log(`[sleep] bot=${bot.id} ${kind} ${slot.key} falhou: ${detail}`);
 		await deps.db.finish({ userId, id: claimId, status: "failed", detail, ...(error instanceof SleepRunError && { stats: error.stats }), now }).catch(() => undefined);
+	} finally {
+		clearInterval(beat);
 	}
 }
 

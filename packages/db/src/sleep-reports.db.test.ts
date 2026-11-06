@@ -7,7 +7,7 @@ import { after, before, describe, test } from "node:test";
 import { prisma } from "./client.js";
 import { addMemoryEntry } from "./memory-entries.js";
 import { listSleepChanges } from "./notes.js";
-import { SLEEP_STALE_MS, claimSleepSlot, dismissSleepProposal, finishSleepReport, getPreviousSleepEnd, getSleepReport, listBotsForSleep, listMemoryForDoctor, listSleepReports, loadSleepDay, sumSleepCostUsd } from "./sleep-reports.js";
+import { SLEEP_STALE_MS, claimSleepSlot, dismissSleepProposal, finishSleepReport, getPreviousSleepEnd, getSleepReport, listBotsForSleep, listMemoryForDoctor, listSleepReports, loadSleepDay, renewSleepClaim, sumSleepCostUsd } from "./sleep-reports.js";
 import { createTestBot, createTestUser, dbSkip } from "./testing/test-db.js";
 
 describe("sono (Postgres real)", { skip: dbSkip }, () => {
@@ -42,6 +42,19 @@ describe("sono (Postgres real)", { skip: dbSkip }, () => {
 		assert.equal(reclaimed?.id, first.id);
 		await finishSleepReport({ userId: userA, id: first.id, status: "done" });
 		assert.equal(await claimSleepSlot({ userId: userA, botId: botA, kind: "daily", slot: "2026-11-04", now: new Date(later.getTime() + SLEEP_STALE_MS * 2) }), null);
+	});
+
+	test("sono lento que renova a reserva não é tomado como abandonado; sem renovar, é (auditoria F5, B4)", async () => {
+		const bot = (await createTestBot(userA, { name: "lento" })).id;
+		const claim = await claimSleepSlot({ userId: userA, botId: bot, kind: "daily", slot: "2026-11-20", now });
+		const minutes = (n: number) => new Date(now.getTime() + n * 60_000);
+		assert.equal(await renewSleepClaim({ userId: userA, id: claim!.id, now: minutes(25) }), true);
+		assert.equal(await renewSleepClaim({ userId: userB, id: claim!.id, now: minutes(26) }), false, "outro dono não renova");
+		assert.equal(await claimSleepSlot({ userId: userA, botId: bot, kind: "daily", slot: "2026-11-20", now: minutes(40) }), null, "40 min depois, mas renovado aos 25: ainda é do primeiro");
+		const taken = await claimSleepSlot({ userId: userA, botId: bot, kind: "daily", slot: "2026-11-20", now: minutes(25 + 31) });
+		assert.equal(taken?.id, claim!.id, "30 min sem renovar: abandonado, reassumido");
+		await finishSleepReport({ userId: userA, id: claim!.id, status: "done" });
+		assert.equal(await renewSleepClaim({ userId: userA, id: claim!.id, now: minutes(100) }), false, "terminado não renova");
 	});
 
 	test("o fim da janela do último sono concluído é o começo do próximo", async () => {

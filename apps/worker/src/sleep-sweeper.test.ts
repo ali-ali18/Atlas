@@ -18,6 +18,7 @@ function harness(input: { bots: SleepBotRef[]; zones?: Record<string, string>; g
 	const claims: string[] = [];
 	const listed: string[][] = [];
 	const windows: Array<{ bot: string; from: Date; to: Date }> = [];
+	const renewals: string[] = [];
 	const deps: SleepSweepDeps = {
 		gate: () => input.gate ?? { enabled: true, accounts: ["u1", "u2"] },
 		now: () => new Date(input.now),
@@ -32,6 +33,7 @@ function harness(input: { bots: SleepBotRef[]; zones?: Record<string, string>; g
 				return { id: `rep:${key}` };
 			},
 			finish: (async (f: { id: string; status: string; windowEnd?: Date; detail?: string; stats?: Record<string, number> }) => void finished.push({ id: f.id, status: f.status, ...(f.windowEnd && { windowEnd: f.windowEnd }), ...(f.detail && { detail: f.detail }), ...(f.stats && { stats: f.stats }) })) as unknown as SleepSweepDeps["db"]["finish"],
+			renew: async (r) => (renewals.push(r.id), true),
 			previousEnd: async () => null,
 		},
 		portsFor: async (b) => {
@@ -52,7 +54,7 @@ function harness(input: { bots: SleepBotRef[]; zones?: Record<string, string>; g
 			return ports;
 		},
 	};
-	return { deps, log, finished, claims, listed, windows };
+	return { deps, log, finished, claims, listed, windows, renewals };
 }
 
 // 02:31Z de 05/11 = 23:31 de 04/11 em São Paulo (depois das 23:30).
@@ -180,4 +182,20 @@ test("o passo usa o fuso em cache e o comportamento não muda (mesmo dono com 2 
 	await sleepTick(h.deps, new Set());
 	assert.equal(calls, 1);
 	assert.deepEqual(h.claims, ["b1:daily:2026-11-04", "b2:daily:2026-11-04", "b1:daily:2026-11-04", "b2:daily:2026-11-04"]);
+});
+
+test("enquanto o sono roda, a reserva é renovada (batimento); ao terminar, para (auditoria F5, B4)", async () => {
+	const h = harness({ bots: [bot("b1", "u1")], now: AFTER });
+	h.deps.heartbeatMs = 5;
+	const original = h.deps.portsFor;
+	h.deps.portsFor = async (b, id) => {
+		const ports = await original(b, id);
+		return { ...ports, loadDay: async (w) => (await new Promise((resolve) => setTimeout(resolve, 60)), ports.loadDay(w)) };
+	};
+	await sleepTick(h.deps, new Set());
+	const during = h.renewals.length;
+	assert.ok(during >= 3, `renovou ${during} vezes durante o sono`);
+	assert.ok(h.renewals.every((id) => id === "rep:b1:daily:2026-11-04"));
+	await new Promise((resolve) => setTimeout(resolve, 30));
+	assert.equal(h.renewals.length, during, "depois de terminar não renova mais");
 });
