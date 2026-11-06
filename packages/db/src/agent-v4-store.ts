@@ -69,7 +69,35 @@ export async function saveAgentV4CheckpointUnfenced(userId: string, checkpoint: 
 	if (updated === 0) throw new ResourceOwnershipError();
 }
 
-const checkpointPatch = (checkpoint: AgentV4Checkpoint): string => JSON.stringify({ v4: { step: checkpoint.step, state: checkpoint.state, payload: checkpoint.payload } });
+/**
+ * O jsonb do Postgres recusa `\u0000` e surrogate solto, que podem vir no texto do modelo ou nos args que ele mandou
+ * (a saída de tool já chega saneada). Troca só no JSON gravado, sem clonar o estado, e só o escape que não é uma barra
+ * escapada (`\\u0000` é texto literal). Para a tela nada muda: o texto ao vivo já saiu pelo stream.
+ */
+const JSON_UNICODE_ESCAPE = /(\\+)u([0-9a-fA-F]{4})/g;
+const isHigh = (hex: string) => /^d[89ab]/i.test(hex);
+const isLow = (hex: string) => /^d[c-f]/i.test(hex);
+export function jsonbSafe(json: string): string {
+	let prevHighEnd = -1;
+	return json.replace(JSON_UNICODE_ESCAPE, (match, slashes: string, hex: string, offset: number) => {
+		if (slashes.length % 2 === 0) return match; // `\\u0000`: barra escapada seguida de texto literal
+		const keep = slashes.slice(0, -1);
+		const end = offset + match.length;
+		if (hex === "0000") return `${keep}\\ufffd`;
+		if (isHigh(hex)) {
+			const next = /^\\u([0-9a-fA-F]{4})/.exec(json.slice(end));
+			if (next && isLow(next[1]!)) {
+				prevHighEnd = end;
+				return match;
+			}
+			return `${keep}\\ufffd`;
+		}
+		if (isLow(hex) && prevHighEnd !== offset) return `${keep}\\ufffd`;
+		return match;
+	});
+}
+
+const checkpointPatch = (checkpoint: AgentV4Checkpoint): string => jsonbSafe(JSON.stringify({ v4: { step: checkpoint.step, state: checkpoint.state, payload: checkpoint.payload } }));
 
 /**
  * O lease do run ainda é desta execução (dono, token e validade)? Senão lança `lease_lost`. O executor do motor chama
