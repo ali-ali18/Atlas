@@ -135,6 +135,15 @@ describe("kernel: aprovação e handoff", () => {
 		expect(msgs.find((m) => m.role === "assistant" && "toolCalls" in m && m.toolCalls)).toMatchObject({ toolCalls: [{ id: "call_0" }, { id: "call_0~2" }] });
 	});
 
+	it("NUL e substituto solto na saída da tool viram U+FFFD antes do checkpoint (B11)", async () => {
+		const dirty = defineTool({ name: "dirty", description: "Dirty.", inputSchema: z.object({}), effect: "read", execute: () => ({ ok: true, summary: "a\u0000b\ud800c ç😀" }) });
+		const h = kernelHarness([reply({ calls: [call("d1", "dirty", {})] }), reply({ text: "ok" })], { tools: [dirty] });
+		await h.run();
+		const content = h.log.of("tool_result")[0]?.content as string;
+		expect(content).toBe("a\uFFFDb\uFFFDc ç😀");
+		expect(JSON.stringify(h.runs.checkpoints.get("owner-1:run-1")?.payload)).not.toContain("\\u0000");
+	});
+
 	it("recusa do dono volta ao modelo como dado e nada executa", async () => {
 		const { tool, counter } = sendTool();
 		const h = kernelHarness([reply({ calls: [call("s1", "send_email", { to: "a@example.com", body: "oi" })] }), reply({ text: "ok, não envio" })], { tools: [tool] });

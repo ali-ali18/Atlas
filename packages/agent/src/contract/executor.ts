@@ -10,7 +10,8 @@ import { type ApprovalGrant, type Hash, checkGrant, payloadHashOf, requestApprov
 import { type PolicyContext, authorize } from "./authorize.js";
 import { RunProvenance } from "./provenance.js";
 import type { CallOutcome } from "./outcome.js";
-import { redactDeep, sanitizeText } from "./sanitize.js";
+import { redactDeep, sanitizeText as redact } from "./sanitize.js";
+import { storageSafe } from "./storage-text.js";
 
 export type ExecutorDeps = {
 	runId: string;
@@ -36,6 +37,9 @@ const INTERRUPTED_HINT =
 	"This write was started in an earlier attempt and never confirmed, so it may or may not have happened. Do not repeat it blindly: check the target first (or ask the owner), then decide.";
 const ALREADY_DONE_HINT = "This exact call already finished successfully earlier in this run. Do not repeat it; use the receipt.";
 const HANDOFF_MESSAGE = "This step is always the owner's. Explain what they need to do and wait; do not attempt it.";
+
+/** Redige segredos e troca os caracteres que o banco recusa (ver storage-text.ts). */
+const sanitizeText = (text: string, secrets: readonly string[] = []) => storageSafe(redact(text, secrets));
 
 export function createExecutor(deps: ExecutorDeps) {
 	/** Pedidos de aprovação já executados neste run: o grant vale uma vez. */

@@ -2,7 +2,7 @@
 // `read` roda em paralelo (lote de leituras seguidas); qualquer outro efeito roda em série e em ordem.
 // Cada resultado fica em `snap.results` (o efeito já está no journal); chamada que pede aprovação ou
 // handoff fica em `snap.parked` e o run estaciona. Na retomada só o que falta roda de novo.
-import type { CallOutcome, Executor } from "../contract/index.js";
+import { storageSafe, type CallOutcome, type Executor } from "../contract/index.js";
 import type { Tool } from "../tools/define-tool.js";
 import type { KernelEvent, KernelSnapshot, PendingCall, ResumeInput } from "./types.js";
 
@@ -57,7 +57,7 @@ export async function runPending(env: ToolStepEnv): Promise<{ malformed: number 
 	let malformed = 0;
 
 	async function finish(call: PendingCall, status: string, text: string) {
-		const content = await env.fit(call, text);
+		const content = await env.fit(call, storageSafe(text));
 		snap.results[call.id] = content;
 		await env.emit({ type: "tool_result", data: { callId: call.id, name: call.name, status, content } });
 	}

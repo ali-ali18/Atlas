@@ -6,3 +6,4 @@ export * from "./outcome.js";
 export * from "./sanitize.js";
 export * from "./provenance.js";
 export * from "./vault-tracking.js";
+export * from "./storage-text.js";

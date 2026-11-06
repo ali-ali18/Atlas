@@ -11,7 +11,8 @@ export const freshGuard = (): GuardState => ({ signature: "", count: 0, notes: 0
 export type GuardVerdict = { state: GuardState; action: "ok" | "note" | "final" };
 
 export function signatureOf(name: string, args: unknown, content: string): string {
-	return `${name}\u0000${JSON.stringify(args) ?? ""}\u0000${content}`;
+	// Separador U+001F: o checkpoint (jsonb) não aceita NUL, e a assinatura vai nele.
+	return `${name}\u001f${JSON.stringify(args) ?? ""}\u001f${content}`;
 }
 
 export function observeCall(state: GuardState, signature: string): GuardVerdict {
