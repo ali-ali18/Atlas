@@ -1,6 +1,7 @@
 // Tool `research` (F3.2): o modelo declara o plano de sub-perguntas e o formato de saída; cada sub-pergunta vira uma
 // tarefa de ajudante (run filho, porta `Helpers`) rodada em paralelo. Os achados vão INTEIROS para o caderno do run,
 // com a fonte por afirmação; ao modelo volta um resultado compacto (ou o ponteiro `note_read` quando é grande).
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import { WORK_NOTE_PREFIX } from "../../kernel/work-notes.js";
 import type { HelperResult, Helpers, HelperTask } from "../../ports/helpers.js";
@@ -71,7 +72,8 @@ async function freeNoteId(ctx: ToolContext): Promise<string> {
 	const base = `${WORK_NOTE_PREFIX}${ctx.runId}:research:`;
 	const exists = async (id: string) => (await ctx.ports.store.notes.get(ctx.ownerId, id)) !== null;
 	if (ctx.callId) {
-		const first = `${base}${ctx.callId}`;
+		// O id da chamada vem do provedor (tamanho e caracteres livres): na chave da nota vai um resumo fixo dele, estável na retomada.
+		const first = `${base}${createHash("sha256").update(ctx.callId).digest("hex").slice(0, 16)}`;
 		if (!(await exists(first))) return first;
 		for (let again = 2; ; again++) if (!(await exists(`${first}:${again}`))) return `${first}:${again}`;
 	}

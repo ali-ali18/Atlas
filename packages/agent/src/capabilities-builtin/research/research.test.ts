@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { WORK_NOTE_PREFIX } from "../../kernel/work-notes.js";
 import type { HelperResult } from "../../ports/helpers.js";
@@ -17,6 +18,9 @@ const plan = (...questions: string[]) => ({ questions: questions.map((question) 
 function ctxFor(h: ReturnType<typeof kernelHarness>) {
 	return { runId: "run-1", ownerId: "owner-1", ports: h.ports };
 }
+
+/** Chave da nota: resumo fixo do id da chamada (o id do provedor tem tamanho e caracteres livres; reauditoria F3, N1). */
+const callKey = (callId: string) => createHash("sha256").update(callId).digest("hex").slice(0, 16);
 
 describe("tool research", () => {
 	it("roda os ajudantes em paralelo, na ordem do plano, e devolve resposta + fontes por sub-pergunta", async () => {
@@ -56,11 +60,21 @@ describe("tool research", () => {
 		const h = kernelHarness([]);
 		const first = await createResearchTool(new FakeHelpers(() => done("achado UM"))).run(plan("P1"), { ...ctxFor(h), callId: "s1:call-a" });
 		const second = await createResearchTool(new FakeHelpers(() => done("achado DOIS"))).run(plan("P2"), { ...ctxFor(h), callId: "s2:call-b" });
-		const ids = (await h.notes.list("owner-1")).map((n) => n.id).sort();
-		expect(ids).toEqual([`${WORK_NOTE_PREFIX}run-1:research:s1:call-a`, `${WORK_NOTE_PREFIX}run-1:research:s2:call-b`]);
-		expect((await h.notes.get("owner-1", ids[0] as string))?.body).toContain("achado UM");
-		expect(first.ok && first.summary).toContain("research:s1:call-a");
-		expect(second.ok && second.summary).toContain("research:s2:call-b");
+		const idA = `${WORK_NOTE_PREFIX}run-1:research:${callKey("s1:call-a")}`;
+		const idB = `${WORK_NOTE_PREFIX}run-1:research:${callKey("s2:call-b")}`;
+		expect((await h.notes.list("owner-1")).map((n) => n.id).sort()).toEqual([idA, idB].sort());
+		expect((await h.notes.get("owner-1", idA))?.body).toContain("achado UM");
+		expect((await h.notes.get("owner-1", idB))?.body).toContain("achado DOIS");
+		expect(first.ok && first.summary).toContain(idA);
+		expect(second.ok && second.summary).toContain(idB);
+	});
+
+	it("id de chamada longo ou com caracteres estranhos vira chave curta e fixa (reauditoria F3, N1)", async () => {
+		const h = kernelHarness([]);
+		const out = await createResearchTool(new FakeHelpers(() => done("x"))).run(plan("P9"), { ...ctxFor(h), callId: `s1:${"<\n>".repeat(500)}` });
+		const [note] = await h.notes.list("owner-1");
+		expect(note?.id).toMatch(/^work:run-1:research:[0-9a-f]{16}$/);
+		expect(out.ok).toBe(true);
 	});
 
 	it("sem callId, ou a mesma chamada reexecutada: pega o próximo id livre, nunca sobrescreve", async () => {
@@ -72,7 +86,8 @@ describe("tool research", () => {
 		const notes = await h.notes.list("owner-1");
 		expect(notes).toHaveLength(4);
 		expect((await h.notes.get("owner-1", `${WORK_NOTE_PREFIX}run-1:research:1`))?.body).toContain("achado UM");
-		expect((await h.notes.get("owner-1", `${WORK_NOTE_PREFIX}run-1:research:s1:x`))?.body).toContain("achado A");
+		expect((await h.notes.get("owner-1", `${WORK_NOTE_PREFIX}run-1:research:${callKey("s1:x")}`))?.body).toContain("achado A");
+		expect((await h.notes.get("owner-1", `${WORK_NOTE_PREFIX}run-1:research:${callKey("s1:x")}:2`))?.body).toContain("achado B");
 	});
 
 	it("resposta parcial do ajudante aparece como \"not confirmed\" com o motivo, na resposta inline e no índice (auditoria F3, B2)", async () => {
