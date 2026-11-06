@@ -25,6 +25,8 @@ export function createV4Settings(input: { botId: string; deps?: V4SettingsDeps }
 		return { name: bot.name, snippet: bot.snippet, description: bot.description ?? "", language: isBotLanguageSetting(bot.language) ? bot.language : "pt-BR", notify: bot.notify, roleModels: {} };
 	};
 	return {
+		// Sem onde guardar: a capacidade não registra `set_role_model` e `settings_get` não lista papéis.
+		supportsRoleModels: false,
 		get: view,
 		async update(userId, patch: BotSettingsPatch) {
 			if (patch.roleModels && Object.keys(patch.roleModels).length > 0) throw new Error(ROLE_MODELS_UNAVAILABLE);

@@ -4,6 +4,7 @@
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { createSettingsCapability } from "@workspace/agent";
 import { createV4Settings, ROLE_MODELS_UNAVAILABLE, type V4SettingsDeps } from "./settings.js";
 
 function fakeDb() {
@@ -39,6 +40,12 @@ test("muda idioma, notificação e perfil pelo dono", async () => {
 	assert.equal(view.name, "Nova");
 	assert.equal(view.description, "Ajuda com contas");
 	assert.deepEqual(updates[0]?.patch, { language: "auto", notify: false, name: "Nova", description: "Ajuda com contas" });
+});
+
+test("declara que não guarda modelo por papel (a capacidade não anuncia set_role_model)", () => {
+	const { deps } = fakeDb();
+	assert.equal(createV4Settings({ botId: "bot-1", deps }).supportsRoleModels, false);
+	assert.deepEqual(createSettingsCapability(createV4Settings({ botId: "bot-1", deps })).tools.map((t) => t.name), ["settings_get", "settings_update", "update_bot_profile"]);
 });
 
 test("modelo por papel: falha honesta, sem gravar nada", async () => {

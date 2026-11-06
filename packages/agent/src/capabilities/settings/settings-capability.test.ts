@@ -37,6 +37,19 @@ describe("capacidade settings", () => {
 		expect(await settings.get("o1")).toMatchObject({ notify: false });
 	});
 
+	it("sem suporte a modelo por papel: set_role_model não é registrada e settings_get não finge escolha (auditoria F2, R1)", async () => {
+		const settings = new FakeSettings(undefined, { supportsRoleModels: false });
+		const cap = createSettingsCapability(settings);
+		expect(cap.tools.map((x) => x.name)).toEqual(["settings_get", "settings_update", "update_bot_profile"]);
+		for (const tool of cap.tools) expect(tool.description, tool.name).not.toContain("set_role_model");
+		const t = toolsOf(settings);
+		const out = await t.settings_get!.run({}, ctx());
+		expect(out.ok && out.summary).not.toContain("Models by role");
+		expect(out.ok && out.summary).not.toContain("default");
+		expect(out.ok && out.summary).toContain("Language: pt-BR");
+		expect(cap.summary).not.toContain("models");
+	});
+
 	it("settings_get mostra o estado, com o modelo por papel", async () => {
 		const settings = new FakeSettings();
 		await settings.update("o1", { roleModels: { code: "anthropic-direct/claude-opus-5-5" } });

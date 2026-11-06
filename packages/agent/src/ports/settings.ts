@@ -25,6 +25,11 @@ export type BotSettingsPatch = {
 };
 
 export interface Settings {
+	/**
+	 * O adaptador guarda modelo por papel? Sem suporte, a capacidade não registra `set_role_model` e `settings_get`
+	 * não lista papéis (um "default" fingiria escolha que o dono não pode fazer).
+	 */
+	readonly supportsRoleModels: boolean;
 	get(userId: string): Promise<BotSettingsView>;
 	update(userId: string, patch: BotSettingsPatch): Promise<BotSettingsView>;
 	/** Modelos que o dono pode escolher (ids de modelo). Sem isto, só a forma da referência é conferida. */
