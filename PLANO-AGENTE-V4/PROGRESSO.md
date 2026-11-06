@@ -112,7 +112,7 @@
 - [x] F4.2 (06/11: capacidade lazy `agenda` no preset full, `agenda-run` só nos runs de agenda, criação silenciosa, adaptador real no worker escopado por dono com teste IDOR; kernel ganhou `endsRun`) Tools `remind_me`, `watch`, `on_event` e `agenda_result`.
 - [x] F4.3 (06/11: varredura no padrão do modo proativo do v2, só com `ATLAS_ENGINE_V4`; run proativo ligado a item vai ao v4; ignorado = dono não abriu a conversa nem escreveu depois do aviso; run sem `agenda_result` não fala, exceto lembrete) Worker de wake: contrato silencioso, freios e parada após 2 avisos ignorados.
 - [ ] F4.4 Seção "Agenda" na Biblioteca (com prévias).
-- [ ] F4.A Auditoria: 5 lentes, verificação, correções com teste, reauditoria e `auditorias/F4.md` fechado.
+- [x] F4.A (06/11: auditoria + reauditoria, 15 achados e mais N1–N3 corrigidos com teste; `auditorias/F4.md` fechado) Auditoria: 5 lentes, verificação, correções com teste, reauditoria e `auditorias/F4.md` fechado.
 
 ### F5: Memória, Caderno e Sono
 - [ ] F5.1 Model `Note`, rotas `/v1/notes` (IDOR) e tools.
