@@ -109,9 +109,15 @@ export async function sleepTick(deps: SleepSweepDeps, done: Set<string>): Promis
 		for (const kind of kinds) {
 			const memo = `${bot.id}:${kind}:${slot.key}`;
 			if (done.has(memo)) continue;
-			done.add(memo);
-			const claim = await deps.db.claim({ userId: bot.ownerId, botId: bot.id, kind, slot: slot.key, now });
-			if (claim) await execute({ bot, slot, kind, claimId: claim.id }, deps, now);
+			try {
+				const claim = await deps.db.claim({ userId: bot.ownerId, botId: bot.id, kind, slot: slot.key, now });
+				// Só depois da reserva: se ela lançar (banco fora do ar), o próximo passo tenta de novo em vez de perder o dia.
+				done.add(memo);
+				if (claim) await execute({ bot, slot, kind, claimId: claim.id }, deps, now);
+			} catch (error) {
+				// Um bot com problema não impede os outros; o laço de fora também nunca lança.
+				deps.log(`[sleep] bot=${bot.id} ${kind} ${slot.key} reserva falhou: ${sanitizeErrorMessage(error)}`);
+			}
 		}
 	}
 	// A memória só precisa dos dias de hoje; descarta os antigos para não crescer sem fim.

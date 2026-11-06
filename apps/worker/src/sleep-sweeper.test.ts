@@ -137,3 +137,21 @@ test("relatório falho guarda o gasto do modelo até a falha (C1)", async () => 
 	assert.equal(failed?.status, "failed");
 	assert.deepEqual([failed?.stats?.llmCalls, failed?.stats?.costUsd], [1, 0.002]);
 });
+
+test("reserva que lança não perde o dia: o bot tenta de novo no passo seguinte e os outros bots seguem (auditoria F5, B1/R2)", async () => {
+	const h = harness({ bots: [bot("b1", "u1"), bot("b2", "u1")], now: AFTER });
+	const claim = h.deps.db.claim;
+	let broke = true;
+	h.deps.db.claim = async (c) => {
+		if (broke && c.botId === "b1") throw new Error("banco fora do ar");
+		return claim(c);
+	};
+	const done = new Set<string>();
+	await sleepTick(h.deps, done);
+	assert.deepEqual(h.claims, ["b2:daily:2026-11-04"]);
+	assert.ok(h.log.some((line) => line.includes("bot=b1") && line.includes("reserva falhou")));
+	broke = false;
+	await sleepTick(h.deps, done);
+	assert.deepEqual(h.claims, ["b2:daily:2026-11-04", "b1:daily:2026-11-04"]);
+	assert.deepEqual(h.finished.map((f) => [f.id, f.status]), [["rep:b2:daily:2026-11-04", "done"], ["rep:b1:daily:2026-11-04", "done"]]);
+});
