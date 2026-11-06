@@ -37,6 +37,7 @@ import {
 	type PolicyContext,
 	type Ports,
 	type RunEvent,
+	type RunInput,
 	type RunLimits,
 	type RunResult,
 	type Sandbox,
@@ -328,6 +329,12 @@ export type RunEngineV4Input = {
 	objective: string;
 	history?: readonly ChannelInput[];
 	contextSections?: readonly string[];
+	/** Retomada de um run estacionado: o que o dono decidiu (grants, recusas, expirados, handoff assumido). */
+	resume?: RunInput["resume"];
+	/** Cartões `ask_owner` que o dono respondeu ou dispensou antes deste run. */
+	cardResponses?: RunInput["cardResponses"];
+	/** Proveniência dos runs anteriores da conversa (S8): o taint não é lavado pelo histórico. */
+	priorProvenance?: RunInput["priorProvenance"];
 	language?: BotLanguage;
 	llm: Llm;
 	/** Lease desta execução; o checkpoint só grava enquanto ele vale. */
@@ -400,6 +407,9 @@ export async function runEngineV4(input: RunEngineV4Input): Promise<V4EngineResu
 			contextSections: input.contextSections ?? [],
 			history: input.history ?? [{ kind: "owner", text: input.objective }],
 			...(input.conversationId && { conversationId: input.conversationId }),
+			...(input.resume && { resume: input.resume }),
+			...(input.cardResponses && { cardResponses: input.cardResponses }),
+			...(input.priorProvenance && { priorProvenance: input.priorProvenance }),
 		},
 		ports,
 		registry: input.registry ?? createCapabilityRegistry([]),
