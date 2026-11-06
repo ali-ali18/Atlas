@@ -51,6 +51,8 @@ export const AGENDA_EVENT_MIN_GAP_MINUTES = 30;
  * Passado o teto os eventos ficam juntados: o próximo run, na janela seguinte, lê o que chegou.
  */
 export const AGENDA_EVENT_MAX_WAKES_PER_DAY = 8;
+/** Tolerância (min) da fase do horário ao comparar lembretes recorrentes do mesmo intervalo na dedupe. */
+const AGENDA_DUPLICATE_PHASE_MINUTES = 120;
 
 const MINUTE_MS = 60_000;
 const DAY_MS = 24 * 60 * MINUTE_MS;
@@ -270,7 +272,17 @@ export function findDuplicateAgendaItem<T extends { kind: string; note: string; 
 	const sameKind = items.filter((item) => item.kind === plan.kind);
 	const timeless = plan.kind === "intent";
 	const recurring = plan.intervalMinutes !== null;
-	const candidates = sameKind.map((item) => ({ item, note: item.note, dueAt: timeless || (recurring && item.intervalMinutes === plan.intervalMinutes) ? plan.dueAt : item.dueAt }));
+	// Recorrente com o mesmo intervalo: o horário não vale como data, mas a FASE vale ("todo dia às 9h" ≠ "todo dia às 21h").
+	const samePhase = (item: T): boolean => {
+		const interval = plan.intervalMinutes;
+		if (!recurring || interval === null || item.intervalMinutes !== interval) return true;
+		const diff = Math.abs(item.dueAt.getTime() - plan.dueAt.getTime()) / MINUTE_MS;
+		const rest = diff % interval;
+		return Math.min(rest, interval - rest) <= Math.min(AGENDA_DUPLICATE_PHASE_MINUTES, interval / 4);
+	};
+	const candidates = sameKind
+		.filter(samePhase)
+		.map((item) => ({ item, note: item.note, dueAt: timeless || (recurring && item.intervalMinutes === plan.intervalMinutes) ? plan.dueAt : item.dueAt }));
 	return findDuplicateFollowup(candidates, { note: plan.note, dueAt: plan.dueAt })?.item;
 }
 

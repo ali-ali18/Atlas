@@ -180,6 +180,18 @@ describe("findDuplicateAgendaItem", () => {
 		expect(findDuplicateAgendaItem(stored, plan("remind", "Tomar o remédio", new Date(ten.plan.dueAt.getTime() + 3 * H)))).toBeUndefined();
 	});
 
+	it("todo dia às 9h e todo dia às 21h com a mesma nota são DOIS itens; o mesmo horário dedupa (reauditoria F4, N2)", () => {
+		const daily = (when: string) => {
+			const planned = planAgendaItem({ request: { kind: "remind", note: "Tomar o remédio", everyMinutes: 1440, when }, now: NOW, settings: SP });
+			if (!planned.ok) throw new Error("plano inválido");
+			return planned.plan;
+		};
+		const nine = daily("2026-11-05T09:00");
+		const stored = [{ kind: "remind", note: nine.note, dueAt: new Date(nine.dueAt.getTime() + 3 * 24 * H), intervalMinutes: 1440 }];
+		expect(findDuplicateAgendaItem(stored, daily("2026-11-05T21:00"))).toBeUndefined();
+		expect(findDuplicateAgendaItem(stored, daily("2026-11-05T09:30"))).toBe(stored[0]);
+	});
+
 	it("recorrente com o mesmo intervalo e intenção por evento não comparam horário", () => {
 		const watching = [item("watch", "Preço do notebook", new Date(NOW.getTime() + 50 * H), 120)];
 		expect(findDuplicateAgendaItem(watching, plan("watch", "Preço do notebook", NOW, 120))).toBe(watching[0]);
