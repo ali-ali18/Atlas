@@ -4,5 +4,6 @@ export * from "./llm/index.js";
 export * from "./queue.js";
 export * from "./random.js";
 export * from "./store.js";
+export * from "./task-list.js";
 export * from "./vault.js";
 export * from "./web.js";
