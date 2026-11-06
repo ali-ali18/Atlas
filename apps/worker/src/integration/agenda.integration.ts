@@ -6,7 +6,7 @@
 import "./env.js";
 import assert from "node:assert/strict";
 import { afterEach, describe, test } from "node:test";
-import { beginAgendaRun, createAgendaItem, getAgendaItem, type AgendaGrant, type AgendaItemRecord } from "@workspace/db";
+import { changeAgendaItem, createAgendaItem, getAgendaItem, type AgendaGrant, type AgendaItemRecord } from "@workspace/db";
 import { DEFAULT_PROACTIVE_SETTINGS, planAgendaItem, readEngineV4Gate, type AgendaPlan } from "@workspace/shared";
 import { dispatchAgendaItem, type AgendaWakeDeps } from "../agenda-wake.js";
 import { integrationSkip } from "./env.js";
@@ -128,5 +128,7 @@ describe("agenda do v4 pelo processador real", { skip: integrationSkip }, () => 
 		// semente de taint: o checkpoint/estado do run guarda que ele já leu conteúdo não confiável
 		const snap = await snapshot(runId);
 		assert.match(JSON.stringify(snap.run), /untrustedReadInRun":\s*true/);
+		// o banco de teste é compartilhado: item vencido que sobra entra na varredura de outros testes
+		await changeAgendaItem(fx.userId, item.id, "cancel");
 	});
 });
