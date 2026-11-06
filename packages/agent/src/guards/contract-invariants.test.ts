@@ -1,3 +1,5 @@
+import { FakeFileStore, FakeSearch } from "../presets/fakes.js";
+import { setupPreset } from "../presets/presets.js";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -33,7 +35,8 @@ function allRegisteredTools(): Tool[] {
 	const kernelCapability = defineCapability({ id: "kernel", title: "Kernel", summary: "kernel tools", core: true, tools: [createNoteReadTool(DEFAULT_PAGE_CHARS), createAskOwnerTool()] });
 	const registry = createCapabilityRegistry([kernelCapability]);
 	const loaded = createLoadedSet(registry);
-	return [...kernelCapability.tools, loaded.useCapabilityTool];
+	const preset = setupPreset("full", { search: new FakeSearch(), files: new FakeFileStore() });
+	return [...kernelCapability.tools, loaded.useCapabilityTool, ...preset.registry.capabilities.flatMap((c) => c.tools)];
 }
 
 function listTs(dir: string): string[] {
@@ -73,7 +76,7 @@ describe("A. toda tool registrada declara efeito", () => {
 	const tools = allRegisteredTools();
 
 	it("o registro de teste cobre o kernel de verdade", () => {
-		expect(tools.map((t) => t.name).sort()).toEqual([ASK_OWNER_TOOL, NOTE_READ_TOOL, USE_CAPABILITY_TOOL].sort());
+		expect(tools.map((t) => t.name).sort()).toEqual([ASK_OWNER_TOOL, NOTE_READ_TOOL, USE_CAPABILITY_TOOL, "create_file", "web_extract", "web_search"].sort());
 	});
 
 	it("o vocabulário de efeitos do motor é o mesmo de shared", () => {

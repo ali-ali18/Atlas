@@ -19,10 +19,10 @@ export const WORK_CONTRACT_PROMPT = `## Work contract
 - Locale. Answer in the bot's language. Take dates, currency and time zone from the owner's locale; never assume a country.`;
 
 /**
- * Prompt estável completo: contrato de trabalho, canais e (se houver) o índice de capacidades.
+ * Prompt estável completo: contrato de trabalho (omitido com `workContract: false`, preset `minimal`), canais e (se houver) o índice de capacidades.
  * Ordem fixa. Mesmo registro, mesma saída.
  */
-export function buildStablePrompt(registry?: CapabilityRegistry): string {
+export function buildStablePrompt(registry?: CapabilityRegistry, options: { workContract?: boolean } = {}): string {
 	const index = registry ? capabilityIndex(registry) : "";
-	return [WORK_CONTRACT_PROMPT, CHANNELS_PROMPT, ...(index ? [`## Capabilities\nLoad one with use_capability when the task needs it.\n${index}`] : [])].join("\n\n");
+	return [...(options.workContract === false ? [] : [WORK_CONTRACT_PROMPT]), CHANNELS_PROMPT, ...(index ? [`## Capabilities\nLoad one with use_capability when the task needs it.\n${index}`] : [])].join("\n\n");
 }
