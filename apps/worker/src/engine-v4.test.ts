@@ -306,6 +306,7 @@ function fakeAdapters(searched: string[]): NonNullable<Parameters<typeof runEngi
 		memory: { snapshot: never, add: never, getById: never, replaceById: never, removeById: never } as never,
 		settings: { getBot: never, update: never } as never,
 		mcp: { listConnected: async () => [], loadRuntime: async () => null },
+		agenda: { loadSettings: never, create: never, list: never, change: never, record: never } as never,
 	};
 }
 

@@ -6,6 +6,7 @@
 import { Prisma } from "@prisma/client";
 import {
 	AGENDA_KINDS,
+	EFFECT_CLASSES,
 	AGENDA_MAX_ACTIVE_PER_OWNER,
 	findDuplicateAgendaItem,
 	matchEventFilter,
@@ -22,6 +23,7 @@ import {
 	type AgendaPlan,
 	type AgendaStatus,
 	type AgendaStopReason,
+	type EffectClass,
 	type ProactiveSettings,
 } from "@workspace/shared";
 import { prisma } from "./client.js";
@@ -44,7 +46,7 @@ export class AgendaError extends Error {
 export type AgendaLastResult = { runId: string; outcome: AgendaOutcome | "missing"; at: string; message?: string; memo?: string; pending?: string[] };
 
 /** Permissão decidida na criação: o run de agenda usa só isto (sem dono para perguntar a cada execução). */
-export type AgendaGrant = { autonomy: "always_ask" | "balanced" | "autonomous"; rules: Array<{ match: string; effect?: string; verdict: "run" | "approve" | "deny" }> };
+export type AgendaGrant = { autonomy: "always_ask" | "balanced" | "autonomous"; rules: Array<{ match: string; effect?: EffectClass; verdict: "run" | "approve" | "deny" }> };
 
 export type AgendaItemRecord = {
 	id: string;
@@ -109,7 +111,7 @@ function readGrant(raw: unknown): AgendaGrant | null {
 				if (!x || typeof x.match !== "string") return [];
 				const verdict = x.verdict;
 				if (verdict !== "run" && verdict !== "approve" && verdict !== "deny") return [];
-				return [{ match: x.match, verdict, ...(typeof x.effect === "string" && { effect: x.effect }) }];
+				return [{ match: x.match, verdict, ...((EFFECT_CLASSES as readonly unknown[]).includes(x.effect) && { effect: x.effect as EffectClass }) }];
 			})
 		: [];
 	return { autonomy, rules };
