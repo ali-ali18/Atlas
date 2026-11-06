@@ -150,8 +150,10 @@ export function createHelpers(deps: CreateHelpersDeps): Helpers {
 		const ports: Ports = { llm: deps.llm, store: createMemoryStore(), queue: noQueue, sandbox: noSandbox, vault: noVault, clock: deps.clock, random: deps.random, events };
 		const prior = inheritedProvenance(deps.motherProvenance?.());
 		const policy = childPolicy(deps.motherPolicy);
-		const { ownerMaxUsd, ownerMaxSteps, unattendedMaxSteps, safetyMaxSteps } = deps.motherLimits;
-		const limits: RunLimits = { unattended: true, ...(ownerMaxUsd !== undefined && { ownerMaxUsd }), ...(ownerMaxSteps !== undefined && { ownerMaxSteps }), ...(unattendedMaxSteps !== undefined && { unattendedMaxSteps }), ...(safetyMaxSteps !== undefined && { safetyMaxSteps }) };
+		const { ownerMaxUsd, ownerMaxSteps, unattended, unattendedMaxSteps, safetyMaxSteps } = deps.motherLimits;
+		// O filho herda o teto de passos da MÃE (o do dono; sem ele, a rede de segurança dela). Só entra no teto de run sem
+		// dono quando a própria mãe está nele: o filho não tem dono presente (política), mas isso não corta pesquisa de chat.
+		const limits: RunLimits = { ...(unattended && { unattended: true }), ...(ownerMaxUsd !== undefined && { ownerMaxUsd }), ...(ownerMaxSteps !== undefined && { ownerMaxSteps }), ...(unattendedMaxSteps !== undefined && { unattendedMaxSteps }), ...(safetyMaxSteps !== undefined && { safetyMaxSteps }) };
 
 		try {
 			const result = await runAgent({

@@ -275,6 +275,30 @@ describe("createHelpers: custo e teto da mãe", () => {
 	});
 });
 
+describe("createHelpers: teto de passos herdado da mãe (auditoria F3, C1)", () => {
+	const reads = (n: number): Turn[] => Array.from({ length: n }, (_, i) => reply({ calls: [call(`c${i}`, "web_search", { query: `q${i}` })] }));
+
+	it("mãe de chat sem teto do dono: 60 passos de leitura do filho não são cortados no teto de run sem dono (40)", async () => {
+		const { helpers } = setup({ "OBJ-A": [...reads(60), reply({ text: "read it all" })] }, { limits: {} });
+		const [r] = await helpers.runAll([task("OBJ-A")]);
+		expect(r).toMatchObject({ status: "done", text: "read it all" });
+	});
+
+	it("com `ownerMaxSteps` do dono, o filho respeita o mesmo teto", async () => {
+		const { helpers } = setup({ "OBJ-A": [...reads(10), reply({ text: "partial" })] }, { limits: { ownerMaxSteps: 5 } });
+		const [r] = await helpers.runAll([task("OBJ-A")]);
+		expect(r?.status).toBe("stopped");
+		expect(r?.error).toContain("the step limit the owner set");
+	});
+
+	it("mãe sem dono presente (rotina): o filho segue o teto dela", async () => {
+		const { helpers } = setup({ "OBJ-A": [...reads(45), reply({ text: "partial" })] }, { limits: { unattended: true } });
+		const [r] = await helpers.runAll([task("OBJ-A")]);
+		expect(r?.status).toBe("stopped");
+		expect(r?.error).toContain("without the owner present");
+	});
+});
+
 describe("createHelpers: abort", () => {
 	it("o signal da mãe chega ao modelo do filho e o filho para como cancelado", async () => {
 		const { helpers, llm } = setup({ "OBJ-A": [reply({ text: "x" })], "OBJ-B": [reply({ text: "y" })] }, { delays: { "OBJ-A": 60, "OBJ-B": 60 } });
