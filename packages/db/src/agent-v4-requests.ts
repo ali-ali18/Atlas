@@ -69,6 +69,13 @@ export type DecideOutcome =
 type RequestRow = { runId: string; kind: string; key: string; callId: string | null; toolName: string | null; state: string; expiresAt: Date | null };
 const toView = (row: RequestRow): AgentV4RequestView => ({ runId: row.runId, kind: row.kind as "approval" | "handoff", key: row.key, callId: row.callId, toolName: row.toolName, state: row.state as AgentV4RequestState, expiresAt: row.expiresAt });
 
+/** Lê um pedido (aprovação ou handoff) do dono sem mudar nada. Outro dono = `null`. */
+export async function findAgentV4Request(userId: string, runId: string, key: string): Promise<AgentV4RequestView | null> {
+	if (!owned(userId)) return null;
+	const row = await prisma.agentV4Request.findFirst({ where: { userId, runId, key, kind: { in: ["approval", "handoff"] } } });
+	return row ? toView(row) : null;
+}
+
 /** Grava a decisão do dono sobre um pedido (aprovação ou handoff) do run. Filtra por dono; outro dono = `not_found`. */
 export async function decideAgentV4Request(userId: string, runId: string, key: string, decision: AgentV4Decision, now: Date): Promise<DecideOutcome> {
 	if (!owned(userId)) return { status: "not_found" };
