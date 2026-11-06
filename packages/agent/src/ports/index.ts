@@ -4,11 +4,14 @@ export * from "./file-store.js";
 export * from "./events.js";
 export * from "./llm.js";
 export * from "./mcp.js";
+export * from "./memory.js";
 export * from "./queue.js";
 export * from "./random.js";
 export * from "./sandbox.js";
 export * from "./search.js";
+export * from "./settings.js";
 export * from "./store.js";
+export * from "./task-list.js";
 export * from "./vault.js";
 
 import type { Clock } from "./clock.js";
