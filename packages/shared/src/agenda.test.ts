@@ -287,7 +287,7 @@ describe("planAgendaWake", () => {
 });
 
 describe("settleAgendaRun", () => {
-	const watch = { intervalMinutes: 120, untilAt: null, maxRuns: null, runCount: 1, noChangeStreak: 0 };
+	const watch = { kind: "watch" as const, intervalMinutes: 120, untilAt: null, maxRuns: null, runCount: 1, noChangeStreak: 0 };
 	const settle = (over: Partial<typeof watch>, outcome: "no_change" | "update" | "done", hasMessage = false) =>
 		settleAgendaRun({ item: { ...watch, ...over }, outcome, hasMessage, now: NOW, settings: SP });
 
@@ -312,6 +312,16 @@ describe("settleAgendaRun", () => {
 		expect(settle({ intervalMinutes: null as never }, "update", true)).toMatchObject({ status: "done", endReason: "completed", post: true });
 	});
 
+	it("intent segue valendo depois de acordar (dueAt = fim da vigência) até done ou maxRuns", () => {
+		const until = new Date(NOW.getTime() + 20 * 86_400_000);
+		const intent = { kind: "intent" as const, intervalMinutes: null, untilAt: until, maxRuns: null, runCount: 1, noChangeStreak: 0 };
+		const again = settleAgendaRun({ item: intent, outcome: "update", hasMessage: true, now: NOW, settings: SP });
+		expect(again).toMatchObject({ status: "pending", post: true });
+		expect(again.dueAt?.toISOString()).toBe(until.toISOString());
+		expect(settleAgendaRun({ item: { ...intent, maxRuns: 1 }, outcome: "update", hasMessage: true, now: NOW, settings: SP })).toMatchObject({ status: "done", endReason: "max_runs" });
+		expect(settleAgendaRun({ item: intent, outcome: "done", hasMessage: false, now: NOW, settings: SP })).toMatchObject({ status: "done", endReason: "done" });
+	});
+
 	it("maxRuns e untilAt encerram o recorrente", () => {
 		expect(settle({ maxRuns: 1 }, "no_change")).toMatchObject({ status: "done", endReason: "max_runs" });
 		expect(settle({ untilAt: new Date(NOW.getTime() + 30 * 60_000) }, "no_change")).toMatchObject({ status: "done", endReason: "expired" });
@@ -319,9 +329,9 @@ describe("settleAgendaRun", () => {
 });
 
 describe("settleAgendaRunWithoutResult", () => {
-	const item = { intervalMinutes: 120, untilAt: null, maxRuns: null, runCount: 1, noChangeStreak: 0, missingResults: 0 };
+	const item = { kind: "watch" as const, intervalMinutes: 120, untilAt: null, maxRuns: null, runCount: 1, noChangeStreak: 0, missingResults: 0 };
 	const settle = (over: Partial<typeof item>, kind: "remind" | "watch" | "intent", hasText: boolean) =>
-		settleAgendaRunWithoutResult({ item: { ...item, ...over }, kind, hasText, now: NOW, settings: SP });
+		settleAgendaRunWithoutResult({ item: { ...item, ...over, kind }, hasText, now: NOW, settings: SP });
 
 	it("lembrete: o texto é o conteúdo, sai e o item fecha", () => {
 		expect(settle({ intervalMinutes: null as never }, "remind", true)).toMatchObject({ status: "done", post: true, missingResults: 0 });

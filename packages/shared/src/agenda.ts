@@ -332,7 +332,7 @@ export function planAgendaWake(input: { item: AgendaWakeItem; now: Date; setting
 // Fechar: o que o resultado do run faz com o item
 // ---------------------------------------------------------------------------
 
-export type AgendaSettleItem = { intervalMinutes: number | null; untilAt: Date | null; maxRuns: number | null; runCount: number; noChangeStreak: number };
+export type AgendaSettleItem = { kind: AgendaKind; intervalMinutes: number | null; untilAt: Date | null; maxRuns: number | null; runCount: number; noChangeStreak: number };
 
 export type AgendaSettlement = {
 	status: "pending" | "done";
@@ -354,6 +354,12 @@ export function settleAgendaRun(input: { item: AgendaSettleItem; outcome: Agenda
 	const noChangeStreak = outcome === "no_change" ? item.noChangeStreak + 1 : 0;
 	const end = (endReason: string): AgendaSettlement => ({ status: "done", dueAt: null, noChangeStreak, endReason, post });
 	if (outcome === "done") return end("done");
+	// Intenção por evento: segue valendo depois de cada acordar, até `maxRuns` ou o fim da vigência (não há relógio).
+	if (item.kind === "intent") {
+		if (item.maxRuns !== null && item.runCount >= item.maxRuns) return end("max_runs");
+		if (item.untilAt === null) return end("expired");
+		return { status: "pending", dueAt: item.untilAt, noChangeStreak, endReason: null, post };
+	}
 	if (item.intervalMinutes === null) return end("completed");
 	if (item.maxRuns !== null && item.runCount >= item.maxRuns) return end("max_runs");
 	const next = nextWatchDelay({ now: input.now, intervalMinutes: item.intervalMinutes, noChangeStreak, settings: input.settings, untilAt: item.untilAt });
@@ -369,12 +375,11 @@ export function settleAgendaRun(input: { item: AgendaSettleItem; outcome: Agenda
  */
 export function settleAgendaRunWithoutResult(input: {
 	item: AgendaSettleItem & { missingResults: number };
-	kind: AgendaKind;
 	hasText: boolean;
 	now: Date;
 	settings: ProactiveSettings;
 }): AgendaSettlement & { missingResults: number } {
-	if (input.kind === "remind") {
+	if (input.item.kind === "remind") {
 		return { ...settleAgendaRun({ item: input.item, outcome: input.hasText ? "update" : "no_change", hasMessage: input.hasText, now: input.now, settings: input.settings }), missingResults: 0 };
 	}
 	const missingResults = input.item.missingResults + 1;

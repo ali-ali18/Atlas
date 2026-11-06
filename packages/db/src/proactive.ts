@@ -119,7 +119,7 @@ export async function createFollowup(input: {
 	const note = input.note.trim().slice(0, FOLLOWUP_NOTE_MAX_CHARS);
 	if (!note) throw new FollowupError("note vazio");
 	const pending = await prisma.botFollowup.findMany({
-		where: { botId: bot.id, userId: input.userId, status: "pending" },
+		where: { botId: bot.id, userId: input.userId, status: "pending", agendaKind: null },
 		orderBy: { dueAt: "asc" },
 	});
 	const dates = input.stages && input.stages.length > 0 ? normalizeNewStages(input.stages) : [input.dueAt];
@@ -153,7 +153,8 @@ export async function listFollowups(
 ): Promise<FollowupRecord[]> {
 	if (!userId.trim() || userId === "default") return [];
 	const rows = await prisma.botFollowup.findMany({
-		where: { userId, botId, status: options.status ?? "pending" },
+		// Itens da agenda do v4 (`agendaKind` preenchido) têm lista própria (`listAgendaItems`).
+		where: { userId, botId, status: options.status ?? "pending", agendaKind: null },
 		orderBy: { dueAt: "asc" },
 		take: Math.min(100, options.limit ?? 50),
 	});
@@ -226,7 +227,7 @@ export async function claimDueFollowups(now: Date, limit = SWEEP_BATCH): Promise
 		UPDATE "bot_followups" SET "claimedUntil" = ${claimUntil}, "updatedAt" = ${now}
 		WHERE "id" IN (
 			SELECT "id" FROM "bot_followups"
-			WHERE "status" = 'pending' AND "dueAt" <= ${now}
+			WHERE "status" = 'pending' AND "agendaKind" IS NULL AND "dueAt" <= ${now}
 			  AND ("claimedUntil" IS NULL OR "claimedUntil" <= ${now})
 			ORDER BY "dueAt" ASC
 			LIMIT ${limit}
