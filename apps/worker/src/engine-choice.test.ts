@@ -456,10 +456,10 @@ test("motor v4: só com a flag ligada e a conta na lista; fora disso a decisão 
 	const notRecorded = await pickRunEngine({ run: { origin: "chat", budgetJson: null }, policyJson: null, isGroupRun: false, hasCheckpoint: false, userId: "u1", v4Gate: on, record: async () => null });
 	assert.equal(notRecorded.engine, "v1");
 
-	// Retomada: v4 gravado segue no v4 com a flag; com a flag desligada volta ao v1, sem gravar de novo.
+	// Retomada: v4 gravado segue no v4 com a flag; com a flag desligada recomeça no motor padrão do bot (v2), sem gravar de novo.
 	const resumed = setup({ budgetJson: { engine: "v4" } });
 	assert.equal((await pickRunEngine({ run: { origin: "chat", budgetJson: { engine: "v4" } }, policyJson: null, isGroupRun: false, hasCheckpoint: true, userId: "u1", v4Gate: on, record: async () => "v4" })).engine, "v4");
-	assert.equal((await pickRunEngine({ run: { origin: "chat", budgetJson: { engine: "v4" } }, policyJson: null, isGroupRun: false, hasCheckpoint: true, userId: "u1", record: async () => "v4" })).engine, "v1");
+	assert.equal((await pickRunEngine({ run: { origin: "chat", budgetJson: { engine: "v4" } }, policyJson: null, isGroupRun: false, hasCheckpoint: true, userId: "u1", record: async () => "v4" })).engine, "v2");
 	assert.deepEqual(resumed.recorded, []);
 
 	// runSelectedEngine nunca executa o v4 por engano (cairia no v1).

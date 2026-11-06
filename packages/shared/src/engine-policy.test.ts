@@ -339,7 +339,7 @@ describe("motor v4 atrás de flag por conta (F1.12)", () => {
 		}
 	});
 
-	it("motor gravado: v1 e v2 seguem como estão; v4 gravado só segue com a flag ligada para a conta (senão volta ao v1)", () => {
+	it("motor gravado: v1 e v2 seguem como estão; v4 gravado só segue com a flag ligada para a conta (senão recomeça no motor padrão do bot)", () => {
 		const base = { policy: readEnginePolicy({}), origin: "chat", isGroupRun: false };
 		expect(readRunEngine({ engine: "v4" })).toBe("v4");
 		expect(readRunEngine({ engine: "v3" })).toBeUndefined();
@@ -348,9 +348,10 @@ describe("motor v4 atrás de flag por conta (F1.12)", () => {
 			expect(chooseRunEngine({ ...base, stored: "v2", userId: "u1", v4Gate: gate })).toBe("v2");
 		}
 		expect(chooseRunEngine({ ...base, stored: "v4", userId: "u1", v4Gate: gateOn })).toBe("v4");
-		expect(chooseRunEngine({ ...base, stored: "v4", userId: "u1", v4Gate: ENGINE_V4_OFF })).toBe("v1");
-		expect(chooseRunEngine({ ...base, stored: "v4", userId: "u3", v4Gate: gateOn })).toBe("v1");
-		expect(chooseRunEngine({ ...base, stored: "v4" })).toBe("v1");
+		expect(chooseRunEngine({ ...base, stored: "v4", userId: "u1", v4Gate: ENGINE_V4_OFF })).toBe("v2");
+		expect(chooseRunEngine({ ...base, stored: "v4", userId: "u3", v4Gate: gateOn })).toBe("v2");
+		expect(chooseRunEngine({ ...base, stored: "v4" })).toBe("v2");
+		expect(chooseRunEngine({ ...base, policy: readEnginePolicy({ engine: "v1" }), stored: "v4" })).toBe("v1");
 		expect(withRunEngine(null, { engine: "v4", profile: "chat" })).toEqual({ engine: "v4", engineProfile: "chat" });
 	});
 });
