@@ -101,19 +101,27 @@ export async function runPending(env: ToolStepEnv): Promise<{ malformed: number 
 		await finish(call, outcome.status, outcomeText(outcome));
 	}
 
+	/** A chamada espera o dono (aprovação ou handoff): sem resultado e ainda estacionada. */
+	const waiting = (call: PendingCall) => snap.results[call.id] === undefined && snap.parked[call.id] !== undefined;
+
 	let reads: PendingCall[] = [];
-	const flushReads = async () => {
+	/** Devolve `true` se alguma leitura do lote ficou esperando o dono. */
+	const flushReads = async (): Promise<boolean> => {
 		const batch = reads;
 		reads = [];
 		await Promise.all(batch.map(runOne));
+		return batch.some(waiting);
 	};
+	// A ordem declarada vale também diante de uma espera: depois da primeira chamada que estaciona nada mais
+	// roda (efeito posterior nunca passa na frente da aprovação da anterior). As demais rodam na retomada, em ordem.
 	for (const call of snap.pending) {
 		if (snap.results[call.id] !== undefined) continue;
 		const tool = env.tools.get(call.name);
 		if (tool && tool.effectFor(call.args) === "read") reads.push(call);
 		else {
-			await flushReads();
+			if (await flushReads()) return { malformed };
 			await runOne(call);
+			if (waiting(call)) return { malformed };
 		}
 	}
 	await flushReads();

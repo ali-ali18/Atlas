@@ -109,6 +109,21 @@ describe("kernel: aprovação e handoff", () => {
 		expect(h.receipts.items).toHaveLength(1);
 	});
 
+	it("chamada estacionada segura as seguintes: efeito posterior não passa na frente da aprovação (B9)", async () => {
+		const order: string[] = [];
+		const send = defineTool({ name: "send_email", description: "Send.", inputSchema: z.object({ to: z.string() }), effect: "send", riskFacts: ({ to }) => ({ recipients: [to], externalRecipients: [to], irreversible: true }), execute: ({ to }) => (order.push(`send:${to}`), { ok: true, summary: "sent", receipt: { what: "enviado", externalId: "m" } }) });
+		const event = defineTool({ name: "create_event", description: "Event.", inputSchema: z.object({ title: z.string() }), effect: "write_external", execute: ({ title }) => (order.push(`event:${title}`), { ok: true, summary: "created", receipt: { what: "evento", externalId: "e" } }) });
+		const h = kernelHarness([reply({ calls: [call("s1", "send_email", { to: "a@example.com" }), call("e1", "create_event", { title: "x" }), call("e2", "create_event", { title: "y" })] }), reply({ text: "ok" })], { tools: [send, event] });
+		expect((await h.run({ policy: autonomous })).status).toBe("parked");
+		expect(order).toEqual([]);
+		expect(h.log.of("tool_call").map((c) => c.callId)).toEqual(["s1"]);
+		const card = h.log.of("card")[0] as { request: ApprovalRequest };
+		const done = await h.run({ policy: autonomous, input: { ...h.input, resume: { grants: [grantApproval(card.request, h.ports.clock.now())] } } });
+		expect(done.status).toBe("done");
+		expect(order).toEqual(["send:a@example.com", "event:x", "event:y"]);
+		expect(h.llm.requests[1]?.messages.filter((m) => m.role === "tool").map((m) => (m as { toolCallId: string }).toolCallId)).toEqual(["s1", "e1", "e2"]);
+	});
+
 	it("recusa do dono volta ao modelo como dado e nada executa", async () => {
 		const { tool, counter } = sendTool();
 		const h = kernelHarness([reply({ calls: [call("s1", "send_email", { to: "a@example.com", body: "oi" })] }), reply({ text: "ok, não envio" })], { tools: [tool] });
