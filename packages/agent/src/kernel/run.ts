@@ -165,7 +165,12 @@ export async function runAgent(deps: RunAgentDeps): Promise<RunResult> {
 				snap.pending = [];
 				snap.results = {};
 				snap.step++;
-				if (asked) return await finish(endStatus(), snap.lastText, { awaiting: await showQuestion(asked) });
+				if (asked) {
+					// A pergunta fica no texto final (recarregar a conversa a mostra). O texto do modelo segue intacto; a pergunta é acrescentada depois dele (ou é o próprio texto, se ele não disse nada ou disse exatamente ela).
+					const question = (asked.args as { question?: string }).question ?? "";
+					const text = !question || snap.lastText === question ? snap.lastText : snap.lastText ? `${snap.lastText}\n\n${question}` : question;
+					return await finish(endStatus(), text, { awaiting: await showQuestion(asked) });
+				}
 				snap.malformedStreak = snap.malformedNow > 0 ? snap.malformedStreak + 1 : 0;
 				if (snap.malformedStreak > 1) {
 					await emit({ type: "status", data: { reason: "malformed_tool_call", message: "The model sent malformed tool calls twice in a row after being shown the error; the run was stopped." } });

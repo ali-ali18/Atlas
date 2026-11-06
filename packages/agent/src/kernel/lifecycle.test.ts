@@ -39,10 +39,29 @@ describe("kernel: oferta é um cartão com estado", () => {
 	it("ask_owner mostra o cartão, registra a oferta aberta e encerra o turno sem nova chamada ao modelo", async () => {
 		const h = kernelHarness([ask("q1", OFFER)]);
 		const out = await h.run({ input: { ...h.input, conversationId: "conv-1" } });
-		expect(out).toMatchObject({ status: "done", text: "Não consegui abrir o vídeo.", awaiting: "run-1:q1" });
+		expect(out).toMatchObject({ status: "done", text: "Não consegui abrir o vídeo.\n\nQuer que eu continue o resumo?", awaiting: "run-1:q1" });
 		expect(h.llm.requests).toHaveLength(1);
 		expect(h.log.of("card")[0]).toMatchObject({ kind: "ask_owner", cardId: "run-1:q1", offer: OFFER });
 		expect((await h.conversations.get("owner-1", "conv-1")).offers).toEqual([{ cardId: "run-1:q1", label: OFFER, state: "open" }]);
+	});
+
+	it("a pergunta vira o texto final persistido, sem duplicar quando o modelo já a trouxe (B15)", async () => {
+		const bare = kernelHarness([reply({ calls: [call("q1", "ask_owner", { question: "Qual conta?" })] })]);
+		expect((await bare.run()).text).toBe("Qual conta?");
+		expect(bare.log.of("final")[0]?.text).toBe("Qual conta?");
+		const said = kernelHarness([reply({ text: "Qual conta?", calls: [call("q1", "ask_owner", { question: "Qual conta?" })] })]);
+		expect((await said.run()).text).toBe("Qual conta?");
+	});
+
+	it("duas perguntas no mesmo passo: só a primeira vira cartão; a segunda volta ao modelo com erro honesto (B15)", async () => {
+		const h = kernelHarness([reply({ calls: [call("q1", "ask_owner", { question: "Primeira?" }), call("q2", "ask_owner", { question: "Segunda?" })] })]);
+		const out = await h.run();
+		expect(out.awaiting).toBe("run-1:q1");
+		expect(h.log.of("card")).toHaveLength(1);
+		const results = Object.fromEntries(h.log.of("tool_result").map((r) => [r.callId, r]));
+		expect(results.q1?.status).toBe("ok");
+		expect(results.q2?.status).toBe("error");
+		expect(String(results.q2?.content)).toContain("only one such call");
 	});
 
 	it("ignorada: o dono manda outra mensagem sem tocar no cartão; o aviso aparece nos runs seguintes", async () => {

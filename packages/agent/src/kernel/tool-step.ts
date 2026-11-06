@@ -55,6 +55,7 @@ const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "obj
 export async function runPending(env: ToolStepEnv): Promise<{ malformed: number }> {
 	const { snap } = env;
 	let malformed = 0;
+	let turnEnder: string | undefined;
 
 	async function finish(call: PendingCall, status: string, text: string) {
 		const content = await env.fit(call, storageSafe(text));
@@ -69,6 +70,14 @@ export async function runPending(env: ToolStepEnv): Promise<{ malformed: number 
 			const available = [...env.tools.keys()].join(", ");
 			const why = !tool ? `Unknown tool "${call.name}". Available tools: ${available}.` : `Arguments for ${call.name} must be a JSON object.`;
 			return finish(call, "malformed", `Error: ${why}`);
+		}
+		// Uma pergunta por turno: a segunda `endsTurn` do passo volta ao modelo com erro honesto, sem executar. A reserva é
+		// síncrona (antes de qualquer await), então vale a ordem declarada mesmo com as leituras em paralelo.
+		if (tool.endsTurn) {
+			if (snap.endedBy !== undefined || (turnEnder !== undefined && turnEnder !== call.id)) {
+				return finish(call, "error", `Error: ${tool.name} ends the turn and only one such call is allowed per step. Hint: put everything you need to ask into a single ${tool.name} call.`);
+			}
+			turnEnder = call.id;
 		}
 		const parked = snap.parked[call.id];
 		let grant = undefined;
