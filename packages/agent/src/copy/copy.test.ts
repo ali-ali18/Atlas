@@ -31,6 +31,12 @@ describe("copy: textos ao dono por idioma do bot (F1.11)", () => {
 			for (const lang of BOT_LANGUAGES) expect(COPY[id][lang], `${id}/${lang}`).not.toMatch(/cadeia|papel|chain|role|cadena|\bUS\$/i);
 	});
 
+	it("lembrete entregue pela própria nota diz o lembrete nos três idiomas, sem internals (auditoria F4, C1/B2)", () => {
+		expect(copyFor("pt-BR", "agenda_reminder_note", { note: "Pagar o condomínio" })).toBe("Lembrete: Pagar o condomínio");
+		expect(copyFor("en-US", "agenda_reminder_note", { note: "Pay the rent" })).toBe("Reminder: Pay the rent");
+		expect(copyFor("es-ES", "agenda_reminder_note", { note: "Pagar el alquiler" })).toBe("Recordatorio: Pagar el alquiler");
+	});
+
 	it("o texto muda com o idioma", () => {
 		// "semanal" é a mesma palavra em pt-BR e es-ES.
 		for (const id of ids.filter((i) => i !== "ceiling_week")) expect(new Set(BOT_LANGUAGES.map((l) => COPY[id][l])).size).toBe(BOT_LANGUAGES.length);

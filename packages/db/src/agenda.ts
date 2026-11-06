@@ -10,7 +10,9 @@ import {
 	AGENDA_MAX_ACTIVE_PER_OWNER,
 	findDuplicateAgendaItem,
 	matchEventFilter,
+	nextAgendaEventWindow,
 	parseAgendaEventFilter,
+	planAgendaEventWake,
 	planAgendaWake,
 	readProactiveSettings,
 	settleAgendaRun,
@@ -43,7 +45,16 @@ export class AgendaError extends Error {
 }
 
 /** O que o run de agenda guardou do último resultado. */
-export type AgendaLastResult = { runId: string; outcome: AgendaOutcome | "missing"; at: string; message?: string; memo?: string; pending?: string[] };
+export type AgendaLastResult = {
+	runId: string;
+	outcome: AgendaOutcome | "missing";
+	at: string;
+	message?: string;
+	memo?: string;
+	/** O run que escreveu o memo tinha lido conteúdo não confiável: no próximo wake o memo entra como dado. */
+	memoUntrusted?: boolean;
+	pending?: string[];
+};
 
 /** Permissão decidida na criação: o run de agenda usa só isto (sem dono para perguntar a cada execução). */
 export type AgendaGrant = { autonomy: "always_ask" | "balanced" | "autonomous"; rules: Array<{ match: string; effect?: EffectClass; verdict: "run" | "approve" | "deny" }> };
@@ -72,6 +83,11 @@ export type AgendaItemRecord = {
 	grant: AgendaGrant | null;
 	runId: string | null;
 	endReason: string | null;
+	/** A nota foi escrita por um run que leu conteúdo não confiável (S1): no wake ela é dado, não instrução. */
+	noteUntrusted?: boolean;
+	/** Janela de 24h do `intent` (teto de acordares por dia). Ausente = janela fechada. */
+	eventWindowAt?: Date | null;
+	eventWindowCount?: number;
 	sourceRunId: string | null;
 	/** Reserva ativa (varredura criando o run, ou run de intenção em andamento). */
 	reservedUntil: Date | null;
@@ -79,6 +95,12 @@ export type AgendaItemRecord = {
 };
 
 type Row = Prisma.BotFollowupGetPayload<Record<string, never>>;
+
+/**
+ * Valor das colunas JSON da agenda, tipado: só aceita os formatos que a agenda grava (filtro, permissão, último resultado),
+ * então campo que não serializa (Date, undefined, função) vira erro de tipo em vez de `as unknown as` calando o compilador.
+ */
+const toJson = (value: AgendaEventFilter | AgendaGrant | AgendaLastResult): Prisma.InputJsonObject => value;
 
 const isKind = (value: unknown): value is AgendaKind => (AGENDA_KINDS as readonly unknown[]).includes(value);
 
@@ -97,6 +119,7 @@ function readLastResult(raw: unknown): AgendaLastResult | null {
 		at: r.at,
 		...(typeof r.message === "string" && { message: r.message }),
 		...(typeof r.memo === "string" && { memo: r.memo }),
+		...(r.memoUntrusted === true && { memoUntrusted: true }),
 		...(Array.isArray(r.pending) && { pending: r.pending.filter((p): p is string => typeof p === "string") }),
 	};
 }
@@ -143,6 +166,9 @@ function toRecord(row: Row): AgendaItemRecord | null {
 		grant: readGrant(row.grantJson),
 		runId: row.runId,
 		endReason: row.endReason,
+		noteUntrusted: row.noteUntrusted,
+		eventWindowAt: row.eventWindowAt,
+		eventWindowCount: row.eventWindowCount,
 		sourceRunId: row.sourceRunId,
 		reservedUntil: row.claimedUntil,
 		createdAt: row.createdAt,
@@ -166,37 +192,51 @@ export type CreateAgendaResult = { ok: true; item: AgendaItemRecord; duplicate: 
  * Cria um item já planejado (`planAgendaItem`). Devolve o existente quando é o mesmo pedido. O limite de itens ativos por
  * dono vale aqui (servidor), seja o que o modelo pedir.
  */
-export async function createAgendaItem(input: { userId: string; botId: string; plan: AgendaPlan; grant: AgendaGrant; sourceRunId?: string | null }): Promise<CreateAgendaResult> {
+export async function createAgendaItem(input: {
+	userId: string;
+	botId: string;
+	plan: AgendaPlan;
+	grant: AgendaGrant;
+	sourceRunId?: string | null;
+	/** O run criador já tinha lido conteúdo não confiável (`untrustedReadInRun`): a nota é guardada como contaminada. */
+	untrustedRead?: boolean;
+}): Promise<CreateAgendaResult> {
 	if (!validOwner(input.userId)) return { ok: false, error: "Bot não encontrado" };
 	const bot = await prisma.bot.findFirst({ where: { id: input.botId, ownerId: input.userId }, select: { id: true, conversationId: true } });
 	if (!bot) return { ok: false, error: "Bot não encontrado" };
-	const active = records(await prisma.botFollowup.findMany({ where: { userId: input.userId, agendaKind: { not: null }, status: { in: ["pending", "paused"] } } }));
-	const same = findDuplicateAgendaItem(active, input.plan);
-	if (same) return { ok: true, item: same, duplicate: true };
-	if (active.length >= AGENDA_MAX_ACTIVE_PER_OWNER) {
-		return { ok: false, error: `There are already ${AGENDA_MAX_ACTIVE_PER_OWNER} active agenda items. Cancel or finish one before adding another.` };
-	}
 	const { plan } = input;
-	const row = await prisma.botFollowup.create({
-		data: {
-			userId: input.userId,
-			botId: bot.id,
-			conversationId: bot.conversationId,
-			dueAt: plan.dueAt,
-			requestedFor: plan.requestedFor,
-			note: plan.note,
-			kind: plan.kind === "watch" || plan.kind === "intent" ? "check" : "reminder",
-			source: "chat",
-			sourceRunId: input.sourceRunId ?? null,
-			agendaKind: plan.kind,
-			intervalMinutes: plan.intervalMinutes,
-			untilAt: plan.untilAt,
-			maxRuns: plan.maxRuns,
-			eventFilterJson: plan.eventFilter ? (plan.eventFilter as Prisma.InputJsonValue) : Prisma.JsonNull,
-			grantJson: input.grant as unknown as Prisma.InputJsonValue,
-		},
+	// Contar, deduplicar e criar na MESMA transação sob trava por dono: sem ela, criações paralelas (vários runs ou abas)
+	// leem a mesma contagem e passam do teto de itens ou duplicam o mesmo pedido.
+	return prisma.$transaction(async (tx) => {
+		await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`agenda-create:${input.userId}`}))`;
+		const active = records(await tx.botFollowup.findMany({ where: { userId: input.userId, agendaKind: { not: null }, status: { in: ["pending", "paused"] } } }));
+		const same = findDuplicateAgendaItem(active, plan);
+		if (same) return { ok: true as const, item: same, duplicate: true };
+		if (active.length >= AGENDA_MAX_ACTIVE_PER_OWNER) {
+			return { ok: false as const, error: `There are already ${AGENDA_MAX_ACTIVE_PER_OWNER} active agenda items. Cancel or finish one before adding another.` };
+		}
+		const row = await tx.botFollowup.create({
+			data: {
+				userId: input.userId,
+				botId: bot.id,
+				conversationId: bot.conversationId,
+				dueAt: plan.dueAt,
+				requestedFor: plan.requestedFor,
+				note: plan.note,
+				kind: plan.kind === "watch" || plan.kind === "intent" ? "check" : "reminder",
+				source: "chat",
+				sourceRunId: input.sourceRunId ?? null,
+				noteUntrusted: input.untrustedRead === true,
+				agendaKind: plan.kind,
+				intervalMinutes: plan.intervalMinutes,
+				untilAt: plan.untilAt,
+				maxRuns: plan.maxRuns,
+				eventFilterJson: plan.eventFilter ? toJson(plan.eventFilter) : Prisma.JsonNull,
+				grantJson: toJson(input.grant),
+			},
+		});
+		return { ok: true as const, item: toRecord(row)!, duplicate: false };
 	});
-	return { ok: true, item: toRecord(row)!, duplicate: false };
 }
 
 export async function listAgendaItems(userId: string, options: { botId?: string; includeEnded?: boolean; limit?: number } = {}): Promise<AgendaItemRecord[]> {
@@ -350,6 +390,8 @@ export async function decideAgendaWake(item: AgendaItemRecord, now: Date, settin
  * resultado ele volta; `recordAgendaResult`/`finalizeAgendaRun` fixam o horário certo).
  */
 export async function beginAgendaRun(item: AgendaItemRecord, runId: string, now: Date): Promise<void> {
+	// Intenção por evento gasta um acordar da janela de 24h (teto diário por item).
+	const window = item.kind === "intent" ? nextAgendaEventWindow({ windowStartAt: item.eventWindowAt ?? null, windowCount: item.eventWindowCount ?? 0 }, now) : null;
 	await prisma.botFollowup.updateMany({
 		where: { id: item.id, userId: item.userId, agendaKind: { not: null }, status: "pending" },
 		data: {
@@ -357,6 +399,7 @@ export async function beginAgendaRun(item: AgendaItemRecord, runId: string, now:
 			runCount: { increment: 1 },
 			ignoredStreak: item.ignoredStreak,
 			lastNoticeAt: null,
+			...(window && { eventWindowAt: window.windowStartAt, eventWindowCount: window.windowCount }),
 			// Relógio: volta à fila neste prazo se o run morrer. Intenção por evento não tem relógio: só reserva o item.
 			...(item.kind === "intent" ? { claimedUntil: new Date(now.getTime() + AGENDA_RUN_RETRY_MS) } : { dueAt: new Date(now.getTime() + AGENDA_RUN_RETRY_MS), claimedUntil: null }),
 			lastError: null,
@@ -371,6 +414,8 @@ export type RecordAgendaResultInput = {
 	message?: string;
 	memo?: string;
 	pending?: string[];
+	/** O run do resultado tinha lido conteúdo não confiável: o memo é guardado como contaminado. */
+	untrustedRead?: boolean;
 	now?: Date;
 };
 
@@ -395,7 +440,7 @@ export async function recordAgendaResult(input: RecordAgendaResultInput): Promis
 		outcome: input.outcome,
 		at: now.toISOString(),
 		...(input.message?.trim() && input.outcome !== "no_change" && { message: input.message.trim() }),
-		...(input.memo?.trim() && { memo: input.memo.trim() }),
+		...(input.memo?.trim() && { memo: input.memo.trim(), ...(input.untrustedRead === true && { memoUntrusted: true }) }),
 		...(input.pending && input.pending.length > 0 && { pending: input.pending }),
 	};
 	// Compare-and-set pelo run: duas entregas do mesmo resultado não aplicam o espaçamento duas vezes.
@@ -406,7 +451,7 @@ export async function recordAgendaResult(input: RecordAgendaResultInput): Promis
 			noChangeStreak: settled.noChangeStreak,
 			attempts: 0,
 			lastError: null,
-			lastResultJson: lastResult as unknown as Prisma.InputJsonValue,
+			lastResultJson: toJson(lastResult),
 			claimedUntil: null,
 			...(settled.dueAt ? { dueAt: settled.dueAt } : { doneAt: now, endReason: settled.endReason }),
 		},
@@ -424,6 +469,11 @@ export type FinalizeAgendaRunResult =
 			text: string;
 			/** Encerrou sem nenhum `agenda_result` três vezes seguidas: o dono merece UM aviso (o texto monta o worker). */
 			stoppedWithoutResult: boolean;
+			/**
+			 * Lembrete que não devolveu resultado nem texto depois de várias tentativas: o dono recebe a PRÓPRIA nota
+			 * (o worker monta o texto com `copyFor(language, "agenda_reminder_note", { note })`). Nunca some calado.
+			 */
+			deliverNote?: boolean;
 			note: string;
 	  };
 
@@ -442,10 +492,10 @@ export async function finalizeAgendaRun(input: { userId: string; runId: string; 
 	if (result && result.outcome !== "missing") {
 		const text = result.outcome === "no_change" ? "" : (result.message ?? "");
 		if (text) await markNotice(item, now);
-		return { agenda: true, itemId: item.id, text, stoppedWithoutResult: false, note: item.note };
+		return { agenda: true, itemId: item.id, text, stoppedWithoutResult: false, deliverNote: false, note: item.note };
 	}
-	if (result?.outcome === "missing") return { agenda: true, itemId: item.id, text: item.status === "pending" ? "" : input.text.trim(), stoppedWithoutResult: item.endReason === "no_result", note: item.note };
-	if (item.status !== "pending") return { agenda: true, itemId: item.id, text: "", stoppedWithoutResult: false, note: item.note };
+	if (result?.outcome === "missing") return { agenda: true, itemId: item.id, text: item.status === "pending" ? "" : input.text.trim(), stoppedWithoutResult: item.endReason === "no_result", deliverNote: item.endReason === "reminder_note", note: item.note };
+	if (item.status !== "pending") return { agenda: true, itemId: item.id, text: "", stoppedWithoutResult: false, deliverNote: false, note: item.note };
 	const settings = await loadAgendaSettings(item.userId, item.botId);
 	const settled = settleAgendaRunWithoutResult({ item, hasText: input.text.trim().length > 0, now, settings });
 	const lastResult: AgendaLastResult = { runId: input.runId, outcome: "missing", at: now.toISOString() };
@@ -455,17 +505,18 @@ export async function finalizeAgendaRun(input: { userId: string; runId: string; 
 			status: settled.status,
 			noChangeStreak: settled.noChangeStreak,
 			attempts: settled.missingResults,
-			lastError: item.kind === "remind" ? null : "run ended without agenda_result",
-			lastResultJson: lastResult as unknown as Prisma.InputJsonValue,
+			lastError: item.kind === "remind" && input.text.trim() ? null : "run ended without agenda_result",
+			lastResultJson: toJson(lastResult),
 			claimedUntil: null,
 			...(settled.dueAt ? { dueAt: settled.dueAt } : { doneAt: now, endReason: settled.endReason }),
 		},
 	});
-	if (updated.count !== 1) return { agenda: true, itemId: item.id, text: "", stoppedWithoutResult: false, note: item.note };
+	if (updated.count !== 1) return { agenda: true, itemId: item.id, text: "", stoppedWithoutResult: false, deliverNote: false, note: item.note };
 	const stoppedWithoutResult = settled.endReason === "no_result";
+	const deliverNote = settled.deliverNote === true;
 	const text = settled.post && item.kind === "remind" ? input.text.trim() : "";
-	if (text || stoppedWithoutResult) await markNotice(item, now);
-	return { agenda: true, itemId: item.id, text, stoppedWithoutResult, note: item.note };
+	if (text || stoppedWithoutResult || deliverNote) await markNotice(item, now);
+	return { agenda: true, itemId: item.id, text, stoppedWithoutResult, deliverNote, note: item.note };
 }
 
 async function markNotice(item: AgendaItemRecord, now: Date): Promise<void> {
@@ -477,14 +528,13 @@ export async function findAgendaItemsForEvent(userId: string, event: AgendaEvent
 	if (!validOwner(userId)) return { matched: [], coalesced: [] };
 	const rows = await prisma.botFollowup.findMany({ where: { userId, agendaKind: "intent", status: "pending", OR: [{ untilAt: null }, { untilAt: { gt: now } }] } });
 	const hits = records(rows).filter((item) => item.eventFilter !== null && matchEventFilter(item.eventFilter, event));
-	const gapMs = minGapMinutes * 60_000;
-	const lastWake = (item: AgendaItemRecord) => (item.lastResult ? Date.parse(item.lastResult.at) : 0);
 	const matched: AgendaItemRecord[] = [];
 	const coalesced: AgendaItemRecord[] = [];
 	for (const item of hits) {
-		// Run em andamento (reserva ativa) ou acordou há pouco: o evento é juntado ao run que está por vir, que lê o que chegou.
+		// Run em andamento (reserva ativa), acordou há pouco ou gastou o teto do dia: o evento é juntado, e o próximo run lê o que chegou.
 		const busy = item.reservedUntil !== null && item.reservedUntil.getTime() > now.getTime();
-		(busy || now.getTime() - lastWake(item) < gapMs ? coalesced : matched).push(item);
+		const verdict = planAgendaEventWake({ now, lastWakeAt: item.lastResult ? new Date(item.lastResult.at) : null, minGapMinutes, window: { windowStartAt: item.eventWindowAt ?? null, windowCount: item.eventWindowCount ?? 0 } });
+		(busy || verdict !== "wake" ? coalesced : matched).push(item);
 	}
 	return { matched, coalesced };
 }

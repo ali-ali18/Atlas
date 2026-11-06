@@ -176,22 +176,24 @@ export class FakeHelpers implements Helpers {
  * liga um item a um run de agenda (o que a varredura do worker faz) para `reportResult` ter onde gravar.
  */
 export class FakeAgenda implements Agenda {
-	readonly items = new Map<string, AgendaItemView & { userId: string; runId?: string }>();
-	readonly results: Array<{ userId: string; runId: string; result: AgendaRunResult }> = [];
+	readonly items = new Map<string, AgendaItemView & { userId: string; runId?: string; noteUntrusted?: boolean }>();
+	readonly results: Array<{ userId: string; runId: string; result: AgendaRunResult; untrustedRead: boolean }> = [];
 	private seq = 0;
 	constructor(private readonly settingsValue: ProactiveSettings = { ...DEFAULT_PROACTIVE_SETTINGS, enabled: true }) {}
 
 	async settings(): Promise<ProactiveSettings> {
 		return this.settingsValue;
 	}
-	private view(item: AgendaItemView & { userId: string }): AgendaItemView {
-		const { userId: _userId, ...view } = structuredClone(item);
+	private view(item: AgendaItemView & { userId: string; noteUntrusted?: boolean }): AgendaItemView {
+		const { userId: _userId, noteUntrusted: _noteUntrusted, ...view } = structuredClone(item);
 		void _userId;
+		void _noteUntrusted;
 		return view;
 	}
-	async create(userId: string, plan: AgendaPlan): Promise<AgendaCreateResult> {
+	async create(userId: string, plan: AgendaPlan, context?: { sourceRunId: string; untrustedRead?: boolean }): Promise<AgendaCreateResult> {
 		const active = [...this.items.values()].filter((i) => i.userId === userId && (i.status === "pending" || i.status === "paused"));
-		const same = findDuplicateAgendaItem(active, plan);
+		const found = findDuplicateAgendaItem(active.map((i) => ({ ...i, dueAt: new Date(i.nextRunAt), intervalMinutes: i.everyMinutes })), plan);
+		const same = found ? this.items.get(found.id) : undefined;
 		if (same) return { ok: true, item: this.view(same), duplicate: true };
 		if (active.length >= AGENDA_MAX_ACTIVE_PER_OWNER) return { ok: false, error: `There are already ${AGENDA_MAX_ACTIVE_PER_OWNER} active agenda items. Cancel or finish one before adding another.` };
 		const id = `ag-${++this.seq}`;
@@ -208,6 +210,7 @@ export class FakeAgenda implements Agenda {
 			maxRuns: plan.maxRuns,
 			eventFilter: plan.eventFilter,
 			endReason: null,
+			noteUntrusted: context?.untrustedRead === true,
 		};
 		this.items.set(id, item);
 		return { ok: true, item: this.view(item), duplicate: false };
@@ -231,11 +234,11 @@ export class FakeAgenda implements Agenda {
 		item.runId = runId;
 		item.runCount += 1;
 	}
-	async reportResult(userId: string, runId: string, result: AgendaRunResult): Promise<{ ok: true } | { ok: false; error: string }> {
+	async reportResult(userId: string, runId: string, result: AgendaRunResult, context?: { untrustedRead?: boolean }): Promise<{ ok: true } | { ok: false; error: string }> {
 		const item = [...this.items.values()].find((i) => i.userId === userId && i.runId === runId);
 		if (!item) return { ok: false, error: "No agenda item is attached to this run." };
 		if (this.results.some((r) => r.userId === userId && r.runId === runId)) return { ok: true };
-		this.results.push({ userId, runId, result: structuredClone(result) });
+		this.results.push({ userId, runId, result: structuredClone(result), untrustedRead: context?.untrustedRead === true });
 		if (result.outcome === "done") {
 			item.status = "done";
 			item.endReason = "done";

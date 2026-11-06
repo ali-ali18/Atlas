@@ -4,6 +4,9 @@ import { FakeClock } from "../../testing/fake-ports.js";
 import { call, kernelHarness, reply } from "../../testing/kernel-fakes.js";
 import type { Ports } from "../../ports/index.js";
 import type { ToolContext } from "../../tools/types.js";
+import { defineTool } from "../../tools/define-tool.js";
+import { z } from "zod";
+import { defineCapability } from "../define-capability.js";
 import { createAgendaCapability, createAgendaRunCapability } from "./agenda-capability.js";
 
 // O relógio dos testes é 2026-11-05 12:00Z = 09:00 em São Paulo (silêncio 22:00 a 08:00).
@@ -54,7 +57,9 @@ describe("capacidade agenda: criação", () => {
 		const again = await t.watch!.run({ note: "preço do notebook", everyMinutes: 120 }, ctx());
 		expect(again.ok && again.summary).toContain("Already scheduled (nothing new created)");
 		expect(agenda.items.size).toBe(1);
-		for (let i = 0; i < 19; i++) await t.watch!.run({ note: `acompanhar coisa distinta numero ${i}`, everyMinutes: 120 }, ctx());
+		// Notas sem palavras em comum: com 80% das palavras iguais o dedupe (critério do v2) as trata como o mesmo pedido.
+		const topics = ["passagem", "ingresso", "aluguel", "cotacao", "voo", "hotel", "fatura", "pedido", "encomenda", "boleto", "consulta", "exame", "vacina", "revisao", "seguro", "imposto", "matricula", "estoque", "premio"];
+		for (const topic of topics) await t.watch!.run({ note: `acompanhar ${topic}`, everyMinutes: 120 }, ctx());
 		const over = await t.watch!.run({ note: "mais um item", everyMinutes: 120 }, ctx());
 		expect(over).toMatchObject({ ok: false, error: expect.stringContaining("20 active"), hint: expect.stringContaining("agenda_list") });
 	});
@@ -170,6 +175,39 @@ describe("agenda_result (capacidade só dos runs de agenda)", () => {
 		expect(await tool.run({ outcome: "maybe" }, ctx())).toMatchObject({ ok: false, error: expect.stringContaining("no_change") });
 		expect(await tool.run({ outcome: "done", extra: 1 }, ctx())).toMatchObject({ ok: false });
 		expect((await tool.run({ outcome: "update", message: "a".repeat(2001) }, ctx())).ok).toBe(false);
+	});
+});
+
+describe("agenda e proveniência (auditoria F4, S1)", () => {
+	it("nota criada num run que leu conteúdo não confiável fica marcada; o resultado marca o memo", async () => {
+		const agenda = new FakeAgenda();
+		const t = tools(agenda);
+		await t.remind_me!.run({ note: "limpa", when: "2026-11-06T10:00" }, ctx());
+		await t.remind_me!.run({ note: "veio da página", when: "2026-11-06T12:00" }, { ...ctx(), untrustedReadInRun: true });
+		expect([...agenda.items.values()].map((i) => i.noteUntrusted)).toEqual([false, true]);
+		agenda.startRun("o1", "ag-1", "run-r1");
+		agenda.startRun("o1", "ag-2", "run-r2");
+		const result = createAgendaRunCapability(agenda).tools[0]!;
+		await result.run({ outcome: "no_change", memo: "x" }, ctx("o1", "run-r1"));
+		await result.run({ outcome: "no_change", memo: "y" }, { ...ctx("o1", "run-r2"), untrustedReadInRun: true });
+		expect(agenda.results.map((r) => r.untrustedRead)).toEqual([false, true]);
+	});
+
+	it("no kernel o executor entrega o sinal: depois de ler a web, o item criado nasce contaminado", async () => {
+		const agenda = new FakeAgenda();
+		const webRead = defineTool({ name: "web_read", description: "Read a page.", inputSchema: z.object({ url: z.string() }), effect: "read", trust: "untrusted", source: "web", execute: () => ({ ok: true, summary: "page text" }) });
+		const h = kernelHarness(
+			[
+				reply({ calls: [call("a", "use_capability", { id: "agenda" })] }),
+				reply({ calls: [call("b", "remind_me", { note: "antes de ler", when: "2026-11-07T10:00" })] }),
+				reply({ calls: [call("c", "web_read", { url: "https://x.test" })] }),
+				reply({ calls: [call("d", "remind_me", { note: "depois de ler a página", when: "2026-11-07T15:00" })] }),
+				reply({ text: "ok" }),
+			],
+			{ capabilities: [defineCapability({ id: "web", title: "Web", summary: "web", core: true, tools: [webRead] }), createAgendaCapability(agenda)] },
+		);
+		await h.run({ policy: { surface: "chat", ownerPresent: true, autonomy: "autonomous", rules: [] } });
+		expect([...agenda.items.values()].map((i) => [i.note, i.noteUntrusted])).toEqual([["antes de ler", false], ["depois de ler a página", true]]);
 	});
 });
 

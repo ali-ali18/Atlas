@@ -1151,6 +1151,12 @@ model BotFollowup {
   grantJson        Json?
   /// Por que a agenda encerrou ou pausou sozinha (done | cancelled | paused): ignored_notices, max_runs, expired, no_result…
   endReason        String?
+  /// A nota nasceu num run que leu conteúdo não confiável (e-mail, web, arquivo…): no wake ela entra como DADO, não como
+  /// instrução do runtime. O memo do último resultado leva o próprio sinal em `lastResultJson.memoUntrusted`.
+  noteUntrusted    Boolean   @default(false)
+  /// Janela de 24h do item `intent`: quando abriu e quantos acordares por evento já gastou (teto diário de custo).
+  eventWindowAt    DateTime?
+  eventWindowCount Int       @default(0)
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 

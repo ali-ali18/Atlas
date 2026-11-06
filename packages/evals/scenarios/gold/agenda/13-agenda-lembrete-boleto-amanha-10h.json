@@ -143,14 +143,15 @@
           "type": "completed"
         },
         {
-          "id": "criou-o-lembrete-as-10h",
+          "id": "criou-o-lembrete",
           "type": "tool_called",
+          "tool": "remind_me"
+        },
+        {
+          "id": "agendou-amanha-as-10h-no-fuso-do-dono",
+          "type": "tool_result",
           "tool": "remind_me",
-          "args": {
-            "when": {
-              "matches": "T10:00|10"
-            }
-          }
+          "pattern": "first run 2026-11-06 10:00 \\(America/Sao_Paulo\\)"
         },
         {
           "type": "tool_not_called",

@@ -138,6 +138,12 @@
           }
         },
         {
+          "id": "primeira-conferencia-em-12h-no-fuso-do-dono",
+          "type": "tool_result",
+          "tool": "watch",
+          "pattern": "first run 2026-11-05 21:00 \\(America/Sao_Paulo\\)"
+        },
+        {
           "id": "sem-rotina-do-usuario",
           "type": "tool_not_called",
           "tool": "propose_routine"

@@ -105,6 +105,11 @@ const base = { id: z.string().optional() };
 const leafOptions = [
 	z.object({ ...base, type: z.literal("tool_called"), ...toolRef.shape, args: argPredicates.optional(), min: z.number().int().min(1).optional(), max: z.number().int().min(0).optional() }).strict(),
 	z.object({ ...base, type: z.literal("tool_not_called"), ...toolRef.shape, args: argPredicates.optional() }).strict(),
+	/**
+	 * O RESULTADO de uma tool (o `summary` que o runtime devolveu ao modelo) casa com `pattern`. Confere o que o motor
+	 * entendeu, não o que o roteiro pediu: ex. o horário que `remind_me` resolveu no fuso do cenário. `ok` padrão `true`.
+	 */
+	z.object({ ...base, type: z.literal("tool_result"), tool: z.string().min(1), pattern: z.string().min(1), ok: z.boolean().default(true), min: z.number().int().min(1).optional(), max: z.number().int().min(0).optional() }).strict(),
 	z.object({ ...base, type: z.literal("no_question") }).strict(),
 	z.object({ ...base, type: z.literal("asks_question"), max: z.number().int().min(1).default(2) }).strict(),
 	z.object({ ...base, type: z.literal("text_contains"), value: z.string().optional(), pattern: z.string().optional(), ignoreCase: z.boolean().default(false) }).strict(),
@@ -250,6 +255,10 @@ function expectationProblem(item: Expectation): string | null {
 		const message = regexError(item.pattern, item.ignoreCase ? "i" : "");
 		if (message) return `${label}: pattern é uma regex inválida /${item.pattern}/ (${message})`;
 	}
+	if (item.type === "tool_result") {
+		const message = regexError(item.pattern, "i");
+		if (message) return `${label}: pattern é uma regex inválida /${item.pattern}/ (${message})`;
+	}
 	if (item.type === "no_model_note") {
 		const message = regexError(item.pattern, "i");
 		if (message) return `${label}: pattern é uma regex inválida /${item.pattern}/ (${message})`;
@@ -274,6 +283,7 @@ function expectationProblem(item: Expectation): string | null {
 export function expectationName(item: Expectation): string {
 	if (item.id) return item.id;
 	if (item.type === "tool_called" || item.type === "tool_not_called") return `${item.type}:${item.tool ?? item.toolPattern}`;
+	if (item.type === "tool_result") return `tool_result:${item.tool}`;
 	if (item.type === "file_created" && item.extension) return `file_created:${item.extension}`;
 	if (item.type === "language") return `language:${item.value}`;
 	if (item.type === "any_of") return `any_of:${item.checks.map((nested) => expectationName(nested as Expectation)).join("|")}`;

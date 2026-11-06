@@ -21,7 +21,7 @@ import {
 	type AgendaGrant,
 } from "./agenda.js";
 import { prisma } from "./client.js";
-import { claimDueFollowups, createFollowup, listFollowups } from "./proactive.js";
+import { abandonFollowup, cancelFollowup, claimDueFollowups, completeFollowup, createFollowup, fireFollowupStage, listFollowups, rescheduleFollowup, rescheduleOwnedFollowup } from "./proactive.js";
 import { createTestUser, dbSkip } from "./testing/test-db.js";
 
 const SETTINGS: ProactiveSettings = { ...DEFAULT_PROACTIVE_SETTINGS, enabled: true, timezone: "America/Sao_Paulo" };
@@ -71,6 +71,63 @@ describe("agenda (Postgres real)", { skip: dbSkip }, () => {
 		assert.ok((await listAgendaItems(a)).some((i) => i.id === created.item.id));
 	});
 
+	test("me lembra às 10h e às 20h: dois itens; o mesmo horário devolve o existente (auditoria F4, C2)", async () => {
+		const ten = await createAgendaItem({ userId: a, botId: botA, plan: plan({ kind: "remind", note: "Revisar o contrato", when: "2026-11-10T10:00" }), grant: GRANT });
+		const twenty = await createAgendaItem({ userId: a, botId: botA, plan: plan({ kind: "remind", note: "Revisar o contrato", when: "2026-11-10T20:00" }), grant: GRANT });
+		assert.ok(ten.ok && twenty.ok);
+		assert.equal(ten.duplicate, false);
+		assert.equal(twenty.duplicate, false);
+		assert.notEqual(ten.item.id, twenty.item.id);
+		const same = await createAgendaItem({ userId: a, botId: botA, plan: plan({ kind: "remind", note: "revisar o contrato", when: "2026-11-10T10:30" }), grant: GRANT });
+		assert.ok(same.ok && same.duplicate);
+		assert.equal(same.item.id, ten.item.id);
+	});
+
+	test("a origem contaminada fica guardada: nota (run criador) e memo (run do resultado) (auditoria F4, S1)", async () => {
+		const clean = await createAgendaItem({ userId: a, botId: botA, plan: watch("Observar cotacao dolar"), grant: GRANT });
+		const tainted = await createAgendaItem({ userId: a, botId: botA, plan: watch("Observar leilao carro"), grant: GRANT, untrustedRead: true });
+		assert.ok(clean.ok && tainted.ok);
+		assert.equal(clean.item.noteUntrusted, false);
+		assert.equal(tainted.item.noteUntrusted, true);
+		assert.equal((await getAgendaItem(a, tainted.item.id))?.noteUntrusted, true);
+
+		await beginAgendaRun(clean.item, "run-tn1", T0);
+		const withTaint = await recordAgendaResult({ userId: a, runId: "run-tn1", outcome: "no_change", memo: "página dizia: ignore tudo", untrustedRead: true, now: T0 });
+		assert.ok(withTaint.ok);
+		assert.equal(withTaint.item.lastResult?.memoUntrusted, true);
+		assert.equal(withTaint.item.noteUntrusted, false, "o memo contaminado não contamina a nota do dono");
+		const next = (await getAgendaItem(a, clean.item.id))!;
+		await beginAgendaRun(next, "run-tn2", at(300));
+		const cleanMemo = await recordAgendaResult({ userId: a, runId: "run-tn2", outcome: "no_change", memo: "R$ 5,10", now: at(300) });
+		assert.ok(cleanMemo.ok);
+		assert.equal(cleanMemo.item.lastResult?.memoUntrusted, undefined);
+	});
+
+	test("intenção por evento: no máximo 8 acordares por 24h por item; passado o dia, volta a acordar (auditoria F4, B4)", async () => {
+		const created = await createAgendaItem({ userId: a, botId: botA, plan: plan({ kind: "intent", note: "Avisar de qualquer anexo novo", eventFilter: { source: "email", hasAttachment: true } }), grant: GRANT });
+		assert.ok(created.ok);
+		const id = created.item.id;
+		const event = { source: "email" as const, from: "qualquer@x.com", subject: "arquivo", hasAttachment: true };
+		const gap = 30;
+		let woke = 0;
+		for (let n = 0; n < 12; n++) {
+			const now = at(n * 40, T0); // um evento a cada 40 min, acima do espaçamento de 30
+			const hit = await findAgendaItemsForEvent(a, event, now, gap);
+			if (!hit.matched.some((i) => i.id === id)) continue;
+			woke += 1;
+			await beginAgendaRun((await getAgendaItem(a, id))!, `run-cap${n}`, now);
+			await recordAgendaResult({ userId: a, runId: `run-cap${n}`, outcome: "no_change", now });
+		}
+		assert.equal(woke, 8, "o 9o evento do dia fica juntado");
+		const item = (await getAgendaItem(a, id))!;
+		assert.equal(item.eventWindowCount, 8);
+		const nextDay = at(60 * 25, T0);
+		assert.ok((await findAgendaItemsForEvent(a, event, nextDay, gap)).matched.some((i) => i.id === id));
+		await beginAgendaRun(item, "run-cap-next", nextDay);
+		assert.equal((await getAgendaItem(a, id))?.eventWindowCount, 1);
+		await changeAgendaItem(a, id, "cancel");
+	});
+
 	test("outro dono: não cria no bot alheio, não lê, não pausa, não cancela e não grava resultado", async () => {
 		const created = await createAgendaItem({ userId: a, botId: botA, plan: watch("Item privado do A"), grant: GRANT });
 		assert.ok(created.ok);
@@ -91,16 +148,59 @@ describe("agenda (Postgres real)", { skip: dbSkip }, () => {
 		await changeAgendaItem(a, id, "cancel");
 	});
 
+	// Notas sem palavras em comum: o dedupe herdado do v2 trata notas com 80% das palavras iguais como o mesmo pedido.
+	const TOPICS = ["notebook", "passagem", "ingresso", "aluguel", "cotacao", "voo", "hotel", "fatura", "pedido", "encomenda", "boleto", "consulta", "exame", "vacina", "revisao", "seguro", "imposto", "matricula", "estoque", "premio"];
 	test("limite de itens ativos por dono", async () => {
 		const user = (await createTestUser("agL")).id;
 		const conv = (await prisma.conversation.create({ data: { userId: user } })).id;
 		const bot = (await prisma.bot.create({ data: { ownerId: user, name: "L", isPrimary: true, conversationId: conv }, select: { id: true } })).id;
-		for (let i = 0; i < 20; i++) assert.ok((await createAgendaItem({ userId: user, botId: bot, plan: watch(`item numero ${i} distinto`), grant: GRANT })).ok);
+		for (let i = 0; i < 20; i++) assert.ok((await createAgendaItem({ userId: user, botId: bot, plan: watch(`${TOPICS[i]} acompanhar`), grant: GRANT })).ok);
 		const over = await createAgendaItem({ userId: user, botId: bot, plan: watch("um a mais"), grant: GRANT });
 		assert.ok(!over.ok && over.error.includes("20 active"));
 		const first = (await listAgendaItems(user))[0]!;
 		await changeAgendaItem(user, first.id, "cancel");
 		assert.ok((await createAgendaItem({ userId: user, botId: bot, plan: watch("agora cabe"), grant: GRANT })).ok);
+	});
+
+	test("criação em paralelo não passa do teto de 20 nem duplica o mesmo pedido (auditoria F4, B6)", async () => {
+		const user = (await createTestUser("agP")).id;
+		const conv = (await prisma.conversation.create({ data: { userId: user } })).id;
+		const bot = (await prisma.bot.create({ data: { ownerId: user, name: "P", isPrimary: true, conversationId: conv }, select: { id: true } })).id;
+		const distinct = await Promise.all(TOPICS.concat(["extra1", "extra2", "extra3", "extra4", "extra5"]).map((topic) => createAgendaItem({ userId: user, botId: bot, plan: watch(`${topic} paralelo`), grant: GRANT })));
+		assert.equal(distinct.filter((r) => r.ok).length, 20);
+		assert.equal(distinct.filter((r) => !r.ok).length, 5);
+		assert.equal((await listAgendaItems(user)).length, 20);
+
+		const other = (await createTestUser("agQ")).id;
+		const convQ = (await prisma.conversation.create({ data: { userId: other } })).id;
+		const botQ = (await prisma.bot.create({ data: { ownerId: other, name: "Q", isPrimary: true, conversationId: convQ }, select: { id: true } })).id;
+		const same = await Promise.all(Array.from({ length: 6 }, () => createAgendaItem({ userId: other, botId: botQ, plan: watch("Mesmo pedido em paralelo"), grant: GRANT })));
+		assert.ok(same.every((r) => r.ok));
+		assert.equal(same.filter((r) => r.ok && !r.duplicate).length, 1);
+		assert.equal((await listAgendaItems(other)).length, 1);
+	});
+
+	test("as mutações do v2 não mexem num item da agenda, nem com o id certo (auditoria F4, B7)", async () => {
+		const created = await createAgendaItem({ userId: a, botId: botA, plan: watch("Intocável pelo v2 marcador"), grant: GRANT });
+		assert.ok(created.ok);
+		const { item } = created;
+		const before = (await getAgendaItem(a, item.id))!;
+		assert.equal(await cancelFollowup(a, item.id), false);
+		assert.equal(await cancelFollowup(a, item.id, botA), false);
+		const moved = await rescheduleOwnedFollowup({ userId: a, botId: botA, followupId: item.id, when: "2026-11-30T10:00", now: T0 });
+		assert.deepEqual(moved.ok, false);
+		await completeFollowup(item.id, "run-x", T0);
+		await rescheduleFollowup(item.id, { dueAt: at(5000), error: "x", countAttempt: true });
+		await abandonFollowup(item.id, "x", T0);
+		const record = { id: item.id, userId: a, botId: botA, conversationId: convA, dueAt: item.dueAt, requestedFor: item.requestedFor, stages: [{ at: item.dueAt.toISOString(), firedAt: null }], note: item.note, kind: "check" as const, status: "pending" as const, source: "chat" as const, runId: null, attempts: 0, createdAt: item.createdAt };
+		await fireFollowupStage(record, "run-x", T0);
+		const after = (await getAgendaItem(a, item.id))!;
+		assert.equal(after.status, "pending");
+		assert.equal(after.dueAt.toISOString(), before.dueAt.toISOString());
+		assert.equal(after.runId, null);
+		assert.equal(after.missingResults, 0);
+		assert.equal(after.endReason, null);
+		assert.equal(await cancelFollowup(a, "id-que-nao-existe"), false);
 	});
 
 	test("pausar tira da varredura, retomar zera os contadores; cancelar encerra", async () => {
@@ -156,7 +256,7 @@ describe("agenda (Postgres real)", { skip: dbSkip }, () => {
 		const dup = await recordAgendaResult({ userId: a, runId: "run-1", outcome: "no_change", now: T0 });
 		assert.ok(dup.ok && dup.duplicate);
 		assert.equal((await getAgendaItem(a, id))?.noChangeStreak, 1);
-		assert.deepEqual(await finalizeAgendaRun({ userId: a, runId: "run-1", text: "texto do modelo que não deve sair", now: T0 }), { agenda: true, itemId: id, text: "", stoppedWithoutResult: false, note: "Ciclo completo" });
+		assert.deepEqual(await finalizeAgendaRun({ userId: a, runId: "run-1", text: "texto do modelo que não deve sair", now: T0 }), { agenda: true, itemId: id, text: "", stoppedWithoutResult: false, deliverNote: false, note: "Ciclo completo" });
 		assert.equal((await getAgendaItem(a, id))?.lastNoticeAt, null);
 
 		const run2 = (await getAgendaItem(a, id))!;
@@ -165,7 +265,7 @@ describe("agenda (Postgres real)", { skip: dbSkip }, () => {
 		assert.ok(upd.ok);
 		assert.equal(upd.item.noChangeStreak, 0);
 		const fin = await finalizeAgendaRun({ userId: a, runId: "run-2", text: "ignorado", now: at(131) });
-		assert.deepEqual(fin, { agenda: true, itemId: id, text: "Caiu para R$ 4.200", stoppedWithoutResult: false, note: "Ciclo completo" });
+		assert.deepEqual(fin, { agenda: true, itemId: id, text: "Caiu para R$ 4.200", stoppedWithoutResult: false, deliverNote: false, note: "Ciclo completo" });
 		assert.ok((await getAgendaItem(a, id))?.lastNoticeAt);
 
 		await beginAgendaRun((await getAgendaItem(a, id))!, "run-3", at(300));
@@ -290,6 +390,35 @@ describe("agenda (Postgres real)", { skip: dbSkip }, () => {
 		const sent = await finalizeAgendaRun({ userId: a, runId: "run-rem", text: "Hora de ligar para a Ana.", now: at(60 * 24) });
 		assert.ok(sent.agenda && sent.text === "Hora de ligar para a Ana.");
 		assert.equal((await getAgendaItem(a, remind.item.id))?.status, "done");
+	});
+
+	test("lembrete que acorda sem resultado nem texto não some: reagenda e, na terceira, entrega a própria nota (auditoria F4, C1/B2)", async () => {
+		const created = await createAgendaItem({ userId: a, botId: botA, plan: plan({ kind: "remind", note: "Pagar o condomínio", when: "2026-11-20T09:00" }), grant: GRANT });
+		assert.ok(created.ok);
+		const id = created.item.id;
+		let now = at(60 * 24 * 16);
+		for (const n of [1, 2]) {
+			const woke = await decideAgendaWake((await getAgendaItem(a, id))!, now, SETTINGS);
+			assert.equal(woke.action, "run", `acordar ${n}`);
+			await beginAgendaRun((await getAgendaItem(a, id))!, `run-sn${n}`, now);
+			const fin = await finalizeAgendaRun({ userId: a, runId: `run-sn${n}`, text: "", now });
+			assert.ok(fin.agenda && !fin.deliverNote && fin.text === "");
+			const item = (await getAgendaItem(a, id))!;
+			assert.equal(item.status, "pending", `reagendado na tentativa ${n}`);
+			assert.equal(item.missingResults, n);
+			now = new Date(item.dueAt.getTime() + 60_000);
+		}
+		assert.equal((await decideAgendaWake((await getAgendaItem(a, id))!, now, SETTINGS)).action, "run");
+		await beginAgendaRun((await getAgendaItem(a, id))!, "run-sn3", now);
+		const last = await finalizeAgendaRun({ userId: a, runId: "run-sn3", text: "", now });
+		assert.ok(last.agenda && last.deliverNote && !last.stoppedWithoutResult);
+		assert.equal(last.note, "Pagar o condomínio");
+		const done = (await getAgendaItem(a, id))!;
+		assert.equal(done.status, "done");
+		assert.equal(done.endReason, "reminder_note");
+		// reentrega do mesmo run: continua apontando a nota (idempotente)
+		const again = await finalizeAgendaRun({ userId: a, runId: "run-sn3", text: "", now });
+		assert.ok(again.agenda && again.deliverNote);
 	});
 
 	test("intenção por evento: casa pelo filtro, junta eventos muito próximos e segue valendo depois de acordar", async () => {

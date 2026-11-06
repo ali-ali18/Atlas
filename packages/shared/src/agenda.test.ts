@@ -5,7 +5,11 @@ import {
 	AGENDA_MIN_INTERVAL_MINUTES,
 	findDuplicateAgendaItem,
 	matchEventFilter,
+	nextAgendaEventWindow,
 	nextIgnoredStreak,
+	planAgendaEventWake,
+	AGENDA_EVENT_MAX_WAKES_PER_DAY,
+	AGENDA_EVENT_MIN_GAP_MINUTES,
 	nextWatchDelay,
 	parseAgendaEventFilter,
 	planAgendaItem,
@@ -124,11 +128,64 @@ describe("planAgendaItem: intent e brief", () => {
 	});
 });
 
+describe("planAgendaItem: when textual atravessando o horário de verão (auditoria F4, T4)", () => {
+	const at = (when: string, now: string) => {
+		const out = planAgendaItem({ request: { kind: "remind", note: "Ligar para o banco", when }, now: new Date(now), settings: NY });
+		if (!out.ok) throw new Error(out.error);
+		return out.plan;
+	};
+
+	it('"amanhã 9h" na véspera do fim do horário de verão (dia de 25h) cai às 9h locais, 14:00Z (UTC-5)', () => {
+		// Sábado 31/10/2026 15:00 em Nova York (EDT, UTC-4); domingo 01/11 o relógio volta uma hora.
+		const plan = at("amanhã 9h", "2026-10-31T19:00:00.000Z");
+		expect(local(plan.dueAt, NY.timezone)).toBe("2026-11-01 09:00");
+		expect(plan.dueAt.toISOString()).toBe("2026-11-01T14:00:00.000Z");
+		expect(plan.movedForQuietHours).toBe(false);
+	});
+
+	it('"amanhã 9h" na véspera do início do horário de verão (dia de 23h) cai às 9h locais, 13:00Z (UTC-4)', () => {
+		// Sábado 13/03/2027 12:00 em Nova York (EST, UTC-5); domingo 14/03 o relógio avança uma hora às 02:00.
+		const plan = at("amanhã 9h", "2027-03-13T17:00:00.000Z");
+		expect(local(plan.dueAt, NY.timezone)).toBe("2027-03-14 09:00");
+		expect(plan.dueAt.toISOString()).toBe("2027-03-14T13:00:00.000Z");
+	});
+
+	it("o mesmo texto no mesmo fuso sem DST no meio não muda a hora local; ISO sem fuso também respeita a virada", () => {
+		expect(local(at("amanhã 9h", "2026-11-04T19:00:00.000Z").dueAt, NY.timezone)).toBe("2026-11-05 09:00");
+		const iso = at("2026-11-01T09:00", "2026-10-31T19:00:00.000Z");
+		expect(iso.dueAt.toISOString()).toBe("2026-11-01T14:00:00.000Z");
+	});
+});
+
 describe("findDuplicateAgendaItem", () => {
-	it("mesmo tipo e nota (ignora caixa e acento) é duplicata; tipo diferente não", () => {
-		const items = [{ kind: "watch", note: "Preço do Notebook" }, { kind: "remind", note: "ligar" }];
-		expect(findDuplicateAgendaItem(items, { kind: "watch", note: "preco do notebook" })).toBe(items[0]);
-		expect(findDuplicateAgendaItem(items, { kind: "remind", note: "preço do notebook" })).toBeUndefined();
+	const H = 3_600_000;
+	const item = (kind: string, note: string, dueAt: Date, intervalMinutes: number | null = null) => ({ kind, note, dueAt, intervalMinutes });
+	const plan = (kind: "remind" | "watch" | "intent", note: string, dueAt: Date, intervalMinutes: number | null = null) => ({ kind, note, dueAt, intervalMinutes });
+
+	it("mesmo tipo, mesma nota (ignora caixa e acento) e mesmo horário é duplicata; tipo diferente não", () => {
+		const items = [item("watch", "Preço do Notebook", NOW, 120), item("remind", "ligar", NOW)];
+		expect(findDuplicateAgendaItem(items, plan("watch", "preco do notebook", NOW, 120))).toBe(items[0]);
+		expect(findDuplicateAgendaItem(items, plan("remind", "preço do notebook", NOW))).toBeUndefined();
+	});
+
+	it("me lembra às 10h e às 20h com a mesma nota são DOIS itens; o mesmo horário (janela de 2h) dedupa (auditoria F4, C2)", () => {
+		const ten = planAgendaItem({ request: { kind: "remind", note: "Tomar o remédio", when: "2026-11-05T10:00" }, now: NOW, settings: SP });
+		const twenty = planAgendaItem({ request: { kind: "remind", note: "Tomar o remédio", when: "2026-11-05T20:00" }, now: NOW, settings: SP });
+		const near = planAgendaItem({ request: { kind: "remind", note: "tomar o remedio", when: "2026-11-05T10:45" }, now: NOW, settings: SP });
+		if (!ten.ok || !twenty.ok || !near.ok) throw new Error("plano inválido");
+		const stored = [{ kind: "remind", note: ten.plan.note, dueAt: ten.plan.dueAt, intervalMinutes: null }];
+		expect(findDuplicateAgendaItem(stored, twenty.plan)).toBeUndefined();
+		expect(findDuplicateAgendaItem(stored, ten.plan)).toBe(stored[0]);
+		expect(findDuplicateAgendaItem(stored, near.plan)).toBe(stored[0]);
+		expect(findDuplicateAgendaItem(stored, plan("remind", "Tomar o remédio", new Date(ten.plan.dueAt.getTime() + 3 * H)))).toBeUndefined();
+	});
+
+	it("recorrente com o mesmo intervalo e intenção por evento não comparam horário", () => {
+		const watching = [item("watch", "Preço do notebook", new Date(NOW.getTime() + 50 * H), 120)];
+		expect(findDuplicateAgendaItem(watching, plan("watch", "Preço do notebook", NOW, 120))).toBe(watching[0]);
+		expect(findDuplicateAgendaItem(watching, plan("watch", "Preço do notebook", NOW, 240))).toBeUndefined();
+		const intents = [item("intent", "Resumir a fatura", new Date(NOW.getTime() + 20 * 24 * H))];
+		expect(findDuplicateAgendaItem(intents, plan("intent", "Resumir a fatura", new Date(NOW.getTime() + 30 * 24 * H)))).toBe(intents[0]);
 	});
 });
 
@@ -251,7 +308,7 @@ describe("aviso ignorado", () => {
 });
 
 describe("planAgendaWake", () => {
-	const base = { status: "pending", kind: "watch", runCount: 3, maxRuns: null, untilAt: null, ignoredStreak: 0 };
+	const base = { status: "pending", kind: "watch", runCount: 3, maxRuns: null as number | null, untilAt: null, ignoredStreak: 0, missingResults: 0 };
 	const wake = (item: Partial<typeof base>, noticeIgnored: boolean | null = null, now = NOW) => planAgendaWake({ item: { ...base, ...item }, now, settings: SP, noticeIgnored });
 
 	it("caminho normal roda", () => {
@@ -262,6 +319,12 @@ describe("planAgendaWake", () => {
 		expect(wake({ untilAt: new Date(NOW.getTime() - 1) })).toMatchObject({ action: "stop", reason: "expired" });
 		expect(wake({ maxRuns: 3 })).toMatchObject({ action: "stop", reason: "max_runs" });
 		expect(wake({ maxRuns: 4 })).toMatchObject({ action: "run" });
+	});
+
+	it("lembrete de uma vez com nova tentativa pendente não para por maxRuns (a tentativa é a mesma execução)", () => {
+		expect(wake({ kind: "remind", runCount: 1, maxRuns: 1 })).toMatchObject({ action: "stop", reason: "max_runs" });
+		expect(wake({ kind: "remind", runCount: 2, maxRuns: 1, missingResults: 1 })).toMatchObject({ action: "run" });
+		expect(wake({ kind: "watch", runCount: 2, maxRuns: 1, missingResults: 1 })).toMatchObject({ action: "stop", reason: "max_runs" });
 	});
 
 	it("o segundo aviso seguido ignorado encerra; o primeiro só conta", () => {
@@ -342,12 +405,69 @@ describe("settleAgendaRunWithoutResult", () => {
 
 	it("lembrete: o texto é o conteúdo, sai e o item fecha", () => {
 		expect(settle({ intervalMinutes: null as never }, "remind", true)).toMatchObject({ status: "done", post: true, missingResults: 0 });
-		expect(settle({ intervalMinutes: null as never }, "remind", false)).toMatchObject({ post: false });
+	});
+
+	it("lembrete sem resultado e sem texto nunca some: reagenda e, esgotado, entrega a própria nota (auditoria F4, C1/B2)", () => {
+		const once = { intervalMinutes: null as never, maxRuns: 1 };
+		const first = settle(once, "remind", false);
+		expect(first).toMatchObject({ status: "pending", post: false, missingResults: 1, endReason: null });
+		expect(first.deliverNote).toBeUndefined();
+		expect(first.dueAt && local(first.dueAt, SP.timezone)).toBe("2026-11-04 10:30");
+		expect(settle({ ...once, missingResults: 1 }, "remind", false)).toMatchObject({ status: "pending", missingResults: 2 });
+		expect(settle({ ...once, missingResults: 2 }, "remind", false)).toMatchObject({ status: "done", dueAt: null, post: true, deliverNote: true, endReason: "reminder_note" });
+	});
+
+	it("lembrete recorrente esgotado entrega a nota e segue no ritmo", () => {
+		const out = settle({ missingResults: 2 }, "remind", false);
+		expect(out).toMatchObject({ status: "pending", post: true, deliverNote: true, missingResults: 0, endReason: null });
+		expect(out.dueAt).not.toBeNull();
+	});
+
+	it("a nova tentativa cai fora do silêncio e, se passar do fim, entrega a nota", () => {
+		const late = settleAgendaRunWithoutResult({ item: { ...item, kind: "remind", intervalMinutes: null, maxRuns: 1, missingResults: 0 }, hasText: false, now: new Date("2026-11-05T01:00:00.000Z"), settings: SP });
+		expect(late.dueAt && local(late.dueAt, SP.timezone)).toBe("2026-11-05 08:00");
+		const ended = settle({ intervalMinutes: null as never, maxRuns: 1, untilAt: new Date(NOW.getTime() + 10 * 60_000) }, "remind", false);
+		expect(ended).toMatchObject({ status: "done", deliverNote: true, endReason: "reminder_note" });
 	});
 
 	it("vigia: não fala sem o sinal, conta a falha e na terceira encerra avisando uma vez", () => {
 		expect(settle({}, "watch", true)).toMatchObject({ status: "pending", post: false, missingResults: 1 });
 		expect(settle({ missingResults: 1 }, "watch", true)).toMatchObject({ status: "pending", missingResults: 2 });
 		expect(settle({ missingResults: 2 }, "watch", true)).toMatchObject({ status: "done", endReason: "no_result", post: true, missingResults: 3 });
+	});
+});
+
+describe("acordar por evento: espaçamento e teto diário (auditoria F4, B4)", () => {
+	const MIN = 60_000;
+	const closed = { windowStartAt: null, windowCount: 0 };
+
+	it("valores: 30 min entre acordares e 8 por dia (pior caso 8 runs/dia/item, antes ~144)", () => {
+		expect(AGENDA_EVENT_MIN_GAP_MINUTES).toBe(30);
+		expect(AGENDA_EVENT_MAX_WAKES_PER_DAY).toBe(8);
+	});
+
+	it("caso legítimo: um e-mail por dia acorda sempre; rajada dentro do espaçamento é juntada", () => {
+		expect(planAgendaEventWake({ now: NOW, lastWakeAt: null, minGapMinutes: 30, window: closed })).toBe("wake");
+		expect(planAgendaEventWake({ now: NOW, lastWakeAt: new Date(NOW.getTime() - 20 * MIN), minGapMinutes: 30, window: closed })).toBe("gap");
+		expect(planAgendaEventWake({ now: NOW, lastWakeAt: new Date(NOW.getTime() - 31 * MIN), minGapMinutes: 30, window: closed })).toBe("wake");
+	});
+
+	it("o teto de 8 por janela de 24h segura o resto; passadas 24h a janela reabre", () => {
+		const start = new Date(NOW.getTime() - 5 * 3_600_000);
+		const full = { windowStartAt: start, windowCount: AGENDA_EVENT_MAX_WAKES_PER_DAY };
+		const lastWakeAt = new Date(NOW.getTime() - 40 * MIN);
+		expect(planAgendaEventWake({ now: NOW, lastWakeAt, minGapMinutes: 30, window: full })).toBe("daily_cap");
+		expect(planAgendaEventWake({ now: NOW, lastWakeAt, minGapMinutes: 30, window: { ...full, windowCount: 7 } })).toBe("wake");
+		const nextDay = new Date(start.getTime() + 24 * 3_600_000 + MIN);
+		expect(planAgendaEventWake({ now: nextDay, lastWakeAt, minGapMinutes: 30, window: full })).toBe("wake");
+	});
+
+	it("a janela conta cada acordar e reabre depois de 24h", () => {
+		const first = nextAgendaEventWindow(closed, NOW);
+		expect(first).toEqual({ windowStartAt: NOW, windowCount: 1 });
+		const later = new Date(NOW.getTime() + 3_600_000);
+		expect(nextAgendaEventWindow(first, later)).toEqual({ windowStartAt: NOW, windowCount: 2 });
+		const nextDay = new Date(NOW.getTime() + 25 * 3_600_000);
+		expect(nextAgendaEventWindow({ windowStartAt: NOW, windowCount: 8 }, nextDay)).toEqual({ windowStartAt: nextDay, windowCount: 1 });
 	});
 });

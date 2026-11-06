@@ -39,10 +39,11 @@ export type AgendaRunResult = {
 export interface Agenda {
 	/** Fuso e horário de silêncio do dono (a base do "horário útil"). */
 	settings(userId: string): Promise<ProactiveSettings>;
-	create(userId: string, plan: AgendaPlan, context: { sourceRunId: string }): Promise<AgendaCreateResult>;
+	/** `untrustedRead`: o run criador já tinha lido conteúdo não confiável; a nota fica marcada e entra como dado no wake. */
+	create(userId: string, plan: AgendaPlan, context: { sourceRunId: string; untrustedRead?: boolean }): Promise<AgendaCreateResult>;
 	list(userId: string, options?: { includeEnded?: boolean }): Promise<AgendaItemView[]>;
 	/** `null` = não existe, não é do dono ou a ação não cabe no estado dele (a tool responde igual nos três casos). */
 	change(userId: string, id: string, action: AgendaAction): Promise<AgendaItemView | null>;
 	/** Resultado do run de agenda corrente (`runId`). Erro real quando o run não é de agenda ou já fechou. */
-	reportResult(userId: string, runId: string, result: AgendaRunResult): Promise<{ ok: true } | { ok: false; error: string }>;
+	reportResult(userId: string, runId: string, result: AgendaRunResult, context?: { untrustedRead?: boolean }): Promise<{ ok: true } | { ok: false; error: string }>;
 }
