@@ -47,6 +47,8 @@ export type V4RegistryInput = {
 	deps?: V4AdapterDeps;
 	/** Log técnico (sem segredo). */
 	log?: (message: string) => void;
+	/** Idioma do run (bot): a busca pede páginas nesse idioma. */
+	locale?: string;
 };
 
 export type V4RegistrySetup = {
@@ -70,7 +72,7 @@ export async function buildV4Registry(input: V4RegistryInput): Promise<V4Registr
 		deps: deps.deliverables,
 	});
 	const presetDeps: PresetDeps = {
-		search: createV4Search(deps.web),
+		search: createV4Search(deps.web, input.locale),
 		files: deliverables.fileStore,
 		deliverables: deliverables.ports,
 		memory: createV4Memory({ botId, deps: deps.memory }),

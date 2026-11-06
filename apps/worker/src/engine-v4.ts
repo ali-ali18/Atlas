@@ -423,6 +423,7 @@ export async function runEngineV4(input: RunEngineV4Input): Promise<V4EngineResu
 				...(input.signal && { signal: input.signal }),
 				...(input.adapters && { deps: input.adapters }),
 				...(input.log && { log: input.log }),
+				...(input.language && { locale: input.language }),
 			});
 	const stableSystem = input.stableSystem ?? built?.stableSystem;
 	const result = await runAgent({

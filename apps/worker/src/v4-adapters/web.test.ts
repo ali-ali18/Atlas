@@ -34,3 +34,16 @@ test("dependências reais: SearXNG só entra com a URL configurada", () => {
 	assert.equal(realV4WebDeps({}).searxng, undefined);
 	assert.equal(typeof realV4WebDeps({ SEARXNG_BASE_URL: "http://searx.internal" }).searxng, "function");
 });
+
+test("a busca pede páginas no idioma do run, sem idioma fixo (auditoria F2, R5)", async () => {
+	const headers: string[] = [];
+	const fetchFn = (async (_url: string, init?: { headers?: Record<string, string> }) => {
+		headers.push(init?.headers?.["Accept-Language"] ?? "");
+		return new Response("<html></html>", { status: 200 });
+	}) as never;
+	const extract = async (url: string) => ({ url, title: "", markdown: "", truncated: false });
+	await createV4Search({ extract, fetchFn }, "es-ES").search("user-a", "hola").catch(() => undefined);
+	await createV4Search({ extract, fetchFn }).search("user-a", "hello").catch(() => undefined);
+	assert.match(headers[0] ?? "", /^es-ES/);
+	assert.match(headers[1] ?? "", /^en/);
+});
