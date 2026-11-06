@@ -97,7 +97,7 @@ export function QuestionnaireCard({
 	/**
 	 * Como dispensar: "icon" = X no cabeçalho (padrão); "action" = botão de
 	 * texto "Agora não" ao lado de "Enviar" (card que não deve parecer exclusão).
-	 * "action" é para questionário de UMA pergunta: o botão ocupa a coluna do "Voltar", que só aparece a partir da 2ª.
+	 * "action" é para pergunta obrigatória: o botão ocupa a coluna do "Pular", que só aparece em pergunta opcional.
 	 */
 	dismissAs?: "icon" | "action";
 }) {
@@ -281,10 +281,10 @@ export function QuestionnaireCard({
 								<QuestionnairePrevious>{t("chat.questionnaire.back")}</QuestionnairePrevious>
 								<QuestionnaireSkip>{t("chat.questionnaire.skip")}</QuestionnaireSkip>
 								<QuestionnaireNext>{t("chat.questionnaire.next")}</QuestionnaireNext>
-								{/* Coluna 1 da barra (a de "Voltar", escondido na pergunta única); "Enviar" fica na 3. */}
+								{/* Coluna 2 da barra (a de "Pular", que não aparece em pergunta obrigatória): fica à direita, colado no "Enviar". */}
 								{onDismiss && dismissAs === "action" ? (
 									<Button
-										className="col-start-1 row-start-1 min-h-11 justify-self-start sm:min-h-0"
+										className="col-start-2 row-start-1 min-h-11 justify-self-end sm:min-h-0"
 										onClick={() => onDismiss(message)}
 										size="sm"
 										type="button"
