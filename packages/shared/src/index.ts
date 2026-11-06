@@ -1033,3 +1033,7 @@ export * from "./vtt.js";
 export * from "./agent-policy/index.js";
 export * from "./model-roles/index.js";
 export * from "./web/index.js";
+export * from "./owner-notes.js";
+export * from "./sleep.js";
+export * from "./memory-doctor.js";
+export * from "./learned-rules.js";
