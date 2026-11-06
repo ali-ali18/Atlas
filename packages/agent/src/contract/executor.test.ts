@@ -149,4 +149,12 @@ describe("handoff, hidden e erros", () => {
 		// mesmo passo e mesmo id: continua idempotente (retomada)
 		expect((await executor.executeCall({ callId: "call_0", step: 1, tool, args })).status).toBe("already_done");
 	});
+
+	it("externalId do recibo passa pela redação do cofre (S9)", async () => {
+		const { executor, receipts } = setup({ ...chatPolicy, autonomy: "autonomous" }, { secrets: () => ["valor-do-cofre-123"] });
+		const tool = defineTool({ name: "create_event", description: "Event.", inputSchema: z.object({}), effect: "write_external", execute: () => ({ ok: true, summary: "criado", receipt: { what: "evento", externalId: "id-valor-do-cofre-123" } }) });
+		const out = await executor.executeCall({ callId: "c", step: 0, tool, args: {} });
+		expect(JSON.stringify(out)).not.toContain("valor-do-cofre-123");
+		expect(JSON.stringify(receipts.items)).not.toContain("valor-do-cofre-123");
+	});
 });

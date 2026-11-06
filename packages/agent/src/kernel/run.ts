@@ -96,7 +96,7 @@ export async function runAgent(deps: RunAgentDeps): Promise<RunResult> {
 		const window = await ports.llm.contextWindow("main");
 		const ratio = deps.options?.compactAtRatio ?? DEFAULT_COMPACT_RATIO;
 		if (!shouldCompact(contextTokens(snap), window, ratio)) return;
-		const done = await compactContext({ snap, llm: ports.llm, store: ports.store, ownerId, runId, keepRecent: deps.options?.keepRecent ?? DEFAULT_KEEP_RECENT });
+		const done = await compactContext({ snap, llm: ports.llm, store: ports.store, ownerId, runId, keepRecent: deps.options?.keepRecent ?? DEFAULT_KEEP_RECENT, ...(tracked && { secrets: tracked.secrets }) });
 		if (!done) return;
 		const why = done.summaryFailed ? ` The summary failed (${done.summaryFailed}); the full material is in work note ${done.noteId}.` : "";
 		await emit({ type: "status", data: { reason: "compacted", message: `Conversation compacted: about ${done.before} tokens before, ${done.after} after.${why}`, before: done.before, after: done.after } });

@@ -48,6 +48,8 @@ export type SseMapOptions = {
 	maxSteps?: number;
 	/** Uso acumulado do run, quando o worker o tem; vai no `done`. */
 	usage?: () => RunUsage | undefined;
+	/** Valores do cofre usados no run (`trackVault`): os argumentos de `tool_call` saem sem eles. */
+	secrets?: () => readonly string[];
 };
 
 export type SseMapper = {
@@ -77,9 +79,9 @@ export function stopReasonOf(final: Extract<KernelEvent, { type: "final" }>["dat
 	return "answered";
 }
 
-function argsText(args: unknown): string {
+function argsText(args: unknown, secrets: readonly string[] = []): string {
 	try {
-		return redactSecrets(JSON.stringify(args ?? {}) ?? "{}");
+		return redactSecrets(JSON.stringify(args ?? {}) ?? "{}", secrets);
 	} catch {
 		return "{}";
 	}
@@ -102,7 +104,7 @@ export function createSseMapper(options: SseMapOptions): SseMapper {
 			case "retract":
 				return [{ type: "assistant_discard", id: bubbleId(), reason: "duplicate" }];
 			case "tool_call":
-				return [{ type: "tool_call", id: event.data.callId, name: event.data.name, args: argsText(event.data.args), step, ...(options.maxSteps !== undefined && { maxSteps: options.maxSteps }) }];
+				return [{ type: "tool_call", id: event.data.callId, name: event.data.name, args: argsText(event.data.args, options.secrets?.()), step, ...(options.maxSteps !== undefined && { maxSteps: options.maxSteps }) }];
 			case "tool_result":
 				return [{ type: "tool_result", id: event.data.callId, name: event.data.name, ok: OK_STATUSES.has(event.data.status), summary: event.data.content }];
 			case "receipt": {

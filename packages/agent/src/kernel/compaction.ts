@@ -2,6 +2,7 @@
 // Ordem fixa: (1) FLUSH, tudo o que sai do contexto vai inteiro para o caderno de trabalho;
 // (2) só então RESUMIR com o papel `helper`, guardando caminhos, URLs, ids, o último erro de cada tool
 // e a referência ao que foi para o caderno. Falha do resumo não perde nada: o material já está salvo.
+import { redactDeep } from "../contract/sanitize.js";
 import { escapeReserved, renderDataBlock, renderRuntimeBlock, type RunNonce } from "../channels/index.js";
 import { contentText, type Llm, type LlmMessage } from "../ports/llm.js";
 import type { Store } from "../ports/store.js";
@@ -24,11 +25,12 @@ export function contextTokens(snap: KernelSnapshot): number {
 
 export const shouldCompact = (tokens: number, window: number, ratio = DEFAULT_COMPACT_RATIO) => window > 0 && tokens >= window * ratio;
 
-function transcript(messages: readonly LlmMessage[]): string {
+/** `secrets`: valores do cofre usados no run; os argumentos das chamadas passam pela redação antes de ir ao caderno. */
+function transcript(messages: readonly LlmMessage[], secrets: readonly string[] = []): string {
 	return messages
 		.map((m) => {
 			const head = m.role === "tool" ? `[tool result for ${m.toolCallId}]` : `[${m.role}]`;
-			const calls = "toolCalls" in m && m.toolCalls ? `\n[tool calls] ${JSON.stringify(m.toolCalls)}` : "";
+			const calls = "toolCalls" in m && m.toolCalls ? `\n[tool calls] ${JSON.stringify(redactDeep(m.toolCalls, secrets))}` : "";
 			return `${head}\n${m.content}${calls}`;
 		})
 		.join("\n\n");
@@ -51,7 +53,7 @@ async function summarize(llm: Llm, text: string): Promise<string> {
 	return summary;
 }
 
-export type CompactEnv = { snap: KernelSnapshot; llm: Llm; store: Store; ownerId: string; runId: string; keepRecent: number };
+export type CompactEnv = { snap: KernelSnapshot; llm: Llm; store: Store; ownerId: string; runId: string; keepRecent: number; secrets?: () => readonly string[] };
 
 /** Compacta `snap.messages` no lugar. Devolve `undefined` se não há o que tirar. */
 export async function compactContext(env: CompactEnv): Promise<{ noteId: string; before: number; after: number; summaryFailed?: string } | undefined> {
@@ -66,7 +68,7 @@ export async function compactContext(env: CompactEnv): Promise<{ noteId: string;
 	// 1. flush: o material inteiro fica restaurável antes de qualquer resumo
 	const n = snap.compacted.noteIds.length + 1;
 	const noteId = `${WORK_NOTE_PREFIX}${env.runId}:ctx:${n}`;
-	const full = transcript(dropped);
+	const full = transcript(dropped, env.secrets?.());
 	await env.store.notes.save({ id: noteId, userId: env.ownerId, title: `Earlier context (part ${n})`, body: full, pinned: false });
 	snap.compacted.noteIds.push(noteId);
 	for (let i = HEAD; i < tailStart; i++) if (snap.ownerIdx.includes(i)) snap.compacted.ownerTexts.push(contentText((msgs[i] as LlmMessage).content));

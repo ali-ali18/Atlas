@@ -140,4 +140,10 @@ describe("kernel → transcript: execução gravada", () => {
 		expect(types).toContain("ask_owner");
 		expect(types.at(-1)).toBe("done");
 	});
+
+	it("args de tool_call saem sem os valores do cofre do run (S9)", () => {
+		const m = createSseMapper({ runId: "run-1", model: "m-1", secrets: () => ["valor-do-cofre-123"] });
+		const [ev] = m.map({ type: "tool_call", data: { callId: "c1", name: "http", args: { auth: "valor-do-cofre-123" } } });
+		expect(JSON.stringify(ev)).not.toContain("valor-do-cofre-123");
+	});
 });

@@ -115,7 +115,7 @@ export function createExecutor(deps: ExecutorDeps) {
 				effect,
 				summary: sanitizeText(what, secrets()),
 				...(where && { where: sanitizeText(where, secrets()) }),
-				...(externalId && { externalId }),
+				...(externalId && { externalId: sanitizeText(externalId, secrets()) }),
 				...(url && { url: sanitizeText(url, secrets()) }),
 				at: deps.ports.clock.now(),
 			});

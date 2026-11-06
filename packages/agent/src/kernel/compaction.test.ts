@@ -105,6 +105,23 @@ describe("compaction: erro de tool é dado, não sistema (S1)", () => {
 	});
 });
 
+describe("compaction: segredos do cofre (S9)", () => {
+	it("argumentos de chamada que levam valor do cofre não vão crus para o caderno", async () => {
+		const secret = "valor-do-cofre-123";
+		const vault = { listHandles: async () => [], resolve: async () => ({ reveal: () => secret }) };
+		const useVault = defineTool({ name: "use_vault", description: "Use.", inputSchema: z.object({ k: z.string() }), effect: "read", execute: async (_a, ctx) => ({ ok: true, summary: (await ctx.ports.vault?.resolve(ctx.ownerId, "h"))?.reveal() ? "usei" : "sem" }) });
+		const h = kernelHarness(
+			[reply({ calls: [call("a", "use_vault", { k: "x" }), call("b", "search", { q: `Bearer ${secret}` })], usage: { inputTokens: 100 } }), reply({ calls: [call("c", "search", { q: "2" })], usage: { inputTokens: 950 } }), reply({ text: "resumo" }), reply({ text: "fim" })],
+			{ tools: [useVault, search(() => "r")], windows: { main: 1000 } },
+		);
+		(h.ports as { vault?: unknown }).vault = vault;
+		await h.run({ options: { keepRecent: 2 } });
+		const note = h.notes.items.get("owner-1:work:run-1:ctx:1");
+		expect(note?.body).toContain("[tool calls]");
+		expect(note?.body).not.toContain(secret);
+	});
+});
+
 describe("saída grande: páginas com ponteiro, nunca truncada em silêncio", () => {
 	it("pageOf não parte par substituto e cobre o texto todo", () => {
 		const text = "a😀".repeat(50);
