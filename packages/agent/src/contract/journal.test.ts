@@ -115,7 +115,7 @@ describe("journal de efeitos e recibos (F1.6)", () => {
 		const { executor, journal } = setup(autonomous);
 		const { tool, counter } = noteTool();
 		const args = { title: "x" };
-		await journal.append({ runId: "run-1", userId: "owner-1", step: 1, idempotencyKey: `run-1:c1:${payloadHashOf("save_event", args, sha256)}`, toolName: "save_event", argsHash: "h", outcome: "started" });
+		await journal.append({ runId: "run-1", userId: "owner-1", step: 1, idempotencyKey: `run-1:s1:c1:${payloadHashOf("save_event", args, sha256)}`, toolName: "save_event", argsHash: "h", outcome: "started" });
 		// corrida: o `find` do executor ainda não viu a entrada, mas o claim atômico do journal vê
 		const find = journal.find.bind(journal);
 		journal.find = async () => null;
