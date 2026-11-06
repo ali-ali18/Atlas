@@ -43,7 +43,8 @@ export function createV4Memory(input: { botId?: string | null; deps?: V4MemoryDe
 	/** A entrada existe, é do dono e está numa camada que este run alcança. */
 	const reachable = async (userId: string, id: string): Promise<boolean> => {
 		const row = await deps.getById(userId, id);
-		if (!row || (row.userId !== userId && row.userId !== "default")) return false;
+		// Legado `default` é de quem for "default"; para qualquer outro usuário a linha não existe (o db a devolve por compatibilidade).
+		if (!row || row.userId !== userId) return false;
 		if (row.target === "user") return true;
 		return row.target === "memory" && botId !== undefined && row.botId === botId;
 	};
@@ -51,9 +52,14 @@ export function createV4Memory(input: { botId?: string | null; deps?: V4MemoryDe
 	return {
 		async list(userId, layer) {
 			const snapshot = await deps.snapshot(userId, botId);
+			// O snapshot do db inclui linhas legadas `default`; aqui só entra o que é do dono do run (entrada sem dono confirmado sai).
+			const own = async (entries: MemoryEntry[]): Promise<MemoryEntry[]> => {
+				const rows = await Promise.all(entries.map((entry) => deps.getById(userId, entry.id)));
+				return entries.filter((_, index) => rows[index]?.userId === userId);
+			};
 			const items: MemoryItem[] = [];
-			if (layer !== "bot") items.push(...snapshot.user.entries.map((entry) => toItem(entry, "owner")));
-			if (layer !== "owner" && botId) items.push(...snapshot.memory.entries.map((entry) => toItem(entry, "bot")));
+			if (layer !== "bot") items.push(...(await own(snapshot.user.entries)).map((entry) => toItem(entry, "owner")));
+			if (layer !== "owner" && botId) items.push(...(await own(snapshot.memory.entries)).map((entry) => toItem(entry, "bot")));
 			return items.sort((a, b) => a.updatedAt.getTime() - b.updatedAt.getTime());
 		},
 		async add(userId, add: MemoryAddInput) {

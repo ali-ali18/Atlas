@@ -68,7 +68,7 @@ export async function buildV4Registry(input: V4RegistryInput): Promise<V4Registr
 	const botId = input.botId?.trim() || undefined;
 	const deliverables = createV4Deliverables({
 		runId: input.runId,
-		scope: { conversationId: input.conversationId ?? null, botId: botId ?? null, emit: input.emit },
+		scope: { conversationId: input.conversationId ?? null, botId: botId ?? null, emit: input.emit, log },
 		deps: deps.deliverables,
 	});
 	const presetDeps: PresetDeps = {

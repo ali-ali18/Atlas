@@ -1,4 +1,4 @@
-// Gera src/files/deck/icon-data.ts a partir do lucide-react (ISC) já usado em packages/ui.
+// Gera src/deck/icon-data.ts (packages/files) a partir do lucide-react (ISC) já usado em packages/ui.
 // Uso: node scripts/gen-deck-icons.mjs  (ao mudar a lista, atualize DECK_ICON_NAMES em packages/shared/src/deck-free.ts).
 import { createRequire } from "node:module";
 import { readFile, writeFile } from "node:fs/promises";
@@ -29,7 +29,7 @@ for (const name of ICONS) {
 }
 const body = JSON.stringify(out).replace(/\],"/g, '],\n\t"');
 await writeFile(
-	path.join(here, "../src/files/deck/icon-data.ts"),
+	path.join(here, "../src/deck/icon-data.ts"),
 	`// Gerado por scripts/gen-deck-icons.mjs a partir do lucide-react (licença ISC, https://lucide.dev). Não edite à mão.\nexport type IconNode = Array<[string, Record<string, string>]>;\n\nexport const ICON_NODES: Record<string, IconNode> = {\n\t${body.slice(1, -1)},\n};\n`,
 );
 console.log(`${ICONS.length} ícones`);

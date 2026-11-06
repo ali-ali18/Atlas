@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { ChartSpec, ComputerUseEvent, CreateFileInput, PageSpec } from "@workspace/shared";
-import { createV4Deliverables, htmlToPlainText, type V4DeliverablesDeps } from "./deliverables.js";
+import { INSPECT_PAGE_CHARS, INSPECT_PAGE_ROWS, createV4Deliverables, htmlToPlainText, type V4DeliverablesDeps } from "./deliverables.js";
 
 type Stored = { id: string; userId: string; kind: string; runId?: string | null; conversationId?: string | null; meta: Record<string, unknown>; bytes: Uint8Array };
 
@@ -37,7 +37,7 @@ function harness(options: { preview?: Awaited<ReturnType<V4DeliverablesDeps["pre
 	};
 	const conversationId = options.conversationId === undefined ? "conv-1" : options.conversationId;
 	const built = createV4Deliverables({ runId: "run-1", scope: { conversationId, botId: options.botId === undefined ? "bot-1" : options.botId, emit: (event) => void emitted.push(event) }, deps });
-	return { ...built, artifacts, cards, emitted, pages };
+	return { ...built, deps, artifacts, cards, emitted, pages };
 }
 
 const fileInput = (over: Partial<CreateFileInput> = {}): CreateFileInput => ({ filename: "nota.md", format: "text", ext: "md", content: "# Oi", ...over });
@@ -84,8 +84,8 @@ test("inspect: só artefato do tipo arquivo; planilha, docx e binário", async (
 	const sheet = harness({ preview: { kind: "sheets", sheets: [{ name: "A", rows: [["1", "2"]], truncated: true }] } });
 	const created = await sheet.ports.files.create("user-a", "run-1", fileInput({ filename: "p.xlsx", format: "xlsx", ext: "xlsx" }));
 	const view = await sheet.ports.files.inspect("user-a", created.id);
-	assert.deepEqual(view?.sheets, [{ name: "A", rows: [["1", "2"]], truncated: true }]);
-	assert.equal(view?.truncated, true);
+	assert.deepEqual(view?.sheets, [{ name: "A", rows: [["1", "2"]], startRow: 1, totalRows: 1, truncated: false }]);
+	assert.equal(view?.truncated, false);
 
 	const docx = harness({ preview: { kind: "html", html: "<h1>Título</h1><p>Um &amp; dois</p>" } });
 	const doc = await docx.ports.files.create("user-a", "run-1", fileInput({ filename: "d.docx", format: "docx", ext: "docx" }));
@@ -115,6 +115,9 @@ test("gráfico: id estável pelo conteúdo (refazer não duplica o cartão) e ex
 	assert.equal(first.id, again.id);
 	assert.notEqual(first.id, other.id);
 	assert.match(first.id, /^run-1:chart:[0-9a-f]{12}$/);
+	// Chamado de novo no mesmo run: uma gravação e um evento por gráfico distinto (auditoria F2, B3/T1).
+	assert.equal(h.cards.filter((c) => c.event.type === "chart").length, 2);
+	assert.equal(h.emitted.filter((e) => e.type === "chart").length, 2);
 	await assert.rejects(harness({ conversationId: null }).ports.charts.save("user-a", "run-1", spec), /in the conversation/);
 });
 
@@ -135,4 +138,51 @@ test("painel: createPage devolvendo null (bot de outro dono) vira erro, sem cart
 	const none = createV4Deliverables({ runId: "run-1", scope: { conversationId: "conv-1", botId: "bot-de-outro", emit: () => undefined }, deps });
 	await assert.rejects(none.ports.pages.save("user-a", "run-1", { v: 2, title: "x", root: {} } as unknown as PageSpec), /Could not create the panel/);
 	assert.equal(h.cards.length, 0);
+});
+
+test("cartão que falha ao gravar vai ao log e não derruba a entrega (auditoria F2, B4/R3)", async () => {
+	const logs: string[] = [];
+	const emitted: ComputerUseEvent[] = [];
+	const deps = { ...harness().deps, persistCard: async () => { throw new Error("db fora do ar"); } };
+	const built = createV4Deliverables({ runId: "run-1", scope: { conversationId: "conv-1", botId: "bot-1", emit: (e) => void emitted.push(e), log: (m) => void logs.push(m) }, deps });
+	const spec = { type: "bar", x: "m", series: [{ key: "v", label: "V" }], data: [{ m: "jan", v: 1 }] } as unknown as ChartSpec;
+	await built.ports.charts.save("user-a", "run-1", spec);
+	assert.equal(emitted.length, 1);
+	assert.equal(logs.length, 1);
+	assert.match(logs[0] ?? "", /chart.*db fora do ar/);
+});
+
+test("htmlToPlainText decodifica entidades numéricas e nomeadas e mantém as quebras (auditoria F2, R2)", () => {
+	assert.equal(htmlToPlainText("<p>It&#39;s 1 &ndash; 2 &amp; &lt;b&gt;</p><p>fim&nbsp;ok</p>"), "It's 1 – 2 & <b>\nfim ok");
+});
+
+test("inspect em partes: duas leituras de texto cobrem o arquivo inteiro, sem corte (auditoria F2, C2)", async () => {
+	const full = Array.from({ length: INSPECT_PAGE_CHARS + 5000 }, (_, i) => String.fromCharCode(97 + (i % 26))).join("");
+	const h = harness({ preview: { kind: "text", text: full, language: "text", truncated: false } });
+	const { id } = await h.ports.files.create("user-a", "run-1", fileInput());
+	const first = await h.ports.files.inspect("user-a", id);
+	assert.deepEqual(first?.textRange, { start: 0, end: INSPECT_PAGE_CHARS, total: full.length });
+	assert.equal(first?.truncated, true);
+	const second = await h.ports.files.inspect("user-a", id, { offset: first?.textRange?.end });
+	assert.deepEqual(second?.textRange, { start: INSPECT_PAGE_CHARS, end: full.length, total: full.length });
+	assert.equal(second?.truncated, false);
+	assert.equal((first?.text ?? "") + (second?.text ?? ""), full);
+	await assert.rejects(h.ports.files.inspect("user-a", id, { offset: full.length }), /past the end/);
+	await assert.rejects(h.ports.files.inspect("user-a", id, { sheet: "A" }), /spreadsheets only/);
+});
+
+test("inspect em partes: planilha por aba e faixa de linhas; aba inexistente lista as abas", async () => {
+	const rows = Array.from({ length: INSPECT_PAGE_ROWS + 50 }, (_, i) => [String(i + 1)]);
+	const h = harness({ preview: { kind: "sheets", sheets: [{ name: "Dados", rows, truncated: false }, { name: "Outra", rows: [["x"]], truncated: false }] } });
+	const { id } = await h.ports.files.create("user-a", "run-1", fileInput({ filename: "p.xlsx", format: "xlsx", ext: "xlsx" }));
+	const all = await h.ports.files.inspect("user-a", id);
+	assert.deepEqual(all?.sheets?.map((s) => [s.name, s.rows.length, s.truncated]), [["Dados", INSPECT_PAGE_ROWS, true], ["Outra", 1, false]]);
+	const rest = await h.ports.files.inspect("user-a", id, { sheet: "Dados", startRow: INSPECT_PAGE_ROWS + 1 });
+	assert.equal(rest?.sheets?.[0]?.rows.length, 50);
+	assert.equal(rest?.sheets?.[0]?.rows[0]?.[0], String(INSPECT_PAGE_ROWS + 1));
+	assert.equal(rest?.truncated, false);
+	const covered = [...(all?.sheets?.[0]?.rows ?? []), ...(rest?.sheets?.[0]?.rows ?? [])];
+	assert.deepEqual(covered, rows);
+	await assert.rejects(h.ports.files.inspect("user-a", id, { sheet: "Nada" }), /Sheets: Dados, Outra/);
+	await assert.rejects(h.ports.files.inspect("user-a", id, { offset: 3 }), /text files only/);
 });

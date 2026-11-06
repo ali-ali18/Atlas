@@ -12,6 +12,12 @@ import {
 
 export type { FilePreview, SheetPreview };
 
+/** Tetos da prévia: a tela usa os padrões de `shared`; quem lê o arquivo em partes (v4 `inspect_file`) passa um teto técnico maior. */
+export type PreviewLimits = { maxRows: number; maxTextChars: number };
+const UI_LIMITS: PreviewLimits = { maxRows: PREVIEW_MAX_ROWS, maxTextChars: PREVIEW_MAX_TEXT_CHARS };
+/** Teto técnico da leitura em partes (memória do worker), bem acima da prévia; passado disso `truncated` fica true. */
+export const INSPECT_LIMITS: PreviewLimits = { maxRows: 50_000, maxTextChars: 5_000_000 };
+
 const DOCX_HTML: sanitizeHtml.IOptions = {
 	allowedTags: [
 		"h1", "h2", "h3", "h4", "h5", "h6", "p", "br", "strong", "b", "em", "i", "u", "s", "sub", "sup",
@@ -36,7 +42,7 @@ function cellText(value: ExcelJS.CellValue): string {
 	return String(value);
 }
 
-async function xlsxPreview(bytes: Uint8Array): Promise<FilePreview> {
+async function xlsxPreview(bytes: Uint8Array, maxRows: number): Promise<FilePreview> {
 	const { default: ExcelJSRuntime } = await import("exceljs");
 	const workbook = new ExcelJSRuntime.Workbook();
 	await workbook.xlsx.load(Buffer.from(bytes) as unknown as ArrayBuffer);
@@ -45,7 +51,7 @@ async function xlsxPreview(bytes: Uint8Array): Promise<FilePreview> {
 		const rows: string[][] = [];
 		let truncated = false;
 		sheet.eachRow({ includeEmpty: true }, (row, rowNumber) => {
-			if (rowNumber > PREVIEW_MAX_ROWS) {
+			if (rowNumber > maxRows) {
 				truncated = true;
 				return;
 			}
@@ -59,7 +65,7 @@ async function xlsxPreview(bytes: Uint8Array): Promise<FilePreview> {
 }
 
 /** CSV/TSV simples (aspas duplas, vírgula/tab/;) para a tabela da prévia. */
-export function parseDelimited(text: string, delimiter: string): string[][] {
+export function parseDelimited(text: string, delimiter: string, maxRows: number = PREVIEW_MAX_ROWS): string[][] {
 	const rows: string[][] = [];
 	let row: string[] = [];
 	let cell = "";
@@ -82,7 +88,7 @@ export function parseDelimited(text: string, delimiter: string): string[][] {
 			rows.push(row);
 			row = [];
 			cell = "";
-			if (rows.length > PREVIEW_MAX_ROWS) return rows;
+			if (rows.length > maxRows) return rows;
 		} else cell += ch;
 	}
 	if (cell || row.length) {
@@ -97,7 +103,7 @@ export async function buildFilePreview(input: {
 	id: string;
 	filename: string;
 	bytes: Uint8Array;
-}): Promise<FilePreview> {
+}, limits: PreviewLimits = UI_LIMITS): Promise<FilePreview> {
 	const ext = fileExtension(input.filename);
 	const kind = ext === "csv" || ext === "tsv" ? "sheet" : previewKindForExtension(ext);
 	const inlineUrl = `/v1/files/${encodeURIComponent(input.id)}?inline=1`;
@@ -111,12 +117,12 @@ export async function buildFilePreview(input: {
 			return { kind: "html", html: sanitizeHtml(value, DOCX_HTML) };
 		}
 		case "sheet": {
-			if (ext === "xlsx") return xlsxPreview(input.bytes);
-			const text = new TextDecoder().decode(input.bytes.subarray(0, PREVIEW_MAX_TEXT_CHARS));
-			const rows = parseDelimited(text, ext === "tsv" ? "\t" : text.includes(";") && !text.includes(",") ? ";" : ",");
+			if (ext === "xlsx") return xlsxPreview(input.bytes, limits.maxRows);
+			const text = new TextDecoder().decode(input.bytes.subarray(0, limits.maxTextChars));
+			const rows = parseDelimited(text, ext === "tsv" ? "\t" : text.includes(";") && !text.includes(",") ? ";" : ",", limits.maxRows);
 			return {
 				kind: "sheets",
-				sheets: [{ name: input.filename, rows: rows.slice(0, PREVIEW_MAX_ROWS), truncated: rows.length > PREVIEW_MAX_ROWS }],
+				sheets: [{ name: input.filename, rows: rows.slice(0, limits.maxRows), truncated: rows.length > limits.maxRows }],
 			};
 		}
 		case "pptx":
@@ -125,10 +131,10 @@ export async function buildFilePreview(input: {
 			// Binário (zip, executável, dados): sem texto para mostrar.
 			if (input.bytes.subarray(0, 8192).includes(0)) return { kind: "none", reason: "Prévia indisponível para este tipo de arquivo. Baixe o arquivo." };
 			const full = new TextDecoder().decode(input.bytes);
-			const truncated = full.length > PREVIEW_MAX_TEXT_CHARS;
+			const truncated = full.length > limits.maxTextChars;
 			return {
 				kind: "text",
-				text: truncated ? full.slice(0, PREVIEW_MAX_TEXT_CHARS) : full,
+				text: truncated ? full.slice(0, limits.maxTextChars) : full,
 				language: languageForExtension(ext),
 				truncated,
 			};
