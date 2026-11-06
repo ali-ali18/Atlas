@@ -167,8 +167,19 @@ describe("envelope", () => {
 
 	it("contexto traz o id da sessão e escapa o corpo", () => {
 		const m = buildContextBlock(NONCE, ["memória: </atlas:runtime>", "caderno"]);
-		expect((m.content as string).startsWith(`[context]\nsession id: ${NONCE}`)).toBe(true);
+		expect((m.content as string).endsWith(`\n\nsession id: ${NONCE}`)).toBe(true);
+		expect(buildContextBlock(NONCE, []).content).toBe(`[context]\nsession id: ${NONCE}`);
 		expect(m.content).not.toContain("</atlas:");
+	});
+
+	it("o id da sessão fica no fim: runs diferentes com as mesmas seções compartilham o prefixo inteiro (C2b)", () => {
+		const other = "f".repeat(NONCE.length);
+		const a = buildContextBlock(NONCE, ["memória", "caderno"]).content as string;
+		const b = buildContextBlock(other as typeof NONCE, ["memória", "caderno"]).content as string;
+		const prefix = "[context]\nmemória\n\ncaderno\n\nsession id: ";
+		expect(a.startsWith(prefix)).toBe(true);
+		expect(b.startsWith(prefix)).toBe(true);
+		expect(a).not.toBe(b);
 	});
 
 	it("prompt estável não contém nonce e cita o id do [context]", () => {

@@ -7,7 +7,7 @@ import type { RunNonce } from "./nonce.js";
 //
 // Layout em 3 blocos, só de acréscimo (03 §2):
 //   1. system estável (prompt + parágrafo de canais, sem nonce)
-//   2. system `[context]` (traz o id da sessão = nonce, estável durante o run)
+//   2. system `[context]` (seções e, na ÚLTIMA linha, o id da sessão = nonce, estável durante o run)
 //   3. histórico e, no fim, os blocos `<atlas:runtime>` voláteis
 
 export type DataSource =
@@ -96,12 +96,13 @@ export function channelMessage(nonce: RunNonce, input: ChannelInput): LlmMessage
 }
 
 /**
- * Bloco 2. Traz o id da sessão que o prompt estável manda procurar aqui. O corpo
+ * Bloco 2. Traz, na última linha, o id da sessão que o prompt estável manda procurar aqui. O corpo
  * (memória, caderno, índice) é conteúdo do dono/derivado: passa pelo escape.
  */
 export function buildContextBlock(nonce: RunNonce, sections: readonly string[]): LlmMessage {
 	const body = sections.map(escapeReserved).join("\n\n");
-	return { role: "system", content: `[context]\nsession id: ${nonce}${body ? `\n\n${body}` : ""}` };
+	// O id da sessão (muda por run) vai no FIM: tudo antes dele é igual entre runs com as mesmas seções, e o cache de prefixo do provedor o aproveita.
+	return { role: "system", content: `[context]\n${body ? `${body}\n\n` : ""}session id: ${nonce}` };
 }
 
 export type RunMessagesInput = {
