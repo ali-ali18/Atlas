@@ -96,6 +96,12 @@ export type AgendaItemRecord = {
 
 type Row = Prisma.BotFollowupGetPayload<Record<string, never>>;
 
+/**
+ * Valor das colunas JSON da agenda, tipado: só aceita os formatos que a agenda grava (filtro, permissão, último resultado),
+ * então campo que não serializa (Date, undefined, função) vira erro de tipo em vez de `as unknown as` calando o compilador.
+ */
+const toJson = (value: AgendaEventFilter | AgendaGrant | AgendaLastResult): Prisma.InputJsonObject => value;
+
 const isKind = (value: unknown): value is AgendaKind => (AGENDA_KINDS as readonly unknown[]).includes(value);
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -221,8 +227,8 @@ export async function createAgendaItem(input: {
 			intervalMinutes: plan.intervalMinutes,
 			untilAt: plan.untilAt,
 			maxRuns: plan.maxRuns,
-			eventFilterJson: plan.eventFilter ? (plan.eventFilter as Prisma.InputJsonValue) : Prisma.JsonNull,
-			grantJson: input.grant as unknown as Prisma.InputJsonValue,
+			eventFilterJson: plan.eventFilter ? toJson(plan.eventFilter) : Prisma.JsonNull,
+			grantJson: toJson(input.grant),
 		},
 	});
 	return { ok: true, item: toRecord(row)!, duplicate: false };
@@ -440,7 +446,7 @@ export async function recordAgendaResult(input: RecordAgendaResultInput): Promis
 			noChangeStreak: settled.noChangeStreak,
 			attempts: 0,
 			lastError: null,
-			lastResultJson: lastResult as unknown as Prisma.InputJsonValue,
+			lastResultJson: toJson(lastResult),
 			claimedUntil: null,
 			...(settled.dueAt ? { dueAt: settled.dueAt } : { doneAt: now, endReason: settled.endReason }),
 		},
@@ -495,7 +501,7 @@ export async function finalizeAgendaRun(input: { userId: string; runId: string; 
 			noChangeStreak: settled.noChangeStreak,
 			attempts: settled.missingResults,
 			lastError: item.kind === "remind" && input.text.trim() ? null : "run ended without agenda_result",
-			lastResultJson: lastResult as unknown as Prisma.InputJsonValue,
+			lastResultJson: toJson(lastResult),
 			claimedUntil: null,
 			...(settled.dueAt ? { dueAt: settled.dueAt } : { doneAt: now, endReason: settled.endReason }),
 		},
