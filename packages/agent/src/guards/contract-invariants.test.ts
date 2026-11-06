@@ -1,4 +1,5 @@
-import { FakeFileStore, FakeSearch } from "../presets/fakes.js";
+import { createDeliverablesCapability } from "../capabilities-builtin/deliverables/index.js";
+import { FakeDeliverables, FakeFileStore, FakeSearch } from "../presets/fakes.js";
 import { setupPreset } from "../presets/presets.js";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -38,7 +39,9 @@ function allRegisteredTools(): Tool[] {
 	const registry = createCapabilityRegistry([kernelCapability]);
 	const loaded = createLoadedSet(registry);
 	const preset = setupPreset("full", { search: new FakeSearch(), files: new FakeFileStore() });
-	return [...kernelCapability.tools, loaded.useCapabilityTool, ...preset.registry.capabilities.flatMap((c) => c.tools)];
+	// `deliverables` (F2.3) substitui a lite quando as portas existem; as duas são conferidas.
+	const rich = createDeliverablesCapability(new FakeDeliverables().ports());
+	return [...kernelCapability.tools, loaded.useCapabilityTool, ...preset.registry.capabilities.flatMap((c) => c.tools), ...rich.tools];
 }
 
 function listTs(dir: string): string[] {
@@ -85,7 +88,7 @@ describe("A. toda tool registrada declara efeito", () => {
 	const tools = allRegisteredTools();
 
 	it("o registro de teste cobre o kernel de verdade", () => {
-		expect(tools.map((t) => t.name).sort()).toEqual([ASK_OWNER_TOOL, NOTE_READ_TOOL, USE_CAPABILITY_TOOL, "create_file", "web_extract", "web_search"].sort());
+		expect(tools.map((t) => t.name).sort()).toEqual([ASK_OWNER_TOOL, NOTE_READ_TOOL, USE_CAPABILITY_TOOL, "create_file", "create_file", "create_page", "chart", "inspect_file", "web_extract", "web_search"].sort());
 	});
 
 	it("o vocabulário de efeitos do motor é o mesmo de shared", () => {

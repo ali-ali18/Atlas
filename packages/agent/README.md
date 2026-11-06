@@ -14,7 +14,8 @@ Prontos: as **portas** e as guardas (F1.1); na F1.2, as **classes de efeito**, o
 | `contract/` | classes de efeito (`effects.ts`); `executor.ts` (único caminho de toda chamada: efeito → `authorize()` → aprovação → execução); `approval.ts` (cartão por `riskFacts`, token = hash dos argumentos, uso único); `provenance.ts` (taint de fonte não confiável); journal de efeitos e recibos obrigatórios; redação de segredo | sim (a política pura `decide`/mandato mora em `shared`; falta handoff de superfície e o laço que chama o executor) |
 | `tools/` | `defineTool`: efeito obrigatório, args validados pelo zod, resultado `ok`/`erro` tipado, `LlmToolSpec` | sim |
 | `channels/` | envelopes: fala do usuário (limpa), sistema (`<atlas:runtime id=nonce>`), dado não confiável (`<data … trust="untrusted">`), escape determinístico, parágrafo de canais do prompt estável. O nonce vai no `[context]`, não no prompt estável (cache) | sim |
-| `capabilities/` | `defineCapability`, registro, índice de uma linha, carga só de acréscimo (`use_capability`), ganchos tipados. Uma pasta por feature virá nas fases seguintes | sim (o mecanismo; sem capacidades concretas) |
+| `capabilities/` | `defineCapability` (com `instructions` lazy, devolvidas no `use_capability`), registro, índice de uma linha, carga só de acréscimo, ganchos tipados | sim |
+| `capabilities-builtin/` | uma pasta por feature: `deliverables` (F2.3: `create_file`, `create_page`, `chart`, `inspect_file` + moldes ABNT/relatório/deck/planilha lazy; portas em `ports/deliverables.ts`, sem ligar no worker ainda) | parcial |
 | `agenda/` | lembrete, vigia, intenção por evento | não |
 | `memory/` | perfil, caderno, sessões | não |
 | `prompt/` | contrato de trabalho do prompt estável (`WORK_CONTRACT_PROMPT`) e `buildStablePrompt(registry)`: contrato, canais e índice de capacidades, ordem fixa, sem data nem nonce; o kernel usa quando o run não traz `stableSystem` | sim |

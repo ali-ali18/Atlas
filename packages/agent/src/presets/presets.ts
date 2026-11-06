@@ -2,6 +2,8 @@
 // vai no prompt estável. `minimal` é o preset do teste de fumaça e do eval; `full` cresce com as fases.
 import type { CapabilityRegistry } from "../capabilities/registry.js";
 import { createCapabilityRegistry } from "../capabilities/registry.js";
+import { createDeliverablesCapability } from "../capabilities-builtin/deliverables/index.js";
+import type { DeliverablePorts } from "../ports/deliverables.js";
 import type { FileStore } from "../ports/file-store.js";
 import type { Search } from "../ports/search.js";
 import { buildStablePrompt } from "../prompt/work-contract.js";
@@ -26,7 +28,16 @@ export const PRESETS: Readonly<Record<PresetId, AgentPreset>> = Object.freeze({
 	full: Object.freeze({ id: "full", capabilities: Object.freeze(["web", "deliverables-lite"] as const), workContract: true }),
 });
 
-export type PresetDeps = { search: Search; files: FileStore };
+export type PresetDeps = {
+	search: Search;
+	files: FileStore;
+	/**
+	 * Portas das entregas ricas (F2.3). Com elas, a capacidade lazy `deliverables` (docx, pdf, xlsx, pptx, painel, gráfico)
+	 * entra no lugar da `deliverables-lite`; sem elas, o preset segue com a versão mínima de texto (o worker real
+	 * só liga as portas quando o adaptador de `@workspace/files` existir).
+	 */
+	deliverables?: DeliverablePorts;
+};
 
 export function isPresetId(value: unknown): value is PresetId {
 	return typeof value === "string" && (PRESET_IDS as readonly string[]).includes(value);
@@ -37,7 +48,9 @@ export function buildPresetRegistry(preset: AgentPreset, deps: PresetDeps): Capa
 		web: () => createWebCapability(deps.search),
 		"deliverables-lite": () => createDeliverablesLiteCapability(deps.files),
 	};
-	return createCapabilityRegistry(preset.capabilities.map((id) => factories[id]()));
+	const rich = deps.deliverables;
+	const capabilities = preset.capabilities.map((id) => (id === "deliverables-lite" && rich ? createDeliverablesCapability(rich) : factories[id]()));
+	return createCapabilityRegistry(capabilities);
 }
 
 /** Prompt estável do preset: sem contrato de trabalho no `minimal`. */

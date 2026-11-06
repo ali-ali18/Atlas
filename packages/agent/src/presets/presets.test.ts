@@ -5,7 +5,7 @@ import { defineTool } from "../tools/define-tool.js";
 import { kernelHarness, reply, call } from "../testing/kernel-fakes.js";
 import { fakeToolContext } from "../testing.js";
 import { WORK_CONTRACT_PROMPT } from "../prompt/work-contract.js";
-import { FakeFileStore, FakeSearch } from "./fakes.js";
+import { FakeDeliverables, FakeFileStore, FakeSearch } from "./fakes.js";
 import { buildPresetRegistry, isPresetId, PRESETS, setupPreset } from "./presets.js";
 import { createDeliverablesLiteCapability } from "./deliverables-lite.js";
 import { createWebCapability } from "./web.js";
@@ -33,6 +33,21 @@ describe("presets", () => {
 		expect(result.status).toBe("done");
 		expect(JSON.stringify(h.llm.requests[0]?.messages)).not.toContain("Work contract");
 		expect(h.llm.requests[0]?.tools?.map((t) => t.name).sort()).toEqual(expect.arrayContaining(["create_file", "web_extract", "web_search"]));
+	});
+});
+
+describe("preset com entregas ricas", () => {
+	it("com as portas, a capacidade lazy deliverables substitui a deliverables-lite (sem tool create_file no primeiro passo)", async () => {
+		const withRich = { ...deps(), deliverables: new FakeDeliverables().ports() };
+		const registry = buildPresetRegistry(PRESETS.full, withRich);
+		expect(registry.ids()).toEqual(["deliverables", "web"]);
+		expect(registry.core().map((c) => c.id)).toEqual(["web"]);
+		expect(registry.toolByName("create_file")).toBeDefined();
+		const setup = setupPreset("full", withRich);
+		expect(setup.stableSystem).toContain("- deliverables:");
+		const h = kernelHarness([reply({ text: "Bom dia!" })], { capabilities: [...setup.registry.capabilities] });
+		await h.run({ input: { stableSystem: setup.stableSystem, contextSections: [], history: [{ kind: "owner", text: "Bom dia" }] } });
+		expect(h.llm.requests[0]?.tools?.map((t) => t.name)).not.toContain("create_file");
 	});
 });
 
