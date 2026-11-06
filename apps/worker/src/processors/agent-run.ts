@@ -143,7 +143,7 @@ import {
 import { createV4Llm, runEngineV4, vaultBackendFromService } from "../engine-v4.js";
 import { earlyWallMs, engineDefaultFromEnv, engineV4GateFromEnv, pickRunEngine, resolveRunLimits, runSelectedEngine } from "../engine-choice.js";
 import { getVaultService, type RunComputerUseResult } from "@workspace/agent-runtime";
-import type { BullLikeQueue } from "@workspace/agent";
+import { createSseMapper, type BullLikeQueue } from "@workspace/agent";
 import { isReadOnlyConnectorOrigin, budgetStopFallbackText, isBotConfigEventObjective, createReviewerClient, resolveMaintenanceCandidates } from "@workspace/agent-runtime";
 import { runToolFilter } from "../run-tool-filter.js";
 import { briefDeliveryDeps, deliverBriefFailure, deliverDailyBrief, findRoutineRunIdWithRetry, isDetachedBriefRun } from "../daily-brief.js";
@@ -1238,6 +1238,7 @@ async function executeLeasedRun(ctx: {
 			llm: createV4Llm({ model: run.model, streamChat: providers.streamChat, openRouterKey: apiKey, contextWindow: (modelId) => providers.capabilities(modelId).then((caps) => caps.contextTokens, () => null) }),
 			lease,
 			persistEvent: emit,
+			mapEvent: ((mapper) => (event) => mapper.mapRunEvent(event))(createSseMapper({ runId, model: run.model, language: systemLanguage })),
 			limits: { ...(effectiveCostCap !== undefined ? { ownerMaxUsd: effectiveCostCap } : {}), unattended: !(run.origin === "chat" && readRunHumanTurn(run)) },
 			ownerPresent: run.origin === "chat" && readRunHumanTurn(run),
 			signal: aborter.signal,
