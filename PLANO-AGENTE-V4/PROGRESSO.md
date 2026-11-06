@@ -108,9 +108,9 @@
 - [x] F3.A (06/11: 8 achados, 1 alto; todos corrigidos; reauditoria com 2 baixos, 1 corrigido) Auditoria: 5 lentes, verificação, correções com teste, reauditoria e `auditorias/F3.md` fechado.
 
 ### F4: Agenda
-- [ ] F4.1 Migration aditiva em `BotFollowup` e funções puras (`planAgendaItem`, `nextWatchDelay`, `matchEventFilter`).
-- [ ] F4.2 Tools `remind_me`, `watch`, `on_event` e `agenda_result`.
-- [ ] F4.3 Worker de wake: contrato silencioso, freios e parada após 2 avisos ignorados.
+- [x] F4.1 (06/11: colunas `agendaKind`, `intervalMinutes`, `untilAt`, `maxRuns`, `runCount`, `eventFilterJson`, `noChangeStreak`, `lastResultJson`, `lastNoticeAt`, `ignoredStreak`, `grantJson`, `endReason`; coluna separada `agendaKind` em vez de estender `kind`, para o v2 não tratar item novo como lembrete; `shared/agenda.ts` com testes de fuso, virada de dia e DST) Migration aditiva em `BotFollowup` e funções puras (`planAgendaItem`, `nextWatchDelay`, `matchEventFilter`).
+- [x] F4.2 (06/11: capacidade lazy `agenda` no preset full, `agenda-run` só nos runs de agenda, criação silenciosa, adaptador real no worker escopado por dono com teste IDOR; kernel ganhou `endsRun`) Tools `remind_me`, `watch`, `on_event` e `agenda_result`.
+- [x] F4.3 (06/11: varredura no padrão do modo proativo do v2, só com `ATLAS_ENGINE_V4`; run proativo ligado a item vai ao v4; ignorado = dono não abriu a conversa nem escreveu depois do aviso; run sem `agenda_result` não fala, exceto lembrete) Worker de wake: contrato silencioso, freios e parada após 2 avisos ignorados.
 - [ ] F4.4 Seção "Agenda" na Biblioteca (com prévias).
 - [ ] F4.A Auditoria: 5 lentes, verificação, correções com teste, reauditoria e `auditorias/F4.md` fechado.
 
