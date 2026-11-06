@@ -463,6 +463,7 @@ model AgentRun {
   /// Motor v4: journal e recibos (tabelas novas; sem coluna em `agent_runs`).
   v4Journal  AgentJournalEntry[]
   v4Receipts AgentReceipt[]
+  v4Requests AgentV4Request[]
 
   @@index([conversationId, status])
   @@index([userId, status])
@@ -1609,4 +1610,37 @@ model AgentConversationDeclined {
 
   @@id([userId, conversationId, label])
   @@map("agent_conversation_declined")
+}
+
+/// Pedido do v4 que espera o dono (aprovação, handoff) ou resposta dada a um cartão de pergunta (`ask_owner`).
+/// A chave é (dono, run, tipo, chave): `approval` = `ApprovalRequest.id`, `handoff` = id da chamada, `card` = id do cartão.
+/// A decisão do dono grava aqui (uma vez, por transição atômica de estado) e o processador monta o `ResumeInput` / as
+/// `cardResponses` do kernel a partir destas linhas.
+model AgentV4Request {
+  id             String    @id @default(cuid())
+  userId         String
+  runId          String
+  run            AgentRun  @relation(fields: [runId], references: [id], onDelete: Cascade)
+  conversationId String?
+  /// approval | handoff | card.
+  kind           String
+  key            String
+  /// Chamada estacionada (approval e handoff).
+  callId         String?
+  toolName       String?
+  /// Hash dos argumentos reais aprovados (só approval): o grant do kernel o repete.
+  payloadHash    String?
+  /// approval/handoff: pending | approved | denied | done | expired. card: answered | dismissed.
+  state          String
+  /// Prazo de resposta (approval e handoff); passado dele o pedido vira `expired`.
+  expiresAt      DateTime?
+  decidedAt      DateTime?
+  /// card: o run seguinte já levou a resposta ao kernel.
+  consumedAt     DateTime?
+  createdAt      DateTime  @default(now())
+
+  @@unique([userId, runId, kind, key])
+  @@index([runId])
+  @@index([userId, conversationId, kind, state])
+  @@map("agent_v4_requests")
 }
