@@ -171,3 +171,45 @@ describe("carregamento recursivo", () => {
 		await expect(loadScenarios(root, { recursive: true })).rejects.toThrow(/gold[\\/]email[\\/]01-ruim\.json/);
 	});
 });
+
+describe("regex validada ao carregar (auditoria F0, B5)", () => {
+	const withExpect = (expectItem: unknown) => parseScenario({ ...minimal, expect: [expectItem] });
+
+	it.each([
+		["toolPattern", { type: "tool_called", toolPattern: "mcp__(gmail" }],
+		["pattern de texto", { type: "text_contains", pattern: "[abc" }],
+		["pattern de texto negativo", { type: "text_not_contains", pattern: "a**", ignoreCase: true }],
+		["no_model_note", { type: "no_model_note", pattern: "(?<x" }],
+		["matches em args", { type: "tool_called", tool: "t", args: { titulo: { matches: "(" } } }],
+		["matches no spec do gráfico", { type: "chart", spec: { type: { matches: "[" } } }],
+		["toolPattern dentro de any_of", { type: "any_of", checks: [{ type: "tool_called", tool: "a" }, { type: "tool_called", toolPattern: "(" }] }],
+	])("%s inválida: o cenário não carrega e o erro diz qual", (_name, item) => {
+		const parsed = withExpect(item);
+		expect(parsed.ok).toBe(false);
+		if (!parsed.ok) expect(parsed.error).toMatch(/regex inválida/);
+	});
+
+	it("matches inválido em fixture e em resposta de conector também falha", () => {
+		const fixture = parseScenario({ ...minimal, tools: { fixtures: [{ tool: "t", args: { q: { matches: "(" } }, result: { summary: "x" } }] } });
+		expect(fixture.ok).toBe(false);
+		if (!fixture.ok) expect(fixture.error).toMatch(/fixtures\(t\).*regex inválida/);
+		const connector = parseScenario({ ...minimal, tools: { connectors: [{ slug: "c", name: "C", tools: [{ name: "t", description: "d", responses: [{ args: { q: { matches: "[" } }, text: "x" }] }] }] } });
+		expect(connector.ok).toBe(false);
+		if (!connector.ok) expect(connector.error).toMatch(/connectors\(c\.t\).*regex inválida/);
+	});
+
+	it("regex válida segue aceita", () => {
+		expect(withExpect({ type: "tool_called", toolPattern: "^mcp__gmail__", args: { q: { matches: "\\d{2}" } } }).ok).toBe(true);
+		expect(withExpect({ type: "text_contains", pattern: "(oi|olá)", ignoreCase: true }).ok).toBe(true);
+	});
+
+	it("loadScenarios cita o arquivo", async () => {
+		const root = await mkdtemp(join(tmpdir(), "evals-regex-"));
+		try {
+			await writeFile(join(root, "ruim.json"), JSON.stringify({ ...minimal, expect: [{ type: "text_contains", pattern: "[" }] }));
+			await expect(loadScenarios(root)).rejects.toThrow(/ruim\.json: expect: .*regex inválida/);
+		} finally {
+			await rm(root, { recursive: true, force: true });
+		}
+	});
+});

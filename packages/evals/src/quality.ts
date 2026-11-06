@@ -1,5 +1,5 @@
 import type { Scenario, ScenarioBotLanguage } from "./scenario.js";
-import type { Trajectory } from "./trajectory.js";
+import type { RecordedFile, Trajectory } from "./trajectory.js";
 
 /**
  * Rubrica de qualidade com dois juízes (PLANO-AGENTE-V4/04-avaliacao §1). Só existe no eval, nunca no runtime.
@@ -104,36 +104,61 @@ const JUDGE_SYSTEM_TEMPLATE = [
 	'{"completude":{"score":4,"reason":"..."},"fontes":{"score":null,"reason":"..."},"formato":{"score":4,"reason":"..."},"antecipacao":{"score":3,"reason":"..."}}',
 ].join("\n");
 
-const LIMITS = { answer: 6000, request: 1500, historyMessage: 400, historyMessages: 6, toolArgs: 200, toolResult: 240, toolCalls: 30, rubric: 1500 };
+/**
+ * Limites do que o juiz lê. Generosos de propósito: cortar a resposta (ou o documento criado) faz o juiz notar o
+ * começo e perder o fim, e isso é corte por economia (decisão do dono). O que ainda passar do limite NUNCA some em
+ * silêncio: `clipExplicit` mantém começo e fim e escreve "[…N chars omitted…]" no meio.
+ */
+export const LIMITS = { answer: 40_000, request: 20_000, historyMessage: 2000, historyMessages: 8, toolArgs: 1000, toolResult: 2000, toolCalls: 60, rubric: 6000, fileHead: 3000, fileTail: 1000, files: 10 };
+
+/** Mantém o começo (60%) e o fim (40%) e diz quantos caracteres ficaram de fora. Texto dentro do limite passa intacto. */
+export function clipExplicit(text: string, max: number): string {
+	if (text.length <= max) return text;
+	const head = Math.ceil(max * 0.6);
+	const tail = max - head;
+	return `${text.slice(0, head)}\n[…${text.length - head - tail} chars omitted…]\n${tail > 0 ? text.slice(text.length - tail) : ""}`;
+}
 
 const clip = (text: string, max: number): string => (text.length > max ? `${text.slice(0, max)}…` : text);
 /** Impede que o conteúdo feche ou abra as seções do prompt. */
 const defang = (text: string): string => text.replace(/<\/?(request|answer|tools|files|rubric|history)\b[^>]*>/gi, "[tag]");
 
+/** Um arquivo criado: nome, tipo, tamanho e, quando é texto, o começo e o fim do conteúdo (com a omissão explícita). */
+function describeFile(file: RecordedFile): string {
+	const head = `- ${file.filename} (${file.mime}, ${file.size} bytes)`;
+	if (file.text === undefined) return `${head}: binary content, not shown`;
+	const body = clipExplicit(file.text, LIMITS.fileHead + LIMITS.fileTail);
+	// O ambiente guarda até FILE_TEXT_LIMIT caracteres; o que passou disso também é dito, não escondido.
+	return `${head}:\n${body}${file.textOmitted ? `\n[…${file.textOmitted} more chars not stored…]` : ""}`;
+}
+
 /**
- * O que o juiz vê: pedido, resposta final, tools chamadas com resultado curto e arquivos criados.
+ * O que o juiz vê: pedido, resposta final, tools chamadas com resultado, e arquivos criados com o conteúdo.
  * Nunca as verificações esperadas do cenário (`expect`), só a rubrica (orientação da tarefa).
  */
-export function buildJudgePrompt(input: { rubric: string; scenario: Pick<Scenario, "user" | "history">; trajectory: Pick<Trajectory, "text" | "toolCalls" | "toolResults" | "events"> }): string {
+export function buildJudgePrompt(input: { rubric: string; scenario: Pick<Scenario, "user" | "history">; trajectory: Pick<Trajectory, "text" | "toolCalls" | "toolResults" | "events"> & { files?: RecordedFile[] } }): string {
 	const { scenario, trajectory } = input;
 	const history = scenario.history
 		.slice(-LIMITS.historyMessages)
-		.map((message) => `${message.role}: ${clip("content" in message ? (message.content ?? "") : "", LIMITS.historyMessage)}`)
+		.map((message) => `${message.role}: ${clipExplicit("content" in message ? (message.content ?? "") : "", LIMITS.historyMessage)}`)
 		.join("\n");
 	const resultOf = new Map(trajectory.toolResults.map((result) => [result.id, result]));
 	const calls = trajectory.toolCalls.slice(0, LIMITS.toolCalls).map((call) => {
 		const result = resultOf.get(call.id);
-		const outcome = result ? `${result.ok ? "ok" : "ERROR"}: ${clip(result.summary.replace(/\s+/g, " "), LIMITS.toolResult)}` : "(no result)";
-		return `- ${call.name}(${clip(call.argsRaw, LIMITS.toolArgs)}) -> ${outcome}`;
+		const outcome = result ? `${result.ok ? "ok" : "ERROR"}: ${clipExplicit(result.summary.replace(/\s+/g, " "), LIMITS.toolResult)}` : "(no result)";
+		return `- ${call.name}(${clipExplicit(call.argsRaw, LIMITS.toolArgs)}) -> ${outcome}`;
 	});
-	if (trajectory.toolCalls.length > LIMITS.toolCalls) calls.push(`- (+${trajectory.toolCalls.length - LIMITS.toolCalls} more calls)`);
-	const files = trajectory.events.filter((event) => event.type === "file").map((event) => `- ${String(event.filename ?? "file")}`);
+	if (trajectory.toolCalls.length > LIMITS.toolCalls) calls.push(`- (+${trajectory.toolCalls.length - LIMITS.toolCalls} more calls omitted)`);
+	// Com o conteúdo gravado pelo ambiente; sem ele (trajetória antiga), só os nomes dos eventos de arquivo.
+	const recorded = trajectory.files ?? [];
+	const files = recorded.length > 0 ? recorded.slice(0, LIMITS.files).map(describeFile) : trajectory.events.filter((event) => event.type === "file").map((event) => `- ${String(event.filename ?? "file")}`);
+	if (recorded.length > LIMITS.files) files.push(`- (+${recorded.length - LIMITS.files} more files omitted)`);
 	return [
-		`<rubric>\n${defang(clip(input.rubric, LIMITS.rubric))}\n</rubric>`,
-		`<request>\n${defang([history ? `Earlier messages:\n${history}` : "", `user: ${clip(scenario.user, LIMITS.request)}`].filter(Boolean).join("\n"))}\n</request>`,
+		`<rubric>\n${defang(clipExplicit(input.rubric, LIMITS.rubric))}\n</rubric>`,
+		`<request>\n${defang([history ? `Earlier messages:\n${history}` : "", `user: ${clipExplicit(scenario.user, LIMITS.request)}`].filter(Boolean).join("\n"))}\n</request>`,
 		`<tools>\n${defang(calls.join("\n") || "(none)")}\n</tools>`,
 		`<files>\n${defang(files.join("\n") || "(none)")}\n</files>`,
-		`<answer>\n${defang(clip(trajectory.text, LIMITS.answer))}\n</answer>`,
+		`<answer>\n${defang(clipExplicit(trajectory.text, LIMITS.answer))}\n</answer>`,
 	].join("\n\n");
 }
 
@@ -143,27 +168,69 @@ export function buildJudgePrompt(input: { rubric: string; scenario: Pick<Scenari
 
 const invalid = (error: string): RubricVerdict => ({ status: "invalid", error });
 
+/**
+ * Objetos `{...}` de nível superior do texto, em ordem, achados por contagem de chaves que respeita strings JSON.
+ * Aguenta ruído antes e depois da resposta (cerca de código, "{}" solto, comentário com chaves), que o par
+ * primeiro-`{`/último-`}` engolia junto e quebrava o parse.
+ */
+export function topLevelObjects(text: string): string[] {
+	const out: string[] = [];
+	let depth = 0;
+	let start = -1;
+	let inString = false;
+	let escaped = false;
+	for (let index = 0; index < text.length; index += 1) {
+		const char = text[index]!;
+		if (inString) {
+			if (escaped) escaped = false;
+			else if (char === "\\") escaped = true;
+			else if (char === '"') inString = false;
+			continue;
+		}
+		if (char === '"' && depth > 0) inString = true;
+		else if (char === "{") {
+			if (depth === 0) start = index;
+			depth += 1;
+		} else if (char === "}" && depth > 0) {
+			depth -= 1;
+			if (depth === 0) out.push(text.slice(start, index + 1));
+		}
+	}
+	return out;
+}
+
+/** O objeto da rubrica entre os candidatos: o 1º que traz alguma dimensão; senão o 1º que é um objeto JSON. */
+function pickRubricObject(text: string): unknown {
+	let firstObject: unknown;
+	for (const candidate of topLevelObjects(text)) {
+		let value: unknown;
+		try {
+			value = JSON.parse(candidate);
+		} catch {
+			continue;
+		}
+		if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+		if (DIMENSIONS.some((dimension) => dimension in (value as Record<string, unknown>))) return value;
+		firstObject ??= value;
+	}
+	return firstObject;
+}
+
 /** Aceita o JSON puro ou dentro de cerca/ruído; qualquer desvio do esquema vira `invalid`, nunca uma nota. */
 export function parseRubricAnswer(content: string | null | undefined): RubricVerdict {
 	const text = (content ?? "").trim();
 	if (!text) return invalid("resposta vazia");
-	const start = text.indexOf("{");
-	const end = text.lastIndexOf("}");
-	if (start < 0 || end <= start) return invalid("sem JSON");
-	let parsed: unknown;
-	try {
-		parsed = JSON.parse(text.slice(start, end + 1));
-	} catch {
-		return invalid("JSON inválido");
-	}
-	if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return invalid("JSON não é um objeto");
+	if (!text.includes("{")) return invalid("sem JSON");
+	const parsed = pickRubricObject(text);
+	if (parsed === undefined) return invalid("JSON inválido");
 	const record = parsed as Record<string, unknown>;
 	const scores = {} as RubricScores;
 	for (const dimension of DIMENSIONS) {
 		const entry = record[dimension];
 		if (!entry || typeof entry !== "object" || Array.isArray(entry)) return invalid(`falta a dimensão ${dimension}`);
 		const { score, reason } = entry as { score?: unknown; reason?: unknown };
-		if (reason !== undefined && typeof reason !== "string") return invalid(`${dimension}: reason não é texto`);
+		// `reason: null` é só justificativa ausente (modelos escrevem assim em fontes/antecipação N/A), não é nota inválida.
+		if (reason !== undefined && reason !== null && typeof reason !== "string") return invalid(`${dimension}: reason não é texto`);
 		let value: number | null;
 		if (score === null || (typeof score === "string" && /^(n\/?a|na)$/i.test(score.trim()))) {
 			if (!NA_ALLOWED.includes(dimension)) return invalid(`${dimension}: não pode ser N/A`);
@@ -173,7 +240,7 @@ export function parseRubricAnswer(content: string | null | undefined): RubricVer
 		} else {
 			return invalid(`${dimension}: nota fora de 1-5 (${typeof score === "number" ? score : typeof score})`);
 		}
-		scores[dimension] = { score: value, reason: clip((reason as string | undefined)?.replace(/\s+/g, " ").trim() ?? "", 200) };
+		scores[dimension] = { score: value, reason: clip((typeof reason === "string" ? reason : "").replace(/\s+/g, " ").trim(), 200) };
 	}
 	return { status: "ok", scores };
 }

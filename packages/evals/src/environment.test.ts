@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { buildEnvironment, UNMOCKED_SUMMARY } from "./environment.js";
+import { buildEnvironment, evalNowText, UNMOCKED_SUMMARY } from "./environment.js";
 import { runEvaluation } from "./runner.js";
 import { parseScenario } from "./scenario.js";
 import { strongMatcher } from "./verdict.js";
 
-function envWith(fixtures: unknown[]) {
-	const parsed = parseScenario({ version: 1, id: "t", title: "t", bot: { name: "Ada" }, user: "oi", tools: { fixtures }, expect: [{ type: "completed" }] });
+function envWith(fixtures: unknown[], extra: Record<string, unknown> = {}) {
+	const parsed = parseScenario({ version: 1, id: "t", title: "t", bot: { name: "Ada" }, user: "oi", tools: { fixtures }, expect: [{ type: "completed" }], ...extra });
 	if (!parsed.ok) throw new Error(parsed.error);
 	return buildEnvironment(parsed.scenario);
 }
@@ -71,7 +71,8 @@ describe("respostas neutras de consulta", () => {
 		const env = envWith([{ tool: "memory_search", result: { ok: true, summary: "prefere Floratta" } }]);
 		expect(await call(env, "c1", "memory_search", { query: "perfume" })).toEqual({ ok: true, summary: "prefere Floratta" });
 		expect(await call(env, "c2", "session_search", { query: "x" })).toEqual({ ok: true, summary: "No results." });
-		expect((await call(env, "c3", "current_time", {}))?.summary).toContain("2026-11-05T10:00");
+		// sem locale: UTC (o instante fixo do eval)
+		expect((await call(env, "c3", "current_time", {}))?.summary).toBe("2026-11-05T13:00:00+00:00 (Thursday, UTC)");
 		expect(await call(env, "c4", "memory", { action: "list" })).toEqual({ ok: true, summary: "No saved memories." });
 		expect(await call(env, "c5", "memory", { action: "add", content: "x" })).toEqual({ ok: true, summary: "Saved." });
 		expect(env.unmocked).toEqual([]);
@@ -106,5 +107,39 @@ describe("skills de fábrica no eval (sem banco)", () => {
 		expect(read.summary).toContain("built-in");
 		expect(read.summary.length).toBeGreaterThan(300);
 		expect(result.records[0]!.trajectory.unmocked).toEqual([]);
+	});
+});
+
+describe("current_time no fuso do cenário (auditoria F0, A1)", () => {
+	const locale = (timezone: string, country: string, currency: string) => ({ locale: { country, currency, timezone } });
+	const now = async (extra: Record<string, unknown>) => (await call(envWith([], extra), "t1", "current_time", {}))?.summary;
+
+	it("o mesmo instante (13:00Z) aparece em Toronto e em São Paulo, cada um na sua hora local", async () => {
+		expect(await now(locale("America/Toronto", "CA", "CAD"))).toBe("2026-11-05T08:00:00-05:00 (Thursday, America/Toronto)");
+		expect(await now(locale("America/Sao_Paulo", "BR", "BRL"))).toBe("2026-11-05T10:00:00-03:00 (Thursday, America/Sao_Paulo)");
+		expect(await now(locale("Asia/Tokyo", "JP", "JPY"))).toBe("2026-11-05T22:00:00+09:00 (Thursday, Asia/Tokyo)");
+	});
+
+	it("o dia da semana e a data seguem o fuso quando o dia local muda", async () => {
+		expect(await now(locale("Pacific/Auckland", "NZ", "NZD"))).toBe("2026-11-06T02:00:00+13:00 (Friday, Pacific/Auckland)");
+	});
+
+	it("sem locale é UTC, não São Paulo", async () => {
+		expect(await now({})).toBe("2026-11-05T13:00:00+00:00 (Thursday, UTC)");
+		expect(evalNowText()).toBe(evalNowText("UTC"));
+	});
+});
+
+describe("arquivos criados guardam o conteúdo de texto (auditoria F0, M3)", () => {
+	it("persist grava nome, tipo e texto; binário só nome e tamanho", async () => {
+		const env = envWith([]);
+		const deps = env.params.createFileDeps!;
+		const encode = (value: string) => new TextEncoder().encode(value);
+		await deps.persist!({ userId: "u", kind: "file", bytes: encode("# Relatório\nfim"), mime: "text/markdown", meta: { filename: "relatorio.md" } });
+		await deps.persist!({ userId: "u", kind: "file", bytes: new Uint8Array([1, 2, 3]), mime: "application/pdf", meta: { filename: "doc.pdf" } });
+		expect(env.files).toEqual([
+			{ artifactId: "art-eval-1", filename: "relatorio.md", mime: "text/markdown", size: 16, text: "# Relatório\nfim" },
+			{ artifactId: "art-eval-2", filename: "doc.pdf", mime: "application/pdf", size: 3 },
+		]);
 	});
 });

@@ -17,10 +17,17 @@ export type RecordedModelCall = {
 	usage?: { promptTokens?: number; completionTokens?: number; costUsd?: number; costUnknown?: boolean };
 	durationMs: number;
 	error?: string;
+	/** `name` do erro lançado pelo provedor/runtime (ex.: `TimeoutError`, de `DOMException`): classificação sem ler texto. */
+	errorName?: string;
+	/** Status HTTP do erro, quando o provedor informa: separa erro de transporte (429/5xx) de pedido recusado (400/422). */
+	errorStatus?: number;
 };
 
 export type RecordedToolCall = { id: string; name: string; args: Record<string, unknown>; argsRaw: string; step?: number };
 export type RecordedToolResult = { id: string; name: string; ok: boolean; summary: string; source: "fixture" | "connector" | "real" | "unmocked" };
+
+/** Arquivo criado no run (via `create_file`): nome, tipo e, quando é texto, o conteúdo (até `FILE_TEXT_LIMIT` caracteres). */
+export type RecordedFile = { artifactId: string; filename: string; mime: string; size: number; text?: string; textOmitted?: number };
 
 export type Trajectory = {
 	scenarioId: string;
@@ -33,11 +40,17 @@ export type Trajectory = {
 	/** Por que o run terminou (motivo e detalhe do runtime), quando ele devolve. */
 	stop?: { reason: string; detail?: string };
 	error?: string;
+	/** `name` do erro que encerrou o run (ver `RecordedModelCall.errorName`). */
+	errorName?: string;
 	timedOut?: boolean;
+	/** O run foi interrompido de fora (`abortSignal`, ex.: teto de gasto atingido) antes de terminar. */
+	interrupted?: boolean;
 	modelCalls: RecordedModelCall[];
 	toolCalls: RecordedToolCall[];
 	toolResults: RecordedToolResult[];
 	events: Array<Record<string, unknown>>;
+	/** Arquivos criados com o conteúdo (texto) que o juiz precisa ler; ausente em trajetórias antigas. */
+	files?: RecordedFile[];
 	/** Balões visíveis no chat (sem os rascunhos revisados). */
 	visible: string[];
 	revised: Array<{ text: string; reason: string }>;

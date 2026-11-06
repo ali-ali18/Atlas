@@ -10,7 +10,7 @@ import { redactSecrets } from "@workspace/shared";
  *   from-run      cenário a partir de um run de produção exportado (inspetor + eventos)
  *   list          cenários disponíveis
  *   motor-v1-vs-v2  motor atual × motor novo nas mesmas tarefas (roteiro; `--live` gasta tokens)
- *   matrix        cenários × motores × modelos (Anthropic, OpenCode Go, OpenRouter) × repetições, com teto rígido de US$
+ *   matrix        cenários × motores × modelos (Anthropic, OpenCode Go, OpenRouter) × repetições, com teto de gasto em US$ (cobrado a cada chamada)
  * A chave (`OPENROUTER_API_KEY`) vem do ambiente ou de `--env-file`; nunca é impressa nem gravada.
  */
 
@@ -32,8 +32,13 @@ export function parseCliArgs(argv: string[]): CliArgs {
 			continue;
 		}
 		const [key, inline] = item.slice(2).split(/=(.*)/s, 2) as [string, string | undefined];
-		if (inline !== undefined) flags[key] = inline;
-		else if (BOOLEAN_FLAGS.has(key) || args[index + 1] === undefined || args[index + 1]!.startsWith("--")) flags[key] = true;
+		if (inline !== undefined) {
+			// Flag booleana só aceita `true`/`false`: `--simulate=1` caía em silêncio no modo real (gasto de verdade).
+			if (BOOLEAN_FLAGS.has(key)) {
+				if (inline === "true") flags[key] = true;
+				else if (inline !== "false") throw new Error(`--${key} é booleana: use --${key} ou --${key}=true|false (recebido: ${inline || "vazio"}). Nada foi executado.`);
+			} else flags[key] = inline;
+		} else if (BOOLEAN_FLAGS.has(key) || args[index + 1] === undefined || args[index + 1]!.startsWith("--")) flags[key] = true;
 		else {
 			flags[key] = args[index + 1]!;
 			index += 1;
@@ -42,6 +47,17 @@ export function parseCliArgs(argv: string[]): CliArgs {
 	const commands = new Set(["run", "compare", "from-run", "list", "motor-v1-vs-v2", "matrix"]);
 	const command = positional[0] && commands.has(positional[0]) ? positional.shift()! : "run";
 	return { command, positional, flags };
+}
+
+/** Flags que só existem em um comando: errar o comando mudaria o modo (ex.: `--simulate` fora do `matrix` rodaria o `run` real). */
+const COMMAND_ONLY_FLAGS: Record<string, string> = { simulate: "matrix", estimate: "matrix", mock: "run" };
+
+export function assertFlagsForCommand(args: CliArgs): void {
+	for (const [name, command] of Object.entries(COMMAND_ONLY_FLAGS)) {
+		if (args.flags[name] !== true || args.command === command) continue;
+		const hint = name === "mock" ? " (no matrix, o modo sem rede é --simulate)" : "";
+		throw new Error(`--${name} só vale no comando ${command}${hint}; o comando atual é ${args.command}. Nada foi executado.`);
+	}
 }
 
 const flag = (args: CliArgs, name: string): string | undefined => (typeof args.flags[name] === "string" ? (args.flags[name] as string) : undefined);
@@ -62,7 +78,7 @@ const HELP = `Uso: pnpm --filter @workspace/evals run eval -- [comando] [opçõe
 
 run (padrão)
   --models a,b          ids do OpenRouter (obrigatório sem --mock)
-  --scenarios all|ids   ids ou tags separados por vírgula (padrão: all = sementes + conjunto ouro); só o ouro: --scenarios gold
+  --scenarios all|ids   ids ou tags separados por vírgula (padrão: all = sementes + conjunto ouro + conjunto genérico); só um conjunto: --scenarios gold ou --scenarios generic
   --dir DIR             pasta dos cenários (padrão: scenarios/, com subpastas)
   --repeat N            repetições por cenário e modelo (padrão: 1)
   --concurrency N       execuções simultâneas (padrão: 3)
@@ -72,7 +88,7 @@ run (padrão)
   --judge A[,B]         liga o juiz LLM (rubrica de qualidade) nas verificações "judge"; 2 modelos = dois juízes com teto de
                         discordância (prefixo do provedor: anthropic/, opencode-go/, openrouter/). Desligado por padrão
   --judge-max-gap N     diferença máxima entre os dois juízes por dimensão (padrão 1; acima disso a dimensão fica "disputed")
-  --max-cost USD        para de iniciar execuções depois do teto
+  --max-cost USD        teto de gasto (obrigatório no modo real; > 0): para de iniciar execuções depois dele
   --mock                modelo roteirizado dos cenários (sem rede, sem chave)
   --out DIR             pasta dos resultados (padrão: results/<data-hora>)
   --env-file ARQ        carrega variáveis (OPENROUTER_API_KEY) de um .env
@@ -81,14 +97,17 @@ compare DIR_A DIR_B     delta de acerto de B sobre A (summary.json de cada um)
 from-run --inspect ARQ [--events ARQ] [--user TEXTO] [--id ID] [--language en-US|auto] --out ARQ
 list                    lista os cenários
 
-matrix                  cenários × motores × modelos × repetições, com teto rígido de gasto
+matrix                  cenários × motores × modelos × repetições, com teto de gasto cobrado a cada chamada
   --scenarios gold|ids  cenários (padrão: gold)           --engines v2[,v1,v4]  motores (padrão: v2)
   --models a,b          anthropic/<m> (CLAUDE_KEY) · opencode-go/<m> (OPENCODE_GO_API_KEY) · openrouter/<id> ou id (OPENROUTER_API_KEY)
-  --repeat N            repetições (padrão: 1)            --max-usd N   teto rígido em US$ (obrigatório no modo real)
-  --estimate            só estima o custo (sem rede) e sai  --estimate-factor N  passos extras do modelo real (padrão 2)
+  --repeat N            repetições (padrão: 1)            --max-usd N   teto de gasto em US$ (obrigatório no modo real)
+  --estimate            só estima o custo (sem rede) e sai  --estimate-factor N  passos extras do modelo real sobre o roteiro mock (padrão 2)
   --simulate            matriz inteira com provedores falsos (sem rede, sem chave)
   --judge A[,B]         juízes LLM da rubrica (entram no teto e no --estimate)  --judge-max-gap N  teto de discordância (padrão 1)          --strong a,b  modelos fortes na leitura harness × modelo
   --concurrency N  --timeout S  --dir DIR  --out DIR (padrão results/<data-hora>-matrix)  --env-file ARQ
+  teto: nenhuma execução começa se a estimativa não couber no que sobra; o custo real é cobrado a cada chamada e, ao
+  atingi-lo, as execuções em andamento são interrompidas. O gasto final pode passar do teto só pelas chamadas que já
+  estavam em andamento (uma por execução simultânea).
 
 motor-v1-vs-v2          compara o motor atual (v1) e o novo (v2) em 11 tarefas de pesquisa/análise
   (padrão)              modelo roteirizado: sem rede, sem chave, números determinísticos
@@ -100,6 +119,19 @@ motor-v1-vs-v2          compara o motor atual (v1) e o novo (v2) em 11 tarefas d
   --budget-usd N        orçamento do trabalho longo no v2 (0.05 a 20; padrão 0.50)   --minutes N  (1 a 120; padrão 20)
   --price-in N          US$/Mtok de entrada para o custo estimado (padrão 1)   --price-out N (padrão 5)
   --out ARQ             grava o relatório markdown (ex.: docs/ops/motor-v1-vs-v2.md); sem isto imprime`;
+
+/** Teto do `run`: obrigatório no modo real e estrito (0, negativo, NaN e Infinity viravam "sem teto" em silêncio). */
+export function maxCostFlag(args: CliArgs, mock: boolean): number | undefined {
+	const raw = args.flags["max-cost"];
+	if (raw === undefined) {
+		if (mock) return undefined;
+		throw new Error("informe --max-cost USD: o modo real gasta tokens e exige um teto de gasto. Nada foi executado.");
+	}
+	if (raw === true) throw new Error("--max-cost precisa de um valor em US$ (ex.: --max-cost 2). Nada foi executado.");
+	const value = strictNumber("--max-cost", raw);
+	if (!(value > 0)) throw new Error(`--max-cost precisa ser maior que zero (recebido: ${raw}). Nada foi executado.`);
+	return value;
+}
 
 function judgeSpecsFlag(args: CliArgs): string[] {
 	if (args.flags.judge === true) throw new Error("--judge precisa de um ou dois modelos (a ou a,b)");
@@ -125,6 +157,7 @@ async function commandRun(args: CliArgs): Promise<number> {
 	const models = list(flag(args, "models"));
 	const apiKey = process.env.OPENROUTER_API_KEY?.trim() ?? "";
 	if (!mock && models.length === 0) throw new Error("informe --models (ou use --mock)");
+	const maxCostUsd = maxCostFlag(args, mock);
 	if (!mock && !apiKey) throw new Error("OPENROUTER_API_KEY ausente: exporte a variável ou passe --env-file <.env> (a chave não é impressa)");
 	const scenarios = await loadAll(args);
 	const { runEvaluation } = await import("./runner.js");
@@ -138,11 +171,14 @@ async function commandRun(args: CliArgs): Promise<number> {
 	// Juízes pelo roteamento do matrix (prefixo do provedor); o custo deles entra no --max-cost.
 	let judgeUsd = 0;
 	let judge: import("./checks.js").Judge | undefined;
+	// Chaves dos juízes (Anthropic/Go): a redação do JSONL e do resumo cobre todas, não só a do OpenRouter.
+	let extraSecrets: string[] = [];
 	if (judgeSpecs.length > 0 && !mock) {
-		const { resolveModelSpecs, assertProviderKeys, createRealProviders, createMatrixRouter, withCostAccounting, withSessionId } = await import("./matrix/index.js");
+		const { resolveModelSpecs, assertProviderKeys, createRealProviders, createMatrixRouter, withCostAccounting, withSessionId, providerSecrets } = await import("./matrix/index.js");
 		const { createJudgePanel, createRubricJudge } = await import("./judge.js");
 		const specs = resolveModelSpecs(judgeSpecs);
 		assertProviderKeys(specs, process.env);
+		extraSecrets = providerSecrets(specs, process.env);
 		const router = withCostAccounting(createMatrixRouter(withSessionId(createRealProviders(process.env), "eval-judge")), { onCost: (usd) => (judgeUsd += usd) });
 		judge = createJudgePanel({
 			judges: specs.map((spec) => createRubricJudge({ model: spec.internalId, apiKey: "eval", streamChat: ((params: import("@workspace/llm").CompleteChatWithToolsParams) => router(params, {})) as import("./mock-model.js").StreamChat })),
@@ -157,13 +193,14 @@ async function commandRun(args: CliArgs): Promise<number> {
 		scenarios,
 		models,
 		mode: mock ? "mock" : "real",
+		...(extraSecrets.length > 0 ? { extraSecrets } : {}),
 		...(mock ? {} : { apiKey, realStreamChat: (params, handlers) => streamChatWithTools(params, handlers ?? {}) }),
 		repeat: number(flag(args, "repeat"), 1),
 		concurrency: number(flag(args, "concurrency"), 3),
 		timeoutMs: number(flag(args, "timeout"), 180) * 1000,
 		variants,
 		...(judge ? { judge, judgeCostUsd: () => judgeUsd } : {}),
-		...(flag(args, "max-cost") ? { maxCostUsd: number(flag(args, "max-cost"), Number.POSITIVE_INFINITY) } : {}),
+		...(maxCostUsd !== undefined ? { maxCostUsd } : {}),
 		isStrong: strongMatcher(list(flag(args, "strong"))),
 		outDir,
 		onProgress: (record, done, total) => {
@@ -277,7 +314,7 @@ async function commandMatrix(args: CliArgs): Promise<number> {
 		return 0;
 	}
 	if (!simulate) {
-		if (capUsd === undefined) throw new Error("informe --max-usd: o modo real exige um teto de gasto rígido (use --estimate para ver o custo antes)");
+		if (capUsd === undefined) throw new Error("informe --max-usd: o modo real exige um teto de gasto (use --estimate para ver o custo antes)");
 		assertProviderKeys([...models, ...resolveModelSpecs(judgeSpecsFlag(args))], process.env);
 	}
 	const now = new Date();
@@ -302,12 +339,16 @@ async function commandMatrix(args: CliArgs): Promise<number> {
 		now: () => now,
 		onProgress: (run, done, total) => {
 			if (run.status === "skipped_budget") return;
+			if (run.status === "stopped_budget") {
+				console.log(`[${done}/${total}] ${run.engine} ${run.model} ${run.scenarioId} #${run.repeat + 1}: interrompida pelo teto · US$ ${run.costUsd.toFixed(4)}`);
+				return;
+			}
 			console.log(`[${done}/${total}] ${run.engine} ${run.model} ${run.scenarioId} #${run.repeat + 1}: ${run.pass ? "passou" : `falhou (${run.failedChecks.join(", ") || run.error || "erro"})`} · US$ ${run.costUsd.toFixed(4)}`);
 		},
 	});
 	const { summary } = result;
 	console.log(`\ngasto US$ ${summary.spentUsd.toFixed(4)}${summary.capUsd !== null ? ` de US$ ${summary.capUsd}` : ""}${summary.costUnknown ? " (parcial: custo estimado pela tabela)" : ""}`);
-	if (summary.budgetStopped) console.log(`TETO ATINGIDO: ${summary.skippedBudget} execução(ões) marcadas skipped_budget (não rodaram).`);
+	if (summary.budgetStopped) console.log(`TETO ATINGIDO: ${summary.skippedBudget} execução(ões) skipped_budget (não rodaram) e ${summary.stoppedBudget} interrompida(s) em andamento (stopped_budget).${summary.capUsd !== null && summary.spentUsd > summary.capUsd ? ` Gasto acima do teto por US$ ${(summary.spentUsd - summary.capUsd).toFixed(4)}: chamadas que já estavam em andamento.` : ""}`);
 	for (const [provider, item] of Object.entries(summary.byProvider)) console.log(`  ${provider}: ${item.runs} execuções · US$ ${item.costUsd.toFixed(4)}`);
 	console.log(`relatório: ${join(outDir, "matrix.md")}\n           ${join(outDir, "matrix.json")}`);
 	return 0;
@@ -319,6 +360,7 @@ export async function main(argv: string[]): Promise<number> {
 		console.log(HELP);
 		return 0;
 	}
+	assertFlagsForCommand(args);
 	const envFile = flag(args, "env-file");
 	if (envFile) process.loadEnvFile(resolve(envFile));
 	// O pacote do banco exige um pepper ao carregar; o eval não grava nada (o banco nem é usado).

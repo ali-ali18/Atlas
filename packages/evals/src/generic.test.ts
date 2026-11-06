@@ -255,3 +255,24 @@ describe("conjunto genérico: trajetórias ruins reprovam", () => {
 		expect(await failing("generic-economia-good-morning", [{ say: `Good morning! ${"I can help with e-mail, calendar, shopping, research, documents and much more. ".repeat(8)}` }])).toContain("short-reply");
 	});
 });
+
+describe("nomes reais fora de todos os cenários (auditoria F0, A3)", () => {
+	const SCENARIOS_ROOT = fileURLToPath(new URL("../scenarios", import.meta.url));
+	const REAL_NAMES = /pucpr|coderabbit|ali-ali18|\busername ali\b/i;
+
+	async function jsonFilesUnder(dir: string): Promise<string[]> {
+		const out: string[] = [];
+		for (const entry of await readdir(dir, { withFileTypes: true })) {
+			const path = join(dir, entry.name);
+			if (entry.isDirectory()) out.push(...(await jsonFilesUnder(path)));
+			else if (entry.name.endsWith(".json")) out.push(path);
+		}
+		return out;
+	}
+
+	it("nenhum JSON em scenarios/ (sementes, ouro e genérico) cita instituição, produto ou usuário reais do dono", async () => {
+		const files = await jsonFilesUnder(SCENARIOS_ROOT);
+		expect(files.length).toBeGreaterThan(40);
+		for (const file of files) expect((await readFile(file, "utf8")).match(REAL_NAMES), file).toBeNull();
+	});
+});

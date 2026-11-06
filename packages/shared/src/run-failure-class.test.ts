@@ -44,8 +44,17 @@ describe("classifyRunFailure", () => {
 		expect(new Set(cases.map(([c]) => c))).toEqual(new Set(FAILURE_CLASSES));
 	});
 
-	it("validação recusada sem a assinatura visível não é erro do modelo", () => {
-		const trace = clean({ steps: [{ toolCalls: [{ name: "t", ok: false, validationRejected: true, signatureVisible: false }] }] });
+	it("validação recusada sem a assinatura visível é defeito do harness, não do modelo (auditoria F0, B6)", () => {
+		const trace = clean({ steps: [{ toolCalls: [{ name: "t", ok: false, validationRejected: true, signatureVisible: false, errorCode: "bad_type" }] }] });
+		const result = classifyRunFailure(trace);
+		expect(result.primary).toBe("harness.tool_not_exposed");
+		expect(result.all).not.toContain("model.bad_args");
+		expect(result.evidence.join(" ")).toContain("assinatura não visível");
+		expect(result.evidence.join(" ")).toContain("bad_type");
+	});
+
+	it("validação recusada com visibilidade não declarada não acusa ninguém", () => {
+		const trace = clean({ steps: [{ toolCalls: [{ name: "t", ok: false, validationRejected: true }] }] });
 		expect(classifyRunFailure(trace).primary).toBe("none");
 	});
 
