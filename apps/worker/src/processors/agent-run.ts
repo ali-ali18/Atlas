@@ -140,6 +140,7 @@ import {
 	resolveBudget,
 	wallClockAnchors,
 } from "@workspace/agent-runtime";
+import { prepareV4Run } from "../v4-run-context.js";
 import { cheapModelFromEnv, createV4Llm, dropProcessorOwnedEvents, ownerStepsLimit, runEngineV4, vaultBackendFromService } from "../engine-v4.js";
 import { earlyWallMs, engineDefaultFromEnv, engineV4GateFromEnv, pickRunEngine, resolveRunLimits, runSelectedEngine } from "../engine-choice.js";
 import { getVaultService, type RunComputerUseResult } from "@workspace/agent-runtime";
@@ -1229,17 +1230,24 @@ async function executeLeasedRun(ctx: {
 	const seedTaskList = v2 && !planSeeded && autoContinueAttempt === 0 ? undefined : priorTaskList;
 	// Motor v4 (atrás de flag): mesmo contrato de saída do v1/v2; conclusão, eventos e lease seguem neste processador.
 	const runV4 = async (): Promise<RunComputerUseResult> => {
+		// Histórico da conversa, respostas a cartões e taint herdado (run novo) ou a decisão do dono (retomada), do banco.
+		const prepared = await prepareV4Run({ userId: runUserId, runId, conversationId: run.conversationId, objective: run.objective ?? "", chat: run.origin === "chat" });
+		const mapV4Event = dropProcessorOwnedEvents(((mapper) => (event) => mapper.mapRunEvent(event))(createSseMapper({ runId, model: run.model, language: systemLanguage })));
 		const out = await runEngineV4({
 			runId,
 			userId: runUserId,
 			conversationId: run.conversationId,
 			objective: run.objective ?? "",
+			...(prepared.history ? { history: prepared.history } : {}),
+			...(prepared.cardResponses ? { cardResponses: prepared.cardResponses } : {}),
+			...(prepared.priorProvenance ? { priorProvenance: prepared.priorProvenance } : {}),
+			...(prepared.resume ? { resume: prepared.resume } : {}),
 			language: systemLanguage,
 			llm: createV4Llm({ model: run.model, streamChat: providers.streamChat, openRouterKey: apiKey, language: systemLanguage, cheapModel: cheapModelFromEnv(), contextWindow: (modelId) => providers.capabilities(modelId).then((caps) => caps.contextTokens, () => null) }),
 			lease,
 			persistEvent: emit,
 			// O fim do stream (done/error/cancelled/teto de passos) é do processador, uma vez: o mapa do kernel não o repete.
-			mapEvent: dropProcessorOwnedEvents(((mapper) => (event) => mapper.mapRunEvent(event))(createSseMapper({ runId, model: run.model, language: systemLanguage }))),
+			mapEvent: prepared.observe(mapV4Event),
 			// Teto de passos do dono (pedido > bot > conta) só quando tem origem; sem ele vale o de segurança do kernel. Tetos de gasto
 			// por período (dia/semana/mês) da conta/bot ainda não existem na configuração do worker: só o teto por execução vale.
 			limits: { ...(effectiveCostCap !== undefined ? { ownerMaxUsd: effectiveCostCap } : {}), ...(ownerStepsLimit(stepsCap) !== undefined ? { ownerMaxSteps: ownerStepsLimit(stepsCap)! } : {}), unattended: !(run.origin === "chat" && readRunHumanTurn(run)) },
@@ -1248,7 +1256,10 @@ async function executeLeasedRun(ctx: {
 			vault: vaultBackendFromService(getVaultService()),
 			...(deps.v4Queue ? { queue: deps.v4Queue } : {}),
 		});
-		// Estacionado: o processador fecha o stream com `paused` (motivo `awaiting_owner`) e solta o lease; a retomada recarrega o checkpoint v4.
+		// Pedidos que ficaram esperando o dono ganham prazo e viram respondíveis pela API (`/v1/agent-v4/...`); respostas de cartão entregues.
+		await prepared.finish({ parked: out.parked });
+		// Estacionado: o processador fecha o stream com `paused` (motivo `awaiting_owner`) e solta o lease; a retomada recarrega o checkpoint v4
+		// e monta o `ResumeInput` (grants, recusas, expirados) com o que o dono decidiu.
 		if (out.parked) throw new AgentRunPausedError("awaiting_owner");
 		return { text: out.text, model: out.model, hitWall: out.hitWall, usage: out.usage, stop: out.stop };
 	};

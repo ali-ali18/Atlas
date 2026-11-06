@@ -93,6 +93,11 @@ export async function runPending(env: ToolStepEnv): Promise<{ malformed: number 
 				return finish(call, "expired", EXPIRED_TEXT);
 			}
 			if (parked.kind === "handoff") {
+				// Handoff não tem pedido de aprovação: o prazo vence pelo id da chamada.
+				if (env.resume?.expired?.includes(call.id)) {
+					delete snap.parked[call.id];
+					return finish(call, "expired", EXPIRED_TEXT);
+				}
 				if (!env.resume?.handoffDone?.includes(call.id)) return;
 				delete snap.parked[call.id];
 				return finish(call, "handoff_done", HANDOFF_DONE_TEXT);
