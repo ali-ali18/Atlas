@@ -86,7 +86,11 @@ export type RunAgentDeps = {
 
 export type PendingCall = { id: string; name: string; args: unknown };
 
-export type ParkedCall = { kind: "approval" | "handoff"; requestId?: string };
+/**
+ * Chamada estacionada. `payloadHash` e `toolName` (aprovação) ficam no checkpoint para quem hospeda o run reconstruir o
+ * pedido do dono se cair entre o checkpoint PARKED e o registro do cartão (auditoria F2, B1).
+ */
+export type ParkedCall = { kind: "approval" | "handoff"; requestId?: string; payloadHash?: string; toolName?: string };
 
 export type KernelSnapshot = {
 	v: 1;
