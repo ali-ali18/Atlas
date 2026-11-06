@@ -84,6 +84,8 @@ export type KernelSnapshot = {
 	step: number;
 	loadedIds: string[];
 	provenance: ProvenanceSnapshot;
+	/** Usos que restam do mandato do run (só existe com mandato); vai no checkpoint para a retomada não regastá-los. */
+	mandateUsesLeft?: number;
 	spentUsd: number;
 	/** Chamadas ao modelo (tentativas, retries incluídos) sem informação de preço: o custo delas não está em `spentUsd`. */
 	stepsWithoutPrice: number;

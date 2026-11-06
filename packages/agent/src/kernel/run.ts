@@ -48,7 +48,7 @@ export async function runAgent(deps: RunAgentDeps): Promise<RunResult> {
 	const loaded = createLoadedSet(registry, snap.loadedIds);
 	// Toda tool recebe o cofre "rastreado": o valor que ele entrega entra na redação do run (ver vault-tracking.ts).
 	const tracked = ports.vault ? trackVault(ports.vault) : undefined;
-	const executor = createExecutor({ runId, ownerId, ports: tracked ? { ...ports, vault: tracked.vault } : ports, ...(tracked && { secrets: tracked.secrets }), hash: deps.hash, policy: deps.policy, provenance: RunProvenance.restore(snap.provenance), ...(deps.language && { language: deps.language }), ...(deps.signal && { signal: deps.signal }) });
+	const executor = createExecutor({ runId, ownerId, ports: tracked ? { ...ports, vault: tracked.vault } : ports, ...(tracked && { secrets: tracked.secrets }), hash: deps.hash, policy: deps.policy, provenance: RunProvenance.restore(snap.provenance), ...(snap.mandateUsesLeft !== undefined && { mandateUsesLeft: snap.mandateUsesLeft }), ...(deps.language && { language: deps.language }), ...(deps.signal && { signal: deps.signal }) });
 	const pageChars = deps.options?.pageChars ?? DEFAULT_PAGE_CHARS;
 	const kernelTools: readonly Tool[] = [createNoteReadTool(pageChars), createAskOwnerTool()];
 	const toolMap = () => new Map<string, Tool>([...kernelTools, ...loaded.toolsForModel()].map((t) => [t.name, t]));
@@ -56,6 +56,8 @@ export async function runAgent(deps: RunAgentDeps): Promise<RunResult> {
 	const save = async (state: KernelState) => {
 		snap.loadedIds = [...loaded.loadedIds()];
 		snap.provenance = executor.provenance.snapshot();
+		const usesLeft = executor.mandateUsesLeft();
+		if (usesLeft !== undefined) snap.mandateUsesLeft = usesLeft;
 		await saveCheckpoint(ports, ownerId, runId, state, snap);
 	};
 	const fit = (call: PendingCall, text: string) => fitOutput({ store: ports.store, ownerId, runId, callId: call.id, toolName: call.name, text, pageChars });

@@ -26,6 +26,8 @@ export type ExecutorDeps = {
 	signal?: AbortSignal;
 	/** Idioma do bot: os textos ao dono (`userMessage`) saem nele. Sem valor, vale o idioma de reserva do `copy`. */
 	language?: BotLanguage;
+	/** Usos do mandato que restam ao retomar (vem do checkpoint). Sem valor, vale `policy.mandate.usesLeft`. */
+	mandateUsesLeft?: number;
 };
 
 /** Uma chamada do modelo. `grant` vem da camada de fora (dono aprovou), nunca dos argumentos. */
@@ -48,6 +50,8 @@ export function createExecutor(deps: ExecutorDeps) {
 	const consumed = new Set<string>();
 	const provenance = deps.provenance ?? new RunProvenance();
 	const secrets = () => deps.secrets?.() ?? [];
+	/** Mandato vivo do run: cada efeito que roda por ele gasta um uso (S6). Só usos; o teto de valor é por execução. */
+	let mandate = deps.policy.mandate && deps.mandateUsesLeft !== undefined ? { ...deps.policy.mandate, usesLeft: Math.min(deps.policy.mandate.usesLeft, deps.mandateUsesLeft) } : deps.policy.mandate;
 
 	async function executeCall(call: ToolCall): Promise<CallOutcome> {
 		const { tool, args } = call;
@@ -62,6 +66,7 @@ export function createExecutor(deps: ExecutorDeps) {
 
 		const verdict = authorize({
 			...deps.policy,
+			...(mandate && { mandate }),
 			effect,
 			toolName: tool.name,
 			handoffKind: tool.handoffKindFor(args),
@@ -103,6 +108,8 @@ export function createExecutor(deps: ExecutorDeps) {
 			await deps.ports.store.runs.assertLease?.(deps.ownerId, deps.runId);
 			const claim = await deps.ports.store.journal.append({ ...journalBase, outcome: "started" });
 			if (!claim.claimed) return { status: "already_in_progress", hint: IN_PROGRESS_HINT };
+			// O efeito vai rodar por causa do mandato: gasta um uso ANTES de executar (os efeitos do passo são em série).
+			if (mandate && verdict.kind === "run" && verdict.reason === "mandate") mandate = { ...mandate, usesLeft: mandate.usesLeft - 1 };
 		}
 		const ctx: ToolContext = { runId: deps.runId, ownerId: deps.ownerId, ports: deps.ports, signal: deps.signal };
 		const result = await tool.run(args, ctx);
@@ -136,7 +143,7 @@ export function createExecutor(deps: ExecutorDeps) {
 		return { status: "ok", summary: sanitizeText(result.summary, secrets()), ...(result.receipt && { receipt: redactDeep(result.receipt, secrets()) }) };
 	}
 
-	return { executeCall, provenance };
+	return { executeCall, provenance, mandateUsesLeft: () => mandate?.usesLeft };
 }
 
 export type Executor = ReturnType<typeof createExecutor>;
