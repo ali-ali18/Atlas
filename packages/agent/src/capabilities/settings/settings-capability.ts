@@ -47,6 +47,8 @@ export function createSettingsCapability(settings: Settings) {
 			notify: z.boolean().optional().describe("Push notifications when a run ends or needs the owner."),
 		}),
 		effect: "write_internal",
+		// Depois de ler conteúdo de fora, uma injeção não muda idioma/avisos sem o dono ver (auditoria F2, S5).
+		confirm: "when_untrusted",
 		riskFacts: () => ({ target: "Bot settings" }),
 		async execute({ language, notify }, ctx) {
 			if (language === undefined && notify === undefined) return { ok: false, error: "Nothing to change.", hint: "Send language and/or notify." };

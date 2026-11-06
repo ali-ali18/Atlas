@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { RunProvenance } from "../../contract/provenance.js";
 import { createExecutor } from "../../contract/executor.js";
 import { FakeSettings } from "../../presets/fakes.js";
 import { fakePorts, sha256 } from "../../testing/fake-ports.js";
@@ -19,6 +20,21 @@ describe("capacidade settings", () => {
 		for (const tool of cap.tools) expect(tool.description.length, tool.name).toBeLessThan(700);
 		expect(t.update_bot_profile!.description).toContain("ONLY when the owner explicitly asked");
 		expect(t.set_role_model!.description).toContain("Do not guess model ids");
+	});
+
+	it("settings_update confirma quando o run leu conteúdo não confiável (auditoria F2, S5)", async () => {
+		const settings = new FakeSettings();
+		const t = toolsOf(settings);
+		expect(t.settings_update!.confirm).toBe("when_untrusted");
+		const provenance = new RunProvenance();
+		const { ports } = fakePorts();
+		const executor = createExecutor({ runId: "run-1", ownerId: "o1", ports, hash: sha256, policy: { surface: "chat", ownerPresent: true, autonomy: "autonomous", rules: [] }, provenance });
+		const before = await executor.executeCall({ callId: "c1", step: 1, tool: t.settings_update!, args: { notify: false } });
+		expect(before.status).toBe("ok");
+		provenance.record("página", "web");
+		const after = await executor.executeCall({ callId: "c2", step: 2, tool: t.settings_update!, args: { notify: true } });
+		expect(after.status).toBe("pending_approval");
+		expect(await settings.get("o1")).toMatchObject({ notify: false });
 	});
 
 	it("settings_get mostra o estado, com o modelo por papel", async () => {
