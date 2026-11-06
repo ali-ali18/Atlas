@@ -162,7 +162,8 @@ test("store do worker: setStatus não grava no banco e o recibo/nota passam o do
 test("sandbox e fila indisponíveis devolvem ao modelo um texto em inglês, sem nome interno (auditoria F1, A2)", async () => {
 	const sandbox = await unavailableSandbox.run("u", {} as never);
 	assert.equal(sandbox.ok, false);
-	const texts = [(sandbox as { error: string }).error, await unavailableQueue.add("n", { userId: "u", payload: {} }).catch((e: Error) => e.message)];
+	const queued = await unavailableQueue.add("n", { userId: "u", payload: {} }).then(() => "", (e: Error) => e.message);
+	const texts = [(sandbox as { error: string }).error, queued];
 	for (const text of texts) {
 		assert.match(text, /^(The computer|Scheduling)/);
 		assert.doesNotMatch(text, /v4|worker|motor|VM e|fila/i);
