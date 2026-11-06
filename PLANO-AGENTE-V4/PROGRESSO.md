@@ -89,12 +89,12 @@
 - [x] F1.A (06/11: ~50 achados, nenhum crítico; altos corrigidos; reauditoria com 7 novos, 4 corrigidos) Auditoria: 5 lentes, verificação, correções com teste, reauditoria e `auditorias/F1.md` fechado.
 
 ### F2: Capacidades do núcleo
-- [ ] F2.1 `web` (busca e extração).
-- [ ] F2.2 `packages/files` (renderizadores movidos do legado, que passa a importá-los).
-- [ ] F2.3 `deliverables` (arquivo, painel, gráfico, `inspect_file`, moldes ABNT, relatório, deck e planilha).
-- [ ] F2.4 `memory` (perfil), `tasks` e `settings` (inclui o modelo por papel pelo chat).
-- [ ] F2.5 `connectors` (ponte MCP, escopo por dono, classificação de schema, `confirmWrites` → regra).
-- [ ] F2.6 Pré-requisitos para ligar (da auditoria F1): histórico da conversa e `cardResponses` (B5), retomada com grants e cartão de aprovação no app (B6), taint entre runs (S8), tools de dado privado com `privateData` e guarda de teste (N2).
+- [x] F2.1 (06/11: adaptador real SearXNG + DuckDuckGo por injeção; página inteira; ligar no worker na F2.6) `web` (busca e extração).
+- [x] F2.2 (06/11) `packages/files` (renderizadores movidos do legado, que passa a importá-los).
+- [x] F2.3 (06/11: capacidade lazy; adaptador no worker na F2.6) `deliverables` (arquivo, painel, gráfico, `inspect_file`, moldes ABNT, relatório, deck e planilha).
+- [x] F2.4 (06/11: portas e fakes; adaptador de banco e `roleModels` por bot na F2.6; perfil sempre confirma; memória depois de leitura não confiável confirma, com "Agora não" e expiração) `memory` (perfil), `tasks` e `settings` (inclui o modelo por papel pelo chat).
+- [x] F2.5 (06/11: porta e fake; adaptador real na F2.6) `connectors` (ponte MCP, escopo por dono, classificação de schema, `confirmWrites` → regra).
+- [ ] F2.6 Pré-requisitos para ligar (da auditoria F1): histórico da conversa e `cardResponses` (B5), retomada com grants e cartão de aprovação no app (B6, com "Agora não" = `denied` e prazo de expiração que marca `expired`), taint entre runs (S8); adaptadores reais no worker (web, entregas com `@workspace/files`, memória/configurações no banco, MCP do dono + `policyRules`). N2 feito (guarda `private-data.test.ts`).
 - [ ] F2.A Auditoria: 5 lentes, verificação, correções com teste, reauditoria e `auditorias/F2.md` fechado.
 
 ### F3: Pesquisa
