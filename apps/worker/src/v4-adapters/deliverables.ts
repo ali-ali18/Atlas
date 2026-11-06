@@ -10,7 +10,7 @@ import { renderFile, type RenderedFile } from "@workspace/files/render";
 import { printPdfWithChromium } from "@workspace/files/pdf-chromium";
 import { buildFilePreview } from "@workspace/files/preview";
 import { countRunFileArtifacts, createPage, loadArtifactForUser, nextFileVersion, persistConversationCardFromEvent, persistUserArtifact } from "@workspace/db";
-import { FILES_PER_RUN_MAX, deckImageIds, type ChartSpec, type ComputerUseEvent, type CreateFileInput, type FileArtifactMeta, type PageSpec } from "@workspace/shared";
+import { FILES_PER_RUN_MAX, decodeEntities, deckImageIds, type ChartSpec, type ComputerUseEvent, type CreateFileInput, type FileArtifactMeta, type PageSpec } from "@workspace/shared";
 
 /** Funções do db e do renderizador usadas aqui; injetáveis para o teste (sem banco, sem Chromium). */
 export type V4DeliverablesDeps = {
@@ -43,22 +43,21 @@ export type V4DeliverablesScope = {
 	botId?: string | null;
 	/** Evento ao vivo do contrato SSE (o cartão na tela agora; o da conversa já foi gravado por `persistCard`). */
 	emit: (event: ComputerUseEvent) => void | Promise<void>;
+	/** Log do run; falha técnica de cartão vai aqui (sem segredo). Padrão: `console.warn`. */
+	log?: (message: string) => void;
 };
 
 const FORMAT_OF_EXT: Readonly<Record<string, FileArtifactMeta["format"]>> = { docx: "docx", pdf: "pdf", xlsx: "xlsx", pptx: "pptx" };
 
-/** Texto simples do HTML já sanitizado da prévia de .docx. */
+/** Texto simples do HTML já sanitizado da prévia de .docx (quebras por bloco; entidades pelo decode de `shared`). */
 export function htmlToPlainText(html: string): string {
-	return html
-		.replace(/<\/(p|h[1-6]|li|tr|blockquote|pre)>/gi, "\n")
-		.replace(/<br\s*\/?>/gi, "\n")
-		.replace(/<\/t[dh]>/gi, "\t")
-		.replace(/<[^>]*>/g, "")
-		.replace(/&nbsp;/g, " ")
-		.replace(/&lt;/g, "<")
-		.replace(/&gt;/g, ">")
-		.replace(/&quot;/g, '"')
-		.replace(/&amp;/g, "&")
+	return decodeEntities(
+		html
+			.replace(/<\/(p|h[1-6]|li|tr|blockquote|pre)>/gi, "\n")
+			.replace(/<br\s*\/?>/gi, "\n")
+			.replace(/<\/t[dh]>/gi, "\t")
+			.replace(/<[^>]*>/g, ""),
+	)
 		.replace(/\n{3,}/g, "\n\n")
 		.trim();
 }
@@ -112,7 +111,12 @@ function createFiles(scope: V4DeliverablesScope, deps: V4DeliverablesDeps): Deli
 
 /** Cartão persistido na conversa (se houver) e evento ao vivo. A falha do cartão não desfaz o artefato já criado. */
 async function showCard(scope: V4DeliverablesScope, deps: V4DeliverablesDeps, event: ComputerUseEvent): Promise<void> {
-	if (scope.conversationId) await deps.persistCard(scope.conversationId, event).catch(() => undefined);
+	if (scope.conversationId) {
+		await deps.persistCard(scope.conversationId, event).catch((error: unknown) => {
+			const reason = error instanceof Error ? error.message : "unknown error";
+			(scope.log ?? console.warn)(`[engine-v4] cartão "${event.type}" não gravado na conversa (o artefato já existe): ${reason.slice(0, 200)}`);
+		});
+	}
 	await scope.emit(event);
 }
 
@@ -129,12 +133,17 @@ function createPages(scope: V4DeliverablesScope, deps: V4DeliverablesDeps): Page
 }
 
 function createCharts(scope: V4DeliverablesScope, deps: V4DeliverablesDeps): ChartStore {
-	// Id estável por (run, conteúdo): o mesmo gráfico refeito (replay do journal, retomada) não duplica o cartão (dedupe por `chartId`).
+	// Id estável por (run, conteúdo): o mesmo gráfico refeito não duplica o cartão. Dentro do run o cartão é gravado e emitido
+	// uma vez por `chartId`; a retomada (adaptador novo) cai no dedupe por `chartId` do merge da conversa.
+	const shown = new Set<string>();
 	return {
 		async save(_userId, runId, spec: ChartSpec) {
 			if (!scope.conversationId) throw new Error("Charts are drawn in the conversation, and this run has none. Tell the owner plainly.");
 			const chartId = `${runId}:chart:${createHash("sha256").update(JSON.stringify(spec)).digest("hex").slice(0, 12)}`;
-			await showCard(scope, deps, { type: "chart", chartId, spec, runId });
+			if (!shown.has(chartId)) {
+				shown.add(chartId);
+				await showCard(scope, deps, { type: "chart", chartId, spec, runId });
+			}
 			return { id: chartId };
 		},
 	};

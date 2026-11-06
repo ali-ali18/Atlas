@@ -37,7 +37,7 @@ function harness(options: { preview?: Awaited<ReturnType<V4DeliverablesDeps["pre
 	};
 	const conversationId = options.conversationId === undefined ? "conv-1" : options.conversationId;
 	const built = createV4Deliverables({ runId: "run-1", scope: { conversationId, botId: options.botId === undefined ? "bot-1" : options.botId, emit: (event) => void emitted.push(event) }, deps });
-	return { ...built, artifacts, cards, emitted, pages };
+	return { ...built, deps, artifacts, cards, emitted, pages };
 }
 
 const fileInput = (over: Partial<CreateFileInput> = {}): CreateFileInput => ({ filename: "nota.md", format: "text", ext: "md", content: "# Oi", ...over });
@@ -115,6 +115,9 @@ test("gráfico: id estável pelo conteúdo (refazer não duplica o cartão) e ex
 	assert.equal(first.id, again.id);
 	assert.notEqual(first.id, other.id);
 	assert.match(first.id, /^run-1:chart:[0-9a-f]{12}$/);
+	// Chamado de novo no mesmo run: uma gravação e um evento por gráfico distinto (auditoria F2, B3/T1).
+	assert.equal(h.cards.filter((c) => c.event.type === "chart").length, 2);
+	assert.equal(h.emitted.filter((e) => e.type === "chart").length, 2);
 	await assert.rejects(harness({ conversationId: null }).ports.charts.save("user-a", "run-1", spec), /in the conversation/);
 });
 
@@ -135,4 +138,20 @@ test("painel: createPage devolvendo null (bot de outro dono) vira erro, sem cart
 	const none = createV4Deliverables({ runId: "run-1", scope: { conversationId: "conv-1", botId: "bot-de-outro", emit: () => undefined }, deps });
 	await assert.rejects(none.ports.pages.save("user-a", "run-1", { v: 2, title: "x", root: {} } as unknown as PageSpec), /Could not create the panel/);
 	assert.equal(h.cards.length, 0);
+});
+
+test("cartão que falha ao gravar vai ao log e não derruba a entrega (auditoria F2, B4/R3)", async () => {
+	const logs: string[] = [];
+	const emitted: ComputerUseEvent[] = [];
+	const deps = { ...harness().deps, persistCard: async () => { throw new Error("db fora do ar"); } };
+	const built = createV4Deliverables({ runId: "run-1", scope: { conversationId: "conv-1", botId: "bot-1", emit: (e) => void emitted.push(e), log: (m) => void logs.push(m) }, deps });
+	const spec = { type: "bar", x: "m", series: [{ key: "v", label: "V" }], data: [{ m: "jan", v: 1 }] } as unknown as ChartSpec;
+	await built.ports.charts.save("user-a", "run-1", spec);
+	assert.equal(emitted.length, 1);
+	assert.equal(logs.length, 1);
+	assert.match(logs[0] ?? "", /chart.*db fora do ar/);
+});
+
+test("htmlToPlainText decodifica entidades numéricas e nomeadas e mantém as quebras (auditoria F2, R2)", () => {
+	assert.equal(htmlToPlainText("<p>It&#39;s 1 &ndash; 2 &amp; &lt;b&gt;</p><p>fim&nbsp;ok</p>"), "It's 1 – 2 & <b>\nfim ok");
 });
