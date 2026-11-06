@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createCapabilityRegistry, defineCapability } from "../capabilities/index.js";
+import { createConnectorsCapability } from "../connectors/capability.js";
+import { FakeMcp } from "../connectors/fake-mcp.js";
 import { kernelHarness, reply } from "../testing/kernel-fakes.js";
 
 // Economia (05-fases, guardas permanentes #5): "Bom dia" é barato.
@@ -54,6 +56,17 @@ describe("economia: Bom dia", () => {
 		const withLazy = await measureGoodMorning([lazy]);
 		expect(withLazy.toolNames).toEqual(base.toolNames);
 		expect(withLazy.tokens - base.tokens).toBeLessThan(60);
+	});
+
+	it("conectores do dono entram só como uma linha do índice: nem tool_search nem mcp_* vão no primeiro passo", async () => {
+		const mcp = new FakeMcp([{ id: "a", ownerId: "o", slug: "gmail", name: "Gmail", catalogId: "gmail", status: "connected", confirmWrites: true, tools: Array.from({ length: 40 }, (_, i) => ({ name: `tool_${i}`, description: "x".repeat(300), inputSchema: { type: "object" } })), disabledTools: [] }]);
+		const { capability } = await createConnectorsCapability(mcp, "o");
+		const base = await measureGoodMorning();
+		const withConnectors = await measureGoodMorning(capability ? [capability] : []);
+		expect(capability?.core).toBe(false);
+		expect(withConnectors.toolNames).toEqual(base.toolNames);
+		expect(withConnectors.tokens - base.tokens).toBeLessThan(60);
+		expect(withConnectors.tokens).toBeLessThanOrEqual(GOOD_MORNING_INPUT_TOKENS_CEILING);
 	});
 
 	it("o teto é o medido + 15% (o teto só desce: se o núcleo encolher, baixe o medido e o teto no mesmo commit)", () => {

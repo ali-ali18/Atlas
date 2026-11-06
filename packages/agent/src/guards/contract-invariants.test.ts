@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { USE_CAPABILITY_TOOL, createCapabilityRegistry, createLoadedSet, defineCapability } from "../capabilities/index.js";
 import { EFFECT_CLASSES, type Effect, RunProvenance, createExecutor, grantApproval, isEffect, type ApprovalGrant, type PolicyContext } from "../contract/index.js";
+import { TOOL_SEARCH_TOOL } from "../connectors/capability.js";
 import { ASK_OWNER_TOOL, createAskOwnerTool } from "../kernel/ask-owner.js";
 import { NOTE_READ_TOOL, createNoteReadTool, DEFAULT_PAGE_CHARS } from "../kernel/work-notes.js";
 import { fakePorts, sha256 } from "../testing/fake-ports.js";
@@ -50,7 +51,14 @@ function listTs(dir: string): string[] {
 }
 
 /** Constantes de nome usadas no lugar do literal (o AST não resolve imports). */
-const NAME_CONSTANTS: Record<string, string> = { ASK_OWNER_TOOL, NOTE_READ_TOOL, USE_CAPABILITY_TOOL };
+const NAME_CONSTANTS: Record<string, string> = { ASK_OWNER_TOOL, NOTE_READ_TOOL, USE_CAPABILITY_TOOL, TOOL_SEARCH_TOOL };
+
+/**
+ * Tools da capacidade `connectors` (F2.5): montadas por run com o dono, então não entram em `allRegisteredTools()`.
+ * Os nomes `mcp_<slug>_read|write` são dinâmicos (um par por conexão). Efeito, privacidade e escopo delas são
+ * conferidos em `connectors/connectors.test.ts` e `guards/private-data.test.ts`.
+ */
+const CONNECTOR_TOOL_DECLARATIONS: readonly string[] = [TOOL_SEARCH_TOOL, "<dynamic:names.read>", "<dynamic:names.write>"];
 
 /** Nomes de tool declarados por `defineTool({ name: "..." })` no código de produção do pacote. */
 export function declaredToolNames(code: string): string[] {
@@ -96,7 +104,7 @@ describe("A. toda tool registrada declara efeito", () => {
 	});
 
 	it("toda tool definida no código de produção está no registro de teste (tool nova obriga a atualizar este arquivo)", () => {
-		const registered = new Set(allRegisteredTools().map((t) => t.name));
+		const registered = new Set([...allRegisteredTools().map((t) => t.name), ...CONNECTOR_TOOL_DECLARATIONS]);
 		const declared = listTs(SRC).flatMap((file) => declaredToolNames(readFileSync(file, "utf8")));
 		expect(declared.length).toBeGreaterThan(0);
 		const missing = declared.filter((name) => !registered.has(name));

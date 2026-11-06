@@ -2,6 +2,7 @@ export * from "./clock.js";
 export * from "./file-store.js";
 export * from "./events.js";
 export * from "./llm.js";
+export * from "./mcp.js";
 export * from "./queue.js";
 export * from "./random.js";
 export * from "./sandbox.js";
