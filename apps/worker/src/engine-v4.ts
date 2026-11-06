@@ -24,22 +24,27 @@ import {
 	createStoreAdapter,
 	createSystemClock,
 	createSystemRandom,
+	createHelpers,
+	createSpendLedger,
 	createVaultAdapter,
 	runAgent,
 	type BullLikeQueue,
 	type CapabilityRegistry,
 	type ChannelInput,
+	type Helpers,
 	type Llm,
 	type LlmChatRequest,
 	type LlmRole,
 	type LlmStreamEvent,
 	type PolicyContext,
 	type Ports,
+	type PriorProvenance,
 	type RunEvent,
 	type RunInput,
 	type RunLimits,
 	type RunResult,
 	type Sandbox,
+	type Search,
 	type StoreBackend,
 	type VaultBackend,
 } from "@workspace/agent";
@@ -357,6 +362,8 @@ export type RunEngineV4Input = {
 	adapters?: V4AdapterDeps;
 	/** Log técnico da montagem (sem segredo); omitido = `console.info`. */
 	log?: (message: string) => void;
+	/** Recebe os ajudantes deste run assim que montados (os mesmos que `PresetDeps.helpers` entrega à capacidade `research`). Teste e telemetria. */
+	onHelpers?: (helpers: Helpers) => void;
 	/** Prompt estável do preset (sem ele, o kernel monta o completo com o contrato de trabalho). */
 	stableSystem?: string;
 	policy?: PolicyContext;
@@ -408,6 +415,33 @@ export async function runEngineV4(input: RunEngineV4Input): Promise<V4EngineResu
 		events: createEventsAdapter({ runId: input.runId, userId: input.userId, map: input.mapEvent ?? createMinimalEventMapper(input.runId), persist: input.persistEvent }),
 	};
 	const basePolicy: PolicyContext = input.policy ?? { surface: "chat", ownerPresent: input.ownerPresent, autonomy: "balanced", rules: [] };
+	// Ajudantes (F3.1): runs filhos do próprio kernel, com as mesmas portas da mãe (a busca vem do registro), o papel `helper`
+	// da cadeia de modelos, o medidor da mãe (o uso aparece no run) e o teto do dono compartilhado pelo livro de gasto.
+	const ledger = createSpendLedger();
+	let motherRegistry: CapabilityRegistry | undefined;
+	let motherProvenance: (() => PriorProvenance) | undefined;
+	const makeHelpers = ({ search }: { search: Search }) => {
+		const helpers = createHelpers({
+			runId: input.runId,
+			ownerId: input.userId,
+			llm: meter.llm,
+			clock: ports.clock,
+			random: ports.random,
+			hash: sha256,
+			motherRegistry: () => {
+				if (!motherRegistry) throw new Error("helpers: the lead registry is not ready yet");
+				return motherRegistry;
+			},
+			motherPolicy: basePolicy,
+			motherLimits: input.limits,
+			motherProvenance: () => motherProvenance?.(),
+			ledger,
+			search,
+			...(input.language && { language: input.language }),
+		});
+		input.onHelpers?.(helpers);
+		return helpers;
+	};
 	// Preset `full` com as portas reais. As regras `approve` dos conectores (`confirmWrites`) vêm antes das do dono (as do dono por último).
 	const built = input.registry
 		? null
@@ -424,7 +458,10 @@ export async function runEngineV4(input: RunEngineV4Input): Promise<V4EngineResu
 				...(input.adapters && { deps: input.adapters }),
 				...(input.log && { log: input.log }),
 				...(input.language && { locale: input.language }),
+				makeHelpers,
 			});
+	const registry = input.registry ?? built!.registry;
+	motherRegistry = registry;
 	const stableSystem = input.stableSystem ?? built?.stableSystem;
 	const result = await runAgent({
 		runId: input.runId,
@@ -439,10 +476,14 @@ export async function runEngineV4(input: RunEngineV4Input): Promise<V4EngineResu
 			...(input.priorProvenance && { priorProvenance: input.priorProvenance }),
 		},
 		ports,
-		registry: input.registry ?? built!.registry,
+		registry,
 		policy: basePolicy,
 		limits: input.limits,
 		hash: sha256,
+		spend: ledger.motherHook(),
+		exposeProvenance: (read) => {
+			motherProvenance = read;
+		},
 		...(input.signal && { signal: input.signal }),
 		...(input.language && { language: input.language }),
 	});
