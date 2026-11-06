@@ -112,4 +112,12 @@ describe("defineTool", () => {
 		expect(defineTool(base).endsTurn).toBe(false);
 		expect(defineTool({ ...base, endsTurn: true }).endsTurn).toBe(true);
 	});
+
+	it("ownerData exige privateData: true (N2) e fica exposto na tool", () => {
+		expect(() => defineTool({ ...base, ownerData: "memory" })).toThrow(/privateData: true/);
+		expect(() => defineTool({ ...base, ownerData: "lixo" as never, privateData: true })).toThrow(/unknown ownerData/);
+		const tool = defineTool({ ...base, ownerData: "email", privateData: true });
+		expect(tool.ownerData).toBe("email");
+		expect(defineTool(base).ownerData).toBeUndefined();
+	});
 });
