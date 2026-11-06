@@ -7,6 +7,7 @@
  * lê nem escreve nada, e o recurso de outro dono é "não encontrado". Os tipos são estruturais (iguais aos das portas
  * de `@workspace/agent`) para o db não depender do motor.
  */
+import { randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "./client.js";
 import { ResourceOwnershipError } from "./conversations.js";
@@ -90,23 +91,41 @@ type JournalRow = { runId: string; userId: string; step: number; idempotencyKey:
 const toJournal = (row: JournalRow): AgentJournalRecord => ({ runId: row.runId, userId: row.userId, step: row.step, idempotencyKey: row.idempotencyKey, toolName: row.toolName, argsHash: row.argsHash, outcome: row.state as AgentJournalRecord["outcome"] });
 
 /**
- * Grava a entrada do journal (upsert pela chave de idempotência, por dono e run). `started` nunca rebaixa um estado que
- * já terminou. O run precisa ser do dono (senão "não encontrado").
+ * Grava a entrada do journal numa instrução só (INSERT … ON CONFLICT pela chave de idempotência, por dono e run), então
+ * dois processos disputando a mesma chave nunca passam os dois. O run precisa ser do dono (senão "não encontrado").
+ *
+ * Transições: `started` é o CLAIM da escrita. Cria a entrada, ou reassume uma `failed` (a nova tentativa volta a
+ * `started`, para uma retomada interrompida ser detectável: B10); sobre `started`/`succeeded` não muda nada e devolve
+ * `claimed: false` (outro processo já tem a escrita, ou ela já terminou). `succeeded` e `failed` fecham a entrada e
+ * `succeeded` nunca é rebaixado.
  */
-export async function appendAgentJournalEntry(entry: AgentJournalRecord): Promise<void> {
+export async function appendAgentJournalEntry(entry: AgentJournalRecord): Promise<{ claimed: boolean }> {
 	requireOwner(entry.userId);
 	if (!OUTCOMES.has(entry.outcome)) throw new RangeError("outcome inválido");
 	checkText("idempotencyKey", entry.idempotencyKey, LABEL_MAX);
-	const data = { step: entry.step, toolName: checkText("toolName", entry.toolName, LABEL_MAX), argsHash: checkText("argsHash", entry.argsHash, LABEL_MAX), state: entry.outcome };
-	try {
-		await prisma.agentJournalEntry.upsert({
-			where: { userId_runId_idempotencyKey: { userId: entry.userId, runId: entry.runId, idempotencyKey: entry.idempotencyKey } },
-			create: { ...data, idempotencyKey: entry.idempotencyKey, userId: entry.userId, run: { connect: { id: entry.runId, userId: entry.userId } } },
-			update: entry.outcome === "started" ? {} : { state: entry.outcome, step: entry.step },
-		});
-	} catch (error) {
-		asOwnership(error);
-	}
+	const toolName = checkText("toolName", entry.toolName, LABEL_MAX);
+	const argsHash = checkText("argsHash", entry.argsHash, LABEL_MAX);
+	const id = randomUUID();
+	const rows =
+		entry.outcome === "started"
+			? await prisma.$queryRaw<Array<{ id: string }>>`
+				INSERT INTO "agent_journal_entries" AS j ("id", "runId", "userId", "step", "idempotencyKey", "toolName", "argsHash", "state", "createdAt", "updatedAt")
+				SELECT ${id}, r."id", r."userId", ${entry.step}::int, ${entry.idempotencyKey}, ${toolName}, ${argsHash}, 'started', now(), now()
+				FROM "agent_runs" r WHERE r."id" = ${entry.runId} AND r."userId" = ${entry.userId}
+				ON CONFLICT ("userId", "runId", "idempotencyKey") DO UPDATE SET "state" = 'started', "step" = EXCLUDED."step", "updatedAt" = now()
+				WHERE j."state" = 'failed'
+				RETURNING j."id"`
+			: await prisma.$queryRaw<Array<{ id: string }>>`
+				INSERT INTO "agent_journal_entries" AS j ("id", "runId", "userId", "step", "idempotencyKey", "toolName", "argsHash", "state", "createdAt", "updatedAt")
+				SELECT ${id}, r."id", r."userId", ${entry.step}::int, ${entry.idempotencyKey}, ${toolName}, ${argsHash}, ${entry.outcome}, now(), now()
+				FROM "agent_runs" r WHERE r."id" = ${entry.runId} AND r."userId" = ${entry.userId}
+				ON CONFLICT ("userId", "runId", "idempotencyKey") DO UPDATE SET "state" = CASE WHEN j."state" = 'succeeded' THEN 'succeeded' ELSE EXCLUDED."state" END, "step" = EXCLUDED."step", "updatedAt" = now()
+				RETURNING j."id"`;
+	if (rows.length > 0) return { claimed: true };
+	// Nenhuma linha: ou o run não é do dono, ou a chave já está com `started`/`succeeded` (claim perdido).
+	const run = await prisma.agentRun.findFirst({ where: { id: entry.runId, userId: entry.userId }, select: { id: true } });
+	if (!run) throw new ResourceOwnershipError();
+	return { claimed: false };
 }
 
 export async function findAgentJournalEntry(userId: string, runId: string, idempotencyKey: string): Promise<AgentJournalRecord | null> {

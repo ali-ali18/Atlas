@@ -46,7 +46,32 @@ describe("agent-v4-store (Postgres real)", { skip: dbSkip }, () => {
 		await appendAgentJournalEntry(entry({ outcome: "succeeded" }));
 		await appendAgentJournalEntry(entry({ outcome: "started" }));
 		assert.equal((await findAgentJournalEntry(a, runA, entry().idempotencyKey))?.outcome, "succeeded");
-		assert.equal((await listAgentJournalEntries(a, runA)).length, 1);
+		assert.equal((await listAgentJournalEntries(a, runA)).filter((e) => e.idempotencyKey === entry().idempotencyKey).length, 1);
+	});
+
+	test("journal (B10): failed reassumida volta a started, e started/succeeded não se reassumem", async () => {
+		const key = `${runA}:retry:h`;
+		assert.deepEqual(await appendAgentJournalEntry(entry({ idempotencyKey: key })), { claimed: true });
+		await appendAgentJournalEntry(entry({ idempotencyKey: key, outcome: "failed" }));
+		assert.equal((await findAgentJournalEntry(a, runA, key))?.outcome, "failed");
+		// nova tentativa: volta a started (uma retomada interrompida agora é detectável)
+		assert.deepEqual(await appendAgentJournalEntry(entry({ idempotencyKey: key, step: 2 })), { claimed: true });
+		const retried = await findAgentJournalEntry(a, runA, key);
+		assert.equal(retried?.outcome, "started");
+		assert.equal(retried?.step, 2);
+		assert.deepEqual(await appendAgentJournalEntry(entry({ idempotencyKey: key })), { claimed: false });
+		await appendAgentJournalEntry(entry({ idempotencyKey: key, outcome: "succeeded" }));
+		assert.deepEqual(await appendAgentJournalEntry(entry({ idempotencyKey: key })), { claimed: false });
+		// succeeded nunca é rebaixado, nem por failed
+		await appendAgentJournalEntry(entry({ idempotencyKey: key, outcome: "failed" }));
+		assert.equal((await findAgentJournalEntry(a, runA, key))?.outcome, "succeeded");
+	});
+
+	test("journal (S5): claims concorrentes da mesma chave, só um vence", async () => {
+		const key = `${runA}:race:h`;
+		const results = await Promise.all(Array.from({ length: 8 }, () => appendAgentJournalEntry(entry({ idempotencyKey: key }))));
+		assert.equal(results.filter((r) => r.claimed).length, 1);
+		assert.equal((await listAgentJournalEntries(a, runA)).filter((e) => e.idempotencyKey === key).length, 1);
 	});
 
 	test("journal: dono B não lê, não grava no run de A e a chave dele não colide com a de A", async () => {
