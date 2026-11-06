@@ -3,7 +3,7 @@
 import "dotenv/config";
 import { closeSharedMcpPool, shutdownSharedExtractor } from "@workspace/agent-runtime";
 import { DelayedError, UnrecoverableError, Worker, type Job } from "bullmq";
-import { engineV4GateFromEnv } from "./engine-choice.js";
+import { engineDefaultFromEnv, engineV4GateFromEnv } from "./engine-choice.js";
 import { createActiveTracker, drainAgentWork } from "./shutdown.js";
 import { WorkerShuttingDownError } from "./lease-guards.js";
 import { randomUUID } from "node:crypto";
@@ -518,7 +518,7 @@ agentWorker.on("completed", () => proactiveSweeper.kick());
 // Agenda do agente (Motor v4, F4.3): itens vencidos viram runs v4 sem humano. Só existe com `ATLAS_ENGINE_V4` ligada;
 // desligada (padrão) nada é varrido nem consultado. Mesmo padrão do modo proativo: o banco guarda tudo e reinício retoma.
 const agendaSweeper = engineV4GateFromEnv().enabled
-	? startAgendaSweeper({ v4Gate: engineV4GateFromEnv(), enqueueRun: enqueueChainedRun, envDefaultModel: config.openRouterModel })
+	? startAgendaSweeper({ v4Gate: engineV4GateFromEnv(), enqueueRun: enqueueChainedRun, engineDefault: engineDefaultFromEnv(), envDefaultModel: config.openRouterModel })
 	: undefined;
 agentWorker.on("completed", () => agendaSweeper?.kick());
 // Run que falhou só libera o brief; o modo proativo (follow-ups, reflexão) não roda por falha, como antes.

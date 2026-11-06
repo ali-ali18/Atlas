@@ -7,7 +7,7 @@ import { test } from "node:test";
 import type { AgendaItemRecord } from "@workspace/db";
 import { DEFAULT_PROACTIVE_SETTINGS } from "@workspace/shared";
 import { agendaObjective } from "./agenda-wake.js";
-import { closeAgendaRun, loadAgendaRunContext, type AgendaRunDb } from "./agenda-run.js";
+import { closeAgendaRun, loadAgendaRunContext, loadAgendaRunContextOrFail, releaseUnstartedAgendaRun, settleAbortedAgendaRun, type AgendaAbortDeps, type AgendaRunDb } from "./agenda-run.js";
 
 const NOW = new Date("2026-11-05T12:00:00.000Z");
 const item = (over: Partial<AgendaItemRecord> = {}): AgendaItemRecord => ({
@@ -83,4 +83,105 @@ test("falha ao fechar: lembrete não se perde (o texto sai), vigia fica calado",
 	} finally {
 		console.error = originalError;
 	}
+});
+
+// ---------------------------------------------------------------------------
+// Auditoria F4: B1 (run morto), B2/B3 (run que não chegou a executar)
+// ---------------------------------------------------------------------------
+
+const abortDb = (over: { row?: AgendaItemRecord; finalize?: AgendaRunDb["finalize"] } = {}) => {
+	const delivered: Array<{ conversationId: string; text: string }> = [];
+	const finalized: Array<{ runId: string; text: string }> = [];
+	const row = over.row ?? item({ kind: "remind", runId: "run-1" });
+	// 1ª leitura = antes do fechamento (sem resultado deste run); depois dele, a linha como o teste a descreve.
+	let reads = 0;
+	const abort: AgendaAbortDeps = {
+		...db([row], over.finalize ?? (async (input) => (finalized.push({ runId: input.runId, text: input.text }), { agenda: true, itemId: "i1", text: "", stoppedWithoutResult: false, note: row.note }))),
+		getByRunId: async () => (reads++ === 0 ? { ...row, lastResult: null, lastNoticeAt: null } : row),
+		deliver: async (conversationId, text) => void delivered.push({ conversationId, text }),
+	};
+	return { abort, delivered, finalized };
+};
+
+test("B1: run que falhou/foi cancelado/caiu é fechado como sem resultado (texto vazio, mesmo caminho do run que esqueceu o resultado)", async () => {
+	const { abort, finalized } = abortDb();
+	const out = await settleAbortedAgendaRun({ userId: "user-a", runId: "run-1", language: "pt-BR", db: abort });
+	assert.deepEqual(finalized, [{ runId: "run-1", text: "" }]);
+	assert.equal(out.closed, true);
+});
+
+test("B1: lembrete que o fechamento encerrou sem entregar sai com a nota (nunca some em silêncio); se continua na fila, não repete", async () => {
+	const doneRow = item({ kind: "remind", status: "done", endReason: "completed", runId: "run-1", conversationId: "conv-1", note: "Ligar para a Ana", lastResult: { runId: "run-1", outcome: "missing", at: NOW.toISOString() } });
+	const lost = abortDb({ row: doneRow });
+	assert.deepEqual(await settleAbortedAgendaRun({ userId: "user-a", runId: "run-1", language: "pt-BR", db: lost.abort }), { closed: true, delivered: true });
+	assert.deepEqual(lost.delivered, [{ conversationId: "conv-1", text: "Lembrete: Ligar para a Ana" }]);
+	const pending = abortDb({ row: { ...doneRow, status: "pending", endReason: null } });
+	assert.equal((await settleAbortedAgendaRun({ userId: "user-a", runId: "run-1", language: "pt-BR", db: pending.abort })).delivered, false);
+	assert.deepEqual(pending.delivered, []);
+	// vigia encerrado do mesmo jeito não vira "lembrete"
+	const watch = abortDb({ row: { ...doneRow, kind: "watch" } });
+	assert.equal((await settleAbortedAgendaRun({ userId: "user-a", runId: "run-1", language: "pt-BR", db: watch.abort })).delivered, false);
+});
+
+test("B1: mensagem que o run já declarou e a morte impediu de postar sai agora; parada por falha avisa uma vez", async () => {
+	const declared = abortDb({ finalize: async () => ({ agenda: true, itemId: "i1", text: "Caiu para R$ 4.200.", stoppedWithoutResult: false, note: "n" }) });
+	await settleAbortedAgendaRun({ userId: "user-a", runId: "run-1", language: "pt-BR", db: declared.abort });
+	assert.deepEqual(declared.delivered.map((d) => d.text), ["Caiu para R$ 4.200."]);
+	const stopped = abortDb({ finalize: async () => ({ agenda: true, itemId: "i1", text: "", stoppedWithoutResult: true, note: "Ver o preço" }) });
+	await settleAbortedAgendaRun({ userId: "user-a", runId: "run-1", language: "pt-BR", db: stopped.abort });
+	assert.match(stopped.delivered[0]?.text ?? "", /^Parei de acompanhar "Ver o preço"/);
+});
+
+test("B1: não é run de agenda, ou o db falha: não posta e nunca lança", async () => {
+	const none = abortDb({ finalize: async () => ({ agenda: false }) });
+	assert.deepEqual(await settleAbortedAgendaRun({ userId: "user-a", runId: "run-x", db: none.abort }), { closed: false, delivered: false });
+	const boom = abortDb({ finalize: async () => { throw new Error("db fora do ar"); } });
+	const original = console.error;
+	console.error = () => undefined;
+	try {
+		assert.deepEqual(await settleAbortedAgendaRun({ userId: "user-a", runId: "run-1", db: boom.abort }), { closed: false, delivered: false });
+	} finally {
+		console.error = original;
+	}
+});
+
+test("B2/B3: run que não chegou a executar devolve o item à fila e nunca lança", async () => {
+	const calls: Array<{ runId: string; error: string }> = [];
+	const dueAt = new Date("2026-11-05T12:30:00.000Z");
+	assert.equal(await releaseUnstartedAgendaRun({ userId: "user-a", runId: "run-1", dueAt, error: "x", db: { release: async (input) => (calls.push({ runId: input.runId, error: input.error }), 1) } }), true);
+	assert.equal(await releaseUnstartedAgendaRun({ userId: "user-a", runId: "run-1", dueAt, error: "x", db: { release: async () => 0 } }), false);
+	const original = console.error;
+	console.error = () => undefined;
+	try {
+		assert.equal(await releaseUnstartedAgendaRun({ userId: "user-a", runId: "run-1", dueAt, error: "x", db: { release: async () => { throw new Error("db fora do ar"); } } }), false);
+	} finally {
+		console.error = original;
+	}
+	assert.deepEqual(calls, [{ runId: "run-1", error: "x" }]);
+});
+
+test("B3/C4: erro ao carregar o contexto de um run de agenda falha fechado; run proativo comum e run sem erro seguem como antes", async () => {
+	const boom: AgendaRunDb = { ...db([]), getByRunId: async () => { throw new Error("db fora do ar"); } };
+	const original = console.error;
+	console.error = () => undefined;
+	try {
+		const wake = agendaObjective({ kind: "remind", note: "n" });
+		assert.deepEqual(await loadAgendaRunContextOrFail({ userId: "user-a", runId: "run-1", origin: "proactive", objective: wake, db: boom }), { context: null, failedClosed: true });
+		// follow-up proativo do v2 (objetivo que não é de wake) e outras origens: não é run de agenda, não falha fechado
+		assert.equal((await loadAgendaRunContextOrFail({ userId: "user-a", runId: "run-1", origin: "proactive", objective: "Follow-up: ver o preço", db: boom })).failedClosed, false);
+		assert.equal((await loadAgendaRunContextOrFail({ userId: "user-a", runId: "run-1", origin: "chat", objective: wake, db: boom })).failedClosed, false);
+	} finally {
+		console.error = original;
+	}
+	const ok = await loadAgendaRunContextOrFail({ userId: "user-a", runId: "run-1", origin: "proactive", objective: "Agenda wake (watch): n", now: () => NOW, db: db([item()]) });
+	assert.equal(ok.failedClosed, false);
+	assert.ok(ok.context);
+});
+
+test("B1: reentrega do fechamento (o run já tinha sido fechado) não repete o aviso", async () => {
+	const row = item({ kind: "remind", status: "done", runId: "run-1", conversationId: "conv-1", lastResult: { runId: "run-1", outcome: "missing", at: NOW.toISOString() } });
+	const delivered: string[] = [];
+	const abort: AgendaAbortDeps = { ...db([row], async () => ({ agenda: true, itemId: "i1", text: "", stoppedWithoutResult: true, note: "n" })), deliver: async (_c, text) => void delivered.push(text) };
+	assert.deepEqual(await settleAbortedAgendaRun({ userId: "user-a", runId: "run-1", db: abort }), { closed: true, delivered: false });
+	assert.deepEqual(delivered, []);
 });

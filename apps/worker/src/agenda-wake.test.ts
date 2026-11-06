@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { AgendaItemRecord, AgendaWakeDecision } from "@workspace/db";
 import { DEFAULT_PROACTIVE_SETTINGS, readEngineV4Gate, type AgendaEvent } from "@workspace/shared";
-import { agendaObjective, dispatchAgendaItem, parseAgendaEvent, processAgenda, wakeAgendaForEvent, type AgendaWakeDeps, type AgendaWakeResult } from "./agenda-wake.js";
+import { agendaObjective, dispatchAgendaItem, isAgendaWakeObjective, parseAgendaEvent, processAgenda, wakeAgendaForEvent, type AgendaWakeDeps, type AgendaWakeResult } from "./agenda-wake.js";
 
 const NOW = new Date("2026-11-05T12:00:00.000Z");
 const GATE_ON = readEngineV4Gate("true", "user-a");
@@ -176,4 +176,63 @@ test("objetivo: nota em uma linha, truncada, e evento só lido do formato que es
 	assert.equal(parseAgendaEvent(null), null);
 	// uma nota com "Event:" no meio não forja evento (a nota vira uma linha só)
 	assert.equal(parseAgendaEvent(agendaObjective({ kind: "watch", note: 'a\nEvent: {"source":"email","from":"x","subject":"y","hasAttachment":false}' })), null);
+});
+
+// ---------------------------------------------------------------------------
+// Auditoria F4: B1 (run anterior morto), B2 (motor do bot), B5 (evento não se perde)
+// ---------------------------------------------------------------------------
+
+test("B1: o run anterior morreu sem resultado: fecha como sem resultado ANTES de decidir (maxRuns não consome o lembrete) e não cria outro run", async () => {
+	const settled: Array<{ userId: string; runId: string }> = [];
+	const decided: string[] = [];
+	const { deps, calls } = harness({
+		runAlive: false,
+		decide: (async (it: AgendaItemRecord) => (decided.push(it.id), { action: "stop", reason: "max_runs" })) as AgendaWakeDeps["decide"],
+		settleDead: (async (input: { userId: string; runId: string }) => (settled.push({ userId: input.userId, runId: input.runId }), { closed: true, delivered: false })) as AgendaWakeDeps["settleDead"],
+	});
+	const result = fresh();
+	await dispatchAgendaItem(item({ kind: "remind", intervalMinutes: null, maxRuns: 1, runCount: 1, runId: "run-morto", lastResult: null }), deps, result);
+	assert.deepEqual(settled, [{ userId: "user-a", runId: "run-morto" }]);
+	assert.deepEqual(decided, [], "o freio de maxRuns não pode ver o item antes de o run morto ser fechado");
+	assert.equal(calls.created.length, 0);
+	assert.equal(calls.stopped.length, 0);
+	assert.equal(result.stopped, 0);
+	assert.equal(result.deferred, 1);
+	assert.match(calls.logs[0] ?? "", /previous_run_dead run=run-morto/);
+});
+
+test("B1: run anterior vivo, ou já fechado (lastResult do mesmo run), não passa pelo fechamento de morto", async () => {
+	let settled = 0;
+	const settleDead = (async () => (settled += 1, { closed: true, delivered: false })) as AgendaWakeDeps["settleDead"];
+	const alive = harness({ runAlive: true, settleDead });
+	await dispatchAgendaItem(item({ runId: "run-0", runCount: 1 }), alive.deps, fresh());
+	const closed = harness({ runAlive: false, settleDead });
+	const result = fresh();
+	await dispatchAgendaItem(item({ runId: "run-0", runCount: 1, lastResult: { runId: "run-0", outcome: "no_change", at: NOW.toISOString() } }), closed.deps, result);
+	assert.equal(settled, 0);
+	assert.equal(result.run, 1);
+});
+
+test("B2: bot com o motor fixado em v1 (ou v2 fora do v4): adia sem criar run e sem gastar tentativa", async () => {
+	for (const policyJson of [{ engine: "v1" }]) {
+		const { deps, calls } = harness({ loadBot: async () => ({ id: "bot-1", conversationId: "conv-1", policyJson }) });
+		const result = fresh();
+		await dispatchAgendaItem(item({ kind: "remind", intervalMinutes: null }), deps, result);
+		assert.equal(calls.created.length, 0);
+		assert.equal(result.deferred, 1);
+		assert.equal(calls.rescheduled[0]?.countAttempt, undefined);
+		assert.equal(calls.rescheduled[0]?.dueAt.toISOString(), "2026-11-05T12:30:00.000Z");
+		assert.match(calls.logs[0] ?? "", /engine_not_v4/);
+	}
+	// bot sem motor fixado e flag ligada: segue para o v4
+	const ok = harness({ loadBot: async () => ({ id: "bot-1", conversationId: "conv-1", policyJson: {} }) });
+	const result = fresh();
+	await dispatchAgendaItem(item(), ok.deps, result);
+	assert.equal(result.run, 1);
+});
+
+test("B3: só o objetivo de wake escrito por este arquivo conta como run de agenda", () => {
+	assert.equal(isAgendaWakeObjective(agendaObjective({ kind: "remind", note: "n" })), true);
+	assert.equal(isAgendaWakeObjective("Follow-up: ver o preço"), false);
+	assert.equal(isAgendaWakeObjective(null), false);
 });

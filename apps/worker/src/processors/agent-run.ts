@@ -140,10 +140,12 @@ import {
 	resolveBudget,
 	wallClockAnchors,
 } from "@workspace/agent-runtime";
-import { closeAgendaRun, loadAgendaRunContext } from "../agenda-run.js";
+import { closeAgendaRun, loadAgendaRunContextOrFail, releaseUnstartedAgendaRun, settleAbortedAgendaRun } from "../agenda-run.js";
 import { prepareV4Run } from "../v4-run-context.js";
 import { runV4Turn } from "../v4-turn.js";
 import { cheapModelFromEnv, createV4Llm, dropProcessorOwnedEvents, ownerStepsLimit, runEngineV4, vaultBackendFromService } from "../engine-v4.js";
+/** Run de agenda que não chegou a executar (motor ou contexto): o item volta à fila neste prazo. */
+const AGENDA_NOT_RUN_RETRY_MS = 30 * 60_000;
 import { earlyWallMs, engineDefaultFromEnv, engineV4GateFromEnv, pickRunEngine, resolveRunLimits, runSelectedEngine } from "../engine-choice.js";
 import { getVaultService, type RunComputerUseResult } from "@workspace/agent-runtime";
 import { createSseMapper, type BullLikeQueue } from "@workspace/agent";
@@ -1172,7 +1174,9 @@ async function executeLeasedRun(ctx: {
 	// Motor do run (ADR 0002): v2 por padrão em todas as origens suportadas; v1 só com `policyJson.engine = "v1"` explícito ou com `ATLAS_ENGINE_V2_DEFAULT=off` (emergência).
 	// A escolha fica no budgetJson do run: a retomada continua no motor em que o run nasceu.
 	// Run acordado pela agenda do v4 (F4.3): reconhecido pelo item ligado a ele no banco; só ele leva o proativo ao v4.
-	const agendaRun = await loadAgendaRunContext({ userId: runUserId, runId, origin: run.origin, objective: run.objective }).catch(() => null);
+	// Falha fechada (auditoria F4, B3/C4): se o run foi criado pela agenda (objetivo de wake) e o contexto do item não carregou,
+	// ele NÃO segue como proativo comum no v2 (o texto livre poderia ir ao dono): não roda, não posta, e o item volta à fila.
+	const { context: agendaRun, failedClosed: agendaContextFailed } = await loadAgendaRunContextOrFail({ userId: runUserId, runId, origin: run.origin, objective: run.objective });
 	const engineChoice = await pickRunEngine({
 		run,
 		agenda: Boolean(agendaRun),
@@ -1274,7 +1278,9 @@ async function executeLeasedRun(ctx: {
 		// Run de agenda sem o v4 (flag desligada entre a varredura e o run, ou o bot fixou o motor antigo): não roda o prompt de
 		// agenda em outro motor. Fecha vazio; `closeAgendaRun` conta a falha no item e ele volta com o espaçamento.
 		const agendaWithoutV4 = Boolean(agendaRun) && engineChoice.engine !== "v4";
-		const result = agendaWithoutV4
+		// Nenhum dos dois chegou a executar: o item volta à fila sem gastar a execução (nunca consome um lembrete).
+		const agendaNotRun = agendaWithoutV4 || agendaContextFailed;
+		const result = agendaNotRun
 			? { text: "", model: run.model, hitWall: false, usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0, costUsd: 0 }, stop: { reason: "answered" as const } }
 			: engineChoice.engine === "v4" ? await runV4() : await runSelectedEngine({ ...engineChoice, modelMaxOutputTokens: (modelId) => providers.capabilities(modelId).then((caps) => caps.maxOutputTokens, () => null) }, {
 			messageTriageModel,
@@ -1512,9 +1518,10 @@ async function executeLeasedRun(ctx: {
 			? planAlertRun({ alert: alertCtx.alert, routineName: alertCtx.name, verdict: alertRun.report.verdict, modelText: result.text, interval: alertCtx.interval ?? null, now: new Date() })
 			: null;
 		// Run de agenda (v4): vale o `agenda_result`, nunca o texto solto do modelo. Sem mensagem declarada o run é silencioso.
-		if (agendaRun) result.text = await closeAgendaRun({ userId: runUserId, runId, text: result.text, language: systemLanguage, context: agendaRun });
+		if (agendaNotRun) await releaseUnstartedAgendaRun({ userId: runUserId, runId, dueAt: new Date(Date.now() + AGENDA_NOT_RUN_RETRY_MS), error: agendaContextFailed ? "agenda context failed to load" : "run did not go to engine v4" });
+		else if (agendaRun) result.text = await closeAgendaRun({ userId: runUserId, runId, text: result.text, language: systemLanguage, context: agendaRun });
 		// Verificação de follow-up sem novidade ([NO_UPDATE]): nada entra na conversa, sem push e sem revisão de memória.
-		const noUpdate = run.origin === "proactive" && (agendaRun ? result.text.trim().length === 0 : isNoUpdateReply(result.text));
+		const noUpdate = run.origin === "proactive" && (agendaRun || agendaContextFailed ? result.text.trim().length === 0 : isNoUpdateReply(result.text));
 		const resultText = alertPlan ? alertPlan.text : result.text;
 		const resultConversationId = (alertPlan && !alertPlan.notify) || noUpdate ? null : run.conversationId;
 		const jevAtCompletion = jevTelemetry.snapshot();
@@ -1818,8 +1825,13 @@ async function executeLeasedRun(ctx: {
 			settle: () => settleDelivery("cancelled"),
 			chain: () => chainRunFollowUp(run, runUserId, deps),
 		};
+		// O run de agenda morreu sem passar por `closeAgendaRun` (auditoria F4, B1): fecha o item como "sem resultado".
+		const settleAgendaAbort = async () => {
+			if (agendaRun) await settleAbortedAgendaRun({ userId: runUserId, runId, language: systemLanguage });
+		};
 		const closeCancelled = async (reason: string) => {
 			await closeCancelledRun(reason, cancelIo);
+			await settleAgendaAbort();
 			return { runId, status: "cancelled" as const };
 		};
 		if (error instanceof AgentRunCancelledError) {
@@ -1857,7 +1869,10 @@ async function executeLeasedRun(ctx: {
 				// A entrega ao usuário fica para o fim da retomada; aqui não há nada a avisar.
 				await settleDelivery("cancelled");
 				const outcome = await scheduleAutoContinue(run, runUserId, autoPlan, autoIo);
-				if (autoContinueScheduled(outcome)) return { runId, status: "budget_exhausted" };
+				if (autoContinueScheduled(outcome)) {
+					await settleAgendaAbort();
+					return { runId, status: "budget_exhausted" };
+				}
 				// A retomada não saiu do papel: o usuário recebe o fechamento comum em vez de ficar esperando.
 				if (run.conversationId) await appendConversationMessage(run.conversationId, "assistant", budgetStopFallbackText(error.message, systemLanguage)).catch(() => undefined);
 			}
@@ -1865,6 +1880,7 @@ async function executeLeasedRun(ctx: {
 			await notifyRoutineRunFailure({ origin: run.origin, agentRunId: runId, userId: runUserId, error: error.message }, routineRunFailureDeps(deps));
 			await briefFailureDelivery(run, deps);
 			await chainRunFollowUp(run, runUserId, deps);
+			await settleAgendaAbort();
 			return { runId, status: "budget_exhausted" };
 		}
 
@@ -1875,6 +1891,7 @@ async function executeLeasedRun(ctx: {
 				// O heartbeat não renova lease de run com cancel pedido, então o "Parar" chega aqui como lease perdido.
 				// Fecha como no cancel direto; se nem isso der (lease já tomado), o varredor de cancel órfão finaliza.
 				await closeCancelledAfterLeaseLoss(runId, cancelIo);
+				await settleAgendaAbort();
 				return { runId, status: "cancelled" };
 			}
 			if (state?.leaseOwner && state.leaseOwner !== lease.owner) {
@@ -1939,6 +1956,7 @@ async function executeLeasedRun(ctx: {
 			await notifyRoutineRunFailure({ origin: run.origin, agentRunId: runId, userId: runUserId, error: message }, routineRunFailureDeps(deps));
 			await briefFailureDelivery(run, deps);
 			await chainRunFollowUp(run, runUserId, deps);
+			await settleAgendaAbort();
 		}
 		if (kind === "waiting_user") {
 			return { runId, status: "waiting_user", error: message };
