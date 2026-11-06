@@ -17,7 +17,7 @@ import {
 	recordAgentV4CardResponse,
 	registerAgentV4Requests,
 } from "./agent-v4-requests.js";
-import { saveAgentConversationState } from "./agent-v4-store.js";
+import { saveAgentConversationState, saveAgentV4CheckpointUnfenced } from "./agent-v4-store.js";
 import { ResourceOwnershipError } from "./conversations.js";
 import { prisma } from "./client.js";
 import { createTestUser, dbSkip } from "./testing/test-db.js";
@@ -88,11 +88,25 @@ describe("agent-v4-requests (Postgres real)", { skip: dbSkip }, () => {
 		assert.deepEqual(await listAgentV4CardResponses(a, conv), []);
 	});
 
-	test("histórico só da conversa do dono e proveniência lida do checkpoint dos outros runs", async () => {
+	test("histórico só da conversa do dono e proveniência lida da coluna dos outros runs", async () => {
 		await prisma.conversationMessage.createMany({ data: [{ conversationId: conv, role: "user", content: "oi" }, { conversationId: conv, role: "assistant", content: "olá" }, { conversationId: conv, role: "tool", content: "x" }] });
 		assert.deepEqual((await listAgentV4History(a, conv)).map((m) => m.content), ["oi", "olá"]);
 		assert.deepEqual(await listAgentV4History(b, conv), []);
-		const other = await prisma.agentRun.create({ data: { userId: a, conversationId: conv, objective: "o", model: "m", status: "completed", checkpointJson: { v4: { step: 1, state: "DONE", payload: { provenance: { untrustedReadInRun: true, privateReadInRun: false, sources: ["web"], texts: ["pagina"] } } } } } });
+		// Grava pelo caminho real do checkpoint (o formato do `provenance` do kernel é guardado no teste do worker, que usa o snapshot real).
+		const other = await prisma.agentRun.create({ data: { userId: a, conversationId: conv, objective: "o", model: "m", status: "completed" } });
+		await saveAgentV4CheckpointUnfenced(a, { runId: other.id, userId: a, step: 1, state: "DONE", payload: { v: 1, provenance: { untrustedReadInRun: true, privateReadInRun: false, sources: ["web"], texts: ["pagina".repeat(1000)] } } });
+		const column = await prisma.agentRun.findUniqueOrThrow({ where: { id: other.id }, select: { v4Provenance: true } });
+		assert.deepEqual(column.v4Provenance, { untrustedReadInRun: true, privateReadInRun: false, sources: ["web"] }, "a coluna guarda só os sinais, sem os textos indexados");
+		// C1: a leitura vem da coluna pequena; sem o checkpoint grande o resultado é o mesmo
+		await prisma.agentRun.update({ where: { id: other.id }, data: { checkpointJson: {} } });
+		assert.deepEqual(await getAgentV4ConversationProvenance(a, conv, runA), { untrustedReadInRun: true, privateReadInRun: false, sources: ["web"] });
+		// run sem sinal (ou de outro motor, sem a coluna) não conta
+		const clean = await prisma.agentRun.create({ data: { userId: a, conversationId: conv, objective: "o", model: "m", status: "completed" } });
+		await saveAgentV4CheckpointUnfenced(a, { runId: clean.id, userId: a, step: 1, state: "DONE", payload: { v: 1, provenance: { untrustedReadInRun: false, privateReadInRun: false, sources: [], texts: [] } } });
+		const v2 = await prisma.agentRun.create({ data: { userId: a, conversationId: conv, objective: "o", model: "m", status: "completed", checkpointJson: { llmMessages: [] } } });
+		assert.ok(v2.id);
+		// um save posterior sem o objeto de proveniência não apaga o que já estava
+		await saveAgentV4CheckpointUnfenced(a, { runId: other.id, userId: a, step: 2, state: "DONE", payload: { v: 1 } });
 		assert.deepEqual(await getAgentV4ConversationProvenance(a, conv, runA), { untrustedReadInRun: true, privateReadInRun: false, sources: ["web"] });
 		assert.deepEqual(await getAgentV4ConversationProvenance(a, conv, other.id), { untrustedReadInRun: false, privateReadInRun: false, sources: [] });
 		assert.deepEqual(await getAgentV4ConversationProvenance(b, conv, runA), { untrustedReadInRun: false, privateReadInRun: false, sources: [] });

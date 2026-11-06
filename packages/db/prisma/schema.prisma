@@ -438,6 +438,9 @@ model AgentRun {
   leaseGeneration  Int       @default(0)
   sandboxSessionId String?
   checkpointJson   Json?
+  /// Motor v4: sinais de proveniência do run (`untrustedReadInRun`, `privateReadInRun`, `sources`), gravados junto com o checkpoint v4.
+  /// Coluna pequena para ler o taint herdado da conversa sem abrir o `checkpointJson` (grande, em TOAST). Nulo = run sem v4.
+  v4Provenance     Json?
   error            String?
   /// Por que o run terminou (RunStopReason de @workspace/shared). String livre, sem enum no banco: motivo novo não exige migration.
   stopReason       String?

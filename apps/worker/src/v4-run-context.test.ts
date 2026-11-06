@@ -8,7 +8,7 @@ import { test } from "node:test";
 import { createCapabilityRegistry, createSseMapper, defineCapability, defineTool, type Llm, type LlmChatRequest, type LlmStreamEvent, type RunEvent } from "@workspace/agent";
 import type { ComputerUseEvent } from "@workspace/shared";
 import { z } from "zod";
-import { AGENT_V4_REQUEST_TTL_MS } from "@workspace/db";
+import { AGENT_V4_REQUEST_TTL_MS, agentV4ProvenanceOf } from "@workspace/db";
 import { AgentRunPausedError } from "@workspace/agent-runtime";
 import { runEngineV4, type V4Db } from "./engine-v4.js";
 import { runV4Turn } from "./v4-turn.js";
@@ -547,4 +547,21 @@ test("T3 (B1): registro que lança depois do checkpoint PARKED; a reentrega regi
 	await assert.rejects(processorTurn({ ctx, mem, llm: scripted([]), runId: "run-t3c", registry }), AgentRunPausedError);
 	assert.equal(ctx.requests.length, 1);
 	assert.equal(ctx.requests[0]!.callId, "c1");
+});
+
+// ------------------------------------------------------------------------------------ T4 / C1: formato real
+
+test("C1/T4: os sinais de proveniência saem do snapshot REAL do kernel (quebra se o formato do checkpoint mudar)", async () => {
+	const webRead = defineTool({ name: "web_read", description: "Read a web page.", inputSchema: z.object({ url: z.string() }), effect: "read", trust: "untrusted", source: "web", execute: () => ({ ok: true, summary: "page text" }) });
+	const mem = memoryV4Db();
+	const ctx = fakeContextDb();
+	await turn({ ctx, v4: mem.db, llm: scripted([callTool("w1", "web_read", { url: "https://example.com" }), say("li a página")]), runId: "run-prov", objective: "leia", registry: registryOf(webRead) });
+	const checkpoint = (mem.db as unknown as { __checkpoints: Map<string, { payload: unknown }> }).__checkpoints.get("user-a:run-prov");
+	assert.deepEqual(agentV4ProvenanceOf(checkpoint?.payload), { untrustedReadInRun: true, privateReadInRun: false, sources: ["web"] });
+
+	// run que só conversou: sem leitura de fora, sem sinal
+	const clean = await turn({ ctx: fakeContextDb(), v4: mem.db, llm: scripted([say("oi")]), runId: "run-clean2", objective: "oi", registry: registryOf(webRead) });
+	assert.equal(clean.out.text, "oi");
+	const cleanCp = (mem.db as unknown as { __checkpoints: Map<string, { payload: unknown }> }).__checkpoints.get("user-a:run-clean2");
+	assert.deepEqual(agentV4ProvenanceOf(cleanCp?.payload), { untrustedReadInRun: false, privateReadInRun: false, sources: [] });
 });

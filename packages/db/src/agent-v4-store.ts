@@ -51,9 +51,11 @@ export async function saveAgentV4Checkpoint(userId: string, checkpoint: AgentV4C
 	requireOwner(userId);
 	if (!lease) throw new Error("lease_required");
 	const patch = checkpointPatch(checkpoint);
+	const provenance = provenanceColumn(checkpoint);
 	const updated = await prisma.$executeRaw`
 		UPDATE "agent_runs"
-		SET "checkpointJson" = COALESCE("checkpointJson", '{}'::jsonb) || ${patch}::jsonb
+		SET "checkpointJson" = COALESCE("checkpointJson", '{}'::jsonb) || ${patch}::jsonb,
+			"v4Provenance" = COALESCE(${provenance}::jsonb, "v4Provenance")
 		WHERE "id" = ${checkpoint.runId} AND "userId" = ${userId}
 			AND "leaseOwner" = ${lease.owner} AND "leaseToken" = ${lease.token} AND "leaseUntil" > now()`;
 	if (updated === 0) throw new Error("lease_lost");
@@ -64,7 +66,8 @@ export async function saveAgentV4CheckpointUnfenced(userId: string, checkpoint: 
 	requireOwner(userId);
 	const updated = await prisma.$executeRaw`
 		UPDATE "agent_runs"
-		SET "checkpointJson" = COALESCE("checkpointJson", '{}'::jsonb) || ${checkpointPatch(checkpoint)}::jsonb
+		SET "checkpointJson" = COALESCE("checkpointJson", '{}'::jsonb) || ${checkpointPatch(checkpoint)}::jsonb,
+			"v4Provenance" = COALESCE(${provenanceColumn(checkpoint)}::jsonb, "v4Provenance")
 		WHERE "id" = ${checkpoint.runId} AND "userId" = ${userId}`;
 	if (updated === 0) throw new ResourceOwnershipError();
 }
@@ -95,6 +98,31 @@ export function jsonbSafe(json: string): string {
 		if (isLow(hex) && prevHighEnd !== offset) return `${keep}\\ufffd`;
 		return match;
 	});
+}
+
+/** Sinais de proveniência de um run v4 (o que a conversa herda de um run para o outro). */
+export type AgentV4ProvenanceFlags = { untrustedReadInRun: boolean; privateReadInRun: boolean; sources: string[] };
+const PROVENANCE_SOURCES_MAX = 50;
+
+/**
+ * Lê os sinais de proveniência do payload do checkpoint (snapshot do kernel: `payload.provenance`). Sem o objeto no
+ * formato esperado devolve `null` (a coluna fica como estava). Descarta os `texts` indexados, que são grandes e não
+ * servem à herança. Função pura.
+ */
+export function agentV4ProvenanceOf(payload: unknown): AgentV4ProvenanceFlags | null {
+	const provenance = (payload as { provenance?: unknown } | null | undefined)?.provenance as { untrustedReadInRun?: unknown; privateReadInRun?: unknown; sources?: unknown } | null | undefined;
+	if (typeof provenance !== "object" || provenance === null) return null;
+	const sources = Array.isArray(provenance.sources) ? provenance.sources.filter((s): s is string => typeof s === "string" && s.length <= LABEL_MAX).slice(0, PROVENANCE_SOURCES_MAX) : [];
+	return { untrustedReadInRun: provenance.untrustedReadInRun === true, privateReadInRun: provenance.privateReadInRun === true, sources };
+}
+
+/**
+ * Valor da coluna `agent_runs.v4Provenance` gravado na mesma instrução do checkpoint (C1): `getAgentV4ConversationProvenance`
+ * lê dela e nunca abre o `checkpointJson`. `null` mantém o valor que já estava.
+ */
+function provenanceColumn(checkpoint: AgentV4Checkpoint): string | null {
+	const flags = agentV4ProvenanceOf(checkpoint.payload);
+	return flags ? jsonbSafe(JSON.stringify(flags)) : null;
 }
 
 const checkpointPatch = (checkpoint: AgentV4Checkpoint): string => jsonbSafe(JSON.stringify({ v4: { step: checkpoint.step, state: checkpoint.state, payload: checkpoint.payload } }));
