@@ -130,9 +130,9 @@ describe("kernel: aprovação e handoff", () => {
 		await h.run();
 		const msgs = h.llm.requests[1]?.messages ?? [];
 		const ids = msgs.filter((m) => m.role === "tool").map((m) => (m as { toolCallId: string }).toolCallId);
-		expect(ids).toEqual(["call_0", "call_0~2"]);
-		expect(JSON.stringify(msgs.find((m) => m.role === "tool" && (m as { toolCallId: string }).toolCallId === "call_0~2"))).toContain("result for b");
-		expect(msgs.find((m) => m.role === "assistant" && "toolCalls" in m && m.toolCalls)).toMatchObject({ toolCalls: [{ id: "call_0" }, { id: "call_0~2" }] });
+		expect(ids).toEqual(["call_0", "call_0_2"]);
+		expect(JSON.stringify(msgs.find((m) => m.role === "tool" && (m as { toolCallId: string }).toolCallId === "call_0_2"))).toContain("result for b");
+		expect(msgs.find((m) => m.role === "assistant" && "toolCalls" in m && m.toolCalls)).toMatchObject({ toolCalls: [{ id: "call_0" }, { id: "call_0_2" }] });
 	});
 
 	it("NUL e substituto solto na saída da tool viram U+FFFD antes do checkpoint (B11)", async () => {

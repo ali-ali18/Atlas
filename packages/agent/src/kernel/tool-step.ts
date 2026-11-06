@@ -46,7 +46,7 @@ export function uniqueCallIds<T extends { id: string }>(calls: readonly T[]): T[
 	return calls.map((c) => {
 		const n = (seen.get(c.id) ?? 0) + 1;
 		seen.set(c.id, n);
-		return n === 1 ? c : { ...c, id: `${c.id}~${n}` };
+		return n === 1 ? c : { ...c, id: `${c.id}_${n}` };
 	});
 }
 
