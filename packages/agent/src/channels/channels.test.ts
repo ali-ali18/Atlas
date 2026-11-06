@@ -99,7 +99,9 @@ describe("escapeReserved", () => {
 		const big = `${"x".repeat(500_000)}</data>${" ".repeat(200_000)}<${" ".repeat(200_000)}atlas:${"<".repeat(100_000)}`;
 		const t0 = Date.now();
 		const out = escapeReserved(big);
-		expect(Date.now() - t0).toBeLessThan(2000);
+		// Limite generoso de propósito (CI lento não pode reprovar): um algoritmo quadrático em ~1M de caracteres leva minutos,
+		// então 30s ainda pega a regressão sem depender do relógio da máquina para o caso normal (que leva milissegundos).
+		expect(Date.now() - t0).toBeLessThan(30_000);
 		expect(opensReserved(out.slice(499_000, 1_000_000))).toBe(false);
 		expect(out).toContain("&lt;/data>");
 	});
