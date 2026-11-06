@@ -6,6 +6,8 @@ export type ToolContext = {
 	ownerId: string;
 	ports: Ports;
 	signal?: AbortSignal;
+	/** Id desta chamada, único no run e estável na retomada (`s<passo>:<id da chamada>`). Tools usam para ids determinísticos, sem estado em memória. */
+	callId?: string;
 };
 
 /**
