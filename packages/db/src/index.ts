@@ -767,3 +767,6 @@ export {
 	type AutoBriefCandidate,
 	type AutoBriefSignals,
 } from "./brief-auto.js";
+export * from "./notes.js";
+export * from "./sleep-reports.js";
+export { patchBotRuleForOwner, listBotRulesForOwner, removeBotRuleForOwner } from "./bot-rules.js";

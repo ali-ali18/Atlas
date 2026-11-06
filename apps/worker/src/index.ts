@@ -103,6 +103,7 @@ import { createAutoBriefEnsurer } from "./brief-auto.js";
 import { startProactiveSweeper } from "./proactive.js";
 import { briefDeliveryDeps, createBriefFlusher, createDelayedBriefFlush, flushPendingBriefs } from "./daily-brief.js";
 import { startReflectionSweeper } from "./reflection.js";
+import { startSleepSweeper } from "./sleep-sweeper.js";
 
 // Observabilidade: Sentry só com SENTRY_DSN; logs do job ganham o request-id da API; variáveis que faltam por recurso.
 initSentry("worker");
@@ -524,6 +525,8 @@ agentWorker.on("failed", flushBriefsAfterCalm);
 
 // Reflexão diária do orquestrador (horário escolhido pelo usuário) e "Refletir agora".
 const reflectionSweeper = startReflectionSweeper({ enqueueRun: enqueueChainedRun, config, notify });
+// Sono do bot (motor v4, atrás da flag): fim do dia no fuso do dono, uma chamada ao modelo `sleep` por bot e por dia.
+const sleepSweeper = startSleepSweeper({ config });
 
 async function recoverExpiredLeases(): Promise<void> {
 	const recovered = await recoverStaleRunningRuns();
@@ -755,6 +758,7 @@ async function shutdown() {
 	groupSweeper.stop();
 	proactiveSweeper.stop();
 	reflectionSweeper.stop();
+	sleepSweeper.stop();
 	clearInterval(summarySweeper);
 	clearInterval(deliverySweeper);
 	// Para de pegar jobs novos e dá ao run ativo um tempo limitado; passando disso, checkpoint + lease liberado.

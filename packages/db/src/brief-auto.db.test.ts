@@ -134,6 +134,17 @@ describe("Seu dia por padrão (Postgres real)", { skip: dbSkip }, () => {
 		assert.deepEqual(await policyOf(botId), { [BRIEF_OPT_OUT_KEY]: true, [BRIEF_NOTICE_SHOWN_KEY]: true, [BRIEF_CHECKED_AT_KEY]: "2026-10-01" });
 	});
 
+	test("updateBot (policyJson da UI) preserva as regras do bot e o sono quando o cliente não os reenvia (auditoria F5, S1)", async () => {
+		const rules = [{ match: "gmail_send", effect: "send", verdict: "deny", source: "learned", note: "nunca" }];
+		const botId = await newBot(userA, { proactive: { enabled: true }, rules, sleep: false });
+		await updateBot(botId, { policyJson: { proactive: { enabled: false } } }, userA);
+		assert.deepEqual(await policyOf(botId), { proactive: { enabled: false }, rules, sleep: false });
+		await updateBot(botId, { policyJson: { rules: [], sleep: true } }, userA);
+		assert.deepEqual(await policyOf(botId), { rules, sleep: true });
+		await updateBot(botId, { policyJson: null }, userA);
+		assert.deepEqual(await policyOf(botId), { rules, sleep: true });
+	});
+
 	test("updateBot: cliente não cria as chaves do servidor; bot sem policyJson e null continua null; outro dono é 404", async () => {
 		const botId = await newBot(userA);
 		await updateBot(botId, { policyJson: { [BRIEF_OPT_OUT_KEY]: true, b: 2 } }, userA);

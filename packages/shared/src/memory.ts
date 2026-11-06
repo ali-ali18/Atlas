@@ -117,19 +117,26 @@ export type AppendMessageInput = {
 };
 
 /** Quem fez a mudança: o bot numa conversa, a reflexão diária ou o próprio usuário (aba Memória). */
-/** `chat` = tool do agente na conversa; `review` = revisão pós-conversa; `reflection` = reflexão diária; `user` = UI/API. */
-export type MemoryChangeSource = "chat" | "review" | "reflection" | "user";
+/** `chat` = tool do agente na conversa; `review` = revisão pós-conversa; `reflection` = reflexão diária; `sleep` = sono do bot (v4); `user` = UI/API. */
+export type MemoryChangeSource = "chat" | "review" | "reflection" | "sleep" | "user";
 export type MemoryChangeAction = "add" | "replace" | "remove";
 
 /** Uma linha do histórico "O que mudou" (últimos 30 dias). */
 export type MemoryChange = {
 	id: string;
 	botId: string | null;
+	/** Id da entrada de memória ou, com `target: "note"`, da nota do caderno. */
 	entryId: string | null;
-	target: MemoryTarget;
+	/** `note` = caderno do dono (F5.1); as outras são as camadas da memória. */
+	target: MemoryTarget | "note";
 	action: MemoryChangeAction;
 	before: string | null;
 	after: string | null;
+	/** Só com `target: "note"`: título e fixada antes/depois (o texto fica em `before`/`after`). */
+	beforeNote?: { title: string; pinned: boolean } | null;
+	afterNote?: { title: string; pinned: boolean } | null;
+	/** Sono que fez a mudança (relatório); permite agrupar "o que o sono fez" e desfazer em bloco na tela. */
+	reportId?: string | null;
 	source: MemoryChangeSource;
 	/** Preenchido quando esta linha é um "desfazer" (não pode ser desfeita de novo). */
 	undoOfId: string | null;

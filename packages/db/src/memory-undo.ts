@@ -2,6 +2,7 @@ import type { MemoryChange, MemoryTarget } from "@workspace/shared";
 import { prisma } from "./client.js";
 import { loadStore, refreshMemoryEmbedding } from "./memory-entries.js";
 import { memoryMetaOf, parseMemoryMeta, recordMemoryChange, toMemoryChange } from "./memory-changes.js";
+import { undoNoteChange } from "./notes-undo.js";
 
 export type MemoryUndoCode = "not_found" | "already_undone" | "not_undoable" | "stale" | "duplicate" | "limit";
 
@@ -38,6 +39,8 @@ export async function undoMemoryChange(input: { userId: string; changeId: string
 	if (!change) return refuse("not_found");
 	if (change.undoneAt) return refuse("already_undone");
 	if (change.undoOfId) return refuse("not_undoable");
+	// Mudança no caderno do dono (F5): o inverso vive em `notes-undo.ts`.
+	if (change.target === "note") return undoNoteChange(change, now, MESSAGES);
 
 	const target = change.target as MemoryTarget;
 	const botId = target === "user" ? null : change.botId;
