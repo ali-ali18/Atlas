@@ -7,7 +7,7 @@ import { after, before, describe, test } from "node:test";
 import { prisma } from "./client.js";
 import { addMemoryEntry } from "./memory-entries.js";
 import { listSleepChanges } from "./notes.js";
-import { SLEEP_STALE_MS, claimSleepSlot, dismissSleepProposal, finishSleepReport, getPreviousSleepEnd, getSleepReport, listBotsForSleep, listMemoryForDoctor, listSleepReports, loadSleepDay } from "./sleep-reports.js";
+import { SLEEP_STALE_MS, claimSleepSlot, dismissSleepProposal, finishSleepReport, getPreviousSleepEnd, getSleepReport, listBotsForSleep, listMemoryForDoctor, listSleepReports, loadSleepDay, renewSleepClaim, sumSleepCostUsd } from "./sleep-reports.js";
 import { createTestBot, createTestUser, dbSkip } from "./testing/test-db.js";
 
 describe("sono (Postgres real)", { skip: dbSkip }, () => {
@@ -44,6 +44,34 @@ describe("sono (Postgres real)", { skip: dbSkip }, () => {
 		assert.equal(await claimSleepSlot({ userId: userA, botId: botA, kind: "daily", slot: "2026-11-04", now: new Date(later.getTime() + SLEEP_STALE_MS * 2) }), null);
 	});
 
+	test("sono lento que renova a reserva não é tomado como abandonado; sem renovar, é (auditoria F5, B4)", async () => {
+		const bot = (await createTestBot(userA, { name: "lento" })).id;
+		const claim = await claimSleepSlot({ userId: userA, botId: bot, kind: "daily", slot: "2026-11-20", now });
+		const minutes = (n: number) => new Date(now.getTime() + n * 60_000);
+		assert.equal(await renewSleepClaim({ userId: userA, id: claim!.id, now: minutes(25) }), true);
+		assert.equal(await renewSleepClaim({ userId: userB, id: claim!.id, now: minutes(26) }), false, "outro dono não renova");
+		assert.equal(await claimSleepSlot({ userId: userA, botId: bot, kind: "daily", slot: "2026-11-20", now: minutes(40) }), null, "40 min depois, mas renovado aos 25: ainda é do primeiro");
+		const taken = await claimSleepSlot({ userId: userA, botId: bot, kind: "daily", slot: "2026-11-20", now: minutes(25 + 31) });
+		assert.equal(taken?.id, claim!.id, "30 min sem renovar: abandonado, reassumido");
+		await finishSleepReport({ userId: userA, id: claim!.id, status: "done" });
+		assert.equal(await renewSleepClaim({ userId: userA, id: claim!.id, now: minutes(100) }), false, "terminado não renova");
+	});
+
+	test("o detail interno de skipped/failed fica no banco e nunca chega ao usuário (auditoria F5, R4)", async () => {
+		const bot = (await createTestBot(userA, { name: "interno" })).id;
+		const skipped = await claimSleepSlot({ userId: userA, botId: bot, kind: "daily", slot: "2026-11-21", now });
+		await finishSleepReport({ userId: userA, id: skipped!.id, status: "skipped", detail: "sem fala do dono na janela" });
+		const failed = await claimSleepSlot({ userId: userA, botId: bot, kind: "daily", slot: "2026-11-22", now });
+		await finishSleepReport({ userId: userA, id: failed!.id, status: "failed", detail: "HTTP 503 do provedor interno" });
+		const views = [await getSleepReport(userA, skipped!.id), await getSleepReport(userA, failed!.id), ...(await listSleepReports({ userId: userA, botId: bot })).reports];
+		for (const view of views) {
+			assert.ok(view);
+			assert.ok(!("detail" in view), "a visão não tem campo detail");
+			assert.ok(!/sem fala do dono|HTTP 503/.test(JSON.stringify(view)), "o texto interno não vaza");
+		}
+		assert.equal((await prisma.sleepReport.findUniqueOrThrow({ where: { id: skipped!.id } })).detail, "sem fala do dono na janela");
+	});
+
 	test("o fim da janela do último sono concluído é o começo do próximo", async () => {
 		const bot = (await createTestBot(userA, { name: "janela" })).id;
 		assert.equal(await getPreviousSleepEnd(userA, bot), null);
@@ -77,6 +105,17 @@ describe("sono (Postgres real)", { skip: dbSkip }, () => {
 		assert.equal(dismissed?.proposals[0]?.status, "dismissed");
 	});
 
+	test("dois dispensar ao mesmo tempo não perdem nenhum (auditoria F5, B3)", async () => {
+		const bot = (await createTestBot(userA, { name: "dispensa" })).id;
+		const claim = await claimSleepSlot({ userId: userA, botId: bot, kind: "doctor", slot: "2026-11-15", now });
+		const ids = Array.from({ length: 6 }, (_, i) => `doctor:2026-11-15:${i}`);
+		const finding = { type: "stale" as const, subject: "memory" as const, ids: ["m"], reason: "r" };
+		await finishSleepReport({ userId: userA, id: claim!.id, status: "done", proposals: ids.map((id) => ({ id, kind: "doctor" as const, status: "open" as const, finding })) });
+		await Promise.all(ids.map((proposalId) => dismissSleepProposal({ userId: userA, reportId: claim!.id, proposalId })));
+		const report = await getSleepReport(userA, claim!.id);
+		assert.deepEqual(report?.proposals.map((p) => p.status), ids.map(() => "dismissed"));
+	});
+
 	test("a leitura do dia traz só a conversa direta do bot, na janela, e os runs v4 de chat", async () => {
 		const at = (iso: string) => new Date(iso);
 		await prisma.conversationMessage.createMany({
@@ -100,6 +139,34 @@ describe("sono (Postgres real)", { skip: dbSkip }, () => {
 		assert.ok(day.notes.some((n) => n.title === "n"));
 		// O outro dono não lê o dia do bot do A, nem passando o id certo.
 		assert.equal(await loadSleepDay({ userId: userB, botId: botA, from: at("2026-11-01T00:00:00Z"), to: at("2026-11-09T00:00:00Z") }), null);
+	});
+
+	test("custo do sono: soma os relatórios do dono (feitos, quietos e falhos), por bot e por período; nunca os de outro dono (auditoria F5, C1)", async () => {
+		const bot = (await createTestBot(userA, { name: "custo" })).id;
+		const other = (await createTestBot(userB, { name: "custo-b" })).id;
+		const at = (iso: string) => new Date(iso);
+		for (const [slot, status, cost, day] of [["2026-10-01", "done", 0.01, "2026-10-02T02:30:00Z"], ["2026-10-02", "failed", 0.005, "2026-10-03T02:30:00Z"], ["2026-10-03", "skipped", 0, "2026-10-04T02:30:00Z"]] as const) {
+			const claim = await claimSleepSlot({ userId: userA, botId: bot, kind: "daily", slot, now: at(day) });
+			await finishSleepReport({ userId: userA, id: claim!.id, status, stats: { costUsd: cost }, now: at(day) });
+		}
+		const foreign = await claimSleepSlot({ userId: userB, botId: other, kind: "daily", slot: "2026-10-01", now: at("2026-10-02T02:30:00Z") });
+		await finishSleepReport({ userId: userB, id: foreign!.id, status: "done", stats: { costUsd: 9 }, now: at("2026-10-02T02:30:00Z") });
+		assert.equal(await sumSleepCostUsd({ userId: userA, botId: bot, since: at("2026-10-01T00:00:00Z") }), 0.015);
+		assert.equal(await sumSleepCostUsd({ userId: userA, botId: bot, since: at("2026-10-03T00:00:00Z") }), 0.005);
+		assert.equal(await sumSleepCostUsd({ userId: userB, botId: bot, since: at("2026-10-01T00:00:00Z") }), 0);
+	});
+
+	test("a leitura do dia pagina até o fim: dia com mais falas que a página não é cortado, mesmo com horários iguais (auditoria F5, C5/B2)", async () => {
+		const bot = (await createTestBot(userA, { name: "longo" })).id;
+		const conv = (await prisma.conversation.create({ data: { userId: userA } })).id;
+		await prisma.bot.update({ where: { id: bot }, data: { conversationId: conv } });
+		const same = new Date("2026-11-04T12:00:00Z");
+		const tag = `long-${Date.now()}`;
+		await prisma.conversationMessage.createMany({ data: Array.from({ length: 8 }, (_, i) => ({ id: `${tag}-${i}`, conversationId: conv, role: "user", content: `fala ${i}`, createdAt: i < 5 ? same : new Date(same.getTime() + i * 1000) })) });
+		const day = await loadSleepDay({ userId: userA, botId: bot, from: new Date("2026-11-04T02:30:00Z"), to: new Date("2026-11-05T02:30:00Z"), pageSize: 3 });
+		assert.deepEqual(day?.messages.map((m) => m.id), Array.from({ length: 8 }, (_, i) => `${tag}-${i}`));
+		const exact = await loadSleepDay({ userId: userA, botId: bot, from: new Date("2026-11-04T02:30:00Z"), to: new Date("2026-11-05T02:30:00Z"), pageSize: 4 });
+		assert.equal(exact?.messages.length, 8, "página cheia no final não deixa nada de fora");
 	});
 
 	test("bots para dormir: só os dos donos pedidos, com conversa direta", async () => {

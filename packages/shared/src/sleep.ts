@@ -12,6 +12,7 @@
  */
 import { z } from "zod";
 import { classifyRunFailure, type FailureClass, type RunFailureTrace } from "./run-failure-class.js";
+import { isEngineV4Enabled, type EngineV4Gate } from "./engine-policy-v4.js";
 import { localParts, normalizeForDedupe } from "./proactive.js";
 import { zonedWallTimeToUtc } from "./routine-once.js";
 import { OWNER_NOTE_BODY_MAX_CHARS, OWNER_NOTE_TITLE_MAX_CHARS, findDuplicateNote } from "./owner-notes.js";
@@ -320,10 +321,25 @@ export function readStoredProposals(raw: unknown): SleepStoredProposal[] {
 	});
 }
 
+/** Chave em `policyJson` que liga/desliga o sono do bot. */
+export const SLEEP_POLICY_KEY = "sleep";
+
 /** O sono é padrão para o bot (conta no v4). O dono desliga por bot com `policyJson.sleep = false`; qualquer outro valor mantém ligado. */
 export function readSleepEnabled(policyJson: unknown): boolean {
 	if (typeof policyJson !== "object" || policyJson === null || Array.isArray(policyJson)) return true;
-	return (policyJson as Record<string, unknown>).sleep !== false;
+	return (policyJson as Record<string, unknown>)[SLEEP_POLICY_KEY] !== false;
+}
+
+/**
+ * O sono substitui a reflexão diária do v2 (auditoria F5, R1). As duas fazem a mesma manutenção da memória a partir da
+ * conversa; rodar as duas na mesma conta duplicaria chamadas ao modelo (2 por dia) e escritas. Para conta no v4 cujo bot
+ * principal dorme (sono ligado e conversa direta existente), a reflexão AGENDADA não roda. "Refletir agora" (pedido
+ * manual) continua valendo, e quem desliga o sono do bot principal volta a ter a reflexão. Decisão estrutural: flag da
+ * conta, configuração do bot e existência da conversa; nenhum texto.
+ * Não reaproveita `bot-lessons`: lições vêm da revisão de correções dos runs, outra fonte e outro destino.
+ */
+export function sleepReplacesScheduledReflection(gate: EngineV4Gate | undefined, userId: string, primaryBot: { conversationId: string | null; policyJson: unknown }): boolean {
+	return isEngineV4Enabled(gate, userId) && primaryBot.conversationId !== null && readSleepEnabled(primaryBot.policyJson);
 }
 
 export type SleepSummaryCounts = { facts: number; notes: number; skills: number; evalCases: number };

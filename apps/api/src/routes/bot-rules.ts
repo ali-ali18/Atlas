@@ -3,7 +3,7 @@ import { parseRulePatch, type LearnedRuleView, type RulePatch } from "@workspace
 import { listBotRulesForOwner, patchBotRuleForOwner, removeBotRuleForOwner } from "@workspace/db";
 import { scopeFor, type AuthEnv } from "../middleware/auth.js";
 
-type RuleOutcome = { ok: true; rule: LearnedRuleView } | { ok: false; reason: "not_found" | "rule_not_found" | "conflict" };
+type RuleOutcome = { ok: true; rule: LearnedRuleView } | { ok: false; reason: "not_found" | "rule_not_found" | "conflict" } | { ok: false; reason: "refused"; message: string };
 
 /** Portas do banco (injetáveis nos testes). Toda porta confere o dono do bot na própria consulta. */
 export type BotRuleRouteDeps = {
@@ -17,9 +17,10 @@ const defaultDeps: BotRuleRouteDeps = { list: listBotRulesForOwner, patch: patch
 const BOT_NOT_FOUND = { error: "Bot não encontrado" } as const;
 const RULE_NOT_FOUND = { error: "Regra não encontrada" } as const;
 
-const answer = (c: { json: (body: unknown, status?: 404 | 409) => Response }, outcome: RuleOutcome, ok: (rule: LearnedRuleView) => Response): Response => {
+const answer = (c: { json: (body: unknown, status?: 404 | 409 | 422) => Response }, outcome: RuleOutcome, ok: (rule: LearnedRuleView) => Response): Response => {
 	if (outcome.ok) return ok(outcome.rule);
 	if (outcome.reason === "conflict") return c.json({ error: "As regras mudaram enquanto você editava. Abra de novo e refaça.", code: "conflict" }, 409);
+	if (outcome.reason === "refused") return c.json({ error: outcome.message, code: "refused" }, 422);
 	return c.json(outcome.reason === "not_found" ? BOT_NOT_FOUND : RULE_NOT_FOUND, 404);
 };
 

@@ -9,7 +9,7 @@
  *
  * O que o sono NUNCA faz: apagar ou editar o que já existe, fixar nota, mexer no perfil do bot, ler conversa de grupo.
  */
-import { renderSleepTranscript, selectSleepTurns, chunkSleepTurns, evalCasesFromRuns, planSleepWrites, parseSleepProposal, parseConflictFindings, analyzeMemoryHealth, doctorSummary, skillProposalId, sleepSummary, sleepSummaryLanguage, SLEEP_CHUNK_CHARS, SLEEP_MODEL_ROLE, type DoctorFinding, type OwnerNoteView, type SleepFactProposal, type SleepNoteProposal, type SleepProposal, type SleepStoredProposal } from "@workspace/shared";
+import { renderSleepTranscript, selectSleepTurns, chunkSleepTurns, evalCasesFromRuns, planSleepWrites, parseSleepProposal, parseConflictFindings, analyzeMemoryHealth, doctorSummary, skillProposalId, doctorProposalId, sleepSummary, sleepSummaryLanguage, SLEEP_CHUNK_CHARS, SLEEP_MODEL_ROLE, type DoctorFinding, type OwnerNoteView, type SleepFactProposal, type SleepNoteProposal, type SleepProposal, type SleepStoredProposal } from "@workspace/shared";
 import type { Llm, LlmUsage } from "@workspace/agent";
 import type { SleepDayInput } from "@workspace/db";
 import { SUBMIT_DOCTOR_SPEC, SUBMIT_DOCTOR_TOOL, SUBMIT_SLEEP_SPEC, SUBMIT_SLEEP_TOOL, DOCTOR_SYSTEM_PROMPT, SLEEP_SYSTEM_PROMPT, buildDoctorUserMessage, buildSleepUserMessage } from "./sleep-prompt.js";
@@ -45,6 +45,22 @@ const addUsage = (total: Usage, usage: LlmUsage | undefined): void => {
 };
 const usageStats = (usage: Usage): Record<string, number> => ({ llmCalls: usage.calls, inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, costUsd: Math.round(usage.costUsd * 1_000_000) / 1_000_000 });
 
+/** Falha de um sono com o uso do modelo até ali: o gasto de uma tentativa que falhou também é registrado (C1). */
+export class SleepRunError extends Error {
+	constructor(message: string, readonly stats: Record<string, number>, options?: { cause?: unknown }) {
+		super(message, options);
+		this.name = "SleepRunError";
+	}
+}
+
+const withUsageOnFailure = async <T>(usage: Usage, body: () => Promise<T>): Promise<T> => {
+	try {
+		return await body();
+	} catch (error) {
+		throw new SleepRunError(error instanceof Error ? error.message : String(error), usageStats(usage), { cause: error });
+	}
+};
+
 /** Uma chamada ao papel `sleep` com UMA tool; devolve os argumentos dela (ou `undefined` se o modelo não a chamou). */
 async function callSleepModel(llm: Llm, input: { system: string; user: string; tool: typeof SUBMIT_SLEEP_SPEC; usage: Usage; signal?: AbortSignal }): Promise<unknown> {
 	let args: unknown;
@@ -58,6 +74,11 @@ async function callSleepModel(llm: Llm, input: { system: string; user: string; t
 const mergeProposals = (parts: SleepProposal[]): SleepProposal => ({ facts: parts.flatMap((p) => p.facts), notes: parts.flatMap((p) => p.notes), skills: parts.flatMap((p) => p.skills), invalid: parts.reduce((sum, p) => sum + p.invalid, 0) });
 
 export async function runDailySleep(input: { ports: SleepPorts; botId: string; window: { from: Date; to: Date }; slotKey: string; language: unknown; signal?: AbortSignal }): Promise<SleepOutcome> {
+	const usage: Usage = { calls: 0, inputTokens: 0, outputTokens: 0, costUsd: 0 };
+	return withUsageOnFailure(usage, () => dailySleepBody(input, usage));
+}
+
+async function dailySleepBody(input: { ports: SleepPorts; botId: string; window: { from: Date; to: Date }; slotKey: string; language: unknown; signal?: AbortSignal }, usage: Usage): Promise<SleepOutcome> {
 	const { ports } = input;
 	const day = await ports.loadDay(input.window);
 	if (!day) return { status: "skipped", detail: "sem conversa direta", summary: null, proposals: [], stats: {} };
@@ -65,7 +86,6 @@ export async function runDailySleep(input: { ports: SleepPorts; botId: string; w
 	const { turns, ownerIds, excluded } = selectSleepTurns(day.messages);
 	const evalCases = evalCasesFromRuns(day.runs);
 	const proposals: SleepStoredProposal[] = evalCases.map((c) => ({ id: c.id, kind: "eval_case", status: "open", runId: c.runId, failureClass: c.failureClass, evidence: c.evidence, input: c.input }));
-	const usage: Usage = { calls: 0, inputTokens: 0, outputTokens: 0, costUsd: 0 };
 	const counts = { facts: 0, notes: 0, skills: 0, evalCases: evalCases.length };
 	const skipped = { duplicate: 0, untrusted: 0, invalid: 0, rejected: 0, invalidItems: 0 };
 
@@ -128,6 +148,11 @@ export type DoctorPorts = {
  * houver 2+ itens). Tudo vira proposta com `status: open`; o doctor nunca apaga nem edita nada.
  */
 export async function runDoctor(input: { ports: DoctorPorts; now: Date; slotKey: string; language: unknown; signal?: AbortSignal }): Promise<SleepOutcome> {
+	const usage: Usage = { calls: 0, inputTokens: 0, outputTokens: 0, costUsd: 0 };
+	return withUsageOnFailure(usage, () => doctorBody(input, usage));
+}
+
+async function doctorBody(input: { ports: DoctorPorts; now: Date; slotKey: string; language: unknown; signal?: AbortSignal }, usage: Usage): Promise<SleepOutcome> {
 	const memory = await input.ports.memory();
 	const notes = await input.ports.notes();
 	const findings: DoctorFinding[] = analyzeMemoryHealth({
@@ -135,7 +160,6 @@ export async function runDoctor(input: { ports: DoctorPorts; now: Date; slotKey:
 		notes: notes.map((n) => ({ id: n.id, scope: n.botId === null ? "owner" : "bot", title: n.title, body: n.body, updatedAt: n.updatedAt })),
 		now: input.now,
 	});
-	const usage: Usage = { calls: 0, inputTokens: 0, outputTokens: 0, costUsd: 0 };
 	let notesCompared = notes.length;
 	if (memory.length + notes.length >= 2) {
 		// Limite técnico da janela do modelo: notas entram inteiras, das mais recentes, até o teto; o resto fica de fora desta comparação.
@@ -151,7 +175,7 @@ export async function runDoctor(input: { ports: DoctorPorts; now: Date; slotKey:
 		const args = await callSleepModel(input.ports.llm, { system: DOCTOR_SYSTEM_PROMPT, user: buildDoctorUserMessage({ memory, notes: sent }), tool: SUBMIT_DOCTOR_SPEC, usage, ...(input.signal && { signal: input.signal }) });
 		findings.push(...parseConflictFindings(args, { memory: new Set(memory.map((m) => m.id)), note: new Set(sent.map((n) => n.id)) }));
 	}
-	const proposals: SleepStoredProposal[] = findings.map((finding) => ({ id: `doctor:${input.slotKey}:${finding.type}:${finding.subject}:${finding.ids.join("+")}`, kind: "doctor", status: "open", finding }));
+	const proposals: SleepStoredProposal[] = findings.map((finding) => ({ id: doctorProposalId(input.slotKey, finding), kind: "doctor", status: "open", finding }));
 	return {
 		status: "done",
 		summary: doctorSummary(findings),

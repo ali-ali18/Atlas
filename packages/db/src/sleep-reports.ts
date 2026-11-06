@@ -61,6 +61,16 @@ export async function claimSleepSlot(input: { userId: string; botId: string; kin
 	return row;
 }
 
+/**
+ * Batimento do sono em andamento: renova o instante da reserva (`createdAt` já é "quando este worker assumiu"), para que
+ * um sono lento (modelo demorando) não seja tomado como abandonado depois de `SLEEP_STALE_MS`. `false` se a reserva já
+ * não é deste relatório em andamento (terminou ou outro worker a reassumiu).
+ */
+export async function renewSleepClaim(input: { userId: string; id: string; now: Date }): Promise<boolean> {
+	const renewed = await prisma.sleepReport.updateMany({ where: { id: input.id, userId: input.userId, status: "running" }, data: { createdAt: input.now } });
+	return renewed.count === 1;
+}
+
 export async function finishSleepReport(input: { userId: string; id: string; status: Exclude<SleepReportStatus, "running">; detail?: string; summary?: string; proposals?: readonly SleepStoredProposal[]; stats?: Record<string, number>; windowEnd?: Date; now?: Date }): Promise<void> {
 	await prisma.sleepReport.updateMany({
 		where: { id: input.id, userId: input.userId },
@@ -68,7 +78,7 @@ export async function finishSleepReport(input: { userId: string; id: string; sta
 			status: input.status,
 			detail: input.detail ?? null,
 			summary: input.summary ?? null,
-			proposalsJson: (input.proposals ?? []) as unknown as Prisma.InputJsonValue,
+			proposalsJson: [...(input.proposals ?? [])],
 			statsJson: (input.stats ?? {}) as Prisma.InputJsonValue,
 			...(input.windowEnd && { windowEnd: input.windowEnd }),
 			finishedAt: input.now ?? new Date(),
@@ -80,6 +90,18 @@ export async function finishSleepReport(input: { userId: string; id: string; sta
 export async function getPreviousSleepEnd(userId: string, botId: string): Promise<Date | null> {
 	const row = await prisma.sleepReport.findFirst({ where: { userId, botId, kind: "daily", status: { in: ["done", "skipped"] }, windowEnd: { not: null } }, orderBy: { windowEnd: "desc" }, select: { windowEnd: true } });
 	return row?.windowEnd ?? null;
+}
+
+/**
+ * Quanto o sono do dono gastou (US$) desde `since`, somando `statsJson.costUsd` dos relatórios (feitos, dia quieto e
+ * falhos: a tentativa que falha também gasta). Hoje NÃO existe teto de gasto por período (conta ou bot): só o teto por
+ * tarefa longa, que não se aplica ao sono. Este é o ponto de entrada para quando existir: o agendador consulta aqui
+ * antes de reservar o slot. Sempre filtra pelo dono.
+ */
+export async function sumSleepCostUsd(input: { userId: string; since: Date; botId?: string }): Promise<number> {
+	const rows = await prisma.sleepReport.findMany({ where: { userId: input.userId, createdAt: { gte: input.since }, ...(input.botId && { botId: input.botId }) }, select: { statsJson: true } });
+	const total = rows.reduce((sum, row) => sum + (numbersOf(row.statsJson).costUsd ?? 0), 0);
+	return Math.round(total * 1_000_000) / 1_000_000;
 }
 
 export async function listSleepReports(input: { userId: string; botId?: string; kind?: SleepReportKind; cursor?: string; limit?: number }): Promise<{ reports: SleepReportView[]; nextCursor: string | null }> {
@@ -102,12 +124,15 @@ export async function getSleepReport(userId: string, id: string): Promise<SleepR
 /** O dono dispensa uma proposta (habilidade, caso de eval, achado do doctor). `null` = relatório ou proposta inexistente. */
 export async function dismissSleepProposal(input: { userId: string; reportId: string; proposalId: string }): Promise<SleepReportView | null> {
 	return prisma.$transaction(async (tx) => {
+		// Trava a linha do relatório até o fim da transação: dois "dispensar" ao mesmo tempo se enfileiram, e o segundo
+		// relê o que o primeiro gravou em vez de sobrescrevê-lo (ler-alterar-gravar sem trava perdia uma dispensa).
+		await tx.$queryRaw`SELECT "id" FROM "sleep_reports" WHERE "id" = ${input.reportId} AND "userId" = ${input.userId} FOR UPDATE`;
 		const row = await tx.sleepReport.findFirst({ where: { id: input.reportId, userId: input.userId } });
 		if (!row) return null;
 		const proposals = readStoredProposals(row.proposalsJson);
 		if (!proposals.some((proposal) => proposal.id === input.proposalId)) return null;
 		const next = proposals.map((proposal) => (proposal.id === input.proposalId ? { ...proposal, status: "dismissed" as const } : proposal));
-		const updated = await tx.sleepReport.update({ where: { id: row.id }, data: { proposalsJson: next as unknown as Prisma.InputJsonValue } });
+		const updated = await tx.sleepReport.update({ where: { id: row.id }, data: { proposalsJson: next } });
 		return toSleepReport(updated);
 	});
 }
@@ -136,14 +161,33 @@ export type SleepDayInput = {
  * o journal) e as notas visíveis ao bot. Conversa de grupo não entra: o escopo é a conversa do bot (`Bot.conversationId`),
  * conferida contra o dono em duas pontas (bot e conversa).
  */
-export async function loadSleepDay(input: { userId: string; botId: string; from: Date; to: Date }): Promise<SleepDayInput | null> {
+export const SLEEP_MESSAGES_PAGE = 5_000;
+
+export async function loadSleepDay(input: { userId: string; botId: string; from: Date; to: Date; pageSize?: number }): Promise<SleepDayInput | null> {
 	const bot = await prisma.bot.findFirst({ where: { id: input.botId, ownerId: input.userId }, select: { conversationId: true } });
 	if (!bot?.conversationId) return null;
 	const conversation = await prisma.conversation.findFirst({ where: { id: bot.conversationId, userId: input.userId }, select: { id: true } });
 	if (!conversation) return null;
 	const range = { gte: input.from, lt: input.to };
+	// Lê o dia INTEIRO, página a página: um corte silencioso deixaria falas sem ler enquanto a janela avança para depois delas.
+	const readMessages = async (): Promise<SleepMessage[]> => {
+		const pageSize = Math.max(input.pageSize ?? SLEEP_MESSAGES_PAGE, 1);
+		const all: SleepMessage[] = [];
+		for (;;) {
+			const last = all.at(-1);
+			const page = await prisma.conversationMessage.findMany({
+				where: { conversationId: conversation.id, createdAt: range },
+				orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+				select: { id: true, role: true, content: true, origin: true },
+				take: pageSize,
+				...(last ? { cursor: { id: last.id }, skip: 1 } : {}),
+			});
+			all.push(...page);
+			if (page.length < pageSize) return all;
+		}
+	};
 	const [messages, runs, notes] = await Promise.all([
-		prisma.conversationMessage.findMany({ where: { conversationId: conversation.id, createdAt: range }, orderBy: [{ createdAt: "asc" }, { id: "asc" }], select: { id: true, role: true, content: true, origin: true }, take: 20_000 }),
+		readMessages(),
 		prisma.agentRun.findMany({
 			where: { userId: input.userId, botId: input.botId, conversationId: conversation.id, origin: "chat", createdAt: range, v4Journal: { some: {} } },
 			orderBy: { createdAt: "asc" },

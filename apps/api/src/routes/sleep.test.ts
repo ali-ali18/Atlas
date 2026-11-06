@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { Hono } from "hono";
-import type { SleepReportView } from "@workspace/shared";
+import { doctorProposalId, type SleepReportView } from "@workspace/shared";
 import type { AuthEnv } from "../middleware/auth.js";
 import { createSleepRoutes, type SleepRouteDeps } from "./sleep.js";
 
@@ -70,4 +70,26 @@ test("IDOR: o usuário B não lê, lista nem dispensa nada do A (404 ou vazio) e
 	assert.equal((await app.request("/v1/sleep/changes?botId=b1")).status, 404);
 	assert.equal((await app.request("/v1/sleep/reports/r1/proposals/skill:x/dismiss", post)).status, 404);
 	assert.equal(mine.proposals[0]?.status, "open");
+});
+
+test("dispensar achado do doctor funciona com o id real (o id antigo passava de 64 caracteres e dava 404)", async () => {
+	const cuid = (n: number) => `cm${String(n).padStart(23, "0")}`;
+	const proposalId = doctorProposalId("2026-11-08", { type: "conflict", subject: "memory", ids: [1, 2, 3, 4, 5, 6].map(cuid) });
+	const seen: string[] = [];
+	const deps: SleepRouteDeps = {
+		botOwned: async () => true,
+		reports: async () => ({ reports: [], nextCursor: null }),
+		report: async () => null,
+		dismiss: async (input) => (seen.push(input.proposalId), report({ kind: "doctor" })),
+		changes: async () => ({ changes: [], nextCursor: null }),
+	};
+	const app = new Hono<AuthEnv>();
+	app.use("*", async (c, next) => {
+		c.set("session", { user: { id: "u1" } } as AuthEnv["Variables"]["session"]);
+		await next();
+	});
+	app.route("/", createSleepRoutes(deps));
+	const res = await app.request(`/v1/sleep/reports/r1/proposals/${encodeURIComponent(proposalId)}/dismiss`, post);
+	assert.equal(res.status, 200);
+	assert.deepEqual(seen, [proposalId]);
 });

@@ -68,7 +68,7 @@ export function toReflectionView(row: ReflectionRow): ReflectionView {
 export async function getPrimaryBot(userId: string) {
 	return prisma.bot.findFirst({
 		where: { ownerId: userId, isPrimary: true },
-		select: { id: true, name: true, conversationId: true, language: true },
+		select: { id: true, name: true, conversationId: true, language: true, policyJson: true },
 	});
 }
 

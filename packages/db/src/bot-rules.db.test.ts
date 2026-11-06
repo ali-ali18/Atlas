@@ -4,7 +4,7 @@
  */
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
-import { ruleId } from "@workspace/shared";
+import { LEARNED_RULES_MAX, ruleId } from "@workspace/shared";
 import { prisma } from "./client.js";
 import { listBotRulesForOwner, patchBotRuleForOwner, removeBotRuleForOwner } from "./bot-rules.js";
 import { createTestBot, createTestUser, dbSkip } from "./testing/test-db.js";
@@ -36,6 +36,21 @@ describe("regras aprendidas (Postgres real)", { skip: dbSkip }, () => {
 		assert.ok(removed.ok);
 		assert.deepEqual((await listBotRulesForOwner(userA, botA))?.map((r) => r.match), ["gmail_send"]);
 		assert.deepEqual(await removeBotRuleForOwner(userA, botA, "rule_00000000"), { ok: false, reason: "rule_not_found" });
+	});
+
+	test("editar uma regra não reescreve as outras; acima do teto a edição é recusada (auditoria F5, S2/S2b)", async () => {
+		const bot = (await createTestBot(userA, { name: "C" })).id;
+		const raw = [{ match: "a", verdict: "deny", futuro: { x: 1 } }, { match: "b", verdict: "run", note: "x".repeat(500) }];
+		await prisma.bot.update({ where: { id: bot }, data: { policyJson: { rules: raw } } });
+		assert.ok((await patchBotRuleForOwner(userA, bot, ruleId({ match: "b" }), { verdict: "approve" })).ok);
+		const stored = (await prisma.bot.findUniqueOrThrow({ where: { id: bot } })).policyJson as { rules: unknown[] };
+		assert.deepEqual(stored.rules, [raw[0], { ...raw[1], verdict: "approve" }]);
+		const many = Array.from({ length: LEARNED_RULES_MAX + 1 }, (_, i) => ({ match: `t${i}`, verdict: "run" }));
+		await prisma.bot.update({ where: { id: bot }, data: { policyJson: { rules: many } } });
+		const refused = await patchBotRuleForOwner(userA, bot, ruleId({ match: "t0" }), { verdict: "deny" });
+		assert.ok(!refused.ok && refused.reason === "refused");
+		assert.equal(((await prisma.bot.findUniqueOrThrow({ where: { id: bot } })).policyJson as { rules: unknown[] }).rules.length, LEARNED_RULES_MAX + 1);
+		assert.ok((await removeBotRuleForOwner(userA, bot, ruleId({ match: "t0" }))).ok);
 	});
 
 	test("IDOR: outro dono não vê, não edita e não apaga (bot some como inexistente)", async () => {
