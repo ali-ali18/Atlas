@@ -117,6 +117,18 @@ describe("sono (Postgres real)", { skip: dbSkip }, () => {
 		assert.equal(await sumSleepCostUsd({ userId: userB, botId: bot, since: at("2026-10-01T00:00:00Z") }), 0);
 	});
 
+	test("a leitura do dia pagina até o fim: dia com mais falas que a página não é cortado, mesmo com horários iguais (auditoria F5, C5/B2)", async () => {
+		const bot = (await createTestBot(userA, { name: "longo" })).id;
+		const conv = (await prisma.conversation.create({ data: { userId: userA } })).id;
+		await prisma.bot.update({ where: { id: bot }, data: { conversationId: conv } });
+		const same = new Date("2026-11-04T12:00:00Z");
+		await prisma.conversationMessage.createMany({ data: Array.from({ length: 8 }, (_, i) => ({ id: `long-${i}`, conversationId: conv, role: "user", content: `fala ${i}`, createdAt: i < 5 ? same : new Date(same.getTime() + i * 1000) })) });
+		const day = await loadSleepDay({ userId: userA, botId: bot, from: new Date("2026-11-04T02:30:00Z"), to: new Date("2026-11-05T02:30:00Z"), pageSize: 3 });
+		assert.deepEqual(day?.messages.map((m) => m.id), Array.from({ length: 8 }, (_, i) => `long-${i}`));
+		const exact = await loadSleepDay({ userId: userA, botId: bot, from: new Date("2026-11-04T02:30:00Z"), to: new Date("2026-11-05T02:30:00Z"), pageSize: 4 });
+		assert.equal(exact?.messages.length, 8, "página cheia no final não deixa nada de fora");
+	});
+
 	test("bots para dormir: só os dos donos pedidos, com conversa direta", async () => {
 		const bots = await listBotsForSleep([userA]);
 		assert.ok(bots.some((b) => b.id === botA && b.ownerId === userA));

@@ -148,14 +148,33 @@ export type SleepDayInput = {
  * o journal) e as notas visíveis ao bot. Conversa de grupo não entra: o escopo é a conversa do bot (`Bot.conversationId`),
  * conferida contra o dono em duas pontas (bot e conversa).
  */
-export async function loadSleepDay(input: { userId: string; botId: string; from: Date; to: Date }): Promise<SleepDayInput | null> {
+export const SLEEP_MESSAGES_PAGE = 5_000;
+
+export async function loadSleepDay(input: { userId: string; botId: string; from: Date; to: Date; pageSize?: number }): Promise<SleepDayInput | null> {
 	const bot = await prisma.bot.findFirst({ where: { id: input.botId, ownerId: input.userId }, select: { conversationId: true } });
 	if (!bot?.conversationId) return null;
 	const conversation = await prisma.conversation.findFirst({ where: { id: bot.conversationId, userId: input.userId }, select: { id: true } });
 	if (!conversation) return null;
 	const range = { gte: input.from, lt: input.to };
+	// Lê o dia INTEIRO, página a página: um corte silencioso deixaria falas sem ler enquanto a janela avança para depois delas.
+	const readMessages = async (): Promise<SleepMessage[]> => {
+		const pageSize = Math.max(input.pageSize ?? SLEEP_MESSAGES_PAGE, 1);
+		const all: SleepMessage[] = [];
+		for (;;) {
+			const last = all.at(-1);
+			const page = await prisma.conversationMessage.findMany({
+				where: { conversationId: conversation.id, createdAt: range },
+				orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+				select: { id: true, role: true, content: true, origin: true },
+				take: pageSize,
+				...(last ? { cursor: { id: last.id }, skip: 1 } : {}),
+			});
+			all.push(...page);
+			if (page.length < pageSize) return all;
+		}
+	};
 	const [messages, runs, notes] = await Promise.all([
-		prisma.conversationMessage.findMany({ where: { conversationId: conversation.id, createdAt: range }, orderBy: [{ createdAt: "asc" }, { id: "asc" }], select: { id: true, role: true, content: true, origin: true }, take: 20_000 }),
+		readMessages(),
 		prisma.agentRun.findMany({
 			where: { userId: input.userId, botId: input.botId, conversationId: conversation.id, origin: "chat", createdAt: range, v4Journal: { some: {} } },
 			orderBy: { createdAt: "asc" },
