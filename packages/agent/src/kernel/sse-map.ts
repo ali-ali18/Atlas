@@ -81,6 +81,10 @@ export function stopReasonOf(final: Extract<KernelEvent, { type: "final" }>["dat
 	return "answered";
 }
 
+/** Teto do `summary` no SSE. SÓ exibição: o conteúdo inteiro segue no contexto do modelo e no caderno; o corte aqui não muda o que o modelo vê. */
+export const TOOL_RESULT_DISPLAY_CHARS = 2000;
+const displaySummary = (content: string): string => (content.length > TOOL_RESULT_DISPLAY_CHARS ? `${content.slice(0, TOOL_RESULT_DISPLAY_CHARS)}…` : content);
+
 function argsText(args: unknown, secrets: readonly string[] = []): string {
 	try {
 		return redactSecrets(JSON.stringify(args ?? {}) ?? "{}", secrets);
@@ -108,7 +112,7 @@ export function createSseMapper(options: SseMapOptions): SseMapper {
 			case "tool_call":
 				return [{ type: "tool_call", id: event.data.callId, name: event.data.name, args: argsText(event.data.args, options.secrets?.()), step: event.data.step ?? step, ...(options.maxSteps !== undefined && { maxSteps: options.maxSteps }) }];
 			case "tool_result":
-				return [{ type: "tool_result", id: event.data.callId, name: event.data.name, ok: OK_STATUSES.has(event.data.status), summary: event.data.content }];
+				return [{ type: "tool_result", id: event.data.callId, name: event.data.name, ok: OK_STATUSES.has(event.data.status), summary: displaySummary(event.data.content) }];
 			case "receipt": {
 				const { callId, name, what, where, externalId, url } = event.data;
 				return [{ type: "receipt", id: callId, name, what, ...(where && { where }), ...(externalId && { externalId }), ...(url && { url }), ...withRun }];
