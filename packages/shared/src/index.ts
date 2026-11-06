@@ -144,10 +144,12 @@ export type {
 export {
 	AGENT_V4_EVENT_TYPES,
 	AGENT_V4_TEXT_MAX,
+	ASK_OWNER_CHOICES_MAX,
 	isAgentV4EventType,
 	parseAgentV4Event,
 	type AgentV4Event,
 	type ApprovalRequestEvent,
+	type AskOwnerChoice,
 	type AskOwnerEvent,
 	type HandoffRequestEvent,
 	type ReceiptEvent,

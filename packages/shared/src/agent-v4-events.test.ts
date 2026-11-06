@@ -25,6 +25,19 @@ describe("eventos do motor v4 no contrato SSE", () => {
 		expect(parseAgentV4Event({ type: "ask_owner", cardId: "k", question: 7 })).toBeNull();
 	});
 
+	it("pergunta ao dono: alternativas opcionais, validadas item a item", () => {
+		const base = { type: "ask_owner", cardId: "k", question: "Qual?" };
+		const choices = [{ value: "a", label: "A" }, { value: "b", description: "mais caro" }];
+		expect(parseAgentV4Event({ ...base, choices })).toEqual({ ...base, choices });
+		expect(parseAgentV4Event({ ...base, choices: [{ value: "a", evil: 1 }] })).toEqual({ ...base, choices: [{ value: "a" }] });
+		expect(parseAgentV4Event(base)).toEqual(base);
+		expect(parseAgentV4Event({ ...base, choices: "a" })).toBeNull();
+		expect(parseAgentV4Event({ ...base, choices: [{ label: "A" }] })).toBeNull();
+		expect(parseAgentV4Event({ ...base, choices: [{ value: "a", label: 3 }] })).toBeNull();
+		expect(parseAgentV4Event({ ...base, choices: Array.from({ length: 13 }, (_, i) => ({ value: `v${i}` })) })).toBeNull();
+		expect(parseAgentV4Event({ ...base, choices: Array.from({ length: 12 }, (_, i) => ({ value: `v${i}` })) })).not.toBeNull();
+	});
+
 	it("o guarda de tipo cobre exatamente a lista", () => {
 		for (const t of AGENT_V4_EVENT_TYPES) expect(isAgentV4EventType(t)).toBe(true);
 		expect(isAgentV4EventType("done")).toBe(false);
