@@ -1,6 +1,7 @@
 import { formatModelRef, pickModelFor } from "@workspace/shared";
 import type { ModelChainEntry, ModelProvider, NoModelReason, ProviderHealthReason, RoleChains, SpendCeilings, SpendSoFar } from "@workspace/shared";
 import type { ProviderStreamChat } from "@workspace/llm";
+import { copyFor } from "../../copy/index.js";
 import type { Clock } from "../../ports/clock.js";
 import type { Llm, LlmChatRequest, LlmRole, LlmStreamEvent, LlmToolCall, LlmUsage } from "../../ports/llm.js";
 import { DEFAULT_COOLDOWNS, type FailureCooldowns, classifyFailure, reasonText } from "./failure.js";
@@ -34,30 +35,33 @@ export type LlmAdapterConfig = {
 	singleSystemProviders?: readonly ModelProvider[];
 	/** Provedores que exigem papéis alternados: `user` seguidos são fundidos na requisição (`mergeConsecutiveUser`). Padrão: todos. */
 	mergeUserProviders?: readonly ModelProvider[];
+	/** Idioma do bot, para os textos que o dono lê (aviso de troca, motivo de indisponibilidade). Padrão: pt-BR. */
+	language?: unknown;
 	contextWindowFor?: (entry: ModelChainEntry) => number | Promise<number>;
 };
 
 /** Nenhuma entrada utilizável na cadeia (tudo fora do ar, sem cadeia ou teto do dono). Carrega o motivo real. */
 export class LlmUnavailableError extends Error {
 	readonly reason: NoModelReason;
-	constructor(reason: NoModelReason) {
-		super(describeNone(reason));
+	constructor(reason: NoModelReason, language?: unknown) {
+		super(describeNone(reason, language));
 		this.name = "LlmUnavailableError";
 		this.reason = reason;
 	}
 }
 
-export function describeNone(reason: NoModelReason): string {
+export function describeNone(reason: NoModelReason, language?: unknown): string {
 	switch (reason.kind) {
 		case "no_chain":
-			return "Nenhum modelo configurado para este papel.";
+			return copyFor(language, "model_none");
 		case "ceiling": {
-			const origem = reason.source === "bot" ? "do bot" : "da conta";
-			const periodo = { day: "diário", week: "semanal", month: "mensal" }[reason.period];
-			return `Teto ${periodo} ${origem} atingido: US$ ${reason.spentUsd.toFixed(2)} de US$ ${reason.limitUsd.toFixed(2)}.`;
+			const source = copyFor(language, reason.source === "bot" ? "ceiling_of_bot" : "ceiling_of_account");
+			const period = copyFor(language, ({ day: "ceiling_day", week: "ceiling_week", month: "ceiling_month" } as const)[reason.period]);
+			// Sempre em dólares (USD): é a moeda em que os provedores cobram e em que o teto foi configurado.
+			return copyFor(language, "spend_ceiling", { period, source, spent: reason.spentUsd.toFixed(2), limit: reason.limitUsd.toFixed(2) });
 		}
 		default:
-			return `Todos os modelos da cadeia estão indisponíveis: ${reason.skipped.map((s) => `${label(s.entry)} (${reasonText(s.reason)})`).join("; ")}.`;
+			return copyFor(language, "models_unavailable", { details: reason.skipped.map((s) => `${label(s.entry)} (${reasonText(s.reason, language)})`).join("; ") });
 	}
 }
 
@@ -110,13 +114,13 @@ export function createLlmAdapter(config: LlmAdapterConfig): Llm {
 					if (picked.none.kind === "all_unavailable" && failures.length > 0) {
 						const seen = new Set(picked.none.skipped.map((s) => label(s.entry)));
 						const extra = failures.filter((f) => !seen.has(label(f.entry))).map((f) => ({ entry: f.entry, reason: f.reason, until: 0 }));
-						throw new LlmUnavailableError({ kind: "all_unavailable", skipped: [...extra, ...picked.none.skipped] });
+						throw new LlmUnavailableError({ kind: "all_unavailable", skipped: [...extra, ...picked.none.skipped] }, config.language);
 					}
-					throw new LlmUnavailableError(picked.none);
+					throw new LlmUnavailableError(picked.none, config.language);
 				}
 				const { entry } = picked;
 				if (previous) {
-					yield { type: "notice", message: `Troquei de ${label(previous.entry)} para ${label(entry)} porque ${reasonText(previous.reason)}.` };
+					yield { type: "notice", message: copyFor(config.language, "model_switched", { from: label(previous.entry), to: label(entry), reason: reasonText(previous.reason, config.language) }) };
 				}
 				tried.add(label(entry));
 				const apiKey = await config.apiKeyFor(entry.provider);

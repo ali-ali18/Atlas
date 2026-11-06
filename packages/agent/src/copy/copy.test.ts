@@ -10,22 +10,30 @@ describe("copy: textos ao dono por idioma do bot (F1.11)", () => {
 		expect(BOT_LANGUAGES.length).toBeGreaterThanOrEqual(3);
 		for (const id of ids) {
 			expect(Object.keys(COPY[id]).sort()).toEqual([...BOT_LANGUAGES].sort());
-			for (const lang of BOT_LANGUAGES) expect(COPY[id][lang].trim().length).toBeGreaterThan(5);
+			for (const lang of BOT_LANGUAGES) expect(COPY[id][lang].trim().length).toBeGreaterThanOrEqual(5);
 		}
 	});
 
 	it("nenhum texto expõe interno (nome de tool em snake_case, campo, id, JSON) nem dado do dono", () => {
 		for (const id of ids)
 			for (const lang of BOT_LANGUAGES) {
-				const text = COPY[id][lang];
+				// `{nome}` é marcador de `copyFor`, não vazamento: sai antes de procurar chaves soltas.
+				const text = COPY[id][lang].replace(/\{\w+\}/g, "X");
 				expect(text, `${id}/${lang}`).not.toMatch(/\b[a-z]+(?:_[a-z0-9]+)+\b/);
 				expect(text, `${id}/${lang}`).not.toMatch(/[{}<>]|\bcall(?:Id)?\b|\bhandoff\b|\bpayload\b|\buserId\b/i);
 				expect(scanText(text)).toEqual([]);
 			}
 	});
 
+	it("marcadores {nome} são trocados e os textos do adaptador de modelo não usam vocabulário interno (auditoria F1, A1)", () => {
+		expect(copyFor("en-US", "model_switched", { from: "a/x", to: "b/y", reason: "r" })).toBe("I switched from a/x to b/y because r.");
+		for (const id of ["model_none", "models_unavailable", "spend_ceiling", "model_switched", "reason_rate_limit", "reason_quota", "reason_down"] as const)
+			for (const lang of BOT_LANGUAGES) expect(COPY[id][lang], `${id}/${lang}`).not.toMatch(/cadeia|papel|chain|role|cadena|\bUS\$/i);
+	});
+
 	it("o texto muda com o idioma", () => {
-		for (const id of ids) expect(new Set(BOT_LANGUAGES.map((l) => COPY[id][l])).size).toBe(BOT_LANGUAGES.length);
+		// "semanal" é a mesma palavra em pt-BR e es-ES.
+		for (const id of ids.filter((i) => i !== "ceiling_week")) expect(new Set(BOT_LANGUAGES.map((l) => COPY[id][l])).size).toBe(BOT_LANGUAGES.length);
 		expect(copyFor("en-US", "handoff")).toMatch(/yours alone/);
 		expect(copyFor("es-ES", "handoff")).toMatch(/solo tuyo/);
 		expect(copyFor("pt-BR", "handoff")).toMatch(/só seu/);

@@ -42,6 +42,50 @@ export const COPY = {
 		"en-US": "I stopped at the spending limit you set. The answer above is the best I have so far.",
 		"es-ES": "Me detuve en el tope de gasto que configuraste. La respuesta de arriba es lo mejor que tengo hasta ahora.",
 	},
+	/** Nenhum modelo configurado para a tarefa. */
+	model_none: {
+		"pt-BR": "Nenhum modelo está configurado para esta tarefa.",
+		"en-US": "No model is set up for this task.",
+		"es-ES": "No hay ningún modelo configurado para esta tarea.",
+	},
+	/** Todos os modelos configurados estão fora do ar; `{details}` lista cada um com o motivo. */
+	models_unavailable: {
+		"pt-BR": "Os modelos configurados estão indisponíveis agora: {details}.",
+		"en-US": "The configured models are unavailable right now: {details}.",
+		"es-ES": "Los modelos configurados no están disponibles ahora: {details}.",
+	},
+	/** Teto de gasto do dono atingido. Os valores são sempre em dólares (USD), a moeda em que os provedores cobram. */
+	spend_ceiling: {
+		"pt-BR": "Teto {period} {source} atingido: {spent} de {limit} (em dólares, USD).",
+		"en-US": "{period} spending limit {source} reached: {spent} of {limit} (in US dollars, USD).",
+		"es-ES": "Tope {period} {source} alcanzado: {spent} de {limit} (en dólares, USD).",
+	},
+	ceiling_day: { "pt-BR": "diário", "en-US": "Daily", "es-ES": "diario" },
+	ceiling_week: { "pt-BR": "semanal", "en-US": "Weekly", "es-ES": "semanal" },
+	ceiling_month: { "pt-BR": "mensal", "en-US": "Monthly", "es-ES": "mensual" },
+	ceiling_of_bot: { "pt-BR": "do bot", "en-US": "for this bot", "es-ES": "del bot" },
+	ceiling_of_account: { "pt-BR": "da conta", "en-US": "for your account", "es-ES": "de la cuenta" },
+	/** Aviso de troca de modelo no meio do run. */
+	model_switched: {
+		"pt-BR": "Troquei de {from} para {to} porque {reason}.",
+		"en-US": "I switched from {from} to {to} because {reason}.",
+		"es-ES": "Cambié de {from} a {to} porque {reason}.",
+	},
+	reason_rate_limit: {
+		"pt-BR": "o provedor limitou a taxa de requisições",
+		"en-US": "the provider is limiting requests",
+		"es-ES": "el proveedor limitó la tasa de solicitudes",
+	},
+	reason_quota: {
+		"pt-BR": "o limite de uso ou o saldo do provedor acabou",
+		"en-US": "the provider's usage limit or balance ran out",
+		"es-ES": "se agotó el límite de uso o el saldo del proveedor",
+	},
+	reason_down: {
+		"pt-BR": "o provedor está indisponível",
+		"en-US": "the provider is unavailable",
+		"es-ES": "el proveedor no está disponible",
+	},
 } as const satisfies Record<string, Entry>;
 
 export type CopyId = keyof typeof COPY;

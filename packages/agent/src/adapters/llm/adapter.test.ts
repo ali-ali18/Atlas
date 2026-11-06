@@ -121,6 +121,7 @@ describe("adaptador Llm", () => {
 		const reason = (err as LlmUnavailableError).reason;
 		expect(reason.kind).toBe("all_unavailable");
 		expect((err as Error).message).toContain("indisponíveis");
+		expect((err as Error).message).not.toMatch(/cadeia/);
 	});
 
 	it("teto do dono atingido: erro honesto com valor e origem, sem chamar o provedor", async () => {
@@ -130,6 +131,22 @@ describe("adaptador Llm", () => {
 		expect(err.reason).toEqual({ kind: "ceiling", period: "month", source: "account", limitUsd: 20, spentUsd: 21.5 });
 		expect(err.message).toContain("da conta");
 		expect(err.message).toContain("20.00");
+	});
+
+	it("textos ao dono seguem o idioma do bot, sem vocabulário interno nem US$ fixo (auditoria F1, A1)", async () => {
+		const ceiling = { ceilings: { account: { month: 20 } }, spend: { account: { month: 21.5 } } };
+		for (const [language, re] of [["pt-BR", /Teto mensal da conta atingido: 21\.50 de 20\.00 \(em dólares, USD\)/], ["en-US", /Monthly spending limit for your account reached: 21\.50 of 20\.00/], ["es-ES", /Tope mensual de la cuenta alcanzado/]] as const) {
+			const { llm } = setup([ok("x")], { ...ceiling, language });
+			const err = (await collect(llm.chat(req())).catch((e: unknown) => e)) as LlmUnavailableError;
+			expect(err.message).toMatch(re);
+			expect(err.message).not.toMatch(/US\$|cadeia|papel/);
+		}
+		const { llm } = setup([fail(429), ok("certo")], { language: "en-US" });
+		const notice = (await collect(llm.chat(req()))).find((e) => e.type === "notice") as { message: string };
+		expect(notice.message).toMatch(/^I switched from .* to .* because the provider is limiting requests\.$/);
+		const down = setup([fail(503)], { language: "es-ES" });
+		const err = (await collect(down.llm.chat(req())).catch((e: unknown) => e)) as Error;
+		expect(err.message).toMatch(/^Los modelos configurados no están disponibles ahora: /);
 	});
 
 	it("erro do pedido (400) não troca de provedor", async () => {

@@ -1,4 +1,5 @@
 import type { ProviderHealthReason } from "@workspace/shared";
+import { copyFor } from "../../copy/index.js";
 
 // Classifica a falha de um provedor para decidir se a cadeia troca de entrada.
 // Estrutural (status/code/name): o adaptador não depende das classes do legado.
@@ -41,14 +42,14 @@ export function classifyFailure(error: unknown, cooldowns: FailureCooldowns, sig
 	return { kind: "fatal" };
 }
 
-/** Motivo em pt-BR para o aviso ao dono. */
-export function reasonText(reason: ProviderHealthReason): string {
+/** Motivo no idioma do bot para o aviso ao dono. */
+export function reasonText(reason: ProviderHealthReason, language?: unknown): string {
 	switch (reason) {
 		case "rate_limit":
-			return "o provedor limitou a taxa de requisições";
+			return copyFor(language, "reason_rate_limit");
 		case "quota":
-			return "o limite de uso ou o saldo do provedor acabou";
+			return copyFor(language, "reason_quota");
 		default:
-			return "o provedor está indisponível";
+			return copyFor(language, "reason_down");
 	}
 }
