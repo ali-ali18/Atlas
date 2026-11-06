@@ -484,6 +484,8 @@ export async function runEngineV4(input: RunEngineV4Input): Promise<V4EngineResu
 		policy: basePolicy,
 		limits: input.limits,
 		hash: sha256,
+		// Run de agenda: não há dono para responder, então a pergunta ao dono nem é oferecida.
+		...(input.agendaRun && { askOwner: false }),
 		spend: ledger.motherHook(),
 		exposeProvenance: (read) => {
 			motherProvenance = read;

@@ -115,8 +115,9 @@ export async function buildV4Registry(input: V4RegistryInput): Promise<V4Registr
 
 	// Run de agenda: sai `agenda` (sem criar item em cadeia), entra `agenda_result` (núcleo).
 	const capabilities = [...base.registry.capabilities, ...(connectors.capability ? [connectors.capability] : [])];
-	const forRun = input.agendaRun && agenda ? [...capabilities.filter((capability) => capability.id !== "agenda"), createAgendaRunCapability(agenda)] : capabilities;
-	const registry = forRun.length === base.registry.capabilities.length && !connectors.capability ? base.registry : createCapabilityRegistry(forRun);
+	const asAgendaRun = Boolean(input.agendaRun && agenda);
+	const forRun = asAgendaRun && agenda ? [...capabilities.filter((capability) => capability.id !== "agenda"), createAgendaRunCapability(agenda)] : capabilities;
+	const registry = !asAgendaRun && !connectors.capability ? base.registry : createCapabilityRegistry(forRun);
 	if (base.unavailable.length > 0) log(`[engine-v4] run=${input.runId} capacidades sem porta: ${base.unavailable.join(", ")}`);
 	return {
 		registry,

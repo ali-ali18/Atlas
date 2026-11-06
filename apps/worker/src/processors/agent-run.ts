@@ -140,6 +140,7 @@ import {
 	resolveBudget,
 	wallClockAnchors,
 } from "@workspace/agent-runtime";
+import { closeAgendaRun, loadAgendaRunContext } from "../agenda-run.js";
 import { prepareV4Run } from "../v4-run-context.js";
 import { runV4Turn } from "../v4-turn.js";
 import { cheapModelFromEnv, createV4Llm, dropProcessorOwnedEvents, ownerStepsLimit, runEngineV4, vaultBackendFromService } from "../engine-v4.js";
@@ -1170,8 +1171,11 @@ async function executeLeasedRun(ctx: {
 	const apiConnector = await apiConnectorPromise;
 	// Motor do run (ADR 0002): v2 por padrão em todas as origens suportadas; v1 só com `policyJson.engine = "v1"` explícito ou com `ATLAS_ENGINE_V2_DEFAULT=off` (emergência).
 	// A escolha fica no budgetJson do run: a retomada continua no motor em que o run nasceu.
+	// Run acordado pela agenda do v4 (F4.3): reconhecido pelo item ligado a ele no banco; só ele leva o proativo ao v4.
+	const agendaRun = await loadAgendaRunContext({ userId: runUserId, runId, origin: run.origin, objective: run.objective }).catch(() => null);
 	const engineChoice = await pickRunEngine({
 		run,
+		agenda: Boolean(agendaRun),
 		policyJson: rawBotPolicy,
 		isGroupRun: Boolean(groupRun),
 		// Todo run nasce com checkpointJson (createAgentRun); só conta como retomada se já há transcript do modelo.
@@ -1245,7 +1249,8 @@ async function executeLeasedRun(ctx: {
 					botId: run.botId ?? null,
 					botName: v4Bot?.name ?? null,
 					objective: run.objective ?? "",
-					...(prepared.history ? { history: prepared.history } : {}),
+					// Run de agenda: o que o modelo lê ao acordar, a política sem dono (permissão da criação) e `agenda_result` no núcleo.
+					...(agendaRun ? { history: agendaRun.history, policy: agendaRun.policy, agendaRun: true } : prepared.history ? { history: prepared.history } : {}),
 					...(prepared.cardResponses ? { cardResponses: prepared.cardResponses } : {}),
 					...(prepared.priorProvenance ? { priorProvenance: prepared.priorProvenance } : {}),
 					...(prepared.resume ? { resume: prepared.resume } : {}),
@@ -1258,7 +1263,7 @@ async function executeLeasedRun(ctx: {
 					// Teto de passos do dono (pedido > bot > conta) só quando tem origem; sem ele vale o de segurança do kernel. Tetos de gasto
 					// por período (dia/semana/mês) da conta/bot ainda não existem na configuração do worker: só o teto por execução vale.
 					limits: { ...(effectiveCostCap !== undefined ? { ownerMaxUsd: effectiveCostCap } : {}), ...(ownerStepsLimit(stepsCap) !== undefined ? { ownerMaxSteps: ownerStepsLimit(stepsCap)! } : {}), unattended: !(run.origin === "chat" && readRunHumanTurn(run)) },
-					ownerPresent: run.origin === "chat" && readRunHumanTurn(run),
+					ownerPresent: !agendaRun && run.origin === "chat" && readRunHumanTurn(run),
 					signal: aborter.signal,
 					vault: vaultBackendFromService(getVaultService()),
 					...(deps.v4Queue ? { queue: deps.v4Queue } : {}),
@@ -1266,7 +1271,12 @@ async function executeLeasedRun(ctx: {
 			},
 		});
 	try {
-		const result = engineChoice.engine === "v4" ? await runV4() : await runSelectedEngine({ ...engineChoice, modelMaxOutputTokens: (modelId) => providers.capabilities(modelId).then((caps) => caps.maxOutputTokens, () => null) }, {
+		// Run de agenda sem o v4 (flag desligada entre a varredura e o run, ou o bot fixou o motor antigo): não roda o prompt de
+		// agenda em outro motor. Fecha vazio; `closeAgendaRun` conta a falha no item e ele volta com o espaçamento.
+		const agendaWithoutV4 = Boolean(agendaRun) && engineChoice.engine !== "v4";
+		const result = agendaWithoutV4
+			? { text: "", model: run.model, hitWall: false, usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0, costUsd: 0 }, stop: { reason: "answered" as const } }
+			: engineChoice.engine === "v4" ? await runV4() : await runSelectedEngine({ ...engineChoice, modelMaxOutputTokens: (modelId) => providers.capabilities(modelId).then((caps) => caps.maxOutputTokens, () => null) }, {
 			messageTriageModel,
 			onAwayNote: createAwayNoteHandler({
 				userId: runUserId,
@@ -1501,8 +1511,10 @@ async function executeLeasedRun(ctx: {
 		const alertPlan = alertCtx && alertRun
 			? planAlertRun({ alert: alertCtx.alert, routineName: alertCtx.name, verdict: alertRun.report.verdict, modelText: result.text, interval: alertCtx.interval ?? null, now: new Date() })
 			: null;
+		// Run de agenda (v4): vale o `agenda_result`, nunca o texto solto do modelo. Sem mensagem declarada o run é silencioso.
+		if (agendaRun) result.text = await closeAgendaRun({ userId: runUserId, runId, text: result.text, language: systemLanguage, context: agendaRun });
 		// Verificação de follow-up sem novidade ([NO_UPDATE]): nada entra na conversa, sem push e sem revisão de memória.
-		const noUpdate = run.origin === "proactive" && isNoUpdateReply(result.text);
+		const noUpdate = run.origin === "proactive" && (agendaRun ? result.text.trim().length === 0 : isNoUpdateReply(result.text));
 		const resultText = alertPlan ? alertPlan.text : result.text;
 		const resultConversationId = (alertPlan && !alertPlan.notify) || noUpdate ? null : run.conversationId;
 		const jevAtCompletion = jevTelemetry.snapshot();

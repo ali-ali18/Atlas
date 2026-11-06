@@ -114,3 +114,10 @@ test("chat comum não tem agenda_result", async () => {
 	const setup = await buildV4Registry({ ...base, botId: "bot-1", deps: fakeAdapterDeps() });
 	assert.equal(setup.registry.toolByName("agenda_result"), undefined);
 });
+
+test("run de agenda sem nenhum conector conectado: a troca de agenda por agenda-run também vale (auditoria do próprio F4.3)", async () => {
+	const setup = await buildV4Registry({ ...base, botId: "bot-1", deps: fakeAdapterDeps({ connections: [] }), unattended: true, agendaRun: true });
+	assert.ok(!setup.registry.ids().includes("connectors"));
+	assert.ok(setup.registry.ids().includes("agenda-run"));
+	assert.ok(!setup.registry.ids().includes("agenda"));
+});
