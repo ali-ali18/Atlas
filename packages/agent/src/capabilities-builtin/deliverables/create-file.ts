@@ -33,6 +33,24 @@ export const createFileInput = z.object({
 
 type CreateFileArgs = z.output<typeof createFileInput>;
 
+/**
+ * Campos de um texto tabular (.csv): o Excel abre campo que começa com `=`, `+`, `-` ou `@` como fórmula. Separação de
+ * formato (vírgula, ponto e vírgula, tab, quebra de linha, aspas), não decisão de comportamento.
+ */
+function tabularFormulaFields(content: string): string[] {
+	// guard-allow: format-validation separa campos de um .csv para validar fórmula; não decide comportamento
+	return content
+		.split(/[\r\n,;\t]+/)
+		.map((field) => field.trim().replace(/^"|"$/g, "").trim())
+		.filter((field) => /^[=+\-@]/.test(field));
+}
+
+function dangerousFormulaProblem(formula: string): string | undefined {
+	const bad = findDangerousFormulaFunctions(formula.slice(1));
+	if (bad.length === 0) return undefined;
+	return `formula ${JSON.stringify(formula.slice(0, 60))} uses ${bad.join(", ")}, which reaches the network or runs code when the file opens (not accepted: ${DANGEROUS_FORMULA_FUNCTIONS.join(", ")}); use plain values or ordinary formulas such as SUM, IF, VLOOKUP`;
+}
+
 function crossFieldErrors(args: CreateFileArgs, ext: string): string[] {
 	const problems: string[] = [];
 	if (args.sheets && ext !== "xlsx") problems.push("sheets only applies to .xlsx files");
@@ -47,9 +65,16 @@ function crossFieldErrors(args: CreateFileArgs, ext: string): string[] {
 		for (const row of sheet.rows) {
 			for (const value of row) {
 				if (!isFormulaCell(value)) continue;
-				const bad = findDangerousFormulaFunctions(value.slice(1));
-				if (bad.length > 0) problems.push(`formula ${JSON.stringify(value.slice(0, 60))} uses ${bad.join(", ")}, which reaches the network or runs code when the file opens (not accepted: ${DANGEROUS_FORMULA_FUNCTIONS.join(", ")}); use plain values or ordinary formulas such as SUM, IF, VLOOKUP`);
+				const problem = dangerousFormulaProblem(value);
+				if (problem) problems.push(problem);
 			}
+		}
+	}
+	// Um .csv aberto no Excel também executa fórmula (reauditoria F2, N1).
+	if (ext === "csv" && args.content !== undefined) {
+		for (const field of tabularFormulaFields(args.content)) {
+			const problem = dangerousFormulaProblem(field);
+			if (problem) problems.push(problem);
 		}
 	}
 	return problems;
