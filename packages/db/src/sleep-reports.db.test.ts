@@ -57,6 +57,21 @@ describe("sono (Postgres real)", { skip: dbSkip }, () => {
 		assert.equal(await renewSleepClaim({ userId: userA, id: claim!.id, now: minutes(100) }), false, "terminado não renova");
 	});
 
+	test("o detail interno de skipped/failed fica no banco e nunca chega ao usuário (auditoria F5, R4)", async () => {
+		const bot = (await createTestBot(userA, { name: "interno" })).id;
+		const skipped = await claimSleepSlot({ userId: userA, botId: bot, kind: "daily", slot: "2026-11-21", now });
+		await finishSleepReport({ userId: userA, id: skipped!.id, status: "skipped", detail: "sem fala do dono na janela" });
+		const failed = await claimSleepSlot({ userId: userA, botId: bot, kind: "daily", slot: "2026-11-22", now });
+		await finishSleepReport({ userId: userA, id: failed!.id, status: "failed", detail: "HTTP 503 do provedor interno" });
+		const views = [await getSleepReport(userA, skipped!.id), await getSleepReport(userA, failed!.id), ...(await listSleepReports({ userId: userA, botId: bot })).reports];
+		for (const view of views) {
+			assert.ok(view);
+			assert.ok(!("detail" in view), "a visão não tem campo detail");
+			assert.ok(!/sem fala do dono|HTTP 503/.test(JSON.stringify(view)), "o texto interno não vaza");
+		}
+		assert.equal((await prisma.sleepReport.findUniqueOrThrow({ where: { id: skipped!.id } })).detail, "sem fala do dono na janela");
+	});
+
 	test("o fim da janela do último sono concluído é o começo do próximo", async () => {
 		const bot = (await createTestBot(userA, { name: "janela" })).id;
 		assert.equal(await getPreviousSleepEnd(userA, bot), null);
