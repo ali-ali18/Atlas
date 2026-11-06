@@ -3,7 +3,8 @@ import { createCapabilityRegistry, defineCapability } from "../capabilities/inde
 import { createConnectorsCapability } from "../connectors/capability.js";
 import { FakeMcp } from "../connectors/fake-mcp.js";
 import { createDeliverablesCapability } from "../capabilities-builtin/deliverables/index.js";
-import { FakeDeliverables } from "../presets/fakes.js";
+import { createResearchCapability } from "../capabilities-builtin/research/index.js";
+import { FakeDeliverables, FakeHelpers } from "../presets/fakes.js";
 import { call, kernelHarness, reply } from "../testing/kernel-fakes.js";
 
 // Economia (05-fases, guardas permanentes #5): "Bom dia" é barato.
@@ -93,6 +94,27 @@ describe("economia: Bom dia", () => {
 		expect((first?.tools ?? []).map((t) => t.name)).not.toContain("create_file");
 		expect((second?.tools ?? []).map((t) => t.name)).toEqual(expect.arrayContaining(["create_file", "create_page", "chart", "inspect_file"]));
 		expect(JSON.stringify(second?.messages)).toContain("Academic work (ABNT)");
+	});
+
+	it("a capacidade research é lazy: 'Bom dia' não ganha a tool nem as instruções, só uma linha do índice", async () => {
+		const base = await measureGoodMorning();
+		const withResearch = await measureGoodMorning([createResearchCapability(new FakeHelpers())]);
+		expect(withResearch.toolNames).toEqual(base.toolNames);
+		expect(withResearch.toolNames).not.toContain("research");
+		expect(withResearch.tokens - base.tokens).toBeLessThan(60);
+		expect(JSON.stringify(withResearch.result)).not.toContain("One source per claim");
+		expect(withResearch.tokens).toBeLessThanOrEqual(GOOD_MORNING_INPUT_TOKENS_CEILING + 60);
+	});
+
+	it("o pedido de pesquisa carrega a capacidade no passo 1 e as instruções só então", async () => {
+		const core = defineCapability({ id: "core", title: "Core", summary: "core tools", core: true, tools: [] });
+		const h = kernelHarness([reply({ calls: [call("c1", "use_capability", { id: "research" })] }), reply({ text: "Pronto." })], { capabilities: [core, createResearchCapability(new FakeHelpers())] });
+		await h.run({ input: { contextSections: [], history: [{ kind: "owner", text: "Compare 10 fornecedores de pagamento com preço e fonte" }] } });
+		const [first, second] = h.llm.requests;
+		expect(JSON.stringify(first?.messages)).not.toContain("One source per claim");
+		expect((first?.tools ?? []).map((t) => t.name)).not.toContain("research");
+		expect((second?.tools ?? []).map((t) => t.name)).toContain("research");
+		expect(JSON.stringify(second?.messages)).toContain("One source per claim");
 	});
 
 	it("o teto é o medido + 15% (o teto só desce: se o núcleo encolher, baixe o medido e o teto no mesmo commit)", () => {

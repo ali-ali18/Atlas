@@ -3,11 +3,13 @@
 import type { CapabilityRegistry } from "../capabilities/registry.js";
 import { createCapabilityRegistry } from "../capabilities/registry.js";
 import { createDeliverablesCapability } from "../capabilities-builtin/deliverables/index.js";
+import { createResearchCapability } from "../capabilities-builtin/research/index.js";
 import type { DeliverablePorts } from "../ports/deliverables.js";
 import { createMemoryCapability } from "../capabilities/memory/index.js";
 import { createSettingsCapability } from "../capabilities/settings/index.js";
 import { createTasksCapability } from "../capabilities/tasks/index.js";
 import type { FileStore } from "../ports/file-store.js";
+import type { Helpers } from "../ports/helpers.js";
 import type { Memory } from "../ports/memory.js";
 import type { Search } from "../ports/search.js";
 import type { Settings } from "../ports/settings.js";
@@ -19,7 +21,7 @@ import { createWebCapability } from "./web.js";
 export const PRESET_IDS = ["minimal", "full"] as const;
 export type PresetId = (typeof PRESET_IDS)[number];
 
-export type CapabilityId = "web" | "deliverables-lite" | "memory" | "tasks" | "settings";
+export type CapabilityId = "web" | "deliverables-lite" | "memory" | "tasks" | "settings" | "research";
 
 export type AgentPreset = {
 	id: PresetId;
@@ -31,7 +33,7 @@ export type AgentPreset = {
 
 export const PRESETS: Readonly<Record<PresetId, AgentPreset>> = Object.freeze({
 	minimal: Object.freeze({ id: "minimal", capabilities: Object.freeze(["web", "deliverables-lite"] as const), workContract: false }),
-	full: Object.freeze({ id: "full", capabilities: Object.freeze(["web", "deliverables-lite", "memory", "tasks", "settings"] as const), workContract: true }),
+	full: Object.freeze({ id: "full", capabilities: Object.freeze(["web", "deliverables-lite", "memory", "tasks", "settings", "research"] as const), workContract: true }),
 });
 
 /**
@@ -39,7 +41,7 @@ export const PRESETS: Readonly<Record<PresetId, AgentPreset>> = Object.freeze({
  * `unavailable`). `deliverables` (F2.3): com as portas, a capacidade lazy `deliverables` (docx, pdf, xlsx, pptx, painel,
  * gráfico) entra no lugar da `deliverables-lite`; sem elas, segue a versão mínima de texto.
  */
-export type PresetDeps = { search: Search; files: FileStore; deliverables?: DeliverablePorts; memory?: Memory; settings?: Settings; taskLists?: TaskListStore };
+export type PresetDeps = { search: Search; files: FileStore; deliverables?: DeliverablePorts; memory?: Memory; settings?: Settings; taskLists?: TaskListStore; helpers?: Helpers };
 
 export function isPresetId(value: unknown): value is PresetId {
 	return typeof value === "string" && (PRESET_IDS as readonly string[]).includes(value);
@@ -53,6 +55,8 @@ const FACTORIES: Readonly<Record<CapabilityId, CapabilityFactory>> = {
 	memory: (deps) => deps.memory && createMemoryCapability(deps.memory),
 	tasks: (deps) => deps.taskLists && createTasksCapability(deps.taskLists),
 	settings: (deps) => deps.settings && createSettingsCapability(deps.settings),
+	// F3.2: pesquisa em plano; só entra quando a porta dos ajudantes existe (a frente H a implementa).
+	research: (deps) => deps.helpers && createResearchCapability(deps.helpers),
 };
 
 /** Capacidades do preset que não entram por falta da porta. */
