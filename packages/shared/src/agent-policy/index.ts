@@ -5,3 +5,4 @@ export * from "./mandate.js";
 export * from "./approval-key.js";
 export * from "./connector-policy.js";
 export * from "./formula-guard.js";
+export * from "./child-policy.js";

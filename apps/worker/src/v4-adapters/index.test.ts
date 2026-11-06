@@ -30,14 +30,15 @@ export function fakeAdapterDeps(options: { connections?: Connected; listFails?: 
 }
 
 const notes = {} as NoteStore;
-const base = { runId: "run-1", userId: "user-a", conversationId: "conv-1", unattended: false, notes, emit: () => undefined };
+// O engine sempre passa a fábrica de ajudantes (a pesquisa depende dela); sem ela, `research` fica indisponível.
+const base = { runId: "run-1", userId: "user-a", conversationId: "conv-1", unattended: false, notes, emit: () => undefined, makeHelpers: () => ({ runAll: async () => [] }) };
 
 test("com bot e portas reais montadas, o preset full não tem capacidade indisponível", async () => {
 	const logs: string[] = [];
 	const setup = await buildV4Registry({ ...base, botId: "bot-1", deps: fakeAdapterDeps(), log: (m) => void logs.push(m) });
 	assert.deepEqual(setup.unavailable, []);
 	assert.deepEqual(logs, []);
-	assert.deepEqual(setup.registry.ids(), ["connectors", "deliverables", "memory", "settings", "tasks", "web"]);
+	assert.deepEqual(setup.registry.ids(), ["connectors", "deliverables", "memory", "research", "settings", "tasks", "web"]);
 	assert.match(setup.stableSystem, /Work contract/);
 	assert.match(setup.stableSystem, /connectors/);
 	// confirmWrites do conector vira `confirm: "always"` na tool genérica de escrita
@@ -73,4 +74,16 @@ test("conexão de outro dono devolvida pela porta é descartada (defesa em profu
 	// a porta amarra o dono: pedir como user-b nunca devolve as conexões de user-a
 	const setup = await buildV4Registry({ ...base, userId: "user-b", botId: "bot-1", deps: { ...deps, mcp: { ...deps.mcp, listConnected: async (userId) => (userId === "user-a" ? [other] : []) } } });
 	assert.ok(!setup.registry.ids().includes("connectors"));
+});
+
+test("ajudantes: a fábrica recebe a mesma porta de busca da mãe, uma vez por montagem", async () => {
+	const seen: unknown[] = [];
+	const helpers = { runAll: async () => [] };
+	const setup = await buildV4Registry({ ...base, botId: "bot-1", deps: fakeAdapterDeps(), makeHelpers: ({ search }) => (seen.push(search), helpers) });
+	assert.equal(seen.length, 1);
+	assert.equal(typeof (seen[0] as { extract: unknown }).extract, "function");
+	assert.deepEqual(setup.unavailable, []);
+	// sem a fábrica, nada muda
+	await buildV4Registry({ ...base, botId: "bot-1", deps: fakeAdapterDeps() });
+	assert.equal(seen.length, 1);
 });

@@ -10,8 +10,10 @@ import {
 	setupPreset,
 	type CapabilityId,
 	type CapabilityRegistry,
+	type Helpers,
 	type NoteStore,
 	type PresetDeps,
+	type Search,
 } from "@workspace/agent";
 import type { ComputerUseEvent } from "@workspace/shared";
 import { createV4Deliverables, realV4DeliverablesDeps, type V4DeliverablesDeps } from "./deliverables.js";
@@ -49,6 +51,11 @@ export type V4RegistryInput = {
 	log?: (message: string) => void;
 	/** Idioma do run (bot): a busca pede páginas nesse idioma. */
 	locale?: string;
+	/**
+	 * Fábrica dos ajudantes (F3.1) do run. Recebe a MESMA porta de busca da mãe (os filhos leem pelas mesmas portas e
+	 * registram as fontes) e vira `PresetDeps.helpers`, que a capacidade `research` (frente R) consome.
+	 */
+	makeHelpers?: (ctx: { search: Search }) => Helpers;
 };
 
 export type V4RegistrySetup = {
@@ -71,8 +78,10 @@ export async function buildV4Registry(input: V4RegistryInput): Promise<V4Registr
 		scope: { conversationId: input.conversationId ?? null, botId: botId ?? null, emit: input.emit, log },
 		deps: deps.deliverables,
 	});
+	const search = createV4Search(deps.web, input.locale);
 	const presetDeps: PresetDeps = {
-		search: createV4Search(deps.web, input.locale),
+		search,
+		...(input.makeHelpers && { helpers: input.makeHelpers({ search }) }),
 		files: deliverables.fileStore,
 		deliverables: deliverables.ports,
 		memory: createV4Memory({ botId, deps: deps.memory }),

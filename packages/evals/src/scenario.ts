@@ -162,7 +162,7 @@ export const scenarioSchema = z
 				origin: z.string().default("chat"),
 				/** Run do brief "Seu dia": aplica o mesmo filtro só de leitura do worker (nativa da lista do brief + conector somente leitura). */
 				briefReadOnly: z.boolean().default(false),
-				/** Motor do cenário: `v2` roda o motor novo (perfil chat) e `v4` o kernel `runAgent` com o preset minimal, quando o runner não pede um motor próprio. Omitido = motor atual (v1). */
+				/** Motor do cenário: `v2` roda o motor novo (perfil chat) e `v4` o kernel `runAgent` com o preset full, quando o runner não pede um motor próprio. Omitido = motor atual (v1). */
 				engine: z.enum(["v1", "v2", "v4"]).default("v1"),
 				/** Liga o modo proativo do chat (follow-ups: `schedule_followup`, `list_followups`...), como no bot principal em produção. */
 				proactive: z.boolean().optional(),
