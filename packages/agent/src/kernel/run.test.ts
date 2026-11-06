@@ -124,6 +124,17 @@ describe("kernel: aprovação e handoff", () => {
 		expect(h.llm.requests[1]?.messages.filter((m) => m.role === "tool").map((m) => (m as { toolCallId: string }).toolCallId)).toEqual(["s1", "e1", "e2"]);
 	});
 
+	it("provedor que repete o id da chamada no mesmo passo: cada chamada ganha seu resultado (B12)", async () => {
+		const c = { runs: 0 };
+		const h = kernelHarness([reply({ calls: [call("call_0", "lookup", { q: "a" }), call("call_0", "lookup", { q: "b" })] }), reply({ text: "ok" })], { tools: [lookup(c)] });
+		await h.run();
+		const msgs = h.llm.requests[1]?.messages ?? [];
+		const ids = msgs.filter((m) => m.role === "tool").map((m) => (m as { toolCallId: string }).toolCallId);
+		expect(ids).toEqual(["call_0", "call_0~2"]);
+		expect(JSON.stringify(msgs.find((m) => m.role === "tool" && (m as { toolCallId: string }).toolCallId === "call_0~2"))).toContain("result for b");
+		expect(msgs.find((m) => m.role === "assistant" && "toolCalls" in m && m.toolCalls)).toMatchObject({ toolCalls: [{ id: "call_0" }, { id: "call_0~2" }] });
+	});
+
 	it("recusa do dono volta ao modelo como dado e nada executa", async () => {
 		const { tool, counter } = sendTool();
 		const h = kernelHarness([reply({ calls: [call("s1", "send_email", { to: "a@example.com", body: "oi" })] }), reply({ text: "ok, não envio" })], { tools: [tool] });

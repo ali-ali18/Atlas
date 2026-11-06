@@ -39,6 +39,16 @@ export function outcomeText(outcome: CallOutcome): string {
 	}
 }
 
+/** Ids repetidos no MESMO passo (provedor que numera tudo `call_0`) ganham sufixo `~n`, para o mapa de resultados e o par chamada/resultado não colidirem. */
+export function uniqueCallIds<T extends { id: string }>(calls: readonly T[]): T[] {
+	const seen = new Map<string, number>();
+	return calls.map((c) => {
+		const n = (seen.get(c.id) ?? 0) + 1;
+		seen.set(c.id, n);
+		return n === 1 ? c : { ...c, id: `${c.id}~${n}` };
+	});
+}
+
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 
 /** Roda o que falta do passo. Devolve quantas chamadas vieram malformadas (tool desconhecida ou args que não são objeto). */

@@ -19,7 +19,7 @@ import { observeCall, REPEAT_NOTE, signatureOf } from "./loop-guard.js";
 import { compactContext, contextTokens, DEFAULT_COMPACT_RATIO, DEFAULT_KEEP_RECENT, shouldCompact } from "./compaction.js";
 import { callModel } from "./model-step.js";
 import { addRuntimeNote, initSnapshot, isOwnershipLoss, isSnapshot, saveCheckpoint } from "./session.js";
-import { runPending } from "./tool-step.js";
+import { runPending, uniqueCallIds } from "./tool-step.js";
 import { createNoteReadTool, DEFAULT_PAGE_CHARS, fitOutput } from "./work-notes.js";
 import type { KernelEvent, KernelState, PendingCall, RunAgentDeps, RunResult } from "./types.js";
 
@@ -129,6 +129,7 @@ export async function runAgent(deps: RunAgentDeps): Promise<RunResult> {
 				// O custo conhecido entra sempre (inclusive de tentativa que falhou no meio do stream); o que não tem preço é contado à parte.
 				snap.spentUsd += reply.costUsd;
 				snap.stepsWithoutPrice += reply.unpricedCalls;
+				reply.calls = uniqueCallIds(reply.calls);
 				snap.lastText = reply.text;
 				snap.lastInputTokens = reply.inputTokens;
 				snap.tokensAtCount = snap.messages.length;
