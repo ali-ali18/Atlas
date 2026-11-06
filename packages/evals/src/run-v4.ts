@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import {
 	createEventsAdapter,
+	chainsForAllRoles,
 	createLlmAdapter,
 	createQueueAdapter,
 	createSseMapper,
@@ -18,7 +19,7 @@ import {
 	type StoredReceipt,
 	type StoreBackend,
 } from "@workspace/agent";
-import { MODEL_ROLES, parseModelRef, type ComputerUseEvent, type RunStop } from "@workspace/shared";
+import { parseModelRef, type ComputerUseEvent, type RunStop } from "@workspace/shared";
 import { EVAL_USER_ID } from "./environment.js";
 import type { StreamChat } from "./mock-model.js";
 import type { Scenario } from "./scenario.js";
@@ -76,7 +77,7 @@ export async function runScenarioV4(params: RunV4Params): Promise<{ text: string
 	const setup = setupPreset("minimal", { search: new FakeSearch(), files: new FakeFileStore() });
 	const ref = parseModelRef(params.model);
 	const entry = { provider: ref.provider, model: ref.slug };
-	const chains = Object.fromEntries(MODEL_ROLES.map((role) => [role, [entry]])) as unknown as Parameters<typeof createLlmAdapter>[0]["chains"];
+	const chains = chainsForAllRoles(entry);
 	const clock = createSystemClock();
 	const mapper = createSseMapper({ runId: params.runId, model: params.model });
 	const history = [
