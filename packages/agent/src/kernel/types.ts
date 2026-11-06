@@ -40,6 +40,8 @@ export type ResumeInput = {
 	grants?: readonly ApprovalGrant[];
 	/** Ids de pedido (ApprovalRequest.id) que o dono recusou. */
 	denied?: readonly string[];
+	/** Ids de pedido que expiraram sem resposta do dono. */
+	expired?: readonly string[];
 	/** Ids de chamada cujo passo de handoff o dono assumiu. */
 	handoffDone?: readonly string[];
 };

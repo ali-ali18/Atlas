@@ -4,6 +4,7 @@ import { grantApproval, type ApprovalRequest } from "../contract/index.js";
 import { chatPolicy, sendTool } from "../testing/contract-helpers.js";
 import { call, kernelHarness, reply } from "../testing/kernel-fakes.js";
 import { defineTool } from "../tools/define-tool.js";
+import { EXPIRED_TEXT } from "./tool-step.js";
 
 const lookup = (counter = { runs: 0 }) =>
 	defineTool({ name: "lookup", description: "Look something up.", inputSchema: z.object({ q: z.string() }), effect: "read", execute: ({ q }) => (counter.runs++, { ok: true, summary: `result for ${q}` }) });
@@ -153,6 +154,18 @@ describe("kernel: aprovação e handoff", () => {
 		expect(out.status).toBe("done");
 		expect(counter.runs).toBe(0);
 		expect(JSON.stringify(h.llm.requests.at(-1)?.messages)).toContain("owner declined");
+	});
+
+	it("pedido expirado volta ao modelo como dado, nada executa e o run segue", async () => {
+		const { tool, counter } = sendTool();
+		const h = kernelHarness([reply({ calls: [call("s1", "send_email", { to: "a@example.com", body: "oi" })] }), reply({ text: "ok, deixo para depois" })], { tools: [tool] });
+		await h.run();
+		const card = h.log.of("card")[0] as { request: ApprovalRequest };
+		const out = await h.run({ input: { ...h.input, resume: { expired: [card.request.id] } } });
+		expect(out.status).toBe("done");
+		expect(counter.runs).toBe(0);
+		expect(JSON.stringify(h.llm.requests.at(-1)?.messages)).toContain(EXPIRED_TEXT);
+		expect(h.log.of("tool_result").at(-1)).toMatchObject({ status: "expired" });
 	});
 
 	it("handoff estaciona e continua quando o dono assume o passo", async () => {

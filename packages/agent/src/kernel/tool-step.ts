@@ -17,6 +17,7 @@ export type ToolStepEnv = {
 };
 
 export const DENIED_TEXT = "The owner declined this action. Do not retry it; offer an alternative or ask what they would prefer.";
+export const EXPIRED_TEXT = "The owner did not answer this request and it expired. Do not retry it on your own; mention it briefly only if it matters to the answer.";
 export const HANDOFF_DONE_TEXT = "The owner took over this step. Continue from the owner's latest message and check the result before relying on it.";
 
 export function outcomeText(outcome: CallOutcome): string {
@@ -86,6 +87,10 @@ export async function runPending(env: ToolStepEnv): Promise<{ malformed: number 
 			if (parked.requestId && env.resume?.denied?.includes(parked.requestId)) {
 				delete snap.parked[call.id];
 				return finish(call, "denied", DENIED_TEXT);
+			}
+			if (parked.requestId && env.resume?.expired?.includes(parked.requestId)) {
+				delete snap.parked[call.id];
+				return finish(call, "expired", EXPIRED_TEXT);
 			}
 			if (parked.kind === "handoff") {
 				if (!env.resume?.handoffDone?.includes(call.id)) return;
