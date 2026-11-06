@@ -19,7 +19,7 @@ import {
 	type AgendaGrant,
 	type AgendaItemRecord,
 } from "@workspace/db";
-import { DEFAULT_PROACTIVE_SETTINGS, planAgendaItem, readEngineV4Gate, type AgendaEvent, type AgendaPlan } from "@workspace/shared";
+import { AGENDA_EVENT_MIN_GAP_MINUTES, DEFAULT_PROACTIVE_SETTINGS, planAgendaItem, readEngineV4Gate, type AgendaEvent, type AgendaPlan } from "@workspace/shared";
 import { claimPendingEventItems, clearPendingEvent, markPendingEvent } from "./agenda-pending-event.js";
 import { realAgendaRunDb, settleAbortedAgendaRun } from "./agenda-run.js";
 import { dispatchAgendaItem, processAgenda, wakeAgendaForEvent, type AgendaWakeDeps } from "./agenda-wake.js";
@@ -209,7 +209,8 @@ describe("agenda do worker (Postgres real)", { skip: dbSkip }, () => {
 		// o run termina; passado o espaçamento a varredura acorda o item de novo, sem esperar o fim da vigência
 		assert.ok((await recordAgendaResult({ userId, runId, outcome: "no_change", now: at(3, t) })).ok);
 		const s3 = sink();
-		const sweep = await processAgenda(worker(at(14, t), s3, { inFlight: async () => false }));
+		// (o resultado foi gravado em t+3; o espaçamento mínimo entre acordares é o do shared, 30 min desde a auditoria F4, B4)
+		const sweep = await processAgenda(worker(at(3 + AGENDA_EVENT_MIN_GAP_MINUTES + 1, t), s3, { inFlight: async () => false }));
 		assert.ok(sweep.run >= 1);
 		// (o banco de teste tem itens de outros testes vencidos: confere pelo item)
 		const woken = await getAgendaItem(userId, item.id);
