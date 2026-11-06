@@ -1,0 +1,145 @@
+{
+  "version": 1,
+  "id": "generic-pesquisa-divergent-sources-quillbase",
+  "title": "Two sources disagree (1.8 million × 1.1 million developers) → the answer MENTIONS the divergence and why, it does not silently pick one",
+  "description": "Mesma capacidade do ouro 11 (fontes que se contradizem: ler as duas e dizer que divergem), outro contexto: desenvolvedor em Austin perguntando em inglês sobre uma ferramenta fictícia (Quillbase). Blog da empresa (1.8 million, conta CLI e CI) × levantamento independente (1.1 million, só pessoas). Ler as duas fontes vale em duas chamadas ou numa só em lote (`urls`).",
+  "tags": [
+    "generic",
+    "pesquisa"
+  ],
+  "source": {
+    "kind": "seed",
+    "note": "Conjunto genérico F0.7 (PLANO-AGENTE-V4/04-avaliacao.md §1.1): cenário sintético com pessoa, loja e contexto fictícios (domínios .test), para o motor não viciar no uso do dono."
+  },
+  "bot": {
+    "name": "Leo",
+    "about": "Personal assistant: e-mail, shopping, coding and calendar.",
+    "language": "en-US"
+  },
+  "locale": {
+    "country": "US",
+    "currency": "USD",
+    "timezone": "America/Chicago"
+  },
+  "user": "how many weekly active developers did Quillbase have in 2025?",
+  "tools": {
+    "fixtures": [
+      {
+        "tool": "web_search",
+        "result": {
+          "ok": true,
+          "summary": "Results:\n1. Quillbase 2025 in review: 1.8 million weekly active developers (Quillbase blog) https://blog.quillbase.test/2025-year-in-review\n2. Developer Pulse 2025: Quillbase has 1.1 million weekly active developers (Open Metrics Institute) https://openmetrics.test/dev-pulse-2025"
+        }
+      },
+      {
+        "tool": "web_extract",
+        "args": {
+          "url": {
+            "contains": "blog.quillbase.test"
+          }
+        },
+        "result": {
+          "ok": true,
+          "summary": "2025 in review: Quillbase reached 1.8 million weekly active developers, counting every machine or CI runner that invoked the CLI at least once in a week."
+        }
+      },
+      {
+        "tool": "web_extract",
+        "args": {
+          "url": {
+            "contains": "openmetrics.test"
+          }
+        },
+        "result": {
+          "ok": true,
+          "summary": "Developer Pulse 2025: counting only distinct humans who used Quillbase in a given week, we estimate 1.1 million. The vendor figure of 1.8 million also counts CI runners and automated jobs."
+        }
+      }
+    ]
+  },
+  "run": {
+    "engine": "v2"
+  },
+  "expect": [
+    {
+      "type": "completed"
+    },
+    {
+      "id": "read-both-sources",
+      "type": "any_of",
+      "checks": [
+        {
+          "type": "tool_called",
+          "tool": "web_extract",
+          "min": 2
+        },
+        {
+          "type": "tool_called",
+          "tool": "web_extract",
+          "args": {
+            "urls": {
+              "matches": "^(?=.*blog\\.quillbase\\.test)(?=.*openmetrics\\.test)"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "has-the-vendor-number",
+      "type": "text_contains",
+      "pattern": "1\\.8 million"
+    },
+    {
+      "id": "has-the-independent-number",
+      "type": "text_contains",
+      "pattern": "1\\.1 million"
+    },
+    {
+      "id": "mentions-the-divergence",
+      "type": "text_contains",
+      "pattern": "diverg|discrepan|differ|disagree|conflict|methodolog|definition|count(s|ed|ing)? (CI|automated)",
+      "ignoreCase": true
+    },
+    {
+      "id": "cites-the-sources",
+      "type": "text_contains",
+      "pattern": "blog\\.quillbase\\.test|openmetrics\\.test"
+    },
+    {
+      "type": "no_internals"
+    }
+  ],
+  "mock": {
+    "turns": [
+      {
+        "calls": [
+          {
+            "name": "web_search",
+            "args": {
+              "query": "Quillbase weekly active developers 2025"
+            }
+          }
+        ]
+      },
+      {
+        "calls": [
+          {
+            "name": "web_extract",
+            "args": {
+              "url": "https://blog.quillbase.test/2025-year-in-review"
+            }
+          },
+          {
+            "name": "web_extract",
+            "args": {
+              "url": "https://openmetrics.test/dev-pulse-2025"
+            }
+          }
+        ]
+      },
+      {
+        "say": "The sources disagree, and the reason is the definition:\n- Quillbase's own blog says 1.8 million weekly active developers, counting every machine or CI runner that called the CLI in a week (https://blog.quillbase.test/2025-year-in-review).\n- The independent Open Metrics Institute survey says 1.1 million, counting only distinct people (https://openmetrics.test/dev-pulse-2025).\n\nFor \"developers\" as people, 1.1 million is the safer number; 1.8 million is a usage figure that includes automation."
+      }
+    ]
+  }
+}

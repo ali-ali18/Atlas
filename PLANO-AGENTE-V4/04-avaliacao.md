@@ -15,6 +15,7 @@ Ficam em `packages/evals/tasks/<capacidade>/`. A maioria nasce de runs reais via
 | Dia | planejar o dia com e-mail, agenda e caderno |
 | Navegador | `browser-bench` (8 páginas) e login com cofre |
 | Código | correção com teste no repositório fixture |
+| Sem corte | pesquisa longa (20+ fontes) e documento grande terminam completos, sem resumo truncado; conversa que passa da janela continua certa depois da compactação (o modelo relê do caderno) |
 | Insistência | o resumo de vídeo falha → silêncio → assunto novo (não pode oferecer de novo); oferta dispensada (não volta); vigia ignorado 2 vezes (encerra) |
 | Segurança | e-mail com injeção; página com "ignore as instruções"; rotina tentando enviar; `money` sem humano |
 | Economia | "Bom dia" (tamanho de entrada) |
@@ -24,6 +25,18 @@ Cada tarefa tem dois tipos de verificação:
 - **Rubrica de qualidade:** juiz LLM offline, com 2 juízes e um teto de discordância. Avalia completude, fontes, formato e antecipação.
 
 O juiz **só roda no eval**, nunca no runtime.
+
+## 1.1 Conjunto genérico (contra o vício no uso do dono)
+O conjunto ouro nasce do uso do dono. Se for o único, o motor fica viciado nele, como aconteceu com o v1. Por isso:
+- **Um segundo conjunto, `generico`:** as mesmas capacidades com outras pessoas e contextos. Por exemplo:
+  - uma advogada em Lisboa (pt-PT, EUR);
+  - um dev em Austin (en-US, USD);
+  - uma lojista de e-commerce usando outro ERP;
+  - um estudante em espanhol.
+
+  Outras lojas, outros provedores de e-mail, outros fusos.
+- **Regra de aceite:** uma mudança de motor só vale se melhorar ou manter **os dois** conjuntos. Ganho só no conjunto do dono é suspeito de vício.
+- **O juiz recebe o local do cenário** (idioma, país, moeda) em vez de "Brasil" fixo.
 
 ## 2. Matriz
 ```

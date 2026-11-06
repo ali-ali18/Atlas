@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { briefToolFilter, runComputerUse, runEngineV2, type EngineV2Options } from "@workspace/agent-runtime";
-import { applyComputerUseEventsToTranscript, TRANSCRIPT_SLOT, type ComputerUseEvent, type SerializedLlmMessage } from "@workspace/shared";
+import { applyComputerUseEventsToTranscript, DEFAULT_PROACTIVE_SETTINGS, TRANSCRIPT_SLOT, type ComputerUseEvent, type SerializedLlmMessage } from "@workspace/shared";
 import { buildEnvironment, EVAL_BOT_ID, EVAL_USER_ID } from "./environment.js";
 import type { StreamChat } from "./mock-model.js";
 import type { Scenario } from "./scenario.js";
@@ -23,6 +23,8 @@ export type RunScenarioOptions = {
 	runtimeOverrides?: Partial<RunParams>;
 	repeat?: number;
 	timeoutMs?: number;
+	/** Interrompe o run de fora (ex.: o teto de gasto do matrix foi atingido): a trajetória sai com `interrupted`. */
+	abortSignal?: AbortSignal;
 	/** Motor novo (v2): roda `runEngineV2` com estas opções em vez do `runComputerUse`. Omitido = motor atual (v1). */
 	engineV2?: EngineV2Options;
 };
@@ -58,9 +60,11 @@ export async function runScenario(scenario: Scenario, options: RunScenarioOption
 	const abort = new AbortController();
 	const timeoutMs = options.timeoutMs ?? 180_000;
 	let timedOut = false;
+	let interrupted = false;
 	let text = "";
 	let stop: Trajectory["stop"];
 	let error: string | undefined;
+	let errorName: string | undefined;
 
 	const recordingStream: StreamChat = async (params, handlers) => {
 		const call: RecordedModelCall = {
@@ -69,6 +73,7 @@ export async function runScenario(scenario: Scenario, options: RunScenarioOption
 			model: params.model,
 			messages: structuredClone(params.messages) as unknown[],
 			tools: params.tools.map((tool) => tool.function.name),
+			toolsChars: JSON.stringify(params.tools).length,
 			durationMs: 0,
 		};
 		modelCalls.push(call);
@@ -81,6 +86,9 @@ export async function runScenario(scenario: Scenario, options: RunScenarioOption
 			return result;
 		} catch (caught) {
 			call.error = caught instanceof Error ? caught.message.slice(0, 300) : "erro";
+			if (caught instanceof Error) call.errorName = caught.name;
+			const status = (caught as { status?: unknown } | null)?.status;
+			if (typeof status === "number") call.errorStatus = status;
 			throw caught;
 		} finally {
 			call.durationMs = Date.now() - begin;
@@ -94,7 +102,7 @@ export async function runScenario(scenario: Scenario, options: RunScenarioOption
 		getSessionId: async () => {
 			throw new Error("sem sandbox no eval");
 		},
-		sandboxEnabled: false,
+		sandboxEnabled: scenario.run.sandbox === true,
 		apiKey: options.apiKey,
 		model: options.model,
 		runId: `eval-${scenario.id}-${options.repeat ?? 0}-${randomBytes(4).toString("hex")}`,
@@ -106,6 +114,7 @@ export async function runScenario(scenario: Scenario, options: RunScenarioOption
 		abortSignal: abort.signal,
 		...toRunMessages(scenario),
 		...env.params,
+		...(scenario.run.proactive ? { proactive: { settings: DEFAULT_PROACTIVE_SETTINGS } } : {}),
 		...(scenario.run.briefReadOnly ? { toolFilter: briefToolFilter(env.params.mcp) } : {}),
 		onEvent: (event) => {
 			const record = event as unknown as Record<string, unknown>;
@@ -124,6 +133,18 @@ export async function runScenario(scenario: Scenario, options: RunScenarioOption
 	});
 
 	let timer: ReturnType<typeof setTimeout> | undefined;
+	const external = options.abortSignal;
+	let onExternalAbort: (() => void) | undefined;
+	const interruption = new Promise<"interrupted">((resolve) => {
+		if (!external) return;
+		onExternalAbort = () => {
+			interrupted = true;
+			abort.abort();
+			resolve("interrupted");
+		};
+		if (external.aborted) onExternalAbort();
+		else external.addEventListener("abort", onExternalAbort, { once: true });
+	});
 	const timeout = new Promise<"timeout">((resolve) => {
 		timer = setTimeout(() => {
 			timedOut = true;
@@ -132,16 +153,19 @@ export async function runScenario(scenario: Scenario, options: RunScenarioOption
 		}, timeoutMs);
 	});
 	try {
-		const outcome = await Promise.race([run, timeout]);
+		const outcome = await Promise.race([run, timeout, interruption]);
 		if (outcome === "timeout") error = `tempo esgotado (${Math.round(timeoutMs / 1000)}s)`;
+		else if (outcome === "interrupted") error = "execução interrompida (teto de gasto atingido)";
 		else {
 			text = outcome.text;
 			stop = outcome.stop;
 		}
 	} catch (caught) {
 		error = caught instanceof Error ? caught.message.slice(0, 500) : "erro desconhecido";
+		if (caught instanceof Error) errorName = caught.name;
 	} finally {
 		clearTimeout(timer);
+		if (external && onExternalAbort) external.removeEventListener("abort", onExternalAbort);
 	}
 	// Um run abortado pelo prazo pode rejeitar depois; não deixa virar rejeição sem tratamento.
 	run.catch(() => undefined);
@@ -170,13 +194,16 @@ export async function runScenario(scenario: Scenario, options: RunScenarioOption
 		text,
 		...(stop ? { stop } : {}),
 		...(error ? { error } : {}),
+		...(errorName ? { errorName } : {}),
 		...(timedOut ? { timedOut } : {}),
+		...(interrupted ? { interrupted } : {}),
 		modelCalls,
 		toolCalls,
 		toolResults: events
 			.filter((event) => event.type === "tool_result")
 			.map((event) => ({ id: String(event.id), name: String(event.name), ok: Boolean(event.ok), summary: textOf(event.summary), source: env.sourceOf(String(event.id), String(event.name)) })),
 		events,
+		...(env.files.length > 0 ? { files: env.files } : {}),
 		visible: transcript.filter((bubble) => !bubble.revised && bubble.text.trim()).map((bubble) => bubble.text),
 		revised: transcript.filter((bubble) => bubble.revised).map((bubble) => ({ text: bubble.text, reason: String(bubble.revised) })),
 		discards: events.filter((event) => event.type === "assistant_discard").map((event) => String(event.reason)),

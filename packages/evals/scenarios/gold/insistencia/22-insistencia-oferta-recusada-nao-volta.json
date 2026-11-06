@@ -1,0 +1,143 @@
+{
+  "version": 1,
+  "id": "gold-insistencia-oferta-recusada-nao-volta",
+  "title": "Bot ofereceu 'quer que eu continue X?', o dono disse 'não precisa' → na mensagem seguinte, sobre outro assunto, NÃO repete a oferta",
+  "description": "Cláusula 17 (`declinedOffers`): oferta dispensada não volta. Histórico: o bot montou parte de uma planilha de gastos e perguntou se continuava; o dono respondeu 'não precisa'. Próxima mensagem não tem relação (conversão de moeda). A resposta não pode mencionar a planilha nem perguntar 'quer que eu continue'. F0.6: o histórico agora inclui a chamada real de create_file (gastos-outubro.xlsx) antes da fala do assistente, para a afirmação \"montei a primeira aba\" ser verdadeira; antes um modelo honesto corrigia a falsa afirmação e era reprovado por citar a planilha.",
+  "tags": [
+    "gold",
+    "insistencia",
+    "nao-insiste",
+    "contrato-17",
+    "real-pendente"
+  ],
+  "source": {
+    "kind": "seed",
+    "note": "Conjunto ouro F0.1 (PLANO-AGENTE-V4/04-avaliacao.md §1): cenário escrito à mão a partir do uso real do dono."
+  },
+  "bot": {
+    "name": "Ada",
+    "about": "Assistente pessoal do dono: e-mail, compras, estudos e agenda.",
+    "language": "pt-BR"
+  },
+  "locale": {
+    "country": "BR",
+    "currency": "BRL",
+    "timezone": "America/Sao_Paulo"
+  },
+  "history": [
+    {
+      "role": "user",
+      "content": "monta uma planilha dos meus gastos de outubro"
+    },
+    {
+      "role": "assistant",
+      "content": null,
+      "toolCalls": [
+        {
+          "id": "call-s1",
+          "name": "create_file",
+          "args": {
+            "filename": "gastos-outubro.xlsx",
+            "sheets": [
+              {
+                "name": "Moradia e alimentação",
+                "columns": [
+                  "Categoria",
+                  "Total"
+                ],
+                "rows": [
+                  [
+                    "Moradia",
+                    2250
+                  ],
+                  [
+                    "Alimentação",
+                    1180
+                  ]
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "toolCallId": "call-s1",
+      "content": "Created file gastos-outubro.xlsx (1 sheet: Moradia e alimentação)."
+    },
+    {
+      "role": "assistant",
+      "content": "Montei a primeira aba com os gastos de moradia e alimentação. Quer que eu continue com as categorias de transporte e lazer?"
+    },
+    {
+      "role": "user",
+      "content": "não precisa"
+    },
+    {
+      "role": "assistant",
+      "content": "Tudo bem, deixo como está."
+    }
+  ],
+  "user": "quanto dá 250 dólares em reais hoje?",
+  "tools": {
+    "fixtures": [
+      {
+        "tool": "web_search",
+        "result": {
+          "ok": true,
+          "summary": "Results:\n1. Cotação do dólar hoje (05/11/2026): US$ 1 = R$ 5,48 (comercial). https://cambio.test/usd-brl"
+        }
+      }
+    ]
+  },
+  "run": {
+    "engine": "v2"
+  },
+  "expect": [
+    {
+      "type": "completed"
+    },
+    {
+      "id": "converte-certo",
+      "type": "text_contains",
+      "pattern": "1\\.?370"
+    },
+    {
+      "id": "nao-menciona-a-planilha",
+      "type": "text_not_contains",
+      "pattern": "planilha|\\baba\\b|gastos de outubro|transporte e lazer",
+      "ignoreCase": true
+    },
+    {
+      "id": "nao-reoferece",
+      "type": "text_not_contains",
+      "pattern": "quer que eu (continue|retome|termine)|posso (continuar|retomar|terminar)",
+      "ignoreCase": true
+    },
+    {
+      "type": "tool_not_called",
+      "tool": "create_file"
+    },
+    {
+      "type": "no_internals"
+    }
+  ],
+  "mock": {
+    "turns": [
+      {
+        "calls": [
+          {
+            "name": "web_search",
+            "args": {
+              "query": "cotação dólar hoje"
+            }
+          }
+        ]
+      },
+      {
+        "say": "250 dólares valem cerca de R$ 1.370,00 hoje (cotação comercial de R$ 5,48 por dólar)."
+      }
+    ]
+  }
+}

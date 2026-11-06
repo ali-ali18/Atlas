@@ -13,6 +13,24 @@
   - Um teste de catraca (como o `visual-base-guard`) guarda a contagem de pontes. **O número só pode cair.**
   - Quando chegar a zero, `agent-runtime` deixa de ser dependência e é apagado (F10).
 
+## 0.1 Open-source junto com o Atlas (decisão do dono, 05/11)
+O motor é **do Atlas**, feito para o Atlas, e é open-source porque o Atlas inteiro é (MIT). Não é uma biblioteca genérica para outros produtos. O que muda por ser aberto:
+- **Nada do dono no código.**
+  - Nada de chave, e-mail, conta, host ou dado pessoal.
+  - O conjunto ouro usa só domínios `.test` e dados inventados.
+  - Segredos ficam no cofre ou no `.env` (documentados no `.env.example`).
+- **Quem hospeda o próprio Atlas configura tudo.** Provedores e modelos por papel, tetos, VM e conectores vêm de configuração ou da UI, nunca fixos no código. Os padrões funcionam sem nenhuma conta paga específica.
+- **Legível para quem chega.**
+  - Pastas com nomes claros e módulos pequenos.
+  - README do motor explicando o laço, o contrato, as capacidades e como rodar o eval.
+  - Os ADRs contam o porquê das decisões.
+- **Genérico no comportamento, sem viciar no uso do dono.** O v1 foi sendo moldado pelo uso do dono: há 13 pontos no runtime com casos do ERP Bling, regras escritas para conversas específicas e travas criadas a partir de um caso só. No v4:
+  - Prompt, capacidade e regra **nunca** citam pessoa, empresa, site, marca ou conta específicos como regra. Exemplo só como exemplo, e trocável.
+  - Correção de comportamento vem de **padrão** (uma classe de tarefa), nunca de um caso do dono. Cada correção precisa passar no conjunto do dono **e** no conjunto genérico (ver `04`).
+  - Idioma, país, moeda, fuso e formato de data vêm do bot e do usuário. Nada de "Brasil" fixo, nem no juiz do eval.
+  - Conector específico (Bling, Gmail…) tem o seu jeito dentro do próprio conector ou da skill dele, nunca no núcleo do motor.
+- **Portas continuam, por testabilidade.** LLM, banco, fila, VM, cofre e relógio entram por interface, para testar com mock e trocar implementação. O motor pode usar os pacotes do Atlas (`@workspace/db`, `shared` etc.) pelas portas.
+
 ## 1. Camadas
 ```
 packages/agent/src/
@@ -24,6 +42,7 @@ packages/agent/src/
   memory/        perfil, caderno, sessões, procedural (só o lado do agente)
   ports/         interfaces: Llm, Store, Queue, Sandbox, Vault, Clock, Events
   presets/       full | minimal (para o eval)
+  adapters/      implementações das portas: Prisma, BullMQ, VM, cofre, packages/llm
   legacy-bridge/ temporário, com catraca
 apps/worker      monta as portas e chama `runAgent(runId, ports)`
 apps/worker/src/sleep/   consolidação (sono)
@@ -42,10 +61,19 @@ Quem importa quem: `capabilities` → `contract`, `channels`, `ports`. `kernel` 
   3. `runtime` volátil no fim.
   - Capacidade carregada entra no fim e não sai.
   - Tools nunca são removidas no meio do run; o que não pode ser usado é negado pela política com mensagem.
-- **Compactação:**
-  1. poda sem LLM;
-  2. *flush* para memória e caderno;
-  3. resumo que guarda caminhos, URLs, ids e o último erro de cada tool.
+- **Compactação só quando a janela do modelo está para encher**, nunca para economizar:
+  - O gatilho é a janela de contexto do modelo do papel (~85%), não um orçamento de custo.
+  - Ordem:
+    1. *flush*: o que está em uso vai inteiro para o caderno de trabalho ou para um arquivo, e fica restaurável;
+    2. só então resume, guardando caminhos, URLs, ids, o último erro de cada tool e a referência ao que foi para o caderno.
+  - Nada some sem ficar recuperável: o modelo relê do caderno ou do arquivo quando precisar.
+- **Sem corte por economia (decisão do dono, 05/11).** Os motores v1, v2 e v3 cortavam contexto e pesquisa para gastar menos, e o bot não terminava o trabalho. No v4:
+  - **não existe** teto padrão de chamadas de pesquisa;
+  - nenhuma saída de tool é cortada para caber num orçamento, nem o modelo ou a pesquisa param por custo;
+  - não existem estes módulos do legado: `research-budget.ts`, `tool-budget.ts`, `generation-budget.ts`, `subagent-budget.ts` e o corte de saída por tamanho de `tools-json-size.ts`.
+  - Fica só o limite **técnico**: página ou arquivo grande demais para a janela é lido **em partes** (paginação com "ler o resto"), nunca truncado em silêncio.
+  - Economia de verdade vem de não **carregar** o que não vai ser usado (módulos sob demanda, cache estável), nunca de **cortar** o que está sendo usado.
+  - O único teto de gasto é o que o dono configurar.
 - **Limites:** só os que protegem o dono (teto que ele configurou, US$, passos sem humano) e o laço infinito (ADR 0003).
   - Bater no limite nunca aborta calado: vira passo final com o motivo real e o gasto.
 - **A resposta do modelo nunca é reescrita, descartada nem substituída.** Texto vazio depois do retry vira evento de status com o motivo.

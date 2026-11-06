@@ -1,0 +1,178 @@
+{
+  "version": 1,
+  "id": "generic-entregavel-planilha-horas-faturaveis-pt-pt",
+  "title": "'Folha de cálculo com as horas faturáveis por cliente' (advogada, Lisboa) → .xlsx com FÓRMULAS (soma de horas e total em euros), não valores digitados",
+  "description": "Mesma capacidade do ouro 09 (planilha com fórmulas, não valores digitados), outra pessoa: advogada em Lisboa, valor/hora de 120 €, português de Portugal ('folha de cálculo'). O esquema do bot não tem pt-PT (não se alarga o enum), então o bot é `pt-BR`. Conta honorários por cliente e o total geral. LACUNA REAL ENCONTRADA: com 'planilha' no pedido o grupo de arquivos já vem carregado no 1º passo (como no ouro 09), mas com 'folha de cálculo' não: o roteador de intenção só reconhece o vocabulário do brasileiro, e o `create_file` responde 'não carregado' na 1ª chamada. O roteiro mock carrega o grupo por `mcp_tool_search` (o caminho de recuperação do modelo); o v4 deve rotear por intenção em qualquer língua.",
+  "tags": [
+    "generic",
+    "entregaveis"
+  ],
+  "source": {
+    "kind": "seed",
+    "note": "Conjunto genérico F0.7 (PLANO-AGENTE-V4/04-avaliacao.md §1.1): cenário sintético com pessoa, loja e contexto fictícios (domínios .test), para o motor não viciar no uso do dono."
+  },
+  "bot": {
+    "name": "Sol",
+    "about": "Assistente pessoal: email, compras, estudos e agenda.",
+    "language": "pt-BR"
+  },
+  "locale": {
+    "country": "PT",
+    "currency": "EUR",
+    "timezone": "Europe/Lisbon"
+  },
+  "user": "faz-me uma folha de cálculo com as horas faturáveis deste mês por cliente, o total em euros por cliente e o total geral. O meu valor por hora é 120 €. Com fórmulas.",
+  "run": {
+    "engine": "v2"
+  },
+  "expect": [
+    {
+      "type": "completed"
+    },
+    {
+      "id": "created-the-xlsx",
+      "type": "file_created",
+      "extension": "xlsx"
+    },
+    {
+      "id": "uses-a-sum-formula",
+      "type": "tool_called",
+      "tool": "create_file",
+      "args": {
+        "sheets": {
+          "matches": "\"=(SUM|SOMA)"
+        }
+      }
+    },
+    {
+      "id": "uses-the-hourly-rate",
+      "type": "tool_called",
+      "tool": "create_file",
+      "args": {
+        "sheets": {
+          "matches": "120"
+        }
+      }
+    },
+    {
+      "id": "has-a-grand-total",
+      "type": "tool_called",
+      "tool": "create_file",
+      "args": {
+        "sheets": {
+          "matches": "total geral"
+        }
+      }
+    },
+    {
+      "type": "no_unfulfilled_promise"
+    },
+    {
+      "type": "no_internals"
+    }
+  ],
+  "mock": {
+    "turns": [
+      {
+        "calls": [
+          {
+            "name": "mcp_tool_search",
+            "args": {
+              "query": "create_file"
+            }
+          }
+        ]
+      },
+      {
+        "calls": [
+          {
+            "name": "create_file",
+            "args": {
+              "filename": "horas-faturaveis-novembro.xlsx",
+              "sheets": [
+                {
+                  "name": "Horas",
+                  "columns": [
+                    "Cliente",
+                    "Processo",
+                    "Horas"
+                  ],
+                  "rows": [
+                    [
+                      "Construções Alves",
+                      "Despejo 112/26",
+                      6.5
+                    ],
+                    [
+                      "Construções Alves",
+                      "Contrato de empreitada",
+                      3
+                    ],
+                    [
+                      "Clínica Rocha",
+                      "Parecer RGPD",
+                      4.5
+                    ],
+                    [
+                      "Clínica Rocha",
+                      "Reunião de acompanhamento",
+                      1.5
+                    ],
+                    [
+                      "Padaria Moura",
+                      "Registo de marca",
+                      2.5
+                    ],
+                    [
+                      "Padaria Moura",
+                      "Contrato de arrendamento",
+                      5
+                    ]
+                  ]
+                },
+                {
+                  "name": "Resumo",
+                  "columns": [
+                    "Cliente",
+                    "Horas",
+                    "Valor/hora (€)",
+                    "Total (€)"
+                  ],
+                  "rows": [
+                    [
+                      "Construções Alves",
+                      "=SUMIF(Horas!A2:A7,\"Construções Alves\",Horas!C2:C7)",
+                      120,
+                      "=B2*C2"
+                    ],
+                    [
+                      "Clínica Rocha",
+                      "=SUMIF(Horas!A2:A7,\"Clínica Rocha\",Horas!C2:C7)",
+                      120,
+                      "=B3*C3"
+                    ],
+                    [
+                      "Padaria Moura",
+                      "=SUMIF(Horas!A2:A7,\"Padaria Moura\",Horas!C2:C7)",
+                      120,
+                      "=B4*C4"
+                    ],
+                    [
+                      "Total geral",
+                      "=SUM(B2:B4)",
+                      120,
+                      "=SUM(D2:D4)"
+                    ]
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "say": "Pronto: a folha de cálculo tem as horas por processo e um resumo por cliente com as horas somadas, o valor de 120 € por hora e o total em euros, mais o total geral, tudo com fórmulas."
+      }
+    ]
+  }
+}

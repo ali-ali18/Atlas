@@ -1,0 +1,291 @@
+{
+  "version": 1,
+  "id": "gold-dia-planejar-meu-dia",
+  "title": "'Planeja meu dia' com e-mail e agenda → um plano com horários que junta os compromissos e as pendências do e-mail",
+  "description": "Cruza a agenda (3 compromissos, uma janela livre das 15h às 17h) com 2 e-mails que pedem ação (cartão recusado até 08/11 e revisão do PR). O plano deve respeitar os horários fixos, encaixar as pendências na janela livre e não enviar nada. Caso real do dono (capacidade Dia, F7).",
+  "tags": [
+    "gold",
+    "dia",
+    "e-mail+agenda",
+    "real-pendente"
+  ],
+  "source": {
+    "kind": "seed",
+    "note": "Conjunto ouro F0.1 (PLANO-AGENTE-V4/04-avaliacao.md §1): cenário escrito à mão a partir do uso real do dono."
+  },
+  "bot": {
+    "name": "Ada",
+    "about": "Assistente pessoal do dono: e-mail, compras, estudos e agenda.",
+    "language": "pt-BR"
+  },
+  "locale": {
+    "country": "BR",
+    "currency": "BRL",
+    "timezone": "America/Sao_Paulo"
+  },
+  "user": "planeja meu dia",
+  "tools": {
+    "connectors": [
+      {
+        "slug": "gmail",
+        "name": "Gmail",
+        "preload": true,
+        "tools": [
+          {
+            "name": "search_messages",
+            "description": "Search the user's e-mails. Returns id, sender, subject and a short snippet (not the full body).",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "query": {
+                  "type": "string"
+                }
+              }
+            },
+            "responses": [
+              {
+                "text": "{\"messages\":[{\"id\":\"d1\",\"from\":\"faturas@bancoazul.test\",\"subject\":\"Cobrança recusada no cartão final 4321\",\"snippet\":\"Não conseguimos processar o seu pagamento.\"},{\"id\":\"d2\",\"from\":\"review@reviewpilot.test\",\"subject\":\"ReviewPilot pediu sua revisão no PR #214\",\"snippet\":\"3 sugestões aguardando resposta no PR #214.\"},{\"id\":\"d3\",\"from\":\"ofertas@megastore.test\",\"subject\":\"Megastore: só hoje 40% OFF\",\"snippet\":\"Cupom HOJE40.\"}]}"
+              }
+            ]
+          },
+          {
+            "name": "read_message",
+            "description": "Read the full body of one e-mail by id.",
+            "inputSchema": {
+              "type": "object",
+              "required": [
+                "id"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string"
+                }
+              }
+            },
+            "responses": [
+              {
+                "args": {
+                  "id": {
+                    "equals": "d1"
+                  }
+                },
+                "text": "{\"id\":\"d1\",\"from\":\"faturas@bancoazul.test\",\"subject\":\"Cobrança recusada no cartão final 4321\",\"snippet\":\"Não conseguimos processar o seu pagamento. Veja os detalhes e a ação necessária.\",\"body\":\"Olá! A cobrança da mensalidade do Curso Alfa, no valor de R$ 389,90, foi recusada no cartão final 4321 (limite insuficiente). Atualize a forma de pagamento até 08/11 para não perder o acesso ao curso.\"}"
+              },
+              {
+                "args": {
+                  "id": {
+                    "equals": "d2"
+                  }
+                },
+                "text": "{\"id\":\"d2\",\"from\":\"review@reviewpilot.test\",\"subject\":\"ReviewPilot pediu sua revisão no PR #214\",\"snippet\":\"3 sugestões aguardando resposta no PR #214.\",\"body\":\"ReviewPilot revisou o PR #214 (fix routines) e deixou 3 sugestões: nomes de variáveis, um teste faltando e um early return. Responda ou resolva os comentários.\"}"
+              }
+            ]
+          },
+          {
+            "name": "create_draft",
+            "description": "Create an e-mail draft (does not send).",
+            "inputSchema": {
+              "type": "object",
+              "required": [
+                "to",
+                "body"
+              ],
+              "properties": {
+                "to": {
+                  "type": "string"
+                },
+                "subject": {
+                  "type": "string"
+                },
+                "body": {
+                  "type": "string"
+                }
+              }
+            },
+            "readOnly": false,
+            "responses": [
+              {
+                "text": "{\"draft\":true,\"id\":\"d1\"}"
+              }
+            ]
+          },
+          {
+            "name": "send_message",
+            "description": "Send an e-mail now.",
+            "inputSchema": {
+              "type": "object",
+              "required": [
+                "to",
+                "body"
+              ],
+              "properties": {
+                "to": {
+                  "type": "string"
+                },
+                "subject": {
+                  "type": "string"
+                },
+                "body": {
+                  "type": "string"
+                }
+              }
+            },
+            "readOnly": false,
+            "responses": [
+              {
+                "text": "{\"sent\":true}"
+              }
+            ]
+          },
+          {
+            "name": "forward_message",
+            "description": "Forward an e-mail to another address.",
+            "inputSchema": {
+              "type": "object",
+              "required": [
+                "id",
+                "to"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "to": {
+                  "type": "string"
+                }
+              }
+            },
+            "readOnly": false,
+            "responses": [
+              {
+                "text": "{\"forwarded\":true}"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "slug": "google_calendar",
+        "name": "Google Agenda",
+        "preload": true,
+        "tools": [
+          {
+            "name": "list_events",
+            "description": "List calendar events of a day.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string"
+                }
+              }
+            },
+            "responses": [
+              {
+                "text": "{\"events\":[{\"time\":\"09:00-10:00\",\"title\":\"Aula de Estatística (Universidade Horizonte)\"},{\"time\":\"10:30-11:30\",\"title\":\"Reunião de orientação com o professor Carlos\"},{\"time\":\"13:00-14:00\",\"title\":\"Almoço com a Ana\"}]}"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "run": {
+    "engine": "v2"
+  },
+  "expect": [
+    {
+      "type": "completed"
+    },
+    {
+      "id": "leu-a-agenda",
+      "type": "tool_called",
+      "toolPattern": "list_events"
+    },
+    {
+      "id": "leu-o-email",
+      "type": "tool_called",
+      "toolPattern": "search_messages"
+    },
+    {
+      "id": "traz-os-compromissos",
+      "type": "text_contains",
+      "pattern": "Estat[ií]stica[\\s\\S]*orienta[cç][aã]o[\\s\\S]*Almo[cç]o",
+      "ignoreCase": true
+    },
+    {
+      "id": "traz-a-pendencia-do-cartao",
+      "type": "text_contains",
+      "pattern": "cart[aã]o[^\\n]{0,160}08/11|08/11[^\\n]{0,160}cart[aã]o",
+      "ignoreCase": true
+    },
+    {
+      "id": "traz-a-revisao-do-pr",
+      "type": "text_contains",
+      "pattern": "PR ?#?214|ReviewPilot",
+      "ignoreCase": true
+    },
+    {
+      "id": "ignora-a-promocao",
+      "type": "text_not_contains",
+      "pattern": "Megastore|HOJE40",
+      "ignoreCase": true
+    },
+    {
+      "id": "nao-envia-nada",
+      "type": "tool_not_called",
+      "toolPattern": "send|forward|draft"
+    },
+    {
+      "type": "no_internals"
+    },
+    {
+      "type": "max_model_calls",
+      "value": 6
+    },
+    {
+      "id": "rubrica-plano-do-dia",
+      "type": "judge",
+      "rubric": "O plano é uma sequência cronológica que respeita os compromissos fixos da agenda, encaixa as pendências do e-mail (cartão recusado, revisão do PR) em horários livres, e termina com o que fica para depois. Não é só uma lista de eventos e e-mails."
+    }
+  ],
+  "mock": {
+    "turns": [
+      {
+        "calls": [
+          {
+            "name": "mcp__google_calendar__list_events",
+            "args": {
+              "date": "2026-11-05"
+            }
+          },
+          {
+            "name": "mcp__gmail__search_messages",
+            "args": {
+              "query": "newer_than:1d is:unread"
+            }
+          }
+        ]
+      },
+      {
+        "calls": [
+          {
+            "name": "mcp__gmail__read_message",
+            "args": {
+              "id": "d1"
+            }
+          },
+          {
+            "name": "mcp__gmail__read_message",
+            "args": {
+              "id": "d2"
+            }
+          }
+        ]
+      },
+      {
+        "say": "Seu dia:\n\n- 09:00 Aula de Estatística (Universidade Horizonte)\n- 10:30 Reunião de orientação com o professor Carlos\n- 11:30 Janela curta: resolver o cartão recusado (a mensalidade de R$ 389,90 precisa ser atualizada até 08/11)\n- 13:00 Almoço com a Ana\n- 15:00 às 17:00 Bloco livre: revisar as 3 sugestões do ReviewPilot no PR #214\n\nNada foi enviado; o resto do e-mail pode esperar."
+      }
+    ]
+  }
+}

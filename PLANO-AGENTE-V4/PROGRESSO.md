@@ -45,23 +45,31 @@
 - Modelos por papel: Sonnet (conversa), Haiku (rápido, ajudantes, sono), Opus (código) (05/11).
 - Compras: cartão salvo **sem CVV**. O CVV é digitado pelo dono no cartão de aprovação e vai direto para a loja (05/11).
 - Não insistir em tarefa largada: cláusula 17 (05/11).
+- **Genérico no comportamento:** o motor é dedicado ao Atlas, mas não viciado no uso do dono (o v1 tem 13 casos do Bling no runtime). Correção por padrão, nunca por caso; conjunto genérico junto do conjunto do dono (05/11).
+- **Open-source como o Atlas:** o motor é dedicado ao Atlas, não é biblioteca genérica. Nada do dono no código; provedores, modelos e tetos configuráveis por quem hospeda (05/11).
+- **Navegador sem enxugar:** o bot vê a página inteira (em partes), pela árvore de acessibilidade, sem depender de print; o v3 enxugou e não funcionou (05/11).
+- **Sem corte por economia:** nada de cortar contexto, pesquisa ou saída de tool para gastar menos. Só o teto que o dono configurar (05/11).
 - O branch `harness/v3` fica **congelado**, só como referência (05/11).
 - "EVA" = **Vercel Eve** (05/11).
 - Base: `harness/v4` criado a partir da `main` (0.4.1-beta) (05/11).
-- Provedor das rodadas reais da F0 por enquanto: **OpenCode Go**, porque os créditos do OpenRouter estão acabando. Modelos: `deepseek-v4.1-flash` (maior franquia; ligar *Global* em Settings › Privacy) e `qwen3.8-flash`, mais `claude-haiku-5-5`, que também está no Go. O Sonnet entra pela chave da Anthropic quando houver (05/11). As ideias aproveitadas estão em `02-referencias.md`.
+- Provedor das rodadas reais da F0 por enquanto: **OpenCode Go**, porque os créditos do OpenRouter estão acabando. Modelos: `deepseek-v4.1-flash` (maior franquia; ligar *Global* em Settings › Privacy) e `qwen3.8-flash`, mais `claude-haiku-5-5`, que também está no Go. Anthropic direto: a chave está no ambiente como `CLAUDE_KEY` (verificada, responde 200) e dá Sonnet, Haiku e Opus, com **teto de US$ 10 no total das rodadas reais pela Anthropic**. O comando `matrix` (F0.2) precisa de um teto rígido que aborta antes de passar e de um `--estimate` antes de rodar (05/11). As ideias aproveitadas estão em `02-referencias.md`.
 
 ## Checklist
 
 ### F0: Baseline medido
-- [ ] F0.1 Conjunto ouro: 24 tarefas em `packages/evals/tasks/**`, sendo pelo menos 12 de runs reais (`from-run.ts`), incluindo as de insistência.
-- [ ] F0.2 Comando `matrix` no CLI de evals (presets × modelos × repetições, relatório em Markdown e JSON).
-- [ ] F0.3 Rubrica de qualidade com juiz offline (2 juízes e teto de discordância).
-- [ ] F0.4 `classifyRunFailure` em shared, com testes por classe (incluindo `harness.stale_task_injection` e `model.nagging`).
-- [ ] F0.5 Rodada do baseline com v2 e v3 em Sonnet, Haiku e 2 baratos de outros provedores, com o relatório em `docs/ops/v4-baseline.md`.
-- [ ] F0.A Auditoria: 5 lentes, verificação, correções com teste, reauditoria e `auditorias/F0.md` fechado.
+- [x] F0.1 (05/11, Sonnet escreveu, Opus revisou; `feat(evals): cenários em subpastas…` + `test(evals): conjunto ouro…`) Conjunto ouro: 24 tarefas em `packages/evals/tasks/**`, sendo pelo menos 12 de runs reais (`from-run.ts`), incluindo as de insistência.
+- [ ] F0.1b Trocar os 17 cenários `real-pendente` por runs reais redigidos (`from-run.ts`), quando houver acesso ao banco de produção.
+- [x] F0.2 (05/11, Sonnet escreveu, Opus revisou e confirmou os preços da Anthropic) Comando `matrix` no CLI de evals (presets × modelos × repetições, relatório em Markdown e JSON).
+- [x] F0.3 (05/11, Sonnet escreveu, Opus revisou; disputada ou inválida fica "pulada" e é contada à parte) Rubrica de qualidade com juiz offline (2 juízes e teto de discordância).
+- [x] F0.4 (05/11, Sonnet escreveu, Opus revisou e ajustou: tarefa velha injetada conta sozinha como harness) `classifyRunFailure` em shared, com testes por classe (incluindo `harness.stale_task_injection` e `model.nagging`).
+- [x] F0.5 (05/11; relatório em `docs/ops/v4-baseline.md`) Rodada do baseline com v2 e v3 em Sonnet, Haiku e 2 baratos de outros provedores, com o relatório em `docs/ops/v4-baseline.md`.
+- [x] F0.A (05/11, 5 lentes, 24 corrigidos, reauditoria com 2 corrigidos e 4 aceitos; ver `auditorias/F0.md`) Auditoria: 5 lentes, verificação, correções com teste, reauditoria e `auditorias/F0.md` fechado.
+
+- [x] F0.7 (05/11, Sonnet escreveu, Opus revisou; achado: o roteador de intenção do v2 só entende o vocabulário do dono, "folha de cálculo" não carrega arquivos) Conjunto `generico`: ~16 cenários com outras pessoas, idiomas, países e lojas, e o juiz recebendo o local do cenário (`04` §1.1).
+- [x] F0.6 (05/11; placar corrigido em `docs/ops/v4-baseline.md`) Corrigir os 4 defeitos do eval listados em `docs/ops/v4-baseline.md` (cenários 11, 22 e 23, `skill_read` no ambiente) e rodar de novo só os afetados.
 
 ### F1: Fundação
-- [ ] F1.1 Pacote `packages/agent` com `ports/` e guarda de fronteira (sem `@workspace/agent-runtime`).
+- [ ] F1.1 Pacote `packages/agent` com `ports/`, `adapters/` e guarda de fronteira (sem `@workspace/agent-runtime`), README do motor e varredura que falha com segredo ou dado pessoal no código.
 - [ ] F1.2 `defineTool` (efeito obrigatório) e `defineCapability` (registro, índice, `use_capability`).
 - [ ] F1.3 `decide()` puro em shared: 3 estados, `HANDOFF_ACTIONS`, mandatos, matriz superfície × efeito.
 - [ ] F1.4 Token de aprovação por hash dos argumentos e `riskFacts`.
@@ -69,6 +77,7 @@
 - [ ] F1.6 `Receipt` tipado e journal de efeitos.
 - [ ] F1.7 Canais: nonce, `<data trust>` e escape.
 - [ ] F1.8 Kernel: estados, checkpoint, compactação em 3 passos, limites do dono, passo final honesto.
+- [ ] F1.8b Sem corte por economia: compactação só por janela cheia e restaurável, leitura em partes, nenhum teto padrão de pesquisa (decisão do dono, 05/11).
 - [ ] F1.9 Ciclo de vida da tarefa: sem herança entre runs, oferta por cartão com estado, `declinedOffers`, replays de insistência.
 - [ ] F1.10 Porta `Llm`: papéis, cadeia de reserva (`pickModelFor`), troca no meio do run, tetos opcionais, aviso ao dono.
 - [ ] F1.11 Contrato de trabalho (prompt), com teste de string por seção.
@@ -117,7 +126,9 @@
 - [ ] F7.A Auditoria: 5 lentes, verificação, correções com teste, reauditoria e `auditorias/F7.md` fechado.
 
 ### F8: Navegador e código
-- [ ] F8.1 `browser` sobre a porta `Sandbox` e `browser-bench` real.
+- [ ] F8.1 `browser` sobre a porta `Sandbox`: árvore de acessibilidade com refs, página inteira em partes (nunca poda escondida) e visão só quando a árvore for pobre.
+- [ ] F8.1a Página enorme e feed infinito: mapa primeiro, partes sob demanda, busca na página, "carregar mais" explícito e volume grande em arquivo lido por ajudante. Cenário: resposta no comentário nº 870 de 1.000.
+- [ ] F8.1b `browser-bench` real comparando o navegador atual (ADR 0005) com o `agent-browser` da Vercel Labs na VM; fica o que acertar mais.
 - [ ] F8.2 `code` (plan/build, edição precisa, verificação).
 - [ ] F8.3 Experimento Code Mode.
 - [ ] F8.A Auditoria: 5 lentes, verificação, correções com teste, reauditoria e `auditorias/F8.md` fechado.
@@ -137,6 +148,41 @@
 
 ## Diário de passagem
 > A entrada mais nova fica no topo. Formato: data · conta ou sessão · fase · feito · pela metade · próximo passo · como verificar · dúvidas.
+
+- **05/11/2026 · sessão principal · F0 (5)**
+  - **Feito:** linha de base do conjunto genérico. O Haiku cai de 75% no ouro para 56% no genérico, o que confirma o vício do v2 no uso do dono. Resumo de e-mail e plano do dia falham em todos os modelos.
+  - **Gasto acumulado:** ~US$ 5,53, sendo ~US$ 3,26 pela Anthropic.
+  - **Próximo passo:** auditoria F0.A (5 lentes) e depois o PR da F0 para `harness/v4`.
+
+- **05/11/2026 · sessão principal · F0 (4)**
+  - **Feito:** F0.6.
+    - Placar corrigido, sem a tarefa de código: Haiku 75%, Sonnet 65% (1 rep.), Qwen 61%, DeepSeek 58%.
+    - O ABNT só funciona com as skills de fábrica carregadas.
+  - **Gasto acumulado:** ~US$ 3,91, sendo ~US$ 2,12 pela Anthropic.
+  - **Próximo passo:** F0.7 (conjunto genérico) e a auditoria F0.A.
+
+- **05/11/2026 · sessão principal · F0 (3)**
+  - **Feito:** F0.5, linha de base em `docs/ops/v4-baseline.md`.
+    - Sonnet 58%, Haiku 58%, Qwen 51%, DeepSeek 47%: o teto é do motor, não do modelo.
+    - Achado grave de motor: `decision-budget.ts` corta o passo com 20 s parado ou 90 s no total e mata documento longo.
+  - **Gasto acumulado:** ~US$ 3,50, sendo ~US$ 1,87 pela Anthropic, de um teto de US$ 10.
+  - **Próximo passo:** F0.6 (4 defeitos do eval) e depois a auditoria F0.A.
+
+- **05/11/2026 · sessão principal · F0 (2)**
+  - **Feito:** F0.2 (`matrix`, com `--estimate`, `--simulate`, `--max-usd` rígido e provedores `anthropic/`, `opencode-go/` e `openrouter/`) e F0.4.
+  - **Gasto real até agora: ~US$ 0,06.** Num teste do F0.2, o Sonnet rodou sem querer 20 execuções reais (haiku pela Anthropic e qwen pelo Go, 10 cenários, 1 repetição) e o processo foi interrompido. Isso confirmou que as chaves e o roteamento funcionam. **Saldo do teto da Anthropic: ~US$ 9,95.**
+  - **Estimativa da F0.5** (gold × v2 × haiku, sonnet, deepseek e qwen × 3 repetições): **US$ 8,47**, dos quais US$ 6,66 são do Sonnet. Rodar o Sonnet com 1 repetição, ou só nas capacidades-chave, para caber no teto.
+  - **Próximo passo:** F0.3 concluído depois desta entrada. Falta a F0.5 (rodada real) e a auditoria F0.A.
+
+- **05/11/2026 · sessão principal · F0**
+  - **Feito:** F0.1. Os 24 cenários ficam em `packages/evals/scenarios/gold/<capacidade>/`. O roteiro mock de todos passa, e `gold.test.ts` exige que uma trajetória ruim por verificação-chave reprove.
+  - **Limitações** (estão nas `description`):
+    - o 17 (código) é representado pela shell da VM;
+    - no 13 não dá para injetar `now` no runtime;
+    - o 21 mede só a parte do modelo, porque a nota `continuedWorkNote` do worker vem do banco e o eval não a reproduz.
+  - **Medida:** "Bom dia" com ~5.729 tokens no 1º passo; o teto do cenário é 6.600.
+  - **Próximo passo:** F0.2, o comando `matrix` com provedores OpenCode Go (`OPENCODE_GO_API_KEY`) e Anthropic (`CLAUDE_KEY`), teto rígido de US$ 10 e `--estimate`.
+  - **Como verificar:** `cd packages/evals && pnpm exec tsc --noEmit && pnpm test` (99 verdes) e `pnpm eval list --scenarios gold`.
 
 - **05/11/2026 · sessão de planejamento**
   - **Feito:** plano completo em `PLANO-AGENTE-V4/` e pesquisa em `pesquisa/`.

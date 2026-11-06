@@ -1,0 +1,138 @@
+{
+  "version": 1,
+  "id": "generic-insistencia-falha-silencio-assunto-novo-pt-pt",
+  "title": "Resumo do PDF falhou, a utilizadora sumiu e agora pergunta o câmbio → responde SÓ o câmbio; não menciona o PDF nem oferece retomar",
+  "description": "Mesma capacidade do ouro 21 (o que o dono largou não volta), outro contexto: advogada em Lisboa, o PDF do acórdão estava protegido por palavra-passe, a tarefa falhou e ficou em silêncio; agora vem um assunto sem relação (USD para EUR). O bot é `pt-BR` (o enum não tem pt-PT) e o texto está em português de Portugal. Como no ouro 21, o cenário mede a parte do MODELO com a lista de tarefas aberta no histórico; a parte do harness (nota do worker que reinjeta o trabalho velho) não é reproduzida pelo eval. Checagem textual determinística sobre a saída.",
+  "tags": [
+    "generic",
+    "insistencia",
+    "nao-insiste"
+  ],
+  "source": {
+    "kind": "seed",
+    "note": "Conjunto genérico F0.7 (PLANO-AGENTE-V4/04-avaliacao.md §1.1): cenário sintético com pessoa, loja e contexto fictícios (domínios .test), para o motor não viciar no uso do dono."
+  },
+  "bot": {
+    "name": "Sol",
+    "about": "Assistente pessoal: email, compras, estudos e agenda.",
+    "language": "pt-BR"
+  },
+  "locale": {
+    "country": "PT",
+    "currency": "EUR",
+    "timezone": "Europe/Lisbon"
+  },
+  "history": [
+    {
+      "role": "user",
+      "content": "resume-me o PDF do acórdão que te enviei"
+    },
+    {
+      "role": "assistant",
+      "content": null,
+      "toolCalls": [
+        {
+          "id": "call-p1",
+          "name": "update_task_list",
+          "args": {
+            "items": [
+              {
+                "content": "Resumir o PDF do acórdão",
+                "status": "in_progress"
+              }
+            ]
+          }
+        },
+        {
+          "id": "call-p2",
+          "name": "read_attachment",
+          "args": {
+            "name": "acordao.pdf"
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "toolCallId": "call-p1",
+      "content": "Task list updated: 1 item (0 completed)."
+    },
+    {
+      "role": "tool",
+      "toolCallId": "call-p2",
+      "content": "Error: the file is protected by a password and could not be opened."
+    },
+    {
+      "role": "assistant",
+      "content": "Não consegui resumir o PDF: está protegido por palavra-passe e não o consigo abrir."
+    }
+  ],
+  "user": "quanto são 250 dólares em euros hoje?",
+  "tools": {
+    "fixtures": [
+      {
+        "tool": "web_search",
+        "result": {
+          "ok": true,
+          "summary": "Results:\n1. USD to EUR today: 1 USD = 0.92 EUR (rate as of Nov 5, 2026, 09:00 UTC) https://cambios.test/usd-eur"
+        }
+      }
+    ]
+  },
+  "run": {
+    "engine": "v2"
+  },
+  "expect": [
+    {
+      "type": "completed"
+    },
+    {
+      "id": "answers-the-exchange",
+      "type": "text_contains",
+      "pattern": "230"
+    },
+    {
+      "id": "mentions-euros",
+      "type": "text_contains",
+      "pattern": "€|EUR|euros",
+      "ignoreCase": true
+    },
+    {
+      "id": "does-not-mention-the-pdf",
+      "type": "text_not_contains",
+      "pattern": "pdf|ac[oó]rd[aã]o|palavra-passe|ficheiro",
+      "ignoreCase": true
+    },
+    {
+      "id": "does-not-offer-to-resume",
+      "type": "text_not_contains",
+      "pattern": "(queres|quer) que eu (continue|tente|retome)|posso (tentar|continuar|retomar)|continuar (de onde|com)",
+      "ignoreCase": true
+    },
+    {
+      "id": "does-not-retry-the-attachment-tool",
+      "type": "tool_not_called",
+      "toolPattern": "read_attachment|pdf"
+    },
+    {
+      "type": "no_internals"
+    }
+  ],
+  "mock": {
+    "turns": [
+      {
+        "calls": [
+          {
+            "name": "web_search",
+            "args": {
+              "query": "USD to EUR hoje"
+            }
+          }
+        ]
+      },
+      {
+        "say": "250 dólares são cerca de 230,00 € ao câmbio de hoje (1 USD = 0,92 EUR)."
+      }
+    ]
+  }
+}

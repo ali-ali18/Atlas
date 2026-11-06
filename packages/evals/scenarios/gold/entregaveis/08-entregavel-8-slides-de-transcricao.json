@@ -1,0 +1,153 @@
+{
+  "version": 1,
+  "id": "gold-entregavel-8-slides-de-transcricao",
+  "title": "Transcrição de vídeo colada + 'faz 8 slides' → arquivo .pptx com EXATAMENTE 8 slides, sem buscar na web",
+  "description": "O conteúdo vem do texto colado (a transcrição está na mensagem): não deve chamar video_transcript nem pesquisar. Verifica create_file .pptx, 8 slides (o índice 7 existe e o 8 não) e que a resposta entrega o arquivo.",
+  "tags": [
+    "gold",
+    "entregaveis",
+    "pptx",
+    "slides",
+    "real-pendente"
+  ],
+  "source": {
+    "kind": "seed",
+    "note": "Conjunto ouro F0.1 (PLANO-AGENTE-V4/04-avaliacao.md §1): cenário escrito à mão a partir do uso real do dono."
+  },
+  "bot": {
+    "name": "Ada",
+    "about": "Assistente pessoal do dono: e-mail, compras, estudos e agenda.",
+    "language": "pt-BR"
+  },
+  "locale": {
+    "country": "BR",
+    "currency": "BRL",
+    "timezone": "America/Sao_Paulo"
+  },
+  "user": "faz 8 slides em powerpoint a partir dessa transcrição de vídeo:\n\n\"Hoje vamos falar sobre como o Pix funciona por baixo dos panos. Primeiro: o Pix é um sistema de pagamentos instantâneos criado pelo Banco Central em 2020. Segundo: tudo gira em torno da chave, que pode ser CPF, telefone, e-mail ou uma chave aleatória; a chave aponta para a conta do recebedor. Terceiro: quando você paga, o seu banco consulta o diretório de chaves, monta a ordem de pagamento e envia ao Sistema de Pagamentos Instantâneos, o SPI, que liquida a transação em segundos, a qualquer hora do dia. Quarto: a segurança. Existem limites noturnos, o Mecanismo Especial de Devolução para fraudes e a possibilidade de cadastrar contas de confiança. Quinto: o custo. Para pessoas físicas o Pix é gratuito, e as empresas pagam uma tarifa pequena por transação recebida. Sexto: o Pix por aproximação e o Pix parcelado ampliam os usos. Sétimo: o que vem pela frente, como o Pix automático para cobranças recorrentes. Para fechar: o Pix mudou a relação dos brasileiros com o dinheiro e já responde por mais da metade das transações digitais do país.\"",
+  "run": {
+    "engine": "v2"
+  },
+  "expect": [
+    {
+      "type": "completed"
+    },
+    {
+      "id": "criou-o-pptx",
+      "type": "file_created",
+      "extension": "pptx"
+    },
+    {
+      "id": "oito-slides",
+      "type": "tool_called",
+      "tool": "create_file",
+      "args": {
+        "filename": {
+          "matches": "\\.pptx$"
+        },
+        "slides.7": {
+          "exists": true
+        },
+        "slides.8": {
+          "exists": false
+        }
+      }
+    },
+    {
+      "id": "nao-foi-buscar-o-video",
+      "type": "tool_not_called",
+      "toolPattern": "video_transcript|web_search|web_extract"
+    },
+    {
+      "type": "no_unfulfilled_promise"
+    },
+    {
+      "type": "no_internals"
+    }
+  ],
+  "mock": {
+    "turns": [
+      {
+        "calls": [
+          {
+            "name": "create_file",
+            "args": {
+              "filename": "como-o-pix-funciona.pptx",
+              "title": "Como o Pix funciona",
+              "theme": "clean",
+              "slides": [
+                {
+                  "layout": "title",
+                  "title": "Como o Pix funciona",
+                  "subtitle": "Por baixo dos panos"
+                },
+                {
+                  "layout": "bullets",
+                  "title": "O que é o Pix",
+                  "bullets": [
+                    "Pagamento instantâneo criado pelo Banco Central em 2020",
+                    "Funciona 24 horas por dia, todos os dias"
+                  ]
+                },
+                {
+                  "layout": "bullets",
+                  "title": "A chave",
+                  "bullets": [
+                    "CPF, telefone, e-mail ou chave aleatória",
+                    "A chave aponta para a conta do recebedor"
+                  ]
+                },
+                {
+                  "layout": "bullets",
+                  "title": "O caminho do pagamento",
+                  "bullets": [
+                    "O banco consulta o diretório de chaves",
+                    "A ordem segue para o SPI",
+                    "Liquidação em segundos"
+                  ]
+                },
+                {
+                  "layout": "bullets",
+                  "title": "Segurança",
+                  "bullets": [
+                    "Limites noturnos",
+                    "Mecanismo Especial de Devolução",
+                    "Contas de confiança"
+                  ]
+                },
+                {
+                  "layout": "bullets",
+                  "title": "Custo",
+                  "bullets": [
+                    "Gratuito para pessoas físicas",
+                    "Empresas pagam tarifa pequena por transação recebida"
+                  ]
+                },
+                {
+                  "layout": "bullets",
+                  "title": "O que vem pela frente",
+                  "bullets": [
+                    "Pix por aproximação",
+                    "Pix parcelado",
+                    "Pix automático para cobranças recorrentes"
+                  ]
+                },
+                {
+                  "layout": "bullets",
+                  "title": "Conclusão",
+                  "bullets": [
+                    "O Pix mudou a relação dos brasileiros com o dinheiro",
+                    "Mais da metade das transações digitais do país"
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "say": "Pronto: a apresentação com 8 slides sobre o funcionamento do Pix está no arquivo acima."
+      }
+    ]
+  }
+}

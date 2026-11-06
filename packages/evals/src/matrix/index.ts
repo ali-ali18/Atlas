@@ -1,0 +1,10 @@
+export { runMatrix, defaultMatrixDir, type MatrixOptions, type MatrixResult } from "./run.js";
+export { ENGINE_ADAPTERS, resolveEngines, type EngineAdapter } from "./engines.js";
+export { resolveModelSpec, resolveModelSpecs, assertProviderKeys, readProviderKey, providerSecrets, KEY_ENV, type ResolvedModel, type MatrixProvider } from "./models.js";
+export { PRICE_TABLE, UNKNOWN_PRICE, priceFor, costFromTokens, type PriceEntry } from "./pricing.js";
+export { BudgetGuard, BudgetLease, BudgetExhaustedError, withBudgetGate, countThatFit } from "./budget.js";
+export { profileScenarios, buildEstimate, estimatesInOrder, estimateExecutionUsd, estimateJudgeUsd, hasJudgeExpectation, formatEstimate, DEFAULT_ESTIMATE_FACTOR, FALLBACK_PROFILE } from "./estimate.js";
+export { summarizeMatrix, capabilityOf, setOf, SCENARIO_SETS, passRateOf, type MatrixRun, type MatrixSummary, type Agg } from "./aggregate.js";
+export { formatMatrixReport } from "./format.js";
+export { createMatrixRouter, createRealProviders, withCostAccounting, withSessionId, type MatrixProviders } from "./providers.js";
+export { simulatedProviders, simulatedJudgeProviders, simulatedFailRate, seededUnit } from "./simulate.js";

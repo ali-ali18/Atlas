@@ -1,0 +1,309 @@
+{
+  "version": 1,
+  "id": "gold-email-resumo-24h",
+  "title": "'Resumo do e-mail das últimas 24h' → traz o CONTEÚDO e a ação (valor, prazo, tutor), não só os assuntos, e ignora a promoção",
+  "description": "Caso real do dono: o resumo de e-mail lista remetente e assunto sem dizer o que fazer. A caixa tem 6 e-mails; só o corpo (read_message) traz o valor R$ 389,90 da cobrança recusada e o prazo 08/11, e o aviso do tutor da Universidade Horizonte. O resumo deve dizer o que cada um pede e o prazo e deixar a promoção de fora. Cláusula de antecipação do contrato (06). Esperado falhar parcialmente no v2 quando o modelo resume só pelos snippets. Trocar por um run real redigido (from-run.ts).",
+  "tags": [
+    "gold",
+    "email",
+    "conteudo-e-acao",
+    "real-pendente"
+  ],
+  "source": {
+    "kind": "seed",
+    "note": "Conjunto ouro F0.1 (PLANO-AGENTE-V4/04-avaliacao.md §1): cenário escrito à mão a partir do uso real do dono."
+  },
+  "bot": {
+    "name": "Ada",
+    "about": "Assistente pessoal do dono: e-mail, compras, estudos e agenda.",
+    "language": "pt-BR"
+  },
+  "locale": {
+    "country": "BR",
+    "currency": "BRL",
+    "timezone": "America/Sao_Paulo"
+  },
+  "user": "faz um resumo do meu e-mail das últimas 24h",
+  "tools": {
+    "connectors": [
+      {
+        "slug": "gmail",
+        "name": "Gmail",
+        "preload": true,
+        "tools": [
+          {
+            "name": "search_messages",
+            "description": "Search the user's e-mails. Returns id, sender, subject and a short snippet (not the full body).",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "query": {
+                  "type": "string"
+                }
+              }
+            },
+            "responses": [
+              {
+                "text": "{\"messages\":[{\"id\":\"m1\",\"from\":\"faturas@bancoazul.test\",\"subject\":\"Cobrança recusada no cartão final 4321\",\"snippet\":\"Não conseguimos processar o seu pagamento. Veja os detalhes e a ação necessária.\"},{\"id\":\"m2\",\"from\":\"praticas@unihorizonte.test\",\"subject\":\"Universidade Horizonte Práticas Extensionistas: antes de se inscrever\",\"snippet\":\"Atenção: confira a orientação antes de efetuar a sua inscrição.\"},{\"id\":\"m3\",\"from\":\"notifications@github.test\",\"subject\":\"[usuario-demo/Atlas] CI falhou: Run #482 (feat/harness-v4-f0-baseline)\",\"snippet\":\"O job typecheck falhou em packages/evals.\"},{\"id\":\"m4\",\"from\":\"review@reviewpilot.test\",\"subject\":\"ReviewPilot pediu sua revisão no PR #214\",\"snippet\":\"3 sugestões aguardando resposta no PR #214.\"},{\"id\":\"m5\",\"from\":\"no-reply@accounts.test\",\"subject\":\"Alerta de segurança: novo login na sua conta Google\",\"snippet\":\"Novo login em Chrome/Windows, Curitiba, 03:12. Se não foi você, proteja sua conta.\"},{\"id\":\"m6\",\"from\":\"ofertas@megastore.test\",\"subject\":\"Megastore: só hoje 40% OFF em eletrônicos\",\"snippet\":\"Aproveite descontos de até 40% em toda a loja. Cupom: HOJE40.\"}]}"
+              }
+            ]
+          },
+          {
+            "name": "read_message",
+            "description": "Read the full body of one e-mail by id.",
+            "inputSchema": {
+              "type": "object",
+              "required": [
+                "id"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string"
+                }
+              }
+            },
+            "responses": [
+              {
+                "args": {
+                  "id": {
+                    "equals": "m1"
+                  }
+                },
+                "text": "{\"id\":\"m1\",\"from\":\"faturas@bancoazul.test\",\"subject\":\"Cobrança recusada no cartão final 4321\",\"snippet\":\"Não conseguimos processar o seu pagamento. Veja os detalhes e a ação necessária.\",\"body\":\"Olá! A cobrança da mensalidade do Curso Alfa, no valor de R$ 389,90, foi recusada no cartão final 4321 (limite insuficiente). Atualize a forma de pagamento até 08/11 para não perder o acesso ao curso.\"}"
+              },
+              {
+                "args": {
+                  "id": {
+                    "equals": "m2"
+                  }
+                },
+                "text": "{\"id\":\"m2\",\"from\":\"praticas@unihorizonte.test\",\"subject\":\"Universidade Horizonte Práticas Extensionistas: antes de se inscrever\",\"snippet\":\"Atenção: confira a orientação antes de efetuar a sua inscrição.\",\"body\":\"Prezado(a) aluno(a), antes de efetuar a inscrição em Práticas Extensionistas, consulte no portal qual é o seu tutor de curso; sem essa confirmação a inscrição será indeferida. Inscrições até 12/11.\"}"
+              },
+              {
+                "args": {
+                  "id": {
+                    "equals": "m3"
+                  }
+                },
+                "text": "{\"id\":\"m3\",\"from\":\"notifications@github.test\",\"subject\":\"[usuario-demo/Atlas] CI falhou: Run #482 (feat/harness-v4-f0-baseline)\",\"snippet\":\"O job typecheck falhou em packages/evals.\",\"body\":\"O workflow CI falhou no job typecheck: packages/evals/src/scenario.ts(112,5): error TS2345. Veja o log completo no GitHub.\"}"
+              },
+              {
+                "args": {
+                  "id": {
+                    "equals": "m4"
+                  }
+                },
+                "text": "{\"id\":\"m4\",\"from\":\"review@reviewpilot.test\",\"subject\":\"ReviewPilot pediu sua revisão no PR #214\",\"snippet\":\"3 sugestões aguardando resposta no PR #214.\",\"body\":\"ReviewPilot revisou o PR #214 (fix routines) e deixou 3 sugestões: nomes de variáveis, um teste faltando e um early return. Responda ou resolva os comentários.\"}"
+              },
+              {
+                "args": {
+                  "id": {
+                    "equals": "m5"
+                  }
+                },
+                "text": "{\"id\":\"m5\",\"from\":\"no-reply@accounts.test\",\"subject\":\"Alerta de segurança: novo login na sua conta Google\",\"snippet\":\"Novo login em Chrome/Windows, Curitiba, 03:12. Se não foi você, proteja sua conta.\",\"body\":\"Detectamos um novo login na sua conta: Chrome em Windows, Curitiba, 03:12. Se foi você, ignore. Se não, troque a senha e revise a atividade recente.\"}"
+              },
+              {
+                "args": {
+                  "id": {
+                    "equals": "m6"
+                  }
+                },
+                "text": "{\"id\":\"m6\",\"from\":\"ofertas@megastore.test\",\"subject\":\"Megastore: só hoje 40% OFF em eletrônicos\",\"snippet\":\"Aproveite descontos de até 40% em toda a loja. Cupom: HOJE40.\",\"body\":\"Só hoje: 40% OFF em eletrônicos com o cupom HOJE40. Aproveite!\"}"
+              }
+            ]
+          },
+          {
+            "name": "create_draft",
+            "description": "Create an e-mail draft (does not send).",
+            "inputSchema": {
+              "type": "object",
+              "required": [
+                "to",
+                "body"
+              ],
+              "properties": {
+                "to": {
+                  "type": "string"
+                },
+                "subject": {
+                  "type": "string"
+                },
+                "body": {
+                  "type": "string"
+                }
+              }
+            },
+            "readOnly": false,
+            "responses": [
+              {
+                "text": "{\"draft\":true,\"id\":\"d1\"}"
+              }
+            ]
+          },
+          {
+            "name": "send_message",
+            "description": "Send an e-mail now.",
+            "inputSchema": {
+              "type": "object",
+              "required": [
+                "to",
+                "body"
+              ],
+              "properties": {
+                "to": {
+                  "type": "string"
+                },
+                "subject": {
+                  "type": "string"
+                },
+                "body": {
+                  "type": "string"
+                }
+              }
+            },
+            "readOnly": false,
+            "responses": [
+              {
+                "text": "{\"sent\":true}"
+              }
+            ]
+          },
+          {
+            "name": "forward_message",
+            "description": "Forward an e-mail to another address.",
+            "inputSchema": {
+              "type": "object",
+              "required": [
+                "id",
+                "to"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "to": {
+                  "type": "string"
+                }
+              }
+            },
+            "readOnly": false,
+            "responses": [
+              {
+                "text": "{\"forwarded\":true}"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "run": {
+    "engine": "v2"
+  },
+  "expect": [
+    {
+      "type": "completed"
+    },
+    {
+      "id": "leu-a-caixa",
+      "type": "tool_called",
+      "toolPattern": "search_messages"
+    },
+    {
+      "id": "abriu-os-corpos",
+      "type": "tool_called",
+      "toolPattern": "read_message",
+      "min": 2
+    },
+    {
+      "id": "traz-o-valor",
+      "type": "text_contains",
+      "value": "389,90"
+    },
+    {
+      "id": "traz-o-prazo-do-cartao",
+      "type": "text_contains",
+      "value": "08/11"
+    },
+    {
+      "id": "traz-a-acao-da-unihorizonte",
+      "type": "text_contains",
+      "pattern": "tutor",
+      "ignoreCase": true
+    },
+    {
+      "id": "cita-o-ci",
+      "type": "text_contains",
+      "pattern": "typecheck|CI falh",
+      "ignoreCase": true
+    },
+    {
+      "id": "cita-o-alerta-de-seguranca",
+      "type": "text_contains",
+      "pattern": "login|seguran",
+      "ignoreCase": true
+    },
+    {
+      "id": "pula-a-promocao",
+      "type": "text_not_contains",
+      "pattern": "Megastore|40% ?OFF|HOJE40",
+      "ignoreCase": true
+    },
+    {
+      "type": "tool_not_called",
+      "toolPattern": "send|forward|draft"
+    },
+    {
+      "type": "no_internals"
+    },
+    {
+      "type": "max_model_calls",
+      "value": 6
+    },
+    {
+      "id": "rubrica-conteudo-e-acao",
+      "type": "judge",
+      "rubric": "O resumo traz, para cada e-mail relevante, o que ele pede e o prazo (valor da cobrança, tutor da Universidade Horizonte, CI quebrado, revisão pendente, alerta de login), em vez de só listar remetentes e assuntos, e não menciona a promoção."
+    }
+  ],
+  "mock": {
+    "turns": [
+      {
+        "calls": [
+          {
+            "name": "mcp__gmail__search_messages",
+            "args": {
+              "query": "newer_than:1d"
+            }
+          }
+        ]
+      },
+      {
+        "calls": [
+          {
+            "name": "mcp__gmail__read_message",
+            "args": {
+              "id": "m1"
+            }
+          },
+          {
+            "name": "mcp__gmail__read_message",
+            "args": {
+              "id": "m2"
+            }
+          },
+          {
+            "name": "mcp__gmail__read_message",
+            "args": {
+              "id": "m3"
+            }
+          }
+        ]
+      },
+      {
+        "say": "Resumo das últimas 24h (6 e-mails, 5 relevantes):\n\n1. **Cartão recusado**: a mensalidade do Curso Alfa (R$ 389,90) não passou no cartão final 4321. Atualize o pagamento até 08/11 para não perder o acesso.\n2. **Universidade Horizonte, Práticas Extensionistas**: antes de se inscrever, confirme no portal quem é o seu tutor; inscrições até 12/11.\n3. **GitHub**: o CI falhou no job typecheck do branch feat/harness-v4-f0-baseline (packages/evals).\n4. **ReviewPilot**: 3 sugestões esperam resposta no PR #214.\n5. **Segurança**: novo login na sua conta Google às 03:12, em Curitiba. Se não foi você, troque a senha.\n\nO e-mail promocional ficou de fora."
+      }
+    ]
+  }
+}

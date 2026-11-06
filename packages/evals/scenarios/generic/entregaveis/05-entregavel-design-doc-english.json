@@ -1,0 +1,86 @@
+{
+  "version": 1,
+  "id": "generic-entregavel-design-doc-english",
+  "title": "'Write a design doc, about 2 pages, as a Word file' (developer, Austin) → a .docx in English with the requested sections, not pasted into the chat",
+  "description": "Mesma capacidade do ouro 07 (documento como arquivo, não colado no chat, com as seções pedidas), outro contexto: desenvolvedor em Austin pedindo um documento técnico em inglês, sem layout ABNT. As seções vêm do pedido (summary, background, proposal, alternatives, risks, open questions) e o conteúdo precisa ter corpo (~2 páginas, no mínimo 5.000 caracteres).",
+  "tags": [
+    "generic",
+    "entregaveis"
+  ],
+  "source": {
+    "kind": "seed",
+    "note": "Conjunto genérico F0.7 (PLANO-AGENTE-V4/04-avaliacao.md §1.1): cenário sintético com pessoa, loja e contexto fictícios (domínios .test), para o motor não viciar no uso do dono."
+  },
+  "bot": {
+    "name": "Leo",
+    "about": "Personal assistant: e-mail, shopping, coding and calendar.",
+    "language": "en-US"
+  },
+  "locale": {
+    "country": "US",
+    "currency": "USD",
+    "timezone": "America/Chicago"
+  },
+  "user": "write a design doc for adding per-user rate limiting to our public API, about 2 pages, as a Word file. Include summary, background, proposal, alternatives considered, risks and open questions.",
+  "run": {
+    "engine": "v2"
+  },
+  "expect": [
+    {
+      "type": "completed"
+    },
+    {
+      "id": "created-the-docx",
+      "type": "file_created",
+      "extension": "docx"
+    },
+    {
+      "id": "has-all-the-sections-and-body",
+      "type": "tool_called",
+      "tool": "create_file",
+      "args": {
+        "filename": {
+          "matches": "\\.docx$"
+        },
+        "content": {
+          "matches": "(?=[\\s\\S]*Summary)(?=[\\s\\S]*Background)(?=[\\s\\S]*Proposal)(?=[\\s\\S]*Alternatives)(?=[\\s\\S]*Risks)(?=[\\s\\S]*Open questions)[\\s\\S]{5000,}"
+        }
+      }
+    },
+    {
+      "id": "does-not-paste-the-doc-in-chat",
+      "type": "text_not_contains",
+      "pattern": "## Alternatives|## Open questions",
+      "ignoreCase": true
+    },
+    {
+      "type": "language",
+      "value": "en-US"
+    },
+    {
+      "type": "no_unfulfilled_promise"
+    },
+    {
+      "type": "no_internals"
+    }
+  ],
+  "mock": {
+    "turns": [
+      {
+        "calls": [
+          {
+            "name": "create_file",
+            "args": {
+              "filename": "rate-limiting-design-doc.docx",
+              "title": "Per-user rate limiting for the public API",
+              "content": "# Per-user rate limiting for the public API\n\n## Summary\n\nThis document proposes per-user rate limiting at the edge of our public API. Today a single misbehaving client can exhaust the connection pool and degrade latency for everyone. We propose a token-bucket limiter keyed by API key, enforced in the gateway, with limits configurable per plan and clear headers so clients can back off before they are rejected.\n\n## Background\n\nThe public API serves roughly 1,200 requests per second at peak, and about 90% of that traffic comes from fewer than 40 integrations. Two incidents in the last quarter were caused by retry storms from a single customer after a deploy on their side. In both cases the platform stayed up, but p99 latency for unrelated customers tripled for about 15 minutes. We have per-IP limits in the load balancer, but they are coarse: customers behind a shared NAT are throttled together, and a customer with many IPs is not throttled at all.\n\n### Goals and non-goals\n\nGoals: isolate customers from each other's traffic spikes, make limits predictable and documented, and give support a way to see why a request was rejected. Non-goals: protecting against distributed denial-of-service attacks, which stays with the CDN and the load balancer, and billing by usage, which would need exact metering instead of a best-effort limiter.\n\n## Proposal\n\nAdd a limiter to the gateway that identifies the caller by API key and applies a token bucket with a sustained rate and a burst size. Defaults are 20 requests per second with a burst of 60 for the standard plan, and higher values for paid plans, stored in the existing plan configuration. Counters live in Redis with a short TTL, using an atomic script so that several gateway instances share one view of each bucket. When a request is rejected the gateway returns HTTP 429 with a Retry-After header and the standard RateLimit-Limit, RateLimit-Remaining and RateLimit-Reset headers on every response, so well-behaved clients can slow down before hitting the limit.\n\nRollout happens in three steps: first shadow mode, where we log what would have been rejected without blocking anything; then enforcement for the standard plan; then enforcement for all plans after we confirm the logged numbers match expectations. A feature flag per customer allows an immediate opt-out if a legitimate workload is affected.\n\n### Limits and observability\n\nLimits are looked up from the plan attached to the API key and cached in the gateway for 60 seconds, so a plan change takes effect within a minute without a deploy. Every rejection emits a structured log line with the key id, the plan, the endpoint group and the bucket state, and we add three dashboard panels: rejections per plan, the top 10 keys by rejection count, and the share of traffic that is rate limited. Alerts fire when more than 2% of a paid customer's requests are rejected for 10 minutes, because that usually means the plan is too small for a legitimate workload rather than abuse.\n\n### Customer communication\n\nWe publish the limits and the header semantics in the API reference two weeks before enforcement starts and e-mail every integration owner with their own shadow-mode numbers, so nobody is surprised. The 429 response body includes a short message and a link to the documentation page that explains how to back off with jitter, which is the behavior we want from clients that are currently retrying immediately.\n\n## Alternatives considered\n\n1. Keep per-IP limits only. Cheapest option, but it does not fix the shared NAT problem or the many-IP case, so it would not have prevented either incident.\n2. A fixed-window counter. Simpler than a token bucket, but it allows a double burst at the window boundary and produces sawtooth traffic that is hard for clients to reason about.\n3. Rate limiting inside each service. Gives the most precise limits per endpoint, but duplicates logic across services and makes the behavior inconsistent for customers.\n\n## Risks\n\nThe main trade-off is complexity at the edge in exchange for protection that is fair to each customer. We accept one extra network hop to Redis per request, which we measured at about 0.4 ms at p50 and 1.8 ms at p99 in staging, well inside our latency budget.\n\nRedis becomes a dependency on the hot path. If it is unavailable the limiter must fail open and raise an alert, otherwise a cache outage becomes an API outage. A second risk is rejecting legitimate batch workloads; shadow mode and the per-customer flag are meant to catch that before it reaches anyone. Finally, clock skew between gateway instances can distort refill rates, so refill is computed from the Redis server time rather than from the instance clock.\n\nThe rollout itself carries a risk: if shadow mode runs for too short a period it may miss weekly or monthly batch jobs. We therefore keep it on for at least one full billing cycle and review the top consumers with their account owners before the first enforcement step.\n\n## Open questions\n\n- Should limits be per endpoint group (reads versus writes) from day one, or only per key?\n- Do we expose current usage in the dashboard in the first release or later?\n- What is the right default burst for integrations that sync in bulk once an hour?\n"
+            }
+          }
+        ]
+      },
+      {
+        "say": "Done: the design doc is in the Word file above. It has a summary, background, the proposal (token bucket per API key, shadow mode first), the alternatives considered, the risks and the open questions, at about two pages."
+      }
+    ]
+  }
+}

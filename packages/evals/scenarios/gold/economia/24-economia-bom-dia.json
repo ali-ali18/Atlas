@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "id": "gold-economia-bom-dia",
+  "title": "'Bom dia' → resposta curta, nenhuma tool e contexto do 1º passo pequeno (teto medido)",
+  "description": "Economia de contexto (70-padroes): 'Bom dia' não carrega o schema detalhado de nenhuma feature. O teto de `max_context_tokens` (estimativa chars/4 de mensagens + schemas das tools do 1º passo, motor v2) foi medido em 05/11/2026 com o runtime atual: ~5.730 tokens (12 tools). O teto de 6.600 é essa medida + ~15% de folga; o plano exige 'Bom dia' <= v3 + 15%. Se o v4 fizer melhor, baixe o teto no mesmo commit.",
+  "tags": [
+    "gold",
+    "economia",
+    "contexto",
+    "custo"
+  ],
+  "source": {
+    "kind": "seed",
+    "note": "Conjunto ouro F0.1 (PLANO-AGENTE-V4/04-avaliacao.md §1): cenário escrito à mão a partir do uso real do dono."
+  },
+  "bot": {
+    "name": "Ada",
+    "about": "Assistente pessoal do dono: e-mail, compras, estudos e agenda.",
+    "language": "pt-BR"
+  },
+  "locale": {
+    "country": "BR",
+    "currency": "BRL",
+    "timezone": "America/Sao_Paulo"
+  },
+  "user": "Bom dia",
+  "run": {
+    "engine": "v2"
+  },
+  "expect": [
+    {
+      "type": "completed"
+    },
+    {
+      "id": "nenhuma-tool",
+      "type": "tool_not_called",
+      "toolPattern": ".*"
+    },
+    {
+      "id": "um-unico-passo",
+      "type": "max_model_calls",
+      "value": 1
+    },
+    {
+      "id": "resposta-curta",
+      "type": "text_not_contains",
+      "pattern": "[\\s\\S]{400,}"
+    },
+    {
+      "id": "contexto-pequeno",
+      "type": "max_context_tokens",
+      "value": 6600
+    },
+    {
+      "type": "no_internals"
+    }
+  ],
+  "mock": {
+    "turns": [
+      {
+        "say": "Bom dia! Como posso ajudar você hoje?"
+      }
+    ]
+  }
+}

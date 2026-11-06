@@ -2,6 +2,7 @@ import { parseChartSpec } from "@workspace/shared";
 import { argsMatch, argsProblem } from "./predicates.js";
 import { expectationName, type Expectation, type Scenario } from "./scenario.js";
 import { chartBlocks, countQuestions, detectLanguage, endsWithQuestion, findInternals, isUnfulfilledPromise } from "./text.js";
+import type { QualityResult } from "./quality.js";
 import { mainCalls, offeredTools, type CheckResult, type Trajectory } from "./trajectory.js";
 
 /**
@@ -9,7 +10,9 @@ import { mainCalls, offeredTools, type CheckResult, type Trajectory } from "./tr
  * matriz. O juiz LLM é opcional: sem `judge` injetado, a verificação `judge` fica como "pulada" e não conta.
  */
 
-export type Judge = (input: { rubric: string; scenario: Scenario; trajectory: Trajectory }) => Promise<{ pass: boolean; reason: string }>;
+/** `skipped`: o juiz não conseguiu medir (juízes discordam em tudo, ou resposta inválida): nem aprova nem reprova. */
+export type JudgeVerdict = { pass: boolean; reason: string; skipped?: boolean; quality?: QualityResult };
+export type Judge = (input: { rubric: string; scenario: Scenario; trajectory: Trajectory }) => Promise<JudgeVerdict>;
 
 const QUESTIONNAIRE_TOOL = "propose_questionnaire";
 
@@ -55,6 +58,13 @@ function runtimeNotes(trajectory: Trajectory): string {
 
 function check(name: string, problem: string | null): CheckResult {
 	return problem ? { name, pass: false, detail: problem } : { name, pass: true };
+}
+
+/** Estimativa de tokens (caracteres / 4) do pedido do 1º passo: mensagens + schemas das tools oferecidas. */
+export function firstStepContextTokens(trajectory: Pick<Trajectory, "modelCalls">): number | null {
+	const first = mainCalls(trajectory)[0];
+	if (!first) return null;
+	return Math.ceil((JSON.stringify(first.messages).length + (first.toolsChars ?? 0)) / 4);
 }
 
 /** Uma verificação síncrona; `judge` é tratado em `runChecks`. */
@@ -135,6 +145,16 @@ export function evaluateExpectation(item: Exclude<Expectation, { type: "judge" }
 			);
 			return check(name, delivered ? null : "mensagem do meio do run não chegou ao modelo");
 		}
+		case "max_context_tokens": {
+			const tokens = firstStepContextTokens(trajectory);
+			if (tokens === null) return check(name, "nenhum passo do agente");
+			return check(name, tokens > item.value ? `contexto do 1º passo ~${tokens} tokens (máx ${item.value})` : null);
+		}
+		case "any_of": {
+			const results = item.checks.map((nested) => evaluateExpectation(nested as Exclude<Expectation, { type: "judge" | "any_of" }>, scenario, trajectory));
+			if (results.some((result) => result.pass)) return check(name, null);
+			return check(name, `nenhuma passou: ${results.map((result) => `${result.name} (${result.detail ?? "falhou"})`).join(" | ")}`);
+		}
 		case "completed":
 			return check(name, trajectory.error ? `run falhou: ${trajectory.error.slice(0, 160)}` : trajectory.text.trim() ? null : "resposta vazia");
 	}
@@ -158,7 +178,9 @@ export async function runChecks(scenario: Scenario, trajectory: Trajectory, opti
 		}
 		try {
 			const verdict = await options.judge({ rubric: item.rubric, scenario, trajectory });
-			results.push(verdict.pass ? { name, pass: true, detail: verdict.reason } : { name, pass: false, detail: verdict.reason });
+			const quality = verdict.quality ? { quality: verdict.quality } : {};
+			if (verdict.skipped) results.push({ name, pass: true, skipped: true, detail: verdict.reason, ...quality });
+			else results.push({ name, pass: verdict.pass, detail: verdict.reason, ...quality });
 		} catch (error) {
 			results.push({ name, pass: false, detail: `juiz falhou: ${error instanceof Error ? error.message.slice(0, 120) : "erro"}` });
 		}

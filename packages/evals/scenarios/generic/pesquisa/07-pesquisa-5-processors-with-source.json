@@ -1,0 +1,87 @@
+{
+  "version": 1,
+  "id": "generic-pesquisa-5-processors-with-source",
+  "title": "'Compare 5 payment processors for a small UK web shop, with a source for each' (shop owner, Manchester) → all five, each with its fee and its own link",
+  "description": "Mesma capacidade do ouro 10 (lista completa, cada item com fonte), outro contexto: lojista de e-commerce no Reino Unido (en-US, GBP, 'p' de pence). Cinco processadores fictícios, um link cada. A resposta não pode listar só parte nem deixar item sem a fonte.",
+  "tags": [
+    "generic",
+    "pesquisa"
+  ],
+  "source": {
+    "kind": "seed",
+    "note": "Conjunto genérico F0.7 (PLANO-AGENTE-V4/04-avaliacao.md §1.1): cenário sintético com pessoa, loja e contexto fictícios (domínios .test), para o motor não viciar no uso do dono."
+  },
+  "bot": {
+    "name": "Leo",
+    "about": "Personal assistant for a small online shop: orders, suppliers, e-mail and calendar.",
+    "language": "en-US"
+  },
+  "locale": {
+    "country": "GB",
+    "currency": "GBP",
+    "timezone": "Europe/London"
+  },
+  "user": "compare 5 online payment processors for a small UK web shop: the fee per card transaction, and a source link for each",
+  "tools": {
+    "fixtures": [
+      {
+        "tool": "web_search",
+        "result": {
+          "ok": true,
+          "summary": "Results:\n1. PayLark: 1.4% + 20p per UK card transaction, no monthly fee https://paylark.test/pricing\n2. Quillpay: 1.5% + 20p per UK card transaction, £10 monthly fee https://quillpay.test/fees\n3. Tillbridge: 1.2% + 30p per UK card transaction, no monthly fee https://tillbridge.test/pricing\n4. Marlowe Pay: 1.6% + 10p per UK card transaction, no monthly fee https://marlowepay.test/rates\n5. Halden: 1.3% + 25p per UK card transaction, £5 monthly fee https://halden.test/charges"
+        }
+      }
+    ]
+  },
+  "run": {
+    "engine": "v2"
+  },
+  "expect": [
+    {
+      "type": "completed"
+    },
+    {
+      "id": "searched",
+      "type": "tool_called",
+      "tool": "web_search"
+    },
+    {
+      "id": "five-links",
+      "type": "text_contains",
+      "pattern": "(?=[\\s\\S]*paylark\\.test)(?=[\\s\\S]*quillpay\\.test)(?=[\\s\\S]*tillbridge\\.test)(?=[\\s\\S]*marlowepay\\.test)(?=[\\s\\S]*halden\\.test)"
+    },
+    {
+      "id": "five-processors-named",
+      "type": "text_contains",
+      "pattern": "(?=[\\s\\S]*PayLark)(?=[\\s\\S]*Quillpay)(?=[\\s\\S]*Tillbridge)(?=[\\s\\S]*Marlowe Pay)(?=[\\s\\S]*Halden)"
+    },
+    {
+      "id": "has-the-fees",
+      "type": "text_contains",
+      "pattern": "(?=[\\s\\S]*1\\.4%)(?=[\\s\\S]*1\\.5%)(?=[\\s\\S]*1\\.2%)(?=[\\s\\S]*1\\.6%)(?=[\\s\\S]*1\\.3%)"
+    },
+    {
+      "type": "no_unfulfilled_promise"
+    },
+    {
+      "type": "no_internals"
+    }
+  ],
+  "mock": {
+    "turns": [
+      {
+        "calls": [
+          {
+            "name": "web_search",
+            "args": {
+              "query": "online payment processors UK small web shop card transaction fees"
+            }
+          }
+        ]
+      },
+      {
+        "say": "Five options for a small UK shop, with the per-card fee and the source:\n\n| Processor | Fee per UK card transaction | Monthly fee | Source |\n| --- | --- | --- | --- |\n| PayLark | 1.4% + 20p | none | https://paylark.test/pricing |\n| Quillpay | 1.5% + 20p | £10 | https://quillpay.test/fees |\n| Tillbridge | 1.2% + 30p | none | https://tillbridge.test/pricing |\n| Marlowe Pay | 1.6% + 10p | none | https://marlowepay.test/rates |\n| Halden | 1.3% + 25p | £5 | https://halden.test/charges |\n\nOn small baskets the fixed part (10p to 30p) weighs more than the percentage, so the cheapest one depends on your average order value."
+      }
+    ]
+  }
+}

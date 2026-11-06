@@ -1,7 +1,7 @@
 import { buildMcpToolset, type McpRuntime, type runComputerUse } from "@workspace/agent-runtime";
 import { argsMatch } from "./predicates.js";
-import type { Scenario } from "./scenario.js";
-import type { RecordedToolResult } from "./trajectory.js";
+import type { NativeFixture, Scenario } from "./scenario.js";
+import type { RecordedFile, RecordedToolResult } from "./trajectory.js";
 
 /**
  * Ambiente falso de um cenário: perfil do bot fixo, tools nativas respondidas pelos fixtures, conectores falsos e
@@ -13,7 +13,22 @@ import type { RecordedToolResult } from "./trajectory.js";
 type RunParams = Parameters<typeof runComputerUse>[0];
 
 /** Tools nativas que rodam de verdade no eval (puras, sem rede nem banco; `create_file` com armazenamento em memória). */
-export const REAL_NATIVE_TOOLS = ["track_items", "update_task_list", "create_file", "mcp_tool_search", "read_cached_result"] as const;
+export const REAL_NATIVE_TOOLS = ["track_items", "update_task_list", "create_file", "mcp_tool_search", "read_cached_result", "skill_read", "list_skills", "show_skill"] as const;
+
+/**
+ * Loja de skills em memória: sem skill do dono (lista vazia) e sem escrita. `skill_read` cai então nas skills de
+ * fábrica reais (`skills/builtin/*.md`), o mesmo texto que o bot lê em produção, sem tocar o banco. Escrita
+ * (`propose_skill`/`delete_skill`) segue sem fixture: o eval não grava skill.
+ */
+export function memorySkillsStore(): NonNullable<RunParams["skillStore"]> {
+	return {
+		listAll: async () => [],
+		readActive: async () => null,
+		apply: async () => {
+			throw new Error("skills são somente leitura no eval");
+		},
+	};
+}
 
 /** Resposta neutra para tool sem fixture: o modelo segue sem inventar, e a matriz aponta a lacuna do cenário. */
 export const UNMOCKED_SUMMARY = "This tool is unavailable right now. Continue with the information you already have, or tell the user what you could not do.";
@@ -22,12 +37,14 @@ export const EVAL_USER_ID = "eval-user";
 export const EVAL_BOT_ID = "eval-bot";
 
 export type ScenarioEnvironment = {
-	params: Pick<RunParams, "loadBotProfile" | "findCompletedTool" | "mcp" | "forcedConnectors" | "createFileDeps" | "language">;
+	params: Pick<RunParams, "loadBotProfile" | "findCompletedTool" | "mcp" | "forcedConnectors" | "createFileDeps" | "skillStore" | "language">;
 	/** Alimentado com cada evento do run (precisa ver o `tool_call` antes do replay). */
 	observe: (event: Record<string, unknown>) => void;
 	/** Origem do resultado de cada chamada (fixture, conector, execução real ou sem fixture). */
 	sourceOf: (callId: string, name: string) => RecordedToolResult["source"];
 	unmocked: string[];
+	/** Arquivos criados no run, com o texto quando há. */
+	files: RecordedFile[];
 };
 
 /** Id da chamada dentro da chave de idempotência `${runId}:${decisionIndex}:${toolCallId}:${toolName}`. */
@@ -65,12 +82,25 @@ function buildConnectors(scenario: Scenario): McpRuntime | null {
 	};
 }
 
-function memoryFileDeps(): NonNullable<RunParams["createFileDeps"]> {
+/** Conteúdo de texto guardado por arquivo na trajetória (o juiz lê o começo; acima disso a omissão é explícita). */
+export const FILE_TEXT_LIMIT = 100_000;
+const TEXT_MIME = /^text\/|json|xml|csv|markdown|yaml|javascript|svg/i;
+
+function memoryFileDeps(files: RecordedFile[]): NonNullable<RunParams["createFileDeps"]> {
 	let count = 0;
 	return {
 		persist: async (input) => {
 			count += 1;
-			return { id: `art-eval-${count}`, kind: input.kind, meta: { ...input.meta, mime: input.mime, size: input.bytes.byteLength }, runId: input.runId ?? null, conversationId: null, createdAt: new Date(0) };
+			const id = `art-eval-${count}`;
+			const filename = typeof input.meta?.filename === "string" ? input.meta.filename : id;
+			const file: RecordedFile = { artifactId: id, filename, mime: input.mime, size: input.bytes.byteLength };
+			if (TEXT_MIME.test(input.mime)) {
+				const text = new TextDecoder().decode(input.bytes);
+				file.text = text.slice(0, FILE_TEXT_LIMIT);
+				if (text.length > FILE_TEXT_LIMIT) file.textOmitted = text.length - FILE_TEXT_LIMIT;
+			}
+			files.push(file);
+			return { id, kind: input.kind, meta: { ...input.meta, mime: input.mime, size: input.bytes.byteLength }, runId: input.runId ?? null, conversationId: null, createdAt: new Date(0) };
 		},
 		nextVersion: async () => 1,
 		countRunFiles: async () => count,
@@ -81,10 +111,51 @@ function memoryFileDeps(): NonNullable<RunParams["createFileDeps"]> {
 	};
 }
 
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
+
+/**
+ * URLs de uma chamada que lê em lote (`urls: string[]`, schema real do `web_extract`). Os fixtures dos cenários
+ * casam por `url`; sem esta ponte, o modelo real (que manda `urls`) recebia "indisponível" e o eval culpava o motor.
+ */
+export function listedUrls(args: unknown): string[] | null {
+	if (!isRecord(args) || !Array.isArray(args.urls)) return null;
+	const urls = args.urls.filter((item): item is string => typeof item === "string");
+	return urls.length > 0 ? urls : null;
+}
+
+/**
+ * Resposta neutra para tools de consulta que o modelo real chama por conta própria (memória, histórico, hora).
+ * Sem isso elas voltavam "indisponível", o modelo desviava e o eval culpava o motor. Fixture do cenário vence.
+ * O instante é fixo (quinta, 05/11/2026 13:00 UTC): o eval nunca depende do relógio real. Ele é escrito no fuso do
+ * `locale` do cenário (sem `locale`, UTC): antes todo cenário recebia a hora de São Paulo e viciava o conjunto genérico.
+ */
+export const EVAL_NOW_ISO = "2026-11-05T13:00:00Z";
+
+export function evalNowText(timezone = "UTC"): string {
+	const instant = new Date(EVAL_NOW_ISO);
+	const parts = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: timezone, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", weekday: "long", timeZoneName: "longOffset" }).formatToParts(instant).map((part) => [part.type, part.value]));
+	const offset = /^GMT([+-]\d{2}:\d{2})$/.exec(parts.timeZoneName ?? "")?.[1] ?? "+00:00";
+	return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}${offset} (${parts.weekday}, ${timezone})`;
+}
+
+export function neutralResult(name: string, args: unknown, timezone?: string): { ok: boolean; summary: string } | null {
+	if (name === "memory_search" || name === "session_search") return { ok: true, summary: "No results." };
+	if (name === "current_time") return { ok: true, summary: evalNowText(timezone) };
+	if (name === "memory") {
+		const action = isRecord(args) ? args.action : undefined;
+		return { ok: true, summary: action === "list" || action === undefined ? "No saved memories." : "Saved." };
+	}
+	return null;
+}
+
 export function buildEnvironment(scenario: Scenario): ScenarioEnvironment {
 	const calls = new Map<string, { name: string; args: unknown }>();
 	const sources = new Map<string, RecordedToolResult["source"]>();
 	const unmocked: string[] = [];
+	const files: RecordedFile[] = [];
+	const fixtureUses = new Map<NativeFixture, number>();
+	/** A mesma chamada pode ser consultada mais de uma vez: ela consome o fixture uma vez só. */
+	const assigned = new Map<string, NativeFixture>();
 	const real = new Set<string>([...REAL_NATIVE_TOOLS, ...scenario.tools.allowReal]);
 	const mcp = buildConnectors(scenario);
 	const preload = scenario.tools.connectors.filter((connector) => connector.preload).map((connector) => connector.slug);
@@ -96,19 +167,41 @@ export function buildEnvironment(scenario: Scenario): ScenarioEnvironment {
 				const id = callIdFromKey(key, calls.keys());
 				const call = id ? calls.get(id) : undefined;
 				if (!id || !call || call.name.startsWith("mcp__")) return null;
-				const fixture = scenario.tools.fixtures.find((item) => item.tool === call.name && argsMatch(call.args, item.args));
+				const urls = listedUrls(call.args);
+				if (!assigned.has(id) && urls && urls.length > 1) {
+					// Leitura em lote (`urls: [...]`, como o schema real do web_extract): cada URL responde pelo seu fixture.
+					const parts = urls.map((url) => scenario.tools.fixtures.find((item) => item.tool === call.name && argsMatch({ url, urls: [url] }, item.args)));
+					if (parts.some(Boolean)) {
+						sources.set(id, "fixture");
+						const summary = urls.map((url, index) => parts[index]?.result.summary ?? `${url}: error (not found)`).join("\n\n");
+						return { ok: parts.some((part) => part?.result.ok), summary };
+					}
+				}
+				const matchArgs = urls && urls.length === 1 && isRecord(call.args) ? { ...call.args, url: urls[0] } : call.args;
+				const fixture =
+					assigned.get(id) ?? scenario.tools.fixtures.find((item) => item.tool === call.name && argsMatch(matchArgs, item.args) && (item.uses === undefined || (fixtureUses.get(item) ?? 0) < item.uses));
 				if (fixture) {
+					if (!assigned.has(id)) {
+						assigned.set(id, fixture);
+						fixtureUses.set(fixture, (fixtureUses.get(fixture) ?? 0) + 1);
+					}
 					sources.set(id, "fixture");
 					return { ok: fixture.result.ok, summary: fixture.result.summary };
 				}
 				if (real.has(call.name)) return null;
+				const neutral = neutralResult(call.name, call.args, scenario.locale?.timezone);
+				if (neutral) {
+					sources.set(id, "fixture");
+					return neutral;
+				}
 				sources.set(id, "unmocked");
 				unmocked.push(call.name);
 				return { ok: false, summary: UNMOCKED_SUMMARY };
 			},
 			mcp,
 			...(preload.length > 0 ? { forcedConnectors: preload } : {}),
-			createFileDeps: memoryFileDeps(),
+			createFileDeps: memoryFileDeps(files),
+			skillStore: memorySkillsStore(),
 		},
 		observe: (event) => {
 			if (event.type !== "tool_call" || typeof event.id !== "string") return;
@@ -122,5 +215,6 @@ export function buildEnvironment(scenario: Scenario): ScenarioEnvironment {
 		},
 		sourceOf: (callId, name) => sources.get(callId) ?? (name.startsWith("mcp__") ? "connector" : "real"),
 		unmocked,
+		files,
 	};
 }
