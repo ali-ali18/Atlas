@@ -85,6 +85,7 @@ export type KernelSnapshot = {
 	loadedIds: string[];
 	provenance: ProvenanceSnapshot;
 	spentUsd: number;
+	/** Chamadas ao modelo (tentativas, retries incluídos) sem informação de preço: o custo delas não está em `spentUsd`. */
 	stepsWithoutPrice: number;
 	/** Posições em `messages` das falas do dono (para listá-las por inteiro ao compactar). */
 	ownerIdx: number[];

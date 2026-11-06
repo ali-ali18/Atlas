@@ -17,7 +17,10 @@ export type ModelReply = {
 	calls: LlmToolCall[];
 	finish: "stop" | "tool_calls" | "length" | "error";
 	inputTokens: number;
-	costUsd: number | undefined;
+	/** Soma do custo das tentativas com preço conhecido (inclusive as que falharam depois de cobrar). */
+	costUsd: number;
+	/** Tentativas sem informação de preço; o custo delas NÃO está em `costUsd`. */
+	unpricedCalls: number;
 	/** Motivo real quando não houve resposta aproveitável. */
 	problem?: "empty_reply" | "model_error" | "truncated";
 };
@@ -63,7 +66,7 @@ export async function callModel(input: {
 	};
 	const done = (r: Once, problem?: ModelReply["problem"]): ModelReply => {
 		const known = cost.filter((c): c is number => c !== undefined);
-		return { text: r.text, calls: r.calls, finish: r.finish, inputTokens, costUsd: known.length === cost.length ? known.reduce((a, b) => a + b, 0) : undefined, ...(problem && { problem }) };
+		return { text: r.text, calls: r.calls, finish: r.finish, inputTokens, costUsd: known.reduce((a, b) => a + b, 0), unpricedCalls: cost.length - known.length, ...(problem && { problem }) };
 	};
 
 	let first = await run(input.messages);
@@ -79,6 +82,8 @@ export async function callModel(input: {
 	}
 	if (first.text.length === 0 && first.calls.length === 0) {
 		const retry = await run(input.messages);
+		// Mesmo tratamento do caminho de erro: `error` depois do retry é falha de transporte, mesmo com texto parcial.
+		if (retry.finish === "error") return done(retry, "model_error");
 		return done(retry, retry.text.length === 0 && retry.calls.length === 0 ? "empty_reply" : undefined);
 	}
 	return done(first);

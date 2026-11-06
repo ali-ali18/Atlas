@@ -33,7 +33,7 @@ export function reachedLimit(input: { step: number; spentUsd: number; limits: Ru
 
 export function spendText(spentUsd: number, stepsWithoutPrice: number, steps: number): string {
 	const price = `US$ ${spentUsd.toFixed(2)}`;
-	const unknown = stepsWithoutPrice > 0 ? ` (${stepsWithoutPrice} step(s) had no price information and are not counted)` : "";
+	const unknown = stepsWithoutPrice > 0 ? ` (${stepsWithoutPrice} model call(s) had no price information and are not counted)` : "";
 	return `Spent so far: ${price} in ${steps} step(s)${unknown}.`;
 }
 

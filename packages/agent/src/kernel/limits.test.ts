@@ -63,7 +63,7 @@ describe("kernel: limites e passo final", () => {
 		const noPrice = reply({ calls: [call("a", "ping", {})] }).map((e) => (e.type === "done" ? { ...e, usage: { inputTokens: 1, outputTokens: 1 } } : e));
 		const h = kernelHarness([noPrice, reply({ text: "ok" })], { tools: [ping] });
 		await h.run({ limits: { ownerMaxSteps: 1 } });
-		expect(JSON.stringify(lastRequest(h)?.messages.at(-1))).toContain("1 step(s) had no price information");
+		expect(JSON.stringify(lastRequest(h)?.messages.at(-1))).toContain("1 model call(s) had no price information");
 	});
 
 	it("laço de chamadas idênticas: 2 notas ao modelo e depois passo final", async () => {

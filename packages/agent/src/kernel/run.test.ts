@@ -202,4 +202,21 @@ describe("kernel: retomada e segurança", () => {
 		const out = await h.run();
 		expect(out).toMatchObject({ status: "failed", reason: "kernel_error", error: "crash simulado" });
 	});
+
+	it("falha no meio do stream sem preço não zera o custo conhecido do passo (B7/C6)", async () => {
+		const h = kernelHarness([reply({ chunks: ["parc"], finish: "error", usage: { costUsd: undefined } }), reply({ text: "ok", usage: { costUsd: 0.05 } })]);
+		const out = await h.run();
+		expect(out).toMatchObject({ status: "done", text: "ok" });
+		expect(out.spentUsd).toBeCloseTo(0.05);
+		const g = kernelHarness([reply({ finish: "error", usage: { costUsd: 0.02 } }), reply({ text: "ok", usage: { costUsd: undefined } })]);
+		expect((await g.run()).spentUsd).toBeCloseTo(0.02);
+		expect((g.runs.checkpoints.get("owner-1:run-1")?.payload as { stepsWithoutPrice: number }).stepsWithoutPrice).toBe(1);
+	});
+
+	it("resposta vazia seguida de erro com texto parcial é model_error, não sucesso (B8)", async () => {
+		const h = kernelHarness([reply({}), reply({ chunks: ["meio da fra"], finish: "error" })]);
+		const out = await h.run();
+		expect(out).toMatchObject({ status: "failed", reason: "model_error" });
+		expect(h.runs.statuses.get("owner-1:run-1")).toBe("failed");
+	});
 });

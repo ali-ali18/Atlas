@@ -126,8 +126,9 @@ export async function runAgent(deps: RunAgentDeps): Promise<RunResult> {
 					onText: (text) => emit({ type: "text_delta", data: { text } }),
 					onRetract: () => emit({ type: "retract", data: { reason: "transport_retry" } }),
 				});
-				if (reply.costUsd === undefined) snap.stepsWithoutPrice++;
-				else snap.spentUsd += reply.costUsd;
+				// O custo conhecido entra sempre (inclusive de tentativa que falhou no meio do stream); o que não tem preço é contado à parte.
+				snap.spentUsd += reply.costUsd;
+				snap.stepsWithoutPrice += reply.unpricedCalls;
 				snap.lastText = reply.text;
 				snap.lastInputTokens = reply.inputTokens;
 				snap.tokensAtCount = snap.messages.length;
