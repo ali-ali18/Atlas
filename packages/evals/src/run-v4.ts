@@ -12,6 +12,7 @@ import {
 	createSystemClock,
 	createSystemRandom,
 	createVaultAdapter,
+	FakeAgenda,
 	FakeDeliverables,
 	FakeFileStore,
 	FakeMemory,
@@ -25,7 +26,7 @@ import {
 	type RunLimits,
 	type Sandbox,
 } from "@workspace/agent";
-import { parseModelRef, type ComputerUseEvent, type RunStop } from "@workspace/shared";
+import { DEFAULT_PROACTIVE_SETTINGS, parseModelRef, type ComputerUseEvent, type RunStop } from "@workspace/shared";
 import { EVAL_USER_ID } from "./environment.js";
 import type { StreamChat } from "./mock-model.js";
 import type { Scenario } from "./scenario.js";
@@ -39,10 +40,14 @@ import { fixtureSearchFor } from "./v4-ports.js";
  *  - `research`: ajudantes REAIS (`createHelpers`, papel `helper` do mesmo LLM do run, livro de gasto ligado ao kernel da
  *    mãe, como em `apps/worker/src/engine-v4.ts`). As chamadas dos ajudantes passam pelo mesmo `streamChat`, então entram
  *    no custo medido do run;
+ *  - agenda: `FakeAgenda` no fuso do cenário e relógio fixo em 05/11/2026 (`EVAL_NOW`); o run de agenda (wake) não roda aqui;
  *  - os fixtures de conector do cenário (agenda, e-mail…) não são ligados: cenário que depende deles falha por falta de
  *    capacidade;
  *  - o histórico do cenário entra como falas do dono/assistente em texto (turnos com tool viram nota de texto).
  */
+
+/** Relógio fixo do eval: a data dos cenários é 05/11/2026, então "amanhã" e os horários do roteiro são os mesmos em qualquer dia de execução. */
+export const EVAL_NOW = new Date("2026-11-05T12:00:00.000Z");
 
 const sha256 = (payload: string): string => createHash("sha256").update(payload).digest("hex");
 
@@ -65,6 +70,7 @@ export async function runScenarioV4(params: RunV4Params): Promise<{ text: string
 	const entry = { provider: ref.provider, model: ref.slug };
 	const chains = chainsForAllRoles(entry);
 	const clock = createSystemClock();
+	const evalClock = { now: () => EVAL_NOW };
 	const mapper = createSseMapper({ runId: params.runId, model: params.model });
 	const policy: PolicyContext = { surface: "chat", ownerPresent: true, autonomy: "balanced", rules: [] };
 	const limits: RunLimits = { ownerMaxSteps: params.maxSteps };
@@ -92,7 +98,7 @@ export async function runScenarioV4(params: RunV4Params): Promise<{ text: string
 		search,
 		...(language && { language }),
 	});
-	const setup = setupPreset("full", { search, files: new FakeFileStore(), deliverables: new FakeDeliverables().ports(), memory: new FakeMemory(), settings: new FakeSettings(), taskLists: new FakeTaskListStore(), helpers });
+	const setup = setupPreset("full", { search, files: new FakeFileStore(), deliverables: new FakeDeliverables().ports(), memory: new FakeMemory(), settings: new FakeSettings(), taskLists: new FakeTaskListStore(), helpers, agenda: new FakeAgenda({ ...DEFAULT_PROACTIVE_SETTINGS, enabled: true, timezone: scenario.locale?.timezone ?? DEFAULT_PROACTIVE_SETTINGS.timezone }) });
 	motherRegistry = setup.registry;
 	const history = [
 		...scenario.history.map((message) => {
@@ -111,7 +117,7 @@ export async function runScenarioV4(params: RunV4Params): Promise<{ text: string
 			queue: createQueueAdapter({ add: async () => { throw new Error("Sem fila no eval do motor v4."); }, getJob: async () => null }),
 			sandbox: noSandbox,
 			vault: createVaultAdapter({ listHandles: async () => [], resolveSecret: async () => null }),
-			clock,
+			clock: evalClock,
 			random: createSystemRandom(),
 			events: createEventsAdapter({ runId: params.runId, userId: EVAL_USER_ID, map: (event) => mapper.mapRunEvent(event), persist: params.onEvent }),
 		},

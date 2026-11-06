@@ -120,5 +120,70 @@
         "say": "De nada! Boa compra."
       }
     ]
+  },
+  "engineOverrides": {
+    "v4": {
+      "expect": [
+        {
+          "type": "completed"
+        },
+        {
+          "id": "agendou-o-acompanhamento",
+          "type": "tool_called",
+          "tool": "watch",
+          "args": {
+            "note": {
+              "matches": "BR123456789BR|BR-48213"
+            }
+          }
+        },
+        {
+          "id": "sem-rotina-do-usuario",
+          "type": "tool_not_called",
+          "tool": "propose_routine"
+        },
+        {
+          "id": "agendou-em-silencio",
+          "type": "text_not_contains",
+          "pattern": "agend|vigia|acompanh|follow-?up|te aviso",
+          "ignoreCase": true
+        },
+        {
+          "type": "no_question"
+        },
+        {
+          "type": "no_internals"
+        }
+      ],
+      "mock": {
+        "turns": [
+          {
+            "calls": [
+              {
+                "name": "use_capability",
+                "args": {
+                  "id": "agenda"
+                }
+              }
+            ]
+          },
+          {
+            "calls": [
+              {
+                "name": "watch",
+                "args": {
+                  "note": "Check the delivery status of order BR-48213 (tracking BR123456789BR, https://rastreio.test/BR123456789BR; expected by 2026-11-12). Tell the owner only if it shipped late, was delayed or was delivered; finish when delivered.",
+                  "everyMinutes": 720,
+                  "until": "2026-11-20T10:00"
+                }
+              }
+            ]
+          },
+          {
+            "say": "De nada! Boa compra."
+          }
+        ]
+      }
+    }
   }
 }

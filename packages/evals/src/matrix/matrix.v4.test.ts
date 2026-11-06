@@ -85,4 +85,28 @@ describe("matrix --engines v4 --simulate", () => {
 		expect(record.trajectory.modelCalls.filter((call) => call.usage).length).toBeGreaterThanOrEqual(7);
 		expect(record.trajectory.stop?.reason ?? "answered").toBe("answered");
 	});
+
+	it("agenda (F4): os 5 cenários de lembrete e vigia passam pelo kernel com a capacidade agenda e a agenda falsa, sem cartão", async () => {
+		const all = await loadScenarios(SCENARIOS_DIR, { recursive: true });
+		const agenda = all.filter((s) => /^(gold|generic)-agenda-/.test(s.id));
+		expect(agenda.map((s) => s.id).sort()).toEqual([
+			"generic-agenda-reminder-tomorrow-0730-toronto",
+			"generic-agenda-watch-price-drop-keyboard",
+			"gold-agenda-avisa-quando-preco-cair",
+			"gold-agenda-compra-concluida-vigia-entrega-sozinho",
+			"gold-agenda-lembrete-boleto-amanha-10h",
+		]);
+		const result = await runMatrix({ scenarios: agenda, engines: ["v4"], models: ["anthropic/claude-sonnet-5-5"], repeat: 1, mode: "simulate", capUsd: 100, isStrong: strongMatcher(), concurrency: 1 });
+		expect(result.runs.every((run) => run.status === "done" && run.error === undefined)).toBe(true);
+		for (const record of result.records) {
+			expect(record.pass, `${record.scenarioId}: ${JSON.stringify(record.checks?.filter((c: { pass: boolean }) => !c.pass))} ${JSON.stringify(record.trajectory.toolResults)}`).toBe(true);
+			const created = record.trajectory.toolResults.filter((r) => r.name === "remind_me" || r.name === "watch");
+			expect(created).toHaveLength(1);
+			expect(created[0]?.ok).toBe(true);
+			expect(record.trajectory.events.some((event) => event.type === "receipt")).toBe(true);
+		}
+		// Sem a override do v4 o roteiro do v2 chama schedule_followup, que no v4 não existe: o matrix mostra a falha em vez de fingir.
+		const v2Script = await runMatrix({ scenarios: [{ ...agenda[0]!, engineOverrides: undefined }], engines: ["v4"], models: ["anthropic/claude-sonnet-5-5"], repeat: 1, mode: "simulate", capUsd: 100, isStrong: strongMatcher(), concurrency: 1 });
+		expect(v2Script.records[0]!.pass).toBe(false);
+	});
 });

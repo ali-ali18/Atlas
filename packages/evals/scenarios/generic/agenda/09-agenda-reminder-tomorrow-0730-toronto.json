@@ -134,5 +134,68 @@
         "say": "Done: tomorrow at 7:30 am I will remind you to renew your parking permit."
       }
     ]
+  },
+  "engineOverrides": {
+    "v4": {
+      "expect": [
+        {
+          "type": "completed"
+        },
+        {
+          "id": "created-the-reminder-for-0730",
+          "type": "tool_called",
+          "tool": "remind_me",
+          "args": {
+            "when": {
+              "matches": "T07:30|7:30"
+            }
+          }
+        },
+        {
+          "type": "tool_not_called",
+          "tool": "propose_questionnaire"
+        },
+        {
+          "type": "no_question"
+        },
+        {
+          "id": "says-the-time",
+          "type": "text_contains",
+          "pattern": "7:30|07:30|7\\.30",
+          "ignoreCase": true
+        },
+        {
+          "type": "no_internals"
+        }
+      ],
+      "mock": {
+        "turns": [
+          {
+            "calls": [
+              {
+                "name": "use_capability",
+                "args": {
+                  "id": "agenda"
+                }
+              }
+            ]
+          },
+          {
+            "calls": [
+              {
+                "name": "remind_me",
+                "args": {
+                  "note": "Remind the owner to renew the parking permit.",
+                  "when": "2026-11-06T07:30"
+                }
+              }
+            ]
+          },
+          {
+            "say": "Done: tomorrow at 7:30 am I will remind you to renew your parking permit."
+          }
+        ]
+      }
+    }
   }
 }

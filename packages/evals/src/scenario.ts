@@ -174,6 +174,14 @@ export const scenarioSchema = z
 		expect: z.array(expectation).min(1),
 		/** Roteiro do modelo falso (modo mock/CI): valida o harness, não o modelo. */
 		mock: z.object({ turns: z.array(mockTurn).min(1), cheapAnswer: z.string().optional() }).strict().optional(),
+		/**
+		 * Verificações e roteiro próprios de um motor, para cenário cuja superfície de tools difere (a agenda do v4 usa
+		 * `remind_me`/`watch`, o v2 usa `schedule_followup`). Quando o motor é o `v4`, o que estiver aqui SUBSTITUI `expect` e `mock`.
+		 */
+		engineOverrides: z
+			.object({ v4: z.object({ expect: z.array(expectation).min(1).optional(), mock: z.object({ turns: z.array(mockTurn).min(1), cheapAnswer: z.string().optional() }).strict().optional() }).strict().optional() })
+			.strict()
+			.optional(),
 	})
 	.strict();
 

@@ -137,12 +137,13 @@ export async function runMatrix(options: MatrixOptions): Promise<MatrixResult> {
 		}
 		let judgedUsd = 0;
 		try {
+			// O roteiro simulado vem do cenário já ajustado ao motor (`engineOverrides` troca o mock do v4).
+			const patched = job.engine.patchScenario(job.scenario);
 			const providers = realProviders
 				? withSessionId(realProviders, `matrix-${job.scenario.id}-${job.engine.id}-${job.repeat}`)
-				: simulatedProviders({ scenario: job.scenario, engine: job.engine.id, model: job.model, repeat: job.repeat });
+				: simulatedProviders({ scenario: patched, engine: job.engine.id, model: job.model, repeat: job.repeat });
 			// Cada chamada concluída cobra o custo real na hora; depois do estouro nenhuma chamada nova começa.
 			const stream = withBudgetGate(withCostAccounting(createMatrixRouter(providers), { ...(options.priceTable ? { table: options.priceTable } : {}), onCost: (usd) => lease.charge(usd) }), lease);
-			const patched = job.engine.patchScenario(job.scenario);
 			const trajectory = await runScenario(patched, {
 				model: job.model.internalId,
 				// Marcador, não segredo: a chave real fica nos fechamentos dos provedores.
