@@ -20,10 +20,11 @@ import {
 	saveAgentConversationState,
 	saveAgentNote,
 	saveAgentV4Checkpoint,
+	saveAgentV4CheckpointUnfenced,
 } from "./agent-v4-store.js";
 import { ResourceOwnershipError } from "./conversations.js";
 import { prisma } from "./client.js";
-import { createTestUser, dbSkip } from "./testing/test-db.js";
+import { createTestBot, createTestUser, dbSkip } from "./testing/test-db.js";
 
 describe("agent-v4-store (Postgres real)", { skip: dbSkip }, () => {
 	let a: string;
@@ -154,12 +155,12 @@ describe("agent-v4-store (Postgres real)", { skip: dbSkip }, () => {
 	});
 
 	test("checkpoint: grava em checkpointJson.v4 sem apagar as chaves do v2; B não lê nem grava", async () => {
-		await saveAgentV4Checkpoint(a, { runId: runA, userId: a, step: 2, state: "TOOLS", payload: { v: 1, messages: ["oi"] } });
+		await saveAgentV4CheckpointUnfenced(a, { runId: runA, userId: a, step: 2, state: "TOOLS", payload: { v: 1, messages: ["oi"] } });
 		assert.deepEqual(await loadAgentV4Checkpoint(a, runA), { runId: runA, userId: a, step: 2, state: "TOOLS", payload: { v: 1, messages: ["oi"] } });
 		const raw = await prisma.agentRun.findUniqueOrThrow({ where: { id: runA }, select: { checkpointJson: true } });
 		assert.equal((raw.checkpointJson as { keep?: string }).keep, "v2");
 		assert.equal(await loadAgentV4Checkpoint(b, runA), null);
-		await assert.rejects(saveAgentV4Checkpoint(b, { runId: runA, userId: b, step: 9, state: "DONE", payload: {} }), ResourceOwnershipError);
+		await assert.rejects(saveAgentV4CheckpointUnfenced(b, { runId: runA, userId: b, step: 9, state: "DONE", payload: {} }), ResourceOwnershipError);
 		assert.equal((await loadAgentV4Checkpoint(a, runA))?.step, 2);
 	});
 
@@ -170,5 +171,25 @@ describe("agent-v4-store (Postgres real)", { skip: dbSkip }, () => {
 		await assert.rejects(saveAgentV4Checkpoint(a, cp, { owner: "w2", token: "t1" }), /lease_lost/);
 		await prisma.agentRun.update({ where: { id: run.id }, data: { leaseUntil: new Date(Date.now() - 1000) } });
 		await assert.rejects(saveAgentV4Checkpoint(a, cp, { owner: "w1", token: "t1" }), /lease_lost/);
+	});
+
+	test("checkpoint (S10): sem lease não grava (nem null, nem undefined) e não toca o que já estava salvo", async () => {
+		const before = await loadAgentV4Checkpoint(a, runA);
+		const cp = { runId: runA, userId: a, step: 99, state: "DONE", payload: { zumbi: true } };
+		await assert.rejects(saveAgentV4Checkpoint(a, cp, null), /lease_required/);
+		await assert.rejects(saveAgentV4Checkpoint(a, cp, undefined), /lease_required/);
+		assert.deepEqual(await loadAgentV4Checkpoint(a, runA), before);
+	});
+
+	test("nota (S10): botId e sourceRunId precisam ser do mesmo dono", async () => {
+		const botA = await createTestBot(a);
+		const botB = await createTestBot(b);
+		const runB = (await prisma.agentRun.create({ data: { userId: b, objective: "o", model: "m", status: "running" } })).id;
+		await saveAgentNote({ id: "vinc", userId: a, title: "T", body: "b", pinned: false, botId: botA.id, sourceRunId: runA });
+		assert.equal((await getAgentNote(a, "vinc"))?.botId, botA.id);
+		await assert.rejects(saveAgentNote({ id: "vinc2", userId: a, title: "T", body: "b", pinned: false, botId: botB.id }), ResourceOwnershipError);
+		await assert.rejects(saveAgentNote({ id: "vinc3", userId: a, title: "T", body: "b", pinned: false, sourceRunId: runB }), ResourceOwnershipError);
+		assert.equal(await getAgentNote(a, "vinc2"), null);
+		assert.equal(await getAgentNote(a, "vinc3"), null);
 	});
 });

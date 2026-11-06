@@ -43,27 +43,33 @@ function checkText(name: string, value: string, max: number): string {
 export type AgentV4Checkpoint = { runId: string; userId: string; step: number; state: string; payload: unknown };
 
 /**
- * Grava o checkpoint do v4 em `checkpointJson.v4` (merge jsonb atômico; as outras chaves ficam). Só no run do dono; com
- * `lease`, só enquanto o lease é o desta execução (mesma cerca do `saveAgentRunCheckpoint`): perdeu → `lease_lost`.
+ * Grava o checkpoint do v4 em `checkpointJson.v4` (merge jsonb atômico; as outras chaves ficam). Exige o lease desta
+ * execução (mesma cerca do `saveAgentRunCheckpoint`): sem lease não há gravação (`lease_required`), e lease perdido ou
+ * vencido → `lease_lost`. Assim um worker zumbi não sobrescreve o checkpoint de quem assumiu o run (S10).
  */
-export async function saveAgentV4Checkpoint(userId: string, checkpoint: AgentV4Checkpoint, lease?: Pick<RunLease, "owner" | "token"> | null): Promise<void> {
+export async function saveAgentV4Checkpoint(userId: string, checkpoint: AgentV4Checkpoint, lease: Pick<RunLease, "owner" | "token"> | null | undefined): Promise<void> {
 	requireOwner(userId);
-	const patch = JSON.stringify({ v4: { step: checkpoint.step, state: checkpoint.state, payload: checkpoint.payload } });
-	const updated = lease
-		? await prisma.$executeRaw`
-			UPDATE "agent_runs"
-			SET "checkpointJson" = COALESCE("checkpointJson", '{}'::jsonb) || ${patch}::jsonb
-			WHERE "id" = ${checkpoint.runId} AND "userId" = ${userId}
-				AND "leaseOwner" = ${lease.owner} AND "leaseToken" = ${lease.token} AND "leaseUntil" > now()`
-		: await prisma.$executeRaw`
-			UPDATE "agent_runs"
-			SET "checkpointJson" = COALESCE("checkpointJson", '{}'::jsonb) || ${patch}::jsonb
-			WHERE "id" = ${checkpoint.runId} AND "userId" = ${userId}`;
-	if (updated === 0) {
-		if (lease) throw new Error("lease_lost");
-		throw new ResourceOwnershipError();
-	}
+	if (!lease) throw new Error("lease_required");
+	const patch = checkpointPatch(checkpoint);
+	const updated = await prisma.$executeRaw`
+		UPDATE "agent_runs"
+		SET "checkpointJson" = COALESCE("checkpointJson", '{}'::jsonb) || ${patch}::jsonb
+		WHERE "id" = ${checkpoint.runId} AND "userId" = ${userId}
+			AND "leaseOwner" = ${lease.owner} AND "leaseToken" = ${lease.token} AND "leaseUntil" > now()`;
+	if (updated === 0) throw new Error("lease_lost");
 }
+
+/** SEM cerca de lease: só para teste e manutenção explícita. O motor nunca chama (use `saveAgentV4Checkpoint`). */
+export async function saveAgentV4CheckpointUnfenced(userId: string, checkpoint: AgentV4Checkpoint): Promise<void> {
+	requireOwner(userId);
+	const updated = await prisma.$executeRaw`
+		UPDATE "agent_runs"
+		SET "checkpointJson" = COALESCE("checkpointJson", '{}'::jsonb) || ${checkpointPatch(checkpoint)}::jsonb
+		WHERE "id" = ${checkpoint.runId} AND "userId" = ${userId}`;
+	if (updated === 0) throw new ResourceOwnershipError();
+}
+
+const checkpointPatch = (checkpoint: AgentV4Checkpoint): string => JSON.stringify({ v4: { step: checkpoint.step, state: checkpoint.state, payload: checkpoint.payload } });
 
 /**
  * O lease do run ainda é desta execução (dono, token e validade)? Senão lança `lease_lost`. O executor do motor chama
@@ -205,6 +211,9 @@ const toNote = (row: NoteRow): AgentNoteRecord => ({ id: row.id, userId: row.use
 export async function saveAgentNote(note: AgentNoteRecord): Promise<void> {
 	requireOwner(note.userId);
 	checkText("id", note.id, LABEL_MAX);
+	// Os vínculos da nota têm de ser do mesmo dono: bot e run de outro usuário são "não encontrado" (S10).
+	if (note.botId && !(await prisma.bot.findFirst({ where: { id: note.botId, ownerId: note.userId }, select: { id: true } }))) throw new ResourceOwnershipError();
+	if (note.sourceRunId && !(await prisma.agentRun.findFirst({ where: { id: note.sourceRunId, userId: note.userId }, select: { id: true } }))) throw new ResourceOwnershipError();
 	const data = {
 		title: checkText("title", note.title, AGENT_NOTE_TITLE_MAX),
 		body: checkText("body", note.body, AGENT_NOTE_BODY_MAX),
