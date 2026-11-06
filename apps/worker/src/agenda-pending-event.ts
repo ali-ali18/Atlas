@@ -8,6 +8,7 @@
  * Tudo filtra pelo dono; a reserva usa `FOR UPDATE SKIP LOCKED` como a do `claimDueAgendaItems`.
  */
 import { getAgendaItem, prisma, type AgendaItemRecord } from "@workspace/db";
+import { AGENDA_EVENT_MAX_WAKES_PER_DAY } from "@workspace/shared";
 
 export const EVENT_PENDING = "event_pending";
 const CLAIM_MS = 2 * 60_000;
@@ -25,16 +26,22 @@ export async function clearPendingEvent(userId: string, id: string): Promise<voi
 	await prisma.botFollowup.updateMany({ where: { id, userId, agendaKind: "intent", status: "pending", endReason: EVENT_PENDING }, data: { endReason: null } });
 }
 
-/** Reserva os itens com evento pendente cujo run anterior terminou e que já passaram do espaçamento mínimo. */
+/**
+ * Reserva os itens com evento pendente cujo run anterior terminou e que já passaram do espaçamento mínimo. Respeita o teto
+ * diário da intenção (reauditoria F4, N1): com a janela de 24h cheia o item continua marcado (o evento não se perde) e só
+ * é reservado quando a janela vira, a mesma regra de `planAgendaEventWake`.
+ */
 export async function claimPendingEventItems(now: Date, minGapMinutes: number, limit = BATCH): Promise<AgendaItemRecord[]> {
 	const claimUntil = new Date(now.getTime() + CLAIM_MS);
 	const gapCutoff = new Date(now.getTime() - minGapMinutes * 60_000);
+	const windowCutoff = new Date(now.getTime() - 24 * 60 * 60_000);
 	const rows = await prisma.$queryRaw<Array<{ id: string; userId: string }>>`
 		UPDATE "bot_followups" SET "claimedUntil" = ${claimUntil}, "updatedAt" = ${now}
 		WHERE "id" IN (
 			SELECT "id" FROM "bot_followups"
 			WHERE "status" = 'pending' AND "agendaKind" = 'intent' AND "endReason" = ${EVENT_PENDING}
 			  AND ("claimedUntil" IS NULL OR "claimedUntil" <= ${now})
+			  AND ("eventWindowAt" IS NULL OR "eventWindowAt" <= ${windowCutoff} OR "eventWindowCount" < ${AGENDA_EVENT_MAX_WAKES_PER_DAY})
 			  AND ("lastResultJson" IS NULL OR ("lastResultJson"->>'at')::timestamptz <= ${gapCutoff})
 			ORDER BY "updatedAt" ASC
 			LIMIT ${limit}

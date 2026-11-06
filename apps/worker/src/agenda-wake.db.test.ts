@@ -193,6 +193,27 @@ describe("agenda do worker (Postgres real)", { skip: dbSkip }, () => {
 		assert.equal((await claimPendingEventItems(at(60, base), 10)).some((i) => i.id === item.id), false);
 	});
 
+	test("N1: evento pendente respeita o teto de 8 acordares por 24h: contínuo = no máximo 8 runs por janela, sem perder o evento (reauditoria F4)", async () => {
+		const item = await newItem({ kind: "intent", note: `Teto ${randomUUID()}`, eventFilter: { source: "email", from: "teto.com" } });
+		const base = at(2000);
+		let runs = 0;
+		// varredura a cada 31 min durante 24h menos 1 min, com o item sempre marcado como pendente
+		for (let n = 0; n * 31 < 24 * 60 - 1; n++) {
+			const now = at(n * 31, base);
+			await markPendingEvent(userId, item.id);
+			const claimed = (await claimPendingEventItems(now, AGENDA_EVENT_MIN_GAP_MINUTES)).filter((i) => i.id === item.id);
+			if (claimed.length === 0) continue;
+			runs += 1;
+			await beginAgendaRun(claimed[0]!, `run-teto-${n}`, now);
+			await recordAgendaResult({ userId, runId: `run-teto-${n}`, outcome: "no_change", now });
+		}
+		assert.equal(runs, 8, "no máximo 8 runs na janela");
+		assert.equal((await getAgendaItem(userId, item.id))?.endReason, "event_pending", "o evento continua esperando");
+		// a janela virou: o pendente acorda de novo
+		await markPendingEvent(userId, item.id);
+		assert.equal((await claimPendingEventItems(at(24 * 60 + 40, base), AGENDA_EVENT_MIN_GAP_MINUTES)).some((i) => i.id === item.id), true);
+	});
+
 	test("B5: evento que chegou com a intenção ocupada roda quando o run termina (ponta a ponta)", async () => {
 		const item = await newItem({ kind: "intent", note: `Ocupada ${randomUUID()}`, eventFilter: { source: "email", from: "banco.com" } });
 		const t = at(700);
