@@ -90,7 +90,17 @@ export type KernelSnapshot = {
 	/** Posições em `messages` das falas do dono (para listá-las por inteiro ao compactar). */
 	ownerIdx: number[];
 	/** O que a compactação já mandou para o caderno de trabalho. */
-	compacted: { noteIds: string[]; ownerTexts: string[] };
+	compacted: {
+		noteIds: string[];
+		/** Falas do dono que já foram para o caderno (todas, por inteiro). Só uma janela recente volta ao contexto. */
+		ownerTexts: string[];
+		/** Resumo de cada parte compactada, na ordem. O resumo anterior é carregado como está, nunca resumido de novo. */
+		summaries?: string[];
+		/** Tamanho (tokens estimados) logo depois da última compactação: histerese, só compacta de novo depois de crescer uma margem. */
+		floorTokens?: number;
+		/** Já avisamos que compactar não adianta (o rabo recente sozinho enche a janela). Uma vez por run. */
+		stalledNotified?: boolean;
+	};
 	compactions: number;
 	/** Chamadas do passo atual. */
 	pending: PendingCall[];

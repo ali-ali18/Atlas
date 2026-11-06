@@ -105,6 +105,76 @@ describe("compaction: erro de tool é dado, não sistema (S1)", () => {
 	});
 });
 
+const manyOwner = (n: number, size: number) => Array.from({ length: n }, (_, i) => [{ kind: "owner" as const, text: `fala-${i}-${big(size, "o")}` }, { kind: "assistant" as const, text: `resposta ${i}` }]).flat();
+
+describe("compaction: sinal, custo, janela do dono, resumo anterior e histerese (C5b/c/d)", () => {
+	it("o resumo recebe o signal do run e o custo dele entra no gasto do dono", async () => {
+		const ctrl = new AbortController();
+		const h = kernelHarness([reply({ calls: [call("a", "search", { q: "1" })], usage: { inputTokens: 100, costUsd: 0.1 } }), reply({ calls: [call("b", "search", { q: "2" })], usage: { inputTokens: 950, costUsd: 0.1 } }), reply({ text: "resumo", usage: { costUsd: 0.5 } }), reply({ text: "fim", usage: { costUsd: 0.1 } })], { tools: [search(() => big(2000))], windows: { main: 1000 } });
+		const out = await h.run({ options: { keepRecent: 2 }, signal: ctrl.signal });
+		const helperAt = h.llm.requests.findIndex((r) => r.role === "helper");
+		expect(h.llm.signals[helperAt]).toBe(ctrl.signal);
+		expect(out.spentUsd).toBeCloseTo(0.8);
+	});
+
+	it("cancelamento durante o resumo cancela o run, não vira 'resumo falhou'", async () => {
+		const ctrl = new AbortController();
+		const h = kernelHarness([reply({ calls: [call("a", "search", { q: "1" })], usage: { inputTokens: 100 } }), reply({ calls: [call("b", "search", { q: "2" })], usage: { inputTokens: 950 } }), () => (ctrl.abort(), (() => { throw new Error("aborted"); })())], { tools: [search(() => big(2000))], windows: { main: 1000 } });
+		const out = await h.run({ options: { keepRecent: 2 }, signal: ctrl.signal });
+		expect(out).toMatchObject({ status: "failed", reason: "cancelled" });
+		expect(h.log.of("status").some((s) => s.reason === "compacted")).toBe(false);
+	});
+
+	it("falas do dono: todas no caderno, só a janela recente volta ao contexto, com ponteiro dizendo onde estão as anteriores", async () => {
+		const history = manyOwner(30, 1000);
+		const h = kernelHarness([reply({ text: "resumo" }), reply({ text: "fim" })], { windows: { main: 1000 } });
+		await h.run({ input: { ...h.input, history }, options: { keepRecent: 2 } });
+		const block = (h.byRole("main").at(-1)?.messages ?? []).map((m) => m.content as string).find((c) => c.includes("Earlier context was compacted")) ?? "";
+		const note = h.notes.items.get("owner-1:work:run-1:ctx:1")?.body ?? "";
+		for (let i = 0; i < 29; i++) expect(note).toContain(`fala-${i}-`); // nada se perde: tudo no caderno
+		expect(block).toContain("fala-28-"); // a mais recente (dentro do bloco) está inteira
+		expect(block).not.toContain("fala-0-");
+		expect(block).toMatch(/The \d+ earlier owner message\(s\) are saved in full in the work notes/);
+		expect(block.length).toBeLessThan(20_000);
+	});
+
+	it("segunda compactação não resume o resumo anterior: ele fica como está ao lado do novo", async () => {
+		const h = kernelHarness(
+			[
+				reply({ calls: [call("a", "search", { q: "1" })], usage: { inputTokens: 100 } }),
+				reply({ calls: [call("b", "search", { q: "2" })], usage: { inputTokens: 950 } }),
+				reply({ text: "RESUMO-UM" }),
+				reply({ calls: [call("c", "search", { q: "3" })], usage: { inputTokens: 100 } }),
+				reply({ calls: [call("d", "search", { q: "4" })], usage: { inputTokens: 950 } }),
+				reply({ text: "RESUMO-DOIS" }),
+				reply({ text: "fim" }),
+			],
+			{ tools: [search((q) => `saida-${q}-${big(1500)}`)], windows: { main: 1000 } },
+		);
+		await h.run({ options: { keepRecent: 2 } });
+		const helpers = h.byRole("helper");
+		expect(helpers).toHaveLength(2);
+		const second = JSON.stringify(helpers[1]?.messages);
+		expect(second).not.toContain("RESUMO-UM");
+		expect(second).not.toContain("Earlier context was compacted");
+		const block = (h.byRole("main").at(-1)?.messages ?? []).map((m) => m.content as string).find((c) => c.includes("Earlier context was compacted")) ?? "";
+		expect(block).toContain("RESUMO-UM");
+		expect(block).toContain("RESUMO-DOIS");
+		expect(block).toContain("work:run-1:ctx:1");
+		expect(block).toContain("work:run-1:ctx:2");
+	});
+
+	it("rabo recente maior que o limiar: compacta uma vez, avisa uma vez e não entra em laço de resumos", async () => {
+		const history = [{ kind: "owner" as const, text: "comece" }, ...Array.from({ length: 6 }, (_, i) => ({ kind: "assistant" as const, text: `${i}-${big(3000)}` }))];
+		const steps = Array.from({ length: 5 }, (_, i) => reply({ calls: [call(`t${i}`, "search", { q: String(i) })], usage: { inputTokens: 100 } }));
+		const h = kernelHarness([...steps.slice(0, 1), reply({ text: "resumo" }), ...steps.slice(1), reply({ text: "fim" })], { tools: [search((q) => `r${q}`)], windows: { main: 1000 } });
+		await h.run({ input: { ...h.input, history }, options: { keepRecent: 4 } });
+		expect(h.byRole("helper")).toHaveLength(1);
+		expect(h.log.of("status").filter((s) => s.reason === "compaction_ineffective")).toHaveLength(1);
+		expect(h.log.of("status").filter((s) => s.reason === "compacted")).toHaveLength(1);
+	});
+});
+
 describe("compaction: segredos do cofre (S9)", () => {
 	it("argumentos de chamada que levam valor do cofre não vão crus para o caderno", async () => {
 		const secret = "valor-do-cofre-123";

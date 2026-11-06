@@ -16,7 +16,7 @@ import { createAskOwnerTool, ASK_OWNER_TOOL } from "./ask-owner.js";
 import { declinedOffersNote, emptyConversation, openOffer, settleOffers } from "./offers.js";
 import { finalStepNote, reachedLimit, spendText } from "./limits.js";
 import { observeCall, REPEAT_NOTE, signatureOf } from "./loop-guard.js";
-import { compactContext, contextTokens, DEFAULT_COMPACT_RATIO, DEFAULT_KEEP_RECENT, shouldCompact } from "./compaction.js";
+import { compactContext, contextTokens, DEFAULT_COMPACT_RATIO, DEFAULT_KEEP_RECENT, compactionDue, shouldCompact } from "./compaction.js";
 import { callModel } from "./model-step.js";
 import { addRuntimeNote, initSnapshot, isOwnershipLoss, isSnapshot, saveCheckpoint } from "./session.js";
 import { runPending, uniqueCallIds } from "./tool-step.js";
@@ -91,15 +91,23 @@ export async function runAgent(deps: RunAgentDeps): Promise<RunResult> {
 		return cardId;
 	}
 
+	/** Avisa UMA vez por run que compactar não alivia a janela (o rabo recente sozinho a enche): sem laço de resumos. */
+	async function warnStalled(window: number) {
+		if (snap.compacted.stalledNotified) return;
+		snap.compacted.stalledNotified = true;
+		await emit({ type: "status", data: { reason: "compaction_ineffective", message: `The most recent messages alone take more than the compaction threshold of a ${window}-token window, so compacting cannot make room. The run continues; the model may fail if the window overflows.` } });
+	}
+
 	/** Compacta só com a janela do modelo quase cheia (nunca por custo): flush no caderno, depois resumo. */
 	async function maybeCompact() {
 		const window = await ports.llm.contextWindow("main");
 		const ratio = deps.options?.compactAtRatio ?? DEFAULT_COMPACT_RATIO;
-		if (!shouldCompact(contextTokens(snap), window, ratio)) return;
-		const done = await compactContext({ snap, llm: ports.llm, store: ports.store, ownerId, runId, keepRecent: deps.options?.keepRecent ?? DEFAULT_KEEP_RECENT, ...(tracked && { secrets: tracked.secrets }) });
-		if (!done) return;
+		if (!compactionDue(snap, window, ratio)) return;
+		const done = await compactContext({ snap, llm: ports.llm, store: ports.store, ownerId, runId, keepRecent: deps.options?.keepRecent ?? DEFAULT_KEEP_RECENT, ...(tracked && { secrets: tracked.secrets }), ...(deps.signal && { signal: deps.signal }) });
+		if (!done) return warnStalled(window);
 		const why = done.summaryFailed ? ` The summary failed (${done.summaryFailed}); the full material is in work note ${done.noteId}.` : "";
 		await emit({ type: "status", data: { reason: "compacted", message: `Conversation compacted: about ${done.before} tokens before, ${done.after} after.${why}`, before: done.before, after: done.after } });
+		if (shouldCompact(done.after, window, ratio)) await warnStalled(window);
 	}
 
 	try {

@@ -27,6 +27,8 @@ export const call = (id: string, name: string, args: unknown): LlmToolCall => ({
 
 export class ScriptedLlm implements Llm {
 	readonly requests: Array<LlmChatRequest & { role: LlmRole }> = [];
+	/** O `signal` de cada pedido, na ordem (o clone em `requests` não o guarda). */
+	readonly signals: Array<AbortSignal | undefined> = [];
 	constructor(private turns: Turn[], private windows: Partial<Record<LlmRole, number>> = {}) {}
 	push(...turns: Turn[]) {
 		this.turns.push(...turns);
@@ -35,6 +37,7 @@ export class ScriptedLlm implements Llm {
 		return this.windows[role] ?? 1_000_000;
 	}
 	async *chat(request: LlmChatRequest) {
+		this.signals.push(request.signal);
 		this.requests.push(structuredClone({ ...request, signal: undefined }));
 		const turn = this.turns.shift();
 		if (!turn) throw new Error(`ScriptedLlm: no turn left for request #${this.requests.length} (role ${request.role})`);
