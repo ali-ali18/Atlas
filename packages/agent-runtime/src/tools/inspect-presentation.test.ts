@@ -1,7 +1,7 @@
 import sharp from "sharp";
 import { describe, expect, it, vi } from "vitest";
 import type { PersistUserArtifactInput } from "@workspace/db";
-import { buildFixtureTemplate } from "../files/deck/template/template.fixtures.js";
+import { buildFixtureTemplate } from "@workspace/files/deck/template/template.fixtures";
 import type { CodeRunResult } from "@workspace/sandbox";
 import { type DeckFileDeps } from "./deck-file.js";
 import { executeInspectPresentation, INSPECT_PRESENTATION_TOOL } from "./inspect-presentation.js";

@@ -27,7 +27,7 @@ vi.mock("@workspace/db", async (importOriginal) => ({
 	countRunFileArtifacts: vi.fn(async () => 0),
 }));
 
-vi.mock("./files/pdf-chromium.js", () => ({
+vi.mock("@workspace/files/pdf-chromium", () => ({
 	printPdfWithChromium: vi.fn(async () => new TextEncoder().encode("%PDF-1.4 fake")),
 }));
 

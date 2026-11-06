@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import sharp from "sharp";
-import { makeModelCopy, processImageForStorage } from "./process.js";
+import { makeModelCopy, processImageForStorage } from "./image-process.js";
 
 describe("processImageForStorage", () => {
 	it("reencoda e reduz imagem grande", async () => {

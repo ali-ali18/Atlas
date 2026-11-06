@@ -8,7 +8,7 @@ import { createResearchNotes } from "./tools/research-note.js";
 import { REGENERATE_FILE_NOTE } from "./execution/delivery-correction.js";
 import { withWithdrawnReply } from "./execution/task-state.js";
 import { applyComputerUseEventsToTranscript, type ComputerUseEvent } from "@workspace/shared";
-import { printPdfWithChromium } from "./files/pdf-chromium.js";
+import { printPdfWithChromium } from "@workspace/files/pdf-chromium";
 
 /**
  * F4 — verificar antes de entregar. Replay da falha real: pesquisa com PDF em que
@@ -33,7 +33,7 @@ vi.mock("@workspace/db", async (importOriginal) => ({
 	countRunFileArtifacts: vi.fn(async () => 0),
 }));
 
-vi.mock("./files/pdf-chromium.js", () => ({
+vi.mock("@workspace/files/pdf-chromium", () => ({
 	printPdfWithChromium: vi.fn(async () => new TextEncoder().encode("%PDF-1.4 fake")),
 }));
 

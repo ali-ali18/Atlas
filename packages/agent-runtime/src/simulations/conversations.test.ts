@@ -36,7 +36,7 @@ vi.mock("@workspace/db", async (original) => ({
 	countRunFileArtifacts: vi.fn(async () => 0),
 }));
 
-vi.mock("../files/pdf-chromium.js", () => ({ printPdfWithChromium: vi.fn(async () => new TextEncoder().encode("%PDF-1.4 sim")) }));
+vi.mock("@workspace/files/pdf-chromium", () => ({ printPdfWithChromium: vi.fn(async () => new TextEncoder().encode("%PDF-1.4 sim")) }));
 
 const scenario = (id: number) => SCENARIOS.find((item) => item.id === id)!;
 const outcomeOf = (sim: Simulation): ScenarioOutcome => ({

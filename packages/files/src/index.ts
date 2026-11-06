@@ -4,3 +4,4 @@ export { printPdfWithChromium } from "./pdf-chromium.js";
 export { markdownToDocx } from "./markdown-to-docx.js";
 export { renderXlsx } from "./xlsx.js";
 export { buildFilePreview, parseDelimited, type FilePreview, type SheetPreview } from "./preview.js";
+export { processImageForStorage, makeModelCopy, type ProcessedImage } from "./image-process.js";

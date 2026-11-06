@@ -2,9 +2,9 @@ import sharp from "sharp";
 import { describe, expect, it, vi } from "vitest";
 import type { PersistUserArtifactInput } from "@workspace/db";
 import { CodeRunnerUnavailableError, type CodeRunInput, type CodeRunResult } from "@workspace/sandbox";
-import { openPptx } from "../files/deck/pptx-zip.fixtures.js";
-import { HAS_PYTHON_PPTX, runPythonLocally } from "../files/deck/template/local-runner.fixtures.js";
-import { buildFixtureTemplate } from "../files/deck/template/template.fixtures.js";
+import { openPptx } from "@workspace/files/deck/pptx-zip.fixtures";
+import { HAS_PYTHON_PPTX, runPythonLocally } from "@workspace/files/deck/template/local-runner.fixtures";
+import { buildFixtureTemplate } from "@workspace/files/deck/template/template.fixtures";
 import { executeCreateFile, type CreateFileDeps } from "./create-file.js";
 
 const ctxBase = { userId: "user-a", runId: "run-1", conversationId: "conv-1" };

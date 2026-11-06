@@ -1,12 +1,12 @@
 import { CodeRunnerUnavailableError, loadCodeRunnerConfig, runCode, runSandboxOperation, type CodeRunnerOutputFile, type SandboxExecutionContext } from "@workspace/sandbox";
 import { loadArtifactForUser, persistUserArtifact, type PersistUserArtifactInput, type UserArtifact } from "@workspace/db";
 import type { CreateFileInput } from "@workspace/shared";
-import type { DeckImage, DeckImageSource } from "../files/deck/images.js";
-import { fillTemplate, type RunPython } from "../files/deck/template/fill.js";
-import { openTemplate, TEMPLATE_MAX_BYTES, TemplateError, type OpenedTemplate } from "../files/deck/template/inspect.js";
-import { DECK_PREVIEW_PAGES, renderDeckPreview } from "../files/deck/visual-check.js";
-import { formatDeckWarnings, lintDeck } from "../files/deck/lint.js";
-import { renderFile, type RenderedFile } from "../files/render.js";
+import type { DeckImage, DeckImageSource } from "@workspace/files/deck/images";
+import { fillTemplate, type RunPython } from "@workspace/files/deck/template/fill";
+import { openTemplate, TEMPLATE_MAX_BYTES, TemplateError, type OpenedTemplate } from "@workspace/files/deck/template/inspect";
+import { DECK_PREVIEW_PAGES, renderDeckPreview } from "@workspace/files/deck/visual-check";
+import { formatDeckWarnings, lintDeck } from "@workspace/files/deck/lint";
+import { renderFile, type RenderedFile } from "@workspace/files/render";
 import { processImageForStorage } from "../images/process.js";
 
 /**
