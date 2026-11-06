@@ -59,7 +59,7 @@ import {
 	saveAgentV4Checkpoint,
 	type RunLease,
 } from "@workspace/db";
-import { MODEL_ROLES, parseModelRef, type BotLanguage, type ComputerUseEvent, type RunStop, type RunUsage } from "@workspace/shared";
+import { MODEL_ROLES, formatModelRef, isMaintenanceModel, parseModelRef, type BotLanguage, type ComputerUseEvent, type ModelChainEntry, type RoleChains, type RunStop, type RunUsage } from "@workspace/shared";
 
 /** As funções de persistência do v4 (as de `@workspace/db`); injetáveis para o teste. */
 export type V4Db = {
@@ -215,20 +215,81 @@ export function meterLlm(llm: Llm): { llm: Llm; usage: () => RunUsage; model: ()
 }
 
 /**
- * `Llm` do v4 sobre o roteador do worker (`providers.streamChat`, que já resolve chaves e reserva por provedor). A cadeia
- * por papel é a do modelo do run em todos os papéis; cadeias por papel configuráveis chegam com a configuração de modelos.
+ * Modelo barato dos papéis auxiliares (`helper`, `sleep`, `classifier`). Decisão do dono: Haiku. É um padrão de
+ * configuração, não conta fixa: `ATLAS_V4_CHEAP_MODEL` troca, e `roleModels` (por papel) manda sobre os dois.
  */
-export function createV4Llm(input: { model: string; streamChat: ProviderStreamChat; openRouterKey: string; contextWindow?: (model: string) => Promise<number | null> }): Llm {
-	const ref = parseModelRef(input.model);
-	const entry = { provider: ref.provider, model: ref.slug };
-	const chains = Object.fromEntries(MODEL_ROLES.map((role) => [role, [entry]])) as unknown as Parameters<typeof createLlmAdapter>[0]["chains"];
+export const V4_CHEAP_MODEL_DEFAULT = "anthropic/claude-haiku-5.5";
+// `ModelRole` do índice do shared é outro tipo (papéis do subagente); o dos papéis do Llm vem de MODEL_ROLES.
+type ModelRole = (typeof MODEL_ROLES)[number];
+export const V4_CHEAP_ROLES = ["helper", "sleep", "classifier"] as const satisfies readonly ModelRole[];
+
+/** Modelo barato do deploy: a variável vale se for um modelo de manutenção válido (nunca `chatgpt/*`, que é a assinatura do dono). */
+export function cheapModelFromEnv(env: Record<string, string | undefined> = process.env): string {
+	const configured = env.ATLAS_V4_CHEAP_MODEL?.trim();
+	return configured && isMaintenanceModel(configured) ? configured : V4_CHEAP_MODEL_DEFAULT;
+}
+
+function chainEntry(model: string): ModelChainEntry | null {
+	try {
+		const ref = parseModelRef(model);
+		return { provider: ref.provider, model: ref.slug };
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Cadeias por papel do v4. `main` é o modelo do run. Os papéis baratos começam pelo modelo barato (ou pelo que
+ * `roleModels` define) e SÓ caem no modelo principal se o barato não estiver disponível (sem chave, fora do ar):
+ * compactar com o modelo principal custava caro sem necessidade. Papel sem configuração própria (`code`, `vision`)
+ * usa o principal. Ref inválida em `roleModels` é ignorada (cai no padrão do papel), nunca derruba o run.
+ */
+export function buildV4RoleChains(input: { model: string; cheapModel?: string; roleModels?: Partial<Record<ModelRole, string>> }): RoleChains {
+	const main = chainEntry(input.model) as ModelChainEntry;
+	const sameAs = (a: ModelChainEntry, b: ModelChainEntry) => a.provider === b.provider && a.model === b.model;
+	const chains = {} as RoleChains;
+	for (const role of MODEL_ROLES) {
+		const isCheap = (V4_CHEAP_ROLES as readonly ModelRole[]).includes(role);
+		const configured = input.roleModels?.[role];
+		const preferred = (configured ? chainEntry(configured) : null) ?? (isCheap ? chainEntry(input.cheapModel ?? V4_CHEAP_MODEL_DEFAULT) : null);
+		chains[role] = preferred && !sameAs(preferred, main) ? [preferred, main] : [main];
+	}
+	return chains;
+}
+
+/**
+ * `Llm` do v4 sobre o roteador do worker (`providers.streamChat`, que já resolve chaves e reserva por provedor).
+ * Cadeias por papel: ver `buildV4RoleChains`. Tetos de gasto por período (dia/semana/mês) da conta ou do bot ainda não
+ * existem na configuração do worker; só o teto POR EXECUÇÃO do dono (`limits.ownerMaxUsd`) vale. Quando existirem,
+ * entram em `ceilings`/`spend` do adaptador (já suportados lá).
+ */
+export function createV4Llm(input: {
+	model: string;
+	streamChat: ProviderStreamChat;
+	openRouterKey: string;
+	contextWindow?: (model: string) => Promise<number | null>;
+	/** Idioma do bot: os avisos do adaptador ao dono saem nele. */
+	language?: unknown;
+	cheapModel?: string;
+	roleModels?: Partial<Record<ModelRole, string>>;
+}): Llm {
+	const chains = buildV4RoleChains({ model: input.model, ...(input.cheapModel && { cheapModel: input.cheapModel }), ...(input.roleModels && { roleModels: input.roleModels }) });
 	return createLlmAdapter({
 		streamChat: input.streamChat,
 		chains,
 		// OpenRouter usa a chave do worker; os provedores diretos resolvem a chave do dono dentro do `streamChat`.
 		apiKeyFor: (provider) => (provider === "openrouter" ? input.openRouterKey || undefined : "provider-managed"),
 		clock: createSystemClock(),
-		...(input.contextWindow && { contextWindowFor: async () => (await input.contextWindow!(input.model)) ?? 128_000 }),
+		...(input.language !== undefined && { language: input.language }),
+		// Janela do modelo da ENTRADA escolhida (o auxiliar tem janela própria). Consulta sem resposta lança: o adaptador
+		// então mantém a última janela conhecida em vez de cair para 128k.
+		...(input.contextWindow && {
+			contextWindowFor: async (entry: ModelChainEntry) => {
+				const window = await input.contextWindow!(formatModelRef(entry.provider, entry.model));
+				if (window == null) throw new Error("context window unknown");
+				return window;
+			},
+		}),
 	});
 }
 

@@ -140,7 +140,7 @@ import {
 	resolveBudget,
 	wallClockAnchors,
 } from "@workspace/agent-runtime";
-import { createV4Llm, dropProcessorOwnedEvents, ownerStepsLimit, runEngineV4, vaultBackendFromService } from "../engine-v4.js";
+import { cheapModelFromEnv, createV4Llm, dropProcessorOwnedEvents, ownerStepsLimit, runEngineV4, vaultBackendFromService } from "../engine-v4.js";
 import { earlyWallMs, engineDefaultFromEnv, engineV4GateFromEnv, pickRunEngine, resolveRunLimits, runSelectedEngine } from "../engine-choice.js";
 import { getVaultService, type RunComputerUseResult } from "@workspace/agent-runtime";
 import { createSseMapper, type BullLikeQueue } from "@workspace/agent";
@@ -1235,7 +1235,7 @@ async function executeLeasedRun(ctx: {
 			conversationId: run.conversationId,
 			objective: run.objective ?? "",
 			language: systemLanguage,
-			llm: createV4Llm({ model: run.model, streamChat: providers.streamChat, openRouterKey: apiKey, contextWindow: (modelId) => providers.capabilities(modelId).then((caps) => caps.contextTokens, () => null) }),
+			llm: createV4Llm({ model: run.model, streamChat: providers.streamChat, openRouterKey: apiKey, language: systemLanguage, cheapModel: cheapModelFromEnv(), contextWindow: (modelId) => providers.capabilities(modelId).then((caps) => caps.contextTokens, () => null) }),
 			lease,
 			persistEvent: emit,
 			// O fim do stream (done/error/cancelled/teto de passos) é do processador, uma vez: o mapa do kernel não o repete.

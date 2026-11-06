@@ -5,8 +5,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createSseMapper, type Llm, type LlmChatRequest, type LlmStreamEvent, type RunEvent } from "@workspace/agent";
+import type { ProviderStreamChat } from "@workspace/llm";
 import type { ComputerUseEvent } from "@workspace/shared";
-import { createMinimalEventMapper, dropProcessorOwnedEvents, meterLlm, ownerStepsLimit, runEngineV4, storeBackendFromDb, unavailableQueue, unavailableSandbox, vaultBackendFromService, type V4Db } from "./engine-v4.js";
+import { buildV4RoleChains, cheapModelFromEnv, createMinimalEventMapper, createV4Llm, dropProcessorOwnedEvents, meterLlm, ownerStepsLimit, runEngineV4, storeBackendFromDb, unavailableQueue, unavailableSandbox, V4_CHEAP_MODEL_DEFAULT, vaultBackendFromService, type V4Db } from "./engine-v4.js";
 
 const served = { provider: "fake", model: "m-1" };
 const done = (costUsd?: number): LlmStreamEvent => ({ type: "done", finishReason: "stop", usage: { inputTokens: 10, outputTokens: 5, ...(costUsd !== undefined ? { costUsd } : {}) }, served });
@@ -222,4 +223,66 @@ test("teto de passos do dono: só repassa ao kernel quando veio de configuraçã
 	assert.equal(ownerStepsLimit({ steps: 12, stepsSource: "bot" }), 12);
 	assert.equal(ownerStepsLimit({ steps: 12, stepsSource: "account" }), 12);
 	assert.equal(ownerStepsLimit({ steps: 200 }), undefined, "o de segurança é do kernel");
+});
+
+test("cadeias por papel: helper/sleep/classifier começam no modelo barato e só caem no principal; os demais usam o principal (auditoria F1, C5a)", () => {
+	const chains = buildV4RoleChains({ model: "deepseek/deepseek-v4.1-flash" });
+	const main = { provider: "openrouter", model: "deepseek/deepseek-v4.1-flash" };
+	const cheap = { provider: "openrouter", model: V4_CHEAP_MODEL_DEFAULT };
+	for (const role of ["helper", "sleep", "classifier"] as const) assert.deepEqual(chains[role], [cheap, main], role);
+	for (const role of ["main", "code", "vision"] as const) assert.deepEqual(chains[role], [main], role);
+	// configurável: o modelo barato do deploy e o modelo por papel mandam; ref inválida cai no padrão do papel
+	assert.deepEqual(buildV4RoleChains({ model: "m/x", cheapModel: "m/barato" }).helper[0], { provider: "openrouter", model: "m/barato" });
+	assert.deepEqual(buildV4RoleChains({ model: "m/x", roleModels: { helper: "opencode-go/kimi", code: "m/codigo" } }).helper[0], { provider: "opencode-go", model: "kimi" });
+	assert.deepEqual(buildV4RoleChains({ model: "m/x", roleModels: { code: "m/codigo" } }).code, [{ provider: "openrouter", model: "m/codigo" }, { provider: "openrouter", model: "m/x" }]);
+	assert.deepEqual(buildV4RoleChains({ model: "m/x", roleModels: { helper: "opencode-go/" } }).helper[0], cheap);
+	// se o barato é o próprio principal, a cadeia não repete a entrada
+	assert.deepEqual(buildV4RoleChains({ model: "m/x", cheapModel: "m/x" }).helper, [{ provider: "openrouter", model: "m/x" }]);
+	// a variável do deploy troca o padrão, mas nunca aceita a assinatura do dono (chatgpt/*)
+	assert.equal(cheapModelFromEnv({}), V4_CHEAP_MODEL_DEFAULT);
+	assert.equal(cheapModelFromEnv({ ATLAS_V4_CHEAP_MODEL: " m/barato " }), "m/barato");
+	assert.equal(cheapModelFromEnv({ ATLAS_V4_CHEAP_MODEL: "chatgpt/gpt-x" }), V4_CHEAP_MODEL_DEFAULT);
+});
+
+test("Llm do v4: o papel helper chama o modelo barato, o main chama o do run (auditoria F1, C5a)", async () => {
+	const called: string[] = [];
+	const streamChat = (async (params: { model: string }, handlers?: { onDelta?: (t: string) => void }) => {
+		called.push(params.model);
+		handlers?.onDelta?.("ok");
+		return { message: { role: "assistant", content: "ok" }, model: params.model, finishReason: "stop" };
+	}) as unknown as ProviderStreamChat;
+	const llm = createV4Llm({ model: "m/principal", streamChat, openRouterKey: "k" });
+	for (const role of ["helper", "main", "classifier", "sleep"] as const) for await (const _ of llm.chat({ role, messages: [{ role: "user", content: "x" }] })) void _;
+	assert.deepEqual(called, [V4_CHEAP_MODEL_DEFAULT, "m/principal", V4_CHEAP_MODEL_DEFAULT, V4_CHEAP_MODEL_DEFAULT]);
+});
+
+test("Llm do v4: janela de contexto é a da entrada do papel e lembra a última conhecida quando a consulta falha (auditoria F1, C3)", async () => {
+	const streamChat = (async () => ({ message: { role: "assistant", content: "" } })) as unknown as ProviderStreamChat;
+	let unknown = false;
+	const asked: string[] = [];
+	const llm = createV4Llm({
+		model: "m/principal",
+		streamChat,
+		openRouterKey: "k",
+		contextWindow: async (model) => {
+			asked.push(model);
+			return unknown ? null : model === "m/principal" ? 200_000 : 64_000;
+		},
+	});
+	assert.equal(await llm.contextWindow("main"), 200_000);
+	assert.equal(await llm.contextWindow("helper"), 64_000);
+	unknown = true;
+	assert.equal(await llm.contextWindow("main"), 200_000, "consulta sem resposta: mantém a última, não cai para 128k");
+	assert.deepEqual(asked.slice(0, 2), ["m/principal", V4_CHEAP_MODEL_DEFAULT]);
+});
+
+test("Llm do v4: o aviso de indisponibilidade segue o idioma do bot (auditoria F1, A1)", async () => {
+	const streamChat = (async () => {
+		throw Object.assign(new Error("HTTP 503"), { status: 503 });
+	}) as unknown as ProviderStreamChat;
+	const llm = createV4Llm({ model: "m/principal", streamChat, openRouterKey: "k", language: "en-US" });
+	const error = await (async () => {
+		for await (const _ of llm.chat({ role: "main", messages: [{ role: "user", content: "x" }] })) void _;
+	})().catch((e: Error) => e);
+	assert.match((error as Error).message, /^The configured models are unavailable right now/);
 });
