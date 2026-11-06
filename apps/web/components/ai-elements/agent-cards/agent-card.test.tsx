@@ -88,6 +88,14 @@ test("pergunta do bot com alternativas: as duas opções, o campo livre e o selo
 	assert.match(html, /Digite sua própria resposta/);
 	assert.match(html, /Precisa de você/);
 	assert.doesNotMatch(html, /ask_owner|k1/);
+	// Dispensar é botão de texto na barra de ações, sem o X do cabeçalho.
+	assert.match(html, /Agora não/);
+	assert.doesNotMatch(html, /Dispensar questionário/);
+});
+
+test("pergunta do bot sem run não oferece 'Agora não'", () => {
+	const html = render({ type: "ask_owner", cardId: "k1", question: "Prefere azul ou verde?", runId: undefined });
+	assert.doesNotMatch(html, /Agora não/);
 });
 
 test("pergunta do bot sem alternativas: só o campo livre", () => {

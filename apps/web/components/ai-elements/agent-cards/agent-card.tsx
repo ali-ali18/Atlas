@@ -222,7 +222,7 @@ function AskOwnerCard({ card, respond, settled, initialDecision }: InteractivePr
 	const dismiss = () => void send({ kind: "ask_owner", cardId: card.cardId, decision: "dismiss" }, "dismissed");
 	return (
 		<div className="flex min-w-0 flex-col gap-2" data-kind="agent-ask-owner">
-			<QuestionnaireCard message={message} onDismiss={canRespond ? dismiss : undefined} onSubmit={canRespond ? submit : undefined} />
+			<QuestionnaireCard dismissAs="action" message={message} onDismiss={canRespond ? dismiss : undefined} onSubmit={canRespond ? submit : undefined} />
 			{failed || tooLong ? <ChatCardError>{t("agentCards.sendFailed")}</ChatCardError> : null}
 		</div>
 	);
