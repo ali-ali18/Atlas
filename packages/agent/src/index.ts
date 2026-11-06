@@ -7,3 +7,4 @@ export * from "./channels/index.js";
 export * from "./kernel/index.js";
 export * from "./prompt/index.js";
 export * from "./copy/index.js";
+export * from "./adapters/index.js";
