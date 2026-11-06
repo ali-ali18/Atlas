@@ -51,9 +51,11 @@ export async function saveAgentV4Checkpoint(userId: string, checkpoint: AgentV4C
 	requireOwner(userId);
 	if (!lease) throw new Error("lease_required");
 	const patch = checkpointPatch(checkpoint);
+	const provenance = provenanceColumn(checkpoint);
 	const updated = await prisma.$executeRaw`
 		UPDATE "agent_runs"
-		SET "checkpointJson" = COALESCE("checkpointJson", '{}'::jsonb) || ${patch}::jsonb
+		SET "checkpointJson" = COALESCE("checkpointJson", '{}'::jsonb) || ${patch}::jsonb,
+			"v4Provenance" = COALESCE(${provenance}::jsonb, "v4Provenance")
 		WHERE "id" = ${checkpoint.runId} AND "userId" = ${userId}
 			AND "leaseOwner" = ${lease.owner} AND "leaseToken" = ${lease.token} AND "leaseUntil" > now()`;
 	if (updated === 0) throw new Error("lease_lost");
@@ -64,7 +66,8 @@ export async function saveAgentV4CheckpointUnfenced(userId: string, checkpoint: 
 	requireOwner(userId);
 	const updated = await prisma.$executeRaw`
 		UPDATE "agent_runs"
-		SET "checkpointJson" = COALESCE("checkpointJson", '{}'::jsonb) || ${checkpointPatch(checkpoint)}::jsonb
+		SET "checkpointJson" = COALESCE("checkpointJson", '{}'::jsonb) || ${checkpointPatch(checkpoint)}::jsonb,
+			"v4Provenance" = COALESCE(${provenanceColumn(checkpoint)}::jsonb, "v4Provenance")
 		WHERE "id" = ${checkpoint.runId} AND "userId" = ${userId}`;
 	if (updated === 0) throw new ResourceOwnershipError();
 }
@@ -97,6 +100,31 @@ export function jsonbSafe(json: string): string {
 	});
 }
 
+/** Sinais de proveniência de um run v4 (o que a conversa herda de um run para o outro). */
+export type AgentV4ProvenanceFlags = { untrustedReadInRun: boolean; privateReadInRun: boolean; sources: string[] };
+const PROVENANCE_SOURCES_MAX = 50;
+
+/**
+ * Lê os sinais de proveniência do payload do checkpoint (snapshot do kernel: `payload.provenance`). Sem o objeto no
+ * formato esperado devolve `null` (a coluna fica como estava). Descarta os `texts` indexados, que são grandes e não
+ * servem à herança. Função pura.
+ */
+export function agentV4ProvenanceOf(payload: unknown): AgentV4ProvenanceFlags | null {
+	const provenance = (payload as { provenance?: unknown } | null | undefined)?.provenance as { untrustedReadInRun?: unknown; privateReadInRun?: unknown; sources?: unknown } | null | undefined;
+	if (typeof provenance !== "object" || provenance === null) return null;
+	const sources = Array.isArray(provenance.sources) ? provenance.sources.filter((s): s is string => typeof s === "string" && s.length <= LABEL_MAX).slice(0, PROVENANCE_SOURCES_MAX) : [];
+	return { untrustedReadInRun: provenance.untrustedReadInRun === true, privateReadInRun: provenance.privateReadInRun === true, sources };
+}
+
+/**
+ * Valor da coluna `agent_runs.v4Provenance` gravado na mesma instrução do checkpoint (C1): `getAgentV4ConversationProvenance`
+ * lê dela e nunca abre o `checkpointJson`. `null` mantém o valor que já estava.
+ */
+function provenanceColumn(checkpoint: AgentV4Checkpoint): string | null {
+	const flags = agentV4ProvenanceOf(checkpoint.payload);
+	return flags ? jsonbSafe(JSON.stringify(flags)) : null;
+}
+
 const checkpointPatch = (checkpoint: AgentV4Checkpoint): string => jsonbSafe(JSON.stringify({ v4: { step: checkpoint.step, state: checkpoint.state, payload: checkpoint.payload } }));
 
 /**
@@ -118,6 +146,19 @@ export async function loadAgentV4Checkpoint(userId: string, runId: string): Prom
 		SELECT "checkpointJson"->'v4' AS "v4" FROM "agent_runs" WHERE "id" = ${runId} AND "userId" = ${userId}`;
 	const v4 = rows[0]?.v4;
 	return v4 && typeof v4 === "object" ? { runId, userId, step: v4.step, state: v4.state, payload: v4.payload } : null;
+}
+
+/**
+ * O run já tem checkpoint v4? Consulta barata para decidir "run novo ou retomada" sem trazer o checkpoint (grande) à
+ * memória (auditoria F2, C5). Todo save v4 grava `v4Provenance`, então a coluna pequena responde quase sempre; o teste da
+ * chave dentro do `checkpointJson` só roda para quem ainda não tem a coluna (run novo, v2, ou checkpoint de antes dela).
+ */
+export async function hasAgentV4Checkpoint(userId: string, runId: string): Promise<boolean> {
+	if (!owned(userId)) return false;
+	const rows = await prisma.$queryRaw<Array<{ found: boolean }>>`
+		SELECT ("v4Provenance" IS NOT NULL OR jsonb_exists("checkpointJson", 'v4')) AS "found"
+		FROM "agent_runs" WHERE "id" = ${runId} AND "userId" = ${userId}`;
+	return rows[0]?.found === true;
 }
 
 // ------------------------------------------------------------------- journal

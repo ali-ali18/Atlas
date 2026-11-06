@@ -19,6 +19,7 @@ import {
 	removeAgentNote,
 	saveAgentConversationState,
 	saveAgentNote,
+	hasAgentV4Checkpoint,
 	saveAgentV4Checkpoint,
 	saveAgentV4CheckpointUnfenced,
 } from "./agent-v4-store.js";
@@ -174,6 +175,19 @@ describe("agent-v4-store (Postgres real)", { skip: dbSkip }, () => {
 		const final = (await getAgentConversationState(a, conv)).declinedOffers;
 		assert.ok(lists.some((l) => JSON.stringify(l) === JSON.stringify(final)), `lista final inconsistente: ${final.join(",")}`);
 		assert.equal((await getAgentConversationState(a, conv)).offers.length, 1);
+	});
+
+	test("C5: hasAgentV4Checkpoint responde sem trazer o payload; outro dono, run novo e v2 dão false; checkpoint legado sem a coluna dá true", async () => {
+		const run = await prisma.agentRun.create({ data: { userId: a, objective: "o", model: "m", status: "queued" } });
+		assert.equal(await hasAgentV4Checkpoint(a, run.id), false);
+		await saveAgentV4CheckpointUnfenced(a, { runId: run.id, userId: a, step: 0, state: "PREPARE", payload: { v: 1, provenance: { untrustedReadInRun: false, privateReadInRun: false, sources: [], texts: [] } } });
+		assert.equal(await hasAgentV4Checkpoint(a, run.id), true);
+		assert.equal(await hasAgentV4Checkpoint(b, run.id), false, "outro dono não vê");
+		const v2 = await prisma.agentRun.create({ data: { userId: a, objective: "o", model: "m", status: "queued", checkpointJson: { llmMessages: [] } } });
+		assert.equal(await hasAgentV4Checkpoint(a, v2.id), false);
+		const legacy = await prisma.agentRun.create({ data: { userId: a, objective: "o", model: "m", status: "paused", checkpointJson: { v4: { step: 1, state: "PARKED", payload: { v: 1 } } } } });
+		assert.equal(await hasAgentV4Checkpoint(a, legacy.id), true);
+		assert.equal(await hasAgentV4Checkpoint("default", run.id), false);
 	});
 
 	test("checkpoint: grava em checkpointJson.v4 sem apagar as chaves do v2; B não lê nem grava", async () => {

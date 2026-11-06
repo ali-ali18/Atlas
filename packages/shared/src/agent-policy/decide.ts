@@ -58,8 +58,10 @@ function lastMatchingRule(rules: readonly PolicyRule[], effect: EffectClass, too
  *  5. taint: send/write_external/public_link (e tool com `egress`, mesmo `read`) nunca ficam em `run` com leitura ou
  *     argumento não confiável.
  *  6. mandato válido: só `money`, só sem taint, só pula o cartão (nunca o `hidden` do passo 3).
- *  7. regra do dono (a última que casa): `approve` aperta qualquer coisa; `run` só afrouxa
- *     draft/write_internal/write_external, e nunca por cima de taint.
+ *  7. `confirm` declarado pela tool: `always` (ou `when_untrusted` com leitura não confiável no run) faz `run` virar
+ *     `approve`; sem dono vira `hidden` (não há quem confirme).
+ *  8. regra do dono (a última que casa): `approve` aperta qualquer coisa; `run` só afrouxa
+ *     draft/write_internal/write_external, e nunca por cima de taint nem de `confirm`.
  */
 export function decide(input: DecideInput): Verdict {
 	const { effect, surface, autonomy, taint, action } = input;
@@ -85,6 +87,11 @@ export function decide(input: DecideInput): Verdict {
 	if (egressRisk && (!input.ownerPresent || NO_OWNER_SURFACES.has(surface))) return { kind: "hidden", reason: "no owner present: egress after private and untrusted reads" };
 	if (taintFloor && verdict.kind === "run") verdict = { kind: "approve", reason: "untrusted data in the run: confirm first" };
 
+	// `confirm` declarado pela tool: o dono confirma. Sem dono, a tool fica fora; regra `run` não afrouxa (abaixo).
+	const confirmFloor = input.confirm === "always" || (input.confirm === "when_untrusted" && taint.untrustedReadInRun);
+	if (confirmFloor && (!input.ownerPresent || NO_OWNER_SURFACES.has(surface))) return { kind: "hidden", reason: "no owner present: this action needs the owner to confirm" };
+	if (confirmFloor && verdict.kind === "run") verdict = { kind: "approve", reason: "owner confirms this action" };
+
 	if (effect === "money" && input.mandate && input.riskFacts && !tainted) {
 		const { amount, currency, merchant } = input.riskFacts;
 		if (amount !== undefined && currency !== undefined && merchant !== undefined) {
@@ -93,7 +100,7 @@ export function decide(input: DecideInput): Verdict {
 	}
 
 	if (rule?.verdict === "approve" && verdict.kind === "run") return { kind: "approve", reason: "owner rule: always confirm" };
-	if (rule?.verdict === "run" && verdict.kind === "approve" && LOOSENABLE_EFFECTS.has(effect) && !taintFloor) {
+	if (rule?.verdict === "run" && verdict.kind === "approve" && LOOSENABLE_EFFECTS.has(effect) && !taintFloor && !confirmFloor) {
 		return { kind: "run", reason: "owner rule: allowed" };
 	}
 	return verdict;

@@ -38,7 +38,8 @@
 | Fase | Branch | Status | PR |
 |---|---|---|---|
 | F0 baseline | `feat/harness-v4-f0-baseline` | **concluída, juntada em `harness/v4`** | #150 |
-| F1 fundação | `feat/harness-v4-f1-fundacao` | em andamento (começou em paralelo ao fim da F0) | — |
+| F1 fundação | `feat/harness-v4-f1-fundacao` | **concluída** (auditoria fechada); PR para `harness/v4` aguarda o dono | — |
+| F2 capacidades | `feat/harness-v4-f2-capacidades` (a partir da F1) | em andamento: frentes A (arquivos), B (web e núcleo), C (conectores) | — |
 
 ## Decisões do dono (não reabrir)
 - Base nova, do zero, em `packages/agent`, sem import do legado (05/11).
@@ -54,6 +55,8 @@
 - "EVA" = **Vercel Eve** (05/11).
 - Base: `harness/v4` criado a partir da `main` (0.4.1-beta) (05/11).
 - Provedor das rodadas reais da F0 por enquanto: **OpenCode Go**, porque os créditos do OpenRouter estão acabando. Modelos: `deepseek-v4.1-flash` (maior franquia; ligar *Global* em Settings › Privacy) e `qwen3.8-flash`, mais `claude-haiku-5-5`, que também está no Go. Anthropic direto: a chave está no ambiente como `CLAUDE_KEY` (verificada, responde 200) e dá Sonnet, Haiku e Opus, com **teto de US$ 10 no total das rodadas reais pela Anthropic**. O comando `matrix` (F0.2) precisa de um teto rígido que aborta antes de passar e de um `--estimate` antes de rodar (05/11). As ideias aproveitadas estão em `02-referencias.md`.
+- **O v4 só é ligado (nem na conta do dono) quando estiver completo.** Até lá a validação é só pelos testes automáticos e pela matriz de avaliação; nada de flag ligada para teste no app (06/11).
+- Perfil do bot sempre pede confirmação; gravar memória depois de ler conteúdo de fora (e-mail, página, conector) pede confirmação com "Agora não" e expira sem resposta; o resto da memória segue automático (06/11).
 
 ## Checklist
 
@@ -88,12 +91,13 @@
 - [x] F1.A (06/11: ~50 achados, nenhum crítico; altos corrigidos; reauditoria com 7 novos, 4 corrigidos) Auditoria: 5 lentes, verificação, correções com teste, reauditoria e `auditorias/F1.md` fechado.
 
 ### F2: Capacidades do núcleo
-- [ ] F2.1 `web` (busca e extração).
-- [ ] F2.2 `packages/files` (renderizadores movidos do legado, que passa a importá-los).
-- [ ] F2.3 `deliverables` (arquivo, painel, gráfico, `inspect_file`, moldes ABNT, relatório, deck e planilha).
-- [ ] F2.4 `memory` (perfil), `tasks` e `settings` (inclui o modelo por papel pelo chat).
-- [ ] F2.5 `connectors` (ponte MCP, escopo por dono, classificação de schema, `confirmWrites` → regra).
-- [ ] F2.A Auditoria: 5 lentes, verificação, correções com teste, reauditoria e `auditorias/F2.md` fechado.
+- [x] F2.1 (06/11: adaptador real SearXNG + DuckDuckGo por injeção; página inteira; ligar no worker na F2.6) `web` (busca e extração).
+- [x] F2.2 (06/11) `packages/files` (renderizadores movidos do legado, que passa a importá-los).
+- [x] F2.3 (06/11: capacidade lazy; adaptador no worker na F2.6) `deliverables` (arquivo, painel, gráfico, `inspect_file`, moldes ABNT, relatório, deck e planilha).
+- [x] F2.4 (06/11: portas e fakes; adaptador de banco e `roleModels` por bot na F2.6; perfil sempre confirma; memória depois de leitura não confiável confirma, com "Agora não" e expiração) `memory` (perfil), `tasks` e `settings` (inclui o modelo por papel pelo chat).
+- [x] F2.5 (06/11: porta e fake; adaptador real na F2.6) `connectors` (ponte MCP, escopo por dono, classificação de schema, `confirmWrites` → regra).
+- [x] F2.6 (06/11: adaptadores reais no worker; histórico, cartões, retomada com aprovar/"Agora não"/handoff e expiração em 24h; taint entre runs pela coluna `agent_runs.v4Provenance`; rotas `/v1/agent-v4`. Falta só o cartão no app, feito em outra conta sobre o contrato da rota) Pré-requisitos para ligar (da auditoria F1).
+- [x] F2.A (06/11: 23 achados, nenhum crítico ou alto; 21 corrigidos, 2 aceitos; reauditoria com 4 novos baixos, 1 corrigido) Auditoria: 5 lentes, verificação, correções com teste, reauditoria e `auditorias/F2.md` fechado.
 
 ### F3: Pesquisa
 - [ ] F3.1 Ajudantes com preset filho e política que não concede mais que a mãe.

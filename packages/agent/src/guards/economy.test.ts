@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { createCapabilityRegistry, defineCapability } from "../capabilities/index.js";
-import { kernelHarness, reply } from "../testing/kernel-fakes.js";
+import { createConnectorsCapability } from "../connectors/capability.js";
+import { FakeMcp } from "../connectors/fake-mcp.js";
+import { createDeliverablesCapability } from "../capabilities-builtin/deliverables/index.js";
+import { FakeDeliverables } from "../presets/fakes.js";
+import { call, kernelHarness, reply } from "../testing/kernel-fakes.js";
 
 // Economia (05-fases, guardas permanentes #5): "Bom dia" é barato.
 // "Só entra no contexto se for usar" (70-padroes-produto): a primeira chamada ao modelo de um
@@ -54,6 +58,41 @@ describe("economia: Bom dia", () => {
 		const withLazy = await measureGoodMorning([lazy]);
 		expect(withLazy.toolNames).toEqual(base.toolNames);
 		expect(withLazy.tokens - base.tokens).toBeLessThan(60);
+	});
+
+	it("conectores do dono entram só como uma linha do índice: nem tool_search nem mcp_* vão no primeiro passo", async () => {
+		const mcp = new FakeMcp([{ id: "a", ownerId: "o", slug: "gmail", name: "Gmail", catalogId: "gmail", status: "connected", confirmWrites: true, tools: Array.from({ length: 40 }, (_, i) => ({ name: `tool_${i}`, description: "x".repeat(300), inputSchema: { type: "object" } })), disabledTools: [] }]);
+		const { capability } = await createConnectorsCapability(mcp, "o");
+		const base = await measureGoodMorning();
+		const withConnectors = await measureGoodMorning(capability ? [capability] : []);
+		expect(capability?.core).toBe(false);
+		expect(withConnectors.toolNames).toEqual(base.toolNames);
+		expect(withConnectors.tokens - base.tokens).toBeLessThan(60);
+		expect(withConnectors.tokens).toBeLessThanOrEqual(GOOD_MORNING_INPUT_TOKENS_CEILING);
+	});
+
+	it("a capacidade deliverables é lazy: 'Bom dia' não ganha tool nem os moldes, só uma linha do índice", async () => {
+		const base = await measureGoodMorning();
+		const withDeliverables = await measureGoodMorning([createDeliverablesCapability(new FakeDeliverables().ports())]);
+		expect(withDeliverables.toolNames).toEqual(base.toolNames);
+		expect(withDeliverables.toolNames).not.toContain("create_file");
+		expect(withDeliverables.tokens - base.tokens).toBeLessThan(60);
+		const sent = JSON.stringify(withDeliverables.result);
+		expect(sent).not.toContain("Academic work (ABNT)");
+		expect(withDeliverables.tokens).toBeLessThanOrEqual(GOOD_MORNING_INPUT_TOKENS_CEILING + 60);
+	});
+
+	it("o pedido de arquivo carrega a capacidade no passo 1 e os moldes só então", async () => {
+		const core = defineCapability({ id: "core", title: "Core", summary: "core tools", core: true, tools: [] });
+		const h = kernelHarness([reply({ calls: [call("c1", "use_capability", { id: "deliverables" })] }), reply({ text: "Pronto." })], {
+			capabilities: [core, createDeliverablesCapability(new FakeDeliverables().ports())],
+		});
+		await h.run({ input: { contextSections: [], history: [{ kind: "owner", text: "Faça um relatório em Word" }] } });
+		const [first, second] = h.llm.requests;
+		expect(JSON.stringify(first?.messages)).not.toContain("Academic work (ABNT)");
+		expect((first?.tools ?? []).map((t) => t.name)).not.toContain("create_file");
+		expect((second?.tools ?? []).map((t) => t.name)).toEqual(expect.arrayContaining(["create_file", "create_page", "chart", "inspect_file"]));
+		expect(JSON.stringify(second?.messages)).toContain("Academic work (ABNT)");
 	});
 
 	it("o teto é o medido + 15% (o teto só desce: se o núcleo encolher, baixe o medido e o teto no mesmo commit)", () => {

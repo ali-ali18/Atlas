@@ -416,7 +416,7 @@ export {
 	printPdfWithChromium,
 	type FilePreview,
 	type RenderedFile,
-} from "./files/index.js";
+} from "@workspace/files";
 export { CREATE_FILE_TOOL, executeCreateFile } from "./tools/create-file.js";
 export {
 	decisionStepTelemetry,

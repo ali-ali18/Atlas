@@ -34,7 +34,7 @@ vi.mock("@workspace/db", async (original) => ({
 	persistConversationCardFromEvent: vi.fn(async () => undefined),
 }));
 
-vi.mock("./files/pdf-chromium.js", () => ({
+vi.mock("@workspace/files/pdf-chromium", () => ({
 	printPdfWithChromium: vi.fn(async () => new TextEncoder().encode("%PDF-1.4 fake")),
 }));
 

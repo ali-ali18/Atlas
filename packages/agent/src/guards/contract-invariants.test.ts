@@ -1,4 +1,5 @@
-import { FakeFileStore, FakeSearch } from "../presets/fakes.js";
+import { createDeliverablesCapability } from "../capabilities-builtin/deliverables/index.js";
+import { FakeDeliverables, FakeFileStore, FakeMemory, FakeSearch, FakeSettings, FakeTaskListStore } from "../presets/fakes.js";
 import { setupPreset } from "../presets/presets.js";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -9,6 +10,7 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { USE_CAPABILITY_TOOL, createCapabilityRegistry, createLoadedSet, defineCapability } from "../capabilities/index.js";
 import { EFFECT_CLASSES, type Effect, RunProvenance, createExecutor, grantApproval, isEffect, type ApprovalGrant, type PolicyContext } from "../contract/index.js";
+import { TOOL_SEARCH_TOOL } from "../connectors/capability.js";
 import { ASK_OWNER_TOOL, createAskOwnerTool } from "../kernel/ask-owner.js";
 import { NOTE_READ_TOOL, createNoteReadTool, DEFAULT_PAGE_CHARS } from "../kernel/work-notes.js";
 import { fakePorts, sha256 } from "../testing/fake-ports.js";
@@ -31,13 +33,20 @@ const hash = sha256;
 
 // ---------------------------------------------------------------- A. efeito declarado
 
+/** Todas as portas do preset `full`: assim nenhuma capacidade fica de fora do registro de teste. */
+function fullDeps() {
+	return { search: new FakeSearch(), files: new FakeFileStore(), memory: new FakeMemory(), settings: new FakeSettings(), taskLists: new FakeTaskListStore() };
+}
+
 /** Todas as tools que existem hoje em `packages/agent` (núcleo do kernel + as de capacidade). */
 function allRegisteredTools(): Tool[] {
 	const kernelCapability = defineCapability({ id: "kernel", title: "Kernel", summary: "kernel tools", core: true, tools: [createNoteReadTool(DEFAULT_PAGE_CHARS), createAskOwnerTool()] });
 	const registry = createCapabilityRegistry([kernelCapability]);
 	const loaded = createLoadedSet(registry);
-	const preset = setupPreset("full", { search: new FakeSearch(), files: new FakeFileStore() });
-	return [...kernelCapability.tools, loaded.useCapabilityTool, ...preset.registry.capabilities.flatMap((c) => c.tools)];
+	const preset = setupPreset("full", fullDeps());
+	// `deliverables` (F2.3) substitui a lite quando as portas existem; as duas são conferidas.
+	const rich = createDeliverablesCapability(new FakeDeliverables().ports());
+	return [...kernelCapability.tools, loaded.useCapabilityTool, ...preset.registry.capabilities.flatMap((c) => c.tools), ...rich.tools];
 }
 
 function listTs(dir: string): string[] {
@@ -50,7 +59,14 @@ function listTs(dir: string): string[] {
 }
 
 /** Constantes de nome usadas no lugar do literal (o AST não resolve imports). */
-const NAME_CONSTANTS: Record<string, string> = { ASK_OWNER_TOOL, NOTE_READ_TOOL, USE_CAPABILITY_TOOL };
+const NAME_CONSTANTS: Record<string, string> = { ASK_OWNER_TOOL, NOTE_READ_TOOL, USE_CAPABILITY_TOOL, TOOL_SEARCH_TOOL };
+
+/**
+ * Tools da capacidade `connectors` (F2.5): montadas por run com o dono, então não entram em `allRegisteredTools()`.
+ * Os nomes `mcp_<slug>_read|write` são dinâmicos (um par por conexão). Efeito, privacidade e escopo delas são
+ * conferidos em `connectors/connectors.test.ts` e `guards/private-data.test.ts`.
+ */
+const CONNECTOR_TOOL_DECLARATIONS: readonly string[] = [TOOL_SEARCH_TOOL, "<dynamic:names.read>", "<dynamic:names.write>"];
 
 /** Nomes de tool declarados por `defineTool({ name: "..." })` no código de produção do pacote. */
 export function declaredToolNames(code: string): string[] {
@@ -77,7 +93,7 @@ describe("A. toda tool registrada declara efeito", () => {
 	const tools = allRegisteredTools();
 
 	it("o registro de teste cobre o kernel de verdade", () => {
-		expect(tools.map((t) => t.name).sort()).toEqual([ASK_OWNER_TOOL, NOTE_READ_TOOL, USE_CAPABILITY_TOOL, "create_file", "web_extract", "web_search"].sort());
+		expect(tools.map((t) => t.name).sort()).toEqual([ASK_OWNER_TOOL, NOTE_READ_TOOL, USE_CAPABILITY_TOOL, "create_file", "create_file", "create_page", "chart", "inspect_file", "web_extract", "web_search", "memory_list", "memory_add", "memory_update", "memory_remove", "update_task_list", "settings_get", "settings_update", "set_role_model", "update_bot_profile"].sort());
 	});
 
 	it("o vocabulário de efeitos do motor é o mesmo de shared", () => {
@@ -89,6 +105,14 @@ describe("A. toda tool registrada declara efeito", () => {
 		for (const args of [{}, { id: "x" }, null, "texto", 42]) expect(isEffect(tool.effectFor(args))).toBe(true);
 	});
 
+	it("tool que lê dado privado do dono declara privateData, e só leitura leva a flag (auditoria F1, N2)", () => {
+		const byName = new Map(tools.map((t) => [t.name, t]));
+		for (const name of ["memory_list"]) expect(byName.get(name)?.privateData, name).toBe(true);
+		const flagged = tools.filter((t) => t.privateData);
+		expect(flagged.length).toBeGreaterThan(0);
+		expect(flagged.every((t) => t.effect === "read")).toBe(true);
+	});
+
 	it("tool sem efeito (ou com efeito inventado) nem chega a existir", () => {
 		const base = { name: "x_tool", description: "d", inputSchema: z.object({}), execute: () => ({ ok: true as const, summary: "s" }) };
 		expect(() => defineTool({ ...base } as never)).toThrow(/effect/);
@@ -96,7 +120,7 @@ describe("A. toda tool registrada declara efeito", () => {
 	});
 
 	it("toda tool definida no código de produção está no registro de teste (tool nova obriga a atualizar este arquivo)", () => {
-		const registered = new Set(allRegisteredTools().map((t) => t.name));
+		const registered = new Set([...allRegisteredTools().map((t) => t.name), ...CONNECTOR_TOOL_DECLARATIONS]);
 		const declared = listTs(SRC).flatMap((file) => declaredToolNames(readFileSync(file, "utf8")));
 		expect(declared.length).toBeGreaterThan(0);
 		const missing = declared.filter((name) => !registered.has(name));

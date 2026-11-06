@@ -14,6 +14,28 @@
 export const TRUST_SOURCES = ["email", "web", "file", "mcp", "other_bot"] as const;
 export type TrustSource = (typeof TRUST_SOURCES)[number];
 
+/**
+ * Quem guarda dado privado do dono, por origem declarada (N2 da reauditoria F1). Exaustivo por tipo: origem nova
+ * em `TRUST_SOURCES` sem entrada aqui não compila. `declared` = depende de quem fornece (cada conector MCP declara).
+ */
+export const TRUST_SOURCE_PRIVACY = {
+	email: "private",
+	file: "private",
+	web: "public",
+	other_bot: "public",
+	mcp: "declared",
+} as const satisfies Record<TrustSource, "private" | "public" | "declared">;
+
+/** Origens que SEMPRE trazem dado do dono: uma tool `read` com uma delas tem de declarar `privateData: true`. */
+export const PRIVATE_TRUST_SOURCES: readonly TrustSource[] = TRUST_SOURCES.filter((source) => TRUST_SOURCE_PRIVACY[source] === "private");
+
+/**
+ * Tipo de dado do dono que uma tool devolve, declarado na própria tool. Cobre o que `TrustSource` não cobre
+ * (memória é do dono e confiável, então não tem `source`). Declarar um tipo exige `privateData: true`.
+ */
+export const OWNER_DATA_KINDS = ["email", "file", "memory", "connector"] as const;
+export type OwnerDataKind = (typeof OWNER_DATA_KINDS)[number];
+
 /** Tamanho mínimo (caracteres) de um trecho copiado para contar como dado carregado nos argumentos. */
 export const MIN_COPIED_SPAN = 24;
 /** Tetos de memória: passado deles, só `untrustedReadInRun` (que já bloqueia o efeito externo) segue valendo. */

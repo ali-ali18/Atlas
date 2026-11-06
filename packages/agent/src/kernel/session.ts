@@ -17,7 +17,8 @@ export function initSnapshot(input: RunInput, ports: Ports, runtimeNotes: readon
 		compactions: 0,
 		step: 0,
 		loadedIds: [],
-		provenance: { untrustedReadInRun: false, sources: [], texts: [] },
+		// Herda o taint da conversa (S8): a fala passada do assistente no histórico não lava o que o run anterior leu.
+		provenance: { untrustedReadInRun: input.priorProvenance?.untrustedReadInRun === true, privateReadInRun: input.priorProvenance?.privateReadInRun === true, sources: [...(input.priorProvenance?.sources ?? [])], texts: [] },
 		spentUsd: 0,
 		stepsWithoutPrice: 0,
 		lastText: "",

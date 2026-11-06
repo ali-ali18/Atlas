@@ -181,3 +181,33 @@ describe("egress (auditoria F1, S2)", () => {
 		expect(kind({ effect: "read", egress: true, taint: trifecta, rules: [{ match: "*", verdict: "run" }] })).toBe("approve");
 	});
 });
+
+describe("confirm declarado pela tool", () => {
+	const tainted = { untrustedReadInRun: true, argsCarryUntrusted: false };
+	const allowAll = [{ match: "*", verdict: "run" as const }];
+	it("always: run vira approve em qualquer autonomia, e regra run do dono não afrouxa", () => {
+		for (const autonomy of AUTONOMY_LEVELS) expect(kind({ effect: "write_internal", confirm: "always", autonomy })).toBe("approve");
+		expect(decide(mk({ effect: "write_internal", confirm: "always", autonomy: "autonomous" }))).toMatchObject({ kind: "approve", reason: "owner confirms this action" });
+		expect(kind({ effect: "write_internal", confirm: "always", autonomy: "autonomous", rules: allowAll })).toBe("approve");
+		expect(kind({ effect: "write_internal", confirm: "always", rules: [{ match: "x", verdict: "deny" }], action: { toolName: "x" } })).toBe("hidden");
+	});
+	it("always sem dono (superfície ou ownerPresent=false): hidden", () => {
+		for (const surface of NO_OWNER) expect(kind({ effect: "write_internal", confirm: "always", surface })).toBe("hidden");
+		expect(kind({ effect: "write_internal", confirm: "always", ownerPresent: false })).toBe("hidden");
+	});
+	it("when_untrusted: sem leitura não confiável nada muda", () => {
+		expect(kind({ effect: "write_internal", confirm: "when_untrusted", autonomy: "autonomous" })).toBe("run");
+		expect(kind({ effect: "write_internal", confirm: "when_untrusted", surface: "routine" })).toBe("run");
+		expect(kind({ effect: "write_internal", confirm: "when_untrusted", taint: { untrustedReadInRun: false, argsCarryUntrusted: true } })).toBe("run");
+	});
+	it("when_untrusted com leitura não confiável: approve, regra run não afrouxa, sem dono hidden", () => {
+		expect(kind({ effect: "write_internal", confirm: "when_untrusted", autonomy: "autonomous", taint: tainted })).toBe("approve");
+		expect(kind({ effect: "write_internal", confirm: "when_untrusted", autonomy: "autonomous", taint: tainted, rules: allowAll })).toBe("approve");
+		expect(kind({ effect: "write_internal", confirm: "when_untrusted", taint: tainted, surface: "routine" })).toBe("hidden");
+		expect(kind({ effect: "write_internal", confirm: "when_untrusted", taint: tainted, ownerPresent: false })).toBe("hidden");
+	});
+	it("regra approve do dono continua apertando; sem confirm a regra run afrouxa como antes", () => {
+		expect(kind({ effect: "write_internal", rules: [{ match: "*", verdict: "approve" }], action: { toolName: "x" } })).toBe("approve");
+		expect(kind({ effect: "write_internal", autonomy: "always_ask", rules: allowAll, action: { toolName: "x" } })).toBe("run");
+	});
+});

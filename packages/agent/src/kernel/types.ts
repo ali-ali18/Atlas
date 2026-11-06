@@ -40,9 +40,18 @@ export type ResumeInput = {
 	grants?: readonly ApprovalGrant[];
 	/** Ids de pedido (ApprovalRequest.id) que o dono recusou. */
 	denied?: readonly string[];
+	/** Ids de pedido (ApprovalRequest.id) ou de chamada de handoff que expiraram sem resposta do dono. */
+	expired?: readonly string[];
 	/** Ids de chamada cujo passo de handoff o dono assumiu. */
 	handoffDone?: readonly string[];
 };
+
+/**
+ * Proveniência herdada de runs anteriores da MESMA conversa (S8). O histórico traz falas passadas do assistente que
+ * podem ter ecoado conteúdo não confiável ou dado privado; sem isto o taint seria "lavado" na virada do run. Só os
+ * sinais (sem os textos): o piso de aprovação vale pelo sinal, e o texto lido há runs não volta a ser indexado.
+ */
+export type PriorProvenance = Pick<ProvenanceSnapshot, "untrustedReadInRun" | "privateReadInRun" | "sources">;
 
 export type RunInput = {
 	/** Bloco 1 (igual em todo run). Sem valor, o kernel monta o prompt estável (contrato de trabalho + canais + capacidades). */
@@ -56,6 +65,8 @@ export type RunInput = {
 	conversationId?: string;
 	/** O dono tocou em cartões de oferta antes deste run. */
 	cardResponses?: readonly CardResponse[];
+	/** Sinais de proveniência dos runs anteriores desta conversa (só vale num run novo; a retomada restaura o do checkpoint). */
+	priorProvenance?: PriorProvenance;
 };
 
 export type RunAgentDeps = {
@@ -75,7 +86,11 @@ export type RunAgentDeps = {
 
 export type PendingCall = { id: string; name: string; args: unknown };
 
-export type ParkedCall = { kind: "approval" | "handoff"; requestId?: string };
+/**
+ * Chamada estacionada. `payloadHash` e `toolName` (aprovação) ficam no checkpoint para quem hospeda o run reconstruir o
+ * pedido do dono se cair entre o checkpoint PARKED e o registro do cartão (auditoria F2, B1).
+ */
+export type ParkedCall = { kind: "approval" | "handoff"; requestId?: string; payloadHash?: string; toolName?: string };
 
 export type KernelSnapshot = {
 	v: 1;

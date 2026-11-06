@@ -71,3 +71,22 @@ describe("createLoadedSet", () => {
 		expect(await set.useCapabilityTool.run({ id: "email", extra: 1 }, fakeToolContext())).toMatchObject({ ok: false, hint: "Accepted fields: id." });
 	});
 });
+
+describe("instruções lazy da capacidade", () => {
+	const guided = defineCapability({ id: "guided", title: "Guiada", summary: "Has notes.", tools: [fakeTool("guided_tool")], instructions: "## Notes\nDo it this way." });
+
+	it("vão no resultado do use_capability ao carregar, uma vez, e nunca antes", async () => {
+		const set = createLoadedSet(createCapabilityRegistry([guided]));
+		expect(JSON.stringify(set.specsForModel())).not.toContain("Do it this way");
+		const first = await set.useCapabilityTool.run({ id: "guided" }, fakeToolContext());
+		expect(first.ok && first.summary).toBe('Loaded "Guiada". New tools: guided_tool.\n\n## Notes\nDo it this way.');
+		const second = await set.useCapabilityTool.run({ id: "guided" }, fakeToolContext());
+		expect(second.ok && second.summary).toBe('"Guiada" was already loaded.');
+	});
+
+	it("capacidade sem instrução mantém a resposta de sempre", async () => {
+		const set = createLoadedSet(registry);
+		const out = await set.useCapabilityTool.run({ id: "shopping" }, fakeToolContext());
+		expect(out.ok && out.summary).toBe('Loaded "shopping". New tools: product_search.');
+	});
+});

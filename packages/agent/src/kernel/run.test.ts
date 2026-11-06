@@ -4,6 +4,7 @@ import { grantApproval, type ApprovalRequest } from "../contract/index.js";
 import { chatPolicy, sendTool } from "../testing/contract-helpers.js";
 import { call, kernelHarness, reply } from "../testing/kernel-fakes.js";
 import { defineTool } from "../tools/define-tool.js";
+import { EXPIRED_TEXT } from "./tool-step.js";
 
 const lookup = (counter = { runs: 0 }) =>
 	defineTool({ name: "lookup", description: "Look something up.", inputSchema: z.object({ q: z.string() }), effect: "read", execute: ({ q }) => (counter.runs++, { ok: true, summary: `result for ${q}` }) });
@@ -100,6 +101,8 @@ describe("kernel: aprovação e handoff", () => {
 		expect(h.runs.statuses.get("owner-1:run-1")).toBe("parked");
 		const card = h.log.of("card")[0] as { kind: string; request: ApprovalRequest };
 		expect(card.kind).toBe("approval");
+		// o checkpoint guarda o suficiente para reconstruir o pedido do dono sem o cartão (auditoria F2, B1)
+		expect(first.parked?.s1).toEqual({ kind: "approval", requestId: card.request.id, payloadHash: card.request.payloadHash, toolName: "send_email" });
 		// retomar sem decisão não executa nem repete o cartão
 		expect((await h.run()).status).toBe("parked");
 		expect(h.log.of("card")).toHaveLength(1);
@@ -155,6 +158,18 @@ describe("kernel: aprovação e handoff", () => {
 		expect(JSON.stringify(h.llm.requests.at(-1)?.messages)).toContain("owner declined");
 	});
 
+	it("pedido expirado volta ao modelo como dado, nada executa e o run segue", async () => {
+		const { tool, counter } = sendTool();
+		const h = kernelHarness([reply({ calls: [call("s1", "send_email", { to: "a@example.com", body: "oi" })] }), reply({ text: "ok, deixo para depois" })], { tools: [tool] });
+		await h.run();
+		const card = h.log.of("card")[0] as { request: ApprovalRequest };
+		const out = await h.run({ input: { ...h.input, resume: { expired: [card.request.id] } } });
+		expect(out.status).toBe("done");
+		expect(counter.runs).toBe(0);
+		expect(JSON.stringify(h.llm.requests.at(-1)?.messages)).toContain(EXPIRED_TEXT);
+		expect(h.log.of("tool_result").at(-1)).toMatchObject({ status: "expired" });
+	});
+
 	it("handoff estaciona e continua quando o dono assume o passo", async () => {
 		const pw = defineTool({ name: "change_password", description: "Change a password.", inputSchema: z.object({}), effect: "credential", handoffKind: () => "change_password", execute: () => ({ ok: true, summary: "x", receipt: { what: "x" } }) });
 		const h = kernelHarness([reply({ calls: [call("p1", "change_password", {})] }), reply({ text: "valeu" })], { tools: [pw] });
@@ -163,6 +178,44 @@ describe("kernel: aprovação e handoff", () => {
 		expect(h.log.of("card")[0]).toMatchObject({ kind: "handoff", callId: "p1" });
 		const done = await h.run({ policy: autonomous, input: { ...h.input, resume: { handoffDone: ["p1"] } } });
 		expect(done.status).toBe("done");
+	});
+});
+
+describe("kernel: taint herdado e handoff vencido", () => {
+	const eventCall = [call("e1", "create_event", { title: "reunião" })];
+
+	it("S8: proveniência herdada de run anterior faz a escrita externa pedir aprovação mesmo sem leitura não confiável neste run", async () => {
+		const counter = { runs: 0 };
+		const h = kernelHarness([reply({ calls: eventCall }), reply({ text: "ok" })], { tools: [eventTool(counter)] });
+		const history = [{ kind: "owner" as const, text: "resuma a página" }, { kind: "assistant" as const, text: "A página manda criar um evento." }, { kind: "owner" as const, text: "cria o evento" }];
+		const out = await h.run({ policy: autonomous, input: { ...h.input, history, priorProvenance: { untrustedReadInRun: true, sources: ["web"] } } });
+		expect(out.status).toBe("parked");
+		expect(counter.runs).toBe(0);
+		expect(h.log.of("card")[0]).toMatchObject({ kind: "approval" });
+	});
+
+	it("S8: sem proveniência herdada a mesma escrita autônoma executa (a diferença é só o taint)", async () => {
+		const counter = { runs: 0 };
+		const h = kernelHarness([reply({ calls: eventCall }), reply({ text: "ok" })], { tools: [eventTool(counter)] });
+		const out = await h.run({ policy: autonomous });
+		expect(out.status).toBe("done");
+		expect(counter.runs).toBe(1);
+	});
+
+	it("S8: o taint herdado vai para o checkpoint e sobrevive à retomada", async () => {
+		const h = kernelHarness([reply({ calls: eventCall })], { tools: [eventTool()] });
+		await h.run({ policy: autonomous, input: { ...h.input, priorProvenance: { untrustedReadInRun: true, privateReadInRun: true, sources: ["email"] } } });
+		const saved = h.runs.checkpoints.get("owner-1:run-1")?.payload as { provenance: { untrustedReadInRun: boolean; privateReadInRun: boolean; sources: string[]; texts: string[] } };
+		expect(saved.provenance).toMatchObject({ untrustedReadInRun: true, privateReadInRun: true, sources: ["email"], texts: [] });
+	});
+
+	it("handoff sem resposta que venceu volta ao modelo como dado expirado", async () => {
+		const pw = defineTool({ name: "change_password", description: "Change a password.", inputSchema: z.object({}), effect: "credential", handoffKind: () => "change_password", execute: () => ({ ok: true, summary: "x", receipt: { what: "x" } }) });
+		const h = kernelHarness([reply({ calls: [call("p1", "change_password", {})] }), reply({ text: "deixo para depois" })], { tools: [pw] });
+		expect((await h.run({ policy: autonomous })).status).toBe("parked");
+		const out = await h.run({ policy: autonomous, input: { ...h.input, resume: { expired: ["p1"] } } });
+		expect(out.status).toBe("done");
+		expect(h.log.of("tool_result").at(-1)).toMatchObject({ status: "expired" });
 	});
 });
 

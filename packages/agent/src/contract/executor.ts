@@ -73,6 +73,7 @@ export function createExecutor(deps: ExecutorDeps) {
 			taint: { untrustedReadInRun: provenance.untrustedReadInRun, argsCarryUntrusted: provenance.carries(args), privateReadInRun: provenance.privateReadInRun },
 			riskFacts,
 			egress: tool.egress,
+			confirm: tool.confirm,
 			now: deps.ports.clock.now(),
 		});
 

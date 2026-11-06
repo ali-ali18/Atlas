@@ -1,7 +1,7 @@
 import type { HandoffKind } from "@workspace/shared";
 import { z } from "zod";
 import { EFFECT_CLASSES, type Effect, isEffect } from "../contract/effects.js";
-import type { TrustSource } from "../contract/provenance.js";
+import { OWNER_DATA_KINDS, type OwnerDataKind, type TrustSource } from "../contract/provenance.js";
 import type { LlmToolSpec } from "../ports/llm.js";
 import { inputJsonSchema, toLlmToolSpec } from "./tool-json-schema.js";
 import type { RiskFacts, ToolContext, ToolResult } from "./types.js";
@@ -26,8 +26,12 @@ export type ToolDefinition<S extends z.ZodObject> = {
 	source?: TrustSource;
 	/** O resultado traz dado privado do dono (e-mail, arquivo, memória, conector privado). Padrão: não. */
 	privateData?: boolean;
+	/** Que tipo de dado do dono o resultado traz (e-mail, arquivo, memória, conector privado). Exige `privateData: true`: a guarda `guards/private-data.test.ts` e o `defineTool` cobram. */
+	ownerData?: OwnerDataKind;
 	/** A tool manda dado escolhido pelo modelo (URL, consulta) a um terceiro. Pede aprovação só com a trifeta completa no run (não confiável + privado; cláusula 8). Padrão: não. */
 	egress?: boolean;
+	/** Confirmação declarada: `always` = o dono confirma toda chamada (mesmo em autonomia total); `when_untrusted` = só se o run leu dado não confiável. Sem dono, a tool fica fora. Padrão: nenhuma. */
+	confirm?: "always" | "when_untrusted";
 	/** A chamada encerra o turno (ex.: pergunta ao dono). */
 	endsTurn?: boolean;
 	execute: (args: z.output<S>, ctx: ToolContext) => Promise<ToolResult> | ToolResult;
@@ -41,8 +45,12 @@ export interface Tool {
 	readonly endsTurn: boolean;
 	/** Ver `ToolDefinition.privateData`. */
 	readonly privateData: boolean;
+	/** Ver `ToolDefinition.ownerData`. */
+	readonly ownerData?: OwnerDataKind;
 	/** Ver `ToolDefinition.egress`. */
 	readonly egress: boolean;
+	/** Ver `ToolDefinition.confirm`. */
+	readonly confirm?: "always" | "when_untrusted";
 	readonly trust: "trusted" | "untrusted";
 	/** Origem do dado quando `trust` é `untrusted`. */
 	readonly source?: TrustSource;
@@ -98,6 +106,11 @@ export function defineTool<S extends z.ZodObject>(def: ToolDefinition<S>): Tool 
 
 	if (def.trust === "untrusted" && !def.source) throw new Error(`defineTool(${def.name}): trust "untrusted" needs a source (email, web, file, mcp, other_bot).`);
 
+	if (def.ownerData !== undefined) {
+		if (!(OWNER_DATA_KINDS as readonly string[]).includes(def.ownerData)) throw new Error(`defineTool(${def.name}): unknown ownerData "${String(def.ownerData)}". Use one of: ${OWNER_DATA_KINDS.join(", ")}.`);
+		if (def.privateData !== true) throw new Error(`defineTool(${def.name}): ownerData "${def.ownerData}" needs privateData: true (the result carries the owner's private data).`);
+	}
+
 	const schema = def.inputSchema;
 	const acceptedFields = Object.freeze(Object.keys(schema.shape));
 	const jsonSchema = Object.freeze(inputJsonSchema(schema));
@@ -109,7 +122,9 @@ export function defineTool<S extends z.ZodObject>(def: ToolDefinition<S>): Tool 
 		effect: baseEffect,
 		endsTurn: def.endsTurn === true,
 		privateData: def.privateData === true,
+		...(def.ownerData && { ownerData: def.ownerData }),
 		egress: def.egress === true,
+		...(def.confirm && { confirm: def.confirm }),
 		trust: def.trust ?? "trusted",
 		...(def.source && { source: def.source }),
 		jsonSchema,

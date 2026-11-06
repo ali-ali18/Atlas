@@ -26,3 +26,9 @@ export function redactSecrets(text: string, secrets: readonly string[] = []): st
 	}
 	return out;
 }
+
+/** Mensagem de erro de terceiro pronta para ir ao modelo ou ao usuário: segredo redigido e tamanho limitado. */
+export function sanitizeErrorMessage(error: unknown, secrets: readonly string[] = [], maxChars = 500): string {
+	const raw = error instanceof Error ? error.message : String(error);
+	return redactSecrets(raw, secrets).slice(0, maxChars);
+}

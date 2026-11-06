@@ -18,6 +18,8 @@ export type AuthorizeFacts = PolicyContext & {
 	riskFacts?: RiskFacts;
 	/** A tool declarou `egress` (manda URL/consulta do modelo a terceiro). */
 	egress?: boolean;
+	/** A tool declarou `confirm` (enum). */
+	confirm?: DecideInput["confirm"];
 	now: Date;
 };
 
@@ -29,6 +31,6 @@ function policyFacts(facts: RiskFacts | undefined): PolicyRiskFacts | undefined 
 }
 
 export function authorize(facts: AuthorizeFacts): Verdict {
-	const { toolName, handoffKind, riskFacts, egress, ...rest } = facts;
-	return decide({ ...rest, ...(egress && { egress: true }), action: { toolName, ...(handoffKind && { handoffKind }) }, riskFacts: policyFacts(riskFacts) });
+	const { toolName, handoffKind, riskFacts, egress, confirm, ...rest } = facts;
+	return decide({ ...rest, ...(egress && { egress: true }), ...(confirm && { confirm }), action: { toolName, ...(handoffKind && { handoffKind }) }, riskFacts: policyFacts(riskFacts) });
 }

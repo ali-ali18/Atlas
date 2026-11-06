@@ -17,6 +17,7 @@ export type ToolStepEnv = {
 };
 
 export const DENIED_TEXT = "The owner declined this action. Do not retry it; offer an alternative or ask what they would prefer.";
+export const EXPIRED_TEXT = "The owner did not answer this request and it expired. Do not retry it on your own; mention it briefly only if it matters to the answer.";
 export const HANDOFF_DONE_TEXT = "The owner took over this step. Continue from the owner's latest message and check the result before relying on it.";
 
 export function outcomeText(outcome: CallOutcome): string {
@@ -87,7 +88,16 @@ export async function runPending(env: ToolStepEnv): Promise<{ malformed: number 
 				delete snap.parked[call.id];
 				return finish(call, "denied", DENIED_TEXT);
 			}
+			if (parked.requestId && env.resume?.expired?.includes(parked.requestId)) {
+				delete snap.parked[call.id];
+				return finish(call, "expired", EXPIRED_TEXT);
+			}
 			if (parked.kind === "handoff") {
+				// Handoff não tem pedido de aprovação: o prazo vence pelo id da chamada.
+				if (env.resume?.expired?.includes(call.id)) {
+					delete snap.parked[call.id];
+					return finish(call, "expired", EXPIRED_TEXT);
+				}
 				if (!env.resume?.handoffDone?.includes(call.id)) return;
 				delete snap.parked[call.id];
 				return finish(call, "handoff_done", HANDOFF_DONE_TEXT);
@@ -99,7 +109,7 @@ export async function runPending(env: ToolStepEnv): Promise<{ malformed: number 
 		}
 		const outcome = await env.executor.executeCall({ callId: call.id, step: snap.step, tool, args: call.args, ...(grant && { grant }) });
 		if (outcome.status === "pending_approval" || outcome.status === "approval_invalid") {
-			snap.parked[call.id] = { kind: "approval", requestId: outcome.request.id };
+			snap.parked[call.id] = { kind: "approval", requestId: outcome.request.id, payloadHash: outcome.request.payloadHash, toolName: outcome.request.toolName };
 			await env.emit({ type: "card", data: { kind: "approval", callId: call.id, request: outcome.request } });
 			return;
 		}

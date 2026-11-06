@@ -1,5 +1,5 @@
-// Capacidade núcleo `web` (mínima, F1.14): pesquisar e ler uma página. Só fala com a porta `Search`;
-// a implementação real (provedor, SSRF, limites) é da F2. O que volta da web é dado, nunca instrução.
+// Capacidade núcleo `web` (F1.14, real na F2.1): pesquisar e ler uma página. Só fala com a porta `Search`; o adaptador
+// real (SearXNG/DuckDuckGo, extração, SSRF, limites técnicos) é `adapters/web.ts`. O que volta da web é dado, nunca instrução.
 import { z } from "zod";
 import { defineCapability } from "../capabilities/define-capability.js";
 import type { Search } from "../ports/search.js";

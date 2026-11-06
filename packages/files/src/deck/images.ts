@@ -1,9 +1,11 @@
-import { listGeneratedImageIds, loadArtifactForUser } from "@workspace/db";
 import { deckImageIds, GENERATED_IMAGE_ALIAS, type SlideInput } from "@workspace/shared";
-import { processImageForStorage } from "../../images/process.js";
+import { processImageForStorage } from "../image-process.js";
 
 /** Imagem pronta para o slide: bytes já reencodados (sem EXIF) e dimensões para manter a proporção. */
 export type DeckImage = { data: string; width: number; height: number };
+
+/** Forma mínima do artefato que o slide precisa (compatível com o registro do db). */
+export type DeckArtifact = { kind: string; conversationId?: string | null; bytes: Uint8Array; meta?: Record<string, unknown> };
 
 export type DeckImageSource = {
 	userId: string;
@@ -12,9 +14,10 @@ export type DeckImageSource = {
 		list: () => Promise<Array<{ id: string; filename: string }>>;
 		bytes: (id: string) => Promise<Uint8Array | null>;
 	};
-	loadArtifact?: typeof loadArtifactForUser;
+	/** Busca um artefato do dono pelo id (quem chama injeta o acesso a dados; este pacote não conhece o db). */
+	loadArtifact: (id: string, userId: string) => Promise<DeckArtifact | null>;
 	/** Imagens geradas da conversa (alias `generated:latest`); sempre do dono. */
-	listGenerated?: typeof listGeneratedImageIds;
+	listGenerated?: (userId: string, conversationId: string, limit: number) => Promise<string[]>;
 };
 
 /**
@@ -26,15 +29,14 @@ export async function resolveDeckImages(slides: SlideInput[], source: DeckImageS
 	const ids = deckImageIds(slides);
 	if (ids.length === 0) return out;
 	const attachments = source.attachments ? await source.attachments.list().catch(() => []) : [];
-	const load = source.loadArtifact ?? loadArtifactForUser;
-	const listGenerated = source.listGenerated ?? listGeneratedImageIds;
-	for (const alias of ids) {
+	const load = source.loadArtifact;
+		for (const alias of ids) {
 		let id = alias;
 		let bytes: Uint8Array | null = null;
 		const aliasMatch = GENERATED_IMAGE_ALIAS.exec(alias);
 		if (aliasMatch) {
 			const position = aliasMatch[1] === "latest" ? 0 : Number(aliasMatch[1]) - 1;
-			const generated = source.conversationId ? await listGenerated(source.userId, source.conversationId, position + 1).catch(() => []) : [];
+			const generated = source.conversationId && source.listGenerated ? await source.listGenerated(source.userId, source.conversationId, position + 1).catch(() => []) : [];
 			const found = generated[position];
 			if (!found) throw new Error(`There is no generated image "${alias}" in this conversation yet. Call generate_image first and use the image id from its result.`);
 			id = found;

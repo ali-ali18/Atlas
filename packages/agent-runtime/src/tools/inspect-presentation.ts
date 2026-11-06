@@ -1,6 +1,6 @@
 import type { ChatTool } from "@workspace/llm";
-import { renderDeckPreview } from "../files/deck/visual-check.js";
-import { describeTemplate, templateAsPptx } from "../files/deck/template/inspect.js";
+import { renderDeckPreview } from "@workspace/files/deck/visual-check";
+import { describeTemplate, templateAsPptx } from "@workspace/files/deck/template/inspect";
 import { loadTemplateFile, persistDeckPreviews, type DeckFileContext, type DeckFileDeps } from "./deck-file.js";
 
 /**

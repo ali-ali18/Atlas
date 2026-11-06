@@ -77,6 +77,7 @@ import { createGithubAppWebhookRoutes } from "./webhooks/github-app.js";
 import { createSandboxRoutes } from "./routes/sandbox.js";
 import { createSectionRoutes } from "./routes/sections.js";
 import { createAutonomyRoutes } from "./routes/autonomy.js";
+import { createAgentV4Routes } from "./routes/agent-v4.js";
 import { createSettingsRoutes } from "./routes/settings.js";
 import { createUsageRoutes } from "./routes/usage.js";
 import { createSkillRoutes } from "./routes/skills.js";
@@ -212,6 +213,8 @@ app.all("/api/auth/*", (c) => auth.handler(c.req.raw));
 app.route("/", createChatRoutes(config));
 app.route("/", createComputerUseRoutes(config));
 app.route("/", createRunRoutes(config));
+// Respostas do dono a pedidos do motor v4 (aprovação, handoff, cartões); sem linhas de v4 nada é encontrado (404).
+app.route("/", createAgentV4Routes({ queue: config.agentRunQueue }));
 app.route("/", createEventRoutes());
 app.route("/", createBotPendingRoutes(config));
 app.route("/", createAvatarRoutes());

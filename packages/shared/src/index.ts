@@ -832,7 +832,7 @@ export {
 	type UsageResponse,
 	type UsageTotals,
 } from "./usage.js";
-export { redactSecrets } from "./redact-secrets.js";
+export { redactSecrets, sanitizeErrorMessage } from "./redact-secrets.js";
 export { buildToolResultNotes, renderToolNotesBlock, TOOL_NOTE_MAX_CHARS, TOOL_NOTES_MAX_COUNT, TOOL_NOTES_MAX_TOTAL_CHARS, type ToolResultNote } from "./memory-review-notes.js";
 export {
 	SKILL_NAME_MAX_CHARS,
@@ -1032,3 +1032,4 @@ export * from "./avatar-governor.js";
 export * from "./vtt.js";
 export * from "./agent-policy/index.js";
 export * from "./model-roles/index.js";
+export * from "./web/index.js";

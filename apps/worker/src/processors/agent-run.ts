@@ -140,6 +140,8 @@ import {
 	resolveBudget,
 	wallClockAnchors,
 } from "@workspace/agent-runtime";
+import { prepareV4Run } from "../v4-run-context.js";
+import { runV4Turn } from "../v4-turn.js";
 import { cheapModelFromEnv, createV4Llm, dropProcessorOwnedEvents, ownerStepsLimit, runEngineV4, vaultBackendFromService } from "../engine-v4.js";
 import { earlyWallMs, engineDefaultFromEnv, engineV4GateFromEnv, pickRunEngine, resolveRunLimits, runSelectedEngine } from "../engine-choice.js";
 import { getVaultService, type RunComputerUseResult } from "@workspace/agent-runtime";
@@ -1228,30 +1230,41 @@ async function executeLeasedRun(ctx: {
 	const v2 = engineChoice.engine === "v2";
 	const seedTaskList = v2 && !planSeeded && autoContinueAttempt === 0 ? undefined : priorTaskList;
 	// Motor v4 (atrás de flag): mesmo contrato de saída do v1/v2; conclusão, eventos e lease seguem neste processador.
-	const runV4 = async (): Promise<RunComputerUseResult> => {
-		const out = await runEngineV4({
-			runId,
-			userId: runUserId,
-			conversationId: run.conversationId,
-			objective: run.objective ?? "",
-			language: systemLanguage,
-			llm: createV4Llm({ model: run.model, streamChat: providers.streamChat, openRouterKey: apiKey, language: systemLanguage, cheapModel: cheapModelFromEnv(), contextWindow: (modelId) => providers.capabilities(modelId).then((caps) => caps.contextTokens, () => null) }),
-			lease,
-			persistEvent: emit,
-			// O fim do stream (done/error/cancelled/teto de passos) é do processador, uma vez: o mapa do kernel não o repete.
-			mapEvent: dropProcessorOwnedEvents(((mapper) => (event) => mapper.mapRunEvent(event))(createSseMapper({ runId, model: run.model, language: systemLanguage }))),
-			// Teto de passos do dono (pedido > bot > conta) só quando tem origem; sem ele vale o de segurança do kernel. Tetos de gasto
-			// por período (dia/semana/mês) da conta/bot ainda não existem na configuração do worker: só o teto por execução vale.
-			limits: { ...(effectiveCostCap !== undefined ? { ownerMaxUsd: effectiveCostCap } : {}), ...(ownerStepsLimit(stepsCap) !== undefined ? { ownerMaxSteps: ownerStepsLimit(stepsCap)! } : {}), unattended: !(run.origin === "chat" && readRunHumanTurn(run)) },
-			ownerPresent: run.origin === "chat" && readRunHumanTurn(run),
-			signal: aborter.signal,
-			vault: vaultBackendFromService(getVaultService()),
-			...(deps.v4Queue ? { queue: deps.v4Queue } : {}),
+	const runV4 = (): Promise<RunComputerUseResult> =>
+		runV4Turn({
+			// Histórico da conversa, respostas a cartões e taint herdado (run novo) ou a decisão do dono (retomada), do banco.
+			prepare: () => prepareV4Run({ userId: runUserId, runId, conversationId: run.conversationId, objective: run.objective ?? "", chat: run.origin === "chat" }),
+			engine: async (prepared) => {
+				const mapV4Event = dropProcessorOwnedEvents(((mapper) => (event) => mapper.mapRunEvent(event))(createSseMapper({ runId, model: run.model, language: systemLanguage })));
+				// Bot do run: escopo da camada de memória do bot, das configurações e dos painéis (sem bot, essas partes ficam indisponíveis).
+				const v4Bot = run.botId ? await getBotProfile(run.botId, runUserId).catch(() => null) : null;
+				return runEngineV4({
+					runId,
+					userId: runUserId,
+					conversationId: run.conversationId,
+					botId: run.botId ?? null,
+					botName: v4Bot?.name ?? null,
+					objective: run.objective ?? "",
+					...(prepared.history ? { history: prepared.history } : {}),
+					...(prepared.cardResponses ? { cardResponses: prepared.cardResponses } : {}),
+					...(prepared.priorProvenance ? { priorProvenance: prepared.priorProvenance } : {}),
+					...(prepared.resume ? { resume: prepared.resume } : {}),
+					language: systemLanguage,
+					llm: createV4Llm({ model: run.model, streamChat: providers.streamChat, openRouterKey: apiKey, language: systemLanguage, cheapModel: cheapModelFromEnv(), contextWindow: (modelId) => providers.capabilities(modelId).then((caps) => caps.contextTokens, () => null) }),
+					lease,
+					persistEvent: emit,
+					// O fim do stream (done/error/cancelled/teto de passos) é do processador, uma vez: o mapa do kernel não o repete.
+					mapEvent: prepared.observe(mapV4Event),
+					// Teto de passos do dono (pedido > bot > conta) só quando tem origem; sem ele vale o de segurança do kernel. Tetos de gasto
+					// por período (dia/semana/mês) da conta/bot ainda não existem na configuração do worker: só o teto por execução vale.
+					limits: { ...(effectiveCostCap !== undefined ? { ownerMaxUsd: effectiveCostCap } : {}), ...(ownerStepsLimit(stepsCap) !== undefined ? { ownerMaxSteps: ownerStepsLimit(stepsCap)! } : {}), unattended: !(run.origin === "chat" && readRunHumanTurn(run)) },
+					ownerPresent: run.origin === "chat" && readRunHumanTurn(run),
+					signal: aborter.signal,
+					vault: vaultBackendFromService(getVaultService()),
+					...(deps.v4Queue ? { queue: deps.v4Queue } : {}),
+				});
+			},
 		});
-		// Estacionado: o processador fecha o stream com `paused` (motivo `awaiting_owner`) e solta o lease; a retomada recarrega o checkpoint v4.
-		if (out.parked) throw new AgentRunPausedError("awaiting_owner");
-		return { text: out.text, model: out.model, hitWall: out.hitWall, usage: out.usage, stop: out.stop };
-	};
 	try {
 		const result = engineChoice.engine === "v4" ? await runV4() : await runSelectedEngine({ ...engineChoice, modelMaxOutputTokens: (modelId) => providers.capabilities(modelId).then((caps) => caps.maxOutputTokens, () => null) }, {
 			messageTriageModel,
