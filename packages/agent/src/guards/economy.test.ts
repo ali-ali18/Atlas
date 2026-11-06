@@ -4,7 +4,8 @@ import { createConnectorsCapability } from "../connectors/capability.js";
 import { FakeMcp } from "../connectors/fake-mcp.js";
 import { createDeliverablesCapability } from "../capabilities-builtin/deliverables/index.js";
 import { createResearchCapability } from "../capabilities-builtin/research/index.js";
-import { FakeDeliverables, FakeHelpers } from "../presets/fakes.js";
+import { createMemoryCapability } from "../capabilities/memory/index.js";
+import { FakeDeliverables, FakeHelpers, FakeMemory, FakeNotebook } from "../presets/fakes.js";
 import { call, kernelHarness, reply } from "../testing/kernel-fakes.js";
 
 // Economia (05-fases, guardas permanentes #5): "Bom dia" é barato.
@@ -115,6 +116,32 @@ describe("economia: Bom dia", () => {
 		expect((first?.tools ?? []).map((t) => t.name)).not.toContain("research");
 		expect((second?.tools ?? []).map((t) => t.name)).toContain("research");
 		expect(JSON.stringify(second?.messages)).toContain("One source per claim");
+	});
+
+	it("o caderno é lazy: 'Bom dia' não ganha as tools note_*, só uma linha do índice", async () => {
+		const base = await measureGoodMorning();
+		const withNotebook = await measureGoodMorning([createMemoryCapability(new FakeMemory(), new FakeNotebook())]);
+		expect(withNotebook.toolNames).toEqual(base.toolNames);
+		expect(withNotebook.toolNames.some((name) => name.startsWith("note_") && name !== "note_read")).toBe(false);
+		expect(withNotebook.tokens - base.tokens).toBeLessThan(60);
+		expect(withNotebook.tokens).toBeLessThanOrEqual(GOOD_MORNING_INPUT_TOKENS_CEILING + 60);
+	});
+
+	it("o pedido de anotar carrega a capacidade no passo 1 e as tools do caderno só então", async () => {
+		const core = defineCapability({ id: "core", title: "Core", summary: "core tools", core: true, tools: [] });
+		const h = kernelHarness([reply({ calls: [call("c1", "use_capability", { id: "memory" })] }), reply({ text: "Anotado." })], { capabilities: [core, createMemoryCapability(new FakeMemory(), new FakeNotebook())] });
+		await h.run({ input: { contextSections: [], history: [{ kind: "owner", text: "Anota aí: a senha do wifi da casa nova vem na caixa" }] } });
+		const [first, second] = h.llm.requests;
+		expect((first?.tools ?? []).map((t) => t.name)).not.toContain("note_add");
+		expect((second?.tools ?? []).map((t) => t.name)).toEqual(expect.arrayContaining(["note_add", "note_search", "note_get", "note_update", "note_pin", "note_remove"]));
+	});
+
+	it("sem nota fixada o [context] não cresce; com fixadas o custo é limitado pelo teto técnico", async () => {
+		const { renderPinnedNotesContext, OWNER_NOTES_PINNED_CONTEXT_MAX_CHARS } = await import("@workspace/shared");
+		expect(renderPinnedNotesContext([])).toBeNull();
+		const worst = renderPinnedNotesContext(Array.from({ length: 200 }, (_, i) => ({ id: `note-${i}`, title: "t".repeat(120) })))!;
+		// ~450 tokens no pior caso, só quando o dono fixou notas.
+		expect(worst.length).toBeLessThanOrEqual(OWNER_NOTES_PINNED_CONTEXT_MAX_CHARS + 60);
 	});
 
 	it("o teto é o medido + 15% (o teto só desce: se o núcleo encolher, baixe o medido e o teto no mesmo commit)", () => {

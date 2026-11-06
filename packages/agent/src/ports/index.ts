@@ -6,6 +6,7 @@ export * from "./helpers.js";
 export * from "./llm.js";
 export * from "./mcp.js";
 export * from "./memory.js";
+export * from "./notebook.js";
 export * from "./queue.js";
 export * from "./random.js";
 export * from "./sandbox.js";
