@@ -1,6 +1,6 @@
 /**
  * Apresentações (.pptx) do `create_file`: esquema validado dos slides e do tema.
- * Só funções puras. O desenho (pptxgenjs) mora em `packages/agent-runtime/src/files`.
+ * Só funções puras. O desenho (pptxgenjs) mora em `packages/files/src`.
  * O formato antigo `{ title, bullets[] }` continua valendo e vira o layout `bullets`.
  */
 import { normalizeChartHexColor, type ChartSpec } from "./chart-spec.js";

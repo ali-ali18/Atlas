@@ -4,7 +4,7 @@ import { parseDeckBrandColor, parseDeckSlides, parseDeckTemplateId, parseDeckThe
  * F9 — arquivos gerados pelo agente (PDF, Word, Excel, texto/código).
  * Só funções puras: formato pela extensão, nome seguro, MIME, validação dos
  * argumentos da tool `create_file` e limites. O render (docx/xlsx/pdf) mora em
- * `packages/agent-runtime/src/files`; o armazenamento, em `packages/db`.
+ * `packages/files/src`; o armazenamento, em `packages/db`.
  */
 
 /** Tamanho máximo de um arquivo gerado (bytes). */
