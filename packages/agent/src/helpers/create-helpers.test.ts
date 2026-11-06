@@ -299,6 +299,46 @@ describe("createHelpers: teto de passos herdado da mãe (auditoria F3, C1)", () 
 	});
 });
 
+describe("createHelpers: retomada da mãe e o teto do dono (auditoria F3, S1)", () => {
+	const loop = (n: number): Turn[] => Array.from({ length: n }, (_, i) => reply({ calls: [call(`c${i}`, "web_search", { query: `q${i}` })], usage: { costUsd: 0.01 } }));
+
+	/** Mãe que estaciona (envio pede aprovação) com 0,9 já gasto pelos ajudantes; devolve o harness e o livro da retomada. */
+	async function parkedMotherWithHelpersSpend() {
+		const { tool } = counted("send_email", "send");
+		const h = kernelHarness([reply({ calls: [call("s1", "send_email", { v: "x" })] }), reply({ text: "sent" })], { tools: [tool] });
+		const before = { outsideUsd: () => 0.9, report: () => undefined };
+		expect((await h.run({ spend: before })).status).toBe("parked");
+		const ledger = createSpendLedger();
+		return { h, ledger };
+	}
+
+	it("a retomada semeia o livro com o gasto dos ajudantes de antes: o filho novo nem começa quando o total já passou do teto", async () => {
+		const { h, ledger } = await parkedMotherWithHelpersSpend();
+		await h.run({ spend: ledger.motherHook() });
+		expect(ledger.totalUsd()).toBeGreaterThanOrEqual(0.9);
+		// a mãe gastou o resto até o teto de US$ 1 antes dos filhos novos
+		ledger.motherHook().report(0.1);
+		const second = setup({ "OBJ-A": [reply({ text: "x" })] }, { limits: { ownerMaxUsd: 1 } });
+		const reused = createHelpers({ runId: "run-mother", ownerId: "owner-1", llm: second.llm, clock: new FakeClock(), random, hash: sha256, motherRegistry: () => second.registry, motherPolicy: chatPolicy, motherLimits: { ownerMaxUsd: 1 }, ledger, search: second.search });
+		const [r] = await reused.runAll([task("OBJ-A")]);
+		expect(r).toMatchObject({ status: "stopped" });
+		expect(r?.error).toContain("already reached");
+		expect(second.llm.requests).toHaveLength(0);
+	});
+
+	it("filho novo na retomada para quando o total (antes + agora) passa do teto, não só o que gastou desde a retomada", async () => {
+		const { h, ledger } = await parkedMotherWithHelpersSpend();
+		await h.run({ spend: ledger.motherHook() });
+		const s = setup({ "OBJ-A": [...loop(30), reply({ text: "partial" })] }, { limits: { ownerMaxUsd: 1 } });
+		const reused = createHelpers({ runId: "run-mother", ownerId: "owner-1", llm: s.llm, clock: new FakeClock(), random, hash: sha256, motherRegistry: () => s.registry, motherPolicy: chatPolicy, motherLimits: { ownerMaxUsd: 1 }, ledger, search: s.search });
+		const [r] = await reused.runAll([task("OBJ-A")]);
+		// 0,9 de antes + ~0,01 da mãe + 0,01 por passo: o filho para depois de ~9 passos, não de 1 dólar
+		expect(r?.status).toBe("stopped");
+		expect(r?.error).toContain("the spending limit the owner set (US$ 1.00)");
+		expect(r?.spentUsd).toBeLessThan(0.2);
+	});
+});
+
 describe("createHelpers: abort", () => {
 	it("o signal da mãe chega ao modelo do filho e o filho para como cancelado", async () => {
 		const { helpers, llm } = setup({ "OBJ-A": [reply({ text: "x" })], "OBJ-B": [reply({ text: "y" })] }, { delays: { "OBJ-A": 60, "OBJ-B": 60 } });

@@ -78,6 +78,11 @@ export type SpendHook = {
 	outsideUsd(): number;
 	/** O gasto próprio deste run (US$), publicado depois de cada chamada ao modelo. */
 	report(ownUsd: number): void;
+	/**
+	 * Retomada: o gasto de fora que o checkpoint já somava (ajudantes de antes de estacionar). O kernel chama no início,
+	 * antes de qualquer ajudante, para o livro compartilhado enxergar o total (mãe + filhos de antes) e o teto valer sobre ele.
+	 */
+	seedOutside?(priorUsd: number): void;
 	/** O gasto de fora faz parte do resultado deste run? Mãe: sim (padrão). Filho: não (o resultado é só o dele). */
 	countInResult?: boolean;
 };
