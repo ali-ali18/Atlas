@@ -424,6 +424,11 @@ export type FinalizeAgendaRunResult =
 			text: string;
 			/** Encerrou sem nenhum `agenda_result` três vezes seguidas: o dono merece UM aviso (o texto monta o worker). */
 			stoppedWithoutResult: boolean;
+			/**
+			 * Lembrete que não devolveu resultado nem texto depois de várias tentativas: o dono recebe a PRÓPRIA nota
+			 * (o worker monta o texto com `copyFor(language, "agenda_reminder_note", { note })`). Nunca some calado.
+			 */
+			deliverNote: boolean;
 			note: string;
 	  };
 
@@ -442,10 +447,10 @@ export async function finalizeAgendaRun(input: { userId: string; runId: string; 
 	if (result && result.outcome !== "missing") {
 		const text = result.outcome === "no_change" ? "" : (result.message ?? "");
 		if (text) await markNotice(item, now);
-		return { agenda: true, itemId: item.id, text, stoppedWithoutResult: false, note: item.note };
+		return { agenda: true, itemId: item.id, text, stoppedWithoutResult: false, deliverNote: false, note: item.note };
 	}
-	if (result?.outcome === "missing") return { agenda: true, itemId: item.id, text: item.status === "pending" ? "" : input.text.trim(), stoppedWithoutResult: item.endReason === "no_result", note: item.note };
-	if (item.status !== "pending") return { agenda: true, itemId: item.id, text: "", stoppedWithoutResult: false, note: item.note };
+	if (result?.outcome === "missing") return { agenda: true, itemId: item.id, text: item.status === "pending" ? "" : input.text.trim(), stoppedWithoutResult: item.endReason === "no_result", deliverNote: item.endReason === "reminder_note", note: item.note };
+	if (item.status !== "pending") return { agenda: true, itemId: item.id, text: "", stoppedWithoutResult: false, deliverNote: false, note: item.note };
 	const settings = await loadAgendaSettings(item.userId, item.botId);
 	const settled = settleAgendaRunWithoutResult({ item, hasText: input.text.trim().length > 0, now, settings });
 	const lastResult: AgendaLastResult = { runId: input.runId, outcome: "missing", at: now.toISOString() };
@@ -455,17 +460,18 @@ export async function finalizeAgendaRun(input: { userId: string; runId: string; 
 			status: settled.status,
 			noChangeStreak: settled.noChangeStreak,
 			attempts: settled.missingResults,
-			lastError: item.kind === "remind" ? null : "run ended without agenda_result",
+			lastError: item.kind === "remind" && input.text.trim() ? null : "run ended without agenda_result",
 			lastResultJson: lastResult as unknown as Prisma.InputJsonValue,
 			claimedUntil: null,
 			...(settled.dueAt ? { dueAt: settled.dueAt } : { doneAt: now, endReason: settled.endReason }),
 		},
 	});
-	if (updated.count !== 1) return { agenda: true, itemId: item.id, text: "", stoppedWithoutResult: false, note: item.note };
+	if (updated.count !== 1) return { agenda: true, itemId: item.id, text: "", stoppedWithoutResult: false, deliverNote: false, note: item.note };
 	const stoppedWithoutResult = settled.endReason === "no_result";
+	const deliverNote = settled.deliverNote === true;
 	const text = settled.post && item.kind === "remind" ? input.text.trim() : "";
-	if (text || stoppedWithoutResult) await markNotice(item, now);
-	return { agenda: true, itemId: item.id, text, stoppedWithoutResult, note: item.note };
+	if (text || stoppedWithoutResult || deliverNote) await markNotice(item, now);
+	return { agenda: true, itemId: item.id, text, stoppedWithoutResult, deliverNote, note: item.note };
 }
 
 async function markNotice(item: AgendaItemRecord, now: Date): Promise<void> {

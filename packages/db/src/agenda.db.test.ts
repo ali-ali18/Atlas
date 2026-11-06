@@ -156,7 +156,7 @@ describe("agenda (Postgres real)", { skip: dbSkip }, () => {
 		const dup = await recordAgendaResult({ userId: a, runId: "run-1", outcome: "no_change", now: T0 });
 		assert.ok(dup.ok && dup.duplicate);
 		assert.equal((await getAgendaItem(a, id))?.noChangeStreak, 1);
-		assert.deepEqual(await finalizeAgendaRun({ userId: a, runId: "run-1", text: "texto do modelo que não deve sair", now: T0 }), { agenda: true, itemId: id, text: "", stoppedWithoutResult: false, note: "Ciclo completo" });
+		assert.deepEqual(await finalizeAgendaRun({ userId: a, runId: "run-1", text: "texto do modelo que não deve sair", now: T0 }), { agenda: true, itemId: id, text: "", stoppedWithoutResult: false, deliverNote: false, note: "Ciclo completo" });
 		assert.equal((await getAgendaItem(a, id))?.lastNoticeAt, null);
 
 		const run2 = (await getAgendaItem(a, id))!;
@@ -165,7 +165,7 @@ describe("agenda (Postgres real)", { skip: dbSkip }, () => {
 		assert.ok(upd.ok);
 		assert.equal(upd.item.noChangeStreak, 0);
 		const fin = await finalizeAgendaRun({ userId: a, runId: "run-2", text: "ignorado", now: at(131) });
-		assert.deepEqual(fin, { agenda: true, itemId: id, text: "Caiu para R$ 4.200", stoppedWithoutResult: false, note: "Ciclo completo" });
+		assert.deepEqual(fin, { agenda: true, itemId: id, text: "Caiu para R$ 4.200", stoppedWithoutResult: false, deliverNote: false, note: "Ciclo completo" });
 		assert.ok((await getAgendaItem(a, id))?.lastNoticeAt);
 
 		await beginAgendaRun((await getAgendaItem(a, id))!, "run-3", at(300));
@@ -290,6 +290,35 @@ describe("agenda (Postgres real)", { skip: dbSkip }, () => {
 		const sent = await finalizeAgendaRun({ userId: a, runId: "run-rem", text: "Hora de ligar para a Ana.", now: at(60 * 24) });
 		assert.ok(sent.agenda && sent.text === "Hora de ligar para a Ana.");
 		assert.equal((await getAgendaItem(a, remind.item.id))?.status, "done");
+	});
+
+	test("lembrete que acorda sem resultado nem texto não some: reagenda e, na terceira, entrega a própria nota (auditoria F4, C1/B2)", async () => {
+		const created = await createAgendaItem({ userId: a, botId: botA, plan: plan({ kind: "remind", note: "Pagar o condomínio", when: "2026-11-20T09:00" }), grant: GRANT });
+		assert.ok(created.ok);
+		const id = created.item.id;
+		let now = at(60 * 24 * 16);
+		for (const n of [1, 2]) {
+			const woke = await decideAgendaWake((await getAgendaItem(a, id))!, now, SETTINGS);
+			assert.equal(woke.action, "run", `acordar ${n}`);
+			await beginAgendaRun((await getAgendaItem(a, id))!, `run-sn${n}`, now);
+			const fin = await finalizeAgendaRun({ userId: a, runId: `run-sn${n}`, text: "", now });
+			assert.ok(fin.agenda && !fin.deliverNote && fin.text === "");
+			const item = (await getAgendaItem(a, id))!;
+			assert.equal(item.status, "pending", `reagendado na tentativa ${n}`);
+			assert.equal(item.missingResults, n);
+			now = new Date(item.dueAt.getTime() + 60_000);
+		}
+		assert.equal((await decideAgendaWake((await getAgendaItem(a, id))!, now, SETTINGS)).action, "run");
+		await beginAgendaRun((await getAgendaItem(a, id))!, "run-sn3", now);
+		const last = await finalizeAgendaRun({ userId: a, runId: "run-sn3", text: "", now });
+		assert.ok(last.agenda && last.deliverNote && !last.stoppedWithoutResult);
+		assert.equal(last.note, "Pagar o condomínio");
+		const done = (await getAgendaItem(a, id))!;
+		assert.equal(done.status, "done");
+		assert.equal(done.endReason, "reminder_note");
+		// reentrega do mesmo run: continua apontando a nota (idempotente)
+		const again = await finalizeAgendaRun({ userId: a, runId: "run-sn3", text: "", now });
+		assert.ok(again.agenda && again.deliverNote);
 	});
 
 	test("intenção por evento: casa pelo filtro, junta eventos muito próximos e segue valendo depois de acordar", async () => {

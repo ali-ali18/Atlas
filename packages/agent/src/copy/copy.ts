@@ -54,6 +54,12 @@ export const COPY = {
 		"en-US": "I stopped following \"{note}\": I couldn't check it three times in a row. Ask me again if you still want it.",
 		"es-ES": "Dejé de seguir \"{note}\": no pude comprobarlo tres veces seguidas. Pídemelo de nuevo si todavía lo quieres.",
 	},
+	/** Lembrete que não conseguiu ser preparado: o motor entrega a própria nota que o dono pediu. `{note}` = o lembrete. */
+	agenda_reminder_note: {
+		"pt-BR": "Lembrete: {note}",
+		"en-US": "Reminder: {note}",
+		"es-ES": "Recordatorio: {note}",
+	},
 	/** Nenhum modelo configurado para a tarefa. */
 	model_none: {
 		"pt-BR": "Nenhum modelo está configurado para esta tarefa.",

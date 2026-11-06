@@ -38,6 +38,8 @@ export const AGENDA_MAX_HORIZON_DAYS = 180;
 export const AGENDA_IGNORED_NOTICE_LIMIT = 2;
 /** Execuções seguidas sem `agenda_result` que encerram o item. */
 export const AGENDA_MISSING_RESULT_LIMIT = 3;
+/** Lembrete que acordou sem resultado e sem texto: tenta de novo neste prazo (empurrado para fora do silêncio). */
+export const AGENDA_REMIND_RETRY_MINUTES = 30;
 /** Um item `intent` não acorda de novo antes disto (várias mensagens seguidas viram um run só; o run lê o que chegou). */
 export const AGENDA_EVENT_MIN_GAP_MINUTES = 10;
 
@@ -289,7 +291,16 @@ export function nextWatchDelay(input: { now: Date; intervalMinutes: number; noCh
 // Acordar: freios antes do run
 // ---------------------------------------------------------------------------
 
-export type AgendaWakeItem = { status: string; kind: string; runCount: number; maxRuns: number | null; untilAt: Date | null; ignoredStreak: number };
+export type AgendaWakeItem = {
+	status: string;
+	kind: string;
+	runCount: number;
+	maxRuns: number | null;
+	untilAt: Date | null;
+	ignoredStreak: number;
+	/** Falhas seguidas sem resultado. Um lembrete com tentativa pendente não para por `maxRuns`: a tentativa É a mesma execução. */
+	missingResults?: number;
+};
 
 export type AgendaStopReason = "expired" | "max_runs" | "ignored_notices";
 
@@ -321,7 +332,8 @@ export function planAgendaWake(input: { item: AgendaWakeItem; now: Date; setting
 	const { item, now } = input;
 	const ignoredStreak = input.noticeIgnored === null ? item.ignoredStreak : nextIgnoredStreak(item.ignoredStreak, input.noticeIgnored);
 	if (item.untilAt && item.untilAt.getTime() <= now.getTime()) return { action: "stop", reason: "expired", ignoredStreak };
-	if (item.maxRuns !== null && item.runCount >= item.maxRuns) return { action: "stop", reason: "max_runs", ignoredStreak };
+	const retryingReminder = item.kind === "remind" && (item.missingResults ?? 0) > 0;
+	if (item.maxRuns !== null && item.runCount >= item.maxRuns && !retryingReminder) return { action: "stop", reason: "max_runs", ignoredStreak };
 	if (ignoredStreak >= AGENDA_IGNORED_NOTICE_LIMIT) return { action: "stop", reason: "ignored_notices", ignoredStreak };
 	// Intenção por evento reage ao que chegou: adiar para a manhã faria o evento da noite se perder (não há relógio para voltar).
 	if (item.kind !== "intent") {
@@ -345,6 +357,8 @@ export type AgendaSettlement = {
 	endReason: string | null;
 	/** O dono recebe uma mensagem? (`update` ou `done` com texto; `no_change` nunca.) */
 	post: boolean;
+	/** Lembrete que nunca devolveu resultado nem texto: quem fecha o run entrega a PRÓPRIA nota ao dono (copy `agenda_reminder_note`). */
+	deliverNote?: boolean;
 };
 
 /**
@@ -372,9 +386,14 @@ export function settleAgendaRun(input: { item: AgendaSettleItem; outcome: Agenda
 
 /**
  * Run de agenda que acabou SEM `agenda_result`. Sem o sinal explícito não se fala com o dono (contrato silencioso), com
- * uma exceção: o texto de um `remind` É o conteúdo do lembrete, então sai e o item segue como se fosse `update`. Nos outros
- * tipos o run conta como falha (`missingResults`, guardado em `attempts`): espaça como "sem novidade" e, na terceira
- * seguida, encerra com `no_result` para o dono ser avisado uma vez (nunca em silêncio total).
+ * uma exceção: o texto de um `remind` É o conteúdo do lembrete, então sai e o item segue como se fosse `update`.
+ *
+ * Lembrete sem resultado E sem texto NUNCA some calado (o dono pediu para ser avisado): tenta de novo em
+ * `AGENDA_REMIND_RETRY_MINUTES` e, na `AGENDA_MISSING_RESULT_LIMIT`-ésima falha seguida, entrega a própria nota
+ * (`deliverNote`). Lembrete de uma vez encerra aí (`endReason` "reminder_note"); recorrente entrega e segue o ritmo.
+ *
+ * Nos outros tipos o run conta como falha (`missingResults`, guardado em `attempts`): espaça como "sem novidade" e, na
+ * terceira seguida, encerra com `no_result` para o dono ser avisado uma vez (nunca em silêncio total).
  */
 export function settleAgendaRunWithoutResult(input: {
 	item: AgendaSettleItem & { missingResults: number };
@@ -383,7 +402,17 @@ export function settleAgendaRunWithoutResult(input: {
 	settings: ProactiveSettings;
 }): AgendaSettlement & { missingResults: number } {
 	if (input.item.kind === "remind") {
-		return { ...settleAgendaRun({ item: input.item, outcome: input.hasText ? "update" : "no_change", hasMessage: input.hasText, now: input.now, settings: input.settings }), missingResults: 0 };
+		if (input.hasText) return { ...settleAgendaRun({ item: input.item, outcome: "update", hasMessage: true, now: input.now, settings: input.settings }), missingResults: 0 };
+		const missingResults = input.item.missingResults + 1;
+		if (missingResults >= AGENDA_MISSING_RESULT_LIMIT) {
+			const delivered = settleAgendaRun({ item: input.item, outcome: "update", hasMessage: true, now: input.now, settings: input.settings });
+			return { ...delivered, endReason: delivered.status === "done" ? "reminder_note" : null, deliverNote: true, missingResults: 0 };
+		}
+		const retryAt = nextAllowedTime(new Date(input.now.getTime() + AGENDA_REMIND_RETRY_MINUTES * MINUTE_MS), input.settings);
+		if (input.item.untilAt && retryAt.getTime() >= input.item.untilAt.getTime()) {
+			return { status: "done", dueAt: null, noChangeStreak: input.item.noChangeStreak, endReason: "reminder_note", post: true, deliverNote: true, missingResults: 0 };
+		}
+		return { status: "pending", dueAt: retryAt, noChangeStreak: input.item.noChangeStreak, endReason: null, post: false, missingResults };
 	}
 	const missingResults = input.item.missingResults + 1;
 	if (missingResults >= AGENDA_MISSING_RESULT_LIMIT) return { status: "done", dueAt: null, noChangeStreak: input.item.noChangeStreak, endReason: "no_result", post: true, missingResults };

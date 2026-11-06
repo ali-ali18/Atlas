@@ -251,7 +251,7 @@ describe("aviso ignorado", () => {
 });
 
 describe("planAgendaWake", () => {
-	const base = { status: "pending", kind: "watch", runCount: 3, maxRuns: null, untilAt: null, ignoredStreak: 0 };
+	const base = { status: "pending", kind: "watch", runCount: 3, maxRuns: null as number | null, untilAt: null, ignoredStreak: 0, missingResults: 0 };
 	const wake = (item: Partial<typeof base>, noticeIgnored: boolean | null = null, now = NOW) => planAgendaWake({ item: { ...base, ...item }, now, settings: SP, noticeIgnored });
 
 	it("caminho normal roda", () => {
@@ -262,6 +262,12 @@ describe("planAgendaWake", () => {
 		expect(wake({ untilAt: new Date(NOW.getTime() - 1) })).toMatchObject({ action: "stop", reason: "expired" });
 		expect(wake({ maxRuns: 3 })).toMatchObject({ action: "stop", reason: "max_runs" });
 		expect(wake({ maxRuns: 4 })).toMatchObject({ action: "run" });
+	});
+
+	it("lembrete de uma vez com nova tentativa pendente não para por maxRuns (a tentativa é a mesma execução)", () => {
+		expect(wake({ kind: "remind", runCount: 1, maxRuns: 1 })).toMatchObject({ action: "stop", reason: "max_runs" });
+		expect(wake({ kind: "remind", runCount: 2, maxRuns: 1, missingResults: 1 })).toMatchObject({ action: "run" });
+		expect(wake({ kind: "watch", runCount: 2, maxRuns: 1, missingResults: 1 })).toMatchObject({ action: "stop", reason: "max_runs" });
 	});
 
 	it("o segundo aviso seguido ignorado encerra; o primeiro só conta", () => {
@@ -342,7 +348,29 @@ describe("settleAgendaRunWithoutResult", () => {
 
 	it("lembrete: o texto é o conteúdo, sai e o item fecha", () => {
 		expect(settle({ intervalMinutes: null as never }, "remind", true)).toMatchObject({ status: "done", post: true, missingResults: 0 });
-		expect(settle({ intervalMinutes: null as never }, "remind", false)).toMatchObject({ post: false });
+	});
+
+	it("lembrete sem resultado e sem texto nunca some: reagenda e, esgotado, entrega a própria nota (auditoria F4, C1/B2)", () => {
+		const once = { intervalMinutes: null as never, maxRuns: 1 };
+		const first = settle(once, "remind", false);
+		expect(first).toMatchObject({ status: "pending", post: false, missingResults: 1, endReason: null });
+		expect(first.deliverNote).toBeUndefined();
+		expect(first.dueAt && local(first.dueAt, SP.timezone)).toBe("2026-11-04 10:30");
+		expect(settle({ ...once, missingResults: 1 }, "remind", false)).toMatchObject({ status: "pending", missingResults: 2 });
+		expect(settle({ ...once, missingResults: 2 }, "remind", false)).toMatchObject({ status: "done", dueAt: null, post: true, deliverNote: true, endReason: "reminder_note" });
+	});
+
+	it("lembrete recorrente esgotado entrega a nota e segue no ritmo", () => {
+		const out = settle({ missingResults: 2 }, "remind", false);
+		expect(out).toMatchObject({ status: "pending", post: true, deliverNote: true, missingResults: 0, endReason: null });
+		expect(out.dueAt).not.toBeNull();
+	});
+
+	it("a nova tentativa cai fora do silêncio e, se passar do fim, entrega a nota", () => {
+		const late = settleAgendaRunWithoutResult({ item: { ...item, kind: "remind", intervalMinutes: null, maxRuns: 1, missingResults: 0 }, hasText: false, now: new Date("2026-11-05T01:00:00.000Z"), settings: SP });
+		expect(late.dueAt && local(late.dueAt, SP.timezone)).toBe("2026-11-05 08:00");
+		const ended = settle({ intervalMinutes: null as never, maxRuns: 1, untilAt: new Date(NOW.getTime() + 10 * 60_000) }, "remind", false);
+		expect(ended).toMatchObject({ status: "done", deliverNote: true, endReason: "reminder_note" });
 	});
 
 	it("vigia: não fala sem o sinal, conta a falha e na terceira encerra avisando uma vez", () => {
