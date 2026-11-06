@@ -25,6 +25,7 @@ export function createMemoryCapability(memory: Memory) {
 		effect: "read",
 		// Perfil e preferências são do dono: ler isto, depois de ler conteúdo não confiável, fecha a trifeta.
 		privateData: true,
+		ownerData: "memory",
 		async execute({ layer }, ctx) {
 			const items = await memory.list(ctx.ownerId, layer);
 			if (items.length === 0) return { ok: true, summary: layer ? `No entries in the ${layer} layer.` : "Memory is empty." };
