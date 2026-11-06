@@ -76,7 +76,11 @@ export function decide(input: DecideInput): Verdict {
 	let verdict = baseVerdict(effect, autonomy);
 
 	const tainted = taint.untrustedReadInRun || taint.argsCarryUntrusted;
-	const taintFloor = tainted && (TAINT_EFFECTS.has(effect) || input.egress === true);
+	// Egress (URL/consulta a terceiro) só pede aprovação com a trifeta completa: conteúdo não confiável E dado privado do
+	// dono no mesmo run. Pesquisa pura na web (só dado público) segue autônoma: pedir cartão a cada página lida mataria a
+	// pesquisa (decisão do dono, 06/11; cláusula 8 fala em efeito que carregue dado privado).
+	const egressRisk = input.egress === true && taint.untrustedReadInRun && taint.privateReadInRun === true;
+	const taintFloor = (tainted && TAINT_EFFECTS.has(effect)) || egressRisk;
 	if (taintFloor && verdict.kind === "run") verdict = { kind: "approve", reason: "untrusted data in the run: confirm first" };
 
 	if (effect === "money" && input.mandate && input.riskFacts && !tainted) {

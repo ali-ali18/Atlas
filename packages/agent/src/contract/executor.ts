@@ -70,7 +70,7 @@ export function createExecutor(deps: ExecutorDeps) {
 			effect,
 			toolName: tool.name,
 			handoffKind: tool.handoffKindFor(args),
-			taint: { untrustedReadInRun: provenance.untrustedReadInRun, argsCarryUntrusted: provenance.carries(args) },
+			taint: { untrustedReadInRun: provenance.untrustedReadInRun, argsCarryUntrusted: provenance.carries(args), privateReadInRun: provenance.privateReadInRun },
 			riskFacts,
 			egress: tool.egress,
 			now: deps.ports.clock.now(),
@@ -115,6 +115,7 @@ export function createExecutor(deps: ExecutorDeps) {
 		const result = await tool.run(args, ctx);
 		// Dado de fonte não confiável marca o run ANTES de voltar ao modelo (vale também para o texto de erro).
 		// Redigido ANTES de registrar: a proveniência vai no checkpoint e não pode guardar segredo que a tool deixou escapar.
+		if (tool.privateData && result.ok) provenance.markPrivateRead();
 		if (tool.trust === "untrusted" && tool.source) provenance.record(sanitizeText(result.ok ? result.summary : result.error, secrets()), tool.source);
 		if (!result.ok) {
 			if (effectful) await deps.ports.store.journal.append({ ...journalBase, outcome: "failed" });

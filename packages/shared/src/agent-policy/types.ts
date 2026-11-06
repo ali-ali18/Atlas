@@ -29,7 +29,12 @@ export type PolicyRule = {
 };
 
 /** Proveniência do run e dos argumentos (cláusula 8). Só booleanos: o autorizador não lê conteúdo. */
-export type TaintFacts = { untrustedReadInRun: boolean; argsCarryUntrusted: boolean };
+export type TaintFacts = {
+	untrustedReadInRun: boolean;
+	argsCarryUntrusted: boolean;
+	/** O run leu dado privado do dono (e-mail, arquivo, memória, conector privado). Com leitura não confiável, fecha a trifeta. */
+	privateReadInRun?: boolean;
+};
 
 /** Fatos tipados da chamada, para o cartão e para o mandato. Nada de texto livre. */
 export type RiskFacts = { amount?: number; currency?: string; merchant?: string };

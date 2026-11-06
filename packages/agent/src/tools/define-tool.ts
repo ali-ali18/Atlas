@@ -24,7 +24,9 @@ export type ToolDefinition<S extends z.ZodObject> = {
 	trust?: "trusted" | "untrusted";
 	/** Obrigatório com `trust: "untrusted"`. */
 	source?: TrustSource;
-	/** A tool manda dado escolhido pelo modelo (URL, consulta) a um terceiro. Com taint no run, pede aprovação como um envio (cláusula 8). Padrão: não. */
+	/** O resultado traz dado privado do dono (e-mail, arquivo, memória, conector privado). Padrão: não. */
+	privateData?: boolean;
+	/** A tool manda dado escolhido pelo modelo (URL, consulta) a um terceiro. Pede aprovação só com a trifeta completa no run (não confiável + privado; cláusula 8). Padrão: não. */
 	egress?: boolean;
 	/** A chamada encerra o turno (ex.: pergunta ao dono). */
 	endsTurn?: boolean;
@@ -37,6 +39,8 @@ export interface Tool {
 	readonly description: string;
 	readonly effect: Effect;
 	readonly endsTurn: boolean;
+	/** Ver `ToolDefinition.privateData`. */
+	readonly privateData: boolean;
 	/** Ver `ToolDefinition.egress`. */
 	readonly egress: boolean;
 	readonly trust: "trusted" | "untrusted";
@@ -104,6 +108,7 @@ export function defineTool<S extends z.ZodObject>(def: ToolDefinition<S>): Tool 
 		description: def.description,
 		effect: baseEffect,
 		endsTurn: def.endsTurn === true,
+		privateData: def.privateData === true,
 		egress: def.egress === true,
 		trust: def.trust ?? "trusted",
 		...(def.source && { source: def.source }),

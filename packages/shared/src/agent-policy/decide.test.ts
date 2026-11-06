@@ -163,13 +163,16 @@ describe("sem texto livre (cláusula 7)", () => {
 
 describe("egress (auditoria F1, S2)", () => {
 	const tainted = { untrustedReadInRun: true, argsCarryUntrusted: false };
-	it("read com egress: run limpo roda; com taint pede aprovação", () => {
+	const trifecta = { untrustedReadInRun: true, argsCarryUntrusted: false, privateReadInRun: true };
+	it("read com egress: só a trifeta completa (não confiável + privado) pede aprovação; pesquisa pura na web roda", () => {
 		expect(kind({ effect: "read", egress: true })).toBe("run");
-		expect(kind({ effect: "read", egress: true, taint: tainted })).toBe("approve");
-		expect(kind({ effect: "read", egress: true, taint: { untrustedReadInRun: false, argsCarryUntrusted: true } })).toBe("approve");
+		expect(kind({ effect: "read", egress: true, taint: tainted })).toBe("run");
+		expect(kind({ effect: "read", egress: true, taint: { untrustedReadInRun: false, argsCarryUntrusted: true } })).toBe("run");
+		expect(kind({ effect: "read", egress: true, taint: { untrustedReadInRun: false, argsCarryUntrusted: false, privateReadInRun: true } })).toBe("run");
+		expect(kind({ effect: "read", egress: true, taint: trifecta })).toBe("approve");
 	});
 	it("read sem egress continua rodando com taint, e regra 'run' do dono não afrouxa o egress com taint", () => {
 		expect(kind({ effect: "read", taint: tainted })).toBe("run");
-		expect(kind({ effect: "read", egress: true, taint: tainted, rules: [{ match: "*", verdict: "run" }] })).toBe("approve");
+		expect(kind({ effect: "read", egress: true, taint: trifecta, rules: [{ match: "*", verdict: "run" }] })).toBe("approve");
 	});
 });

