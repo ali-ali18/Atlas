@@ -19,6 +19,7 @@ import type { BotLanguage } from "@workspace/shared";
 import { childPolicy } from "@workspace/shared";
 import { createCapabilityRegistry, type Capability, type CapabilityRegistry } from "../capabilities/index.js";
 import { redactDeep, type Hash, type PolicyContext } from "../contract/index.js";
+import type { ChannelInput } from "../channels/envelope.js";
 import { runAgent } from "../kernel/run.js";
 import type { PriorProvenance, RunLimits, RunResult } from "../kernel/types.js";
 import type { Clock } from "../ports/clock.js";
@@ -34,7 +35,7 @@ import type { Vault } from "../ports/vault.js";
 import { createWebCapability } from "../presets/web.js";
 import { buildStablePrompt } from "../prompt/work-contract.js";
 import { createMemoryStore } from "./memory-store.js";
-import { HELPER_PROMPT } from "./prompt.js";
+import { HELPER_PROMPT, LEAD_TASK_LABEL } from "./prompt.js";
 import { recordSources } from "./sources.js";
 import type { SpendLedger } from "./spend-ledger.js";
 import { inheritedProvenance } from "./taint.js";
@@ -121,6 +122,18 @@ export function helperStatusOf(result: RunResult): Pick<HelperResult, "status" |
 	return { status: "failed", error: result.reason ?? `the helper ended without an answer (last tool errors: ${Object.keys(result.unresolved).join(", ") || "none"})` };
 }
 
+/**
+ * Histórico do filho (S2). `objective` e `context` vêm do MODELO da mãe, que pode ter lido páginas: nenhum dos dois ganha a
+ * autoridade de dono nem de sistema. O contexto é sempre DADO não confiável (`<data source="bot:lead" trust="untrusted">`,
+ * com escape). O objetivo é rotulado como pedido da assistente principal, nunca como fala do dono; se a mãe já leu conteúdo
+ * não confiável, ele também vira dado. O prompt do filho explica os dois rótulos.
+ */
+export function helperHistory(task: Pick<HelperTask, "objective" | "context">, motherReadUntrusted: boolean): ChannelInput[] {
+	const context: ChannelInput[] = task.context ? [{ kind: "data", source: "bot:lead", text: `Context from the lead agent:\n${task.context}` }] : [];
+	const objective: ChannelInput = motherReadUntrusted ? { kind: "data", source: "bot:lead", text: `Task from the lead agent:\n${task.objective}` } : { kind: "owner", text: `${LEAD_TASK_LABEL}\n${task.objective}` };
+	return [...context, objective];
+}
+
 export function createHelpers(deps: CreateHelpersDeps): Helpers {
 	const concurrency = Math.max(1, Math.floor(deps.concurrency ?? HELPER_CONCURRENCY));
 	const forbidden = deps.forbiddenCapabilities ?? HELPER_FORBIDDEN_CAPABILITIES;
@@ -161,10 +174,8 @@ export function createHelpers(deps: CreateHelpersDeps): Helpers {
 				ownerId: deps.ownerId,
 				input: {
 					stableSystem: `${buildStablePrompt(registry, { workContract: false })}\n\n${HELPER_PROMPT}`,
-					// O que a mãe sabe vai no bloco `[context]`, que passa pelo escape de canais: o texto vem do modelo da mãe e pode
-					// carregar conteúdo de página; no canal `runtime` (sem escape) ele poderia forjar um bloco do sistema.
-					contextSections: task.context ? [`Context from the lead agent:\n${task.context}`] : [],
-					history: [{ kind: "owner", text: task.objective }],
+					contextSections: [],
+					history: helperHistory(task, prior?.untrustedReadInRun === true),
 					...(prior && { priorProvenance: prior }),
 				},
 				ports,
