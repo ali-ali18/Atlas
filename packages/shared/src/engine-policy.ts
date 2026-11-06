@@ -191,7 +191,9 @@ export function chooseRunEngine(input: {
 	if (input.stored) {
 		// Desligar a flag é a emergência do v4: o run gravado no v4 recomeça no motor que um run novo teria hoje
 		// (o padrão do bot, normalmente o v2), e não no v1 nem no motor desligado (decisão do dono, 06/11).
-		if (input.stored === "v4" && !v4Allowed) return chooseRunEngine({ ...input, stored: undefined, v4Gate: undefined });
+		// Também recomeça fora do v4 se a origem não é a que o v4 atende (grupo, subagente, rotina…): o `stored` herdado não
+		// revalida sozinho (auditoria F1, B13).
+		if (input.stored === "v4" && (!v4Allowed || !engineV4SupportsRun(input))) return chooseRunEngine({ ...input, stored: undefined, v4Gate: undefined });
 		return input.stored;
 	}
 	// `engine: "v1"` explícito no bot nunca vai a um motor novo, nem pela flag da conta.
