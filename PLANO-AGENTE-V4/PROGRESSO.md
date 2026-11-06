@@ -152,6 +152,14 @@
 ## Diário de passagem
 > A entrada mais nova fica no topo. Formato: data · conta ou sessão · fase · feito · pela metade · próximo passo · como verificar · dúvidas.
 
+- **06/11/2026 · sessão de cards do app · F2.6 (parte do app, B6)**
+  - **Feito:** branch `feat/harness-v4-cards-app` (a partir de `feat/harness-v4-f2-capacidades`), só `apps/web`. Os 4 eventos do v4 viram cards no chat (aprovação, "isso é com você", pergunta, recibo), com restauração dos eventos do run vivo, dedupe ao vivo × gravado e testes. Auditoria independente (Sonnet) feita; 5 achados corrigidos.
+  - **Pela metade (fora de `apps/web`):**
+    - rota `POST /v1/runs/:runId/cards/respond` (api) e a retomada com o grant; o app só chama `respondToAgentCard` em `lib/atlas-api.ts`;
+    - o worker gravar os cards na conversa (`role` = tipo do evento, `content` = evento em JSON). Sem isso, o recibo de run encerrado some ao recarregar, e o card gravado de outro aparelho não sabe que já foi resolvido;
+    - campo do código de segurança do cartão (F6.3), hoje só o espaço.
+  - **Como verificar:** `cd apps/web && pnpm test`, `pnpm exec turbo typecheck` e as prévias com `AGENT_CARDS_PREVIEW_DIR=<pasta> pnpm e2e agent-cards-previews`.
+
 - **06/11/2026 · sessão principal · F1**
   - **Feito:** F0 juntada em `harness/v4` (#150). F1.1 a F1.13 prontos em `feat/harness-v4-f1-fundacao`.
     - Testes: agent 261, shared 2.734, worker 539, `turbo typecheck` 17/17.
