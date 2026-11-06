@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { readEngineV4Gate } from "./engine-policy-v4.js";
 import {
 	SLEEP_ASSISTANT_CONTEXT_CHARS,
 	SLEEP_MAX_EVAL_CASES,
@@ -7,6 +8,7 @@ import {
 	isDoctorDay,
 	isSleepDue,
 	readSleepEnabled,
+	sleepReplacesScheduledReflection,
 	sleepSummary,
 	sleepSummaryLanguage,
 	parseSleepProposal,
@@ -203,5 +205,22 @@ describe("opt-out e resumo", () => {
 		expect(sleepSummaryLanguage("es-ES")).toBe("es");
 		expect(sleepSummaryLanguage("auto")).toBe("pt");
 		expect(sleepSummaryLanguage(undefined)).toBe("pt");
+	});
+});
+
+describe("sono x reflexão do v2 (auditoria F5, R1)", () => {
+	const gate = readEngineV4Gate("1", "u1");
+	const bot = { conversationId: "c1", policyJson: {} };
+
+	it("conta no v4 com o sono do bot principal ligado não tem reflexão agendada", () => {
+		expect(sleepReplacesScheduledReflection(gate, "u1", bot)).toBe(true);
+	});
+	it("fora do v4 a reflexão do v2 segue como sempre", () => {
+		expect(sleepReplacesScheduledReflection(gate, "u2", bot)).toBe(false);
+		expect(sleepReplacesScheduledReflection(readEngineV4Gate(undefined, "u1"), "u1", bot)).toBe(false);
+	});
+	it("sono desligado no bot principal, ou bot sem conversa direta (o sono não roda), devolve a reflexão", () => {
+		expect(sleepReplacesScheduledReflection(gate, "u1", { conversationId: "c1", policyJson: { sleep: false } })).toBe(false);
+		expect(sleepReplacesScheduledReflection(gate, "u1", { conversationId: null, policyJson: {} })).toBe(false);
 	});
 });
