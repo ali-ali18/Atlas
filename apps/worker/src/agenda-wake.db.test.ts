@@ -20,6 +20,7 @@ import {
 	type AgendaItemRecord,
 } from "@workspace/db";
 import { DEFAULT_PROACTIVE_SETTINGS, planAgendaItem, readEngineV4Gate, type AgendaEvent, type AgendaPlan } from "@workspace/shared";
+import { claimPendingEventItems, clearPendingEvent, markPendingEvent } from "./agenda-pending-event.js";
 import { realAgendaRunDb, settleAbortedAgendaRun } from "./agenda-run.js";
 import { dispatchAgendaItem, processAgenda, wakeAgendaForEvent, type AgendaWakeDeps } from "./agenda-wake.js";
 
@@ -83,6 +84,57 @@ describe("agenda do worker (Postgres real)", { skip: dbSkip }, () => {
 		return created.item;
 	}
 
+	test("T2: duas varreduras ao mesmo tempo sobre o mesmo item vencido criam UM run só (FOR UPDATE SKIP LOCKED)", async () => {
+		const item = await newItem({ kind: "watch", note: `Varredura concorrente ${randomUUID()}`, everyMinutes: 120, when: "2026-11-04T10:00" });
+		const now = at(180);
+		const s = sink();
+		await Promise.all([processAgenda(worker(now, s)), processAgenda(worker(now, s))]);
+		// só este item é do dono do teste e está vencido
+		assert.equal(s.created.length, 1);
+		const after = await getAgendaItem(userId, item.id);
+		assert.equal(after?.runCount, 1);
+		assert.equal(after?.runId, s.created[0]);
+	});
+
+	test("T2: o mesmo evento em dois workers acorda o item de intenção uma vez só (reserva compare-and-set)", async () => {
+		const item = await newItem({ kind: "intent", note: `Fatura ${randomUUID()}`, eventFilter: { source: "email", from: "banco.com" } });
+		const now = at(60);
+		const s = sink();
+		const [a, b] = await Promise.all([wakeAgendaForEvent({ userId, event: EVENT }, worker(now, s)), wakeAgendaForEvent({ userId, event: EVENT }, worker(now, s))]);
+		assert.equal(a.run + b.run, 1);
+		assert.equal(s.created.length, 1);
+		assert.equal((await getAgendaItem(userId, item.id))?.runCount, 1);
+		// reservar de novo (outro worker, mesmo instante) não passa
+		assert.equal(await reserveAgendaItem(userId, item.id, now), false);
+		// outro dono não reserva
+		assert.equal(await reserveAgendaItem(otherId, item.id, at(500)), false);
+	});
+
+	test("T2: reentrega do fechamento (finalizeAgendaRun duas vezes, em série e em paralelo) não aplica o efeito duas vezes", async () => {
+		const item = await newItem({ kind: "watch", note: `Reentrega ${randomUUID()}`, everyMinutes: 120, when: "2026-11-04T10:00" });
+		await beginAgendaRun(item, "run-reent-1", at(180));
+		const once = await finalizeAgendaRun({ userId, runId: "run-reent-1", text: "", now: at(185) });
+		assert.ok(once.agenda);
+		const afterOnce = await getAgendaItem(userId, item.id);
+		await Promise.all([finalizeAgendaRun({ userId, runId: "run-reent-1", text: "", now: at(186) }), finalizeAgendaRun({ userId, runId: "run-reent-1", text: "", now: at(186) })]);
+		const afterMany = await getAgendaItem(userId, item.id);
+		assert.equal(afterMany?.missingResults, afterOnce?.missingResults);
+		assert.equal(afterMany?.noChangeStreak, afterOnce?.noChangeStreak);
+		assert.equal(afterMany?.dueAt.getTime(), afterOnce?.dueAt.getTime());
+
+		// com resultado declarado: a reentrega também não soma o espaçamento
+		const watch = await newItem({ kind: "watch", note: `Reentrega com resultado ${randomUUID()}`, everyMinutes: 120, when: "2026-11-04T10:00" });
+		await beginAgendaRun(watch, "run-reent-2", at(180));
+		assert.ok((await recordAgendaResult({ userId, runId: "run-reent-2", outcome: "no_change", now: at(185) })).ok);
+		const first = await getAgendaItem(userId, watch.id);
+		const dup = await recordAgendaResult({ userId, runId: "run-reent-2", outcome: "no_change", now: at(190) });
+		assert.ok(dup.ok && dup.duplicate);
+		await finalizeAgendaRun({ userId, runId: "run-reent-2", text: "", now: at(191) });
+		const last = await getAgendaItem(userId, watch.id);
+		assert.equal(last?.noChangeStreak, first?.noChangeStreak);
+		assert.equal(last?.dueAt.getTime(), first?.dueAt.getTime());
+	});
+
 	test("T3 + B1: o run morreu sem resultado, volta na fila em 30 min e o wake o fecha ANTES do maxRuns: lembrete único não some em silêncio", async () => {
 		const item = await newItem({ kind: "remind", note: `Ligar para a Ana ${randomUUID()}`, when: "2026-11-04T10:00" });
 		const startedAt = at(180);
@@ -122,5 +174,47 @@ describe("agenda do worker (Postgres real)", { skip: dbSkip }, () => {
 		assert.ok(first?.status === "pending" || delivered >= 1);
 		// item de outro dono: o fechamento não encontra
 		assert.deepEqual(await settleAbortedAgendaRun({ userId: otherId, runId: "run-falhou-1", db: { ...realAgendaRunDb, deliver: async () => undefined } }), { closed: false, delivered: false });
+	});
+
+	test("B5: evento pendente só é acordado depois do espaçamento mínimo, uma vez, e só pelo dono", async () => {
+		const item = await newItem({ kind: "intent", note: `Pendente ${randomUUID()}`, eventFilter: { source: "email", from: "pendente.com" } });
+		assert.equal(await markPendingEvent(otherId, item.id), false);
+		assert.equal(await markPendingEvent(userId, item.id), true);
+		const base = at(600);
+		// recém acordou (lastResult agora): espera o espaçamento
+		await beginAgendaRun(item, "run-pend-1", base);
+		await recordAgendaResult({ userId, runId: "run-pend-1", outcome: "no_change", now: base });
+		await markPendingEvent(userId, item.id);
+		assert.equal((await claimPendingEventItems(at(5, base), 10)).some((i) => i.id === item.id), false);
+		const claimed = await Promise.all([claimPendingEventItems(at(11, base), 10), claimPendingEventItems(at(11, base), 10)]);
+		assert.equal(claimed.flat().filter((i) => i.id === item.id).length, 1, "dois workers: uma reserva só");
+		await clearPendingEvent(userId, item.id);
+		assert.equal((await getAgendaItem(userId, item.id))?.endReason, null);
+		assert.equal((await claimPendingEventItems(at(60, base), 10)).some((i) => i.id === item.id), false);
+	});
+
+	test("B5: evento que chegou com a intenção ocupada roda quando o run termina (ponta a ponta)", async () => {
+		const item = await newItem({ kind: "intent", note: `Ocupada ${randomUUID()}`, eventFilter: { source: "email", from: "banco.com" } });
+		const t = at(700);
+		const s1 = sink();
+		await wakeAgendaForEvent({ userId, event: EVENT }, worker(t, s1));
+		assert.equal(s1.created.length, 1);
+		const runId = s1.created[0]!;
+		// segundo e-mail com o run em andamento: juntado, mas marcado
+		const s2 = sink();
+		const during = await wakeAgendaForEvent({ userId, event: EVENT }, worker(at(2, t), s2));
+		assert.equal(during.run, 0);
+		assert.equal(s2.created.length, 0);
+		assert.equal((await getAgendaItem(userId, item.id))?.endReason, "event_pending");
+		// o run termina; passado o espaçamento a varredura acorda o item de novo, sem esperar o fim da vigência
+		assert.ok((await recordAgendaResult({ userId, runId, outcome: "no_change", now: at(3, t) })).ok);
+		const s3 = sink();
+		const sweep = await processAgenda(worker(at(14, t), s3, { inFlight: async () => false }));
+		assert.ok(sweep.run >= 1);
+		// (o banco de teste tem itens de outros testes vencidos: confere pelo item)
+		const woken = await getAgendaItem(userId, item.id);
+		assert.equal(woken?.runCount, 2);
+		assert.ok(woken?.runId && s3.created.includes(woken.runId));
+		assert.equal(woken?.endReason, null);
 	});
 });

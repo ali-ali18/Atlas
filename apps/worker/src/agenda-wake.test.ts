@@ -38,6 +38,9 @@ function harness(over: Partial<AgendaWakeDeps> & { decision?: AgendaWakeDecision
 		reschedule: async (_u, id, input) => void calls.rescheduled.push({ id, ...input }),
 		stop: async (_u, id, reason) => void calls.stopped.push({ id, reason }),
 		resolveModel: async () => "test/model",
+		claimPending: async () => [],
+		markPending: async () => true,
+		clearPending: async () => undefined,
 		...Object.fromEntries(Object.entries(over).filter(([key]) => !["decision", "busyRuns", "runAlive"].includes(key))),
 	};
 	return { deps, calls };
@@ -213,6 +216,17 @@ test("B1: run anterior vivo, ou já fechado (lastResult do mesmo run), não pass
 	assert.equal(result.run, 1);
 });
 
+test("B1: intenção cujo run morreu fica marcada com evento pendente (não há relógio para voltar)", async () => {
+	const marked: string[] = [];
+	const { deps } = harness({
+		runAlive: false,
+		settleDead: (async () => ({ closed: true, delivered: false })) as AgendaWakeDeps["settleDead"],
+		markPending: async (_u, id) => (marked.push(id), true),
+	});
+	await dispatchAgendaItem(item({ id: "int-9", kind: "intent", intervalMinutes: null, runId: "run-morto", runCount: 1 }), deps, fresh(), EVENT);
+	assert.deepEqual(marked, ["int-9"]);
+});
+
 test("B2: bot com o motor fixado em v1 (ou v2 fora do v4): adia sem criar run e sem gastar tentativa", async () => {
 	for (const policyJson of [{ engine: "v1" }]) {
 		const { deps, calls } = harness({ loadBot: async () => ({ id: "bot-1", conversationId: "conv-1", policyJson }) });
@@ -228,6 +242,37 @@ test("B2: bot com o motor fixado em v1 (ou v2 fora do v4): adia sem criar run e 
 	const ok = harness({ loadBot: async () => ({ id: "bot-1", conversationId: "conv-1", policyJson: {} }) });
 	const result = fresh();
 	await dispatchAgendaItem(item(), ok.deps, result);
+	assert.equal(result.run, 1);
+});
+
+test("B5: evento junto demais (reserva ativa/recente ou reserva perdida) deixa o item marcado para rodar depois, sem perder o evento", async () => {
+	const intent = item({ id: "int-1", kind: "intent", intervalMinutes: null, untilAt: new Date("2026-12-05T12:00:00.000Z"), dueAt: new Date("2026-12-05T12:00:00.000Z"), eventFilter: { source: "email", from: "banco.com" } });
+	const marked: string[] = [];
+	const { deps, calls } = harness({
+		findForEvent: async () => ({ matched: [{ ...intent, id: "int-2" }], coalesced: [intent] }),
+		reserve: async () => false,
+		markPending: async (_u, id) => (marked.push(id), true),
+	});
+	const result = await wakeAgendaForEvent({ userId: "user-a", event: EVENT }, deps);
+	assert.equal(result.run, 0);
+	assert.equal(calls.created.length, 0);
+	assert.deepEqual(marked.sort(), ["int-1", "int-2"]);
+});
+
+test("B5: a varredura acorda o item com evento pendente (sem evento no objetivo) e tira a marca ao criar o run", async () => {
+	const intent = item({ id: "int-1", kind: "intent", intervalMinutes: null, untilAt: new Date("2026-12-05T12:00:00.000Z"), dueAt: new Date("2026-12-05T12:00:00.000Z") });
+	const cleared: string[] = [];
+	const { deps, calls } = harness({ claimDue: async () => [], claimPending: async () => [intent], clearPending: async (_u, id) => void cleared.push(id) });
+	const result = await processAgenda(deps);
+	assert.equal(result.run, 1);
+	assert.match(calls.created[0]?.objective ?? "", /^Agenda wake \(intent\): /);
+	assert.equal(parseAgendaEvent(calls.created[0]?.objective), null);
+	assert.deepEqual(cleared, ["int-1"]);
+});
+
+test("B5: falha da varredura de eventos pendentes não derruba a passada dos itens vencidos", async () => {
+	const { deps } = harness({ claimDue: async () => [item()], claimPending: async () => { throw new Error("db fora do ar"); }, log: () => undefined });
+	const result = await processAgenda(deps);
 	assert.equal(result.run, 1);
 });
 
