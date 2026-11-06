@@ -50,6 +50,8 @@ export type SseMapOptions = {
 	usage?: () => RunUsage | undefined;
 	/** Valores do cofre usados no run (`trackVault`): os argumentos de `tool_call` saem sem eles. */
 	secrets?: () => readonly string[];
+	/** Passo em que o run está (do checkpoint) ao RETOMAR; sem valor começa em 0. O evento `tool_call` do kernel também traz o passo. */
+	step?: number;
 };
 
 export type SseMapper = {
@@ -88,7 +90,7 @@ function argsText(args: unknown, secrets: readonly string[] = []): string {
 }
 
 export function createSseMapper(options: SseMapOptions): SseMapper {
-	let step = 0;
+	let step = options.step ?? 0;
 	let finalStep = false;
 	const bubbleId = () => (finalStep ? `${options.runId}-final` : `${options.runId}-step-${step}`);
 	const withRun = { runId: options.runId };
@@ -104,7 +106,7 @@ export function createSseMapper(options: SseMapOptions): SseMapper {
 			case "retract":
 				return [{ type: "assistant_discard", id: bubbleId(), reason: "duplicate" }];
 			case "tool_call":
-				return [{ type: "tool_call", id: event.data.callId, name: event.data.name, args: argsText(event.data.args, options.secrets?.()), step, ...(options.maxSteps !== undefined && { maxSteps: options.maxSteps }) }];
+				return [{ type: "tool_call", id: event.data.callId, name: event.data.name, args: argsText(event.data.args, options.secrets?.()), step: event.data.step ?? step, ...(options.maxSteps !== undefined && { maxSteps: options.maxSteps }) }];
 			case "tool_result":
 				return [{ type: "tool_result", id: event.data.callId, name: event.data.name, ok: OK_STATUSES.has(event.data.status), summary: event.data.content }];
 			case "receipt": {

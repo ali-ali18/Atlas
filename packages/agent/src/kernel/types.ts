@@ -137,7 +137,7 @@ export type RunResult = {
 export type KernelEvent =
 	| { type: "step"; data: { step: number; final: boolean } }
 	| { type: "text_delta"; data: { text: string } }
-	| { type: "tool_call"; data: { callId: string; name: string; args: unknown } }
+	| { type: "tool_call"; data: { callId: string; name: string; args: unknown; step?: number } }
 	| { type: "tool_result"; data: { callId: string; name: string; status: string; content: string } }
 	| { type: "card"; data: { kind: "approval"; callId: string; request: ApprovalRequest } | { kind: "handoff"; callId: string; userMessage: string } | { kind: "ask_owner"; cardId: string; question: string; offer?: string } }
 	/** Aviso do motor. `before`/`after` (tokens) só vêm em `compacted`. */

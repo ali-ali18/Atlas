@@ -85,7 +85,7 @@ export async function runPending(env: ToolStepEnv): Promise<{ malformed: number 
 			grant = env.resume?.grants?.find((g) => g.requestId === parked.requestId);
 			if (!grant) return;
 		} else {
-			await env.emit({ type: "tool_call", data: { callId: call.id, name: call.name, args: call.args } });
+			await env.emit({ type: "tool_call", data: { callId: call.id, name: call.name, args: call.args, step: snap.step } });
 		}
 		const outcome = await env.executor.executeCall({ callId: call.id, step: snap.step, tool, args: call.args, ...(grant && { grant }) });
 		if (outcome.status === "pending_approval" || outcome.status === "approval_invalid") {

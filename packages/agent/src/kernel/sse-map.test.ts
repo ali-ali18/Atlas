@@ -146,4 +146,11 @@ describe("kernel → transcript: execução gravada", () => {
 		const [ev] = m.map({ type: "tool_call", data: { callId: "c1", name: "http", args: { auth: "valor-do-cofre-123" } } });
 		expect(JSON.stringify(ev)).not.toContain("valor-do-cofre-123");
 	});
+
+	it("retomada: o passo vem da opção ou do próprio tool_call, nunca volta a 0 (B14)", () => {
+		const resumed = createSseMapper({ runId: "run-1", model: "m-1", step: 4 });
+		expect(resumed.map({ type: "tool_call", data: { callId: "c1", name: "lookup", args: {} } })[0]).toMatchObject({ step: 4 });
+		expect(resumed.map({ type: "text_delta", data: { text: "x" } })[0]).toMatchObject({ id: "run-1-step-4" });
+		expect(mapper().map({ type: "tool_call", data: { callId: "c1", name: "lookup", args: {}, step: 3 } })[0]).toMatchObject({ step: 3 });
+	});
 });
