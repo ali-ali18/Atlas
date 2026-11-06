@@ -72,16 +72,39 @@ test("isso é com você: título, passo a passo numerado, 'Já fiz' e 'Agora nã
 	assert.match(html, />Agora não</);
 });
 
-test("pergunta do bot: a pergunta, campo de resposta, Responder e 'Agora não'", () => {
-	const html = render({ type: "ask_owner", cardId: "k1", question: "Prefere azul ou verde?", runId: "run-1" });
+test("pergunta do bot com alternativas: as duas opções, o campo livre e o selo pendente", () => {
+	const html = render({
+		type: "ask_owner",
+		cardId: "k1",
+		question: "Qual capa prefere?",
+		choices: [{ value: "comum", label: "Capa comum" }, { value: "dura", label: "Capa dura", description: "R$ 30 a mais" }],
+		runId: "run-1",
+	});
 	assert.match(html, /Pergunta para você/);
+	assert.match(html, /Qual capa prefere\?/);
+	assert.match(html, /Capa comum/);
+	assert.match(html, /Capa dura/);
+	assert.match(html, /R\$ 30 a mais/);
+	assert.match(html, /Digite sua própria resposta/);
+	assert.match(html, /Precisa de você/);
+	assert.doesNotMatch(html, /ask_owner|k1/);
+});
+
+test("pergunta do bot sem alternativas: só o campo livre", () => {
+	const html = render({ type: "ask_owner", cardId: "k1", question: "Prefere azul ou verde?", runId: "run-1" });
 	assert.match(html, /Prefere azul ou verde\?/);
-	assert.match(html, /<textarea[^>]*aria-label="Sua resposta"/);
-	assert.match(html, />Responder</);
-	assert.match(html, />Agora não</);
-	const answered = render({ type: "ask_owner", cardId: "k1", question: "Prefere azul ou verde?", runId: "run-1" }, { initialDecision: "answered" });
+	assert.match(html, /Digite sua própria resposta/);
+	assert.doesNotMatch(html, /type="radio"|role="radio"/);
+});
+
+test("pergunta do bot: respondida e dispensada mostram o estado do questionário", () => {
+	const card: AgentV4Event = { type: "ask_owner", cardId: "k1", question: "Prefere azul ou verde?", runId: "run-1" };
+	const answered = render(card, { initialDecision: "answered" });
 	assert.match(answered, /Respondido/);
-	assert.doesNotMatch(answered, /<textarea/);
+	assert.doesNotMatch(answered, /Digite sua própria resposta/);
+	const dismissed = render(card, { initialDecision: "dismissed" });
+	assert.match(dismissed, /Dispensado/);
+	assert.doesNotMatch(dismissed, /Digite sua própria resposta/);
 });
 
 test("recibo: linha compacta com o que foi feito, onde e o link; link perigoso não vira âncora", () => {

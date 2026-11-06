@@ -241,3 +241,33 @@ export function handoffSteps(message: string): string[] {
 		.map((line) => line.trim().replace(/^(?:\d{1,2}[.)]|[-*•])\s+/, ""))
 		.filter(Boolean);
 }
+
+export type AskOwnerStatus = "pending" | "submitted" | "dismissed";
+
+/** Monta a mensagem de questionário da pergunta do bot (alternativas + campo livre do próprio questionário). */
+export function askOwnerQuestionnaire(
+	card: Extract<AgentV4Event, { type: "ask_owner" }>,
+	title: string,
+	status: AskOwnerStatus,
+	answers?: Record<string, string | string[]>,
+): Extract<Message, { kind: "questionnaire" }> {
+	const choices = card.choices?.map((choice) => ({ value: choice.value, label: choice.label, description: choice.description }));
+	return {
+		id: `ask-owner-${card.cardId}`,
+		kind: "questionnaire",
+		questionnaireId: card.cardId,
+		title,
+		items: [{ name: "answer", prompt: card.question.trim() || card.offer || "", required: true, ...(choices && choices.length > 0 && { choices }) }],
+		status,
+		...(answers && { answers }),
+	};
+}
+
+/** Texto da resposta do dono: rótulo da alternativa escolhida (ou o próprio valor); lista junta com ", ". */
+export function askOwnerAnswerText(
+	card: Extract<AgentV4Event, { type: "ask_owner" }>,
+	value: string | string[] | undefined,
+): string {
+	const values = (Array.isArray(value) ? value : value === undefined ? [] : [value]).map((entry) => entry.trim()).filter(Boolean);
+	return values.map((entry) => card.choices?.find((choice) => choice.value === entry)?.label ?? entry).join(", ");
+}

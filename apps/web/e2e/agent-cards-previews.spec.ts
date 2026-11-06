@@ -28,7 +28,7 @@ const SEEDS: Seed[] = [
   card("a04", { type: "approval_request", requestId: "req-2", callId: "call-2", toolName: "checkout", effect: "money", args: { item: "Estatística Básica, 9ª edição", card: "Cartão final 4242" }, riskFacts: { amount: 89.9, currency: "BRL", merchant: "Livraria Exemplo", irreversible: true }, runId: "run-1" }),
   card("a05", { type: "approval_request", requestId: "req-3", callId: "call-3", toolName: "share_page", effect: "public_link", args: { title: "Pedidos da semana" }, riskFacts: { target: "Pedidos da semana" }, runId: "run-1" }),
   card("a06", { type: "handoff_request", callId: "call-4", message: "1. Abra o app do banco\n2. Toque em Pix > Aprovar pendentes\n3. Confirme o pagamento de R$ 89,90 para a Livraria Exemplo", runId: "run-1" }),
-  card("a07", { type: "ask_owner", cardId: "ask-1", question: "O livro tem capa comum e capa dura (R$ 30 a mais). Qual prefere?", runId: "run-1" }),
+  card("a07", { type: "ask_owner", cardId: "ask-1", question: "O livro tem capa comum e capa dura (R$ 30 a mais). Qual prefere?", choices: [{ value: "comum", label: "Capa comum" }, { value: "dura", label: "Capa dura", description: "R$ 30 a mais" }], runId: "run-1" }),
   card("a08", { type: "receipt", id: "call-1", name: "send_email", what: "E-mail enviado para ana@exemplo.com", where: "Gmail", url: "https://mail.example.com/m/1", runId: "run-1" }),
   card("a09", { type: "receipt", id: "call-5", name: "create_event", what: "Evento criado: entrega do livro", where: "Google Agenda", runId: "run-1" }),
 ]

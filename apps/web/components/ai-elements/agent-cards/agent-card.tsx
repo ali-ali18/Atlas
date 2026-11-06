@@ -1,19 +1,21 @@
 "use client";
 
 import { useState } from "react";
-import { CheckIcon, CreditCardIcon, ExternalLinkIcon, HandIcon, MessageCircleQuestionIcon, ShieldCheckIcon } from "lucide-react";
+import { CheckIcon, CreditCardIcon, ExternalLinkIcon, HandIcon, ShieldCheckIcon } from "lucide-react";
 import type { AgentV4Event } from "@workspace/shared";
 import { Button } from "@workspace/ui/components/button";
-import { ChatCard, ChatCardLine } from "@workspace/ui/components/chat-card";
+import { ChatCard, ChatCardError, ChatCardLine } from "@workspace/ui/components/chat-card";
 import { REQUEST_PRIMARY_CLASS, RequestCard } from "@workspace/ui/components/request-card";
 import { Spinner } from "@workspace/ui/components/spinner";
-import { Textarea } from "@workspace/ui/components/textarea";
 import { useUiCopy } from "@workspace/ui/components/ui-copy";
 import { useTranslations } from "@/lib/i18n/provider";
 import { formatList } from "@/lib/format";
 import {
 	type AgentCardMessage,
+	type AskOwnerStatus,
 	agentCardKey,
+	askOwnerAnswerText,
+	askOwnerQuestionnaire,
 	approvalDetails,
 	approvalFacts,
 	approvalNeedsCardCode,
@@ -21,6 +23,7 @@ import {
 	handoffSteps,
 	safeReceiptUrl,
 } from "@/lib/agent-cards";
+import { type QuestionnaireAnswersMap, QuestionnaireCard } from "@/components/ui/templates/template-4/chat-thread/questionnaire-card";
 import { type AgentCardDecision, setAgentCardDecision, useAgentCardDecision } from "@/lib/agent-card-state";
 import { AGENT_CARD_ANSWER_MAX, type AgentCardResponse, respondToAgentCard } from "@/lib/atlas-api";
 
@@ -198,58 +201,30 @@ function HandoffCard({ card, respond, settled, initialDecision }: InteractivePro
 
 function AskOwnerCard({ card, respond, settled, initialDecision }: InteractiveProps<"ask_owner">) {
 	const t = useTranslations().t;
-	const copy = useUiCopy();
-	const { decision, busy, failed, send, canRespond } = useCardResponse(card, respond, initialDecision);
-	const [answer, setAnswer] = useState("");
-	const resolved = Boolean(decision || settled);
-	const trimmed = answer.trim();
-	const question = card.question.trim() || card.offer || "";
-	const submit = () => {
-		if (!trimmed) return;
-		void send({ kind: "ask_owner", cardId: card.cardId, decision: "answer", answer: trimmed }, "answered");
+	const { decision, failed, send, canRespond } = useCardResponse(card, respond, initialDecision);
+	const [sentAnswer, setSentAnswer] = useState<string | null>(null);
+	const [tooLong, setTooLong] = useState(false);
+	const status: AskOwnerStatus = decision === "dismissed" ? "dismissed" : decision === "answered" || settled ? "submitted" : "pending";
+	// Resposta enviada neste aparelho: o card colapsado mostra o que foi escolhido (só em memória).
+	const answers = status === "submitted" && sentAnswer ? { answer: sentAnswer } : undefined;
+	const message = askOwnerQuestionnaire(card, t("agentCards.ask.title"), status, answers);
+	const submit = (_message: unknown, values: QuestionnaireAnswersMap) => {
+		const answer = askOwnerAnswerText(card, values.answer);
+		if (!answer) return;
+		if (answer.length > AGENT_CARD_ANSWER_MAX) {
+			setTooLong(true);
+			return;
+		}
+		setTooLong(false);
+		setSentAnswer(answer);
+		void send({ kind: "ask_owner", cardId: card.cardId, decision: "answer", answer }, "answered");
 	};
+	const dismiss = () => void send({ kind: "ask_owner", cardId: card.cardId, decision: "dismiss" }, "dismissed");
 	return (
-		<RequestCard
-			actions={
-				canRespond ? (
-					<>
-						<Button className={REQUEST_PRIMARY_CLASS} disabled={busy !== null || !trimmed} onClick={submit} size="sm" type="button">
-							{busy === "answered" ? <Spinner className="size-3.5" /> : null}
-							{t("agentCards.ask.answer")}
-						</Button>
-						<Button disabled={busy !== null} onClick={() => void send({ kind: "ask_owner", cardId: card.cardId, decision: "dismiss" }, "dismissed")} size="sm" type="button" variant="secondary">
-							{copy.cardDismiss}
-						</Button>
-					</>
-				) : null
-			}
-			badge={resolved ? resolvedBadge(decision, { ok: t("agentCards.ask.answered"), dismissed: copy.cardDismissed, settled: t("agentCards.settled") }) : { tone: "pending", label: copy.cardNeedsYou }}
-			data-kind="agent-ask-owner"
-			description={question}
-			error={failed ? t("agentCards.sendFailed") : undefined}
-			leading={<MessageCircleQuestionIcon aria-hidden />}
-			resolved={resolved}
-			title={t("agentCards.ask.title")}
-		>
-			{resolved || !canRespond ? null : (
-				<Textarea
-					aria-label={t("agentCards.ask.inputLabel")}
-					className="min-h-16 resize-none bg-background"
-					disabled={busy !== null}
-					maxLength={AGENT_CARD_ANSWER_MAX}
-					onChange={(event) => setAnswer(event.target.value)}
-					onKeyDown={(event) => {
-						// Enter envia, Shift+Enter quebra a linha (o mesmo do campo de digitar da conversa).
-						if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
-							event.preventDefault();
-							submit();
-						}
-					}}
-					placeholder={t("agentCards.ask.inputLabel")}
-					value={answer}
-				/>
-			)}
-		</RequestCard>
+		<div className="flex min-w-0 flex-col gap-2" data-kind="agent-ask-owner">
+			<QuestionnaireCard message={message} onDismiss={canRespond ? dismiss : undefined} onSubmit={canRespond ? submit : undefined} />
+			{failed || tooLong ? <ChatCardError>{t("agentCards.sendFailed")}</ChatCardError> : null}
+		</div>
 	);
 }
 

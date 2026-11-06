@@ -13,6 +13,8 @@ import {
 	applyAgentCardEvents,
 	approvalDetailValues,
 	approvalDetails,
+	askOwnerAnswerText,
+	askOwnerQuestionnaire,
 	approvalNeedsCardCode,
 	describeApproval,
 	handoffSteps,
@@ -159,4 +161,40 @@ test("resultado de chamada com o mesmo id em outro run não resolve o card (audi
 test("aprovação de credencial não mostra os valores (auditoria)", () => {
 	assert.deepEqual(approvalDetails(approval({ effect: "credential", args: { name: "senha-banco" } })), []);
 	assert.deepEqual(approvalDetails(approval()), ["ana@exemplo.com", "Orçamento"]);
+});
+
+const ask: Extract<AgentV4Event, { type: "ask_owner" }> = {
+	type: "ask_owner",
+	cardId: "k1",
+	question: "  Qual capa?  ",
+	choices: [{ value: "comum", label: "Capa comum" }, { value: "dura", description: "R$ 30 a mais" }],
+};
+
+test("pergunta do bot vira questionário com a alternativa e o campo livre obrigatório", () => {
+	const message = askOwnerQuestionnaire(ask, "Pergunta", "pending");
+	assert.equal(message.kind, "questionnaire");
+	assert.equal(message.questionnaireId, "k1");
+	assert.equal(message.status, "pending");
+	assert.equal(message.items.length, 1);
+	assert.equal(message.items[0]?.name, "answer");
+	assert.equal(message.items[0]?.prompt, "Qual capa?");
+	assert.equal(message.items[0]?.required, true);
+	assert.equal(message.items[0]?.choices?.length, 2);
+	assert.equal(message.answers, undefined);
+});
+
+test("pergunta sem pergunta usa a oferta; sem alternativas não tem choices; respondida leva as respostas", () => {
+	const message = askOwnerQuestionnaire({ type: "ask_owner", cardId: "k2", question: "  ", offer: "Quer que eu agende?" }, "T", "submitted", { answer: "Sim" });
+	assert.equal(message.items[0]?.prompt, "Quer que eu agende?");
+	assert.equal(message.items[0]?.choices, undefined);
+	assert.deepEqual(message.answers, { answer: "Sim" });
+});
+
+test("texto da resposta: rótulo da alternativa, valor se não houver, lista com vírgula, vazio some", () => {
+	assert.equal(askOwnerAnswerText(ask, "comum"), "Capa comum");
+	assert.equal(askOwnerAnswerText(ask, "dura"), "dura");
+	assert.equal(askOwnerAnswerText(ask, "outra coisa"), "outra coisa");
+	assert.equal(askOwnerAnswerText(ask, ["comum", "x"]), "Capa comum, x");
+	assert.equal(askOwnerAnswerText(ask, "  "), "");
+	assert.equal(askOwnerAnswerText(ask, undefined), "");
 });
