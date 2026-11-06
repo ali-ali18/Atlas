@@ -256,6 +256,8 @@ export type RunEngineV4Input = {
 	vault?: VaultBackend;
 	sandbox?: Sandbox;
 	registry?: CapabilityRegistry;
+	/** Prompt estável do preset (sem ele, o kernel monta o completo com o contrato de trabalho). */
+	stableSystem?: string;
 	policy?: PolicyContext;
 	mapEvent?: (event: RunEvent) => readonly ComputerUseEvent[];
 };
@@ -287,6 +289,7 @@ export async function runEngineV4(input: RunEngineV4Input): Promise<V4EngineResu
 		runId: input.runId,
 		ownerId: input.userId,
 		input: {
+			...(input.stableSystem && { stableSystem: input.stableSystem }),
 			contextSections: input.contextSections ?? [],
 			history: input.history ?? [{ kind: "owner", text: input.objective }],
 			...(input.conversationId && { conversationId: input.conversationId }),
