@@ -133,3 +133,46 @@ describe("saída para terceiros pela web (auditoria F1, S2)", () => {
 		expect(query.status).toBe("pending_approval");
 	});
 });
+
+describe("URL do web_extract (auditoria F1, S3)", () => {
+	const extract = () => createWebCapability(new FakeSearch()).tools[1]!;
+	const BAD = [
+		"file:///etc/passwd",
+		"ftp://example.test/x",
+		"javascript:alert(1)",
+		"http://localhost/admin",
+		"http://LOCALHOST./x",
+		"http://api.localhost/x",
+		"http://intranet/x",
+		"http://servico.internal/x",
+		"http://127.0.0.1:8080/",
+		"http://127.1/",
+		"http://2130706433/",
+		"http://0x7f.0.0.1/",
+		"http://10.0.0.5/",
+		"http://172.16.4.1/",
+		"http://192.168.1.1/",
+		"http://169.254.169.254/latest/meta-data/",
+		"http://metadata.google.internal/computeMetadata/v1/",
+		"http://100.64.0.1/",
+		"http://0.0.0.0/",
+		"http://[::1]/",
+		"http://[::]/",
+		"http://[::ffff:127.0.0.1]/",
+		"http://[fe80::1]/",
+		"http://[fd00::1]/",
+		"http://usuario:senha@example.test/",
+	];
+	for (const url of BAD) {
+		it(`rejeita ${url}`, async () => {
+			const out = await extract().run({ url }, fakeToolContext());
+			expect(out.ok).toBe(false);
+		});
+	}
+	it("aceita páginas públicas http e https, inclusive IP público", async () => {
+		for (const url of ["https://example.test/p?q=1", "http://example.test/", "https://8.8.8.8/x", "https://[2606:4700:4700::1111]/"]) {
+			const out = await extract().run({ url }, fakeToolContext());
+			expect(out.ok, url).toBe(true);
+		}
+	});
+});

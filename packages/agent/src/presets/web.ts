@@ -4,6 +4,7 @@ import { z } from "zod";
 import { defineCapability } from "../capabilities/define-capability.js";
 import type { Search } from "../ports/search.js";
 import { defineTool } from "../tools/define-tool.js";
+import { checkPublicHttpUrl } from "./web-url.js";
 
 const MAX_RESULTS = 10;
 
@@ -26,7 +27,15 @@ export function createWebCapability(search: Search) {
 	const webExtract = defineTool({
 		name: "web_extract",
 		description: "Read the text of one web page by URL (http or https). Use after web_search when a snippet is not enough. Do not use for files in the workspace.",
-		inputSchema: z.object({ url: z.url().max(2000) }),
+		inputSchema: z.object({
+			url: z
+				.string()
+				.max(2000)
+				.superRefine((value, ctx) => {
+					const check = checkPublicHttpUrl(value);
+					if (!check.ok) ctx.addIssue({ code: "custom", message: `${check.reason}; give a public http(s) page URL` });
+				}),
+		}),
 		effect: "read",
 		egress: true,
 		trust: "untrusted",
