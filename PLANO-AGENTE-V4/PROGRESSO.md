@@ -40,7 +40,7 @@
 | F0 baseline | `feat/harness-v4-f0-baseline` | **concluída, juntada em `harness/v4`** | #150 |
 | F1 fundação | `feat/harness-v4-f1-fundacao` | **concluída, juntada em `harness/v4`** | #151 |
 | F2 capacidades | `feat/harness-v4-f2-capacidades` | **concluída, juntada em `harness/v4`** | #152 |
-| F3 pesquisa | `feat/harness-v4-f3-pesquisa` | em andamento: frentes H (ajudantes) e R (`research`) | — |
+| F3 pesquisa | `feat/harness-v4-f3-pesquisa` | **concluída** (auditoria fechada); PR para `harness/v4` | — |
 
 ## Decisões do dono (não reabrir)
 - Base nova, do zero, em `packages/agent`, sem import do legado (05/11).
@@ -101,9 +101,9 @@
 - [x] F2.A (06/11: 23 achados, nenhum crítico ou alto; 21 corrigidos, 2 aceitos; reauditoria com 4 novos baixos, 1 corrigido) Auditoria: 5 lentes, verificação, correções com teste, reauditoria e `auditorias/F2.md` fechado.
 
 ### F3: Pesquisa
-- [ ] F3.1 Ajudantes com preset filho e política que não concede mais que a mãe.
-- [ ] F3.2 `research` (plano, paralelo, caderno de trabalho, fonte por afirmação, formato certo).
-- [ ] F3.A Auditoria: 5 lentes, verificação, correções com teste, reauditoria e `auditorias/F3.md` fechado.
+- [x] F3.1 (06/11) Ajudantes com preset filho e política que não concede mais que a mãe.
+- [x] F3.2 (06/11; o eval v4 monta o preset `full` com ajudantes reais) `research` (plano, paralelo, caderno de trabalho, fonte por afirmação, formato certo).
+- [x] F3.A (06/11: 8 achados, 1 alto; todos corrigidos; reauditoria com 2 baixos, 1 corrigido) Auditoria: 5 lentes, verificação, correções com teste, reauditoria e `auditorias/F3.md` fechado.
 
 ### F4: Agenda
 - [ ] F4.1 Migration aditiva em `BotFollowup` e funções puras (`planAgendaItem`, `nextWatchDelay`, `matchEventFilter`).
