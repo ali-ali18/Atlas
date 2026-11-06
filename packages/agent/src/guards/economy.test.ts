@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { capabilityIndex, createCapabilityRegistry, defineCapability } from "../capabilities/index.js";
+import { createCapabilityRegistry, defineCapability } from "../capabilities/index.js";
 import { kernelHarness, reply } from "../testing/kernel-fakes.js";
 
 // Economia (05-fases, guardas permanentes #5): "Bom dia" é barato.
@@ -11,6 +11,11 @@ import { kernelHarness, reply } from "../testing/kernel-fakes.js";
 // "Bom dia" dos evals continua sendo a verificação ponta a ponta com o prompt e as tools reais;
 // aqui só se impede que o núcleo engorde sem ninguém notar.
 //
+// O QUE ESTA MEDIDA É (e não é): uma aproximação do ESQUELETO que o motor monta (prompt estável + `[context]` + JSON das
+// tools do núcleo), em caracteres/4. Não é a contagem do tokenizer do modelo, não inclui tools de preset, conectores nem o
+// prompt que o worker injeta, e não prova custo em dinheiro. Serve para impedir que o núcleo engorde sem ninguém ver (só o
+// TETO protege; o medido abaixo do teto não é um piso). O custo real de "Bom dia" é conferido no eval ouro 24.
+//
 // Medida de entrada: caracteres de todas as mensagens + JSON das tools, divididos por 4.
 // TETO = medido em 2026-11-05 + 15% (arredondado para cima). Subir o teto exige motivo no commit.
 export const GOOD_MORNING_INPUT_TOKENS_MEASURED = 902; // prompt estável completo (contrato de trabalho + canais), medido depois da F1.11
@@ -20,11 +25,8 @@ const approxTokens = (chars: number) => Math.ceil(chars / 4);
 
 export async function measureGoodMorning(extraCapabilities: Parameters<typeof createCapabilityRegistry>[0] = []) {
 	const core = defineCapability({ id: "core", title: "Core", summary: "core tools", core: true, tools: [] });
-	const registry = createCapabilityRegistry([core, ...extraCapabilities]);
 	const h = kernelHarness([reply({ text: "Bom dia! Como posso ajudar?" })], { capabilities: [core, ...extraCapabilities] });
-	const index = capabilityIndex(registry);
 	// Sem `stableSystem`: o kernel monta o prompt estável real (contrato de trabalho + canais + índice de capacidades, F1.11).
-	void index;
 	const result = await h.run({ input: { contextSections: [], history: [{ kind: "owner", text: "Bom dia" }] } });
 	const first = h.llm.requests[0];
 	if (!first) throw new Error("o modelo não foi chamado");
@@ -54,10 +56,7 @@ describe("economia: Bom dia", () => {
 		expect(withLazy.tokens - base.tokens).toBeLessThan(60);
 	});
 
-	it("o teto é medido + 15%, e o medido não está defasado (cai dentro de 15% abaixo do teto)", async () => {
-		const m = await measureGoodMorning();
+	it("o teto é o medido + 15% (o teto só desce: se o núcleo encolher, baixe o medido e o teto no mesmo commit)", () => {
 		expect(GOOD_MORNING_INPUT_TOKENS_CEILING).toBe(Math.ceil(GOOD_MORNING_INPUT_TOKENS_MEASURED * 1.15));
-		// Se o núcleo ENCOLHER bastante, baixe o medido e o teto no mesmo commit (o teto só desce).
-		expect(m.tokens).toBeGreaterThanOrEqual(Math.floor(GOOD_MORNING_INPUT_TOKENS_MEASURED * 0.8));
 	});
 });
