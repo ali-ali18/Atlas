@@ -6,7 +6,6 @@ import type { Search } from "../ports/search.js";
 import { defineTool } from "../tools/define-tool.js";
 
 const MAX_RESULTS = 10;
-const EXTRACT_CHARS = 8000;
 
 export function createWebCapability(search: Search) {
 	const webSearch = defineTool({
@@ -31,8 +30,9 @@ export function createWebCapability(search: Search) {
 		source: "web",
 		async execute({ url }, ctx) {
 			const page = await search.extract(ctx.ownerId, url, ctx.signal);
-			const text = page.text.length > EXTRACT_CHARS ? `${page.text.slice(0, EXTRACT_CHARS)}\n[truncated]` : page.text;
-			return { ok: true, summary: `${page.title ? `${page.title}\n` : ""}${page.url}\n\n${text}` };
+			// Página inteira, sem corte (decisão do dono: nada de cortar por economia). Se passar do tamanho de uma
+			// página do kernel, o kernel guarda tudo no caderno e entrega em partes com o ponteiro `note_read`.
+			return { ok: true, summary: `${page.title ? `${page.title}\n` : ""}${page.url}\n\n${page.text}` };
 		},
 	});
 	return defineCapability({ id: "web", title: "Web", summary: "Search the web and read pages.", core: true, tools: [webSearch, webExtract] });

@@ -50,11 +50,13 @@ describe("capacidade web", () => {
 		expect((await tool!.run({ query: "" }, fakeToolContext())).ok).toBe(false);
 		expect((await extract!.run({ url: "não é url" }, fakeToolContext())).ok).toBe(false);
 	});
-	it("web_extract devolve o texto da página e trunca o excesso", async () => {
+	it("web_extract devolve a página inteira, sem corte (o kernel pagina o que for grande)", async () => {
 		const search = new FakeSearch();
-		search.extract = async (_u, url) => ({ url, text: "a".repeat(9000) });
+		const text = `${"a".repeat(30000)}FIM-DA-PAGINA`;
+		search.extract = async (_u, url) => ({ url, text });
 		const out = await createWebCapability(search).tools[1]!.run({ url: "https://example.test/p" }, fakeToolContext());
-		expect(out.ok && out.summary).toContain("[truncated]");
+		expect(out.ok && out.summary).toContain("FIM-DA-PAGINA");
+		expect(out.ok && out.summary).not.toContain("[truncated]");
 	});
 	it("erro da porta vira ok:false com a mensagem real", async () => {
 		const search = new FakeSearch();
