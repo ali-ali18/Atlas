@@ -6,7 +6,7 @@
  * Contrato silencioso: o texto que o modelo escreve NÃO vai ao dono. Só vai a mensagem declarada em `agenda_result`
  * (update/done) ou, num lembrete que esqueceu o resultado, o próprio texto (ver `finalizeAgendaRun`).
  */
-import { agendaRunPolicy, buildAgendaWake, copyFor, type ChannelInput, type PolicyContext } from "@workspace/agent";
+import { agendaRunPolicy, buildAgendaWake, copyFor, type ChannelInput, type PolicyContext, type PriorProvenance } from "@workspace/agent";
 import { appendConversationMessage, finalizeAgendaRun, getAgendaItemByRunId, loadAgendaSettings, releaseAgendaRun, type AgendaItemRecord } from "@workspace/db";
 import { isAgendaWakeObjective, parseAgendaEvent } from "./agenda-wake.js";
 
@@ -18,7 +18,19 @@ export type AgendaRunDb = {
 
 export const realAgendaRunDb: AgendaRunDb = { getByRunId: getAgendaItemByRunId, loadSettings: loadAgendaSettings, finalize: finalizeAgendaRun };
 
-export type AgendaRunContext = { item: AgendaItemRecord; history: ChannelInput[]; policy: PolicyContext };
+/** Junta os sinais de proveniência do wake da agenda com os da conversa: contaminado em qualquer um vale contaminado. */
+export function mergeProvenance(a: PriorProvenance | undefined, b: PriorProvenance | undefined): PriorProvenance | undefined {
+	if (!a || !b) return a ?? b;
+	return { untrustedReadInRun: a.untrustedReadInRun || b.untrustedReadInRun, privateReadInRun: a.privateReadInRun === true || b.privateReadInRun === true, sources: [...new Set([...a.sources, ...b.sources])] };
+}
+
+export type AgendaRunContext = {
+	item: AgendaItemRecord;
+	history: ChannelInput[];
+	policy: PolicyContext;
+	/** Proveniência com que o run nasce (`RunInput.priorProvenance`): nota, memo ou evento contaminados valem como "já leu conteúdo não confiável". */
+	provenance: PriorProvenance | undefined;
+};
 
 /** `null` = não é run de agenda. Só a origem `proactive` pode ser (o item é do dono do run e aponta para este run). */
 export async function loadAgendaRunContext(input: { userId: string; runId: string; origin: string; objective: string | null | undefined; now?: () => Date; db?: AgendaRunDb }): Promise<AgendaRunContext | null> {
@@ -28,7 +40,7 @@ export async function loadAgendaRunContext(input: { userId: string; runId: strin
 	if (!item) return null;
 	const settings = await db.loadSettings(item.userId, item.botId);
 	const event = parseAgendaEvent(input.objective);
-	const { history } = buildAgendaWake({
+	const { history, provenance } = buildAgendaWake({
 		item: {
 			kind: item.kind,
 			note: item.note,
@@ -38,13 +50,16 @@ export async function loadAgendaRunContext(input: { userId: string; runId: strin
 			untilAt: item.untilAt,
 			lastMemo: item.lastResult?.memo ?? null,
 			lastResultAt: item.lastResult ? new Date(item.lastResult.at) : null,
+			// Taint (S1): nota e memo escritos por run que leu conteúdo não confiável entram como dado, e o run nasce contaminado.
+			noteUntrusted: item.noteUntrusted === true,
+			memoUntrusted: item.lastResult?.memoUntrusted === true,
 			grant: item.grant,
 		},
 		now: (input.now ?? (() => new Date()))(),
 		timeZone: settings.timezone,
 		...(event && { event }),
 	});
-	return { item, history, policy: agendaRunPolicy(item.grant) };
+	return { item, history, policy: agendaRunPolicy(item.grant), provenance };
 }
 
 /**

@@ -140,7 +140,7 @@ import {
 	resolveBudget,
 	wallClockAnchors,
 } from "@workspace/agent-runtime";
-import { closeAgendaRun, loadAgendaRunContextOrFail, releaseUnstartedAgendaRun, settleAbortedAgendaRun } from "../agenda-run.js";
+import { closeAgendaRun, loadAgendaRunContextOrFail, mergeProvenance, releaseUnstartedAgendaRun, settleAbortedAgendaRun } from "../agenda-run.js";
 import { prepareV4Run } from "../v4-run-context.js";
 import { runV4Turn } from "../v4-turn.js";
 import { cheapModelFromEnv, createV4Llm, dropProcessorOwnedEvents, ownerStepsLimit, runEngineV4, vaultBackendFromService } from "../engine-v4.js";
@@ -1256,7 +1256,8 @@ async function executeLeasedRun(ctx: {
 					// Run de agenda: o que o modelo lê ao acordar, a política sem dono (permissão da criação) e `agenda_result` no núcleo.
 					...(agendaRun ? { history: agendaRun.history, policy: agendaRun.policy, agendaRun: true } : prepared.history ? { history: prepared.history } : {}),
 					...(prepared.cardResponses ? { cardResponses: prepared.cardResponses } : {}),
-					...(prepared.priorProvenance ? { priorProvenance: prepared.priorProvenance } : {}),
+					// Run de agenda nasce contaminado se a nota, o memo ou o evento vieram de conteúdo não confiável (S1).
+					...(mergeProvenance(agendaRun?.provenance, prepared.priorProvenance) ? { priorProvenance: mergeProvenance(agendaRun?.provenance, prepared.priorProvenance)! } : {}),
 					...(prepared.resume ? { resume: prepared.resume } : {}),
 					language: systemLanguage,
 					llm: createV4Llm({ model: run.model, streamChat: providers.streamChat, openRouterKey: apiKey, language: systemLanguage, cheapModel: cheapModelFromEnv(), contextWindow: (modelId) => providers.capabilities(modelId).then((caps) => caps.contextTokens, () => null) }),

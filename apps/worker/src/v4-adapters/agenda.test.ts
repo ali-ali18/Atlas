@@ -13,12 +13,13 @@ const NOW = new Date("2026-11-05T12:00:00.000Z");
 
 function fakeDb() {
 	const rows = new Map<string, AgendaItemRecord>();
-	const created: Array<{ userId: string; botId: string; grant: AgendaGrant; sourceRunId?: string | null }> = [];
+	const created: Array<{ userId: string; botId: string; grant: AgendaGrant; sourceRunId?: string | null; untrustedRead?: boolean }> = [];
+	const recorded: Array<{ runId: string; untrustedRead?: boolean }> = [];
 	let seq = 0;
 	const deps: V4AgendaDeps = {
 		loadSettings: async () => ({ ...DEFAULT_PROACTIVE_SETTINGS, enabled: true }),
 		create: async (input) => {
-			created.push({ userId: input.userId, botId: input.botId, grant: input.grant, sourceRunId: input.sourceRunId });
+			created.push({ userId: input.userId, botId: input.botId, grant: input.grant, sourceRunId: input.sourceRunId, ...(input.untrustedRead && { untrustedRead: true }) });
 			const plan = input.plan as AgendaPlan;
 			const item: AgendaItemRecord = { id: `i${++seq}`, userId: input.userId, botId: input.botId, conversationId: null, kind: plan.kind, status: "pending", note: plan.note, dueAt: plan.dueAt, requestedFor: plan.requestedFor, intervalMinutes: plan.intervalMinutes, untilAt: plan.untilAt, maxRuns: plan.maxRuns, runCount: 0, eventFilter: plan.eventFilter, noChangeStreak: 0, ignoredStreak: 0, missingResults: 0, lastResult: null, lastNoticeAt: null, grant: input.grant, runId: null, endReason: null, sourceRunId: input.sourceRunId ?? null, reservedUntil: null, createdAt: NOW };
 			rows.set(item.id, item);
@@ -32,12 +33,13 @@ function fakeDb() {
 			return row;
 		},
 		record: async (input) => {
+			recorded.push({ runId: input.runId, untrustedRead: input.untrustedRead });
 			const row = [...rows.values()].find((r) => r.userId === input.userId && r.runId === input.runId);
 			if (!row) return { ok: false, error: "No agenda item is attached to this run." };
 			return { ok: true, item: row, duplicate: false };
 		},
 	};
-	return { deps, rows, created };
+	return { deps, rows, created, recorded };
 }
 
 const ctx = (ownerId: string, runId = "run-1"): ToolContext => ({ runId, ownerId, ports: { clock: { now: () => NOW } } as unknown as ToolContext["ports"] });
@@ -82,4 +84,18 @@ test("agenda_result só grava no item do run do próprio dono", async () => {
 test("toAgendaView entrega datas em ISO e o filtro do evento, sem expor dono, grant nem run", () => {
 	const view = toAgendaView({ id: "i1", userId: "u", botId: "b", conversationId: "c", kind: "intent", status: "pending", note: "n", dueAt: NOW, requestedFor: NOW, intervalMinutes: null, untilAt: NOW, maxRuns: null, runCount: 2, eventFilter: { source: "email", from: "a.com" }, noChangeStreak: 0, ignoredStreak: 0, missingResults: 0, lastResult: null, lastNoticeAt: null, grant: { autonomy: "balanced", rules: [] }, runId: "r", endReason: null, sourceRunId: null, reservedUntil: null, createdAt: NOW });
 	assert.deepEqual(view, { id: "i1", kind: "intent", status: "pending", note: "n", nextRunAt: NOW.toISOString(), everyMinutes: null, untilAt: NOW.toISOString(), runCount: 2, maxRuns: null, eventFilter: { source: "email", from: "a.com" }, endReason: null });
+});
+
+test("S1: o taint do run que cria o item e o do run que grava o resultado chegam ao db; run limpo não marca nada", async () => {
+	const { deps, rows, created, recorded } = fakeDb();
+	const agenda = createV4Agenda({ botId: "bot-1", policy: { autonomy: "balanced", rules: [] }, deps });
+	const remind = createAgendaCapability(agenda).tools.find((t) => t.name === "remind_me")!;
+	await remind.run({ note: "limpo", when: "2026-11-06T10:00" }, ctx("user-a", "run-clean"));
+	await remind.run({ note: "veio de um e-mail", when: "2026-11-07T10:00" }, { ...ctx("user-a", "run-dirty"), untrustedReadInRun: true });
+	assert.deepEqual(created.map((c) => c.untrustedRead ?? false), [false, true]);
+	const item = [...rows.values()][0]!;
+	item.runId = "run-wake";
+	const result = createAgendaRunCapability(agenda).tools[0]!;
+	await result.run({ outcome: "no_change", memo: "m" }, { ...ctx("user-a", "run-wake"), untrustedReadInRun: true });
+	assert.deepEqual(recorded, [{ runId: "run-wake", untrustedRead: true }]);
 });

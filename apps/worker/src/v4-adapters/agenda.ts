@@ -49,7 +49,7 @@ export function createV4Agenda(input: { botId: string; policy: V4AgendaPolicy; d
 	return {
 		settings: (userId) => deps.loadSettings(userId, input.botId),
 		async create(userId, plan, context) {
-			const created = await deps.create({ userId, botId: input.botId, plan, grant, sourceRunId: context.sourceRunId });
+			const created = await deps.create({ userId, botId: input.botId, plan, grant, sourceRunId: context.sourceRunId, ...(context.untrustedRead === true && { untrustedRead: true }) });
 			return created.ok ? { ok: true, item: toAgendaView(created.item), duplicate: created.duplicate } : { ok: false, error: created.error };
 		},
 		async list(userId, options) {
@@ -59,8 +59,8 @@ export function createV4Agenda(input: { botId: string; policy: V4AgendaPolicy; d
 			const item = await deps.change(userId, id, action);
 			return item ? toAgendaView(item) : null;
 		},
-		async reportResult(userId, runId, result: AgendaRunResult) {
-			const recorded = await deps.record({ userId, runId, outcome: result.outcome, ...(result.message !== undefined && { message: result.message }), ...(result.memo !== undefined && { memo: result.memo }), ...(result.pending !== undefined && { pending: result.pending }) });
+		async reportResult(userId, runId, result: AgendaRunResult, context) {
+			const recorded = await deps.record({ userId, runId, outcome: result.outcome, ...(result.message !== undefined && { message: result.message }), ...(result.memo !== undefined && { memo: result.memo }), ...(result.pending !== undefined && { pending: result.pending }), ...(context?.untrustedRead === true && { untrustedRead: true }) });
 			return recorded.ok ? { ok: true } : { ok: false, error: recorded.error };
 		},
 	};
