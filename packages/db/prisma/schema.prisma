@@ -460,6 +460,9 @@ model AgentRun {
   skillLearningJobs SkillLearningJob[]
   routineRuns RoutineRun[]
   delivery  RunDelivery?
+  /// Motor v4: journal e recibos (tabelas novas; sem coluna em `agent_runs`).
+  v4Journal  AgentJournalEntry[]
+  v4Receipts AgentReceipt[]
 
   @@index([conversationId, status])
   @@index([userId, status])
@@ -1510,4 +1513,100 @@ model PageRevision {
 
   @@unique([pageId, revision])
   @@map("page_revisions")
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Motor v4 (PLANO-AGENTE-V4, F1.12). Tabelas NOVAS, por acréscimo: nada de tabela ou coluna existente muda, então o v2
+// segue idêntico durante a convivência e api/worker em versões diferentes no deploy não se enxergam. O checkpoint do v4
+// reaproveita `AgentRun.checkpointJson` (chave `v4`), sem coluna nova. Toda leitura/escrita filtra por `userId`.
+// ---------------------------------------------------------------------------------------------------------------
+
+/// Journal de efeitos do v4: `started` antes de escrever, `succeeded`/`failed` depois. A chave de idempotência impede
+/// repetir um efeito já feito na retomada. Guarda só o hash dos argumentos, nunca os argumentos crus.
+model AgentJournalEntry {
+  id             String   @id @default(cuid())
+  runId          String
+  run            AgentRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  userId         String
+  step           Int
+  idempotencyKey String
+  toolName       String
+  argsHash       String
+  /// started | succeeded | failed (string livre, sem enum no banco).
+  state          String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([userId, runId, idempotencyKey])
+  /// Cobre a FK: apagar o run (cascata) não varre a tabela inteira.
+  @@index([runId])
+  @@map("agent_journal_entries")
+}
+
+/// Recibo tipado de um efeito do v4 (o card de resultado sai daqui, não da narração do modelo).
+model AgentReceipt {
+  id         String   @id @default(cuid())
+  runId      String
+  run        AgentRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  userId     String
+  toolName   String
+  effect     String
+  summary    String
+  /// Onde o efeito aconteceu (conta, arquivo, URL...).
+  location   String?
+  externalId String?
+  url        String?
+  createdAt  DateTime @default(now())
+
+  @@index([userId, runId, createdAt])
+  @@index([runId])
+  @@map("agent_receipts")
+}
+
+/// Nota do agente v4 (caderno de trabalho do run e, depois, o "Caderno" do dono). A chave é (dono, id): o mesmo id
+/// de dois donos nunca colide.
+model AgentNote {
+  id          String
+  userId      String
+  botId       String?
+  title       String
+  body        String
+  pinned      Boolean  @default(false)
+  sourceRunId String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@id([userId, id])
+  @@index([userId, pinned, updatedAt])
+  @@map("agent_notes")
+}
+
+/// Oferta de continuar ("quer que eu continue?") de uma conversa: só existe como cartão, com estado próprio.
+model AgentConversationOffer {
+  id             String   @id @default(cuid())
+  userId         String
+  conversationId String
+  cardId         String
+  label          String
+  /// open | answered | dismissed | ignored.
+  state          String
+  /// Ordem de criação na conversa (a mais antiga cai primeiro quando passa do limite).
+  position       Int
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([userId, conversationId, cardId])
+  @@index([userId, conversationId, position])
+  @@map("agent_conversation_offers")
+}
+
+/// Rótulo de oferta que o dono dispensou ou ignorou: o modelo o recebe como dado e não oferece de novo.
+model AgentConversationDeclined {
+  userId         String
+  conversationId String
+  label          String
+  createdAt      DateTime @default(now())
+
+  @@id([userId, conversationId, label])
+  @@map("agent_conversation_declined")
 }
