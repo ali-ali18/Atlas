@@ -55,6 +55,8 @@
 - "EVA" = **Vercel Eve** (05/11).
 - Base: `harness/v4` criado a partir da `main` (0.4.1-beta) (05/11).
 - Provedor das rodadas reais da F0 por enquanto: **OpenCode Go**, porque os créditos do OpenRouter estão acabando. Modelos: `deepseek-v4.1-flash` (maior franquia; ligar *Global* em Settings › Privacy) e `qwen3.8-flash`, mais `claude-haiku-5-5`, que também está no Go. Anthropic direto: a chave está no ambiente como `CLAUDE_KEY` (verificada, responde 200) e dá Sonnet, Haiku e Opus, com **teto de US$ 10 no total das rodadas reais pela Anthropic**. O comando `matrix` (F0.2) precisa de um teto rígido que aborta antes de passar e de um `--estimate` antes de rodar (05/11). As ideias aproveitadas estão em `02-referencias.md`.
+- **O v4 só é ligado (nem na conta do dono) quando estiver completo.** Até lá a validação é só pelos testes automáticos e pela matriz de avaliação; nada de flag ligada para teste no app (06/11).
+- Perfil do bot sempre pede confirmação; gravar memória depois de ler conteúdo de fora (e-mail, página, conector) pede confirmação com "Agora não" e expira sem resposta; o resto da memória segue automático (06/11).
 
 ## Checklist
 
