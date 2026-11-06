@@ -204,34 +204,39 @@ export async function createAgendaItem(input: {
 	if (!validOwner(input.userId)) return { ok: false, error: "Bot não encontrado" };
 	const bot = await prisma.bot.findFirst({ where: { id: input.botId, ownerId: input.userId }, select: { id: true, conversationId: true } });
 	if (!bot) return { ok: false, error: "Bot não encontrado" };
-	const active = records(await prisma.botFollowup.findMany({ where: { userId: input.userId, agendaKind: { not: null }, status: { in: ["pending", "paused"] } } }));
-	const same = findDuplicateAgendaItem(active, input.plan);
-	if (same) return { ok: true, item: same, duplicate: true };
-	if (active.length >= AGENDA_MAX_ACTIVE_PER_OWNER) {
-		return { ok: false, error: `There are already ${AGENDA_MAX_ACTIVE_PER_OWNER} active agenda items. Cancel or finish one before adding another.` };
-	}
 	const { plan } = input;
-	const row = await prisma.botFollowup.create({
-		data: {
-			userId: input.userId,
-			botId: bot.id,
-			conversationId: bot.conversationId,
-			dueAt: plan.dueAt,
-			requestedFor: plan.requestedFor,
-			note: plan.note,
-			kind: plan.kind === "watch" || plan.kind === "intent" ? "check" : "reminder",
-			source: "chat",
-			sourceRunId: input.sourceRunId ?? null,
-			noteUntrusted: input.untrustedRead === true,
-			agendaKind: plan.kind,
-			intervalMinutes: plan.intervalMinutes,
-			untilAt: plan.untilAt,
-			maxRuns: plan.maxRuns,
-			eventFilterJson: plan.eventFilter ? toJson(plan.eventFilter) : Prisma.JsonNull,
-			grantJson: toJson(input.grant),
-		},
+	// Contar, deduplicar e criar na MESMA transação sob trava por dono: sem ela, criações paralelas (vários runs ou abas)
+	// leem a mesma contagem e passam do teto de itens ou duplicam o mesmo pedido.
+	return prisma.$transaction(async (tx) => {
+		await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`agenda-create:${input.userId}`}))`;
+		const active = records(await tx.botFollowup.findMany({ where: { userId: input.userId, agendaKind: { not: null }, status: { in: ["pending", "paused"] } } }));
+		const same = findDuplicateAgendaItem(active, plan);
+		if (same) return { ok: true as const, item: same, duplicate: true };
+		if (active.length >= AGENDA_MAX_ACTIVE_PER_OWNER) {
+			return { ok: false as const, error: `There are already ${AGENDA_MAX_ACTIVE_PER_OWNER} active agenda items. Cancel or finish one before adding another.` };
+		}
+		const row = await tx.botFollowup.create({
+			data: {
+				userId: input.userId,
+				botId: bot.id,
+				conversationId: bot.conversationId,
+				dueAt: plan.dueAt,
+				requestedFor: plan.requestedFor,
+				note: plan.note,
+				kind: plan.kind === "watch" || plan.kind === "intent" ? "check" : "reminder",
+				source: "chat",
+				sourceRunId: input.sourceRunId ?? null,
+				noteUntrusted: input.untrustedRead === true,
+				agendaKind: plan.kind,
+				intervalMinutes: plan.intervalMinutes,
+				untilAt: plan.untilAt,
+				maxRuns: plan.maxRuns,
+				eventFilterJson: plan.eventFilter ? toJson(plan.eventFilter) : Prisma.JsonNull,
+				grantJson: toJson(input.grant),
+			},
+		});
+		return { ok: true as const, item: toRecord(row)!, duplicate: false };
 	});
-	return { ok: true, item: toRecord(row)!, duplicate: false };
 }
 
 export async function listAgendaItems(userId: string, options: { botId?: string; includeEnded?: boolean; limit?: number } = {}): Promise<AgendaItemRecord[]> {

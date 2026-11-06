@@ -162,6 +162,24 @@ describe("agenda (Postgres real)", { skip: dbSkip }, () => {
 		assert.ok((await createAgendaItem({ userId: user, botId: bot, plan: watch("agora cabe"), grant: GRANT })).ok);
 	});
 
+	test("criação em paralelo não passa do teto de 20 nem duplica o mesmo pedido (auditoria F4, B6)", async () => {
+		const user = (await createTestUser("agP")).id;
+		const conv = (await prisma.conversation.create({ data: { userId: user } })).id;
+		const bot = (await prisma.bot.create({ data: { ownerId: user, name: "P", isPrimary: true, conversationId: conv }, select: { id: true } })).id;
+		const distinct = await Promise.all(TOPICS.concat(["extra1", "extra2", "extra3", "extra4", "extra5"]).map((topic) => createAgendaItem({ userId: user, botId: bot, plan: watch(`${topic} paralelo`), grant: GRANT })));
+		assert.equal(distinct.filter((r) => r.ok).length, 20);
+		assert.equal(distinct.filter((r) => !r.ok).length, 5);
+		assert.equal((await listAgendaItems(user)).length, 20);
+
+		const other = (await createTestUser("agQ")).id;
+		const convQ = (await prisma.conversation.create({ data: { userId: other } })).id;
+		const botQ = (await prisma.bot.create({ data: { ownerId: other, name: "Q", isPrimary: true, conversationId: convQ }, select: { id: true } })).id;
+		const same = await Promise.all(Array.from({ length: 6 }, () => createAgendaItem({ userId: other, botId: botQ, plan: watch("Mesmo pedido em paralelo"), grant: GRANT })));
+		assert.ok(same.every((r) => r.ok));
+		assert.equal(same.filter((r) => r.ok && !r.duplicate).length, 1);
+		assert.equal((await listAgendaItems(other)).length, 1);
+	});
+
 	test("pausar tira da varredura, retomar zera os contadores; cancelar encerra", async () => {
 		const created = await createAgendaItem({ userId: a, botId: botA, plan: watch("Pausável"), grant: GRANT });
 		assert.ok(created.ok);
