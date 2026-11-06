@@ -37,7 +37,7 @@
 ## Fase atual
 | Fase | Branch | Status | PR |
 |---|---|---|---|
-| F0 baseline | `feat/harness-v4-f0-baseline` | correções da auditoria | — |
+| F0 baseline | `feat/harness-v4-f0-baseline` | **concluída, juntada em `harness/v4`** | #150 |
 | F1 fundação | `feat/harness-v4-f1-fundacao` | em andamento (começou em paralelo ao fim da F0) | — |
 
 ## Decisões do dono (não reabrir)
@@ -82,7 +82,7 @@
 - [x] F1.9 Ciclo de vida da tarefa: sem herança entre runs, oferta por cartão com estado, `declinedOffers`, replays de insistência.
 - [x] F1.10 Porta `Llm` (notas da revisão: imagem para o papel `vision`; adaptador da porta `Random` com CSPRNG; TTL opcional no `ApprovalGrant`): papéis, cadeia de reserva (`pickModelFor`), troca no meio do run, tetos opcionais, aviso ao dono.
 - [x] F1.11 Contrato de trabalho (nota da revisão: os textos ao usuário do executor, `userMessage` de handoff e de indisponível, hoje estão fixos em pt-BR; passam a sair no idioma do bot por um módulo de copy) (prompt), com teste de string por seção.
-- [ ] F1.12 Eventos (notas da revisão do kernel: `ChannelInput` precisa de papel `assistant` para o histórico, hoje só dono, runtime e dado; fundir mensagens `user` seguidas no adaptador; não duplicar `text_delta` no retry de erro; o adaptador real do Store implementa `conversations`; saúde de provedor compartilhada entre instâncias (Redis)) compatíveis com o contrato SSE e `chooseRunEngine` → `runAgent` atrás da flag.
+- [x] F1.12 (06/11; histórico com assistente, cofre na redação, eventos no contrato SSE, tabelas novas por acréscimo, adaptadores reais, motor v4 atrás de flag por conta e desligado por padrão. Pendências antes de ligar para o dono: cartão de aprovação do v4 no app e a retomada com o clique (grants), histórico da conversa no run, registro de capacidades vazio até a F2, saúde de provedor em Redis, consumidor da fila `atlas-agent-v4`)
 - [x] F1.13 (05/11; achou e corrigiu vazamento de segredo no recibo devolvido ao laço; pendente: kernel passar ao executor os valores resolvidos do cofre, ver `it.todo`) Guardas permanentes: sem regex de comportamento, catraca da ponte, invariantes do contrato, economia.
 - [ ] F1.14 Teste de fumaça ponta a ponta no worker com preset `minimal`.
 - [ ] F1.A Auditoria: 5 lentes, verificação, correções com teste, reauditoria e `auditorias/F1.md` fechado.
@@ -149,6 +149,13 @@
 
 ## Diário de passagem
 > A entrada mais nova fica no topo. Formato: data · conta ou sessão · fase · feito · pela metade · próximo passo · como verificar · dúvidas.
+
+- **06/11/2026 · sessão principal · F1**
+  - **Feito:** F0 juntada em `harness/v4` (#150). F1.1 a F1.13 prontos em `feat/harness-v4-f1-fundacao`.
+    - Testes: agent 261, shared 2.734, worker 539, `turbo typecheck` 17/17.
+    - O motor v4 está atrás de `ATLAS_ENGINE_V4` + `ATLAS_ENGINE_V4_ACCOUNTS` e desligado por padrão.
+    - Com a flag desligada, um run v4 recomeça no motor padrão do bot.
+  - **Próximo passo:** F1.14, o teste de fumaça ponta a ponta, e depois a auditoria F1.A.
 
 - **05/11/2026 · sessão principal · F0 (5)**
   - **Feito:** linha de base do conjunto genérico. O Haiku cai de 75% no ouro para 56% no genérico, o que confirma o vício do v2 no uso do dono. Resumo de e-mail e plano do dia falham em todos os modelos.
