@@ -38,7 +38,8 @@
 | Fase | Branch | Status | PR |
 |---|---|---|---|
 | F0 baseline | `feat/harness-v4-f0-baseline` | **concluída, juntada em `harness/v4`** | #150 |
-| F1 fundação | `feat/harness-v4-f1-fundacao` | em andamento (começou em paralelo ao fim da F0) | — |
+| F1 fundação | `feat/harness-v4-f1-fundacao` | **concluída** (auditoria fechada); PR para `harness/v4` aguarda o dono | — |
+| F2 capacidades | `feat/harness-v4-f2-capacidades` (a partir da F1) | em andamento: frentes A (arquivos), B (web e núcleo), C (conectores) | — |
 
 ## Decisões do dono (não reabrir)
 - Base nova, do zero, em `packages/agent`, sem import do legado (05/11).
@@ -93,6 +94,7 @@
 - [ ] F2.3 `deliverables` (arquivo, painel, gráfico, `inspect_file`, moldes ABNT, relatório, deck e planilha).
 - [ ] F2.4 `memory` (perfil), `tasks` e `settings` (inclui o modelo por papel pelo chat).
 - [ ] F2.5 `connectors` (ponte MCP, escopo por dono, classificação de schema, `confirmWrites` → regra).
+- [ ] F2.6 Pré-requisitos para ligar (da auditoria F1): histórico da conversa e `cardResponses` (B5), retomada com grants e cartão de aprovação no app (B6), taint entre runs (S8), tools de dado privado com `privateData` e guarda de teste (N2).
 - [ ] F2.A Auditoria: 5 lentes, verificação, correções com teste, reauditoria e `auditorias/F2.md` fechado.
 
 ### F3: Pesquisa
