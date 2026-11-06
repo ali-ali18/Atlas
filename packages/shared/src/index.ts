@@ -142,6 +142,17 @@ export type {
 	SkillListItemData,
 } from "./computer.js";
 export {
+	AGENT_V4_EVENT_TYPES,
+	AGENT_V4_TEXT_MAX,
+	isAgentV4EventType,
+	parseAgentV4Event,
+	type AgentV4Event,
+	type ApprovalRequestEvent,
+	type AskOwnerEvent,
+	type HandoffRequestEvent,
+	type ReceiptEvent,
+} from "./agent-v4-events.js";
+export {
 	AGENT_POINTER_NAME_MAX,
 	type AgentPointerAction,
 	type AgentPointerEvent,

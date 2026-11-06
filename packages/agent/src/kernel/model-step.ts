@@ -1,6 +1,10 @@
 // Um passo MODEL: chama o modelo e junta o stream. Só retries de TRANSPORTE (nunca de comportamento):
 //  - `length` sem tool call → UMA continuação (o texto parcial vai junto, o modelo segue de onde parou);
 //  - `error` → um retry igual; resposta vazia → um retry igual.
+// Retry de erro depois de texto parcial já transmitido: o texto da tentativa abandonada é RETIRADO da tela
+// (`onRetract`, vira `assistant_discard` no SSE) antes de a nova tentativa começar, senão o cliente mostraria
+// o parcial duplicado (parcial + resposta inteira). Não há buffer: o streaming ao vivo continua. A continuação
+// por `length` NÃO retira nada (o texto segue de onde parou).
 // O texto do modelo passa byte a byte: nada é reescrito, trocado nem descartado. Resposta vazia depois
 // do retry vira evento de status com o motivo real (quem chama emite).
 // Sem corte por tempo aqui: o timeout de transporte é do adaptador da porta Llm e é generoso.
@@ -46,6 +50,8 @@ export async function callModel(input: {
 	request: Omit<LlmChatRequest, "messages">;
 	nonce: RunNonce;
 	onText: (text: string) => void | Promise<void>;
+	/** A tentativa anterior transmitiu texto e vai ser refeita: o cliente deve apagá-lo. */
+	onRetract?: () => void | Promise<void>;
 }): Promise<ModelReply> {
 	const cost: Array<number | undefined> = [];
 	let inputTokens = 0;
@@ -62,6 +68,7 @@ export async function callModel(input: {
 
 	let first = await run(input.messages);
 	if (first.finish === "error") {
+		if (first.text.length > 0) await input.onRetract?.();
 		first = await run(input.messages);
 		if (first.finish === "error") return done(first, "model_error");
 	}

@@ -74,7 +74,7 @@ export async function runAgent(deps: RunAgentDeps): Promise<RunResult> {
 		snap.result = result;
 		await save("DONE");
 		await ports.store.runs.setStatus(ownerId, runId, status === "failed" ? "failed" : "done");
-		await emit({ type: "final", data: { text, status, steps: snap.step, spentUsd: snap.spentUsd, ...(snap.stop && { stop: snap.stop }) } });
+		await emit({ type: "final", data: { text, status, steps: snap.step, spentUsd: snap.spentUsd, ...(snap.stop && { stop: snap.stop }), ...(result.reason && { reason: result.reason }) } });
 		return result;
 	}
 	const endStatus = (): RunResult["status"] => (snap.stop || Object.keys(snap.lastErrors).length > 0 ? "not_done" : "done");
@@ -99,7 +99,7 @@ export async function runAgent(deps: RunAgentDeps): Promise<RunResult> {
 		const done = await compactContext({ snap, llm: ports.llm, store: ports.store, ownerId, runId, keepRecent: deps.options?.keepRecent ?? DEFAULT_KEEP_RECENT });
 		if (!done) return;
 		const why = done.summaryFailed ? ` The summary failed (${done.summaryFailed}); the full material is in work note ${done.noteId}.` : "";
-		await emit({ type: "status", data: { reason: "compacted", message: `Conversation compacted: about ${done.before} tokens before, ${done.after} after.${why}` } });
+		await emit({ type: "status", data: { reason: "compacted", message: `Conversation compacted: about ${done.before} tokens before, ${done.after} after.${why}`, before: done.before, after: done.after } });
 	}
 
 	try {
@@ -124,6 +124,7 @@ export async function runAgent(deps: RunAgentDeps): Promise<RunResult> {
 					nonce: snap.nonce as RunNonce,
 					request: { role: "main", tools: specs(), ...(isFinal && { toolChoice: "none" as const }), ...(deps.signal && { signal: deps.signal }) },
 					onText: (text) => emit({ type: "text_delta", data: { text } }),
+					onRetract: () => emit({ type: "retract", data: { reason: "transport_retry" } }),
 				});
 				if (reply.costUsd === undefined) snap.stepsWithoutPrice++;
 				else snap.spentUsd += reply.costUsd;

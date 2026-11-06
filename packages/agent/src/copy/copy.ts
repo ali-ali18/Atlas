@@ -18,6 +18,30 @@ export const COPY = {
 		"en-US": "That isn't available here. I can have it ready for you to confirm in the chat.",
 		"es-ES": "Eso no está disponible aquí. Puedo dejarlo preparado para que lo confirmes en la conversación.",
 	},
+	/** O run falhou por algo do motor (sem detalhe técnico para o dono). */
+	run_failed: {
+		"pt-BR": "Algo deu errado e não consegui terminar. Pode tentar de novo?",
+		"en-US": "Something went wrong and I couldn't finish. Could you try again?",
+		"es-ES": "Algo salió mal y no pude terminar. ¿Puedes intentarlo de nuevo?",
+	},
+	/** O run falhou porque o modelo não respondeu. */
+	run_failed_model: {
+		"pt-BR": "Não consegui falar com o modelo agora. Tente de novo em instantes.",
+		"en-US": "I couldn't reach the model right now. Please try again in a moment.",
+		"es-ES": "No pude comunicarme con el modelo ahora. Inténtalo de nuevo en un momento.",
+	},
+	/** Parou no teto de passos (o do dono ou o de segurança). */
+	budget_steps: {
+		"pt-BR": "Parei no limite de passos. A resposta acima é o melhor que apurei até aqui.",
+		"en-US": "I stopped at the step limit. The answer above is the best I have so far.",
+		"es-ES": "Me detuve en el límite de pasos. La respuesta de arriba es lo mejor que tengo hasta ahora.",
+	},
+	/** Parou no teto de gasto que o dono configurou. */
+	budget_cost: {
+		"pt-BR": "Parei no teto de gasto que você configurou. A resposta acima é o melhor que apurei até aqui.",
+		"en-US": "I stopped at the spending limit you set. The answer above is the best I have so far.",
+		"es-ES": "Me detuve en el tope de gasto que configuraste. La respuesta de arriba es lo mejor que tengo hasta ahora.",
+	},
 } as const satisfies Record<string, Entry>;
 
 export type CopyId = keyof typeof COPY;

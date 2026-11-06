@@ -94,6 +94,10 @@ export async function runPending(env: ToolStepEnv): Promise<{ malformed: number 
 			delete snap.lastErrors[call.name];
 			if (tool.endsTurn) snap.endedBy = call.id;
 		}
+		if (outcome.status === "ok" && outcome.receipt) {
+			const { what, where, externalId, url } = outcome.receipt;
+			await env.emit({ type: "receipt", data: { callId: call.id, name: call.name, what, ...(where && { where }), ...(externalId && { externalId }), ...(url && { url }) } });
+		}
 		await finish(call, outcome.status, outcomeText(outcome));
 	}
 

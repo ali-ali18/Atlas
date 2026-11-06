@@ -137,5 +137,13 @@ export type KernelEvent =
 	| { type: "tool_call"; data: { callId: string; name: string; args: unknown } }
 	| { type: "tool_result"; data: { callId: string; name: string; status: string; content: string } }
 	| { type: "card"; data: { kind: "approval"; callId: string; request: ApprovalRequest } | { kind: "handoff"; callId: string; userMessage: string } | { kind: "ask_owner"; cardId: string; question: string; offer?: string } }
-	| { type: "status"; data: { reason: string; message: string } }
-	| { type: "final"; data: { text: string; status: RunResult["status"]; steps: number; spentUsd: number; stop?: { kind: string; label: string } } };
+	/** Aviso do motor. `before`/`after` (tokens) só vêm em `compacted`. */
+	| { type: "status"; data: { reason: string; message: string; before?: number; after?: number } }
+	/**
+	 * O texto já transmitido neste passo foi abandonado porque o passo vai ser refeito igual (retry de transporte
+	 * depois de erro no meio do stream). O cliente apaga o balão do passo; os `text_delta` seguintes recomeçam do zero.
+	 */
+	| { type: "retract"; data: { reason: "transport_retry" } }
+	/** Recibo tipado de uma tool de efeito que terminou bem (vem do journal de recibos, não da narração do modelo). */
+	| { type: "receipt"; data: { callId: string; name: string; what: string; where?: string; externalId?: string; url?: string } }
+	| { type: "final"; data: { text: string; status: RunResult["status"]; steps: number; spentUsd: number; stop?: { kind: string; label: string }; reason?: string } };
