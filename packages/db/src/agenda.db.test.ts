@@ -17,6 +17,7 @@ import {
 	getAgendaItemByRunId,
 	isAgendaRunInFlight,
 	listAgendaItems,
+	releaseAgendaRun,
 	recordAgendaResult,
 	type AgendaGrant,
 } from "./agenda.js";
@@ -476,5 +477,40 @@ describe("agenda (Postgres real)", { skip: dbSkip }, () => {
 		assert.equal((await findAgendaItemsForEvent(a, { source: "email", from: "x@loja.com", subject: "s", hasAttachment: false }, T0, 10)).matched.length, 1);
 		await changeAgendaItem(a, mine.item.id, "cancel");
 		void botB;
+	});
+	test("releaseAgendaRun: devolve o item à fila sem gastar a execução, só do dono e só uma vez (auditoria F4, B2/B3)", async () => {
+		const created = await createAgendaItem({ userId: a, botId: botA, plan: plan({ kind: "remind", note: "Ligar para a Ana", when: "2026-11-20T09:00" }), grant: GRANT });
+		assert.ok(created.ok);
+		const id = created.item.id;
+		await beginAgendaRun(created.item, "run-rel1", at(60 * 24 * 16));
+		const started = (await getAgendaItem(a, id))!;
+		assert.equal(started.runCount, 1);
+		const retryAt = at(60 * 24 * 16 + 30);
+		// outro dono não solta o item
+		assert.equal(await releaseAgendaRun({ userId: b, runId: "run-rel1", dueAt: retryAt, error: "x" }), 0);
+		assert.equal((await getAgendaItem(a, id))?.runId, "run-rel1");
+		assert.equal(await releaseAgendaRun({ userId: a, runId: "run-rel1", dueAt: retryAt, error: "run did not go to engine v4" }), 1);
+		const released = (await getAgendaItem(a, id))!;
+		assert.equal(released.runCount, 0);
+		assert.equal(released.runId, null);
+		assert.equal(released.dueAt.getTime(), retryAt.getTime());
+		// segunda vez: o vínculo já foi solto, nada muda
+		assert.equal(await releaseAgendaRun({ userId: a, runId: "run-rel1", dueAt: retryAt, error: "x" }), 0);
+		assert.equal((await getAgendaItem(a, id))?.runCount, 0);
+		await changeAgendaItem(a, id, "cancel");
+	});
+
+	test("releaseAgendaRun: intenção por evento solta a reserva e mantém o fim da vigência", async () => {
+		const created = await createAgendaItem({ userId: a, botId: botA, plan: plan({ kind: "intent", note: "Resumir boletos", eventFilter: { source: "email", from: "boleto.com" } }), grant: GRANT });
+		assert.ok(created.ok);
+		const id = created.item.id;
+		await beginAgendaRun(created.item, "run-rel2", T0);
+		assert.ok((await getAgendaItem(a, id))?.reservedUntil);
+		assert.equal(await releaseAgendaRun({ userId: a, runId: "run-rel2", dueAt: at(30), error: "x" }), 1);
+		const released = (await getAgendaItem(a, id))!;
+		assert.equal(released.reservedUntil, null);
+		assert.equal(released.runId, null);
+		assert.equal(released.dueAt.getTime(), created.item.dueAt.getTime());
+		await changeAgendaItem(a, id, "cancel");
 	});
 });

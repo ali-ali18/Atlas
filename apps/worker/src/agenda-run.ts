@@ -7,7 +7,7 @@
  * (update/done) ou, num lembrete que esqueceu o resultado, o próprio texto (ver `finalizeAgendaRun`).
  */
 import { agendaRunPolicy, buildAgendaWake, copyFor, type ChannelInput, type PolicyContext } from "@workspace/agent";
-import { appendConversationMessage, finalizeAgendaRun, getAgendaItemByRunId, loadAgendaSettings, prisma, type AgendaItemRecord } from "@workspace/db";
+import { appendConversationMessage, finalizeAgendaRun, getAgendaItemByRunId, loadAgendaSettings, releaseAgendaRun, type AgendaItemRecord } from "@workspace/db";
 import { isAgendaWakeObjective, parseAgendaEvent } from "./agenda-wake.js";
 
 export type AgendaRunDb = {
@@ -130,26 +130,15 @@ const oneLine = (value: string, max: number): string => value.split(/\s+/).filte
 
 /**
  * O run de agenda NÃO chegou a executar (motor não é o v4, ou o contexto do item não carregou): devolve o item à fila sem
- * consumir a execução (`runCount` volta e o vínculo com o run é solto), então nem `maxRuns` nem o fechamento sem resultado
+ * consumir a execução (`releaseAgendaRun`: `runCount` volta e o vínculo com o run é solto), então nem `maxRuns` nem o fechamento sem resultado
  * gastam o lembrete (auditoria F4, B2/B3). Só mexe no item deste run e deste dono. Nunca lança.
  */
-export async function releaseUnstartedAgendaRun(input: { userId: string; runId: string; dueAt: Date; error: string; db?: { release: (input: { userId: string; runId: string; dueAt: Date; error: string }) => Promise<number> } }): Promise<boolean> {
-	const release = input.db?.release ?? defaultRelease;
+export async function releaseUnstartedAgendaRun(input: { userId: string; runId: string; dueAt: Date; error: string; db?: { release: typeof releaseAgendaRun } }): Promise<boolean> {
+	const release = input.db?.release ?? releaseAgendaRun;
 	try {
 		return (await release({ userId: input.userId, runId: input.runId, dueAt: input.dueAt, error: input.error })) > 0;
 	} catch (error) {
 		console.error(`[agenda] run=${input.runId} devolver o item à fila falhou`, error);
 		return false;
 	}
-}
-
-async function defaultRelease(input: { userId: string; runId: string; dueAt: Date; error: string }): Promise<number> {
-	const found = await getAgendaItemByRunId(input.userId, input.runId);
-	if (!found || found.status !== "pending") return 0;
-	// Intenção por evento não tem relógio: o `dueAt` dela é o fim da vigência.
-	const result = await prisma.botFollowup.updateMany({
-		where: { id: found.id, userId: input.userId, runId: input.runId, agendaKind: { not: null }, status: "pending", runCount: { gt: 0 } },
-		data: { runCount: { decrement: 1 }, runId: null, claimedUntil: null, lastError: input.error.slice(0, 300), ...(found.kind === "intent" ? {} : { dueAt: input.dueAt }) },
-	});
-	return result.count;
 }

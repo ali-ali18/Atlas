@@ -407,6 +407,21 @@ export async function beginAgendaRun(item: AgendaItemRecord, runId: string, now:
 	});
 }
 
+/**
+ * O run de agenda NÃO chegou a executar (motor não é o v4, contexto do item não carregou): devolve o item à fila sem
+ * consumir a execução. `runCount` volta, o vínculo com o run e a reserva são soltos, e o horário passa a `dueAt`
+ * (intenção por evento não tem relógio: o `dueAt` dela é o fim da vigência e não muda). Só mexe no item pendente deste run
+ * e deste dono. Devolve quantos itens voltaram (0 = nada a fazer, ex.: já fechado ou de outro dono).
+ */
+export async function releaseAgendaRun(input: { userId: string; runId: string; dueAt: Date; error: string }): Promise<number> {
+	if (!validOwner(input.userId) || !input.runId) return 0;
+	const base = { userId: input.userId, runId: input.runId, status: "pending", runCount: { gt: 0 } } as const;
+	const data = { runCount: { decrement: 1 }, runId: null, claimedUntil: null, lastError: input.error.slice(0, 300) };
+	const intent = await prisma.botFollowup.updateMany({ where: { ...base, agendaKind: "intent" }, data });
+	const clock = await prisma.botFollowup.updateMany({ where: { ...base, AND: [{ agendaKind: { not: null } }, { agendaKind: { not: "intent" } }] }, data: { ...data, dueAt: input.dueAt } });
+	return intent.count + clock.count;
+}
+
 export type RecordAgendaResultInput = {
 	userId: string;
 	runId: string;

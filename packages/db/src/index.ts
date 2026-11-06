@@ -593,6 +593,7 @@ export {
 	listAgendaItems,
 	loadAgendaSettings,
 	loadNoticeSignals,
+	releaseAgendaRun,
 	recordAgendaResult,
 	reserveAgendaItem,
 	rescheduleAgendaItem,
