@@ -2,6 +2,7 @@ export * from "./clock.js";
 export * from "./deliverables.js";
 export * from "./file-store.js";
 export * from "./events.js";
+export * from "./helpers.js";
 export * from "./llm.js";
 export * from "./mcp.js";
 export * from "./memory.js";

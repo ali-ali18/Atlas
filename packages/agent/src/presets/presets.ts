@@ -8,6 +8,7 @@ import { createMemoryCapability } from "../capabilities/memory/index.js";
 import { createSettingsCapability } from "../capabilities/settings/index.js";
 import { createTasksCapability } from "../capabilities/tasks/index.js";
 import type { FileStore } from "../ports/file-store.js";
+import type { Helpers } from "../ports/helpers.js";
 import type { Memory } from "../ports/memory.js";
 import type { Search } from "../ports/search.js";
 import type { Settings } from "../ports/settings.js";
@@ -39,7 +40,16 @@ export const PRESETS: Readonly<Record<PresetId, AgentPreset>> = Object.freeze({
  * `unavailable`). `deliverables` (F2.3): com as portas, a capacidade lazy `deliverables` (docx, pdf, xlsx, pptx, painel,
  * gráfico) entra no lugar da `deliverables-lite`; sem elas, segue a versão mínima de texto.
  */
-export type PresetDeps = { search: Search; files: FileStore; deliverables?: DeliverablePorts; memory?: Memory; settings?: Settings; taskLists?: TaskListStore };
+export type PresetDeps = {
+	search: Search;
+	files: FileStore;
+	deliverables?: DeliverablePorts;
+	memory?: Memory;
+	settings?: Settings;
+	taskLists?: TaskListStore;
+	/** Ajudantes (F3.1): runs filhos do próprio kernel. A capacidade `research` (frente R) os recebe aqui; o worker monta por run. */
+	helpers?: Helpers;
+};
 
 export function isPresetId(value: unknown): value is PresetId {
 	return typeof value === "string" && (PRESET_IDS as readonly string[]).includes(value);
