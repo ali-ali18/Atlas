@@ -171,7 +171,7 @@ describe("kernel: retomada e segurança", () => {
 		const counter = { runs: 0 };
 		const tool = eventTool(counter);
 		const h = kernelHarness([reply({ calls: [call("s1", "create_event", { title: "x" })] }), reply({ text: "feito" })], { tools: [tool] });
-		h.runs.crashOnSave = 4; // morre ao salvar depois de executar as tools (SETTLE)
+		h.runs.crashOnSave = 3; // morre ao salvar depois de executar as tools (SETTLE)
 		const crashed = await h.run({ policy: autonomous });
 		expect(crashed).toMatchObject({ status: "failed", reason: "kernel_error" });
 		expect(counter.runs).toBe(1);
@@ -188,7 +188,7 @@ describe("kernel: retomada e segurança", () => {
 		const tool = eventTool(counter);
 		const turns = () => [reply({ calls: [call("w1", "web_read", { url: "https://example.com" })] }), reply({ calls: [call("s1", "create_event", { title: "x" })] })];
 		const h = kernelHarness(turns(), { tools: [webRead(), tool] });
-		h.runs.crashOnSave = 6; // cai ao salvar o TOOLS do efeito; o último checkpoint (MODEL) tem o taint da leitura
+		h.runs.crashOnSave = 4; // cai ao salvar o TOOLS do efeito; o último checkpoint (SETTLE→PREPARE) tem o taint da leitura
 		expect((await h.run({ policy: autonomous })).status).toBe("failed");
 		h.llm.push(reply({ calls: [call("s1", "create_event", { title: "x" })] }));
 		const resumed = await h.run({ policy: autonomous });
@@ -198,6 +198,25 @@ describe("kernel: retomada e segurança", () => {
 		const control = kernelHarness([reply({ calls: [call("s1", "create_event", { title: "x" })] }), reply({ text: "ok" })], { tools: [eventTool(counter)] });
 		expect((await control.run({ policy: autonomous })).status).toBe("done");
 		expect(counter.runs).toBe(1);
+	});
+
+	it("checkpoint: 2 gravações por passo com tools (não 3), sem clone do snapshot, e a retomada continua correta (C1)", async () => {
+		const refs: unknown[] = [];
+		const h = kernelHarness([reply({ calls: [call("a", "lookup", { q: "1" })] }), reply({ calls: [call("b", "lookup", { q: "2" })] }), reply({ text: "fim" })], { tools: [lookup()] });
+		const original = h.runs.saveCheckpoint.bind(h.runs);
+		h.runs.saveCheckpoint = async (c) => (refs.push(c.payload), original(c));
+		await h.run();
+		// inicial + (modelo→tools, tools→próximo) × 2 passos + DONE
+		expect(h.runs.saves).toBe(6);
+		expect(new Set(refs).size).toBe(1); // sempre o objeto vivo: nenhuma cópia por gravação
+		// queda ao gravar o DONE: a retomada parte do checkpoint do SETTLE, conclui e não repete a leitura do passo 1
+		const c = { runs: 0 };
+		const r = kernelHarness([reply({ calls: [call("a", "lookup", { q: "1" })] }), reply({ text: "fim" })], { tools: [lookup(c)] });
+		r.runs.crashOnSave = 4; // inicial, modelo→tools, tools→próximo, DONE
+		expect((await r.run()).status).toBe("failed");
+		r.llm.push(reply({ text: "fim" }));
+		expect(await r.run()).toMatchObject({ status: "done", text: "fim" });
+		expect(c.runs).toBe(1);
 	});
 
 	it("run terminado devolve o resultado guardado sem chamar o modelo de novo", async () => {

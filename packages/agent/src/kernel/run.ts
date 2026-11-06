@@ -113,6 +113,7 @@ export async function runAgent(deps: RunAgentDeps): Promise<RunResult> {
 	try {
 		for (;;) {
 			if (state === "PREPARE") {
+				const compactionsBefore = snap.compactions;
 				const hit = reachedLimit({ step: snap.step, spentUsd: snap.spentUsd, limits: deps.limits });
 				if (hit) {
 					snap.stop = hit;
@@ -122,7 +123,9 @@ export async function runAgent(deps: RunAgentDeps): Promise<RunResult> {
 					await maybeCompact();
 					state = "MODEL";
 				}
-				await save(state);
+				// PREPARE→MODEL não muda nada que o checkpoint do SETTLE (ou o inicial) já não tenha: só grava se o limite ou a
+				// compactação mexeram no estado. Uma queda no meio do passo volta a PREPARE e refaz a decisão (puro, sem efeito).
+				if (state === "FINAL" || snap.compactions !== compactionsBefore) await save(state);
 			} else if (state === "MODEL" || state === "FINAL") {
 				const isFinal = state === "FINAL";
 				await emit({ type: "step", data: { step: snap.step, final: isFinal } });

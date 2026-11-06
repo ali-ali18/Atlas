@@ -42,7 +42,9 @@ export function addRuntimeNote(snap: KernelSnapshot, text: string): void {
 }
 
 export async function saveCheckpoint(ports: Ports, ownerId: string, runId: string, state: KernelState, snap: KernelSnapshot): Promise<void> {
-	await ports.store.runs.saveCheckpoint({ runId, userId: ownerId, step: snap.step, state, payload: structuredClone(snap) });
+	// Sem clone: o laço espera esta chamada terminar antes de mexer no snapshot, e o adaptador serializa o `payload`
+	// dentro da chamada (contrato em ports/store.ts). Custo que sobra: cada gravação serializa o estado inteiro.
+	await ports.store.runs.saveCheckpoint({ runId, userId: ownerId, step: snap.step, state, payload: snap });
 }
 
 /**

@@ -9,7 +9,11 @@ export type RunCheckpoint = {
 	userId: string;
 	step: number;
 	state: "PREPARE" | "MODEL" | "TOOLS" | "SETTLE" | "PARKED" | "FINAL" | "DONE";
-	/** Estado serializável do kernel (opaco para a porta). */
+	/**
+	 * Estado serializável do kernel (opaco para a porta). É o objeto VIVO do kernel, sem cópia: o adaptador tem de
+	 * serializá-lo (ou copiá-lo) dentro da chamada e nunca guardar a referência; o kernel só volta a mexer nele depois
+	 * que a promessa resolve.
+	 */
 	payload: unknown;
 };
 
