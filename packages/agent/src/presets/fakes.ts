@@ -107,8 +107,10 @@ export class FakeSettings implements Settings {
 	readonly views = new Map<string, BotSettingsView>();
 	readonly updates: Array<{ userId: string; patch: BotSettingsPatch }> = [];
 	readonly availableModels?: () => Promise<readonly string[]>;
-	constructor(models?: readonly string[]) {
+	readonly supportsRoleModels: boolean;
+	constructor(models?: readonly string[], options: { supportsRoleModels?: boolean } = {}) {
 		if (models) this.availableModels = async () => models;
+		this.supportsRoleModels = options.supportsRoleModels ?? true;
 	}
 	async get(userId: string): Promise<BotSettingsView> {
 		const view = this.views.get(userId) ?? DEFAULT_SETTINGS;

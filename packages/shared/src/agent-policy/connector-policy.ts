@@ -5,7 +5,7 @@ import { classifyMcpTool } from "../autonomy-tools.js";
 import { getMcpCatalogEntry, type McpCatalogCategory } from "../mcp-catalog.js";
 import type { McpToolInfo } from "../mcp.js";
 import type { ToolMark } from "../tool-marks.js";
-import type { EffectClass, PolicyRule } from "./types.js";
+import type { EffectClass } from "./types.js";
 
 /** Classes de efeito que uma tool MCP pode ter. Envio/dinheiro/link público não saem do schema: só o dono ou o catálogo os declara. */
 export type McpEffectClass = Extract<EffectClass, "read" | "write_external" | "destructive">;
@@ -34,12 +34,4 @@ export function isPrivateConnector(catalogId: string | null | undefined): boolea
 	if (!catalogId) return true;
 	const entry = getMcpCatalogEntry(catalogId);
 	return entry === undefined || !PUBLIC_CATEGORIES.has(entry.category);
-}
-
-/**
- * `confirmWrites` do conector vira regra `approve` sobre o nome da tool de escrita dele. O `decide` só aperta com
- * `approve` (nunca afrouxa), então a regra vale em qualquer autonomia e vem antes das regras do dono.
- */
-export function confirmWritesRules(connectors: ReadonlyArray<{ confirmWrites: boolean; writeToolName: string }>): PolicyRule[] {
-	return connectors.filter((c) => c.confirmWrites).map((c) => ({ match: c.writeToolName, verdict: "approve" as const }));
 }

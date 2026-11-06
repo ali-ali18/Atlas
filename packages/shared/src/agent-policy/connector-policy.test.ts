@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { sanitizeErrorMessage } from "../redact-secrets.js";
-import { classifyMcpEffect, confirmWritesRules, isPrivateConnector } from "./connector-policy.js";
+import { classifyMcpEffect, isPrivateConnector } from "./connector-policy.js";
 import { decide } from "./decide.js";
 import type { DecideInput } from "./types.js";
 
@@ -45,21 +45,6 @@ describe("isPrivateConnector (catálogo público)", () => {
 	it("busca na web do catálogo não é dado do dono", () => {
 		expect(isPrivateConnector("firecrawl")).toBe(false);
 		expect(isPrivateConnector("brave_search")).toBe(false);
-	});
-});
-
-describe("confirmWritesRules", () => {
-	const rules = confirmWritesRules([
-		{ confirmWrites: true, writeToolName: "mcp_a_write" },
-		{ confirmWrites: false, writeToolName: "mcp_b_write" },
-	]);
-	it("só o conector com confirmWrites gera regra approve", () => {
-		expect(rules).toEqual([{ match: "mcp_a_write", verdict: "approve" }]);
-	});
-	it("o decide pede cartão onde a autonomia deixaria rodar", () => {
-		const action = (toolName: string) => ({ toolName });
-		expect(decide(mk({ rules, action: action("mcp_a_write") })).kind).toBe("approve");
-		expect(decide(mk({ rules, action: action("mcp_b_write") })).kind).toBe("run");
 	});
 });
 

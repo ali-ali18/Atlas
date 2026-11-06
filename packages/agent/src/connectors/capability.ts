@@ -6,11 +6,13 @@
 //    schema mínimo. O schema detalhado de cada tool MCP só chega no resultado do `tool_search`.
 //  - Efeito: classificado do schema/anotações (`classifyMcpEffect`); sem anotação é `write_external`. A tool `_read`
 //    só roda tool classificada como leitura; a `_write` tem o efeito da tool chamada (`effectForArgs`).
-//  - `confirmWrites` vira regra `approve` sobre `mcp_<slug>_write` (devolvida em `policyRules`, para o worker juntar
-//    às regras do dono); quem aplica é o `decide`.
+//  - `confirmWrites` vira `confirm: "always"` na própria tool `mcp_<slug>_write`: o `decide` nunca deixa regra `run`
+//    do dono afrouxar o `confirm` declarado (regra de política antes das do dono perdia para `*` → `run`).
+//  - `egress`: só em conector PÚBLICO (busca etc.): os args vão a terceiro, então com dado privado + leitura não
+//    confiável no run a chamada pede cartão. Conector privado do dono (Gmail, Drive) não declara: é o serviço dele.
 //  - Resultado e erro de MCP são `trust: "untrusted"`, `source: "mcp"`, com segredo redigido.
 //    Conector privado (padrão) declara `privateData: true`.
-import { type PolicyRule, classifyMcpEffect, confirmWritesRules, isPrivateConnector, sanitizeErrorMessage, type McpEffectClass } from "@workspace/shared";
+import { classifyMcpEffect, isPrivateConnector, sanitizeErrorMessage, type McpEffectClass } from "@workspace/shared";
 import { z } from "zod";
 import { type Capability, defineCapability, SUMMARY_MAX_LENGTH } from "../capabilities/define-capability.js";
 import { sanitizeText } from "../contract/sanitize.js";
@@ -35,8 +37,6 @@ type PreparedConnection = {
 export type ConnectorsSetup = {
 	/** `null` quando o dono não tem conexão utilizável: não registre nada. */
 	capability: Capability | null;
-	/** Regras `approve` vindas do `confirmWrites`; junte às regras do dono (as do dono vão depois). */
-	policyRules: PolicyRule[];
 };
 
 function isOwner(ownerId: string): boolean {
@@ -65,10 +65,10 @@ function capabilitySummary(prepared: readonly PreparedConnection[]): string {
 }
 
 export async function createConnectorsCapability(mcp: Mcp, ownerId: string, signal?: AbortSignal): Promise<ConnectorsSetup> {
-	if (!isOwner(ownerId)) return { capability: null, policyRules: [] };
+	if (!isOwner(ownerId)) return { capability: null };
 	const listed = await mcp.listConnections(ownerId, signal);
 	const usable = listed.filter((c) => c.ownerId === ownerId && c.status === "connected");
-	if (usable.length === 0) return { capability: null, policyRules: [] };
+	if (usable.length === 0) return { capability: null };
 	const parts = uniqueSlugParts(usable.map((c) => c.slug));
 	const prepared = usable.map((c, i) => prepare(c, parts[i] as string));
 	const byPart = new Map(prepared.map((c) => [c.part, c]));
@@ -110,7 +110,6 @@ export async function createConnectorsCapability(mcp: Mcp, ownerId: string, sign
 	});
 
 	const callTools: Tool[] = [];
-	const rulesInput: Array<{ confirmWrites: boolean; writeToolName: string }> = [];
 	for (const conn of prepared) {
 		const { part, names, snapshot, privateData } = conn;
 		const argsSchema = z.object({
@@ -144,6 +143,7 @@ export async function createConnectorsCapability(mcp: Mcp, ownerId: string, sign
 				trust: "untrusted",
 				source: "mcp",
 				privateData,
+				...(!privateData && { egress: true }),
 				...(privateData && { ownerData: "connector" as const }),
 				execute: ({ tool, args }, ctx) => run("read", tool, args, ctx),
 			}),
@@ -160,10 +160,11 @@ export async function createConnectorsCapability(mcp: Mcp, ownerId: string, sign
 				trust: "untrusted",
 				source: "mcp",
 				privateData,
+				...(!privateData && { egress: true }),
+				...(snapshot.confirmWrites && { confirm: "always" as const }),
 				execute: ({ tool, args }, ctx) => run("write", tool, args, ctx),
 			}),
 		);
-		rulesInput.push({ confirmWrites: snapshot.confirmWrites, writeToolName: names.write });
 	}
 
 	const capability = defineCapability({
@@ -172,5 +173,5 @@ export async function createConnectorsCapability(mcp: Mcp, ownerId: string, sign
 		summary: capabilitySummary(prepared),
 		tools: [search, ...callTools],
 	});
-	return { capability, policyRules: confirmWritesRules(rulesInput) };
+	return { capability };
 }

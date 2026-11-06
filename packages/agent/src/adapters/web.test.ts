@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createWebCapability } from "../presets/web.js";
 import { DEFAULT_PAGE_CHARS } from "../kernel/work-notes.js";
 import { call, kernelHarness, reply } from "../testing/kernel-fakes.js";
-import { createWebAdapter, EXTRACT_TECHNICAL_MAX_CHARS, type ExtractPageFn, type FetchLike, type SearxngSearchFn } from "./web.js";
+import { acceptLanguageFor, createWebAdapter, EXTRACT_TECHNICAL_MAX_CHARS, type ExtractPageFn, type FetchLike, type SearxngSearchFn } from "./web.js";
 
 const DDG = `<div class="result web-result"><h2 class="result__title"><a class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fexemplo.com%2Fa">Exemplo A</a></h2><a class="result__snippet" href="x">Trecho A</a></div>`;
 const html = (body: string, status = 200) => new Response(body, { status });
@@ -43,6 +43,23 @@ describe("adaptador web: busca", () => {
 		controller.abort(new Error("parado"));
 		const aborting = createWebAdapter({ extract: neverExtract, searxng: async () => Promise.reject(new Error("abortado")), fetchFn: async () => html(DDG) });
 		await expect(aborting.search("owner-1", "x", undefined, controller.signal)).rejects.toThrow("abortado");
+	});
+});
+
+describe("adaptador web: Accept-Language (auditoria F2, R5)", () => {
+	const headerFor = async (locale?: string) => {
+		const fetchFn = vi.fn<FetchLike>(async () => html(DDG));
+		await createWebAdapter({ extract: neverExtract, fetchFn, ...(locale && { locale }) }).search("owner-1", "x");
+		return (fetchFn.mock.calls[0]?.[1]?.headers as Record<string, string>)["Accept-Language"];
+	};
+
+	it("deriva do idioma do run; sem idioma ou com formato inválido cai em en", async () => {
+		expect(await headerFor("en-US")).toBe("en-US,en;q=0.9,en;q=0.8");
+		expect(await headerFor("pt-BR")).toBe("pt-BR,pt;q=0.9,en;q=0.8");
+		expect(await headerFor("es")).toBe("es,en;q=0.8");
+		expect(await headerFor()).toBe("en");
+		expect(acceptLanguageFor("auto")).toBe("en");
+		expect(acceptLanguageFor("x\r\nHost: evil")).toBe("en");
 	});
 });
 

@@ -80,21 +80,22 @@ describe("classificação das tools MCP", () => {
 	});
 });
 
-describe("confirmWrites vira regra de política", () => {
-	const policy = (rules: PolicyContext["rules"]): PolicyContext => ({ surface: "chat", ownerPresent: true, autonomy: "autonomous", rules });
+describe("confirmWrites vira confirm: always na tool de escrita", () => {
+	const policy = (rules: PolicyContext["rules"] = []): PolicyContext => ({ surface: "chat", ownerPresent: true, autonomy: "autonomous", rules });
+	const ownerRunAll: PolicyContext["rules"] = [{ match: "*", verdict: "run" }];
 
 	it("sem confirmWrites e autônomo, a escrita roda", async () => {
-		const { get, policyRules } = await build([conn({ confirmWrites: false })]);
-		expect(policyRules).toEqual([]);
-		const { executor } = setup(policy(policyRules));
+		const { get } = await build([conn({ confirmWrites: false })]);
+		expect(get("mcp_gmail_write").confirm).toBeUndefined();
+		const { executor } = setup(policy(ownerRunAll));
 		const out = await executor.executeCall({ callId: "c1", step: 1, tool: get("mcp_gmail_write"), args: { tool: "create_event", args: { q: "x" } } });
 		expect(out.status).toBe("ok");
 	});
 
-	it("com confirmWrites a mesma chamada pede aprovação e não executa; a leitura segue livre", async () => {
-		const { get, policyRules, mcp } = await build([conn({ confirmWrites: true })]);
-		expect(policyRules).toEqual([{ match: "mcp_gmail_write", verdict: "approve" }]);
-		const { executor } = setup(policy(policyRules));
+	it("com confirmWrites a mesma chamada pede aprovação e não executa, mesmo com regra do dono `*` run; a leitura segue livre", async () => {
+		const { get, mcp } = await build([conn({ confirmWrites: true })]);
+		expect(get("mcp_gmail_write").confirm).toBe("always");
+		const { executor } = setup(policy(ownerRunAll));
 		const write = await executor.executeCall({ callId: "c1", step: 1, tool: get("mcp_gmail_write"), args: { tool: "create_event" } });
 		expect(write.status).toBe("pending_approval");
 		expect(mcp.calls).toHaveLength(0);
@@ -103,8 +104,35 @@ describe("confirmWrites vira regra de política", () => {
 	});
 
 	it("o confirmWrites de um conector não vale para o outro", async () => {
-		const { policyRules } = await build([conn({ confirmWrites: true }), conn({ id: "conn-b", slug: "agenda", confirmWrites: false })]);
-		expect(policyRules.map((r) => r.match)).toEqual(["mcp_gmail_write"]);
+		const { get } = await build([conn({ confirmWrites: true }), conn({ id: "conn-b", slug: "agenda", confirmWrites: false })]);
+		expect(get("mcp_gmail_write").confirm).toBe("always");
+		expect(get("mcp_agenda_write").confirm).toBeUndefined();
+	});
+});
+
+describe("egress só em conector público", () => {
+	const brave = () => conn({ id: "conn-b", slug: "brave", name: "Brave", catalogId: "brave_search", tools: [tool("web_search", { annotations: { readOnlyHint: true } }), tool("post_item", { annotations: { readOnlyHint: false } })] });
+
+	it("tools do conector público declaram egress; as do privado não", async () => {
+		const { get } = await build([conn(), brave()]);
+		expect(get("mcp_brave_read").egress).toBe(true);
+		expect(get("mcp_brave_write").egress).toBe(true);
+		expect(get("mcp_gmail_read").egress).toBe(false);
+		expect(get("mcp_gmail_write").egress).toBe(false);
+	});
+
+	it("com dado privado e leitura não confiável no run, o conector público pede cartão e o do dono roda", async () => {
+		const { get, mcp } = await build([conn(), brave()]);
+		const provenance = new RunProvenance();
+		const { executor } = setup(undefined, { provenance });
+		const mail = await executor.executeCall({ callId: "c1", step: 1, tool: get("mcp_gmail_read"), args: { tool: "search_messages" } });
+		expect(mail.status).toBe("ok");
+		const again = await executor.executeCall({ callId: "c2", step: 2, tool: get("mcp_gmail_read"), args: { tool: "search_messages" } });
+		expect(again.status).toBe("ok");
+		const before = mcp.calls.length;
+		const pub = await executor.executeCall({ callId: "c3", step: 3, tool: get("mcp_brave_read"), args: { tool: "web_search", args: { q: "x" } } });
+		expect(pub.status).toBe("pending_approval");
+		expect(mcp.calls).toHaveLength(before);
 	});
 });
 
@@ -137,7 +165,7 @@ describe("escopo por dono", () => {
 	it("dono vazio ou legado 'default' não recebe capacidade nem consulta a porta", async () => {
 		for (const owner of ["", "  ", "default"]) {
 			const mcp = new FakeMcp([conn({ ownerId: owner })]);
-			expect(await createConnectorsCapability(mcp, owner)).toEqual({ capability: null, policyRules: [] });
+			expect(await createConnectorsCapability(mcp, owner)).toEqual({ capability: null });
 			expect(mcp.listed).toEqual([]);
 		}
 	});

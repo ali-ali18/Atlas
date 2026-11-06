@@ -23,7 +23,7 @@ export type WebAdapterDeps = {
 	/** Sem SearXNG configurado, a busca vai direto ao DuckDuckGo. */
 	searxng?: SearxngSearchFn;
 	fetchFn?: FetchLike;
-	/** Idioma da busca (`pt-BR` por padrão). */
+	/** Idioma do run (`pt-BR`, `en-US`…): vai em `kl` e em `Accept-Language`. Sem ele, `Accept-Language` neutro (`en`). */
 	locale?: string;
 };
 
@@ -35,6 +35,16 @@ export const SEARCH_FETCH_TIMEOUT_MS = 15_000;
 export const SEARCH_MAX_HTML_BYTES = 2_000_000;
 const DDG_HTML_URL = "https://html.duckduckgo.com/html/";
 const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36";
+
+const LOCALE_FORMAT = /^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8}){0,2}$/;
+
+/** `Accept-Language` derivado do idioma do run; formato inválido ou ausente cai em `en` (nunca um idioma do dono fixo). */
+export function acceptLanguageFor(locale?: string): string {
+	const tag = locale?.trim();
+	if (!tag || !LOCALE_FORMAT.test(tag)) return "en";
+	const base = tag.split("-")[0] as string;
+	return tag === base ? `${tag},en;q=0.8` : `${tag},${base};q=0.9,en;q=0.8`;
+}
 
 const EXTRACT_ERROR_TEXT: Readonly<Record<string, string>> = {
 	blocked: "The page could not be fetched (blocked, not found or unreachable).",
@@ -76,7 +86,7 @@ async function searchDuckDuckGo(query: string, limit: number, deps: WebAdapterDe
 	const response = await fetchFn(`${DDG_HTML_URL}?${duckDuckGoParams(query, { locale: deps.locale }).toString()}`, {
 		method: "GET",
 		signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
-		headers: { "User-Agent": USER_AGENT, "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8" },
+		headers: { "User-Agent": USER_AGENT, "Accept-Language": acceptLanguageFor(deps.locale) },
 	});
 	if (response.status === 202 || response.status === 403 || response.status === 429) throw new Error(`The search engine is limiting requests (HTTP ${response.status}).`);
 	if (!response.ok) throw new Error(`The search engine failed (HTTP ${response.status}).`);

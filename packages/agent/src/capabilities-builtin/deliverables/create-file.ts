@@ -1,4 +1,4 @@
-import { DECK_MAX_SLIDES, DECK_THEMES, FILE_MAX_CONTENT_CHARS, FILE_TITLE_MAX_CHARS, FILE_LAYOUTS, XLSX_MAX_COLUMNS, XLSX_MAX_ROWS, XLSX_MAX_SHEETS, parseCreateFileArgs } from "@workspace/shared";
+import { DANGEROUS_FORMULA_FUNCTIONS, DECK_MAX_SLIDES, DECK_THEMES, FILE_MAX_CONTENT_CHARS, FILE_TITLE_MAX_CHARS, FILE_LAYOUTS, XLSX_MAX_COLUMNS, XLSX_MAX_ROWS, XLSX_MAX_SHEETS, findDangerousFormulaFunctions, isFormulaCell, parseCreateFileArgs } from "@workspace/shared";
 import { z } from "zod";
 import type { DeliverableFiles } from "../../ports/deliverables.js";
 import { defineTool } from "../../tools/define-tool.js";
@@ -43,6 +43,15 @@ function crossFieldErrors(args: CreateFileArgs, ext: string): string[] {
 	if (ext === "pptx" && !args.slides) problems.push("a .pptx file needs slides");
 	if (ext !== "xlsx" && ext !== "pptx" && args.content === undefined) problems.push(`a .${ext} file needs content`);
 	if ((ext === "xlsx" || ext === "pptx") && args.content !== undefined) problems.push(`content does not apply to .${ext} files (use ${ext === "xlsx" ? "sheets" : "slides"})`);
+	for (const sheet of args.sheets ?? []) {
+		for (const row of sheet.rows) {
+			for (const value of row) {
+				if (!isFormulaCell(value)) continue;
+				const bad = findDangerousFormulaFunctions(value.slice(1));
+				if (bad.length > 0) problems.push(`formula ${JSON.stringify(value.slice(0, 60))} uses ${bad.join(", ")}, which reaches the network or runs code when the file opens (not accepted: ${DANGEROUS_FORMULA_FUNCTIONS.join(", ")}); use plain values or ordinary formulas such as SUM, IF, VLOOKUP`);
+			}
+		}
+	}
 	return problems;
 }
 

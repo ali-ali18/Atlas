@@ -13,7 +13,7 @@ import {
 	type NoteStore,
 	type PresetDeps,
 } from "@workspace/agent";
-import type { PolicyRule, ComputerUseEvent } from "@workspace/shared";
+import type { ComputerUseEvent } from "@workspace/shared";
 import { createV4Deliverables, realV4DeliverablesDeps, type V4DeliverablesDeps } from "./deliverables.js";
 import { createV4Mcp, realV4McpDeps, type V4McpDeps } from "./mcp.js";
 import { createV4Memory, realV4MemoryDeps, type V4MemoryDeps } from "./memory.js";
@@ -52,8 +52,6 @@ export type V4RegistryInput = {
 export type V4RegistrySetup = {
 	registry: CapabilityRegistry;
 	stableSystem: string;
-	/** Regras `approve` do `confirmWrites` dos conectores; o chamador junta às do dono (as do dono por último). */
-	policyRules: PolicyRule[];
 	/** Capacidades do preset sem porta nesta montagem. */
 	unavailable: CapabilityId[];
 };
@@ -82,7 +80,7 @@ export async function buildV4Registry(input: V4RegistryInput): Promise<V4Registr
 	};
 	const base = setupPreset("full", presetDeps);
 
-	let connectors: Awaited<ReturnType<typeof createConnectorsCapability>> = { capability: null, policyRules: [] };
+	let connectors: Awaited<ReturnType<typeof createConnectorsCapability>> = { capability: null };
 	try {
 		const mcp = createV4Mcp({ scope: { ownerId: input.userId, unattended: input.unattended, botId: botId ?? null, botName: input.botName ?? null, conversationId: input.conversationId ?? null }, deps: deps.mcp });
 		connectors = await createConnectorsCapability(mcp, input.userId, input.signal);
@@ -95,12 +93,6 @@ export async function buildV4Registry(input: V4RegistryInput): Promise<V4Registr
 	return {
 		registry,
 		stableSystem: connectors.capability ? presetStablePrompt(PRESETS.full, registry) : base.stableSystem,
-		policyRules: connectors.policyRules,
 		unavailable: base.unavailable,
 	};
-}
-
-/** Regras dos conectores primeiro, as do dono por último (vale a ÚLTIMA que casar: o dono pode afrouxar ou endurecer). */
-export function mergePolicyRules(connectorRules: readonly PolicyRule[], ownerRules: readonly PolicyRule[]): PolicyRule[] {
-	return [...connectorRules, ...ownerRules];
 }

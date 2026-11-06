@@ -23,30 +23,35 @@ const ROLE_MEANING: Readonly<Record<AgentModelRole, string>> = {
 	classifier: "quick routing decisions",
 };
 
-export function renderSettings(view: BotSettingsView): string {
+export function renderSettings(view: BotSettingsView, options: { roleModels: boolean } = { roleModels: true }): string {
+	const lines = [`Name: ${view.name}`, `Summary: ${view.snippet || "(none)"}`, `Description: ${view.description || "(none)"}`, `Language: ${view.language}`, `Notifications: ${view.notify ? "on" : "off"}`];
+	if (!options.roleModels) return lines.join("\n");
 	const models = MODEL_ROLES.map((role) => `${role} (${ROLE_MEANING[role]}): ${view.roleModels[role] ?? "default"}`);
-	return [`Name: ${view.name}`, `Summary: ${view.snippet || "(none)"}`, `Description: ${view.description || "(none)"}`, `Language: ${view.language}`, `Notifications: ${view.notify ? "on" : "off"}`, "Models by role:", ...models.map((line) => `- ${line}`)].join("\n");
+	return [...lines, "Models by role:", ...models.map((line) => `- ${line}`)].join("\n");
 }
 
 export function createSettingsCapability(settings: Settings) {
+	const roleModels = settings.supportsRoleModels;
 	const settingsGet = defineTool({
 		name: "settings_get",
-		description: "Read this bot's current settings: name, summary, language, notifications and the model chosen for each role. Use it before changing a setting or when the owner asks how the bot is set up.",
+		description: `Read this bot's current settings: name, summary, language, notifications${roleModels ? " and the model chosen for each role" : ""}. Use it before changing a setting or when the owner asks how the bot is set up.`,
 		inputSchema: z.object({}),
 		effect: "read",
 		async execute(_args, ctx) {
-			return { ok: true, summary: renderSettings(await settings.get(ctx.ownerId)) };
+			return { ok: true, summary: renderSettings(await settings.get(ctx.ownerId), { roleModels }) };
 		},
 	});
 
 	const settingsUpdate = defineTool({
 		name: "settings_update",
-		description: "Change the bot's reply language or notifications. Use it when the owner asks for that change. Do not use it for the model (use set_role_model) or for the name and description (use update_bot_profile).",
+		description: `Change the bot's reply language or notifications. Use it when the owner asks for that change. Do not use it ${roleModels ? "for the model (use set_role_model) or " : ""}for the name and description (use update_bot_profile).`,
 		inputSchema: z.object({
 			language: z.enum(BOT_LANGUAGE_SETTINGS).optional().describe("A fixed language, or auto to follow the language of the person writing."),
 			notify: z.boolean().optional().describe("Push notifications when a run ends or needs the owner."),
 		}),
 		effect: "write_internal",
+		// Depois de ler conteúdo de fora, uma injeção não muda idioma/avisos sem o dono ver (auditoria F2, S5).
+		confirm: "when_untrusted",
 		riskFacts: () => ({ target: "Bot settings" }),
 		async execute({ language, notify }, ctx) {
 			if (language === undefined && notify === undefined) return { ok: false, error: "Nothing to change.", hint: "Send language and/or notify." };
@@ -113,7 +118,8 @@ export function createSettingsCapability(settings: Settings) {
 	return defineCapability({
 		id: "settings",
 		title: "Configurações",
-		summary: "Configure the bot from chat: language, notifications, models by role, profile.",
-		tools: [settingsGet, settingsUpdate, setRoleModel, updateBotProfile],
+		summary: roleModels ? "Configure the bot from chat: language, notifications, models by role, profile." : "Configure the bot from chat: language, notifications, profile.",
+		// Sem onde guardar o modelo por papel a tool não existe: anunciar e falhar sempre seria tool desonesta.
+		tools: roleModels ? [settingsGet, settingsUpdate, setRoleModel, updateBotProfile] : [settingsGet, settingsUpdate, updateBotProfile],
 	});
 }
