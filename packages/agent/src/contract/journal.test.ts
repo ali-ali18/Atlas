@@ -31,7 +31,7 @@ describe("journal de efeitos e recibos (F1.6)", () => {
 		await executor.executeCall({ callId: "c1", step: 3, tool, args: { title: "segredo-no-titulo" } });
 		expect(journal.entries.map((e) => e.outcome)).toEqual(["started", "succeeded"]);
 		const [first] = journal.entries;
-		expect(first?.idempotencyKey).toBe(`run-1:c1:${first?.argsHash}`);
+		expect(first?.idempotencyKey).toBe(`run-1:s3:c1:${first?.argsHash}`);
 		expect(first).toMatchObject({ userId: "owner-1", step: 3, toolName: "save_event" });
 		expect(JSON.stringify(journal.entries)).not.toContain("segredo-no-titulo");
 	});
@@ -76,7 +76,7 @@ describe("journal de efeitos e recibos (F1.6)", () => {
 		const args = { title: "x" };
 		const resumed = setup(autonomous);
 		// o processo caiu depois de gravar `started` e antes de `succeeded`
-		const key = `run-1:c1:${payloadHashOf("save_event", args, sha256)}`;
+		const key = `run-1:s1:c1:${payloadHashOf("save_event", args, sha256)}`;
 		await resumed.journal.append({ runId: "run-1", userId: "owner-1", step: 1, idempotencyKey: key, toolName: "save_event", argsHash: "h", outcome: "started" });
 		const out = await resumed.executor.executeCall({ callId: "c1", step: 1, tool, args });
 		expect(out).toMatchObject({ status: "interrupted_write", hint: expect.stringContaining("Do not repeat it blindly") });

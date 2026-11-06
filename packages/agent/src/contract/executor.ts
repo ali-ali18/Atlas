@@ -69,7 +69,9 @@ export function createExecutor(deps: ExecutorDeps) {
 
 		// Efeito (tudo que não é `read`) passa pelo journal: a retomada nunca repete escrita às cegas (cláusula 6).
 		const effectful = effect !== "read";
-		const idempotencyKey = `${deps.runId}:${call.callId}:${payloadHash}`;
+		// Id de chamada com namespace do passo: provedor que repete `call_0` a cada passo não colide no journal nem nos pedidos de aprovação.
+		const scopedCallId = `s${call.step}:${call.callId}`;
+		const idempotencyKey = `${deps.runId}:${scopedCallId}:${payloadHash}`;
 		const journalBase = { runId: deps.runId, userId: deps.ownerId, step: call.step, idempotencyKey, toolName: tool.name, argsHash: payloadHash } as const;
 		if (effectful) {
 			const prior = await deps.ports.store.journal.find(deps.ownerId, deps.runId, idempotencyKey);
@@ -78,7 +80,7 @@ export function createExecutor(deps: ExecutorDeps) {
 		}
 
 		if (verdict.kind === "approve") {
-			const request = requestApproval({ runId: deps.runId, callId: call.callId, toolName: tool.name, effect, args, riskFacts, hash: deps.hash, secrets: secrets() });
+			const request = requestApproval({ runId: deps.runId, callId: scopedCallId, toolName: tool.name, effect, args, riskFacts, hash: deps.hash, secrets: secrets() });
 			if (!call.grant) return { status: "pending_approval", request };
 			const check = checkGrant(call.grant, request, consumed);
 			if (!check.ok) return { status: "approval_invalid", reason: check.reason, request };

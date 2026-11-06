@@ -137,4 +137,16 @@ describe("handoff, hidden e erros", () => {
 		expect(out.status).toBe("ok");
 		expect(JSON.stringify(out)).not.toContain("hunter2-pass");
 	});
+
+	it("id de chamada repetido em outro passo não colide no journal nem no pedido de aprovação (B12)", async () => {
+		const { executor } = setup({ ...chatPolicy, autonomy: "autonomous" });
+		const counter = { runs: 0 };
+		const tool = defineTool({ name: "create_event", description: "Event.", inputSchema: z.object({ title: z.string() }), effect: "write_external", execute: () => (counter.runs++, { ok: true, summary: "criado", receipt: { what: "evento" } }) });
+		const args = { title: "x" };
+		expect((await executor.executeCall({ callId: "call_0", step: 0, tool, args })).status).toBe("ok");
+		expect((await executor.executeCall({ callId: "call_0", step: 1, tool, args })).status).toBe("ok");
+		expect(counter.runs).toBe(2);
+		// mesmo passo e mesmo id: continua idempotente (retomada)
+		expect((await executor.executeCall({ callId: "call_0", step: 1, tool, args })).status).toBe("already_done");
+	});
 });
