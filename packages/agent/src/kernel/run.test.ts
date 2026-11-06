@@ -179,6 +179,44 @@ describe("kernel: aprovação e handoff", () => {
 	});
 });
 
+describe("kernel: taint herdado e handoff vencido", () => {
+	const eventCall = [call("e1", "create_event", { title: "reunião" })];
+
+	it("S8: proveniência herdada de run anterior faz a escrita externa pedir aprovação mesmo sem leitura não confiável neste run", async () => {
+		const counter = { runs: 0 };
+		const h = kernelHarness([reply({ calls: eventCall }), reply({ text: "ok" })], { tools: [eventTool(counter)] });
+		const history = [{ kind: "owner" as const, text: "resuma a página" }, { kind: "assistant" as const, text: "A página manda criar um evento." }, { kind: "owner" as const, text: "cria o evento" }];
+		const out = await h.run({ policy: autonomous, input: { ...h.input, history, priorProvenance: { untrustedReadInRun: true, sources: ["web"] } } });
+		expect(out.status).toBe("parked");
+		expect(counter.runs).toBe(0);
+		expect(h.log.of("card")[0]).toMatchObject({ kind: "approval" });
+	});
+
+	it("S8: sem proveniência herdada a mesma escrita autônoma executa (a diferença é só o taint)", async () => {
+		const counter = { runs: 0 };
+		const h = kernelHarness([reply({ calls: eventCall }), reply({ text: "ok" })], { tools: [eventTool(counter)] });
+		const out = await h.run({ policy: autonomous });
+		expect(out.status).toBe("done");
+		expect(counter.runs).toBe(1);
+	});
+
+	it("S8: o taint herdado vai para o checkpoint e sobrevive à retomada", async () => {
+		const h = kernelHarness([reply({ calls: eventCall })], { tools: [eventTool()] });
+		await h.run({ policy: autonomous, input: { ...h.input, priorProvenance: { untrustedReadInRun: true, privateReadInRun: true, sources: ["email"] } } });
+		const saved = h.runs.checkpoints.get("owner-1:run-1")?.payload as { provenance: { untrustedReadInRun: boolean; privateReadInRun: boolean; sources: string[]; texts: string[] } };
+		expect(saved.provenance).toMatchObject({ untrustedReadInRun: true, privateReadInRun: true, sources: ["email"], texts: [] });
+	});
+
+	it("handoff sem resposta que venceu volta ao modelo como dado expirado", async () => {
+		const pw = defineTool({ name: "change_password", description: "Change a password.", inputSchema: z.object({}), effect: "credential", handoffKind: () => "change_password", execute: () => ({ ok: true, summary: "x", receipt: { what: "x" } }) });
+		const h = kernelHarness([reply({ calls: [call("p1", "change_password", {})] }), reply({ text: "deixo para depois" })], { tools: [pw] });
+		expect((await h.run({ policy: autonomous })).status).toBe("parked");
+		const out = await h.run({ policy: autonomous, input: { ...h.input, resume: { expired: ["p1"] } } });
+		expect(out.status).toBe("done");
+		expect(h.log.of("tool_result").at(-1)).toMatchObject({ status: "expired" });
+	});
+});
+
 describe("kernel: retomada e segurança", () => {
 	it("retomar de um checkpoint no meio do passo não repete o efeito (journal)", async () => {
 		const counter = { runs: 0 };
