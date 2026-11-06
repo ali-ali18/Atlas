@@ -83,7 +83,7 @@ describe("capacidade deliverables-lite", () => {
 	it("rejeita nome com pasta, extensão estranha e campo desconhecido", async () => {
 		const files = new FakeFileStore();
 		const tool = createDeliverablesLiteCapability(files).tools[0]!;
-		for (const name of ["../x.md", "a/b.md", "x.exe", ".md"]) expect((await tool.run({ name, content: "c" }, fakeToolContext())).ok).toBe(false);
+		for (const name of ["../x.md", "a/b.md", "x.exe", ".md", "pagina.html", "pagina.HTML", "x.htm", "x.svg"]) expect((await tool.run({ name, content: "c" }, fakeToolContext())).ok).toBe(false);
 		expect((await tool.run({ name: "a.md", content: "c", extra: 1 }, fakeToolContext())).ok).toBe(false);
 		expect(files.files).toHaveLength(0);
 	});
