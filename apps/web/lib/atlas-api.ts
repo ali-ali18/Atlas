@@ -76,7 +76,7 @@ import type {
 	ScanFinding,
 	TextDiff,
 } from "@workspace/shared";
-import { parseSseBlock, type DevApprovalCardInfo, type DevSessionEvent, type DevTimingEvent, type FilePreview, type LoginConnector } from "@workspace/shared";
+import { parseAgentV4Event, parseSseBlock, type AgentV4Event, type DevApprovalCardInfo, type DevSessionEvent, type DevTimingEvent, type FilePreview, type LoginConnector } from "@workspace/shared";
 import { filePreviewPath } from "@/lib/file-card";
 import { getStoredSseCursor, setStoredSseCursor } from "@/lib/active-run";
 import { isJevToolReview, type JevToolReview } from "@/lib/jev-status";
@@ -1291,6 +1291,8 @@ export type ComputerUseHandlers = {
 	onChart?: (event: Extract<ComputerUseEvent, { type: "chart" }>) => void;
 	onPage?: (event: Extract<ComputerUseEvent, { type: "page" }>) => void;
 	onTaskList?: (event: Extract<ComputerUseEvent, { type: "task_list" }>) => void;
+	/** Cards do motor v4 (aprovação, "isso é com você", pergunta do bot, recibo), já validados por `parseAgentV4Event`. */
+	onAgentCard?: (event: AgentV4Event) => void;
 	/** Cursor do agente no navegador do sandbox (efêmero, só para a UI). */
 	onAgentPointer?: (event: AgentPointerEvent) => void;
 	onLogin?: (event: {
@@ -1420,6 +1422,15 @@ export function dispatchComputerUseEvent(
 		case "task_list":
 			handlers.onTaskList?.(event);
 			break;
+		case "approval_request":
+		case "handoff_request":
+		case "ask_owner":
+		case "receipt": {
+			// Payload persistido/reentregue pode vir de uma versão diferente do worker: valida antes de virar card.
+			const card = parseAgentV4Event(event);
+			if (card) handlers.onAgentCard?.(card);
+			break;
+		}
 		case "agent_pointer":
 			handlers.onAgentPointer?.(event);
 			break;
@@ -1635,6 +1646,39 @@ export async function resolveBotProfileProposal(request: {
 			body: JSON.stringify(request),
 		},
 	);
+}
+
+/**
+ * Resposta do dono a um card do motor v4. `approve`/`dismiss` no pedido de aprovação; `done`/`dismiss` no
+ * "isso é com você"; `answer` (com o texto) ou `dismiss` na pergunta do bot. O recibo não tem resposta.
+ *
+ * O código de segurança do cartão (pagamento) NUNCA passa por aqui: o dono o digita no card e ele vai direto
+ * para a loja (F6.3). Este corpo não tem campo para ele de propósito.
+ */
+export type AgentCardResponse =
+	| { kind: "approval"; requestId: string; callId: string; decision: "approve" | "dismiss" }
+	| { kind: "handoff"; callId: string; decision: "done" | "dismiss" }
+	| { kind: "ask_owner"; cardId: string; decision: "answer"; answer: string }
+	| { kind: "ask_owner"; cardId: string; decision: "dismiss" };
+
+/** Teto da resposta digitada no card de pergunta (o mesmo teto de texto dos eventos v4). */
+export const AGENT_CARD_ANSWER_MAX = 8_000;
+
+/**
+ * Envia a resposta do card ao servidor, que retoma o run estacionado.
+ *
+ * PENDENTE: a rota `POST /v1/runs/:runId/cards/respond` ainda NÃO existe na API (F2.6, retomada com grants).
+ * Esta é a única chamada do app para ela: quando a rota entrar, só o caminho e o corpo daqui mudam. Até lá a
+ * chamada falha (404) e o card mostra o erro amigável sem marcar a decisão como feita.
+ */
+export async function respondToAgentCard(runId: string, response: AgentCardResponse): Promise<{ status: "applied" | "already" }> {
+	if (response.kind === "ask_owner" && response.decision === "answer" && response.answer.length > AGENT_CARD_ANSWER_MAX) {
+		throw new Error("answer too long");
+	}
+	return atlasFetch<{ status: "applied" | "already" }>(`/v1/runs/${encodeURIComponent(runId)}/cards/respond`, {
+		method: "POST",
+		body: JSON.stringify(response),
+	});
 }
 
 export async function getAgentRun(runId: string): Promise<{

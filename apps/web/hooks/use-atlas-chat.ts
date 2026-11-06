@@ -36,6 +36,7 @@ import {
 	SUPERSEDED_CARD_DETAIL,
 	type ReasoningEffort,
 	decideRunFollow,
+	isAgentV4EventType,
 	decideStreamFailure,
 	runFollowBackoffMs,
 } from "@workspace/shared";
@@ -64,6 +65,7 @@ import { subscribeAppResume } from "@/lib/resume-sync";
 import { createThreadSync, type ThreadSync } from "@/lib/thread-sync";
 import { createSendQueue } from "@/lib/send-queue";
 import { inboundEmailBodyOf, inboundEmailThreadMessage } from "@/lib/email-message";
+import { agentCardFromStored, applyAgentCardEvent, settleAgentCardsForCall } from "@/lib/agent-cards";
 import { adoptLoadedThread, applyLiveEvent, applyTaskListEvent, createLiveBubbleState, hydrateRunEvents, mergePreservingSkills, trackSupersededBubbles, type LiveBubbleState } from "@/lib/thread-live";
 import { eventRunStatus, isActiveRunStatus, isParkedRunStatus, isTerminalRunStatus, type HubEvent } from "@/lib/event-hub";
 import { currentPollMode, getSharedEventHub, shouldPollTick } from "@/lib/event-hub-client";
@@ -400,6 +402,8 @@ export function buildSessionMessage(message: SessionMessage): Message | null {
 		}
 		return { id: message.id, kind: "assistant", text: message.content };
 	}
+	// Card do motor v4 gravado na conversa: `role` = tipo do evento, `content` = o evento em JSON (validado).
+	if (isAgentV4EventType(message.role)) return agentCardFromStored(message.id, message.role, message.content);
 	// Card `questionnaire` (role próprio, não vai ao LLM): parse via
 	// parseConversationCard + narrow para o kind.
 	if ((message.role as string) === "questionnaire") {
@@ -720,6 +724,8 @@ export function createComputerHandlers(params: {
 			params.onStreamingMessage?.(null);
 			// Falha da ferramenta: o texto do indicador não muda, mas o avatar faz cara de erro.
 			params.onAgentActivity?.(result.ok === false ? { phase: "thinking", toolFailed: true } : { phase: "thinking" });
+			// Chamada estacionada num card v4 (aprovação, "isso é com você") teve resultado: o card fica sem botões.
+			params.setMessages((previous) => settleAgentCardsForCall(previous, result.id));
 			if (result.name === "generate_image") {
 				params.setMessages((previous) => settleImageGen(previous, result.id, result));
 			}
@@ -986,6 +992,13 @@ export function createComputerHandlers(params: {
 					return previous;
 				}
 				return dedupeCards(insertCardAfterCurrentTurn(previous, confirmMessage));
+			});
+		},
+		onAgentCard: (event) => {
+			params.onActivity?.();
+			params.setMessages((previous) => {
+				const next = applyAgentCardEvent(previous, event, params.runId);
+				return next === previous ? previous : dedupeCards(next);
 			});
 		},
 		onTaskList: (event) => {

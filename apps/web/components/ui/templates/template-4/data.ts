@@ -1,5 +1,5 @@
 import { AVATAR_COLORS, eyeColorFor as engineEyeColorFor } from "@workspace/ui/lib/avatar/identity";
-import type { AlertRule, MessageSource, BotLanguageSetting, BotNeed, BotProposalData, DevApprovalCardInfo, LoginConnector, LoginVaultOffer, RoutineProposalMode, RoutineProposalSpec, RoutineProposalStatus, SkillProposalData, SubagentTaskView, ChartSpec, PageSpec } from "@workspace/shared";
+import type { AgentV4Event, AlertRule, MessageSource, BotLanguageSetting, BotNeed, BotProposalData, DevApprovalCardInfo, LoginConnector, LoginVaultOffer, RoutineProposalMode, RoutineProposalSpec, RoutineProposalStatus, SkillProposalData, SubagentTaskView, ChartSpec, PageSpec } from "@workspace/shared";
 import type { BotProfileProposal } from "@/components/ai-elements/confirm";
 
 export type BodyColor = {
@@ -471,6 +471,11 @@ type MessageVariant =
 	| { id: string; kind: "image-gen"; callId: string; count: 1 | 2; aspectRatio: string; startedAt: number; status: "running" | "error"; error?: string }
 	/** Checklist de passos do run (`update_task_list`); um cartão por run, atualizado no lugar. */
 	| { id: string; kind: "task-list"; runId: string; items: Array<{ content: string; status: "pending" | "in_progress" | "completed" }> }
+	/**
+	 * Card do motor v4 (aprovação, "isso é com você", pergunta do bot, recibo). `card` é o evento validado por
+	 * `parseAgentV4Event`; `settled` = a chamada estacionada já tem resultado (resolvido aqui ou em outro aparelho).
+	 */
+	| { id: string; kind: "agent-card"; card: AgentV4Event; settled?: boolean }
 	/** `/compact`: a conversa levada foi resumida (números antes/depois e o texto do resumo); persistido na thread. */
 	| { id: string; kind: "compaction"; before: number; after: number; summary: string; focus?: string }
 	/** Gráfico nativo (spec validado) gerado pelo run_code em *.chart.json. */
