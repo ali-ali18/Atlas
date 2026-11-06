@@ -4,9 +4,9 @@
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { Llm, LlmChatRequest, LlmStreamEvent } from "@workspace/agent";
+import { createSseMapper, type Llm, type LlmChatRequest, type LlmStreamEvent, type RunEvent } from "@workspace/agent";
 import type { ComputerUseEvent } from "@workspace/shared";
-import { createMinimalEventMapper, meterLlm, runEngineV4, storeBackendFromDb, unavailableQueue, unavailableSandbox, vaultBackendFromService, type V4Db } from "./engine-v4.js";
+import { createMinimalEventMapper, dropProcessorOwnedEvents, meterLlm, runEngineV4, storeBackendFromDb, unavailableQueue, unavailableSandbox, vaultBackendFromService, type V4Db } from "./engine-v4.js";
 
 const served = { provider: "fake", model: "m-1" };
 const done = (costUsd?: number): LlmStreamEvent => ({ type: "done", finishReason: "stop", usage: { inputTokens: 10, outputTokens: 5, ...(costUsd !== undefined ? { costUsd } : {}) }, served });
@@ -168,4 +168,52 @@ test("sandbox e fila indisponíveis devolvem ao modelo um texto em inglês, sem 
 		assert.match(text, /^(The computer|Scheduling)/);
 		assert.doesNotMatch(text, /v4|worker|motor|VM e|fila/i);
 	}
+});
+
+/** O que o processador faz ao fechar o run: UM evento terminal (o `done` da conclusão atômica ou o `error`/`cancelled` do catch). */
+const TERMINAL = ["done", "error", "cancelled"] as const;
+const terminals = (events: ComputerUseEvent[]) => events.filter((e) => (TERMINAL as readonly string[]).includes(e.type)).map((e) => e.type);
+
+async function runWith(mapKind: "raw" | "filtered", llm: Llm, limits: { ownerMaxUsd?: number; ownerMaxSteps?: number } = {}, signal?: AbortSignal) {
+	const events: ComputerUseEvent[] = [];
+	const mapper = createSseMapper({ runId: "run-1", model: "fake/m-1" });
+	const map = (e: RunEvent) => mapper.mapRunEvent(e);
+	const outcome = await runEngineV4({ ...baseInput(llm, events, fakeDb().db), limits, mapEvent: mapKind === "raw" ? map : dropProcessorOwnedEvents(map), ...(signal && { signal }) }).then(
+		() => "ok",
+		() => "threw",
+	);
+	return { events, outcome };
+}
+
+test("fim do run: o mapa do kernel não repete o done/error/cancelled nem o teto de passos que o processador emite (auditoria F1, B1)", async () => {
+	const answer = () => scripted([[{ type: "text_delta", text: "Olá!" }, done(0.01)]]);
+	const failing = (): Llm => ({ contextWindow: async () => 1000, async *chat() { throw new Error("provedor caiu"); } });
+	const toolStep = () => scripted([[{ type: "tool_call", call: { id: "c1", name: "note_read", args: { id: "x" } } }, done()], [{ type: "text_delta", text: "fim" }, done()]]);
+
+	// resposta normal: o kernel emitiria um `done` próprio; o processador emite o dele (1 no total)
+	assert.deepEqual(terminals((await runWith("raw", answer())).events), ["done"]);
+	const normal = await runWith("filtered", answer());
+	assert.deepEqual(terminals(normal.events), [], "o mapa filtrado deixa o fechamento ao processador");
+	assert.ok(normal.events.some((e) => e.type === "assistant_delta"), "o conteúdo do run segue passando");
+	assert.deepEqual([...terminals(normal.events), "done"], ["done"], "com o `done` do processador há exatamente um");
+
+	// falha do modelo: sem `error` do kernel (o processador emite o seu ao receber a exceção)
+	assert.equal((await runWith("raw", failing())).outcome, "threw");
+	assert.ok(terminals((await runWith("raw", failing())).events).includes("error"), "caracterização: sem o filtro o erro sairia duas vezes");
+	assert.deepEqual(terminals((await runWith("filtered", failing())).events), []);
+
+	// parar: sem `cancelled` do kernel
+	const stop = new AbortController();
+	stop.abort(new Error("parar"));
+	assert.deepEqual(terminals((await runWith("filtered", answer(), {}, stop.signal)).events), []);
+
+	// teto de passos: a nota é do processador (hitWall); o mapa não a repete
+	const steps = await runWith("raw", toolStep(), { ownerMaxSteps: 1 });
+	assert.ok(steps.events.some((e) => e.type === "status" && e.status === "budget_exhausted"), "caracterização");
+	assert.deepEqual((await runWith("filtered", toolStep(), { ownerMaxSteps: 1 })).events.filter((e) => e.type === "status" && e.status === "budget_exhausted"), []);
+
+	// teto de GASTO: o processador não emite nota, então ela continua vindo do mapa
+	const cost = await runWith("filtered", scripted([[{ type: "tool_call", call: { id: "c1", name: "note_read", args: { id: "x" } } }, done(5)], [{ type: "text_delta", text: "resumo" }, done(0.1)]]), { ownerMaxUsd: 1 });
+	assert.equal(cost.events.filter((e) => e.type === "status" && e.status === "budget_exhausted").length, 1);
+	assert.deepEqual(terminals(cost.events), []);
 });

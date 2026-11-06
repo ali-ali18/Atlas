@@ -232,6 +232,19 @@ export function createV4Llm(input: { model: string; streamChat: ProviderStreamCh
 	});
 }
 
+/** Eventos de SSE que o PROCESSADOR emite uma vez ao fechar o run (conclusão atômica, erro, cancelamento, teto de passos). */
+const processorOwned = (event: ComputerUseEvent): boolean =>
+	event.type === "done" || event.type === "error" || event.type === "cancelled" || (event.type === "status" && event.status === "budget_exhausted" && event.stopReason === "budget_steps");
+
+/**
+ * O `final` e os status terminais do kernel viram `done`/`error`/`cancelled` no mapa de SSE, mas quem fecha o stream
+ * do run é o processador (um `done`, um `error` ou um `cancelled`, e a nota de teto de passos). Sem este filtro cada
+ * fim aparecia duas vezes. Fica o aviso de teto de GASTO, que o processador não emite.
+ */
+export function dropProcessorOwnedEvents(map: (event: RunEvent) => readonly ComputerUseEvent[]): (event: RunEvent) => ComputerUseEvent[] {
+	return (event) => map(event).filter((mapped) => !processorOwned(mapped));
+}
+
 export type V4EngineResult = { text: string; model: string; hitWall: boolean; usage: RunUsage; stop: RunStop; parked: boolean };
 
 export type RunEngineV4Input = {

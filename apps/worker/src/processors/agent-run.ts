@@ -140,7 +140,7 @@ import {
 	resolveBudget,
 	wallClockAnchors,
 } from "@workspace/agent-runtime";
-import { createV4Llm, runEngineV4, vaultBackendFromService } from "../engine-v4.js";
+import { createV4Llm, dropProcessorOwnedEvents, runEngineV4, vaultBackendFromService } from "../engine-v4.js";
 import { earlyWallMs, engineDefaultFromEnv, engineV4GateFromEnv, pickRunEngine, resolveRunLimits, runSelectedEngine } from "../engine-choice.js";
 import { getVaultService, type RunComputerUseResult } from "@workspace/agent-runtime";
 import { createSseMapper, type BullLikeQueue } from "@workspace/agent";
@@ -1238,7 +1238,8 @@ async function executeLeasedRun(ctx: {
 			llm: createV4Llm({ model: run.model, streamChat: providers.streamChat, openRouterKey: apiKey, contextWindow: (modelId) => providers.capabilities(modelId).then((caps) => caps.contextTokens, () => null) }),
 			lease,
 			persistEvent: emit,
-			mapEvent: ((mapper) => (event) => mapper.mapRunEvent(event))(createSseMapper({ runId, model: run.model, language: systemLanguage })),
+			// O fim do stream (done/error/cancelled/teto de passos) é do processador, uma vez: o mapa do kernel não o repete.
+			mapEvent: dropProcessorOwnedEvents(((mapper) => (event) => mapper.mapRunEvent(event))(createSseMapper({ runId, model: run.model, language: systemLanguage }))),
 			limits: { ...(effectiveCostCap !== undefined ? { ownerMaxUsd: effectiveCostCap } : {}), unattended: !(run.origin === "chat" && readRunHumanTurn(run)) },
 			ownerPresent: run.origin === "chat" && readRunHumanTurn(run),
 			signal: aborter.signal,
