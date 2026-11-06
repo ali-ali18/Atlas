@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import {
 	createEventsAdapter,
+	createMemoryStoreBackend,
 	chainsForAllRoles,
 	createLlmAdapter,
 	createQueueAdapter,
@@ -13,11 +14,7 @@ import {
 	FakeSearch,
 	runAgent,
 	setupPreset,
-	type JournalEntry,
-	type Note,
 	type Sandbox,
-	type StoredReceipt,
-	type StoreBackend,
 } from "@workspace/agent";
 import { parseModelRef, type ComputerUseEvent, type RunStop } from "@workspace/shared";
 import { EVAL_USER_ID } from "./environment.js";
@@ -34,30 +31,6 @@ import type { Scenario } from "./scenario.js";
  */
 
 const sha256 = (payload: string): string => createHash("sha256").update(payload).digest("hex");
-
-function memoryBackend(): StoreBackend {
-	const checkpoints = new Map<string, { runId: string; userId: string; step: number; state: string; payload: unknown }>();
-	const journal: JournalEntry[] = [];
-	const receipts: StoredReceipt[] = [];
-	const notes = new Map<string, Note>();
-	const conversations = new Map<string, { offers: never[]; declinedOffers: string[] }>();
-	return {
-		saveCheckpoint: async (userId, cp) => void checkpoints.set(`${userId}:${cp.runId}`, cp),
-		loadCheckpoint: async (userId, runId) => checkpoints.get(`${userId}:${runId}`) ?? null,
-		setStatus: async () => undefined,
-		appendJournal: async (entry) => void journal.push(entry),
-		findJournal: async (userId, runId, key) => [...journal].reverse().find((e) => e.userId === userId && e.runId === runId && e.idempotencyKey === key) ?? null,
-		listJournal: async (userId, runId) => journal.filter((e) => e.userId === userId && e.runId === runId),
-		appendReceipt: async (receipt) => void receipts.push(receipt),
-		listReceipts: async (userId, runId) => receipts.filter((r) => r.userId === userId && r.runId === runId),
-		saveNote: async (note) => void notes.set(`${note.userId}:${note.id}`, note),
-		getNote: async (userId, id) => notes.get(`${userId}:${id}`) ?? null,
-		listNotes: async (userId) => [...notes.values()].filter((n) => n.userId === userId),
-		removeNote: async (userId, id) => notes.delete(`${userId}:${id}`),
-		getConversation: async (userId, id) => conversations.get(`${userId}:${id}`) ?? { offers: [], declinedOffers: [] },
-		saveConversation: async (userId, id, state) => void conversations.set(`${userId}:${id}`, state as { offers: never[]; declinedOffers: string[] }),
-	};
-}
 
 const noSandbox: Sandbox = { run: async () => ({ ok: false, error: "Sem VM no eval do motor v4." }), release: async () => undefined };
 
@@ -93,7 +66,7 @@ export async function runScenarioV4(params: RunV4Params): Promise<{ text: string
 		input: { stableSystem: setup.stableSystem, contextSections: [], history: history as never },
 		ports: {
 			llm: createLlmAdapter({ streamChat: params.streamChat as never, chains, apiKeyFor: () => params.apiKey || "eval", clock }),
-			store: createStoreAdapter(memoryBackend()),
+			store: createStoreAdapter(createMemoryStoreBackend()),
 			queue: createQueueAdapter({ add: async () => { throw new Error("Sem fila no eval do motor v4."); }, getJob: async () => null }),
 			sandbox: noSandbox,
 			vault: createVaultAdapter({ listHandles: async () => [], resolveSecret: async () => null }),
