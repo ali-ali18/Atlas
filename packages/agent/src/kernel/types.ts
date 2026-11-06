@@ -4,7 +4,7 @@ import type { BotLanguage } from "@workspace/shared";
 import type { CapabilityRegistry } from "../capabilities/index.js";
 import type { ChannelInput } from "../channels/index.js";
 import type { ApprovalGrant, ApprovalRequest, Hash, PolicyContext, ProvenanceSnapshot } from "../contract/index.js";
-import type { LlmMessage, Ports } from "../ports/index.js";
+import type { LlmMessage, LlmRole, Ports } from "../ports/index.js";
 import type { RunCheckpoint } from "../ports/store.js";
 import type { CardResponse } from "./offers.js";
 import type { GuardState } from "./loop-guard.js";
@@ -69,6 +69,19 @@ export type RunInput = {
 	priorProvenance?: PriorProvenance;
 };
 
+/**
+ * Gasto que entra no teto do dono mas não passa pelo `spentUsd` deste run: ajudantes (F3.1). A mãe lê o que os filhos
+ * gastaram (`outsideUsd`); o filho lê o que a mãe e os irmãos gastaram e publica o próprio gasto (`report`).
+ */
+export type SpendHook = {
+	/** Gasto de fora deste run (US$) que conta no teto do dono. Lido a cada passo, ao vivo. */
+	outsideUsd(): number;
+	/** O gasto próprio deste run (US$), publicado depois de cada chamada ao modelo. */
+	report(ownUsd: number): void;
+	/** O gasto de fora faz parte do resultado deste run? Mãe: sim (padrão). Filho: não (o resultado é só o dele). */
+	countInResult?: boolean;
+};
+
 export type RunAgentDeps = {
 	runId: string;
 	ownerId: string;
@@ -82,6 +95,14 @@ export type RunAgentDeps = {
 	signal?: AbortSignal;
 	/** Idioma do bot, para os textos ao dono gerados pelo motor. */
 	language?: BotLanguage;
+	/** Papel de modelo do laço. Padrão `main`; o run filho (ajudante) usa `helper`. */
+	role?: LlmRole;
+	/** `false` tira o `ask_owner` (run filho: não há dono para responder). Padrão `true`. */
+	askOwner?: boolean;
+	/** Gasto compartilhado com ajudantes (ver `SpendHook`). */
+	spend?: SpendHook;
+	/** Recebe uma função que lê, ao vivo, os SINAIS de proveniência deste run (para o filho herdar o taint da mãe). */
+	exposeProvenance?: (read: () => PriorProvenance) => void;
 };
 
 export type PendingCall = { id: string; name: string; args: unknown };
@@ -102,6 +123,8 @@ export type KernelSnapshot = {
 	/** Usos que restam do mandato do run (só existe com mandato); vai no checkpoint para a retomada não regastá-los. */
 	mandateUsesLeft?: number;
 	spentUsd: number;
+	/** Gasto de ajudantes já somado ao teto (sobrevive à retomada). Não está em `spentUsd`. */
+	outsideUsd?: number;
 	/** Chamadas ao modelo (tentativas, retries incluídos) sem informação de preço: o custo delas não está em `spentUsd`. */
 	stepsWithoutPrice: number;
 	/** Posições em `messages` das falas do dono (para listá-las por inteiro ao compactar). */
