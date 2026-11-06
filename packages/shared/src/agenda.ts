@@ -314,7 +314,7 @@ export function nextIgnoredStreak(current: number, ignored: boolean): number {
 
 /**
  * Decide o que fazer com um item vencido ANTES de gastar um run: venceu a vigência, bateu `maxRuns`, o dono ignorou
- * `AGENDA_IGNORED_NOTICE_LIMIT` avisos seguidos, ou caiu no silêncio (adia). `noticeIgnored` = resultado de
+ * `AGENDA_IGNORED_NOTICE_LIMIT` avisos seguidos, ou caiu no silêncio (adia; intenção por evento não adia). `noticeIgnored` = resultado de
  * `wasNoticeIgnored` do último aviso ainda não avaliado (`null` = não havia aviso a avaliar).
  */
 export function planAgendaWake(input: { item: AgendaWakeItem; now: Date; settings: ProactiveSettings; noticeIgnored: boolean | null }): AgendaWakePlan {
@@ -323,8 +323,11 @@ export function planAgendaWake(input: { item: AgendaWakeItem; now: Date; setting
 	if (item.untilAt && item.untilAt.getTime() <= now.getTime()) return { action: "stop", reason: "expired", ignoredStreak };
 	if (item.maxRuns !== null && item.runCount >= item.maxRuns) return { action: "stop", reason: "max_runs", ignoredStreak };
 	if (ignoredStreak >= AGENDA_IGNORED_NOTICE_LIMIT) return { action: "stop", reason: "ignored_notices", ignoredStreak };
-	const allowed = nextAllowedTime(now, input.settings);
-	if (allowed.getTime() > now.getTime()) return { action: "defer", dueAt: allowed, reason: "quiet_hours", ignoredStreak };
+	// Intenção por evento reage ao que chegou: adiar para a manhã faria o evento da noite se perder (não há relógio para voltar).
+	if (item.kind !== "intent") {
+		const allowed = nextAllowedTime(now, input.settings);
+		if (allowed.getTime() > now.getTime()) return { action: "defer", dueAt: allowed, reason: "quiet_hours", ignoredStreak };
+	}
 	return { action: "run", ignoredStreak };
 }
 

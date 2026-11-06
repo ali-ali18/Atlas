@@ -281,6 +281,13 @@ describe("planAgendaWake", () => {
 		expect(out.action === "defer" && local(out.dueAt, SP.timezone)).toBe("2026-11-05 08:00");
 	});
 
+	it("intenção por evento não adia no silêncio (o evento da noite não se perde), mas os outros freios valem", () => {
+		const night = new Date("2026-11-05T03:00:00.000Z");
+		expect(wake({ kind: "intent" }, null, night)).toEqual({ action: "run", ignoredStreak: 0 });
+		expect(wake({ kind: "intent", maxRuns: 3 }, null, night)).toMatchObject({ action: "stop", reason: "max_runs" });
+		expect(wake({ kind: "intent", ignoredStreak: 1 }, true, night)).toMatchObject({ action: "stop", reason: "ignored_notices" });
+	});
+
 	it("limite por dono é uma constante de política (20)", () => {
 		expect(AGENDA_MAX_ACTIVE_PER_OWNER).toBe(20);
 	});
