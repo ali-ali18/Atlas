@@ -8,6 +8,8 @@
 //    só roda tool classificada como leitura; a `_write` tem o efeito da tool chamada (`effectForArgs`).
 //  - `confirmWrites` vira `confirm: "always"` na própria tool `mcp_<slug>_write`: o `decide` nunca deixa regra `run`
 //    do dono afrouxar o `confirm` declarado (regra de política antes das do dono perdia para `*` → `run`).
+//  - `egress`: só em conector PÚBLICO (busca etc.): os args vão a terceiro, então com dado privado + leitura não
+//    confiável no run a chamada pede cartão. Conector privado do dono (Gmail, Drive) não declara: é o serviço dele.
 //  - Resultado e erro de MCP são `trust: "untrusted"`, `source: "mcp"`, com segredo redigido.
 //    Conector privado (padrão) declara `privateData: true`.
 import { classifyMcpEffect, isPrivateConnector, sanitizeErrorMessage, type McpEffectClass } from "@workspace/shared";
@@ -141,6 +143,7 @@ export async function createConnectorsCapability(mcp: Mcp, ownerId: string, sign
 				trust: "untrusted",
 				source: "mcp",
 				privateData,
+				...(!privateData && { egress: true }),
 				...(privateData && { ownerData: "connector" as const }),
 				execute: ({ tool, args }, ctx) => run("read", tool, args, ctx),
 			}),
@@ -157,6 +160,7 @@ export async function createConnectorsCapability(mcp: Mcp, ownerId: string, sign
 				trust: "untrusted",
 				source: "mcp",
 				privateData,
+				...(!privateData && { egress: true }),
 				...(snapshot.confirmWrites && { confirm: "always" as const }),
 				execute: ({ tool, args }, ctx) => run("write", tool, args, ctx),
 			}),
