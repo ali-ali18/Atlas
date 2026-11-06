@@ -8,7 +8,8 @@
  *
  * Caminho mínimo (o preset `minimal` e o mapeamento completo de eventos chegam com F1.14/`kernel/sse-map`):
  * - eventos: texto, chamada e resultado de tool viram eventos do contrato SSE; o resto não é gravado ainda;
- * - registro de capacidades vazio por padrão (resposta sem tools de ação), sandbox indisponível com erro honesto;
+ * - capacidades: sem `registry` injetado, monta o preset `full` com as portas reais do run (`v4-adapters/`: web, entregas,
+ *   memória, configurações, tarefas, conectores MCP); sandbox indisponível com erro honesto;
  * - run estacionado: devolve `parked: true` e o processador pausa o run (`paused`, motivo `awaiting_owner`). FOLLOW-UP:
  *   levar o clique do dono (`ResumeInput.grants`/`denied`) da API até `runAgent` na retomada; hoje a retomada só recarrega
  *   o checkpoint. Com a flag desligada (padrão) nada disso roda.
@@ -18,7 +19,6 @@
 import { createHash } from "node:crypto";
 import {
 	copyFor,
-	createCapabilityRegistry,
 	createEventsAdapter,
 	createLlmAdapter,
 	createQueueAdapter,
@@ -61,6 +61,7 @@ import {
 	saveAgentV4Checkpoint,
 	type RunLease,
 } from "@workspace/db";
+import { buildV4Registry, mergePolicyRules, type V4AdapterDeps } from "./v4-adapters/index.js";
 import { MODEL_ROLES, formatModelRef, isMaintenanceModel, parseModelRef, type BotLanguage, type ComputerUseEvent, type ModelChainEntry, type RoleChains, type RunStop, type RunUsage } from "@workspace/shared";
 
 /** As funções de persistência do v4 (as de `@workspace/db`); injetáveis para o teste. */
@@ -341,7 +342,15 @@ export type RunEngineV4Input = {
 	queue?: BullLikeQueue;
 	vault?: VaultBackend;
 	sandbox?: Sandbox;
+	/** Registro pronto (testes). Sem ele, o worker monta o preset `full` com as portas reais do run (`buildV4Registry`). */
 	registry?: CapabilityRegistry;
+	/** Bot do run (opcional): painéis, memória do bot e configurações dependem dele; sem ele essas capacidades ficam de fora. */
+	botId?: string | null;
+	botName?: string | null;
+	/** Adaptadores (db, busca, MCP) do preset `full`; omitido = os reais. Só os testes passam fakes. */
+	adapters?: V4AdapterDeps;
+	/** Log técnico da montagem (sem segredo); omitido = `console.info`. */
+	log?: (message: string) => void;
 	/** Prompt estável do preset (sem ele, o kernel monta o completo com o contrato de trabalho). */
 	stableSystem?: string;
 	policy?: PolicyContext;
@@ -392,18 +401,36 @@ export async function runEngineV4(input: RunEngineV4Input): Promise<V4EngineResu
 		random: createSystemRandom(),
 		events: createEventsAdapter({ runId: input.runId, userId: input.userId, map: input.mapEvent ?? createMinimalEventMapper(input.runId), persist: input.persistEvent }),
 	};
+	const basePolicy: PolicyContext = input.policy ?? { surface: "chat", ownerPresent: input.ownerPresent, autonomy: "balanced", rules: [] };
+	// Preset `full` com as portas reais. As regras `approve` dos conectores (`confirmWrites`) vêm antes das do dono (as do dono por último).
+	const built = input.registry
+		? null
+		: await buildV4Registry({
+				runId: input.runId,
+				userId: input.userId,
+				...(input.botId !== undefined && { botId: input.botId }),
+				...(input.botName !== undefined && { botName: input.botName }),
+				conversationId: input.conversationId ?? null,
+				unattended: input.limits.unattended === true || !input.ownerPresent,
+				notes: ports.store.notes,
+				emit: input.persistEvent,
+				...(input.signal && { signal: input.signal }),
+				...(input.adapters && { deps: input.adapters }),
+				...(input.log && { log: input.log }),
+			});
+	const stableSystem = input.stableSystem ?? built?.stableSystem;
 	const result = await runAgent({
 		runId: input.runId,
 		ownerId: input.userId,
 		input: {
-			...(input.stableSystem && { stableSystem: input.stableSystem }),
+			...(stableSystem && { stableSystem }),
 			contextSections: input.contextSections ?? [],
 			history: input.history ?? [{ kind: "owner", text: input.objective }],
 			...(input.conversationId && { conversationId: input.conversationId }),
 		},
 		ports,
-		registry: input.registry ?? createCapabilityRegistry([]),
-		policy: input.policy ?? { surface: "chat", ownerPresent: input.ownerPresent, autonomy: "balanced", rules: [] },
+		registry: input.registry ?? built!.registry,
+		policy: built && built.policyRules.length > 0 ? { ...basePolicy, rules: mergePolicyRules(built.policyRules, basePolicy.rules) } : basePolicy,
 		limits: input.limits,
 		hash: sha256,
 		...(input.signal && { signal: input.signal }),

@@ -4,7 +4,7 @@
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createSseMapper, type Llm, type LlmChatRequest, type LlmStreamEvent, type RunEvent } from "@workspace/agent";
+import { createCapabilityRegistry, createSseMapper, type Llm, type LlmChatRequest, type LlmStreamEvent, type RunEvent } from "@workspace/agent";
 import type { ProviderStreamChat } from "@workspace/llm";
 import type { ComputerUseEvent } from "@workspace/shared";
 import { buildV4RoleChains, cheapModelFromEnv, createMinimalEventMapper, createV4Llm, dropProcessorOwnedEvents, meterLlm, ownerStepsLimit, runEngineV4, stoppedEffectsNote, storeBackendFromDb, unavailableQueue, unavailableSandbox, V4_CHEAP_MODEL_DEFAULT, vaultBackendFromService, type V4Db } from "./engine-v4.js";
@@ -62,6 +62,7 @@ const baseInput = (llm: Llm, events: ComputerUseEvent[], db: V4Db) => ({
 	limits: {},
 	ownerPresent: true,
 	db,
+	registry: createCapabilityRegistry([]),
 });
 
 test("run simples: resposta do modelo vira texto, eventos do contrato SSE, uso e checkpoint com o lease", async () => {
@@ -294,4 +295,42 @@ test("nota de parada: vazia sem efeitos, no idioma do bot, e corta a lista longa
 	assert.match(stoppedEffectsNote([{ summary: "a" }, { summary: "b" }], "es-ES"), /^Me detuve como pediste\. .*: a; b\.$/);
 	const many = Array.from({ length: 11 }, (_, i) => ({ summary: `r${i}` }));
 	assert.match(stoppedEffectsNote(many, "en-US"), /r7; \+3\.$/);
+});
+
+// F2.6: sem `registry`, o worker monta o preset `full` com as portas reais do run (aqui, adaptadores falsos).
+function fakeAdapters(searched: string[]): NonNullable<Parameters<typeof runEngineV4>[0]["adapters"]> {
+	const never = () => assert.fail("adaptador não esperado neste teste");
+	return {
+		web: { extract: async (url: string) => ({ url, markdown: "# Página", truncated: false }), searxng: async (query: string) => (searched.push(query), [{ url: "https://example.test/r", title: "R", snippet: "resultado" }]) },
+		deliverables: { persistArtifact: never, nextVersion: never, countRunFiles: never, loadArtifact: never, createPage: never, render: never, preview: never, persistCard: never } as never,
+		memory: { snapshot: never, add: never, getById: never, replaceById: never, removeById: never } as never,
+		settings: { getBot: never, update: never } as never,
+		mcp: { listConnected: async () => [], loadRuntime: async () => null },
+	};
+}
+
+test("preset full pelas portas reais: capacidades montadas, nada indisponível e a busca passa pelo adaptador do worker", async () => {
+	const events: ComputerUseEvent[] = [];
+	const logs: string[] = [];
+	const searched: string[] = [];
+	const { db } = fakeDb();
+	const llm = scripted([[{ type: "tool_call", call: { id: "c1", name: "web_search", args: { query: "atlas" } } }, done()], [{ type: "text_delta", text: "Achei." }, done()]]);
+	const { registry: _omit, ...input } = baseInput(llm, events, db);
+	const out = await runEngineV4({ ...input, botId: "bot-1", adapters: fakeAdapters(searched), log: (m) => void logs.push(m) });
+	assert.equal(out.text, "Achei.");
+	assert.deepEqual(searched, ["atlas"]);
+	assert.deepEqual(logs, [], "com bot, nenhuma capacidade do preset fica sem porta");
+	const first = JSON.stringify(llm.requests[0]?.messages);
+	assert.match(first, /Work contract/);
+	for (const id of ["memory", "tasks", "settings", "deliverables"]) assert.match(first, new RegExp(`- ${id}:`), `${id} no índice de capacidades`);
+});
+
+test("preset full sem bot no run: configurações indisponíveis vão ao log técnico e o run segue", async () => {
+	const logs: string[] = [];
+	const { db } = fakeDb();
+	const { registry: _omit, ...input } = baseInput(scripted([[{ type: "text_delta", text: "Oi" }, done()]]), [], db);
+	const out = await runEngineV4({ ...input, adapters: fakeAdapters([]), log: (m) => void logs.push(m) });
+	assert.equal(out.text, "Oi");
+	assert.equal(logs.length, 1);
+	assert.match(logs[0] as string, /capacidades sem porta: settings/);
 });

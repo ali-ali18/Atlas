@@ -367,6 +367,9 @@ importers:
       '@workspace/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@workspace/files':
+        specifier: workspace:*
+        version: link:../../packages/files
       '@workspace/llm':
         specifier: workspace:*
         version: link:../../packages/llm
