@@ -35,12 +35,14 @@ type RequestRow = { userId: string; runId: string; kind: string; key: string; ca
 type RunRow = { id: string; userId: string; status: string };
 
 /** Estado em memória por trás dos delegates do prisma: run, pedidos e ofertas. */
-function world(opts: { runStatus?: string } = {}) {
+function world(opts: { runStatus?: string; both?: boolean } = {}) {
 	const runs: RunRow[] = [{ id: "run-a", userId: A, status: opts.runStatus ?? "paused" }];
 	const requests: RequestRow[] = [
 		{ userId: A, runId: "run-a", kind: "approval", key: "req-1", callId: "c1", toolName: "send_email", payloadHash: "hash-1", conversationId: "conv-a", state: "pending", expiresAt: new Date(T0.getTime() + DAY), decidedAt: null, consumedAt: null },
 		{ userId: A, runId: "run-a", kind: "handoff", key: "c2", callId: "c2", toolName: null, payloadHash: null, conversationId: "conv-a", state: "pending", expiresAt: new Date(T0.getTime() + DAY), decidedAt: null, consumedAt: null },
 	];
+	// A maioria dos testes olha um pedido só (o run retoma assim que ele é respondido); `both` mantém também o handoff.
+	if (!opts.both) requests.splice(1, 1);
 	const offers = [{ userId: A, cardId: "run-a:ask1", conversationId: "conv-a", state: "open" }];
 	const matches = (row: Record<string, unknown>, where: Record<string, unknown>): boolean =>
 		Object.entries(where).every(([k, v]) => {
@@ -65,6 +67,7 @@ function world(opts: { runStatus?: string } = {}) {
 	});
 	stubMethod(prisma.agentRun, "update", async () => ({}));
 	stubMethod(prisma.agentV4Request, "findFirst", async ({ where }: { where: Record<string, unknown> }) => requests.find((r) => matches(r as never, where)) ?? null);
+	stubMethod(prisma.agentV4Request, "findMany", async ({ where }: { where: Record<string, unknown> }) => requests.filter((r) => matches(r as never, where)));
 	stubMethod(prisma.agentV4Request, "updateMany", async ({ where, data }: { where: Record<string, unknown>; data: Partial<RequestRow> }) => {
 		const hit = requests.filter((r) => matches(r as never, where));
 		for (const r of hit) Object.assign(r, data);
@@ -109,7 +112,7 @@ test("aprovar grava a decisão com o hash do pedido, retoma o run e enfileira um
 });
 
 test("'Agora não' grava denied; handoff concluído grava done; decisão errada para o tipo é 400", async () => {
-	const w = world();
+	const w = world({ both: true });
 	const { app } = appFor(A);
 	assert.equal((await respond(app, `${REQ}/req-1/respond`, { decision: "deny" })).status, 200);
 	assert.equal(w.requests.find((r) => r.key === "req-1")!.state, "denied");
@@ -117,6 +120,35 @@ test("'Agora não' grava denied; handoff concluído grava done; decisão errada 
 	assert.equal((await respond(app, `${REQ}/c2/respond`, { decision: "approve" })).status, 400);
 	assert.equal((await respond(app, `${REQ}/c2/respond`, { decision: "handoff_done" })).status, 200);
 	assert.equal(w.requests.find((r) => r.key === "c2")!.state, "done");
+});
+
+test("R4: com dois pedidos do mesmo run, só a última resposta reenfileira (a primeira avisa quantos faltam)", async () => {
+	const w = world({ both: true });
+	const { app, add } = appFor(A);
+	const first = await respond(app, `${REQ}/req-1/respond`, { decision: "approve" });
+	assert.equal(first.status, 200);
+	assert.deepEqual({ ...(await first.json() as object), request: undefined }, { ok: true, status: "recorded", decision: "approve", resumed: false, pending: 1, request: undefined });
+	assert.equal(w.runs[0]!.status, "paused", "o run segue estacionado");
+	assert.equal(add.mock.callCount(), 0);
+	// repetir a primeira não reenfileira enquanto o outro pedido espera
+	assert.equal(((await (await respond(app, `${REQ}/req-1/respond`, { decision: "approve" })).json()) as { resumed: boolean }).resumed, false);
+	assert.equal(add.mock.callCount(), 0);
+	const last = await respond(app, `${REQ}/c2/respond`, { decision: "handoff_done" });
+	assert.equal(last.status, 200);
+	assert.equal(((await last.json()) as { resumed: boolean }).resumed, true);
+	assert.equal(w.runs[0]!.status, "queued");
+	assert.equal(add.mock.callCount(), 1);
+});
+
+test("R4: pedido do mesmo run que venceu sem resposta não segura a retomada", async () => {
+	const w = world({ both: true });
+	w.requests.find((r) => r.key === "c2")!.expiresAt = new Date(T0.getTime() + 1000);
+	const { app, add } = appFor(A, { now: new Date(T0.getTime() + 2000) });
+	const res = await respond(app, `${REQ}/req-1/respond`, { decision: "approve" });
+	assert.equal(res.status, 200);
+	assert.equal(((await res.json()) as { resumed: boolean }).resumed, true);
+	assert.equal(w.requests.find((r) => r.key === "c2")!.state, "expired");
+	assert.equal(add.mock.callCount(), 1);
 });
 
 test("clique repetido é idempotente e decisão diferente depois é 409", async () => {
@@ -165,7 +197,7 @@ test("corpo inválido é 400 (campo desconhecido, decisão fora do enum, sem JSO
 });
 
 test("IDOR: o usuário B não aprova, recusa nem conclui o pedido do usuário A (404 igual a inexistente) e nada muda", async () => {
-	const w = world();
+	const w = world({ both: true });
 	const b = appFor(B);
 	for (const decision of ["approve", "deny", "handoff_done"]) {
 		assert.equal((await respond(b.app, `${REQ}/req-1/respond`, { decision })).status, 404);

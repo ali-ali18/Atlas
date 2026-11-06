@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { decideAgentV4Request, findAgentV4Request, getAgentRunForUser, recordAgentV4CardResponse, requestResumeAgentRun, type AgentV4Decision, type AgentV4RequestView } from "@workspace/db";
+import { decideAgentV4Request, findAgentV4Request, getAgentRunForUser, loadAgentV4Decisions, recordAgentV4CardResponse, requestResumeAgentRun, type AgentV4Decision, type AgentV4RequestView } from "@workspace/db";
 import { scopeFor, type AuthEnv } from "../middleware/auth.js";
 import { enqueueAgentRunJob } from "./runs.js";
 
@@ -20,8 +20,10 @@ import { enqueueAgentRunJob } from "./runs.js";
  *        handoff_done   o dono assumiu o passo (só para `handoff_request`)
  *      `approve`/`deny` valem só para pedido de aprovação; `handoff_done`, só para handoff (senão 400).
  *    - 200 `{ ok: true, status: "recorded" | "already", decision, resumed }`: decisão gravada (ou já era esta; cliques
- *      repetidos são idempotentes). `resumed: true` = o run foi reenfileirado e vai continuar. `resumed: false` com a
- *      decisão gravada = o run ainda não podia ser retomado (está parando): repita o mesmo POST em alguns segundos.
+ *      repetidos são idempotentes). `resumed: true` = o run foi reenfileirado e vai continuar. O run só é reenfileirado
+ *      quando NÃO resta pedido pendente dele (o kernel processa todos de uma vez): enquanto houver, a resposta traz
+ *      `pending: n` (quantos faltam) e `resumed: false`; o run continua quando o último for respondido. `resumed: false`
+ *      sem `pending` = o run ainda não podia ser retomado (está parando): repita o mesmo POST em alguns segundos.
  *    - 400 corpo ou decisão inválidos. 404 run ou pedido inexistente OU de outro dono (indistinguíveis).
  *    - 409 `{ error: "conflict" }` o pedido já tem outra decisão; `{ error: "run_not_paused", retryable: true }` o run
  *      ainda não estacionou (cartão visto antes de o run parar): repita.
@@ -91,7 +93,11 @@ export function createAgentV4Routes(deps: AgentV4RouteDeps) {
 			return c.json({ error: "conflict" }, 409);
 		}
 
-		// Decisão gravada. Reenfileira o run (também em repetição, para curar uma queda entre gravar e reenfileirar).
+		// Decisão gravada. Com outros pedidos do mesmo run ainda esperando o dono, o run segue estacionado: reenfileirar agora
+		// só o faria reestacionar (e gastar uma volta do worker) sem ninguém ter decidido o resto (auditoria F2, R4).
+		const { pending } = await loadAgentV4Decisions(userId, runId, now());
+		if (pending > 0) return c.json({ ok: true, status, decision, resumed: false, pending, request: { kind: request.kind, state: request.state } });
+		// Também em repetição, para curar uma queda entre gravar e reenfileirar.
 		const resumed = await requestResumeAgentRun(runId).catch(() => null);
 		const enqueued = resumed ? await enqueueAgentRunJob(deps.queue, resumed.id) : false;
 		return c.json({ ok: true, status, decision, resumed: enqueued, request: { kind: request.kind, state: request.state } });
