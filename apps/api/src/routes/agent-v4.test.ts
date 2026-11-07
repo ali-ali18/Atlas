@@ -243,7 +243,7 @@ test("cartão ask_owner: o dono dispensa uma vez; B recebe 404; repetir é alrea
 function fakeEscrow() {
 	const deposits: Array<{ scope: { userId: string; runId: string; requestId: string }; cvv: string; ttl: number }> = [];
 	const discards: unknown[] = [];
-	return { deposits, discards, deposit: async (scope: never, cvv: string, ttl: number) => void deposits.push({ scope, cvv, ttl }), discard: async (scope: unknown) => void discards.push(scope) };
+	return { deposits, discards, deposit: async (scope: unknown, cvv: string, ttl: number) => void deposits.push({ scope: scope as never, cvv, ttl }), discard: async (scope: unknown) => void discards.push(scope) };
 }
 
 test("compra: aprovar com CVV deposita no canal efêmero ligado ao pedido e NÃO grava o CVV em lugar nenhum", async () => {
