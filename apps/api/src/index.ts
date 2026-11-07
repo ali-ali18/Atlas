@@ -81,6 +81,7 @@ import { createSandboxRoutes } from "./routes/sandbox.js";
 import { createSectionRoutes } from "./routes/sections.js";
 import { createAutonomyRoutes } from "./routes/autonomy.js";
 import { createAgentV4Routes } from "./routes/agent-v4.js";
+import { createAgendaRoutes } from "./routes/agenda.js";
 import { createSettingsRoutes } from "./routes/settings.js";
 import { createUsageRoutes } from "./routes/usage.js";
 import { createSkillRoutes } from "./routes/skills.js";
@@ -218,6 +219,8 @@ app.route("/", createComputerUseRoutes(config));
 app.route("/", createRunRoutes(config));
 // Respostas do dono a pedidos do motor v4 (aprovação, handoff, cartões); sem linhas de v4 nada é encontrado (404).
 app.route("/", createAgentV4Routes({ queue: config.agentRunQueue }));
+// Agenda do agente na Biblioteca (F4.4): só com o motor v4 ligado para a conta; sem ele a lista vem desligada.
+app.route("/", createAgendaRoutes());
 app.route("/", createEventRoutes());
 app.route("/", createBotPendingRoutes(config));
 app.route("/", createAvatarRoutes());
