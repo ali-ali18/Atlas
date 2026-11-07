@@ -116,7 +116,7 @@ export type MockOptions = {
   botColor?: string
 }
 
-export type MockHandler = (request: { method: string; path: string; body: unknown }) => { status?: number; body: unknown } | undefined
+export type MockHandler = (request: { method: string; path: string; body: unknown; query: URLSearchParams }) => { status?: number; body: unknown } | undefined
 
 export class MockAtlas {
   /** Respostas extras de um teste/preview (marketplace…); devolver `undefined` segue o fluxo normal. */
@@ -225,7 +225,7 @@ export class MockAtlas {
     }
     this.requests.push({ method, path, body })
 
-    const custom = this.handler?.({ method, path, body })
+    const custom = this.handler?.({ method, path, body, query: url.searchParams })
     if (custom) return this.json(route, custom.body, custom.status ?? 200)
 
     if (method === "GET" && path === "/v1/bots") {
