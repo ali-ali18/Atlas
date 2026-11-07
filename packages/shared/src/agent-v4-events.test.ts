@@ -14,6 +14,12 @@ describe("eventos do motor v4 no contrato SSE", () => {
 		expect(parseAgentV4Event({ type: "receipt", id: "c", name: "create_event", what: "Evento criado", externalId: "ev-1" })).toEqual({ type: "receipt", id: "c", name: "create_event", what: "Evento criado", externalId: "ev-1" });
 	});
 
+	it("cartão de compra: ownerInput e inputOnly passam; valor desconhecido é descartado", () => {
+		const buy = { ...approval, toolName: "checkout", effect: "money", ownerInput: "card_cvv", inputOnly: true };
+		expect(parseAgentV4Event(buy)).toEqual(buy);
+		expect(parseAgentV4Event({ ...buy, ownerInput: "outra", inputOnly: "sim" })).toEqual({ ...approval, toolName: "checkout", effect: "money" });
+	});
+
 	it("rejeita o inválido: tipo desconhecido, efeito fora do vocabulário, texto vazio ou gigante, não objeto", () => {
 		expect(parseAgentV4Event(null)).toBeNull();
 		expect(parseAgentV4Event("approval_request")).toBeNull();

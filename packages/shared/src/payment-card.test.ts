@@ -61,3 +61,14 @@ describe("payment-card", () => {
 		expect(purchaseMandateInputSchema.safeParse({ ...ok, extra: 1 }).success).toBe(false);
 	});
 });
+
+describe("redactCardNumbers", () => {
+	it("troca número de cartão com ou sem separador, deixa o resto", async () => {
+		const { redactCardNumbers } = await import("./payment-card.js");
+		expect(redactCardNumbers("cartão 4111 1111 1111 1111 ok")).toBe("cartão [redacted] ok");
+		expect(redactCardNumbers("4111-1111-1111-1111")).toBe("[redacted]");
+		expect(redactCardNumbers("4111111111111111")).toBe("[redacted]");
+		expect(redactCardNumbers("pedido 1234567890123 em 2026-11-07")).toBe("pedido 1234567890123 em 2026-11-07");
+		expect(redactCardNumbers("final 1111, total 123")).toBe("final 1111, total 123");
+	});
+});

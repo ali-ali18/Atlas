@@ -133,3 +133,37 @@ export const purchaseMandateInputSchema = z.strictObject({
 	uses: z.number().int().min(1).max(100),
 });
 export type PurchaseMandateInput = z.infer<typeof purchaseMandateInputSchema>;
+
+const isDigitChar = (ch: string | undefined): boolean => ch !== undefined && ch >= "0" && ch <= "9";
+
+/**
+ * Rede de segurança: troca por `[redacted]` toda sequência de 13 a 19 dígitos (com espaço ou hífen entre eles) que passa
+ * no Luhn, como o número de um cartão. Não depende de saber o número: pega o que escapou de qualquer camada.
+ */
+export function redactCardNumbers(text: string): string {
+	let out = "";
+	let i = 0;
+	while (i < text.length) {
+		if (!isDigitChar(text[i])) {
+			out += text[i];
+			i++;
+			continue;
+		}
+		// Só começa numa fronteira de número (não no meio de um identificador maior com letras coladas).
+		let j = i;
+		let digits = "";
+		while (j < text.length) {
+			const ch = text[j];
+			if (isDigitChar(ch)) {
+				digits += ch;
+				j++;
+			} else if ((ch === " " || ch === "-") && isDigitChar(text[j + 1]) && digits.length > 0) {
+				j++;
+			} else break;
+		}
+		if (digits.length >= 13 && digits.length <= 19 && luhnValid(digits)) out += "[redacted]";
+		else out += text.slice(i, j);
+		i = j;
+	}
+	return out;
+}
