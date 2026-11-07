@@ -138,10 +138,10 @@ test("regras: vazio explica como nascem; lista mostra o que vale, quando e a ori
 	assert.match(out, /Só com minha ordem/);
 	assert.match(out, /Você definiu/);
 	assert.match(out, /O bot aprendeu · há 3 dias/);
-	assert.match(out, /Só em: drive list files/);
+	assert.match(out, /Só para: listar arquivos do Drive/);
 	assert.match(out, /aria-label="Editar regra: gastar dinheiro"/);
 	assert.match(out, /aria-label="Apagar regra: gastar dinheiro"/);
-	assert.doesNotMatch(visibleText(out), /rule_\d|drive_list_files|\bsend\b/, "ids e nomes internos não aparecem");
+	assert.doesNotMatch(visibleText(out), /rule_\d|drive_list_files|drive list files|\bsend\b/, "ids e nomes internos não aparecem");
 });
 
 test("regras: editar mostra as três decisões e a observação; erro 422 em frase", () => {

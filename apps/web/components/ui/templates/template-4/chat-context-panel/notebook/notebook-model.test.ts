@@ -5,6 +5,9 @@ import { AtlasApiError } from "@/lib/atlas-api";
 import { loadMessages } from "@/lib/i18n/messages";
 import { createTranslator } from "@/lib/i18n/translator";
 import { change, note, NOW, report, rule } from "./fixtures";
+
+const en = createTranslator("en-US", await loadMessages("en-US"));
+const es = createTranslator("es-ES", await loadMessages("es-ES"));
 import {
 	canUndoChange,
 	changePhrase,
@@ -62,12 +65,26 @@ test("conflitos do 409 da nota: limite, repetida e mudou depois; nunca código n
 	for (const text of [noteErrorMessage(api(409, "duplicate")), noteErrorMessage(api(500))]) assert.doesNotMatch(text, /409|500|duplicate|code/i);
 });
 
+test("regras: nome interno de ferramenta nunca aparece (nem com _ nem com espaço); desconhecido é omitido", () => {
+	assert.equal(ruleMatchLabel("notion_fetch_page_v2"), null, "ação que não sabemos dizer some; a classe já explica");
+	assert.equal(ruleMatchLabel("  "), null);
+	for (const match of ["drive_list_files", "gmail_send_email", "mcp__gmail__search_threads", "calendar_create_event", "stripe_refund_charge", "fetch_url"]) {
+		for (const translator of [undefined, en, es]) {
+			const label = ruleMatchLabel(match, translator) ?? "";
+			assert.doesNotMatch(label, /_/, match);
+			assert.doesNotMatch(label, /\b(list files|send email|search threads|create event|refund charge|fetch url|list_files)\b/i, match);
+		}
+	}
+});
+
 test("regras: o efeito vira palavras, o alvo só aparece quando restringe, 422 vira frase", () => {
 	assert.equal(ruleEffectPhrase("send"), "enviar mensagens");
 	assert.equal(ruleEffectPhrase("money"), "gastar dinheiro");
 	assert.equal(ruleEffectPhrase(null), "fazer qualquer coisa");
 	assert.equal(ruleMatchLabel("*"), null);
-	assert.equal(ruleMatchLabel("gmail_send_email"), "Só em: gmail send email");
+	assert.equal(ruleMatchLabel("gmail_send_email"), "Só para: enviar e-mail pelo Gmail");
+	assert.equal(ruleMatchLabel("mcp__google_drive__list_recent_files"), "Só para: listar arquivos do Drive");
+	assert.equal(ruleMatchLabel("gmail_send_email", en), "Only for: sending email through Gmail");
 	assert.equal(ruleSourceLabel(rule({ source: "owner", learnedAt: null }), NOW), "Você definiu");
 	assert.equal(ruleSourceLabel(rule(), NOW), "O bot aprendeu · há 3 dias");
 	assert.match(ruleErrorMessage(api(422)), /regras demais/);
@@ -121,8 +138,6 @@ test("propostas: habilidade, caso de falha e achado do doctor sem ids nem classe
 });
 
 test("em inglês e espanhol as mesmas frases existem (sem cair no pt-BR)", async () => {
-	const en = createTranslator("en-US", await loadMessages("en-US"));
-	const es = createTranslator("es-ES", await loadMessages("es-ES"));
 	assert.equal(noteOriginLabel("sleep", en), "Learned overnight");
 	assert.equal(ruleEffectPhrase("send", es), "enviar mensajes");
 	assert.equal(reportTitle(report(), en), "Review of Nov 6");

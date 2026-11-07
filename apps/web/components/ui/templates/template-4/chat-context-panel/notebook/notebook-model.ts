@@ -73,10 +73,45 @@ export function ruleEffectPhrase(effect: LearnedRuleView["effect"], { t }: Trans
 /** Primeira letra maiúscula, para a frase virar título da linha. */
 export const capitalize = (text: string): string => (text ? text.charAt(0).toLocaleUpperCase() + text.slice(1) : text);
 
-/** O alvo da regra (`*` = qualquer ação). Só aparece quando restringe a uma ação específica. */
+/**
+ * Alvos de regra que sabemos dizer em frase de produto. A chave é o nome interno da ação normalizado (minúsculo, sem
+ * prefixo `mcp__` nem `google_`); o valor é o sufixo da mensagem `notebook.rules.target.*`. Nome fora do mapa não
+ * aparece: a linha já diz a classe ("Quando o bot for ler informações") e o usuário nunca vê nome interno.
+ */
+const RULE_TARGETS = {
+	gmail_send_email: "gmailSend",
+	gmail_send_message: "gmailSend",
+	gmail_create_draft: "gmailDraft",
+	gmail_search_messages: "gmailRead",
+	gmail_search_threads: "gmailRead",
+	gmail_read_message: "gmailRead",
+	gmail_read_thread: "gmailRead",
+	gmail_get_message: "gmailRead",
+	gmail_get_thread: "gmailRead",
+	drive_list_files: "driveList",
+	drive_list_recent_files: "driveList",
+	drive_search_files: "driveSearch",
+	drive_read_file_content: "driveRead",
+	drive_get_file_content: "driveRead",
+	drive_create_file: "driveCreate",
+	calendar_list_events: "calendarList",
+	calendar_create_event: "calendarCreate",
+	github_create_issue: "githubIssue",
+	github_create_pull_request: "githubPullRequest",
+} as const satisfies Record<string, string>;
+
+const normalizeRuleMatch = (match: string): string =>
+	match
+		.trim()
+		.toLowerCase()
+		.replace(/^mcp__/, "")
+		.replace(/__+/g, "_")
+		.replace(/^google_/, "");
+
+/** O alvo da regra em frase ("listar arquivos do Drive"). `*`, vazio ou ação que não sabemos dizer = nada (a classe já explica). */
 export function ruleMatchLabel(match: string, { t }: Translator = defaultTranslator): string | null {
-	const trimmed = match.trim();
-	return trimmed === "" || trimmed === "*" ? null : t("notebook.rules.onlyFor", { match: trimmed.replace(/[_]+/g, " ") });
+	const target = (RULE_TARGETS as Record<string, string | undefined>)[normalizeRuleMatch(match)];
+	return target ? t("notebook.rules.onlyFor", { match: t(`notebook.rules.target.${target as (typeof RULE_TARGETS)[keyof typeof RULE_TARGETS]}`) }) : null;
 }
 
 export function ruleVerdictLabel(verdict: LearnedRuleView["verdict"], { t }: Translator = defaultTranslator): string {
