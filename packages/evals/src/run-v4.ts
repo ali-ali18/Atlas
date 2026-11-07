@@ -30,7 +30,7 @@ import { DEFAULT_PROACTIVE_SETTINGS, parseModelRef, type ComputerUseEvent, type 
 import { EVAL_USER_ID } from "./environment.js";
 import type { StreamChat } from "./mock-model.js";
 import type { Scenario } from "./scenario.js";
-import { fixtureSearchFor } from "./v4-ports.js";
+import { createFixtureShopping, fixtureSearchFor } from "./v4-ports.js";
 
 /**
  * Motor v4 no eval: `runAgent` com o preset `full`, o mesmo que o worker monta (F3, auditoria T1), e portas falsas em
@@ -40,6 +40,7 @@ import { fixtureSearchFor } from "./v4-ports.js";
  *  - `research`: ajudantes REAIS (`createHelpers`, papel `helper` do mesmo LLM do run, livro de gasto ligado ao kernel da
  *    mãe, como em `apps/worker/src/engine-v4.ts`). As chamadas dos ajudantes passam pelo mesmo `streamChat`, então entram
  *    no custo medido do run;
+ *  - compras: `FakeShopping` com as páginas montadas dos fixtures `web_extract` (JSON-LD), cartões e compras em memória;
  *  - agenda: `FakeAgenda` no fuso do cenário e relógio fixo em 05/11/2026 (`EVAL_NOW`); o run de agenda (wake) não roda aqui;
  *  - os fixtures de conector do cenário (agenda, e-mail…) não são ligados: cenário que depende deles falha por falta de
  *    capacidade;
@@ -98,7 +99,8 @@ export async function runScenarioV4(params: RunV4Params): Promise<{ text: string
 		search,
 		...(language && { language }),
 	});
-	const setup = setupPreset("full", { search, files: new FakeFileStore(), deliverables: new FakeDeliverables().ports(), memory: new FakeMemory(), settings: new FakeSettings(), taskLists: new FakeTaskListStore(), helpers, agenda: new FakeAgenda({ ...DEFAULT_PROACTIVE_SETTINGS, enabled: true, timezone: scenario.locale?.timezone ?? DEFAULT_PROACTIVE_SETTINGS.timezone }) });
+	const shopping = createFixtureShopping(scenario.tools.fixtures);
+	const setup = setupPreset("full", { search, files: new FakeFileStore(), deliverables: new FakeDeliverables().ports(), memory: new FakeMemory(), settings: new FakeSettings(), taskLists: new FakeTaskListStore(), helpers, shopping: shopping.ports, agenda: new FakeAgenda({ ...DEFAULT_PROACTIVE_SETTINGS, enabled: true, timezone: scenario.locale?.timezone ?? DEFAULT_PROACTIVE_SETTINGS.timezone }) });
 	motherRegistry = setup.registry;
 	const history = [
 		...scenario.history.map((message) => {

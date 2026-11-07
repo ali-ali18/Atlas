@@ -27,6 +27,7 @@ Antes de criar componente, procure aqui. Se existe algo 80% igual, estenda (prop
 
 ## `apps/web/components/ai-elements` — blocos de IA reaproveitáveis
 - `pages/` — **Painéis**: `page-view.tsx` renderiza a árvore v2 de `packages/shared/src/page-spec.ts`. Nós: section, grid, stack, card, tabs/tab, divider, stat, chart, bar_list, table, progress, badge, callout, timeline, kanban, list, text, heading (tons neutral/positive/warning/critical/accent). Componentes em `pages/components/` (layout, stat, bars, chart, table, collections, feedback, text). Componente novo de painel = nó novo no spec (shared) + componente aqui + validação + teste.
+- `shopping/` — **Compras**: `ProductCard` (um produto com fotos, desconto, frete, total, nota e link; vários = comparação pelo menor total, frete não informado dito) e `PurchaseCard` (compra registrada), sobre `ChatCard`. `SafeImage`/`safeHttpUrl`: foto de fora só http(s), sem `Referer`, com espaço neutro e `alt` se falhar. Eventos `product` e `purchase`, identidade `cardId` e `purchaseId`.
 - `chart/`, `files/`, `images/`, `share/` (copiar/baixar imagem, link público), `routines/`, `subagents/`, `confirm/`, `login/`, `connectors/`, `skills/`, `bots/`, `bot-messages/`, `email/`, `dev-session/`, `run-inspector/`, `tool-budget/`, `model-selector.tsx`, `attachments.tsx`, `chain-of-thought.tsx`.
 
 ## `apps/web/components/ui/templates/template-4` — telas

@@ -1,0 +1,119 @@
+{
+  "version": 1,
+  "id": "seed-compras-registrar-compra-vigia-entrega",
+  "title": "'Comprei o kit, pedido BR-48213' → registra a compra e o vigia de entrega nasce sozinho, em silêncio",
+  "description": "F6.5 (só v4): record_purchase grava a compra (loja, itens, total pago, pedido, rastreio) e o gancho cria o vigia de entrega na agenda (a cada 12 h, ~30 dias, fim ao entregar), sem card de confirmação e sem anunciar. O vigia usa a agenda do preset (a mesma que o watch).",
+  "tags": [
+    "compras",
+    "agenda",
+    "vigia",
+    "silencio",
+    "v4-only"
+  ],
+  "source": {
+    "kind": "seed",
+    "note": "F6.5: gancho de entrega da capacidade de Compras."
+  },
+  "bot": {
+    "name": "Ada",
+    "about": "Assistente pessoal do dono: e-mail, compras, estudos e agenda.",
+    "language": "pt-BR"
+  },
+  "locale": {
+    "country": "BR",
+    "currency": "BRL",
+    "timezone": "America/Sao_Paulo"
+  },
+  "history": [],
+  "user": "comprei o kit floratta na boticário: pedido BR-48213, R$ 189,90 no total, rastreio BR123456789BR (https://rastreio.test/BR123456789BR)",
+  "tools": {
+    "fixtures": [],
+    "connectors": [],
+    "allowReal": []
+  },
+  "run": {
+    "maxSteps": 8,
+    "origin": "chat",
+    "engine": "v4"
+  },
+  "expect": [
+    {
+      "type": "completed"
+    },
+    {
+      "id": "registrou-a-compra",
+      "type": "tool_called",
+      "tool": "record_purchase",
+      "args": {
+        "orderNumber": {
+          "equals": "BR-48213"
+        },
+        "total": {
+          "equals": 189.9
+        }
+      }
+    },
+    {
+      "id": "gravou-e-criou-o-vigia",
+      "type": "tool_result",
+      "tool": "record_purchase",
+      "ok": true,
+      "pattern": "Saved purchase [\\s\\S]*BRL[\\s\\S]*quiet delivery follow-up is on the agenda"
+    },
+    {
+      "id": "nao-criou-vigia-na-mao",
+      "type": "tool_not_called",
+      "toolPattern": "^(watch|remind_me)$"
+    },
+    {
+      "id": "em-silencio",
+      "type": "text_not_contains",
+      "pattern": "agend|vigia|acompanh|follow-?up|te aviso",
+      "ignoreCase": true
+    },
+    {
+      "type": "no_question"
+    },
+    {
+      "type": "no_internals"
+    }
+  ],
+  "mock": {
+    "turns": [
+      {
+        "calls": [
+          {
+            "name": "use_capability",
+            "args": {
+              "id": "shopping"
+            }
+          }
+        ]
+      },
+      {
+        "calls": [
+          {
+            "name": "record_purchase",
+            "args": {
+              "merchant": "O Boticário",
+              "items": [
+                {
+                  "name": "Kit Presente Floratta Blue Crystal",
+                  "quantity": 1
+                }
+              ],
+              "total": 189.9,
+              "currency": "BRL",
+              "orderNumber": "BR-48213",
+              "trackingCode": "BR123456789BR",
+              "trackingUrl": "https://rastreio.test/BR123456789BR"
+            }
+          }
+        ]
+      },
+      {
+        "say": "Anotado! Guardei a compra do kit na O Boticário, R$ 189,90, pedido BR-48213."
+      }
+    ]
+  }
+}

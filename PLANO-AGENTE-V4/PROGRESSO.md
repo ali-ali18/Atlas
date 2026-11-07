@@ -124,11 +124,11 @@
 - [x] F5.A (06/11: 19 achados, 1 alto; 17 corrigidos, 2 aceitos; reauditoria com 5 baixos, 1 corrigido) Auditoria: 5 lentes, verificação, correções com teste, reauditoria e `auditorias/F5.md` fechado.
 
 ### F6: Compras
-- [ ] F6.1 `product_search` estruturado e card `product`.
+- [x] F6.1 (07/11: capacidade lazy `shopping`, `product_search` com JSON-LD/OpenGraph em `shared/product.ts`, total = preço + frete com frete desconhecido explícito, HTML pela proteção SSRF do extrator (`fetchPageHtml`), card `product` com fotos, desconto, nota e comparação; prévias em `apps/web/e2e/__previews__/compras/`) `product_search` estruturado e card `product`.
 - [ ] F6.2 Cartão no cofre sem CVV.
 - [ ] F6.3 `checkout` com campo de CVV no cartão de aprovação e `card_fill` (teste de vazamento).
 - [ ] F6.4 Mandato opcional.
-- [ ] F6.5 `record_purchase` e vigia de entrega automático.
+- [x] F6.5 (07/11: `record_purchase` `write_internal` sem confirmação, tabela `purchases`, rotas `/v1/purchases` com IDOR testado, card `purchase`, vigia de entrega criado em silêncio pela agenda do preset (12 h, ~30 dias); a frente C anexa `checkout` pela mesma capacidade com `extraTools`) `record_purchase` e vigia de entrega automático.
 - [ ] F6.A Auditoria: 5 lentes, verificação, correções com teste, reauditoria e `auditorias/F6.md` fechado.
 
 ### F7: E-mail e dia
