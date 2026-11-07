@@ -62,7 +62,7 @@ const libraryHandler: MockHandler = ({ method, path }) =>
 /** Foto de loja falsa: gradiente com uma forma, para a prévia mostrar a moldura real da imagem. */
 const svg = (n: number) => {
   const hues = [215, 160, 28]
-  const h = hues[(n - 1) % 3]
+  const h = hues[(n - 1) % 3] ?? 215
   return `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="480" viewBox="0 0 640 480"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="hsl(${h},70%,62%)"/><stop offset="1" stop-color="hsl(${h + 40},60%,38%)"/></linearGradient></defs><rect width="640" height="480" fill="url(#g)"/><circle cx="320" cy="240" r="120" fill="rgba(255,255,255,.22)"/><rect x="250" y="170" width="140" height="140" rx="28" fill="rgba(255,255,255,.55)"/></svg>`
 }
 
