@@ -6,6 +6,7 @@ import { loadMessages } from "@/lib/i18n/messages";
 import { I18nProvider } from "@/lib/i18n/provider";
 import { change, note, NOW, report, rule } from "./fixtures";
 import { ReportCard, type ReportCardProps, ReportsList } from "./night-review-view";
+import { withBusy } from "./notebook-model";
 import { NotebookSection } from "./notebook-section";
 import { NoteForm, NotesList, type NotesListProps } from "./notes-view";
 import { RulesList, type RulesListProps } from "./rules-view";
@@ -24,7 +25,7 @@ const notesProps = (patch: Partial<NotesListProps> = {}): NotesListProps => ({
 	filter: "bot",
 	creating: false,
 	editingId: null,
-	busyId: null,
+	busyIds: new Set<string>(),
 	formBusy: false,
 	formError: null,
 	actionError: null,
@@ -111,7 +112,7 @@ const rulesProps = (patch: Partial<RulesListProps> = {}): RulesListProps => ({
 	rules: [],
 	now: NOW,
 	editingId: null,
-	busyId: null,
+	busyIds: new Set<string>(),
 	formBusy: false,
 	formError: null,
 	actionError: null,
@@ -156,7 +157,7 @@ const reportProps = (patch: Partial<ReportCardProps> = {}): ReportCardProps => (
 	open: true,
 	onOpenChange: noop,
 	changes: { status: "ready", changes: [change(), change({ id: "c2", target: "note", afterNote: { title: "Roteiro de Lisboa", pinned: false }, after: "texto" }), change({ id: "c3", undoneAt: "2026-11-07T04:00:00Z" })] },
-	busyId: null,
+	busyIds: new Set<string>(),
 	error: null,
 	onUndo: noop,
 	onDismiss: noop,
@@ -178,6 +179,23 @@ test("revisão da noite: resumo, o que mudou com desfazer, e proposta com 'Agora
 	assert.match(out, />Habilidade</);
 	assert.match(out, /Agora não/);
 	assert.match(out, /Ver relatórios mais antigos/);
+});
+
+test("revisão da noite: um pedido em voo trava só o botão do próprio item", () => {
+	const out = html(<ReportCard {...reportProps({ busyIds: new Set(["c1"]) })} />);
+	const button = (label: string) => out.match(new RegExp(`<button[^>]*aria-label="Desfazer: ${label}"[^>]*>`))?.[0] ?? "";
+	assert.match(button("Guardou: Prefere café sem açúcar"), /disabled=""/);
+	assert.doesNotMatch(button("Guardou a nota “Roteiro de Lisboa”"), /disabled=""/, "o outro Desfazer segue livre");
+});
+
+test("withBusy marca e libera por id sem mexer no conjunto original", () => {
+	const empty: ReadonlySet<string> = new Set();
+	const one = withBusy(empty, "a", true);
+	const two = withBusy(one, "b", true);
+	assert.deepEqual([...two].sort(), ["a", "b"]);
+	assert.deepEqual([...withBusy(two, "a", false)], ["b"]);
+	assert.equal(empty.size, 0);
+	assert.equal(withBusy(two, "a", true), two, "sem mudança devolve o mesmo conjunto");
 });
 
 test("revisão da noite: proposta dispensada mostra 'Dispensado' e sai o botão; carregando e erro das mudanças", () => {

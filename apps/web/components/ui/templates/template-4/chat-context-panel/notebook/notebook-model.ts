@@ -183,6 +183,15 @@ export function undoErrorMessage(error: unknown, { t }: Translator = defaultTran
 	return t("notebook.review.undoError.generic");
 }
 
+/** Conjunto de itens com pedido em voo: cada um trava só o próprio botão (dois "Desfazer" diferentes não se atropelam). */
+export function withBusy(ids: ReadonlySet<string>, id: string, busy: boolean): ReadonlySet<string> {
+	if (ids.has(id) === busy) return ids;
+	const next = new Set(ids);
+	if (busy) next.add(id);
+	else next.delete(id);
+	return next;
+}
+
 export type ProposalView = { id: string; badge: string; title: string; detail: string | null; dismissed: boolean };
 
 const DOCTOR_BADGE: Record<DoctorFinding["type"], "duplicate" | "conflict" | "stale"> = { duplicate: "duplicate", conflict: "conflict", stale: "stale" };

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { MemoryChange, SleepReportView } from "@workspace/shared";
 import { useTranslations } from "@/lib/i18n/provider";
+import { withBusy } from "./notebook-model";
 import { ListEmpty, ListLoadError, ListLoading } from "./list-status";
 import { dismissProposal, type NotebookApi, realNotebookApi, undoChange } from "./notebook-actions";
 import { type ChangesState, ReportCard, ReportsList } from "./night-review-view";
@@ -64,26 +65,27 @@ function ReviewBody({ botId, api }: { botId: string; api: NotebookApi }) {
 function ReportItem({ report, botId, api, defaultOpen, onReport }: { report: SleepReportView; botId: string; api: NotebookApi; defaultOpen: boolean; onReport: (report: SleepReportView) => void }) {
 	const translator = useTranslations();
 	const [open, setOpen] = useState(defaultOpen);
-	const [busyId, setBusyId] = useState<string | null>(null);
+	const [busyIds, setBusyIds] = useState<ReadonlySet<string>>(new Set());
+	const setBusy = (id: string, busy: boolean) => setBusyIds((ids) => withBusy(ids, id, busy));
 	const [error, setError] = useState<string | null>(null);
 	return (
 		<ReportItemBody
 			api={api}
 			botId={botId}
-			busyId={busyId}
+			busyIds={busyIds}
 			error={error}
 			onDismiss={async (proposalId) => {
-				setBusyId(proposalId);
+				setBusy(proposalId, true);
 				setError(null);
 				const result = await dismissProposal(api, report.id, proposalId, translator);
-				setBusyId(null);
+				setBusy(proposalId, false);
 				if (result.ok) onReport(result.value);
 				else setError(result.message);
 			}}
 			onOpenChange={setOpen}
 			open={open}
 			report={report}
-			setBusyId={setBusyId}
+			setBusy={setBusy}
 			setError={setError}
 		/>
 	);
@@ -94,22 +96,22 @@ function ReportItemBody({
 	botId,
 	api,
 	open,
-	busyId,
+	busyIds,
 	error,
 	onOpenChange,
 	onDismiss,
-	setBusyId,
+	setBusy,
 	setError,
 }: {
 	report: SleepReportView;
 	botId: string;
 	api: NotebookApi;
 	open: boolean;
-	busyId: string | null;
+	busyIds: ReadonlySet<string>;
 	error: string | null;
 	onOpenChange: (open: boolean) => void;
 	onDismiss: (proposalId: string) => void;
-	setBusyId: (id: string | null) => void;
+	setBusy: (id: string, busy: boolean) => void;
 	setError: (message: string | null) => void;
 }) {
 	const translator = useTranslations();
@@ -118,10 +120,11 @@ function ReportItemBody({
 	const changes: ChangesState = state.status === "ready" ? { status: "ready", changes: state.data } : state;
 
 	async function undo(change: MemoryChange) {
-		setBusyId(change.id);
+		if (busyIds.has(change.id)) return;
+		setBusy(change.id, true);
 		setError(null);
 		const result = await undoChange(api, change.id, translator);
-		setBusyId(null);
+		setBusy(change.id, false);
 		if (result.ok) {
 			setData((list) => list.map((item) => (item.id === change.id ? { ...item, undoneAt: result.value.createdAt } : item)));
 			return;
@@ -131,5 +134,5 @@ function ReportItemBody({
 		reload();
 	}
 
-	return <ReportCard busyId={busyId} changes={changes} error={error} onDismiss={onDismiss} onOpenChange={onOpenChange} onRetryChanges={reload} onUndo={undo} open={open} report={report} />;
+	return <ReportCard busyIds={busyIds} changes={changes} error={error} onDismiss={onDismiss} onOpenChange={onOpenChange} onRetryChanges={reload} onUndo={undo} open={open} report={report} />;
 }

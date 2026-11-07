@@ -17,7 +17,7 @@ const STATUS_TONE: Partial<Record<SleepReportView["status"], string>> = {
 	failed: "bg-destructive/10 text-destructive",
 };
 
-function ChangeLines({ state, busyId, onUndo, onRetry }: { state: ChangesState; busyId: string | null; onUndo: (change: MemoryChange) => void; onRetry: () => void }) {
+function ChangeLines({ state, busyIds, onUndo, onRetry }: { state: ChangesState; busyIds: ReadonlySet<string>; onUndo: (change: MemoryChange) => void; onRetry: () => void }) {
 	const translator = useTranslations();
 	const { t } = translator;
 	if (state.status === "loading") return <ListLoading />;
@@ -34,7 +34,7 @@ function ChangeLines({ state, busyId, onUndo, onRetry }: { state: ChangesState; 
 						<span className={cn("min-w-0 flex-1 text-body [overflow-wrap:anywhere]", undone && "text-muted-foreground line-through")}>{phrase}</span>
 						{undone ? <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-caption text-muted-foreground">{t("notebook.review.undone")}</span> : null}
 						{canUndoChange(change) ? (
-							<Button aria-label={t("notebook.review.undoLabel", { what: phrase })} disabled={busyId === change.id} onClick={() => onUndo(change)} size="sm" type="button" variant="secondary">
+							<Button aria-label={t("notebook.review.undoLabel", { what: phrase })} disabled={busyIds.has(change.id)} onClick={() => onUndo(change)} size="sm" type="button" variant="secondary">
 								{t("notebook.review.undo")}
 							</Button>
 						) : null}
@@ -45,7 +45,7 @@ function ChangeLines({ state, busyId, onUndo, onRetry }: { state: ChangesState; 
 	);
 }
 
-function ProposalLines({ report, busyId, onDismiss }: { report: SleepReportView; busyId: string | null; onDismiss: (proposalId: string) => void }) {
+function ProposalLines({ report, busyIds, onDismiss }: { report: SleepReportView; busyIds: ReadonlySet<string>; onDismiss: (proposalId: string) => void }) {
 	const translator = useTranslations();
 	const { t } = translator;
 	if (report.proposals.length === 0) return null;
@@ -65,7 +65,7 @@ function ProposalLines({ report, busyId, onDismiss }: { report: SleepReportView;
 							{view.detail ? <p className="m-0 text-caption text-muted-foreground [overflow-wrap:anywhere]">{view.detail}</p> : null}
 							{!view.dismissed ? (
 								<div className="flex justify-end">
-									<Button aria-label={t("notebook.review.proposal.dismissLabel", { what: view.title })} disabled={busyId === view.id} onClick={() => onDismiss(view.id)} size="sm" type="button" variant="secondary">
+									<Button aria-label={t("notebook.review.proposal.dismissLabel", { what: view.title })} disabled={busyIds.has(view.id)} onClick={() => onDismiss(view.id)} size="sm" type="button" variant="secondary">
 										{t("ui.cardDismiss")}
 									</Button>
 								</div>
@@ -83,7 +83,7 @@ export type ReportCardProps = {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 	changes: ChangesState;
-	busyId: string | null;
+	busyIds: ReadonlySet<string>;
 	error: string | null;
 	onUndo: (change: MemoryChange) => void;
 	onDismiss: (proposalId: string) => void;
@@ -115,9 +115,9 @@ export function ReportCard(props: ReportCardProps) {
 					<div className="flex flex-col gap-3 px-3 pt-1 pb-3">
 						<div className="flex flex-col gap-1.5">
 							<h4 className="m-0 font-medium text-caption text-muted-foreground">{t("notebook.review.changes")}</h4>
-							<ChangeLines busyId={props.busyId} onRetry={props.onRetryChanges} onUndo={props.onUndo} state={props.changes} />
+							<ChangeLines busyIds={props.busyIds} onRetry={props.onRetryChanges} onUndo={props.onUndo} state={props.changes} />
 						</div>
-						<ProposalLines busyId={props.busyId} onDismiss={props.onDismiss} report={report} />
+						<ProposalLines busyIds={props.busyIds} onDismiss={props.onDismiss} report={report} />
 						<ActionError message={props.error} />
 					</div>
 				</CollapsibleContent>
