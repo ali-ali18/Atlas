@@ -1,7 +1,7 @@
 /** Seção Agenda da Biblioteca (lembretes, acompanhamentos e esperas por e-mail do bot). Prefixo `agenda.`. */
 export const agenda = {
 	"agenda.title": "Agenda",
-	"agenda.listLabel": "Agenda do Bot",
+	"agenda.listLabel": "Agenda do bot",
 	"agenda.empty.title": "Nada na agenda",
 	"agenda.empty.body": "Peça ao bot, por exemplo, “me lembra amanhã às 10h de ligar para a Paula” ou “me avisa quando chegar e-mail da loja”, e o combinado aparece aqui.",
 	"agenda.loadError": "Não consegui carregar a agenda agora.",
