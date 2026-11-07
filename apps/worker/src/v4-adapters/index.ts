@@ -15,6 +15,7 @@ import {
 	type Helpers,
 	type NoteStore,
 	type PolicyContext,
+	type CheckoutDeps,
 	type PresetDeps,
 	type Search,
 } from "@workspace/agent";
@@ -72,6 +73,8 @@ export type V4RegistryInput = {
 	 * nunca criar itens novos em cadeia.
 	 */
 	agendaRun?: boolean;
+	/** Pagamento (F6.3): cartões do dono (bandeira e final) e o `card_fill`. Sem cartão salvo, a tool `checkout` não entra na capacidade `shopping`. */
+	checkout?: CheckoutDeps;
 };
 
 export type V4RegistrySetup = {
@@ -111,8 +114,10 @@ export async function buildV4Registry(input: V4RegistryInput): Promise<V4Registr
 		shopping: shoppingPorts,
 		// A agenda também é do bot do run (a conversa dele recebe o aviso).
 		...(agenda && { agenda }),
+		...(input.checkout && { checkout: input.checkout }),
 	};
-	const base = setupPreset("full", presetDeps);
+	const preset = setupPreset("full", presetDeps);
+	const base = preset;
 
 	let connectors: Awaited<ReturnType<typeof createConnectorsCapability>> = { capability: null };
 	try {

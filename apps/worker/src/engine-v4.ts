@@ -43,6 +43,7 @@ import {
 	type RunInput,
 	type RunLimits,
 	type RunResult,
+	type CvvEscrow,
 	type Sandbox,
 	type Search,
 	type StoreBackend,
@@ -67,6 +68,7 @@ import {
 	type RunLease,
 } from "@workspace/db";
 import { buildV4Registry, type V4AdapterDeps } from "./v4-adapters/index.js";
+import { createV4Payment, type V4PaymentDeps } from "./v4-adapters/payment.js";
 import { MODEL_ROLES, formatModelRef, isMaintenanceModel, parseModelRef, type BotLanguage, type ComputerUseEvent, type ModelChainEntry, type RoleChains, type RunStop, type RunUsage } from "@workspace/shared";
 
 /** As funções de persistência do v4 (as de `@workspace/db`); injetáveis para o teste. */
@@ -353,6 +355,10 @@ export type RunEngineV4Input = {
 	queue?: BullLikeQueue;
 	vault?: VaultBackend;
 	sandbox?: Sandbox;
+	/** Canal efêmero do CVV (F6.3). Sem ele o pagamento não é oferecido (o cartão de compra nem existe sem onde guardar o CVV). */
+	cvvEscrow?: CvvEscrow | null;
+	/** Funções de banco do pagamento (testes passam fakes). */
+	paymentDeps?: V4PaymentDeps;
 	/** Registro pronto (testes). Sem ele, o worker monta o preset `full` com as portas reais do run (`buildV4Registry`). */
 	registry?: CapabilityRegistry;
 	/** Bot do run (opcional): painéis, memória do bot e configurações dependem dele; sem ele essas capacidades ficam de fora. */
@@ -418,7 +424,9 @@ export async function runEngineV4(input: RunEngineV4Input): Promise<V4EngineResu
 		random: createSystemRandom(),
 		events: createEventsAdapter({ runId: input.runId, userId: input.userId, map: input.mapEvent ?? createMinimalEventMapper(input.runId), persist: input.persistEvent }),
 	};
-	const basePolicy: PolicyContext = input.policy ?? { surface: "chat", ownerPresent: input.ownerPresent, autonomy: "balanced", rules: input.rules ?? [] };
+	// Pagamento (F6.2 a F6.4): cartões do dono, `card_fill` e mandato. Run com registro pronto (teste) ou política dada (agenda) não monta.
+	const payment = input.registry || input.policy ? null : await createV4Payment({ userId: input.userId, escrow: input.cvvEscrow, sandbox: ports.sandbox, ownerPresent: input.ownerPresent, ...(input.paymentDeps && { deps: input.paymentDeps }), ...(input.log && { log: input.log }) });
+	const basePolicy: PolicyContext = input.policy ?? { surface: "chat", ownerPresent: input.ownerPresent, autonomy: "balanced", rules: input.rules ?? [], ...(payment?.mandate && { mandate: payment.mandate }) };
 	// Ajudantes (F3.1): runs filhos do próprio kernel, com as mesmas portas da mãe (a busca vem do registro), o papel `helper`
 	// da cadeia de modelos, o medidor da mãe (o uso aparece no run) e o teto do dono compartilhado pelo livro de gasto.
 	const ledger = createSpendLedger();
@@ -465,6 +473,7 @@ export async function runEngineV4(input: RunEngineV4Input): Promise<V4EngineResu
 				makeHelpers,
 				policy: basePolicy,
 				...(input.agendaRun && { agendaRun: true }),
+				...(payment?.checkout && { checkout: payment.checkout }),
 			});
 	const registry = input.registry ?? built!.registry;
 	motherRegistry = registry;
@@ -489,6 +498,7 @@ export async function runEngineV4(input: RunEngineV4Input): Promise<V4EngineResu
 		// Run de agenda: não há dono para responder, então a pergunta ao dono nem é oferecida.
 		...(input.agendaRun && { askOwner: false }),
 		spend: ledger.motherHook(),
+		...(payment?.mandate && { onMandateSpent: payment.onMandateSpent }),
 		exposeProvenance: (read) => {
 			motherProvenance = read;
 		},

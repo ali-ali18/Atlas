@@ -1,6 +1,6 @@
 # Compras no Motor v4: produto, comparação e compra registrada
 
-- **Status:** em andamento (frente P da F6; cartão, checkout e CVV são da frente C)
+- **Status:** em andamento (F6: frente P integrada com a frente C; cartão, checkout e CVV em `compras.md`)
 - **Data:** 2026-11-07
 - **Issues/PRs:** —
 
@@ -21,7 +21,7 @@ O modelo lia o preço no texto da página e errava o total. Agora o preço, o fr
 
 ## Como funciona
 - `packages/shared/src/product.ts`: `parseProductPage` (JSON-LD `Product`/`Offer`/`AggregateRating`, OpenGraph e meta description), `offerTotal`, `compareOffers`, cartão `product`. `purchase.ts`: validação, dedupe e nota do vigia, cartão `purchase`.
-- `packages/agent/src/capabilities/shopping/`: `product_search` (read, untrusted/web, egress), `record_purchase` (write_internal), `purchase_list` (read, `privateData`, `ownerData: "purchase"`). Uma tool por arquivo; `createShoppingCapability({ extraTools })` é onde a frente C anexa `checkout`.
+- `packages/agent/src/capabilities/shopping/`: `product_search` (read, untrusted/web, egress), `record_purchase` (write_internal), `purchase_list` (read, `privateData`, `ownerData: "purchase"`). Uma tool por arquivo; `checkout` (frente C, ver `compras.md`) é a quarta tool da mesma capacidade: `createShoppingCapability({ checkout })` só a oferece com cartão salvo (o worker só monta `checkout` com dono presente, Redis e chave).
 - `packages/search`: `fetchPageHtml` devolve o HTML bruto com SSRF por salto, robots.txt, limite por domínio e de bytes.
 - `apps/worker/src/v4-adapters/shopping.ts`: adaptador real (página, cartões, compra no db). No run de agenda a capacidade perde a agenda: gravar compra ali não cria vigia em cadeia.
 - `packages/db`: model `Purchase` (migration aditiva `20261217000000_purchases`), escopo por `userId` em toda consulta, dedupe por loja + pedido.

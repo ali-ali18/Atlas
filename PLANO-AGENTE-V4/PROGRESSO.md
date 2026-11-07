@@ -125,10 +125,10 @@
 
 ### F6: Compras
 - [x] F6.1 (07/11: capacidade lazy `shopping`, `product_search` com JSON-LD/OpenGraph em `shared/product.ts`, total = preço + frete com frete desconhecido explícito, HTML pela proteção SSRF do extrator (`fetchPageHtml`), card `product` com fotos, desconto, nota e comparação; prévias em `apps/web/e2e/__previews__/compras/`) `product_search` estruturado e card `product`.
-- [ ] F6.2 Cartão no cofre sem CVV.
-- [ ] F6.3 `checkout` com campo de CVV no cartão de aprovação e `card_fill` (teste de vazamento).
-- [ ] F6.4 Mandato opcional.
-- [x] F6.5 (07/11: `record_purchase` `write_internal` sem confirmação, tabela `purchases`, rotas `/v1/purchases` com IDOR testado, card `purchase`, vigia de entrega criado em silêncio pela agenda do preset (12 h, ~30 dias); a frente C anexa `checkout` pela mesma capacidade com `extraTools`) `record_purchase` e vigia de entrega automático.
+- [x] F6.2 (07/11, frente C: tabelas `saved_cards` e `purchase_mandates` por acréscimo, `secretsEnc` com a caixa dos conectores, rotas `/v1/cards` com IDOR testado em Postgres, validação Luhn/validade, corpo estrito sem CVV, tela em Configurações › Cofre; prévias em `apps/web/e2e/__previews__/compras/`) Cartão no cofre sem CVV.
+- [x] F6.3 (07/11, frente C: `checkout` em `capabilities/shopping/checkout.ts`, canal efêmero do CVV (Redis selado, GETDEL, chave = pedido), `card_fill` sobre a porta `Sandbox` com fake, handoff pós-efeito sem repetir, `CvvField` em `packages/ui`, cartão de compra mínimo em `ai-elements/purchase`, rota de resposta com `cvv` só para compra; testes de vazamento em evento, pedido ao modelo, journal, recibo e checkpoint. Falta na F8: o adaptador real de `card_fill` na VM) `checkout` com campo de CVV no cartão de aprovação e `card_fill` (teste de vazamento).
+- [x] F6.4 (07/11, frente C: tabela `purchase_mandates`, rotas `/v1/purchase-mandate`, mandato carregado pelo worker; com mandato o cartão pede só o CVV (`inputOnly`) e o uso é gasto e gravado; falta a tela do mandato, que por ora se cria pela API) Mandato opcional.
+- [x] F6.5 (07/11: `record_purchase` `write_internal` sem confirmação, tabela `purchases`, rotas `/v1/purchases` com IDOR testado, card `purchase`, vigia de entrega criado em silêncio pela agenda do preset (12 h, ~30 dias); o `checkout` da frente C é uma tool da mesma capacidade `shopping`) `record_purchase` e vigia de entrega automático.
 - [ ] F6.A Auditoria: 5 lentes, verificação, correções com teste, reauditoria e `auditorias/F6.md` fechado.
 
 ### F7: E-mail e dia

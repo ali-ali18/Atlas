@@ -35,10 +35,10 @@ type RequestRow = { userId: string; runId: string; kind: string; key: string; ca
 type RunRow = { id: string; userId: string; status: string };
 
 /** Estado em memória por trás dos delegates do prisma: run, pedidos e ofertas. */
-function world(opts: { runStatus?: string; both?: boolean } = {}) {
+function world(opts: { runStatus?: string; both?: boolean; toolName?: string } = {}) {
 	const runs: RunRow[] = [{ id: "run-a", userId: A, status: opts.runStatus ?? "paused" }];
 	const requests: RequestRow[] = [
-		{ userId: A, runId: "run-a", kind: "approval", key: "req-1", callId: "c1", toolName: "send_email", payloadHash: "hash-1", conversationId: "conv-a", state: "pending", expiresAt: new Date(T0.getTime() + DAY), decidedAt: null, consumedAt: null },
+		{ userId: A, runId: "run-a", kind: "approval", key: "req-1", callId: "c1", toolName: opts.toolName ?? "send_email", payloadHash: "hash-1", conversationId: "conv-a", state: "pending", expiresAt: new Date(T0.getTime() + DAY), decidedAt: null, consumedAt: null },
 		{ userId: A, runId: "run-a", kind: "handoff", key: "c2", callId: "c2", toolName: null, payloadHash: null, conversationId: "conv-a", state: "pending", expiresAt: new Date(T0.getTime() + DAY), decidedAt: null, consumedAt: null },
 	];
 	// A maioria dos testes olha um pedido só (o run retoma assim que ele é respondido); `both` mantém também o handoff.
@@ -82,7 +82,7 @@ function world(opts: { runStatus?: string; both?: boolean } = {}) {
 	return { runs, requests, resumeUpdate };
 }
 
-function appFor(userId: string, opts: { queue?: { add: () => Promise<unknown> } | null; now?: Date } = {}) {
+function appFor(userId: string, opts: { queue?: { add: () => Promise<unknown> } | null; now?: Date; escrow?: { deposit: (scope: unknown, cvv: string, ttl: number) => Promise<void>; discard: (scope: unknown) => Promise<void> } | null } = {}) {
 	const add = mock.fn(opts.queue?.add ?? (async () => ({ id: "job" })));
 	const queue = opts.queue === null ? null : ({ add, getJob: async () => undefined } as never);
 	const app = new Hono<AuthEnv>();
@@ -90,7 +90,7 @@ function appFor(userId: string, opts: { queue?: { add: () => Promise<unknown> } 
 		c.set("session", { user: { id: userId, name: "Test", email: "owner@example.com", emailVerified: true, createdAt: T0, updatedAt: T0 }, session: { id: "s", token: "t", userId, expiresAt: T0, createdAt: T0, updatedAt: T0, ipAddress: null, userAgent: null } });
 		await next();
 	});
-	app.route("/", createAgentV4Routes({ queue, clock: () => opts.now ?? T0 }));
+	app.route("/", createAgentV4Routes({ queue, clock: () => opts.now ?? T0, ...(opts.escrow !== undefined && { cvvEscrow: opts.escrow as never }) }));
 	return { app, add };
 }
 
@@ -236,4 +236,93 @@ test("cartão ask_owner: o dono dispensa uma vez; B recebe 404; repetir é alrea
 	assert.equal((await respond(a.app, path, { response: "answered" })).status, 409);
 	assert.equal((await respond(a.app, path, { response: "talvez" })).status, 400);
 	assert.equal((await respond(a.app, `/v1/agent-v4/cards/${encodeURIComponent("run-a:outro")}/respond`, { response: "dismissed" })).status, 404);
+});
+
+// ------------------------------------------------------------------ CVV (F6.3)
+
+function fakeEscrow() {
+	const deposits: Array<{ scope: { userId: string; runId: string; requestId: string }; cvv: string; ttl: number }> = [];
+	const discards: unknown[] = [];
+	return { deposits, discards, deposit: async (scope: unknown, cvv: string, ttl: number) => void deposits.push({ scope: scope as never, cvv, ttl }), discard: async (scope: unknown) => void discards.push(scope) };
+}
+
+test("compra: aprovar com CVV deposita no canal efêmero ligado ao pedido e NÃO grava o CVV em lugar nenhum", async () => {
+	const w = world({ toolName: "checkout" });
+	const escrow = fakeEscrow();
+	const { app } = appFor(A, { escrow });
+	const res = await respond(app, `${REQ}/req-1/respond`, { decision: "approve", cvv: "737" });
+	assert.equal(res.status, 200);
+	assert.deepEqual(escrow.deposits.map((d) => ({ ...d.scope, ttl: d.ttl })), [{ userId: A, runId: "run-a", requestId: "req-1", ttl: 15 * 60_000 }]);
+	assert.equal(escrow.deposits[0]!.cvv, "737");
+	assert.equal(escrow.discards.length, 0);
+	assert.equal(w.requests.find((r) => r.key === "req-1")!.state, "approved");
+	// nada do CVV sobe nem na resposta nem nas linhas gravadas
+	assert.equal(JSON.stringify(await res.clone().json()).includes("737"), false);
+	assert.equal(JSON.stringify(w.requests).includes("737"), false);
+});
+
+test("compra: aprovar SEM CVV ou com CVV inválido é 400 e não decide nem deposita", async () => {
+	const w = world({ toolName: "checkout" });
+	const escrow = fakeEscrow();
+	const { app } = appFor(A, { escrow });
+	for (const body of [{ decision: "approve" }, { decision: "approve", cvv: "12" }, { decision: "approve", cvv: "12345" }, { decision: "approve", cvv: "12a" }]) {
+		const res = await respond(app, `${REQ}/req-1/respond`, body);
+		assert.equal(res.status, 400);
+		assert.equal(((await res.json()) as { error: string }).error, "cvv_required");
+	}
+	assert.equal(escrow.deposits.length, 0);
+	assert.equal(w.requests.find((r) => r.key === "req-1")!.state, "pending");
+});
+
+test("compra: 'Agora não' não precisa de CVV; cvv fora de compra aprovada é 400", async () => {
+	const w = world({ toolName: "checkout", both: true });
+	const escrow = fakeEscrow();
+	const { app } = appFor(A, { escrow });
+	assert.equal((await respond(app, `${REQ}/req-1/respond`, { decision: "deny", cvv: "737" })).status, 400);
+	assert.equal((await respond(app, `${REQ}/req-1/respond`, { decision: "deny" })).status, 200);
+	assert.equal(w.requests.find((r) => r.key === "req-1")!.state, "denied");
+	assert.equal(escrow.deposits.length, 0);
+});
+
+test("outro tipo de pedido não aceita cvv (nada é guardado)", async () => {
+	const w = world();
+	const escrow = fakeEscrow();
+	const { app } = appFor(A, { escrow });
+	assert.equal((await respond(app, `${REQ}/req-1/respond`, { decision: "approve", cvv: "737" })).status, 400);
+	assert.equal(escrow.deposits.length, 0);
+	assert.equal(w.requests.find((r) => r.key === "req-1")!.state, "pending");
+});
+
+test("compra sem canal do CVV: 503 e nada é aprovado", async () => {
+	const w = world({ toolName: "checkout" });
+	const { app } = appFor(A, { escrow: null });
+	const res = await respond(app, `${REQ}/req-1/respond`, { decision: "approve", cvv: "737" });
+	assert.equal(res.status, 503);
+	assert.equal(w.requests.find((r) => r.key === "req-1")!.state, "pending");
+});
+
+test("compra: segundo clique com a decisão já gravada NÃO deposita de novo (CVV de uso único)", async () => {
+	world({ toolName: "checkout" });
+	const escrow = fakeEscrow();
+	const { app } = appFor(A, { escrow });
+	assert.equal((await respond(app, `${REQ}/req-1/respond`, { decision: "approve", cvv: "737" })).status, 200);
+	const again = await respond(app, `${REQ}/req-1/respond`, { decision: "approve", cvv: "737" });
+	assert.equal(again.status, 200);
+	assert.equal(escrow.deposits.length, 1);
+});
+
+test("compra: pedido de outro dono é 404 e o CVV não é depositado", async () => {
+	world({ toolName: "checkout" });
+	const escrow = fakeEscrow();
+	const b = appFor(B, { escrow });
+	assert.equal((await respond(b.app, `${REQ}/req-1/respond`, { decision: "approve", cvv: "737" })).status, 404);
+	assert.equal(escrow.deposits.length, 0);
+});
+
+test("compra: pedido vencido (410) descarta o CVV que acabou de depositar", async () => {
+	world({ toolName: "checkout" });
+	const escrow = fakeEscrow();
+	const { app } = appFor(A, { escrow, now: new Date(T0.getTime() + 2 * DAY) });
+	assert.equal((await respond(app, `${REQ}/req-1/respond`, { decision: "approve", cvv: "737" })).status, 410);
+	assert.equal(escrow.deposits.length, escrow.discards.length);
 });

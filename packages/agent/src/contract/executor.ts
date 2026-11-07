@@ -28,6 +28,8 @@ export type ExecutorDeps = {
 	language?: BotLanguage;
 	/** Usos do mandato que restam ao retomar (vem do checkpoint). Sem valor, vale `policy.mandate.usesLeft`. */
 	mandateUsesLeft?: number;
+	/** Chamado depois que o mandato gasta um uso (antes do efeito). */
+	onMandateSpent?: (usesLeft: number) => void | Promise<void>;
 };
 
 /** Uma chamada do modelo. `grant` vem da camada de fora (dono aprovou), nunca dos argumentos. */
@@ -93,8 +95,12 @@ export function createExecutor(deps: ExecutorDeps) {
 			if (prior?.outcome === "succeeded") return { status: "already_done", hint: ALREADY_DONE_HINT };
 		}
 
-		if (verdict.kind === "approve") {
-			const request = requestApproval({ runId: deps.runId, callId: scopedCallId, toolName: tool.name, effect, args, riskFacts, hash: deps.hash, secrets: secrets() });
+		// Tool que precisa de um dado só do dono (CVV): com mandato vale o cartão "só o campo", nunca a execução direta.
+		const inputOnly = verdict.kind === "run" && verdict.reason === "mandate" && tool.ownerInput !== undefined;
+		let approvalId: string | undefined;
+		if (verdict.kind === "approve" || inputOnly) {
+			const request = requestApproval({ runId: deps.runId, callId: scopedCallId, toolName: tool.name, effect, args, riskFacts, hash: deps.hash, secrets: secrets(), ...(tool.ownerInput && { ownerInput: tool.ownerInput }), ...(inputOnly && { inputOnly: true }) });
+			approvalId = request.id;
 			if (!call.grant) return { status: "pending_approval", request };
 			// O grant só é consumido junto com o claim do journal. Entrada `failed` = o efeito já gastou este grant (talvez em
 			// outro processo, onde `consumed` está vazio): não vale de novo (S5).
@@ -110,9 +116,12 @@ export function createExecutor(deps: ExecutorDeps) {
 			const claim = await deps.ports.store.journal.append({ ...journalBase, outcome: "started" });
 			if (!claim.claimed) return { status: "already_in_progress", hint: IN_PROGRESS_HINT };
 			// O efeito vai rodar por causa do mandato: gasta um uso ANTES de executar (os efeitos do passo são em série).
-			if (mandate && verdict.kind === "run" && verdict.reason === "mandate") mandate = { ...mandate, usesLeft: mandate.usesLeft - 1 };
+			if (mandate && verdict.kind === "run" && verdict.reason === "mandate") {
+				mandate = { ...mandate, usesLeft: mandate.usesLeft - 1 };
+				await deps.onMandateSpent?.(mandate.usesLeft);
+			}
 		}
-		const ctx: ToolContext = { runId: deps.runId, ownerId: deps.ownerId, ports: deps.ports, signal: deps.signal, callId: scopedCallId, untrustedReadInRun: provenance.untrustedReadInRun };
+		const ctx: ToolContext = { runId: deps.runId, ownerId: deps.ownerId, ports: deps.ports, signal: deps.signal, callId: scopedCallId, untrustedReadInRun: provenance.untrustedReadInRun, ...(approvalId && { approvalId }) };
 		const result = await tool.run(args, ctx);
 		// Dado de fonte não confiável marca o run ANTES de voltar ao modelo (vale também para o texto de erro).
 		// Redigido ANTES de registrar: a proveniência vai no checkpoint e não pode guardar segredo que a tool deixou escapar.
@@ -142,7 +151,7 @@ export function createExecutor(deps: ExecutorDeps) {
 			});
 			await deps.ports.store.journal.append({ ...journalBase, outcome: "succeeded" });
 		}
-		return { status: "ok", summary: sanitizeText(result.summary, secrets()), ...(result.receipt && { receipt: redactDeep(result.receipt, secrets()) }) };
+		return { status: "ok", summary: sanitizeText(result.summary, secrets()), ...(result.receipt && { receipt: redactDeep(result.receipt, secrets()) }), ...(result.park && { park: result.park }) };
 	}
 
 	return { executeCall, provenance, mandateUsesLeft: () => mandate?.usesLeft };

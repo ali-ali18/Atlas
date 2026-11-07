@@ -12,6 +12,12 @@ export const COPY = {
 		"en-US": "This step is yours alone. I'll explain what to do and wait for you.",
 		"es-ES": "Este paso es solo tuyo. Te explico qué hacer y te espero.",
 	},
+	/** Compra feita no formulário da loja, mas a loja abriu uma verificação (3DS, app do banco, captcha) que só o dono conclui. */
+	checkout_challenge: {
+		"pt-BR": "A loja pediu uma verificação (do banco ou de segurança). Termine no navegador do computador e me avise quando acabar.",
+		"en-US": "The store asked for a verification (bank or security). Please finish it in the computer's browser and tell me when you're done.",
+		"es-ES": "La tienda pidió una verificación (del banco o de seguridad). Termínala en el navegador del computador y avísame cuando acabes.",
+	},
 	/** Ação indisponível neste contexto. */
 	not_available: {
 		"pt-BR": "Isso não está disponível aqui. Posso deixar preparado para você confirmar na conversa.",

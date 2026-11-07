@@ -16,6 +16,7 @@
     "@better-auth/expo": "^1.7.6",
     "@better-auth/prisma-adapter": "^1.7.6",
     "@hono/node-server": "^1.19.9",
+    "@workspace/agent": "workspace:*",
     "@workspace/agent-runtime": "workspace:*",
     "@workspace/db": "workspace:*",
     "@workspace/llm": "workspace:*",

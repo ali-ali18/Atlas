@@ -1,3 +1,4 @@
+import { redactCardNumbers } from "./payment-card.js";
 /**
  * Redige segredos conhecidos (e padrões comuns de token) de textos que vão
  * para o modelo, logs, UI ou armazenamento. Função pura; mora em `shared` para
@@ -24,7 +25,8 @@ export function redactSecrets(text: string, secrets: readonly string[] = []): st
 	for (const pattern of TOKEN_PATTERNS) {
 		out = out.replace(pattern, "[redacted]");
 	}
-	return out;
+	// Número de cartão (13 a 19 dígitos que passam no Luhn) nunca sai, mesmo que ninguém o tenha registrado como segredo.
+	return redactCardNumbers(out);
 }
 
 /** Mensagem de erro de terceiro pronta para ir ao modelo ou ao usuário: segredo redigido e tamanho limitado. */

@@ -27,6 +27,8 @@ model User {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   sessions      Session[]
+  savedCards    SavedCard[]
+  purchaseMandate PurchaseMandate?
   accounts      Account[]
   bots          Bot[]
   sections      Section[]
@@ -1769,4 +1771,38 @@ model Purchase {
   @@index([userId, purchasedAt])
   @@index([userId, botId])
   @@map("purchases")
+}
+
+/// Cartão salvo do dono (Motor v4, F6.2). Número, nome, validade e endereço de cobrança só em `secretsEnc`
+/// (AES-256-GCM, mesma caixa dos conectores). NUNCA existe coluna nem campo de CVV: ele é digitado a cada compra.
+/// `brand` e `last4` são o que a lista mostra.
+model SavedCard {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  label      String
+  brand      String
+  last4      String
+  secretsEnc String
+  createdAt  DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@map("saved_cards")
+}
+
+/// Mandato de compra do dono (F6.4): um por dono. Pula só o "confirmar"; o CVV continua sendo pedido.
+model PurchaseMandate {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  maxAmount Float
+  currency  String
+  /// Lojas permitidas (identificadores em minúsculo).
+  merchants String[]
+  until     DateTime
+  usesLeft  Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("purchase_mandates")
 }

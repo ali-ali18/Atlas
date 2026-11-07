@@ -1,3 +1,4 @@
+import { paymentRig } from "../testing/payment-fakes.js";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { chatPolicy, setup } from "../testing/contract-helpers.js";
@@ -51,7 +52,11 @@ describe("preset com entregas ricas", () => {
 	});
 });
 
-const fullDeps = () => ({ ...deps(), memory: new FakeMemory(), settings: new FakeSettings(), taskLists: new FakeTaskListStore(), helpers: new FakeHelpers(), agenda: new FakeAgenda(), shopping: new FakeShopping().ports });
+const checkoutDeps = () => {
+	const r = paymentRig();
+	return { cards: [r.info], fill: r.fill };
+};
+const fullDeps = () => ({ ...deps(), memory: new FakeMemory(), settings: new FakeSettings(), taskLists: new FakeTaskListStore(), helpers: new FakeHelpers(), agenda: new FakeAgenda(), shopping: new FakeShopping().ports, checkout: checkoutDeps() });
 
 describe("preset full: memory, tasks e settings (F2.4)", () => {
 	it("entram como capacidades lazy: só o índice vai no prompt, as tools ficam de fora do primeiro passo", async () => {
@@ -62,7 +67,7 @@ describe("preset full: memory, tasks e settings (F2.4)", () => {
 		const h = kernelHarness([reply({ text: "Bom dia!" })], { capabilities: [...setup.registry.capabilities] });
 		await h.run({ input: { stableSystem: setup.stableSystem, contextSections: [], history: [{ kind: "owner", text: "Bom dia" }] } });
 		const names = h.llm.requests[0]?.tools?.map((t) => t.name) ?? [];
-		for (const lazy of ["memory_list", "memory_add", "update_task_list", "settings_get", "set_role_model", "update_bot_profile", "remind_me", "watch", "on_event", "agenda_result", "product_search", "record_purchase", "purchase_list"]) expect(names).not.toContain(lazy);
+		for (const lazy of ["memory_list", "memory_add", "update_task_list", "settings_get", "set_role_model", "update_bot_profile", "remind_me", "watch", "on_event", "agenda_result", "product_search", "record_purchase", "purchase_list", "checkout"]) expect(names).not.toContain(lazy);
 	});
 
 	it("o modelo carrega memory e usa a tool no passo seguinte", async () => {
@@ -82,6 +87,30 @@ describe("preset full: memory, tasks e settings (F2.4)", () => {
 		expect(setup.unavailable).toEqual(["memory", "tasks", "settings", "research", "agenda", "shopping"]);
 		expect(setup.registry.ids()).toEqual(expect.not.arrayContaining(["memory"]));
 		expect(setupPreset("minimal", deps()).unavailable).toEqual([]);
+	});
+});
+
+describe("preset full: checkout dentro de shopping (F6.3)", () => {
+	const shoppingTools = (checkout: ReturnType<typeof checkoutDeps> | undefined) => {
+		const { checkout: _omit, ...base } = fullDeps();
+		const setup = setupPreset("full", { ...base, ...(checkout && { checkout }) });
+		return setup.registry.capabilities.find((c) => c.id === "shopping")?.tools.map((t) => t.name) ?? [];
+	};
+
+	it("com cartão salvo a tool checkout faz parte da capacidade shopping", () => {
+		expect(shoppingTools(checkoutDeps())).toEqual(["product_search", "record_purchase", "purchase_list", "checkout"]);
+	});
+
+	it("sem a porta de pagamento a tool checkout não é oferecida", () => {
+		expect(shoppingTools(undefined)).not.toContain("checkout");
+	});
+
+	it("sem cartão salvo a tool checkout não é oferecida", () => {
+		expect(shoppingTools({ ...checkoutDeps(), cards: [] })).not.toContain("checkout");
+	});
+
+	it("não existe mais capacidade `checkout` à parte", () => {
+		expect(setupPreset("full", fullDeps()).registry.ids()).not.toContain("checkout");
 	});
 });
 

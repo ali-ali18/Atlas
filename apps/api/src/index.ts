@@ -4,7 +4,7 @@
 import "dotenv/config";
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
-import { accountChatgptGate, ensureGithubRepoHook } from "@workspace/agent-runtime";
+import { accountChatgptGate, connectorEscrowSealer, ensureGithubRepoHook, isCardVaultConfigured } from "@workspace/agent-runtime";
 import {
 	closeRunSignals,
 	closeSweepSignals,
@@ -14,6 +14,7 @@ import {
 	createAgentRunQueue,
 	createChatCompletionQueue,
 	createRedisConnection,
+	createRedisCvvEscrowBackend,
 	createRoutineQueue,
 } from "@workspace/queue";
 import { loadConfig } from "./config.js";
@@ -82,6 +83,8 @@ import { createSandboxRoutes } from "./routes/sandbox.js";
 import { createSectionRoutes } from "./routes/sections.js";
 import { createAutonomyRoutes } from "./routes/autonomy.js";
 import { createAgentV4Routes } from "./routes/agent-v4.js";
+import { createCardRoutes } from "./routes/cards.js";
+import { createCvvEscrow } from "@workspace/agent";
 import { createAgendaRoutes } from "./routes/agenda.js";
 import { createSettingsRoutes } from "./routes/settings.js";
 import { createUsageRoutes } from "./routes/usage.js";
@@ -219,7 +222,11 @@ app.route("/", createChatRoutes(config));
 app.route("/", createComputerUseRoutes(config));
 app.route("/", createRunRoutes(config));
 // Respostas do dono a pedidos do motor v4 (aprovação, handoff, cartões); sem linhas de v4 nada é encontrado (404).
-app.route("/", createAgentV4Routes({ queue: config.agentRunQueue }));
+// Canal efêmero do CVV (F6.3): Redis, selado com a caixa de segredos do servidor. Sem Redis ou sem chave, aprovar uma compra responde 503.
+const cvvEscrow = redisConnection && isCardVaultConfigured() ? createCvvEscrow(createRedisCvvEscrowBackend(redisConnection), connectorEscrowSealer()) : null;
+app.route("/", createAgentV4Routes({ queue: config.agentRunQueue, cvvEscrow }));
+// Cartões salvos (sem CVV) e mandato de compra (F6.2 e F6.4).
+app.route("/", createCardRoutes());
 // Agenda do agente na Biblioteca (F4.4): só com o motor v4 ligado para a conta; sem ele a lista vem desligada.
 app.route("/", createAgendaRoutes());
 app.route("/", createEventRoutes());
