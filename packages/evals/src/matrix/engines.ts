@@ -27,7 +27,14 @@ const byRunEngine = (id: "v1" | "v2" | "v4", description: string): EngineAdapter
 export const ENGINE_ADAPTERS: Record<string, EngineAdapter> = {
 	v1: byRunEngine("v1", "motor atual (runComputerUse)"),
 	v2: byRunEngine("v2", "motor v2 (runEngineV2, perfil chat)"),
-	v4: byRunEngine("v4", "motor v4 (runAgent, preset full: web pelos fixtures, research com ajudantes reais, portas falsas em memória)"),
+	v4: {
+		...byRunEngine("v4", "motor v4 (runAgent, preset full: web pelos fixtures, research com ajudantes reais, agenda e demais portas falsas em memória)"),
+		// Cenário com superfície de tools própria no v4 (ex.: agenda) traz `engineOverrides.v4`, que troca expect e mock.
+		patchScenario: (scenario) => {
+			const override = scenario.engineOverrides?.v4;
+			return { ...scenario, run: { ...scenario.run, engine: "v4" }, ...(override?.expect && { expect: override.expect }), ...(override?.mock && { mock: override.mock }) };
+		},
+	},
 };
 
 export function resolveEngines(ids: readonly string[], table: Record<string, EngineAdapter> = ENGINE_ADAPTERS): EngineAdapter[] {

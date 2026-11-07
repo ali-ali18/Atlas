@@ -307,6 +307,7 @@ function fakeAdapters(searched: string[]): NonNullable<Parameters<typeof runEngi
 		notebook: { create: never, get: never, search: never, update: never, remove: never, listPinned: never } as never,
 		settings: { getBot: never, update: never } as never,
 		mcp: { listConnected: async () => [], loadRuntime: async () => null },
+		agenda: { loadSettings: never, create: never, list: never, change: never, record: never } as never,
 	};
 }
 
@@ -370,6 +371,38 @@ test("ajudante pedindo capacidade que a mãe não tem (o preset sem bot não tem
 	assert.equal(result?.status, "failed");
 	assert.match(result?.error ?? "", /does not have the capability "settings"/);
 	assert.equal(llm.requests.length, 1, "o modelo não foi chamado pelo ajudante");
+});
+
+// F4.3: run acordado pela agenda. Superfície sem dono, `agenda_result` no núcleo e a capacidade `agenda` fora do registro.
+test("run de agenda: lê o que o modelo recebe, fecha com agenda_result em UM passo, sem criar item e sem cartão", async () => {
+	const { db } = fakeDb();
+	const recorded: Array<{ userId: string; runId: string; outcome: string; message?: string; memo?: string }> = [];
+	const adapters = {
+		...fakeAdapters([]),
+		agenda: { loadSettings: async () => ({}) as never, create: (() => assert.fail("run de agenda não cria item")) as never, list: (() => assert.fail("x")) as never, change: (() => assert.fail("x")) as never, record: async (input: { userId: string; runId: string; outcome: string; message?: string; memo?: string }) => (recorded.push(input), { ok: true as const, item: {} as never, duplicate: false }) },
+	};
+	const events: ComputerUseEvent[] = [];
+	const llm = scripted([[{ type: "tool_call", call: { id: "a1", name: "agenda_result", args: { outcome: "update", message: "Caiu para R$ 4.200.", memo: "R$ 4.200" } } }, done()]]);
+	const { registry: _omit, ...input } = baseInput(llm, events, db);
+	const out = await runEngineV4({
+		...input,
+		botId: "bot-1",
+		adapters: adapters as never,
+		agendaRun: true,
+		policy: { surface: "agenda", ownerPresent: false, autonomy: "balanced", rules: [] },
+		ownerPresent: false,
+		limits: { unattended: true },
+		history: [{ kind: "runtime", text: "Agenda wake. You scheduled this earlier." }],
+		log: () => undefined,
+	});
+	assert.equal(llm.requests.length, 1, "agenda_result encerra o run: nenhuma segunda chamada ao modelo");
+	const tools = (llm.requests[0]?.tools ?? []).map((t) => t.name);
+	assert.ok(tools.includes("agenda_result"));
+	assert.ok(!tools.includes("ask_owner"), "sem dono para perguntar");
+	assert.ok(!tools.includes("remind_me") && !tools.includes("watch"));
+	assert.deepEqual(recorded, [{ userId: "user-a", runId: "run-1", outcome: "update", message: "Caiu para R$ 4.200.", memo: "R$ 4.200" }]);
+	assert.equal(out.parked, false);
+	assert.match(JSON.stringify(llm.requests[0]?.messages), /Agenda wake\. You scheduled this earlier\./);
 });
 
 test("regras do dono (policyJson.rules) entram na política do run: a tool negada volta como indisponível e a busca não roda", async () => {

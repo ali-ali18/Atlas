@@ -51,6 +51,22 @@ describe("verificações", () => {
 		expect(one({ type: "tool_called", tool: "propose_routine", max: 1 }, trajectory({ toolCalls: [routineCall, { ...routineCall, id: "c2" }] })).detail).toMatch(/2x/);
 	});
 
+	it("tool_result confere o que a tool devolveu (o que o motor resolveu), não o que o roteiro pediu (auditoria F4, T1)", () => {
+		const result = (summary: string, ok = true) => ({ id: "r", name: "remind_me", ok, summary, source: "real" as const });
+		const ten = trajectory({ toolResults: [result("Scheduled reminder ag-1: first run 2026-11-06 10:00 (America/Sao_Paulo).")] });
+		const item = { type: "tool_result", tool: "remind_me", pattern: "first run 2026-11-06 10:00 \\(America/Sao_Paulo\\)" };
+		expect(one(item, ten).pass).toBe(true);
+		// o roteiro pediu 10h mas o motor entendeu 15h: reprova
+		expect(one(item, trajectory({ toolResults: [result("Scheduled reminder ag-1: first run 2026-11-06 15:00 (America/Sao_Paulo).")] })).detail).toMatch(/sem \/first run 2026-11-06 10:00/);
+		expect(one(item, trajectory()).detail).toMatch(/não devolveu resultado/);
+		// ok é verificado (padrão true); max 0 vale como "nenhum resultado assim"
+		expect(one(item, trajectory({ toolResults: [result("first run 2026-11-06 10:00 (America/Sao_Paulo)", false)] })).pass).toBe(false);
+		const merged = trajectory({ toolResults: [result("Already scheduled (nothing new created): reminder ag-1.")] });
+		expect(one({ type: "tool_result", tool: "remind_me", pattern: "Already scheduled", max: 0 }, merged).detail).toMatch(/1 resultados/);
+		expect(one({ type: "tool_result", tool: "remind_me", pattern: "Already scheduled", max: 0 }, ten).pass).toBe(true);
+		expect(parseScenario({ version: 1, id: "t", title: "t", bot: { name: "Ada" }, user: "oi", expect: [{ type: "tool_result", tool: "x", pattern: "(" }] }).ok).toBe(false);
+	});
+
 	it("tool_not_called com padrão", () => {
 		const del = { id: "d", name: "mcp__loja__delete_orders", args: {}, argsRaw: "" };
 		expect(one({ type: "tool_not_called", toolPattern: "delete" }, trajectory({ toolCalls: [del] })).detail).toBe("chamou mcp__loja__delete_orders");

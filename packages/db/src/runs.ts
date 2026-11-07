@@ -1381,7 +1381,7 @@ export async function failAgentRunAfterRetries(
 			await lockRunEventSeq(tx, runId);
 			await insertRunEventRow(tx, runId, "error", {
 				type: "error",
-				error: display?.resultText ?? error,
+				error: display?.resultText || error,
 			});
 			return true;
 		},

@@ -140,5 +140,73 @@
         "say": "Combinado: vou conferir o preço do kit e te aviso se cair abaixo de R$ 189,90."
       }
     ]
+  },
+  "engineOverrides": {
+    "v4": {
+      "expect": [
+        {
+          "type": "completed"
+        },
+        {
+          "id": "agendou-vigia",
+          "type": "tool_called",
+          "tool": "watch",
+          "args": {
+            "note": {
+              "contains": "boticario.test"
+            },
+            "everyMinutes": {
+              "exists": true
+            }
+          }
+        },
+        {
+          "id": "primeira-conferencia-em-6h-no-fuso-do-dono",
+          "type": "tool_result",
+          "tool": "watch",
+          "pattern": "first run 2026-11-05 15:00 \\(America/Sao_Paulo\\)"
+        },
+        {
+          "id": "nao-criou-rotina-do-usuario",
+          "type": "tool_not_called",
+          "tool": "propose_routine"
+        },
+        {
+          "type": "no_question"
+        },
+        {
+          "type": "no_internals"
+        }
+      ],
+      "mock": {
+        "turns": [
+          {
+            "calls": [
+              {
+                "name": "use_capability",
+                "args": {
+                  "id": "agenda"
+                }
+              }
+            ]
+          },
+          {
+            "calls": [
+              {
+                "name": "watch",
+                "args": {
+                  "note": "Check the current price of the Kit Presente Floratta Blue Crystal at https://www.boticario.test/kit-floratta-blue-crystal (was R$ 189,90 on 2026-11-05). Tell the owner only if it is lower; finish when it is.",
+                  "everyMinutes": 360,
+                  "maxRuns": 40
+                }
+              }
+            ]
+          },
+          {
+            "say": "Combinado: vou conferir o preço do kit e te aviso se cair abaixo de R$ 189,90."
+          }
+        ]
+      }
+    }
   }
 }

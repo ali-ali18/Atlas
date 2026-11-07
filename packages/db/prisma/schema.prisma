@@ -1121,7 +1121,7 @@ model BotFollowup {
   note           String
   /// reminder | check
   kind           String    @default("reminder")
-  /// pending | done | cancelled
+  /// pending | done | cancelled (agenda v4 acrescenta: paused)
   status         String    @default("pending")
   /// chat (usuário pediu na conversa) | reflection (o bot decidiu sozinho)
   source         String    @default("chat")
@@ -1134,12 +1134,43 @@ model BotFollowup {
   doneAt         DateTime?
   /// Avisos do lembrete: [{ at, firedAt }]. Nulo = um aviso só, em dueAt. dueAt = próximo aviso pendente.
   stages         Json?
+  // --- Agenda do agente (Motor v4, F4.1). Tudo anulável ou com default: linha antiga (v2) fica com `agendaKind` nulo. ---
+  /// remind | watch | intent | brief. Nulo = lembrete/verificação do v2 (a varredura do v2 só pega nulo).
+  agendaKind       String?
+  /// Intervalo entre execuções (watch e remind recorrente). Nulo = uma vez.
+  intervalMinutes  Int?
+  /// A agenda para de vigiar depois deste instante.
+  untilAt          DateTime?
+  /// Teto de execuções (runCount conta as já feitas).
+  maxRuns          Int?
+  runCount         Int       @default(0)
+  /// Filtro estrutural do evento que acorda um item `intent` (campos declarados, sem regex).
+  eventFilterJson  Json?
+  /// Execuções seguidas sem novidade: aumentam o espaçamento.
+  noChangeStreak   Int       @default(0)
+  /// Último resultado do run de agenda: { runId, outcome, at, message?, memo?, pending? }.
+  lastResultJson   Json?
+  /// Instante do último aviso postado e ainda não avaliado como lido ou ignorado.
+  lastNoticeAt     DateTime?
+  /// Avisos seguidos que o dono ignorou (parou ao chegar em 2).
+  ignoredStreak    Int       @default(0)
+  /// Permissão decidida na criação: { autonomy, rules }. O run de agenda usa só isto, sem dono para perguntar.
+  grantJson        Json?
+  /// Por que a agenda encerrou ou pausou sozinha (done | cancelled | paused): ignored_notices, max_runs, expired, no_result…
+  endReason        String?
+  /// A nota nasceu num run que leu conteúdo não confiável (e-mail, web, arquivo…): no wake ela entra como DADO, não como
+  /// instrução do runtime. O memo do último resultado leva o próprio sinal em `lastResultJson.memoUntrusted`.
+  noteUntrusted    Boolean   @default(false)
+  /// Janela de 24h do item `intent`: quando abriu e quantos acordares por evento já gastou (teto diário de custo).
+  eventWindowAt    DateTime?
+  eventWindowCount Int       @default(0)
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
   @@index([status, dueAt])
   @@index([botId, status])
   @@index([userId])
+  @@index([userId, agendaKind, status])
   @@map("bot_followups")
 }
 

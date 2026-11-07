@@ -501,6 +501,7 @@ export {
 	type ScheduleCronInput,
 } from "./schedule-cron.js";
 export * from "./proactive.js";
+export * from "./agenda.js";
 export * from "./reflection.js";
 export * from "./work-hours.js";
 export * from "./reaction-only.js";

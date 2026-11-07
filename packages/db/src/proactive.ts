@@ -119,7 +119,7 @@ export async function createFollowup(input: {
 	const note = input.note.trim().slice(0, FOLLOWUP_NOTE_MAX_CHARS);
 	if (!note) throw new FollowupError("note vazio");
 	const pending = await prisma.botFollowup.findMany({
-		where: { botId: bot.id, userId: input.userId, status: "pending" },
+		where: { botId: bot.id, userId: input.userId, status: "pending", agendaKind: null },
 		orderBy: { dueAt: "asc" },
 	});
 	const dates = input.stages && input.stages.length > 0 ? normalizeNewStages(input.stages) : [input.dueAt];
@@ -153,7 +153,8 @@ export async function listFollowups(
 ): Promise<FollowupRecord[]> {
 	if (!userId.trim() || userId === "default") return [];
 	const rows = await prisma.botFollowup.findMany({
-		where: { userId, botId, status: options.status ?? "pending" },
+		// Itens da agenda do v4 (`agendaKind` preenchido) têm lista própria (`listAgendaItems`).
+		where: { userId, botId, status: options.status ?? "pending", agendaKind: null },
 		orderBy: { dueAt: "asc" },
 		take: Math.min(100, options.limit ?? 50),
 	});
@@ -164,7 +165,7 @@ export async function listFollowups(
 export async function cancelFollowup(userId: string, followupId: string, botId?: string): Promise<boolean> {
 	if (!userId.trim() || userId === "default") return false;
 	const result = await prisma.botFollowup.updateMany({
-		where: { id: followupId, userId, status: "pending", ...(botId ? { botId } : {}) },
+		where: { id: followupId, userId, status: "pending", agendaKind: null, ...(botId ? { botId } : {}) },
 		data: { status: "cancelled", doneAt: new Date(), claimedUntil: null },
 	});
 	return result.count === 1;
@@ -192,7 +193,7 @@ export async function rescheduleOwnedFollowup(input: {
 	const bot = await ownedBot(input.userId, input.botId);
 	if (!bot) return notFound;
 	const row = await prisma.botFollowup.findFirst({
-		where: { id: input.followupId, userId: input.userId, botId: bot.id, status: "pending" },
+		where: { id: input.followupId, userId: input.userId, botId: bot.id, status: "pending", agendaKind: null },
 	});
 	if (!row) return notFound;
 	const settings = readProactiveSettings(bot.policyJson, await accountTimezoneOf(input.userId));
@@ -207,7 +208,7 @@ export async function rescheduleOwnedFollowup(input: {
 	const movedNext = index === nextIndex;
 	const data = { dueAt: due, ...(movedNext ? { requestedFor: plan.requestedFor } : {}), stages, claimedUntil: null, attempts: 0, lastError: null };
 	const result = await prisma.botFollowup.updateMany({
-		where: { id: row.id, userId: input.userId, status: "pending" },
+		where: { id: row.id, userId: input.userId, status: "pending", agendaKind: null },
 		data,
 	});
 	if (result.count !== 1) return notFound;
@@ -226,7 +227,7 @@ export async function claimDueFollowups(now: Date, limit = SWEEP_BATCH): Promise
 		UPDATE "bot_followups" SET "claimedUntil" = ${claimUntil}, "updatedAt" = ${now}
 		WHERE "id" IN (
 			SELECT "id" FROM "bot_followups"
-			WHERE "status" = 'pending' AND "dueAt" <= ${now}
+			WHERE "status" = 'pending' AND "agendaKind" IS NULL AND "dueAt" <= ${now}
 			  AND ("claimedUntil" IS NULL OR "claimedUntil" <= ${now})
 			ORDER BY "dueAt" ASC
 			LIMIT ${limit}
@@ -236,9 +237,11 @@ export async function claimDueFollowups(now: Date, limit = SWEEP_BATCH): Promise
 	return rows.map(toFollowup);
 }
 
+// As mutações por `id` abaixo valem só para linhas do v2 (`agendaKind: null`): a agenda do v4 tem as suas
+// (`agenda.ts`) e um id de agenda vindo de fora não pode ser concluído, adiado ou abandonado por aqui.
 export async function completeFollowup(id: string, runId: string | null, now = new Date()): Promise<void> {
 	await prisma.botFollowup.updateMany({
-		where: { id, status: "pending" },
+		where: { id, status: "pending", agendaKind: null },
 		data: { status: "done", runId, doneAt: now, claimedUntil: null, lastError: null },
 	});
 }
@@ -251,13 +254,13 @@ export async function fireFollowupStage(followup: FollowupRecord, runId: string 
 	const advanced = advanceFollowupStages(followup.stages, now);
 	if (!advanced.nextDueAt) {
 		await prisma.botFollowup.updateMany({
-			where: { id: followup.id, status: "pending" },
+			where: { id: followup.id, status: "pending", agendaKind: null },
 			data: { status: "done", runId, doneAt: now, claimedUntil: null, lastError: null, stages: advanced.stages },
 		});
 		return { remaining: false };
 	}
 	await prisma.botFollowup.updateMany({
-		where: { id: followup.id, status: "pending" },
+		where: { id: followup.id, status: "pending", agendaKind: null },
 		data: { dueAt: advanced.nextDueAt, runId, claimedUntil: null, attempts: 0, lastError: null, stages: advanced.stages },
 	});
 	return { remaining: true };
@@ -269,7 +272,7 @@ export async function rescheduleFollowup(
 	input: { dueAt: Date; error?: string; countAttempt?: boolean },
 ): Promise<void> {
 	await prisma.botFollowup.updateMany({
-		where: { id, status: "pending" },
+		where: { id, status: "pending", agendaKind: null },
 		data: {
 			dueAt: input.dueAt,
 			claimedUntil: null,
@@ -281,7 +284,7 @@ export async function rescheduleFollowup(
 
 export async function abandonFollowup(id: string, error: string, now = new Date()): Promise<void> {
 	await prisma.botFollowup.updateMany({
-		where: { id, status: "pending" },
+		where: { id, status: "pending", agendaKind: null },
 		data: { status: "cancelled", doneAt: now, claimedUntil: null, lastError: error.slice(0, 300) },
 	});
 }
@@ -462,7 +465,7 @@ export type ProactiveSweepResult = {
 	reflections: number;
 };
 
-async function resolveProactiveModel(botId: string, userId: string, envDefault: string): Promise<string> {
+export async function resolveProactiveModel(botId: string, userId: string, envDefault: string): Promise<string> {
 	const override = process.env.ATLAS_PROACTIVE_MODEL?.trim();
 	if (override) return override;
 	const botModel = await getBotModelForUser(botId, userId);

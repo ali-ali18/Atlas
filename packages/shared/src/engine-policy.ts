@@ -186,6 +186,8 @@ export function chooseRunEngine(input: {
 	/** Dono do run e a flag do v4. Sem eles (ou com a flag desligada) a decisão é a de antes, sem v4 possível. */
 	userId?: string;
 	v4Gate?: EngineV4Gate;
+	/** O run foi acordado por um item da agenda do v4 (o banco liga o item ao run). Só então o v4 atende a origem `proactive`. */
+	agenda?: boolean;
 }): RunEngine {
 	const v4Allowed = isEngineV4Enabled(input.v4Gate, input.userId);
 	if (input.stored) {
