@@ -13,6 +13,7 @@ export * from "./random.js";
 export * from "./sandbox.js";
 export * from "./search.js";
 export * from "./settings.js";
+export * from "./shopping.js";
 export * from "./store.js";
 export * from "./task-list.js";
 export * from "./vault.js";

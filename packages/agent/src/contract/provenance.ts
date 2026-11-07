@@ -33,7 +33,7 @@ export const PRIVATE_TRUST_SOURCES: readonly TrustSource[] = TRUST_SOURCES.filte
  * Tipo de dado do dono que uma tool devolve, declarado na própria tool. Cobre o que `TrustSource` não cobre
  * (memória é do dono e confiável, então não tem `source`). Declarar um tipo exige `privateData: true`.
  */
-export const OWNER_DATA_KINDS = ["email", "file", "memory", "connector"] as const;
+export const OWNER_DATA_KINDS = ["email", "file", "memory", "connector", "purchase"] as const;
 export type OwnerDataKind = (typeof OWNER_DATA_KINDS)[number];
 
 /** Tamanho mínimo (caracteres) de um trecho copiado para contar como dado carregado nos argumentos. */

@@ -7,6 +7,8 @@ import { createResearchCapability } from "../capabilities-builtin/research/index
 import type { DeliverablePorts } from "../ports/deliverables.js";
 import { createAgendaCapability } from "../capabilities/agenda/index.js";
 import { createMemoryCapability } from "../capabilities/memory/index.js";
+import { createShoppingCapability } from "../capabilities/shopping/index.js";
+import type { ShoppingPorts } from "../ports/shopping.js";
 import { createSettingsCapability } from "../capabilities/settings/index.js";
 import { createTasksCapability } from "../capabilities/tasks/index.js";
 import type { Agenda } from "../ports/agenda.js";
@@ -24,7 +26,7 @@ import { createWebCapability } from "./web.js";
 export const PRESET_IDS = ["minimal", "full"] as const;
 export type PresetId = (typeof PRESET_IDS)[number];
 
-export type CapabilityId = "web" | "deliverables-lite" | "memory" | "tasks" | "settings" | "research" | "agenda";
+export type CapabilityId = "web" | "deliverables-lite" | "memory" | "tasks" | "settings" | "research" | "agenda" | "shopping";
 
 export type AgentPreset = {
 	id: PresetId;
@@ -36,7 +38,7 @@ export type AgentPreset = {
 
 export const PRESETS: Readonly<Record<PresetId, AgentPreset>> = Object.freeze({
 	minimal: Object.freeze({ id: "minimal", capabilities: Object.freeze(["web", "deliverables-lite"] as const), workContract: false }),
-	full: Object.freeze({ id: "full", capabilities: Object.freeze(["web", "deliverables-lite", "memory", "tasks", "settings", "research", "agenda"] as const), workContract: true }),
+	full: Object.freeze({ id: "full", capabilities: Object.freeze(["web", "deliverables-lite", "memory", "tasks", "settings", "research", "agenda", "shopping"] as const), workContract: true }),
 });
 
 /**
@@ -57,6 +59,8 @@ export type PresetDeps = {
 	helpers?: Helpers;
 	/** Agenda (F4.2): lembrete, vigia e intenção por evento. Lazy; sem a porta a capacidade não entra. */
 	agenda?: Agenda;
+	/** Compras (F6): leitura estruturada de produto e compra registrada. Lazy; sem as portas a capacidade não entra. */
+	shopping?: ShoppingPorts;
 };
 
 export function isPresetId(value: unknown): value is PresetId {
@@ -75,6 +79,8 @@ const FACTORIES: Readonly<Record<CapabilityId, CapabilityFactory>> = {
 	research: (deps) => deps.helpers && createResearchCapability(deps.helpers),
 	// F4.2: lazy como as demais (o núcleo do plano é "agenda disponível", não "schema sempre carregado": "Bom dia" segue barato).
 	agenda: (deps) => deps.agenda && createAgendaCapability(deps.agenda),
+	// F6: lazy; a compra grava o vigia de entrega pela agenda do próprio preset.
+	shopping: (deps) => deps.shopping && createShoppingCapability({ ...deps.shopping, search: deps.search, ...(deps.agenda && { agenda: deps.agenda }) }),
 };
 
 /** Capacidades do preset que não entram por falta da porta. */

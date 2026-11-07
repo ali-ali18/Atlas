@@ -6,3 +6,4 @@ export * from "./registry.js";
 export * from "./memory/index.js";
 export * from "./settings/index.js";
 export * from "./tasks/index.js";
+export * from "./shopping/index.js";

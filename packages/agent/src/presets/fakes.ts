@@ -6,7 +6,8 @@ import type { Helpers, HelperResult, HelperTask } from "../ports/helpers.js";
 import type { FileStore, StoredFile } from "../ports/file-store.js";
 import type { Memory, MemoryAddInput, MemoryItem, MemoryLayer } from "../ports/memory.js";
 import type { Notebook, NotebookAddInput, NotebookNote, NotebookPatch } from "../ports/notebook.js";
-import { findDuplicateNote, rankNotes } from "@workspace/shared";
+import { findDuplicateNote, purchaseDedupeKey, rankNotes, type PurchaseView } from "@workspace/shared";
+import type { ProductCardPayload, ShoppingPorts } from "../ports/shopping.js";
 import type { Search, SearchExtract, SearchHit } from "../ports/search.js";
 import type { BotSettingsPatch, BotSettingsView, Settings } from "../ports/settings.js";
 import type { TaskListState, TaskListStore } from "../ports/task-list.js";
@@ -300,5 +301,71 @@ export class FakeAgenda implements Agenda {
 			item.endReason = "done";
 		}
 		return { ok: true };
+	}
+}
+
+/** Página de produto de teste com JSON-LD (a forma que as lojas publicam). `shipping` ausente = frete não informado. */
+export function productPageHtml(input: { name: string; price: number; currency?: string; shipping?: number; merchant?: string; availability?: string; oldPrice?: number; images?: string[]; rating?: { value: number; count: number } }): string {
+	const currency = input.currency ?? "BRL";
+	const offer = {
+		"@type": "Offer",
+		price: input.price,
+		priceCurrency: currency,
+		availability: `https://schema.org/${input.availability ?? "InStock"}`,
+		...(input.merchant && { seller: { "@type": "Organization", name: input.merchant } }),
+		...(input.shipping !== undefined && { shippingDetails: { "@type": "OfferShippingDetails", shippingRate: { "@type": "MonetaryAmount", value: input.shipping, currency } } }),
+	};
+	const product = { "@context": "https://schema.org", "@type": "Product", name: input.name, image: input.images ?? [], description: `Descrição de ${input.name}.`, offers: offer, ...(input.oldPrice !== undefined && { offers: { ...offer, priceSpecification: { "@type": "UnitPriceSpecification", priceType: "https://schema.org/ListPrice", price: input.oldPrice } } }), ...(input.rating && { aggregateRating: { "@type": "AggregateRating", ratingValue: input.rating.value, reviewCount: input.rating.count } }) };
+	return `<html><head><title>${input.name}</title><script type="application/ld+json">${JSON.stringify(product)}</script></head><body><h1>${input.name}</h1></body></html>`;
+}
+
+/** Portas de compras falsas em memória: páginas por URL, cartões emitidos e compras com dono e dedupe (mesmas regras do db). */
+export class FakeShopping {
+	readonly html = new Map<string, string>();
+	readonly fetched: Array<{ userId: string; url: string }> = [];
+	readonly productCards: Array<{ userId: string; runId: string; card: ProductCardPayload }> = [];
+	readonly purchaseCards: Array<{ userId: string; runId: string; purchase: PurchaseView }> = [];
+	readonly rows: Array<PurchaseView & { userId: string; key: string; deliveryWatchId?: string }> = [];
+	private seq = 0;
+
+	readonly ports: ShoppingPorts = {
+		pages: {
+			fetchHtml: async (userId, url) => {
+				this.fetched.push({ userId, url });
+				const html = this.html.get(url);
+				if (html === undefined) throw new Error("The page could not be fetched (blocked, not found or unreachable).");
+				return { url, html };
+			},
+		},
+		cards: {
+			show: async (userId, runId, card) => {
+				if (!this.productCards.some((c) => c.card.cardId === card.cardId)) this.productCards.push({ userId, runId, card });
+			},
+		},
+		purchases: {
+			record: async (userId, _runId, purchase) => {
+				const key = purchaseDedupeKey(purchase);
+				const found = this.rows.find((r) => r.userId === userId && r.key === key);
+				if (found) return { purchase: this.view(found), duplicate: true };
+				const row = { ...structuredClone(purchase), id: `pur-${++this.seq}`, botId: null, createdAt: new Date(0).toISOString(), userId, key };
+				this.rows.push(row);
+				return { purchase: this.view(row), duplicate: false };
+			},
+			attachDeliveryWatch: async (userId, purchaseId, watchId) => {
+				const row = this.rows.find((r) => r.userId === userId && r.id === purchaseId);
+				if (row) row.deliveryWatchId = watchId;
+			},
+			show: async (userId, runId, purchase) => {
+				this.purchaseCards.push({ userId, runId, purchase });
+			},
+			list: async (userId, options) => this.rows.filter((r) => r.userId === userId).slice(0, options?.limit ?? 50).map((r) => this.view(r)),
+		},
+	};
+	private view(row: PurchaseView & { userId: string; key: string; deliveryWatchId?: string }): PurchaseView {
+		const { userId: _u, key: _k, deliveryWatchId: _d, ...view } = structuredClone(row);
+		void _u;
+		void _k;
+		void _d;
+		return view;
 	}
 }
