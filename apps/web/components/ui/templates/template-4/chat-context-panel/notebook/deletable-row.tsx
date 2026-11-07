@@ -60,6 +60,7 @@ export function DeletableRow({
 					confirmLabel={confirmLabel}
 					description={confirmBody}
 					destructive
+					selfConfirm
 					disabled={busy}
 					onCancel={() => setConfirming(false)}
 					onConfirm={() => {
