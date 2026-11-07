@@ -311,6 +311,9 @@ function fakeAdapters(searched: string[]): NonNullable<Parameters<typeof runEngi
 	};
 }
 
+/** Dono sem cartão nem mandato (pagamento da F6): o preset não depende do banco real nestes testes. */
+const noPaymentDeps = () => ({ listCards: async () => [], getMeta: async () => null, getSealed: async () => null, openJson: () => "{}", getMandate: async () => null, lowerUses: async () => undefined }) as never;
+
 test("preset full pelas portas reais: capacidades montadas, nada indisponível e a busca passa pelo adaptador do worker", async () => {
 	const events: ComputerUseEvent[] = [];
 	const logs: string[] = [];
@@ -318,7 +321,7 @@ test("preset full pelas portas reais: capacidades montadas, nada indisponível e
 	const { db } = fakeDb();
 	const llm = scripted([[{ type: "tool_call", call: { id: "c1", name: "web_search", args: { query: "atlas" } } }, done()], [{ type: "text_delta", text: "Achei." }, done()]]);
 	const { registry: _omit, ...input } = baseInput(llm, events, db);
-	const out = await runEngineV4({ ...input, botId: "bot-1", adapters: fakeAdapters(searched), log: (m) => void logs.push(m) });
+	const out = await runEngineV4({ ...input, botId: "bot-1", adapters: fakeAdapters(searched), paymentDeps: noPaymentDeps(), log: (m) => void logs.push(m) });
 	assert.equal(out.text, "Achei.");
 	assert.deepEqual(searched, ["atlas"]);
 	assert.deepEqual(logs, [], "com bot, nenhuma capacidade do preset fica sem porta");
@@ -331,7 +334,7 @@ test("preset full sem bot no run: configurações indisponíveis vão ao log té
 	const logs: string[] = [];
 	const { db } = fakeDb();
 	const { registry: _omit, ...input } = baseInput(scripted([[{ type: "text_delta", text: "Oi" }, done()]]), [], db);
-	const out = await runEngineV4({ ...input, adapters: fakeAdapters([]), log: (m) => void logs.push(m) });
+	const out = await runEngineV4({ ...input, adapters: fakeAdapters([]), paymentDeps: noPaymentDeps(), log: (m) => void logs.push(m) });
 	assert.equal(out.text, "Oi");
 	assert.equal(logs.length, 1);
 	assert.match(logs[0] as string, /capacidades sem porta: settings/);
