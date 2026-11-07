@@ -43,6 +43,7 @@
 | F3 pesquisa | `feat/harness-v4-f3-pesquisa` | **concluída, juntada em `harness/v4`** | #153 |
 | F4 agenda | `feat/harness-v4-f4-agenda` | **backend juntado em `harness/v4`** (#155); tela da Agenda juntada | #155, #157 |
 | F5 memória | `feat/harness-v4-f5-memoria` | **backend juntado em `harness/v4`** (#154); telas do Caderno, regras e sono juntadas | #154, #157 |
+| F6 compras | `feat/harness-v4-f6-compras` | em andamento: frentes P (produto e compra registrada) e C (cartão, checkout e CVV) | — |
 
 ## Decisões do dono (não reabrir)
 - Base nova, do zero, em `packages/agent`, sem import do legado (05/11).
