@@ -162,7 +162,7 @@ export function NotesList(props: NotesListProps) {
 									<div className="flex min-w-0 items-start gap-1">
 										<span className="flex min-w-0 flex-1 items-center gap-1.5">
 											{note.pinned ? <PinIcon aria-label={t("notebook.notes.pinned")} className="size-3.5 shrink-0 text-muted-foreground" role="img" /> : null}
-											<span className="min-w-0 truncate font-medium text-body">{note.title}</span>
+											<span className="line-clamp-2 min-w-0 break-words font-medium text-body" data-note-title>{note.title}</span>
 										</span>
 										<Button
 											aria-label={note.pinned ? t("notebook.notes.unpin", { title: note.title }) : t("notebook.notes.pin", { title: note.title })}

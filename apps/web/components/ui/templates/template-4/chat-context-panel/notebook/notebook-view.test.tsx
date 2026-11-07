@@ -55,6 +55,13 @@ test("seção Caderno: com a Biblioteca fechada (active=false) o título existe 
 	assert.match(html(<NotebookSection active botId="b1" enabled />), /data-library-section="notebook"/);
 });
 
+test("título longo da nota quebra em até 2 linhas em vez de cortar sem saída", () => {
+	const out = html(<NotesList {...notesProps({ notes: [note({ title: "Roteiro completo da viagem a Lisboa em março com todos os passeios e reservas" })] })} />);
+	const title = out.match(/<span[^>]*data-note-title[^>]*>/)?.[0] ?? "";
+	assert.match(title, /line-clamp-2/);
+	assert.doesNotMatch(title, /\btruncate\b/);
+});
+
 test("notas: vazio convida a pedir ao bot; filtro mostra qual está ativo", () => {
 	const out = html(<NotesList {...notesProps()} />);
 	assert.match(out, /Ainda não há notas/);
