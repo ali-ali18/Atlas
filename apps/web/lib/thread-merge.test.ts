@@ -210,5 +210,5 @@ test("produto e compra (F6): ao vivo e gravado com a mesma identidade não dupli
 	assert.equal(dedupeCards([product("a"), product("b")]).length, 1);
 	assert.equal(dedupeCards([purchase("a"), purchase("b")]).length, 1);
 	// Cartões diferentes continuam separados.
-	assert.equal(dedupeCards([product("a"), { ...product("b"), cardId: "run-1:product:outro" }]).length, 2);
+	assert.equal(dedupeCards([product("a"), { id: "b", kind: "product", cardId: "run-1:product:outro", items: [item] } as Message]).length, 2);
 });

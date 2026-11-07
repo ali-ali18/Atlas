@@ -5,7 +5,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { offerTotal, type ProductOffer } from "@workspace/shared";
 
 import { loadMessages } from "@/lib/i18n/messages";
-import { I18nProvider, type UiLocale } from "@/lib/i18n/provider";
+import type { UiLocale } from "@/lib/i18n/locales";
+import { I18nProvider } from "@/lib/i18n/provider";
 
 import { ProductCard, PurchaseCard, SafeImage, safeHttpUrl } from "./index";
 
