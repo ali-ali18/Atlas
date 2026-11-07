@@ -1039,3 +1039,4 @@ export * from "./owner-notes.js";
 export * from "./sleep.js";
 export * from "./memory-doctor.js";
 export * from "./learned-rules.js";
+export * from "./payment-card.js";
