@@ -6,7 +6,9 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { AgendaAction, AgendaItemView } from "@workspace/shared";
 import { AtlasApiError } from "@/lib/atlas-api";
 import { performAgendaAction } from "./agenda-actions";
-import { AgendaCard, AgendaList, BotAgenda } from "./agenda-section";
+import { AgendaCard } from "./agenda-card";
+import { AgendaList } from "./agenda-list";
+import { BotAgenda } from "./agenda-section";
 import { BotLibrary } from "./bot-library";
 import { agendaCardModel } from "./agenda-text";
 
