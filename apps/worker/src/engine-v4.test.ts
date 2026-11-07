@@ -308,6 +308,7 @@ function fakeAdapters(searched: string[]): NonNullable<Parameters<typeof runEngi
 		settings: { getBot: never, update: never } as never,
 		mcp: { listConnected: async () => [], loadRuntime: async () => null },
 		agenda: { loadSettings: never, create: never, list: never, change: never, record: never } as never,
+		shopping: { fetchHtml: never, record: never, attachWatch: never, list: never, persistCard: never } as never,
 	};
 }
 

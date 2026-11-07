@@ -699,3 +699,43 @@ export async function extractWebPage(
     truncated: capped.truncated,
   };
 }
+
+/**
+ * HTML bruto de uma página (F6.1, `product_search`): o JSON-LD/OpenGraph só existem na marcação, não no Markdown que o
+ * `extractWebPage` devolve. Mesmas proteções da extração: SSRF por salto (DNS e redirecionamentos), robots.txt, limite
+ * por domínio, timeout e teto de bytes. Não usa o cache de Markdown. Lança `ExtractError` com `code`.
+ */
+export async function fetchPageHtml(
+  rawUrl: string,
+  options: ExtractWebPageOptions = {},
+): Promise<{ url: string; html: string }> {
+  let first: URL;
+  try {
+    first = await assertPublicExtractUrl(rawUrl, options.lookupFn);
+  } catch (error) {
+    if (error instanceof ExtractError) throw error;
+    throw new ExtractError("blocked", "URL inválida", "corrija a URL ou use web_search");
+  }
+  const fetchFn = options.fetchFn ?? globalThis.fetch.bind(globalThis);
+  const allowed = await isAllowedByRobots(first, fetchFn, options.signal).catch(() => true);
+  if (!allowed) {
+    throw new ExtractError("robots_denied", `robots.txt proíbe a extração: ${first.origin}${first.pathname}`, `${BROWSER_HINT}, motivo: robots.txt`);
+  }
+  checkExtractRateLimit(first.hostname.toLowerCase());
+  let response: Response;
+  let finalUrl: string;
+  try {
+    ({ response, finalUrl } = await safeExtractFetch(rawUrl, options));
+  } catch (error) {
+    if (error instanceof ExtractError) throw error;
+    const timedOut = error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");
+    throw new ExtractError(timedOut ? "timeout" : "blocked", timedOut ? "tempo esgotado na leitura" : "falha de rede", `${BROWSER_HINT}, motivo: ${timedOut ? "timeout" : "falha de rede"}`);
+  }
+  if (response.status === 401 || response.status === 403) throw new ExtractError("needs_login", `HTTP ${response.status} (acesso negado/login)`, `${BROWSER_HINT}, motivo: acesso negado/login`);
+  if (response.status === 429) throw new ExtractError("rate_limited", "HTTP 429 (limite do site)", `${BROWSER_HINT}, motivo: rate limit`);
+  if (!response.ok) throw new ExtractError("blocked", `HTTP ${response.status}`, `${BROWSER_HINT}, motivo: HTTP ${response.status}`);
+  const type = (response.headers.get("content-type") ?? "").toLowerCase();
+  if (type && !/html|xml/.test(type)) throw new ExtractError("blocked", `conteúdo não é uma página (${type.split(";")[0]})`, `${BROWSER_HINT}, motivo: não é HTML`);
+  const bytes = await readCappedBytes(response, EXTRACT_MAX_BYTES);
+  return { url: finalUrl, html: new TextDecoder("utf-8").decode(bytes) };
+}

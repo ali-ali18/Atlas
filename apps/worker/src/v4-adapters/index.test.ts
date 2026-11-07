@@ -28,6 +28,7 @@ export function fakeAdapterDeps(options: { connections?: Connected; listFails?: 
 			loadRuntime: async () => null,
 		},
 		agenda: { loadSettings: never, create: never, list: never, change: never, record: never } as unknown as V4AdapterDeps["agenda"],
+		shopping: { fetchHtml: never, record: never, attachWatch: never, list: never, persistCard: never } as unknown as V4AdapterDeps["shopping"],
 	};
 }
 
@@ -40,7 +41,7 @@ test("com bot e portas reais montadas, o preset full não tem capacidade indispo
 	const setup = await buildV4Registry({ ...base, botId: "bot-1", deps: fakeAdapterDeps(), log: (m) => void logs.push(m) });
 	assert.deepEqual(setup.unavailable, []);
 	assert.deepEqual(logs, []);
-	assert.deepEqual(setup.registry.ids(), ["agenda", "connectors", "deliverables", "memory", "research", "settings", "tasks", "web"]);
+	assert.deepEqual(setup.registry.ids(), ["agenda", "connectors", "deliverables", "memory", "research", "settings", "shopping", "tasks", "web"]);
 	assert.match(setup.stableSystem, /Work contract/);
 	assert.match(setup.stableSystem, /connectors/);
 	// confirmWrites do conector vira `confirm: "always"` na tool genérica de escrita
