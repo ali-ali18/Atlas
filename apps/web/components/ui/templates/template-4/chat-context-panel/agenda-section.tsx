@@ -1,29 +1,18 @@
 "use client";
 
-import { CalendarClockIcon, Trash2Icon } from "lucide-react";
+import { CalendarClockIcon } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import type { AgendaAction, AgendaItemView, AgendaListResponse } from "@workspace/shared";
-import {
-	AlertDialog,
-	AlertDialogAction,
-	AlertDialogCancel,
-	AlertDialogContent,
-	AlertDialogDescription,
-	AlertDialogFooter,
-	AlertDialogHeader,
-	AlertDialogTitle,
-} from "@workspace/ui/components/alert-dialog";
 import { Badge } from "@workspace/ui/components/badge";
-import { Button } from "@workspace/ui/components/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@workspace/ui/components/collapsible";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@workspace/ui/components/empty";
 import { Switch } from "@workspace/ui/components/switch";
 import { cn } from "@workspace/ui/lib/utils";
-import { useLongPress } from "@/hooks/use-long-press";
 import { changeAgendaItem, listAgenda } from "@/lib/atlas-api";
 import { useT, useTranslations } from "@/lib/i18n/provider";
 import { performAgendaAction } from "./agenda-actions";
 import { type AgendaCardModel, agendaCardModel, applyAgendaChange } from "./agenda-text";
+import { DeletableRow } from "./deletable-row";
 import { LibrarySection } from "./library-section";
 
 /** Resultado de uma ação para o cartão mostrar o aviso certo. */
@@ -31,26 +20,24 @@ export type AgendaActionResult = "ok" | "gone" | "error";
 
 const STATE_BADGE = { active: "success", paused: "warning", ended: "secondary" } as const;
 
-/** Um combinado da agenda. Pausar/retomar é o interruptor; cancelar só aparece no hover/foco (mouse) ou na pressão longa (toque). */
+/** Um combinado da agenda. Pausar/retomar é o interruptor; cancelar é a lixeira apagável (hover/foco no mouse, pressão longa no toque) com confirmação na própria linha. */
 export function AgendaCard({
 	item,
 	model,
 	onAction,
-	revealed = false,
-	onReveal,
+	revealed,
+	confirming,
 }: {
 	item: AgendaItemView;
 	model: AgendaCardModel;
 	onAction?: (item: AgendaItemView, action: AgendaAction) => Promise<AgendaActionResult>;
-	/** Toque: a pressão longa já mostrou o botão de cancelar. */
+	/** Só teste/prévia: já mostra a lixeira. */
 	revealed?: boolean;
-	onReveal?: () => void;
+	confirming?: boolean;
 }) {
 	const t = useT();
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
-	const [confirmCancel, setConfirmCancel] = useState(false);
-	const longPress = useLongPress(() => onReveal?.());
 	const ended = model.state === "ended";
 
 	async function run(action: AgendaAction) {
@@ -64,76 +51,48 @@ export function AgendaCard({
 	}
 
 	return (
-		<li data-agenda-card={item.id} data-agenda-state={model.state}>
-			<div
-				className="group/agenda flex min-w-0 items-start gap-2 rounded-card border border-border bg-card px-3 py-2.5 [@media(hover:none)]:select-none"
-				{...longPress}
-			>
-				<div className="flex min-w-0 flex-1 flex-col gap-1">
-					<span className={cn("line-clamp-2 break-words font-medium text-body", ended && "text-muted-foreground")}>{model.note}</span>
-					<span className="flex flex-wrap items-center gap-1.5">
-						<Badge variant="outline">{model.kind}</Badge>
-						<Badge variant={STATE_BADGE[model.state]}>{model.stateLabel}</Badge>
-					</span>
-					{model.summary ? <span className="break-words text-caption text-muted-foreground">{model.summary}</span> : null}
-					{model.endText ? <span className="break-words text-caption text-muted-foreground">{model.endText}</span> : null}
-					{model.next ? <span className="break-words text-caption text-muted-foreground">{model.next}</span> : null}
-					{model.last ? <span className="line-clamp-3 break-words text-caption text-muted-foreground">{model.last}</span> : null}
-				</div>
-				{ended ? null : (
-					<>
-						<Button
-							aria-label={t("agenda.cancelNamed", { note: model.note })}
-							className={cn(
-								"shrink-0 text-muted-foreground transition-opacity",
-								// Mouse: some até passar o mouse ou focar dentro do item. Toque: some até a pressão longa.
-								"[@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover/agenda:opacity-100 [@media(hover:hover)]:group-focus-within/agenda:opacity-100 focus-visible:opacity-100",
-								!revealed && "[@media(hover:none)]:hidden",
-							)}
-							disabled={busy}
-							onClick={() => setConfirmCancel(true)}
-							size="icon-sm"
-							type="button"
-							variant="ghost"
-						>
-							<Trash2Icon />
-						</Button>
-						<Switch
-							aria-label={t(model.state === "paused" ? "agenda.resumeNamed" : "agenda.pauseNamed", { note: model.note })}
-							checked={model.state === "active"}
-							className="mt-0.5 data-checked:border-(--bot-accent,var(--primary)) data-checked:bg-(--bot-accent,var(--primary)) *:data-[slot=switch-thumb]:data-checked:bg-white!"
-							disabled={busy || !onAction}
-							onCheckedChange={() => void run(model.state === "paused" ? "resume" : "pause")}
-						/>
-					</>
-				)}
+		<DeletableRow
+			busy={busy}
+			cancelLabel={t("agenda.cancelKeep")}
+			canDelete={!ended}
+			confirmBody={t("agenda.cancelBody")}
+			confirmLabel={t("agenda.cancelConfirm")}
+			confirmTitle={t("agenda.cancelTitle")}
+			deleteLabel={t("agenda.cancelNamed", { note: model.note })}
+			onDelete={() => void run("cancel")}
+			confirming={confirming}
+			revealed={revealed}
+			rowData={{ "data-agenda-card": item.id, "data-agenda-state": model.state }}
+			rowId={item.id}
+			trailing={
+				ended ? null : (
+					<Switch
+						aria-label={t(model.state === "paused" ? "agenda.resumeNamed" : "agenda.pauseNamed", { note: model.note })}
+						checked={model.state === "active"}
+						className="data-checked:border-(--bot-accent,var(--primary)) data-checked:bg-(--bot-accent,var(--primary)) *:data-[slot=switch-thumb]:data-checked:bg-white!"
+						disabled={busy || !onAction}
+						onCheckedChange={() => void run(model.state === "paused" ? "resume" : "pause")}
+					/>
+				)
+			}
+		>
+			<div className="flex min-w-0 flex-col gap-1 px-3 py-2.5">
+				<span className={cn("line-clamp-2 break-words font-medium text-body", ended && "text-muted-foreground")}>{model.note}</span>
+				<span className="flex flex-wrap items-center gap-1.5">
+					<Badge variant="outline">{model.kind}</Badge>
+					<Badge variant={STATE_BADGE[model.state]}>{model.stateLabel}</Badge>
+				</span>
+				{model.summary ? <span className="break-words text-caption text-muted-foreground">{model.summary}</span> : null}
+				{model.endText ? <span className="break-words text-caption text-muted-foreground">{model.endText}</span> : null}
+				{model.next ? <span className="break-words text-caption text-muted-foreground">{model.next}</span> : null}
+				{model.last ? <span className="line-clamp-3 break-words text-caption text-muted-foreground">{model.last}</span> : null}
+				{error ? (
+					<p aria-live="polite" className="m-0 pt-1 text-caption text-destructive" role="alert">
+						{error}
+					</p>
+				) : null}
 			</div>
-			{error ? (
-				<p aria-live="polite" className="px-3 pt-1 text-caption text-destructive" role="alert">
-					{error}
-				</p>
-			) : null}
-			<AlertDialog onOpenChange={setConfirmCancel} open={confirmCancel}>
-				<AlertDialogContent size="sm">
-					<AlertDialogHeader>
-						<AlertDialogTitle>{t("agenda.cancelTitle")}</AlertDialogTitle>
-						<AlertDialogDescription>{t("agenda.cancelBody")}</AlertDialogDescription>
-					</AlertDialogHeader>
-					<AlertDialogFooter>
-						<AlertDialogCancel>{t("agenda.cancelKeep")}</AlertDialogCancel>
-						<AlertDialogAction
-							onClick={() => {
-								setConfirmCancel(false);
-								void run("cancel");
-							}}
-							variant="destructive"
-						>
-							{t("agenda.cancelConfirm")}
-						</AlertDialogAction>
-					</AlertDialogFooter>
-				</AlertDialogContent>
-			</AlertDialog>
-		</li>
+		</DeletableRow>
 	);
 }
 
@@ -144,8 +103,6 @@ export function AgendaList({
 	timezone,
 	now,
 	onAction,
-	revealedId = null,
-	onReveal,
 	endedOpen,
 }: {
 	items: readonly AgendaItemView[];
@@ -153,8 +110,6 @@ export function AgendaList({
 	timezone: string;
 	now: Date;
 	onAction?: (item: AgendaItemView, action: AgendaAction) => Promise<AgendaActionResult>;
-	revealedId?: string | null;
-	onReveal?: (id: string) => void;
 	/** Só para teste/prévia: já abre os encerrados. */
 	endedOpen?: boolean;
 }) {
@@ -166,8 +121,6 @@ export function AgendaList({
 			key={item.id}
 			model={agendaCardModel(item, timezone, now, translator)}
 			onAction={onAction}
-			onReveal={() => onReveal?.(item.id)}
-			revealed={revealedId === item.id}
 		/>
 	);
 	return (
@@ -209,7 +162,6 @@ export function BotAgenda({ botId, active }: { botId: string; active: boolean })
 	const t = useT();
 	const [data, setData] = useState<AgendaListResponse | null>(null);
 	const [loadFailed, setLoadFailed] = useState(false);
-	const [revealedId, setRevealedId] = useState<string | null>(null);
 
 	const reload = useCallback(() => {
 		let stale = false;
@@ -230,7 +182,6 @@ export function BotAgenda({ botId, active }: { botId: string; active: boolean })
 	useEffect(() => {
 		setData(null);
 		setLoadFailed(false);
-		setRevealedId(null);
 	}, [botId]);
 
 	useEffect(() => {
@@ -243,7 +194,6 @@ export function BotAgenda({ botId, active }: { botId: string; active: boolean })
 			const outcome = await performAgendaAction(changeAgendaItem, item, action);
 			if (outcome.result === "ok") {
 				setData((current) => (current ? applyAgendaChange(current, outcome.item) : current));
-				setRevealedId(null);
 			} else if (outcome.result === "gone") {
 				reload();
 			}
@@ -261,8 +211,6 @@ export function BotAgenda({ botId, active }: { botId: string; active: boolean })
 				items={data.items}
 				now={new Date()}
 				onAction={onAction}
-				onReveal={setRevealedId}
-				revealedId={revealedId}
 				timezone={data.timezone}
 			/>
 		</LibrarySection>

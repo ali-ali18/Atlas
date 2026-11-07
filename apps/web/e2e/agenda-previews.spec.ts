@@ -143,7 +143,7 @@ for (const size of SIZES) {
       if (size.mobile) {
         // Sem pressão longa o botão fica escondido.
         await section.screenshot({ path: `${OUT}/agenda-cancelar-antes-${size.name}.png` })
-        await card.locator("> div").first().dispatchEvent("pointerdown", { pointerType: "touch", clientX: 100, clientY: 400 })
+        await card.dispatchEvent("pointerdown", { pointerType: "touch", clientX: 100, clientY: 400 })
         await tab.waitForTimeout(700)
       } else {
         await section.screenshot({ path: `${OUT}/agenda-cancelar-antes-${size.name}.png` })
@@ -154,7 +154,7 @@ for (const size of SIZES) {
       await trash.click()
       await tab.getByText("Cancelar este combinado?").waitFor()
       await tab.waitForTimeout(500)
-      await tab.screenshot({ path: `${OUT}/agenda-cancelar-confirmacao-${size.name}.png` })
+      await section.screenshot({ path: `${OUT}/agenda-cancelar-confirmacao-${size.name}.png` })
       await context.close()
     })
   })

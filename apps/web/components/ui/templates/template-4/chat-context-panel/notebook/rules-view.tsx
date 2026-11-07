@@ -8,7 +8,7 @@ import { Button } from "@workspace/ui/components/button";
 import { Input } from "@workspace/ui/components/input";
 import { Spinner } from "@workspace/ui/components/spinner";
 import { useT, useTranslations } from "@/lib/i18n/provider";
-import { DeletableRow } from "./deletable-row";
+import { DeletableRow } from "../deletable-row";
 import { ActionError, ListEmpty } from "./list-status";
 import { capitalize, ruleEffectPhrase, ruleMatchLabel, ruleSourceLabel, ruleVerdictLabel } from "./notebook-model";
 

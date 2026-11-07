@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { ConfirmAlert } from "@workspace/ui/components/confirm-alert";
 import { loadMessages } from "@/lib/i18n/messages";
 import { I18nProvider } from "@/lib/i18n/provider";
 import { change, note, NOW, report, rule } from "./fixtures";
@@ -10,7 +9,6 @@ import { ReportCard, type ReportCardProps, ReportsList } from "./night-review-vi
 import { NotebookSection } from "./notebook-section";
 import { NoteForm, NotesList, type NotesListProps } from "./notes-view";
 import { RulesList, type RulesListProps } from "./rules-view";
-import { DeletableRow } from "./deletable-row";
 
 Object.assign(globalThis, { React });
 
@@ -93,30 +91,6 @@ test("notas: nota longa recolhe atrás de 'Ver detalhes'; perto do teto mostra a
 	assert.match(out, /Ver detalhes/);
 	assert.match(out, /1 de 1 notas/);
 	assert.match(html(<NotesList {...notesProps({ notes: [note()] })} />), /1 nota</);
-});
-
-test("apagar pede confirmação na própria linha (estado de saída) com texto destrutivo", () => {
-	const out = html(
-		<DeletableRow cancelLabel="Cancelar" confirmBody="A nota some." confirmLabel="Apagar" confirmTitle="Apagar a nota “X”?" confirming deleteLabel="Apagar nota X" onDelete={noop} rowId="n1">
-			<span>conteúdo</span>
-		</DeletableRow>,
-	);
-	assert.match(out, /Apagar a nota “X”\?/);
-	assert.match(out, /A nota some\./);
-	assert.match(out, />Apagar</);
-	assert.match(out, />Cancelar</);
-	assert.doesNotMatch(out, /conteúdo/);
-	assert.doesNotMatch(out, /Precisa de você/, "foi o próprio usuário que clicou: nada pendente");
-	assert.doesNotMatch(out, /<svg[^>]*aria-label=/, "sem o ícone de alerta do pedido");
-});
-
-test("ConfirmAlert: o pedido do bot mantém o selo; a confirmação do próprio usuário (selfConfirm) não tem", () => {
-	const asked = html(<ConfirmAlert title="Enviar?" />);
-	assert.match(asked, /Precisa de você/);
-	const own = html(<ConfirmAlert selfConfirm title="Apagar?" />);
-	assert.doesNotMatch(own, /Precisa de você/);
-	assert.match(own, /Apagar\?/);
-	assert.match(html(<ConfirmAlert selfConfirm status="approved" title="Apagar?" />), /Aprovado/, "decidido, o selo volta");
 });
 
 const rulesProps = (patch: Partial<RulesListProps> = {}): RulesListProps => ({

@@ -12,7 +12,7 @@ import { Switch } from "@workspace/ui/components/switch";
 import { Textarea } from "@workspace/ui/components/textarea";
 import { cn } from "@workspace/ui/lib/utils";
 import { useT, useTranslations } from "@/lib/i18n/provider";
-import { DeletableRow } from "./deletable-row";
+import { DeletableRow } from "../deletable-row";
 import { ActionError, ListEmpty } from "./list-status";
 import { type NoteDraft, type NoteFilter, noteMeta, sortNotes } from "./notebook-model";
 

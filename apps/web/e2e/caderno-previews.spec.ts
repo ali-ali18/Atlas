@@ -196,7 +196,7 @@ for (const size of SIZES) {
       await shot(page, section.locator('[data-notebook-block="notes"]'), `${OUT}/${size.name}-3-notas-criar-erro.png`)
       await section.getByRole("button", { name: "Cancelar" }).click()
       // Apagar: no desktop a lixeira aparece no hover/foco; no celular, só depois de pressão longa.
-      const row = section.locator('[data-notebook-row="n3"]')
+      const row = section.locator('[data-deletable-row="n3"]')
       if (size.mobile) {
         await row.evaluate((el) => {
           el.dispatchEvent(new PointerEvent("pointerdown", { pointerType: "touch", bubbles: true, clientX: 10, clientY: 10 }))

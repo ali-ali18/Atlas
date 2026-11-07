@@ -6,8 +6,9 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { AgendaAction, AgendaItemView } from "@workspace/shared";
 import { AtlasApiError } from "@/lib/atlas-api";
 import { performAgendaAction } from "./agenda-actions";
-import { AgendaList, BotAgenda } from "./agenda-section";
+import { AgendaCard, AgendaList, BotAgenda } from "./agenda-section";
 import { BotLibrary } from "./bot-library";
+import { agendaCardModel } from "./agenda-text";
 
 const NOW = new Date("2026-11-07T12:00:00.000Z");
 const TZ = "America/Sao_Paulo";
@@ -73,11 +74,18 @@ test("cancelar: botão com nome acessível, escondido no toque até a pressão l
 	const button = hidden.match(/<button[^>]*aria-label="Cancelar: Ligar para a Dra\. Paula"[^>]*>/)?.[0] ?? "";
 	assert.ok(button, "botão de cancelar existe");
 	assert.match(button, /\[@media\(hover:hover\)\]:opacity-0/);
-	assert.match(button, /group-focus-within\/agenda:opacity-100/);
+	assert.match(button, /group-focus-within\/row:opacity-100/);
 	assert.match(button, /\[@media\(hover:none\)\]:hidden/, "toque: escondido");
-	const revealed = render([item()], [], { revealedId: "i1" });
+	assert.match(hidden, /data-agenda-card="i1"/, "é a mesma linha apagável do Caderno");
+	const revealed = renderToStaticMarkup(<AgendaCard item={item()} model={agendaCardModel(item(), TZ, NOW)} revealed />);
 	const shown = revealed.match(/<button[^>]*aria-label="Cancelar: Ligar para a Dra\. Paula"[^>]*>/)?.[0] ?? "";
 	assert.doesNotMatch(shown, /\[@media\(hover:none\)\]:hidden/, "pressão longa revela");
+});
+
+test("cancelar usa a confirmação na própria linha, sem selo de pendência (estado de saída)", () => {
+	const out = renderToStaticMarkup(<AgendaCard confirming item={item()} model={agendaCardModel(item(), TZ, NOW)} />);
+	assert.match(out, /Cancelar este combinado\?/);
+	assert.doesNotMatch(out, /Precisa de você/);
 });
 
 test("a confirmação de cancelar só monta quando pedida (fechada no primeiro desenho)", () => {
