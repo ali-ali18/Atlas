@@ -91,10 +91,24 @@ test("GET sem config: tudo herdado, origem padrão e capabilities sem segredo", 
 		const body = JSON.parse(text);
 		assert.deepEqual(body.config, { v: 1 });
 		assert.deepEqual(body.settings, { sandboxAutoStart: true });
-		assert.deepEqual(body.capabilities, { openrouterKey: true, isOwner: true });
+		assert.deepEqual(body.capabilities, { openrouterKey: true, isOwner: true, engineV4: false });
 		assert.deepEqual(body.effective.models.default, { value: "openai/gpt-4o-mini", source: "default" });
 		assert.deepEqual(body.effective.execution.discipline, { value: true, source: "default" });
 		assert.equal(body.effective.providers.chatgptEnabled.value, false);
+	} finally {
+		restore();
+	}
+});
+
+test("capabilities.engineV4: só com a flag ligada E a conta na lista (mesma regra do worker)", async () => {
+	const restore = installFakePrisma(new Map());
+	try {
+		const flag = (env: Record<string, string>) => ({ env: { ...baseEnv, ...env } as NodeJS.ProcessEnv });
+		const engineV4 = async (userId: string, deps: Deps) => (await (await appFor(userId, OWNER_EMAIL, deps).request("/v1/settings")).json()).capabilities.engineV4;
+		assert.equal(await engineV4(USER_A, flag({ ATLAS_ENGINE_V4: "true", ATLAS_ENGINE_V4_ACCOUNTS: `${USER_A},outra` })), true);
+		assert.equal(await engineV4(USER_B, flag({ ATLAS_ENGINE_V4: "true", ATLAS_ENGINE_V4_ACCOUNTS: USER_A })), false, "conta fora da lista");
+		assert.equal(await engineV4(USER_A, flag({ ATLAS_ENGINE_V4_ACCOUNTS: USER_A })), false, "lista sem a flag");
+		assert.equal(await engineV4(USER_A, flag({ ATLAS_ENGINE_V4: "true" })), false, "flag sem lista");
 	} finally {
 		restore();
 	}
@@ -104,7 +118,7 @@ test("capabilities.openrouterKey é falso sem chave e isOwner falso para outro e
 	const restore = installFakePrisma(new Map());
 	try {
 		const res = await appFor(USER_B, "b@example.com", { env: {} as NodeJS.ProcessEnv }).request("/v1/settings");
-		assert.deepEqual((await res.json()).capabilities, { openrouterKey: false, isOwner: false });
+		assert.deepEqual((await res.json()).capabilities, { openrouterKey: false, isOwner: false, engineV4: false });
 	} finally {
 		restore();
 	}

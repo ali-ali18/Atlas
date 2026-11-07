@@ -41,8 +41,8 @@
 | F1 fundação | `feat/harness-v4-f1-fundacao` | **concluída, juntada em `harness/v4`** | #151 |
 | F2 capacidades | `feat/harness-v4-f2-capacidades` | **concluída, juntada em `harness/v4`** | #152 |
 | F3 pesquisa | `feat/harness-v4-f3-pesquisa` | **concluída, juntada em `harness/v4`** | #153 |
-| F4 agenda | `feat/harness-v4-f4-agenda` | **backend juntado em `harness/v4`**; tela da Agenda na frente de UI | #155 |
-| F5 memória | `feat/harness-v4-f5-memoria` | **backend juntado em `harness/v4`**; telas do Caderno, regras e sono na frente de UI | #154 |
+| F4 agenda | `feat/harness-v4-f4-agenda` | **backend juntado em `harness/v4`** (#155); tela da Agenda juntada | #155, #157 |
+| F5 memória | `feat/harness-v4-f5-memoria` | **backend juntado em `harness/v4`** (#154); telas do Caderno, regras e sono juntadas | #154, #157 |
 
 ## Decisões do dono (não reabrir)
 - Base nova, do zero, em `packages/agent`, sem import do legado (05/11).
@@ -113,12 +113,12 @@
 - [x] F4.1 (06/11: colunas `agendaKind`, `intervalMinutes`, `untilAt`, `maxRuns`, `runCount`, `eventFilterJson`, `noChangeStreak`, `lastResultJson`, `lastNoticeAt`, `ignoredStreak`, `grantJson`, `endReason`; coluna separada `agendaKind` em vez de estender `kind`, para o v2 não tratar item novo como lembrete; `shared/agenda.ts` com testes de fuso, virada de dia e DST) Migration aditiva em `BotFollowup` e funções puras (`planAgendaItem`, `nextWatchDelay`, `matchEventFilter`).
 - [x] F4.2 (06/11: capacidade lazy `agenda` no preset full, `agenda-run` só nos runs de agenda, criação silenciosa, adaptador real no worker escopado por dono com teste IDOR; kernel ganhou `endsRun`) Tools `remind_me`, `watch`, `on_event` e `agenda_result`.
 - [x] F4.3 (06/11: varredura no padrão do modo proativo do v2, só com `ATLAS_ENGINE_V4`; run proativo ligado a item vai ao v4; ignorado = dono não abriu a conversa nem escreveu depois do aviso; run sem `agenda_result` não fala, exceto lembrete) Worker de wake: contrato silencioso, freios e parada após 2 avisos ignorados.
-- [ ] F4.4 Seção "Agenda" na Biblioteca (com prévias).
+- [x] F4.4 (07/11: rotas `GET /v1/agenda` e `POST /v1/agenda/:id` (pausar, retomar, cancelar) sobre as funções de `packages/db/src/agenda.ts`, 404 para alheio e corpo estrito; o sinal de "motor v4 ligado para a conta" é o campo `enabled` da própria lista (mesma flag e contas do worker), sem ele a seção não é desenhada; seção recolhível na Biblioteca com frases ("Amanhã às 10:00", "A cada 2 h até 20/11"), estado, próxima conferência, última novidade, encerrados com o motivo, interruptor de pausa e cancelar só no hover/pressão longa com confirmação; prévias em `apps/web/e2e/agenda-previews.spec.ts`) Seção "Agenda" na Biblioteca (com prévias).
 - [x] F4.A (06/11: auditoria + reauditoria, 15 achados e mais N1–N3 corrigidos com teste; `auditorias/F4.md` fechado) Auditoria: 5 lentes, verificação, correções com teste, reauditoria e `auditorias/F4.md` fechado.
 
 ### F5: Memória, Caderno e Sono
 - [x] F5.1 (06/11: tabela `notes` nova, não extensão de `agent_notes`; seis tools `note_*` na capacidade `memory` lazy; rotas `/v1/notes` com IDOR testado em banco real; títulos fixados no `[context]` com teto técnico; regras aprendidas: API `/v1/bots/:botId/rules`, agora valendo no autorizador; falta a UI) Model `Note`, rotas `/v1/notes` (IDOR) e tools.
-- [ ] F5.2 Seção "Caderno" e regras aprendidas visíveis e editáveis (com prévias).
+- [x] F5.2 (07/11: seção recolhível "Caderno" na Biblioteca com notas, "O que o bot aprendeu" e "Revisão da noite"; só aparece com o sinal `capabilities.engineV4` de `GET /v1/settings`; cliente em `lib/atlas-api.ts`; prévias em `apps/web/e2e/__previews__/caderno/`) Seção "Caderno" e regras aprendidas visíveis e editáveis (com prévias).
 - [x] F5.3 (06/11: backend completo; fonte = só fala do dono citada por id; 23:30 no fuso do dono; uma chamada `sleep` por bot por dia; `MemoryChange` estendido para notas, origem `sleep`, relatório e desfazer; doctor aos domingos só propõe; skills e casos de eval só propostas; falta a UI do relatório) Job `sleep`, `MemoryChange` com desfazer e "doctor".
 - [x] F5.A (06/11: 19 achados, 1 alto; 17 corrigidos, 2 aceitos; reauditoria com 5 baixos, 1 corrigido) Auditoria: 5 lentes, verificação, correções com teste, reauditoria e `auditorias/F5.md` fechado.
 

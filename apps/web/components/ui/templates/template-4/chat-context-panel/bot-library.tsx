@@ -8,7 +8,9 @@ import { listBotArtifacts, type BotLibraryFile } from "@/lib/atlas-api";
 import { useT } from "@/lib/i18n/provider";
 import { defaultTranslator } from "@/lib/i18n/translator";
 import type { Routine } from "../data";
+import { BotAgenda } from "./agenda-section";
 import { LibrarySection } from "./library-section";
+import { NotebookSection } from "./notebook/notebook-section";
 import { BotPagesSection } from "./pages-library";
 
 /** Texto padrão (pt-BR) do estado vazio; a tela usa `libraryPanel.documentsEmpty` no idioma dela. */
@@ -168,6 +170,9 @@ export function BotLibrary({
 			>
 				{routinesBody}
 			</LibrarySection>
+			{/* Agenda e Caderno do motor v4: somem sozinhos enquanto a conta não usa o motor novo (mesmo sinal, `useEngineV4`). */}
+			<BotAgenda active={active} botId={botId} />
+			<NotebookSection active={active} botId={botId} />
 		</div>
 	);
 }

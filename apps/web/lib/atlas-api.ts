@@ -1,5 +1,12 @@
 import type {
 	AccountSettingsResponse,
+	LearnedRuleView,
+	MemoryChange,
+	MemoryChangesPage,
+	OwnerNoteView,
+	RulePatch,
+	SleepReportKind,
+	SleepReportView,
 	AutonomyUpdateInput,
 	AutonomyView,
 	Bot,
@@ -66,7 +73,7 @@ import type {
 	BotProposalEvent,
 	RunInputMode,
 } from "@workspace/shared";
-import type { CompactConversationResponse, ReasoningEffort } from "@workspace/shared";
+import type { AgendaAction, AgendaChangeResponse, AgendaListResponse, CompactConversationResponse, ReasoningEffort } from "@workspace/shared";
 import type { RunInspection } from "@workspace/shared";
 import type {
 	CatalogBotEntry,
@@ -1986,6 +1993,19 @@ export async function listRoutines(botId: string): Promise<RoutineRecord[]> {
 	return body.routines;
 }
 
+/** Agenda do bot (lembretes, acompanhamentos, esperas por e-mail). `enabled: false` = a conta não usa o motor novo. */
+export async function listAgenda(botId: string): Promise<AgendaListResponse> {
+	return atlasFetch<AgendaListResponse>(`/v1/agenda?botId=${encodeURIComponent(botId)}`);
+}
+
+/** Pausa, retoma ou cancela um item da agenda. 404 = já não existe; 409 = a ação não cabe mais no estado dele. */
+export async function changeAgendaItem(id: string, action: AgendaAction): Promise<AgendaChangeResponse> {
+	return atlasFetch<AgendaChangeResponse>(`/v1/agenda/${encodeURIComponent(id)}`, {
+		method: "POST",
+		body: JSON.stringify({ action }),
+	});
+}
+
 export async function listRoutineGroups(botId: string): Promise<RoutineGroupRecord[]> {
 	const body = await atlasFetch<{ groups: RoutineGroupRecord[] }>(
 		`/v1/bots/${encodeURIComponent(botId)}/routine-groups`,
@@ -2878,4 +2898,90 @@ export async function resolveConnectorGuideSuggestion(
 /** Inspetor do run (só o dono): o que o modelo recebeu por passo, chamadas de tool e aprovações. */
 export async function getRunInspection(runId: string): Promise<{ inspection: RunInspection }> {
 	return atlasFetch(`/v1/runs/${encodeURIComponent(runId)}/inspect`);
+}
+
+// --- Caderno, regras aprendidas e revisão da noite (Motor v4, F5) ---
+// Todas as rotas filtram pelo dono da sessão; recurso alheio é 404. Os 409/422 trazem `code` em `AtlasApiError.details`.
+
+/** Notas do dono. Com `botId`: as do dono + as deste bot; sem ele, todas as do dono. */
+export async function listNotes(options: { botId?: string } = {}): Promise<{ notes: OwnerNoteView[]; limit: number }> {
+	const query = options.botId ? `?botId=${encodeURIComponent(options.botId)}` : "";
+	return atlasFetch<{ notes: OwnerNoteView[]; limit: number }>(`/v1/notes${query}`);
+}
+
+export async function createNote(input: { title: string; body: string; pinned?: boolean; botId?: string | null }): Promise<OwnerNoteView> {
+	const body = await atlasFetch<{ note: OwnerNoteView }>("/v1/notes", { method: "POST", body: JSON.stringify(input) });
+	return body.note;
+}
+
+/** Edita título, texto e/ou fixada (é assim que se fixa e desafixa). */
+export async function updateNote(id: string, patch: { title?: string; body?: string; pinned?: boolean }): Promise<OwnerNoteView> {
+	const body = await atlasFetch<{ note: OwnerNoteView }>(`/v1/notes/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(patch) });
+	return body.note;
+}
+
+export async function deleteNote(id: string): Promise<void> {
+	await atlasFetch(`/v1/notes/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+/** Histórico de mudanças do caderno (para desfazer). */
+export async function listNoteChanges(options: { botId?: string; cursor?: string; limit?: number } = {}): Promise<MemoryChangesPage> {
+	return atlasFetch<MemoryChangesPage>(`/v1/notes/changes${changesQuery(options)}`);
+}
+
+function changesQuery(options: { botId?: string; reportId?: string; cursor?: string; limit?: number; kind?: SleepReportKind }): string {
+	const params = new URLSearchParams();
+	for (const [key, value] of Object.entries(options)) if (value !== undefined && value !== "") params.set(key, String(value));
+	const text = params.toString();
+	return text ? `?${text}` : "";
+}
+
+/** Regras que o bot aprendeu (veredito por tipo de ação). */
+export async function listBotRules(botId: string): Promise<LearnedRuleView[]> {
+	const body = await atlasFetch<{ rules: LearnedRuleView[] }>(`/v1/bots/${encodeURIComponent(botId)}/rules`);
+	return body.rules;
+}
+
+/** Muda o que vale (`verdict`) e/ou a observação. 422 = acima do teto de regras. */
+export async function patchBotRule(botId: string, ruleId: string, patch: RulePatch): Promise<LearnedRuleView> {
+	const body = await atlasFetch<{ rule: LearnedRuleView }>(`/v1/bots/${encodeURIComponent(botId)}/rules/${encodeURIComponent(ruleId)}`, { method: "PATCH", body: JSON.stringify(patch) });
+	return body.rule;
+}
+
+export async function deleteBotRule(botId: string, ruleId: string): Promise<void> {
+	await atlasFetch(`/v1/bots/${encodeURIComponent(botId)}/rules/${encodeURIComponent(ruleId)}`, { method: "DELETE" });
+}
+
+/** Relatórios da revisão da noite (`daily`) e do domingo (`doctor`), do mais novo ao mais antigo. */
+export async function listSleepReports(options: { botId?: string; kind?: SleepReportKind; cursor?: string; limit?: number } = {}): Promise<{ reports: SleepReportView[]; nextCursor: string | null }> {
+	return atlasFetch<{ reports: SleepReportView[]; nextCursor: string | null }>(`/v1/sleep/reports${changesQuery(options)}`);
+}
+
+export async function getSleepReport(id: string): Promise<SleepReportView> {
+	const body = await atlasFetch<{ report: SleepReportView }>(`/v1/sleep/reports/${encodeURIComponent(id)}`);
+	return body.report;
+}
+
+/** "Agora não": dispensa uma proposta do relatório. Devolve o relatório atualizado. */
+export async function dismissSleepProposal(reportId: string, proposalId: string): Promise<SleepReportView> {
+	const body = await atlasFetch<{ report: SleepReportView }>(`/v1/sleep/reports/${encodeURIComponent(reportId)}/proposals/${encodeURIComponent(proposalId)}/dismiss`, { method: "POST" });
+	return body.report;
+}
+
+/** O que a revisão da noite mudou (cada linha traz o id usado para desfazer). */
+export async function listSleepChanges(options: { botId?: string; reportId?: string; cursor?: string; limit?: number } = {}): Promise<MemoryChangesPage> {
+	return atlasFetch<MemoryChangesPage>(`/v1/sleep/changes${changesQuery(options)}`);
+}
+
+/** Desfaz uma mudança de memória ou de nota. 409 `code`: `stale | duplicate | limit | already_undone`. */
+export async function undoMemoryChange(changeId: string): Promise<MemoryChange> {
+	const body = await atlasFetch<{ change: MemoryChange }>(`/v1/memory/changes/${encodeURIComponent(changeId)}/undo`, { method: "POST" });
+	return body.change;
+}
+
+/** Código de negócio de um erro 409/422 (`code` do corpo), ou null. */
+export function apiErrorCode(error: unknown): string | null {
+	if (!(error instanceof AtlasApiError)) return null;
+	const code = (error.details as { code?: unknown } | undefined)?.code;
+	return typeof code === "string" ? code : null;
 }
