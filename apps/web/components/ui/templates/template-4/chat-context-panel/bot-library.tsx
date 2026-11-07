@@ -9,6 +9,7 @@ import { useT } from "@/lib/i18n/provider";
 import { defaultTranslator } from "@/lib/i18n/translator";
 import type { Routine } from "../data";
 import { LibrarySection } from "./library-section";
+import { NotebookSection } from "./notebook/notebook-section";
 import { BotPagesSection } from "./pages-library";
 
 /** Texto padrão (pt-BR) do estado vazio; a tela usa `libraryPanel.documentsEmpty` no idioma dela. */
@@ -168,6 +169,7 @@ export function BotLibrary({
 			>
 				{routinesBody}
 			</LibrarySection>
+			<NotebookSection botId={botId} />
 		</div>
 	);
 }
