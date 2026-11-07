@@ -59,3 +59,4 @@ export {
 	subscribeSweepSignals,
 	SWEEP_SIGNAL_CHANNEL,
 } from "./sweep-signals.js";
+export * from "./cvv-escrow-backend.js";
