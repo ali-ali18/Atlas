@@ -42,8 +42,10 @@ test("a lixeira fica escondida no toque até a pressão longa e só aparece no h
 	assert.ok(hidden, "botão existe");
 	assert.match(hidden, /\[@media\(hover:hover\)\]:opacity-0/);
 	assert.match(hidden, /group-focus-within\/row:opacity-100/);
-	assert.match(hidden, /\[@media\(hover:none\)\]:hidden/, "toque: escondido");
-	assert.doesNotMatch(button(html(row({ revealed: true }))), /\[@media\(hover:none\)\]:hidden/, "pressão longa revela");
+	// Toque: fora da vista (sr-only), mas na árvore de acessibilidade — `display:none` tiraria do leitor de tela (reauditoria, N2).
+	assert.match(hidden, /\[@media\(hover:none\)\]:sr-only/, "toque: fora da vista");
+	assert.doesNotMatch(hidden, /\[@media\(hover:none\)\]:hidden/, "toque: nunca display:none");
+	assert.doesNotMatch(button(html(row({ revealed: true }))), /\[@media\(hover:none\)\]:sr-only/, "pressão longa revela");
 });
 
 test("canDelete=false tira a lixeira; trailing e rowData ficam na linha", () => {

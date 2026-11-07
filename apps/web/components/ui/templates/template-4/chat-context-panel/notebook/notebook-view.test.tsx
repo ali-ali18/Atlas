@@ -88,7 +88,7 @@ test("notas: fixadas primeiro, origem em frase, fixar/editar/apagar com rótulo 
 	assert.match(out, /aria-label="Editar nota Comum"/);
 	assert.match(out, /aria-label="Apagar nota Comum"/);
 	assert.match(out, /\[@media\(hover:hover\)\]:opacity-0/, "apagar só no hover/foco");
-	assert.match(out, /\[@media\(hover:none\)\]:hidden/, "no toque, só depois da pressão longa");
+	assert.match(out, /\[@media\(hover:none\)\]:sr-only/, "no toque, só depois da pressão longa");
 });
 
 test("notas: criar abre o formulário com o escopo; erro do servidor aparece em frase", () => {

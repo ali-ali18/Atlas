@@ -77,11 +77,11 @@ test("cancelar: botão com nome acessível, escondido no toque até a pressão l
 	assert.ok(button, "botão de cancelar existe");
 	assert.match(button, /\[@media\(hover:hover\)\]:opacity-0/);
 	assert.match(button, /group-focus-within\/row:opacity-100/);
-	assert.match(button, /\[@media\(hover:none\)\]:hidden/, "toque: escondido");
+	assert.match(button, /\[@media\(hover:none\)\]:sr-only/, "toque: escondido");
 	assert.match(hidden, /data-agenda-card="i1"/, "é a mesma linha apagável do Caderno");
 	const revealed = renderToStaticMarkup(<AgendaCard item={item()} model={agendaCardModel(item(), TZ, NOW)} revealed />);
 	const shown = revealed.match(/<button[^>]*aria-label="Cancelar: Ligar para a Dra\. Paula"[^>]*>/)?.[0] ?? "";
-	assert.doesNotMatch(shown, /\[@media\(hover:none\)\]:hidden/, "pressão longa revela");
+	assert.doesNotMatch(shown, /\[@media\(hover:none\)\]:sr-only/, "pressão longa revela");
 });
 
 test("cancelar usa a confirmação na própria linha, sem selo de pendência (estado de saída)", () => {

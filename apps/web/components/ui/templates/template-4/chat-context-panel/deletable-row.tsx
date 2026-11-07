@@ -50,6 +50,14 @@ export function DeletableRow({
 	const [revealed, setRevealed] = useState(initialRevealed);
 	const [confirming, setConfirming] = useState(initialConfirming);
 	const rowRef = useRef<HTMLLIElement>(null);
+	const trashRef = useRef<HTMLButtonElement>(null);
+	// Ao desistir da confirmação o foco volta à lixeira (teclado e leitor de tela não caem no topo da página).
+	const returnFocus = useRef(false);
+	useEffect(() => {
+		if (confirming || !returnFocus.current) return;
+		returnFocus.current = false;
+		trashRef.current?.focus();
+	}, [confirming]);
 	const longPress = useLongPress(() => setRevealed(true));
 
 	useEffect(() => {
@@ -72,7 +80,10 @@ export function DeletableRow({
 					destructive
 					selfConfirm
 					disabled={busy}
-					onCancel={() => setConfirming(false)}
+					onCancel={() => {
+						returnFocus.current = true;
+						setConfirming(false);
+					}}
 					onConfirm={() => {
 						setConfirming(false);
 						setRevealed(false);
@@ -95,10 +106,12 @@ export function DeletableRow({
 			{canDelete ? (
 				<Button
 					aria-label={deleteLabel}
+					ref={trashRef}
 					className={cn(
 						"my-1 mr-1 shrink-0 self-start transition-opacity",
 						"[@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-focus-within/row:opacity-100 [@media(hover:hover)]:group-hover/row:opacity-100 focus-visible:opacity-100",
-						!revealed && "[@media(hover:none)]:hidden",
+						// No toque fica fora da vista até a pressão longa, mas continua na árvore de acessibilidade (leitor de tela alcança).
+						!revealed && "[@media(hover:none)]:sr-only",
 					)}
 					disabled={busy}
 					onClick={() => setConfirming(true)}
