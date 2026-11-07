@@ -2985,3 +2985,38 @@ export function apiErrorCode(error: unknown): string | null {
 	const code = (error.details as { code?: unknown } | undefined)?.code;
 	return typeof code === "string" ? code : null;
 }
+
+// ------------------------------------------------------------------ compras (F6)
+
+/** Cartão salvo como a API devolve: só rótulo, bandeira e final. Número, nome, validade e endereço nunca voltam. */
+export type SavedCardView = import("@workspace/shared").SavedCardView;
+
+/** Corpo para salvar um cartão. NÃO existe campo de CVV: ele é digitado a cada compra, no cartão de aprovação. */
+export type SavedCardInput = import("@workspace/shared").SavedCardInput;
+
+export async function listSavedCards(): Promise<{ configured: boolean; cards: SavedCardView[] }> {
+	return atlasFetch("/v1/cards");
+}
+
+export async function createSavedCard(input: SavedCardInput): Promise<SavedCardView> {
+	return (await atlasFetch<{ card: SavedCardView }>("/v1/cards", { method: "POST", body: JSON.stringify(input) })).card;
+}
+
+export async function deleteSavedCard(id: string): Promise<void> {
+	await atlasFetch<void>(`/v1/cards/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+export type AgentV4Decision = "approve" | "deny" | "handoff_done";
+
+/**
+ * Responde a um pedido do motor v4 (aprovação, "Agora não", handoff). Para o pedido de COMPRA, `cvv` é o código de segurança
+ * digitado no cartão: vai SÓ no corpo desta chamada (nunca em URL, storage, estado global ou log) e o servidor o entrega a um
+ * canal efêmero de uso único. Quem chama deve limpar o campo logo depois de enviar.
+ */
+export async function respondAgentV4Request(input: { runId: string; key: string; decision: AgentV4Decision; cvv?: string }): Promise<{ ok: boolean; status: string; resumed: boolean; pending?: number }> {
+	const { cvv, decision } = input;
+	return atlasFetch(`/v1/agent-v4/runs/${encodeURIComponent(input.runId)}/requests/${encodeURIComponent(input.key)}/respond`, {
+		method: "POST",
+		body: JSON.stringify(cvv !== undefined ? { decision, cvv } : { decision }),
+	});
+}
