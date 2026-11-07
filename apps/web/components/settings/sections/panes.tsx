@@ -23,6 +23,7 @@ import { DisconnectChatgptDialog, ProvidersSettings } from "./providers";
 import { ProviderKeysRows } from "./provider-keys";
 import { EmailKeyRowConnected } from "./email-key";
 import { SkillsSettings } from "./skills";
+import { CardsSettings } from "./cards";
 import { VaultSettings } from "./vault";
 import { ReflectionSettings } from "./reflection";
 import { TimezoneSettings } from "./timezone";
@@ -295,7 +296,12 @@ export function ConexoesPane({
 
 /** Cofre: segredos e logins de sites do usuário (criptografados; o bot só vê nomes). */
 export function CofrePane({ isVisible }: { isVisible: (itemId: string) => boolean }) {
-	return <VaultSettings isVisible={isVisible} />;
+	return (
+		<>
+			<VaultSettings isVisible={isVisible} />
+			<CardsSettings isVisible={isVisible} />
+		</>
+	);
 }
 
 /** Habilidades: os procedimentos que o agente segue (lista, edição, importar e exportar). */

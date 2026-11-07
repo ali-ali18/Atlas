@@ -19,6 +19,7 @@ import { login } from "./login";
 import { marketplace } from "./marketplace";
 import { mobile } from "./mobile";
 import { notebook } from "./notebook";
+import { payments } from "./payments";
 import { reasoning } from "./reasoning";
 import { modelPicker } from "./modelPicker";
 import { providerCallback } from "./providerCallback";
@@ -65,6 +66,7 @@ export const ptBR = {
 	...reasoning,
 	...modelPicker,
 	...providerCallback,
+	...payments,
 	...routines,
 	...settings,
 	...settingsComposio,
