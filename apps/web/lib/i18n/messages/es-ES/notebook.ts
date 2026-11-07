@@ -72,7 +72,7 @@ export const notebook: NamespaceMessages<typeof ptBR> = {
 	"notebook.rules.target.driveCreate": "crear archivos en Drive",
 	"notebook.rules.target.calendarList": "ver eventos de Google Calendar",
 	"notebook.rules.target.calendarCreate": "crear eventos en Google Calendar",
-	"notebook.rules.target.githubIssue": "crear incidencias (issues) en GitHub",
+	"notebook.rules.target.githubIssue": "abrir tareas en GitHub",
 	"notebook.rules.target.githubPullRequest": "abrir pull requests en GitHub",
 	"notebook.rules.source.owner": "Tú la definiste",
 	"notebook.rules.source.learned": "El bot la aprendió",

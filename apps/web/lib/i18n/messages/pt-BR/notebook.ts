@@ -70,7 +70,7 @@ export const notebook = {
 	"notebook.rules.target.driveCreate": "criar arquivos no Drive",
 	"notebook.rules.target.calendarList": "ver eventos da Agenda do Google",
 	"notebook.rules.target.calendarCreate": "criar eventos na Agenda do Google",
-	"notebook.rules.target.githubIssue": "criar tarefas (issues) no GitHub",
+	"notebook.rules.target.githubIssue": "abrir tarefas no GitHub",
 	"notebook.rules.target.githubPullRequest": "abrir pull requests no GitHub",
 	"notebook.rules.source.owner": "Você definiu",
 	"notebook.rules.source.learned": "O bot aprendeu",
