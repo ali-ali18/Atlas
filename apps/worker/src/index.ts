@@ -1,7 +1,8 @@
 // Fase 0: dotenv ANTES de qualquer outro import — imports são hoisted e o
 // @workspace/db valida ATLAS_HOOK_PEPPER no top-level.
 import "dotenv/config";
-import { closeSharedMcpPool, shutdownSharedExtractor } from "@workspace/agent-runtime";
+import { closeSharedMcpPool, connectorEscrowSealer, isCardVaultConfigured, shutdownSharedExtractor } from "@workspace/agent-runtime";
+import { createCvvEscrow } from "@workspace/agent";
 import { DelayedError, UnrecoverableError, Worker, type Job } from "bullmq";
 import { engineDefaultFromEnv, engineV4GateFromEnv } from "./engine-choice.js";
 import { createActiveTracker, drainAgentWork } from "./shutdown.js";
@@ -42,6 +43,7 @@ import {
 	createAgentV4Queue,
 	createChatCompletionQueue,
 	createRedisConnection,
+	createRedisCvvEscrowBackend,
 	closeRunSignals,
 	closeSweepSignals,
 	subscribeSweepSignals,
@@ -128,6 +130,8 @@ const agentRunQueue = createAgentRunQueue(connection);
 // Fila do motor v4: só existe com `ATLAS_ENGINE_V4` ligada; desligado (padrão) nada é criado no Redis.
 const agentV4Queue = engineV4GateFromEnv().enabled ? createAgentV4Queue(connection) : undefined;
 const routineQueue = createRoutineQueue(connection);
+// Canal efêmero do CVV (F6.3): o mesmo Redis da API, selado com a caixa de segredos do servidor. Sem chave, o v4 não oferece pagamento.
+const cvvEscrow = isCardVaultConfigured() ? createCvvEscrow(createRedisCvvEscrowBackend(connection), connectorEscrowSealer()) : null;
 const leaseOwner = `worker-${randomUUID().slice(0, 8)}`;
 
 // Notificações push: só com as chaves VAPID. Sem elas o worker segue normal, sem avisos no celular.
@@ -284,6 +288,7 @@ const agentWorker = new Worker<AgentRunJobPayload, AgentRunJobResult>(
 		return await processAgentRunJob(job.data, config, buildRunLeaseOwner(leaseOwner, job), {
 			notify,
 			...(agentV4Queue ? { v4Queue: agentV4Queue } : {}),
+			...(cvvEscrow ? { cvvEscrow } : {}),
 			shutdownSignal: shutdownController.signal,
 			subscribeRunSignals,
 			extendLock: async () => {
