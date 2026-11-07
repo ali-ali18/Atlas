@@ -17,6 +17,7 @@ import {
 	getAgendaItemByRunId,
 	isAgendaRunInFlight,
 	listAgendaItems,
+	listEndedAgendaItems,
 	releaseAgendaRun,
 	recordAgendaResult,
 	type AgendaGrant,
@@ -57,6 +58,40 @@ describe("agenda (Postgres real)", { skip: dbSkip }, () => {
 	});
 
 	const watch = (note: string, over: Partial<Parameters<typeof plan>[0]> = {}) => plan({ kind: "watch", note, everyMinutes: 120, ...over });
+
+	test("encerrados: com mais de 100, vêm os mais recentes (por encerramento), só do dono e do bot pedido", async () => {
+		const owner = (await createTestUser("agEnded")).id;
+		const other = (await createTestUser("agEndedOther")).id;
+		const conv = (await prisma.conversation.create({ data: { userId: owner } })).id;
+		const bot = (await prisma.bot.create({ data: { ownerId: owner, name: "E", isPrimary: true, conversationId: conv }, select: { id: true } })).id;
+		const otherBot = (await prisma.bot.create({ data: { ownerId: owner, name: "E2", isPrimary: false }, select: { id: true } })).id;
+		const base = (userId: string, botId: string, n: number, status: string) => ({
+			userId, botId, note: `encerrado ${n}`, kind: "reminder", status, agendaKind: "remind",
+			// Quanto maior o n, mais tarde venceu e mais tarde encerrou: o mais novo é o de n maior.
+			dueAt: at(n), requestedFor: at(n), doneAt: at(n), endReason: status === "done" ? "completed" : "owner",
+		});
+		await prisma.botFollowup.createMany({
+			data: [
+				...Array.from({ length: 105 }, (_, n) => base(owner, bot, n, n % 2 === 0 ? "done" : "cancelled")),
+				base(owner, otherBot, 500, "done"),
+				base(other, (await prisma.bot.create({ data: { ownerId: other, name: "X", isPrimary: false }, select: { id: true } })).id, 0, "done"),
+				{ ...base(owner, bot, 600, "pending"), doneAt: null },
+			],
+		});
+
+		const latest = await listEndedAgendaItems(owner, { botId: bot, limit: 10 });
+		assert.deepEqual(latest.map((i) => i.note), Array.from({ length: 10 }, (_, n) => `encerrado ${104 - n}`), "os 10 mais recentes, do mais novo ao mais velho");
+		assert.ok(latest.every((i) => i.status === "done" || i.status === "cancelled"), "ativo não entra");
+		// O caminho antigo (`includeEnded`, limite 100, `dueAt` crescente) cortava exatamente estes.
+		const old = await listAgendaItems(owner, { botId: bot, includeEnded: true, limit: 100 });
+		assert.ok(!old.some((i) => i.note === "encerrado 104"), "regressão: o antigo (dueAt crescente, corte em 100) perdia o encerramento mais novo");
+
+		const all = await listEndedAgendaItems(owner, { limit: 100 });
+		assert.ok(all.some((i) => i.note === "encerrado 500"), "sem botId, todos os bots do dono");
+		assert.ok(all.every((i) => i.userId === owner), "outro dono nunca aparece");
+		assert.equal((await listEndedAgendaItems(other, { limit: 100 })).length, 1);
+		assert.deepEqual(await listEndedAgendaItems("", {}), []);
+	});
 
 	test("cria, lista e devolve o mesmo item no pedido repetido", async () => {
 		const created = await createAgendaItem({ userId: a, botId: botA, plan: watch("Preço do notebook X"), grant: GRANT });

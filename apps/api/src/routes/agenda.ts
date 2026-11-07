@@ -9,7 +9,7 @@ import {
 	type AgendaListResponse,
 	type EngineV4Gate,
 } from "@workspace/shared";
-import { changeAgendaItem, getAgendaItem, isBotOwnedBy, listAgendaItems, loadAgendaSettings, type AgendaItemRecord } from "@workspace/db";
+import { changeAgendaItem, getAgendaItem, isBotOwnedBy, listAgendaItems, listEndedAgendaItems, loadAgendaSettings, type AgendaItemRecord } from "@workspace/db";
 import { scopeFor, type AuthEnv } from "../middleware/auth.js";
 
 /**
@@ -37,6 +37,8 @@ export type AgendaRouteDeps = {
 	gate(): EngineV4Gate;
 	botOwned(userId: string, botId: string): Promise<boolean>;
 	list(userId: string, options: { botId?: string; includeEnded?: boolean; limit?: number }): Promise<AgendaItemRecord[]>;
+	/** Os encerrados mais recentes primeiro (consulta própria, ordenada por encerramento). */
+	listEnded(userId: string, options: { botId?: string; limit?: number }): Promise<AgendaItemRecord[]>;
 	get(userId: string, id: string): Promise<AgendaItemRecord | null>;
 	change(userId: string, id: string, action: AgendaAction): Promise<AgendaItemRecord | null>;
 	timezone(userId: string, botId: string): Promise<string>;
@@ -46,6 +48,7 @@ const defaultDeps: AgendaRouteDeps = {
 	gate: () => readEngineV4Gate(process.env.ATLAS_ENGINE_V4, process.env.ATLAS_ENGINE_V4_ACCOUNTS),
 	botOwned: isBotOwnedBy,
 	list: listAgendaItems,
+	listEnded: listEndedAgendaItems,
 	get: getAgendaItem,
 	change: (userId, id, action) => changeAgendaItem(userId, id, action),
 	timezone: async (userId, botId) => (await loadAgendaSettings(userId, botId)).timezone,
@@ -53,7 +56,6 @@ const defaultDeps: AgendaRouteDeps = {
 
 /** Quantos itens encerrados a Biblioteca mostra. */
 const ENDED_SHOWN = 10;
-const ENDED_FETCHED = 100;
 
 const NOT_FOUND = { error: "Not found" } as const;
 const idParam = (value: string | undefined): string | undefined => {
@@ -79,15 +81,11 @@ export function createAgendaRoutes(deps: AgendaRouteDeps = defaultDeps) {
 		if (rawBot !== undefined && !botId) return c.json(NOT_FOUND, 404);
 		try {
 			if (botId && !(await deps.botOwned(userId, botId))) return c.json(NOT_FOUND, 404);
-			const [active, all, timezone] = await Promise.all([
+			const [active, ended, timezone] = await Promise.all([
 				deps.list(userId, { ...(botId && { botId }), limit: 100 }),
-				deps.list(userId, { ...(botId && { botId }), includeEnded: true, limit: ENDED_FETCHED }),
+				deps.listEnded(userId, { ...(botId && { botId }), limit: ENDED_SHOWN }),
 				deps.timezone(userId, botId ?? ""),
 			]);
-			const ended = all
-				.filter((item) => item.status === "done" || item.status === "cancelled")
-				.sort((a, b) => b.dueAt.getTime() - a.dueAt.getTime())
-				.slice(0, ENDED_SHOWN);
 			const body: AgendaListResponse = { enabled: true, timezone, items: [...active].sort(byUpcoming).map(toAgendaItemView), ended: ended.map(toAgendaItemView) };
 			return c.json(body);
 		} catch (error) {

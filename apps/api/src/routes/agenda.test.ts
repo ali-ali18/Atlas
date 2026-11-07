@@ -97,9 +97,9 @@ function appFor(userId: string) {
 }
 
 async function build(userId: string, gate = { enabled: true, accounts: [A, B] as readonly string[] }) {
-	const { listAgendaItems, getAgendaItem, changeAgendaItem, isBotOwnedBy } = await import("@workspace/db");
+	const { listAgendaItems, listEndedAgendaItems, getAgendaItem, changeAgendaItem, isBotOwnedBy } = await import("@workspace/db");
 	const app = appFor(userId);
-	app.route("/", createAgendaRoutes({ gate: () => gate, botOwned: isBotOwnedBy, list: listAgendaItems, get: getAgendaItem, change: (u, id, action) => changeAgendaItem(u, id, action, T0), timezone: async () => "America/Sao_Paulo" }));
+	app.route("/", createAgendaRoutes({ gate: () => gate, botOwned: isBotOwnedBy, list: listAgendaItems, listEnded: listEndedAgendaItems, get: getAgendaItem, change: (u, id, action) => changeAgendaItem(u, id, action, T0), timezone: async () => "America/Sao_Paulo" }));
 	return app;
 }
 
@@ -123,6 +123,18 @@ test("lista os itens do dono, ativos e encerrados, sem campo interno", async () 
 	assert.deepEqual(body.ended.map((i) => [i.id, i.endReason]), [["i4", "max_runs"]]);
 	const text = JSON.stringify(body);
 	for (const secret of ["run-secreto", "grant", "autonomous", "userId", "conversationId"]) assert.ok(!text.includes(secret), `vazou ${secret}`);
+});
+
+test("encerrados: consulta própria, do dono, os 10 mais recentes por encerramento (não o corte de 100 por dueAt)", async () => {
+	world([row("e1", A, { status: "done", endReason: "completed", doneAt: new Date(T0.getTime() - HOUR) }), row("o1", B, { status: "done", endReason: "completed" })]);
+	const findMany = prisma.botFollowup.findMany as unknown as ReturnType<typeof mock.fn>;
+	const body = (await (await (await build(A)).request("/v1/agenda?botId=bot-a")).json()) as AgendaListResponse;
+	assert.deepEqual(body.ended.map((i) => i.id), ["e1"]);
+	const endedCall = findMany.mock.calls.map((call) => call.arguments[0] as { where: { status: { in: string[] }; userId: string }; orderBy: unknown; take: number }).find((args) => args.where.status.in.includes("done") && !args.where.status.in.includes("pending"));
+	assert.ok(endedCall, "há uma consulta só de encerrados");
+	assert.equal(endedCall.where.userId, A, "escopada pelo dono da sessão");
+	assert.equal(endedCall.take, 10);
+	assert.deepEqual(endedCall.orderBy, [{ doneAt: { sort: "desc", nulls: "last" } }, { updatedAt: "desc" }]);
 });
 
 test("conta fora do v4: lista desligada sem tocar no banco, e mudar é 404", async () => {

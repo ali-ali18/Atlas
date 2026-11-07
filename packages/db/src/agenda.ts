@@ -249,6 +249,21 @@ export async function listAgendaItems(userId: string, options: { botId?: string;
 	return records(rows);
 }
 
+/**
+ * Os encerrados mais recentes (feito ou cancelado), do mais novo para o mais antigo, escopados pelo dono. Consulta própria
+ * (e não `listAgendaItems` com `includeEnded`, que ordena por `dueAt` crescente e corta nos mais velhos): com mais de
+ * 100 encerrados os novos não somem. Ordena por `doneAt` (instante do encerramento), com `updatedAt` de desempate.
+ */
+export async function listEndedAgendaItems(userId: string, options: { botId?: string; limit?: number } = {}): Promise<AgendaItemRecord[]> {
+	if (!validOwner(userId)) return [];
+	const rows = await prisma.botFollowup.findMany({
+		where: { userId, agendaKind: { not: null }, ...(options.botId ? { botId: options.botId } : {}), status: { in: ["done", "cancelled"] } },
+		orderBy: [{ doneAt: { sort: "desc", nulls: "last" } }, { updatedAt: "desc" }],
+		take: Math.max(1, Math.min(100, options.limit ?? 10)),
+	});
+	return records(rows);
+}
+
 export async function getAgendaItem(userId: string, id: string): Promise<AgendaItemRecord | null> {
 	if (!validOwner(userId)) return null;
 	const row = await prisma.botFollowup.findFirst({ where: { id, userId, agendaKind: { not: null } } });
