@@ -108,6 +108,8 @@ export type RunAgentDeps = {
 	spend?: SpendHook;
 	/** Recebe uma função que lê, ao vivo, os SINAIS de proveniência deste run (para o filho herdar o taint da mãe). */
 	exposeProvenance?: (read: () => PriorProvenance) => void;
+	/** Um uso do mandato foi gasto (F6.4): `usesLeft` é o que resta. O host grava o número (só diminui); sem isso o mandato só vale no checkpoint do run. */
+	onMandateSpent?: (usesLeft: number) => void | Promise<void>;
 };
 
 export type PendingCall = { id: string; name: string; args: unknown };

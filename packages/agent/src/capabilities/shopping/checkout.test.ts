@@ -223,6 +223,17 @@ describe("checkout: mandato (F6.4)", () => {
 		expect(next.request.inputOnly).toBeUndefined();
 	});
 
+	it("o uso gasto é avisado ao host (para gravar o número que resta)", async () => {
+		const r = rig();
+		const spent: number[] = [];
+		const s = setup({ ...chatPolicy, mandate: mandate({ usesLeft: 3 }) }, { onMandateSpent: (left) => void spent.push(left) });
+		const pending = await s.executor.executeCall({ callId: "c1", step: 1, tool: r.tool, args: ARGS });
+		if (pending.status !== "pending_approval") throw new Error(pending.status);
+		await r.escrow.deposit(scopeOf(pending.request), TEST_CVV, 60_000);
+		await s.executor.executeCall({ callId: "c1", step: 1, tool: r.tool, args: ARGS, grant: grantApproval(pending.request, s.clock.now()) });
+		expect(spent).toEqual([2]);
+	});
+
 	it("sem CVV o mandato também não executa nem gasta uso", async () => {
 		const r = rig();
 		const s = setup({ ...chatPolicy, mandate: mandate() });

@@ -50,7 +50,7 @@ export async function runAgent(deps: RunAgentDeps): Promise<RunResult> {
 	const loaded = createLoadedSet(registry, snap.loadedIds);
 	// Toda tool recebe o cofre "rastreado": o valor que ele entrega entra na redação do run (ver vault-tracking.ts).
 	const tracked = ports.vault ? trackVault(ports.vault) : undefined;
-	const executor = createExecutor({ runId, ownerId, ports: tracked ? { ...ports, vault: tracked.vault } : ports, ...(tracked && { secrets: tracked.secrets }), hash: deps.hash, policy: deps.policy, provenance: RunProvenance.restore(snap.provenance), ...(snap.mandateUsesLeft !== undefined && { mandateUsesLeft: snap.mandateUsesLeft }), ...(deps.language && { language: deps.language }), ...(deps.signal && { signal: deps.signal }) });
+	const executor = createExecutor({ runId, ownerId, ports: tracked ? { ...ports, vault: tracked.vault } : ports, ...(tracked && { secrets: tracked.secrets }), hash: deps.hash, policy: deps.policy, provenance: RunProvenance.restore(snap.provenance), ...(snap.mandateUsesLeft !== undefined && { mandateUsesLeft: snap.mandateUsesLeft }), ...(deps.language && { language: deps.language }), ...(deps.signal && { signal: deps.signal }), ...(deps.onMandateSpent && { onMandateSpent: deps.onMandateSpent }) });
 	deps.exposeProvenance?.(() => {
 		const { untrustedReadInRun, privateReadInRun, sources } = executor.provenance.snapshot();
 		return { untrustedReadInRun, ...(privateReadInRun !== undefined && { privateReadInRun }), sources };

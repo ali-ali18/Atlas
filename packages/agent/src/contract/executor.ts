@@ -28,6 +28,8 @@ export type ExecutorDeps = {
 	language?: BotLanguage;
 	/** Usos do mandato que restam ao retomar (vem do checkpoint). Sem valor, vale `policy.mandate.usesLeft`. */
 	mandateUsesLeft?: number;
+	/** Chamado depois que o mandato gasta um uso (antes do efeito). */
+	onMandateSpent?: (usesLeft: number) => void | Promise<void>;
 };
 
 /** Uma chamada do modelo. `grant` vem da camada de fora (dono aprovou), nunca dos argumentos. */
@@ -114,7 +116,10 @@ export function createExecutor(deps: ExecutorDeps) {
 			const claim = await deps.ports.store.journal.append({ ...journalBase, outcome: "started" });
 			if (!claim.claimed) return { status: "already_in_progress", hint: IN_PROGRESS_HINT };
 			// O efeito vai rodar por causa do mandato: gasta um uso ANTES de executar (os efeitos do passo são em série).
-			if (mandate && verdict.kind === "run" && verdict.reason === "mandate") mandate = { ...mandate, usesLeft: mandate.usesLeft - 1 };
+			if (mandate && verdict.kind === "run" && verdict.reason === "mandate") {
+				mandate = { ...mandate, usesLeft: mandate.usesLeft - 1 };
+				await deps.onMandateSpent?.(mandate.usesLeft);
+			}
 		}
 		const ctx: ToolContext = { runId: deps.runId, ownerId: deps.ownerId, ports: deps.ports, signal: deps.signal, callId: scopedCallId, untrustedReadInRun: provenance.untrustedReadInRun, ...(approvalId && { approvalId }) };
 		const result = await tool.run(args, ctx);
