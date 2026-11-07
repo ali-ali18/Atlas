@@ -167,3 +167,6 @@ export function redactCardNumbers(text: string): string {
 	}
 	return out;
 }
+
+/** Tools cujo cartão de aprovação pede o CVV ao dono (a rota de resposta só aceita `cvv` para elas). */
+export const CVV_TOOL_NAMES = ["checkout"] as const;

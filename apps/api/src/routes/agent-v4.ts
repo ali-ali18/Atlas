@@ -1,5 +1,7 @@
 import { Hono } from "hono";
 import { z } from "zod";
+import { CVV_TOOL_NAMES, isValidCvv } from "@workspace/shared";
+import type { CvvEscrow } from "@workspace/agent";
 import { decideAgentV4Request, findAgentV4Request, getAgentRunForUser, loadAgentV4Decisions, recordAgentV4CardResponse, requestResumeAgentRun, type AgentV4Decision, type AgentV4RequestView } from "@workspace/db";
 import { scopeFor, type AuthEnv } from "../middleware/auth.js";
 import { enqueueAgentRunJob } from "./runs.js";
@@ -16,6 +18,10 @@ import { enqueueAgentRunJob } from "./runs.js";
  *    - `:key`: `requestId` do evento `approval_request`, ou `callId` do evento `handoff_request`.
  *    - body: `{ "decision": "approve" | "deny" | "handoff_done" }` (campo desconhecido = 400).
  *        approve        aprova (gera o grant ligado ao hash dos argumentos de quando o cartão foi mostrado)
+ *      Pedido de COMPRA (`checkout`): `{ decision: "approve", cvv: "123" }`. O `cvv` (3 a 4 dígitos) é obrigatório nele e
+ *      proibido nos outros (400 `cvv_required` / `cvv_not_accepted`). O valor NÃO é gravado em lugar nenhum: vai a um canal
+ *      efêmero (Redis, selado, TTL de 15 min) ligado a este pedido e é consumido uma única vez. 503 `payment_unavailable`
+ *      se o canal não existe (nada é aprovado).
  *        deny           "Agora não" (o kernel recebe `denied`; nada executa)
  *        handoff_done   o dono assumiu o passo (só para `handoff_request`)
  *      `approve`/`deny` valem só para pedido de aprovação; `handoff_done`, só para handoff (senão 400).
@@ -38,7 +44,9 @@ import { enqueueAgentRunJob } from "./runs.js";
  *      resposta ao kernel. 404 cartão inexistente ou de outro dono. 409 já tem outra resposta, ou a oferta já foi
  *      encerrada (o dono falou de outra coisa e ela virou "ignorada").
  */
-const decisionBody = z.object({ decision: z.enum(["approve", "deny", "handoff_done"]) }).strict();
+const decisionBody = z.object({ decision: z.enum(["approve", "deny", "handoff_done"]), cvv: z.string().max(8).optional() }).strict();
+/** O CVV espera o run ser retomado por este tempo; passado dele, a compra pede o cartão de novo. */
+export const CVV_TTL_MS = 15 * 60_000;
 const cardBody = z.object({ response: z.enum(["answered", "dismissed"]) }).strict();
 
 const PARAM_MAX = 500;
@@ -50,6 +58,8 @@ export type AgentV4RouteDeps = {
 	/** Fila de runs (a mesma de `/v1/runs/:id/resume`); `null` = indisponível. */
 	queue: RunQueue | null;
 	clock?: () => Date;
+	/** Canal efêmero do CVV (F6.3). Sem ele, aprovar um pedido de compra responde 503 e nada é gravado. */
+	cvvEscrow?: Pick<CvvEscrow, "deposit" | "discard"> | null;
 };
 
 export function createAgentV4Routes(deps: AgentV4RouteDeps) {
@@ -64,6 +74,7 @@ export function createAgentV4Routes(deps: AgentV4RouteDeps) {
 		const body = decisionBody.safeParse(await c.req.json().catch(() => null));
 		if (!body.success) return c.json({ error: "Invalid body: expected { decision: 'approve' | 'deny' | 'handoff_done' }" }, 400);
 		const decision: AgentV4Decision = body.data.decision;
+		const cvv = body.data.cvv;
 
 		// O escopo vem da sessão: run de outro dono é 404, igual a run inexistente.
 		const run = await getAgentRunForUser(runId, userId);
@@ -75,7 +86,30 @@ export function createAgentV4Routes(deps: AgentV4RouteDeps) {
 		let request: AgentV4RequestView;
 		let status: "recorded" | "already";
 		if (run.status === "paused") {
-			const outcome = await decideAgentV4Request(userId, runId, key, decision, now());
+			// CVV (F6.3): só pedido de compra aprovado o leva. Valida o formato ANTES de qualquer efeito; o valor nunca é gravado
+			// em banco nem log: vai só ao canal efêmero, ligado a ESTE pedido (dono + run + id do pedido, que embute o hash dos argumentos).
+			const target = await findAgentV4Request(userId, runId, key);
+			if (!target) return c.json({ error: "Not found" }, 404);
+			const needsCvv = target.kind === "approval" && decision === "approve" && target.toolName !== null && (CVV_TOOL_NAMES as readonly string[]).includes(target.toolName);
+			if (!needsCvv && cvv !== undefined) return c.json({ error: "cvv_not_accepted" }, 400);
+			if (needsCvv && !isValidCvv(cvv)) return c.json({ error: "cvv_required" }, 400);
+			const scope = { userId, runId, requestId: key };
+			let deposited = false;
+			if (needsCvv && target.state === "pending") {
+				if (!deps.cvvEscrow) return c.json({ error: "payment_unavailable" }, 503);
+				try {
+					await deps.cvvEscrow.deposit(scope, cvv as string, CVV_TTL_MS);
+					deposited = true;
+				} catch {
+					return c.json({ error: "payment_unavailable" }, 503);
+				}
+			}
+			const outcome = await decideAgentV4Request(userId, runId, key, decision, now()).catch(async (error) => {
+				if (deposited) await deps.cvvEscrow?.discard(scope).catch(() => undefined);
+				throw error;
+			});
+			// Só a decisão gravada AGORA mantém o CVV; qualquer outro resultado o descarta.
+			if (deposited && outcome.status !== "recorded") await deps.cvvEscrow?.discard(scope).catch(() => undefined);
 			if (outcome.status === "not_found") return c.json({ error: "Not found" }, 404);
 			if (outcome.status === "invalid_decision") return c.json({ error: `decision not valid for a ${outcome.kind} request` }, 400);
 			if (outcome.status === "expired") return c.json({ error: "expired" }, 410);
