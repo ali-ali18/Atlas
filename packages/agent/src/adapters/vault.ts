@@ -42,3 +42,8 @@ export function createVaultAdapter(backend: VaultBackend): Vault {
 		},
 	};
 }
+
+/** Embrulha um valor sensível num `SecretValue` que não vira texto por acidente (só `reveal()` entrega). */
+export function sealSecretValue(value: string): SecretValue {
+	return new SealedSecret(value);
+}

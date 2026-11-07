@@ -19,6 +19,10 @@ export type ApprovalRequest = {
 	riskFacts: RiskFacts;
 	/** Hash de `{ toolName, args }` reais (canônico). É o que o grant precisa repetir. */
 	payloadHash: string;
+	/** A tool precisa de um dado que só o dono digita no cartão (CVV). O valor NUNCA passa por aqui. */
+	ownerInput?: "card_cvv";
+	/** Mandato vale: o cartão não pede "confirmar", só o campo do dado. */
+	inputOnly?: boolean;
 };
 
 export type ApprovalGrant = { requestId: string; payloadHash: string; grantedAt: Date };
@@ -32,6 +36,8 @@ export type RequestApprovalInput = {
 	riskFacts?: RiskFacts;
 	hash: Hash;
 	secrets?: readonly string[];
+	ownerInput?: "card_cvv";
+	inputOnly?: boolean;
 };
 
 export function payloadHashOf(toolName: string, args: unknown, hash: Hash): string {
@@ -47,6 +53,8 @@ export function requestApproval(input: RequestApprovalInput): ApprovalRequest {
 		args: redactDeep(input.args, input.secrets),
 		riskFacts: redactDeep(input.riskFacts ?? {}, input.secrets),
 		payloadHash,
+		...(input.ownerInput && { ownerInput: input.ownerInput }),
+		...(input.inputOnly && { inputOnly: true }),
 	};
 }
 

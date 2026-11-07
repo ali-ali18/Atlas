@@ -4,7 +4,7 @@ import type { ToolReceipt } from "../tools/types.js";
 import type { ApprovalRequest } from "./approval.js";
 
 export type CallOutcome =
-	| { status: "ok"; summary: string; receipt?: ToolReceipt }
+	| { status: "ok"; summary: string; receipt?: ToolReceipt; /** O efeito foi feito e o resto é do dono: o laço estaciona com handoff. */ park?: "handoff" }
 	| { status: "error"; error: string; hint?: string }
 	/** Não rodou: o dono precisa aprovar o cartão. A execução exige um `ApprovalGrant` deste pedido. */
 	| { status: "pending_approval"; request: ApprovalRequest }

@@ -10,6 +10,11 @@ export type ToolContext = {
 	callId?: string;
 	/** Alguma tool não confiável (e-mail, web, arquivo…) já devolveu resultado neste run. Tools que GUARDAM texto para depois (agenda) marcam a origem. */
 	untrustedReadInRun?: boolean;
+	/**
+	 * Id do pedido de aprovação que liberou esta chamada (só quando passou por cartão). Serve de CHAVE do canal efêmero
+	 * do CVV (F6.3): a tool o repassa à porta de pagamento, nunca guarda nem mostra o segredo.
+	 */
+	approvalId?: string;
 };
 
 /**
@@ -28,6 +33,12 @@ export type RiskFacts = {
 	irreversible?: boolean;
 	/** Onde o efeito acontece: conta, arquivo, URL, calendário… */
 	target?: string;
+	/** Itens da compra, uma linha cada (cartão de compra). */
+	items?: readonly string[];
+	/** Frete, na moeda de `currency`. */
+	shipping?: number;
+	/** Cartão que paga, só bandeira e final ("Visa final 1111"). Nunca o número. */
+	card?: string;
 };
 
 /** Recibo mínimo de uma tool de efeito. A F1.6 o torna o `Receipt` do journal. */
@@ -40,5 +51,5 @@ export type ToolReceipt = {
 
 /** Sucesso sempre com `summary`; falha sempre com `error` real. Nunca `ok:true` com texto de erro. */
 export type ToolResult =
-	| { ok: true; summary: string; receipt?: ToolReceipt; error?: never }
+	| { ok: true; summary: string; receipt?: ToolReceipt; /** O efeito já foi feito, mas o resto é do dono (3DS, app do banco, captcha): o run estaciona com handoff. */ park?: "handoff"; error?: never }
 	| { ok: false; error: string; hint?: string; summary?: never };

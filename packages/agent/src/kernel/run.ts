@@ -176,7 +176,7 @@ export async function runAgent(deps: RunAgentDeps): Promise<RunResult> {
 				state = "TOOLS";
 				await save(state);
 			} else if (state === "TOOLS") {
-				const { malformed } = await runPending({ tools: toolMap(), executor, snap, emit, fit, ...(deps.input.resume && { resume: deps.input.resume }) });
+				const { malformed } = await runPending({ tools: toolMap(), executor, snap, emit, fit, ...(deps.language && { language: deps.language }), ...(deps.input.resume && { resume: deps.input.resume }) });
 				snap.malformedNow += malformed;
 				if (Object.keys(snap.parked).length > 0) return await finish("parked", "");
 				state = "SETTLE";

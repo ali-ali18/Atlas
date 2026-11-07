@@ -8,6 +8,8 @@ import type { DeliverablePorts } from "../ports/deliverables.js";
 import { createAgendaCapability } from "../capabilities/agenda/index.js";
 import { createMemoryCapability } from "../capabilities/memory/index.js";
 import { createSettingsCapability } from "../capabilities/settings/index.js";
+import { createCheckoutCapability } from "../capabilities/shopping/checkout-capability.js";
+import type { CheckoutDeps } from "../capabilities/shopping/checkout.js";
 import { createTasksCapability } from "../capabilities/tasks/index.js";
 import type { Agenda } from "../ports/agenda.js";
 import type { FileStore } from "../ports/file-store.js";
@@ -24,7 +26,7 @@ import { createWebCapability } from "./web.js";
 export const PRESET_IDS = ["minimal", "full"] as const;
 export type PresetId = (typeof PRESET_IDS)[number];
 
-export type CapabilityId = "web" | "deliverables-lite" | "memory" | "tasks" | "settings" | "research" | "agenda";
+export type CapabilityId = "web" | "deliverables-lite" | "memory" | "tasks" | "settings" | "research" | "agenda" | "checkout";
 
 export type AgentPreset = {
 	id: PresetId;
@@ -36,7 +38,7 @@ export type AgentPreset = {
 
 export const PRESETS: Readonly<Record<PresetId, AgentPreset>> = Object.freeze({
 	minimal: Object.freeze({ id: "minimal", capabilities: Object.freeze(["web", "deliverables-lite"] as const), workContract: false }),
-	full: Object.freeze({ id: "full", capabilities: Object.freeze(["web", "deliverables-lite", "memory", "tasks", "settings", "research", "agenda"] as const), workContract: true }),
+	full: Object.freeze({ id: "full", capabilities: Object.freeze(["web", "deliverables-lite", "memory", "tasks", "settings", "research", "agenda", "checkout"] as const), workContract: true }),
 });
 
 /**
@@ -57,6 +59,8 @@ export type PresetDeps = {
 	helpers?: Helpers;
 	/** Agenda (F4.2): lembrete, vigia e intenção por evento. Lazy; sem a porta a capacidade não entra. */
 	agenda?: Agenda;
+	/** Pagamento (F6.3): cartões do dono (só bandeira e final) e o `card_fill`. Sem cartão salvo ou sem a porta, a capacidade não entra. */
+	checkout?: CheckoutDeps;
 };
 
 export function isPresetId(value: unknown): value is PresetId {
@@ -75,6 +79,8 @@ const FACTORIES: Readonly<Record<CapabilityId, CapabilityFactory>> = {
 	research: (deps) => deps.helpers && createResearchCapability(deps.helpers),
 	// F4.2: lazy como as demais (o núcleo do plano é "agenda disponível", não "schema sempre carregado": "Bom dia" segue barato).
 	agenda: (deps) => deps.agenda && createAgendaCapability(deps.agenda),
+	// F6.3: lazy; só entra quando o dono tem cartão salvo e a porta de pagamento existe.
+	checkout: (deps) => (deps.checkout && deps.checkout.cards.length > 0 ? createCheckoutCapability(deps.checkout) : undefined),
 };
 
 /** Capacidades do preset que não entram por falta da porta. */
