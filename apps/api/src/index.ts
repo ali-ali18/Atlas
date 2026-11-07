@@ -49,6 +49,7 @@ import { createProfileRoutes } from "./routes/profile.js";
 import { createMemoryRoutes } from "./routes/memory.js";
 import { createLessonRoutes } from "./routes/lessons.js";
 import { createNoteRoutes } from "./routes/notes.js";
+import { createPurchaseRoutes } from "./routes/purchases.js";
 import { createBotRuleRoutes } from "./routes/bot-rules.js";
 import { createSleepRoutes } from "./routes/sleep.js";
 import { createComposioRoutes } from "./routes/composio.js";
@@ -277,6 +278,7 @@ app.route("/", createProfileRoutes());
 app.route("/", createMemoryRoutes());
 app.route("/", createLessonRoutes());
 app.route("/", createNoteRoutes());
+app.route("/", createPurchaseRoutes());
 app.route("/", createBotRuleRoutes());
 app.route("/", createSleepRoutes());
 // Passagem de sessão do app para o navegador (OAuth de conector): rota pública por token; a sessão curta que ela cria é revogada no fim do callback.
