@@ -71,4 +71,12 @@ describe("redactCardNumbers", () => {
 		expect(redactCardNumbers("pedido 1234567890123 em 2026-11-07")).toBe("pedido 1234567890123 em 2026-11-07");
 		expect(redactCardNumbers("final 1111, total 123")).toBe("final 1111, total 123");
 	});
+
+	it("não toca nas casas decimais de um número (JSON continua válido)", async () => {
+		const { redactCardNumbers } = await import("./payment-card.js");
+		const json = '{"valor": 1561.0900000000001, "v2": 12.4111111111111111}';
+		expect(redactCardNumbers(json)).toBe(json);
+		expect(() => JSON.parse(redactCardNumbers(json))).not.toThrow();
+		expect(redactCardNumbers("pago com 4111111111111111.")).toBe("pago com [redacted].");
+	});
 });

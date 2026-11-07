@@ -161,7 +161,9 @@ export function redactCardNumbers(text: string): string {
 				j++;
 			} else break;
 		}
-		if (digits.length >= 13 && digits.length <= 19 && luhnValid(digits)) out += "[redacted]";
+		// Casas decimais de um número (`1561.0900000000001`, ruído de ponto flutuante) não são cartão; redigir quebraria o JSON.
+		const fraction = i >= 2 && text[i - 1] === "." && isDigitChar(text[i - 2]);
+		if (!fraction && digits.length >= 13 && digits.length <= 19 && luhnValid(digits)) out += "[redacted]";
 		else out += text.slice(i, j);
 		i = j;
 	}
