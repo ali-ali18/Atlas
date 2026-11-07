@@ -1,15 +1,16 @@
 /**
  * Agenda do agente (Motor v4, F4): lembrete, vigia, intenção por evento e brief sobre `BotFollowup`.
- * Funções PURAS (sem I/O): o relógio entra por `now`, o fuso e o horário útil por `ProactiveSettings`.
+ * Funções PURAS (sem I/O): o relógio entra por `now`, o fuso por `ProactiveSettings`.
  *
- * Reaproveita o modo proativo do v2: `resolveFollowupWhen` lê o "quando", `nextAllowedTime` empurra para fora do
- * silêncio e `findDuplicateFollowup`/`normalizeForDedupe` evitam item repetido. "Horário útil" = fora do horário de
- * silêncio do dono (padrão 08:00 a 22:00 no fuso da conta).
+ * Reaproveita o modo proativo do v2: `resolveFollowupWhen` lê o "quando" e `findDuplicateFollowup`/`normalizeForDedupe`
+ * evitam item repetido. SEM horário de silêncio (decisão do dono, 07/11): a agenda respeita o horário pedido e nunca
+ * empurra lembrete, vigia nem aviso. Os freios de custo (intervalo mínimo, espaçamento, teto diário, parada após avisos
+ * ignorados) continuam. O v2 (`proactive.ts`) segue com o silêncio dele.
  *
  * Nenhuma decisão aqui lê texto livre do dono ou do modelo para decidir comportamento: o filtro de evento compara
  * CAMPOS declarados (remetente, assunto contém, anexo) e os freios usam contadores e datas.
  */
-import { findDuplicateFollowup, nextAllowedTime, resolveFollowupWhen, type ProactiveSettings } from "./proactive.js";
+import { findDuplicateFollowup, resolveFollowupWhen, type ProactiveSettings } from "./proactive.js";
 
 export const AGENDA_KINDS = ["remind", "watch", "intent", "brief"] as const;
 export type AgendaKind = (typeof AGENDA_KINDS)[number];
@@ -38,7 +39,7 @@ export const AGENDA_MAX_HORIZON_DAYS = 180;
 export const AGENDA_IGNORED_NOTICE_LIMIT = 2;
 /** Execuções seguidas sem `agenda_result` que encerram o item. */
 export const AGENDA_MISSING_RESULT_LIMIT = 3;
-/** Lembrete que acordou sem resultado e sem texto: tenta de novo neste prazo (empurrado para fora do silêncio). */
+/** Lembrete que acordou sem resultado e sem texto: tenta de novo neste prazo. */
 export const AGENDA_REMIND_RETRY_MINUTES = 30;
 /**
  * Um item `intent` não acorda de novo antes disto (várias mensagens seguidas viram um run só; o run lê o que chegou).
@@ -148,14 +149,13 @@ export type AgendaRequest = {
 export type AgendaPlan = {
 	kind: AgendaKind;
 	note: string;
-	/** Próxima execução, já fora do silêncio. Em `intent` é o fim da vigência (a varredura de tempo só a expira). */
+	/** Próxima execução, no horário pedido. Em `intent` é o fim da vigência (a varredura de tempo só a expira). */
 	dueAt: Date;
 	requestedFor: Date;
 	intervalMinutes: number | null;
 	untilAt: Date | null;
 	maxRuns: number | null;
 	eventFilter: AgendaEventFilter | null;
-	movedForQuietHours: boolean;
 	/** Ajustes que o motor fez (inglês curto, para o modelo contar ao dono em palavras simples). */
 	adjustments: string[];
 };
@@ -176,7 +176,7 @@ function validateInterval(request: AgendaRequest): { ok: true; minutes: number |
 
 /**
  * Valida e normaliza o pedido de criação de um item da agenda. Recusa com a lista do que é aceito (tool honesta);
- * nunca descarta campo em silêncio. O horário cai fora do silêncio do dono; `watch` sem fim ganha 14 dias.
+ * nunca descarta campo em silêncio. O horário pedido é respeitado; `watch` sem fim ganha 14 dias.
  */
 export function planAgendaItem(input: { request: AgendaRequest; now: Date; settings: ProactiveSettings }): PlanAgendaResult {
 	const { request, now, settings } = input;
@@ -212,7 +212,7 @@ export function planAgendaItem(input: { request: AgendaRequest; now: Date; setti
 		if (!until.ok) return until;
 		const untilAt = until.at ?? new Date(now.getTime() + AGENDA_INTENT_DEFAULT_DAYS * DAY_MS);
 		if (until.at === null) adjustments.push(`no end given: it lasts ${AGENDA_INTENT_DEFAULT_DAYS} days`);
-		return { ok: true, plan: { kind: "intent", note, dueAt: untilAt, requestedFor: untilAt, intervalMinutes: null, untilAt, maxRuns: request.maxRuns ?? null, eventFilter: parsed.filter, movedForQuietHours: false, adjustments } };
+		return { ok: true, plan: { kind: "intent", note, dueAt: untilAt, requestedFor: untilAt, intervalMinutes: null, untilAt, maxRuns: request.maxRuns ?? null, eventFilter: parsed.filter, adjustments } };
 	}
 
 	if (request.eventFilter !== undefined) return { ok: false, error: "eventFilter belongs to kind intent only." };
@@ -248,14 +248,12 @@ export function planAgendaItem(input: { request: AgendaRequest; now: Date; setti
 		adjustments.push(`no end given: it stops after ${AGENDA_WATCH_DEFAULT_DAYS} days`);
 	}
 
-	const dueAt = nextAllowedTime(requestedFor, settings);
-	const movedForQuietHours = dueAt.getTime() !== requestedFor.getTime();
-	if (movedForQuietHours) adjustments.push("moved out of the owner's quiet hours");
+	const dueAt = requestedFor;
 	if (untilAt !== null && dueAt.getTime() >= untilAt.getTime()) return { ok: false, error: "The first run would fall after the end (until). Move until later." };
 
 	return {
 		ok: true,
-		plan: { kind: request.kind, note, dueAt, requestedFor, intervalMinutes, untilAt, maxRuns: request.kind === "remind" && intervalMinutes === null ? 1 : (request.maxRuns ?? null), eventFilter: null, movedForQuietHours, adjustments },
+		plan: { kind: request.kind, note, dueAt, requestedFor, intervalMinutes, untilAt, maxRuns: request.kind === "remind" && intervalMinutes === null ? 1 : (request.maxRuns ?? null), eventFilter: null, adjustments },
 	};
 }
 
@@ -304,19 +302,18 @@ export function watchBackoffFactor(noChangeStreak: number): number {
 	return BACKOFF_STEPS.find((step) => streak >= step.fromStreak)?.factor ?? 1;
 }
 
-export type WatchDelay = { ok: true; dueAt: Date; delayMinutes: number; movedForQuietHours: boolean } | { ok: false; reason: "past_until" };
+export type WatchDelay = { ok: true; dueAt: Date; delayMinutes: number } | { ok: false; reason: "past_until" };
 
 /**
  * Quando é o próximo run de um item recorrente: intervalo × fator do espaçamento (teto de 72h, ou o próprio intervalo se
- * for maior), empurrado para fora do silêncio no fuso do dono. Passou de `untilAt` = encerra.
+ * for maior), sem empurrar para fora de horário nenhum. Passou de `untilAt` = encerra.
  */
 export function nextWatchDelay(input: { now: Date; intervalMinutes: number; noChangeStreak: number; settings: ProactiveSettings; untilAt?: Date | null }): WatchDelay {
 	const cap = Math.max(input.intervalMinutes, BACKOFF_CAP_MINUTES);
 	const delayMinutes = Math.min(input.intervalMinutes * watchBackoffFactor(input.noChangeStreak), cap);
-	const raw = new Date(input.now.getTime() + delayMinutes * MINUTE_MS);
-	const dueAt = nextAllowedTime(raw, input.settings);
+	const dueAt = new Date(input.now.getTime() + delayMinutes * MINUTE_MS);
 	if (input.untilAt && dueAt.getTime() >= input.untilAt.getTime()) return { ok: false, reason: "past_until" };
-	return { ok: true, dueAt, delayMinutes, movedForQuietHours: dueAt.getTime() !== raw.getTime() };
+	return { ok: true, dueAt, delayMinutes };
 }
 
 // ---------------------------------------------------------------------------
@@ -338,8 +335,7 @@ export type AgendaStopReason = "expired" | "max_runs" | "ignored_notices";
 
 export type AgendaWakePlan =
 	| { action: "run"; ignoredStreak: number }
-	| { action: "stop"; reason: AgendaStopReason; ignoredStreak: number }
-	| { action: "defer"; dueAt: Date; reason: "quiet_hours"; ignoredStreak: number };
+	| { action: "stop"; reason: AgendaStopReason; ignoredStreak: number };
 
 /**
  * O aviso anterior foi ignorado? Sinal ESTRUTURAL: o dono não abriu a conversa depois do aviso (`lastReadAt` anterior)
@@ -357,7 +353,7 @@ export function nextIgnoredStreak(current: number, ignored: boolean): number {
 
 /**
  * Decide o que fazer com um item vencido ANTES de gastar um run: venceu a vigência, bateu `maxRuns`, o dono ignorou
- * `AGENDA_IGNORED_NOTICE_LIMIT` avisos seguidos, ou caiu no silêncio (adia; intenção por evento não adia). `noticeIgnored` = resultado de
+ * `AGENDA_IGNORED_NOTICE_LIMIT` avisos seguidos. Não há adiamento por horário. `noticeIgnored` = resultado de
  * `wasNoticeIgnored` do último aviso ainda não avaliado (`null` = não havia aviso a avaliar).
  */
 export function planAgendaWake(input: { item: AgendaWakeItem; now: Date; settings: ProactiveSettings; noticeIgnored: boolean | null }): AgendaWakePlan {
@@ -367,11 +363,6 @@ export function planAgendaWake(input: { item: AgendaWakeItem; now: Date; setting
 	const retryingReminder = item.kind === "remind" && (item.missingResults ?? 0) > 0;
 	if (item.maxRuns !== null && item.runCount >= item.maxRuns && !retryingReminder) return { action: "stop", reason: "max_runs", ignoredStreak };
 	if (ignoredStreak >= AGENDA_IGNORED_NOTICE_LIMIT) return { action: "stop", reason: "ignored_notices", ignoredStreak };
-	// Intenção por evento reage ao que chegou: adiar para a manhã faria o evento da noite se perder (não há relógio para voltar).
-	if (item.kind !== "intent") {
-		const allowed = nextAllowedTime(now, input.settings);
-		if (allowed.getTime() > now.getTime()) return { action: "defer", dueAt: allowed, reason: "quiet_hours", ignoredStreak };
-	}
 	return { action: "run", ignoredStreak };
 }
 
@@ -466,7 +457,7 @@ export function settleAgendaRunWithoutResult(input: {
 			const delivered = settleAgendaRun({ item: input.item, outcome: "update", hasMessage: true, now: input.now, settings: input.settings });
 			return { ...delivered, endReason: delivered.status === "done" ? "reminder_note" : null, deliverNote: true, missingResults: 0 };
 		}
-		const retryAt = nextAllowedTime(new Date(input.now.getTime() + AGENDA_REMIND_RETRY_MINUTES * MINUTE_MS), input.settings);
+		const retryAt = new Date(input.now.getTime() + AGENDA_REMIND_RETRY_MINUTES * MINUTE_MS);
 		if (input.item.untilAt && retryAt.getTime() >= input.item.untilAt.getTime()) {
 			return { status: "done", dueAt: null, noChangeStreak: input.item.noChangeStreak, endReason: "reminder_note", post: true, deliverNote: true, missingResults: 0 };
 		}

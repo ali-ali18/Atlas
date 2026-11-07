@@ -68,7 +68,7 @@ test("sem v4 ligado para a conta: não cria run, adia 6h sem gastar tentativa e 
 	assert.match(calls.logs[0] ?? "", /reason=v4_off/);
 });
 
-test("freios do db: parar ou adiar não cria run", async () => {
+test("freios do db: parar não cria run", async () => {
 	for (const decision of [{ action: "stop", reason: "ignored_notices" }, { action: "stop", reason: "max_runs" }] as AgendaWakeDecision[]) {
 		const { deps, calls } = harness({ decision });
 		const result = fresh();
@@ -76,11 +76,6 @@ test("freios do db: parar ou adiar não cria run", async () => {
 		assert.equal(calls.created.length, 0);
 		assert.equal(result.stopped, 1);
 	}
-	const { deps, calls } = harness({ decision: { action: "defer", dueAt: new Date("2026-11-06T11:00:00.000Z") } });
-	const result = fresh();
-	await dispatchAgendaItem(item(), deps, result);
-	assert.equal(result.deferred, 1);
-	assert.equal(calls.created.length, 0);
 });
 
 test("run anterior ainda vivo (ou conversa ocupada): adia sem empilhar outro run", async () => {

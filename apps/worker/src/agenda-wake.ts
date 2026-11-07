@@ -6,8 +6,8 @@
  *  - reaproveita o padrão do modo proativo do v2: o banco é a fonte da verdade e uma varredura barata (uma consulta
  *    indexada por minuto, sem LLM) reserva os vencidos (`FOR UPDATE SKIP LOCKED`), então reiniciar o worker ou ter várias
  *    instâncias não duplica nem perde item; o run vai para a fila BullMQ de runs (`enqueueRun`) como qualquer outro;
- *  - freios estruturais antes de gastar um run (`decideAgendaWake`): vigência, `maxRuns`, 2 avisos seguidos ignorados e
- *    horário útil. O espaçamento por `noChangeStreak` e o `maxRuns` depois do run são do `agenda_result`;
+ *  - freios estruturais antes de gastar um run (`decideAgendaWake`): vigência, `maxRuns`, 2 avisos seguidos ignorados
+ *    (sem horário de silêncio: a agenda roda no horário pedido). O espaçamento por `noChangeStreak` e o `maxRuns` depois do run são do `agenda_result`;
  *  - sem v4 ligado para a conta o item NÃO roda (nem cai no v2): adia, e quando a flag volta ele continua.
  */
 import {
@@ -163,11 +163,6 @@ export async function dispatchAgendaItem(item: AgendaItemRecord, deps: AgendaWak
 		if (decision.action === "stop") {
 			result.stopped += 1;
 			log(`[agenda] item=${item.id} stopped reason=${decision.reason}`);
-			return;
-		}
-		if (decision.action === "defer") {
-			result.deferred += 1;
-			log(`[agenda] item=${item.id} deferred reason=quiet_hours`);
 			return;
 		}
 		// O run anterior ainda vive (rodando ou parado num cartão): não empilha outro.
