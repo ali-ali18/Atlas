@@ -2,7 +2,7 @@ import { defaultTranslator, type Translator } from "@/lib/i18n/translator";
 import { memoryRelativeDate } from "./memory-tab-helpers";
 
 /** Seções recolhíveis da aba Biblioteca. Cada pessoa lembra, no próprio navegador, quais deixou abertas. */
-export type LibrarySectionId = "pages" | "documents" | "routines" | "agenda";
+export type LibrarySectionId = "pages" | "documents" | "routines" | "agenda" | "notebook";
 
 /** Painéis começam abertos (é o que mais se consulta); o resto, fechado. */
 export const LIBRARY_SECTION_DEFAULT_OPEN: Record<LibrarySectionId, boolean> = {
@@ -10,6 +10,7 @@ export const LIBRARY_SECTION_DEFAULT_OPEN: Record<LibrarySectionId, boolean> = {
 	documents: false,
 	routines: false,
 	agenda: false,
+	notebook: false,
 };
 
 export function librarySectionKey(id: LibrarySectionId): string {

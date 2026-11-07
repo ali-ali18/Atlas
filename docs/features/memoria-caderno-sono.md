@@ -1,6 +1,6 @@
 # Memória, caderno e sono (Motor v4, F5)
 
-- **Status:** em andamento (backend entregue; falta a seção "Caderno" e as regras aprendidas na Biblioteca)
+- **Status:** em andamento (backend e tela da Biblioteca entregues; falta ligar o v4 por padrão)
 - **Data:** 2026-11-06
 - **Issues/PRs:** F5.1 e F5.3 do `PLANO-AGENTE-V4`
 
@@ -27,6 +27,11 @@ Sem caderno, informação estruturada (lista, plano, detalhes de viagem) ou some
 - **Doctor:** aos domingos, duplicatas e itens velhos por regra e conflitos por uma chamada com ids conferidos. Só propõe.
 - **Desfazer:** `MemoryChange` (alvo `note` para o caderno) guarda antes/depois, origem, relatório e desfazer que recusa com 409 se o item mudou depois.
 - **Opt-out:** `policyJson.sleep = false` desliga o sono do bot.
+
+### Tela (Biblioteca, F5.2)
+- Seção recolhível **Caderno** (`chat-context-panel/notebook/`), com três sub-blocos recolhíveis que só carregam quando abertos: **Notas**, **O que o bot aprendeu** e **Revisão da noite**.
+- **Sinal de "v4 ligado":** `capabilities.engineV4` em `GET /v1/settings` (calculado no servidor pela mesma flag e lista de contas do worker). O front lê uma vez (`lib/use-engine-v4.ts`) e a seção some quando falta ou é falso. A Agenda usa o mesmo sinal.
+- Texto para o dono em frase simples: a origem da nota é "Você", "O bot" ou "Aprendido à noite"; conflitos 409/422 (`limit`, `duplicate`, `conflict`, `stale`, `already_undone`) viram frase, nunca código.
 
 ### Rotas (todas atrás do `requireUser`; 404 para recurso alheio)
 - `GET /v1/notes?botId=&pinned=true` · `GET /v1/notes/changes?botId=&cursor=&limit=` · `GET|PATCH|DELETE /v1/notes/:id` · `POST /v1/notes` (`{title, body, pinned?, botId?}`). `PATCH` aceita `title`, `body`, `pinned`.
