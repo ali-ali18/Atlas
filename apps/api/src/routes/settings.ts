@@ -7,7 +7,9 @@ import {
 	updateUserSettings,
 } from "@workspace/db";
 import {
+	isEngineV4Enabled,
 	parseModelRef,
+	readEngineV4Gate,
 	resolveEffectiveConfig,
 	validateAccountConfigPatch,
 	type AccountConfigError,
@@ -94,6 +96,8 @@ export function createSettingsRoutes(deps: SettingsRouteDeps = {}) {
 			capabilities: {
 				openrouterKey: Boolean(env.OPENROUTER_API_KEY?.trim()),
 				isOwner: isOwnerEmail(email),
+				// Mesma regra do worker (`chooseRunEngine`): flag ligada E a conta na lista. Sem isso a UI do v4 nem aparece.
+				engineV4: isEngineV4Enabled(readEngineV4Gate(env.ATLAS_ENGINE_V4, env.ATLAS_ENGINE_V4_ACCOUNTS), userId),
 			},
 		};
 	}
