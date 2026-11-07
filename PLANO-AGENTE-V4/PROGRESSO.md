@@ -42,7 +42,7 @@
 | F2 capacidades | `feat/harness-v4-f2-capacidades` | **concluída, juntada em `harness/v4`** | #152 |
 | F3 pesquisa | `feat/harness-v4-f3-pesquisa` | **concluída, juntada em `harness/v4`** | #153 |
 | F4 agenda | `feat/harness-v4-f4-agenda` | **backend concluído** (auditoria fechada); a seção da Biblioteca vem na frente de UI | — |
-| F5 memória | `feat/harness-v4-f5-memoria` | em andamento (backend; Caderno e regras na Biblioteca na frente de UI) | — |
+| F5 memória | `feat/harness-v4-f5-memoria` | backend e tela do Caderno prontos (F5.2 na frente de UI, `wip/ui-caderno`) | — |
 
 ## Decisões do dono (não reabrir)
 - Base nova, do zero, em `packages/agent`, sem import do legado (05/11).
@@ -116,7 +116,7 @@
 
 ### F5: Memória, Caderno e Sono
 - [x] F5.1 (06/11: tabela `notes` nova, não extensão de `agent_notes`; seis tools `note_*` na capacidade `memory` lazy; rotas `/v1/notes` com IDOR testado em banco real; títulos fixados no `[context]` com teto técnico; regras aprendidas: API `/v1/bots/:botId/rules`, agora valendo no autorizador; falta a UI) Model `Note`, rotas `/v1/notes` (IDOR) e tools.
-- [ ] F5.2 Seção "Caderno" e regras aprendidas visíveis e editáveis (com prévias).
+- [x] F5.2 (07/11: seção recolhível "Caderno" na Biblioteca com notas, "O que o bot aprendeu" e "Revisão da noite"; só aparece com o sinal `capabilities.engineV4` de `GET /v1/settings`; cliente em `lib/atlas-api.ts`; prévias em `apps/web/e2e/__previews__/caderno/`) Seção "Caderno" e regras aprendidas visíveis e editáveis (com prévias).
 - [x] F5.3 (06/11: backend completo; fonte = só fala do dono citada por id; 23:30 no fuso do dono; uma chamada `sleep` por bot por dia; `MemoryChange` estendido para notas, origem `sleep`, relatório e desfazer; doctor aos domingos só propõe; skills e casos de eval só propostas; falta a UI do relatório) Job `sleep`, `MemoryChange` com desfazer e "doctor".
 - [x] F5.A (06/11: 19 achados, 1 alto; 17 corrigidos, 2 aceitos; reauditoria com 5 baixos, 1 corrigido) Auditoria: 5 lentes, verificação, correções com teste, reauditoria e `auditorias/F5.md` fechado.
 
