@@ -177,7 +177,7 @@ function toRecord(row: Row): AgendaItemRecord | null {
 
 const records = (rows: Row[]): AgendaItemRecord[] => rows.flatMap((row) => toRecord(row) ?? []);
 
-/** Fuso e horário de silêncio do dono: política do bot + fuso da conta (mesma fonte do modo proativo do v2). */
+/** Fuso do dono (a agenda ignora o horário de silêncio): política do bot + fuso da conta (mesma fonte do modo proativo do v2). */
 export async function loadAgendaSettings(userId: string, botId: string): Promise<ProactiveSettings> {
 	const bot = botId && userId.trim() && userId !== "default" ? await prisma.bot.findFirst({ where: { id: botId, ownerId: userId }, select: { policyJson: true } }) : null;
 	const account = (await getAccountConfig(userId).catch(() => null))?.general?.timezone;
@@ -341,7 +341,7 @@ export async function reserveAgendaItem(userId: string, id: string, now: Date): 
 	return result.count === 1;
 }
 
-/** Devolve o item à fila com novo horário (silêncio, conversa ocupada, falha ao criar o run). */
+/** Devolve o item à fila com novo horário (conversa ocupada, falha ao criar o run). */
 export async function rescheduleAgendaItem(userId: string, id: string, input: { dueAt: Date; error?: string; countAttempt?: boolean }): Promise<void> {
 	await prisma.botFollowup.updateMany({
 		where: { id, userId, agendaKind: { not: null }, status: "pending" },
@@ -372,12 +372,11 @@ export async function loadNoticeSignals(userId: string, conversationId: string):
 
 export type AgendaWakeDecision =
 	| { action: "run"; item: AgendaItemRecord }
-	| { action: "stop"; reason: AgendaStopReason }
-	| { action: "defer"; dueAt: Date };
+	| { action: "stop"; reason: AgendaStopReason };
 
 /**
  * Passo de decisão antes de gastar um run: avalia o aviso anterior (lido ou ignorado), aplica os freios
- * (`planAgendaWake`) e já persiste o que mudou (parada, adiamento ou a contagem de ignorados).
+ * (`planAgendaWake`) e já persiste o que mudou (parada ou a contagem de ignorados). Não há adiamento por horário.
  */
 export async function decideAgendaWake(item: AgendaItemRecord, now: Date, settings: ProactiveSettings): Promise<AgendaWakeDecision> {
 	let noticeIgnored: boolean | null = null;
@@ -389,13 +388,6 @@ export async function decideAgendaWake(item: AgendaItemRecord, now: Date, settin
 	if (plan.action === "stop") {
 		await stopAgendaItem(item.userId, item.id, plan.reason, { ignoredStreak: plan.ignoredStreak, now });
 		return { action: "stop", reason: plan.reason };
-	}
-	if (plan.action === "defer") {
-		await prisma.botFollowup.updateMany({
-			where: { id: item.id, userId: item.userId, agendaKind: { not: null }, status: "pending" },
-			data: { dueAt: plan.dueAt, claimedUntil: null, ...(item.lastNoticeAt ? { ignoredStreak: plan.ignoredStreak, lastNoticeAt: null } : {}) },
-		});
-		return { action: "defer", dueAt: plan.dueAt };
 	}
 	return { action: "run", item: { ...item, ignoredStreak: plan.ignoredStreak, lastNoticeAt: null } };
 }
