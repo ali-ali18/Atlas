@@ -9,7 +9,7 @@ import { z } from "zod";
 import { defineCapability } from "../define-capability.js";
 import { createAgendaCapability, createAgendaRunCapability } from "./agenda-capability.js";
 
-// O relógio dos testes é 2026-11-05 12:00Z = 09:00 em São Paulo (silêncio 22:00 a 08:00).
+// O relógio dos testes é 2026-11-05 12:00Z = 09:00 em São Paulo.
 const ctx = (ownerId = "o1", runId = "run-1"): ToolContext => ({ runId, ownerId, ports: { clock: new FakeClock() } as unknown as Ports });
 const tools = (agenda: FakeAgenda) => Object.fromEntries(createAgendaCapability(agenda).tools.map((t) => [t.name, t]));
 
