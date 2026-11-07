@@ -23,7 +23,22 @@
 | T2 | testes | baixo | `e2e/__previews__/agenda`, `caderno` | Faltavam as prévias da Agenda vazia no desktop e da confirmação de cancelar no celular. | corrigido (commit de prévias abaixo): as duas foram geradas (a de celular exigiu soltar o dedo no roteiro da prévia, porque a pressão longa engole o primeiro clique de propósito) e todas as afetadas foram regeradas (regras sem nome de ferramenta, apagar nota sem selo, Agenda na linha unificada). O roteiro da Agenda passou a ligar o v4 por `/v1/settings` |
 
 ## Reauditoria
-Pendente.
+Um auditor novo (Sonnet, só leitura) revisou o delta `276b77f1..77527b80` e as prévias regeradas. Todos os achados estão **fechados**. A6 fechou no código, mas o teste dele é fraco.
+
+| ID | Sev. | Onde | Cenário | Status |
+|---|---|---|---|---|
+| N1 | baixo | `deletable-row.tsx` | Ao desistir da confirmação, o foco caía no topo da página. | corrigido: o foco volta à lixeira |
+| N2 | baixo | `deletable-row.tsx` | No toque, a lixeira com `display:none` sumia também para o leitor de tela. | corrigido: fica fora da vista (`sr-only`), mas na árvore de acessibilidade |
+| N3 | info | testes | O teste de `active=false` do Caderno pode não distinguir com e sem a correção. | aceito: a seção nasce recolhida; follow-up de teste |
+
+Verificação final: `turbo typecheck` 18/18. Testes: web 1699, api 941, shared 2917, db 697 (Postgres real).
 
 ## Resumo para o dono
-Pendente.
+- As telas da Agenda e do Caderno passaram por 2 auditores e não houve falha de segurança: um usuário não vê nada de outro, e nada interno aparece na tela.
+- Corrigido:
+  - a regra que mostrava o nome interno da ferramenta;
+  - o selo "Precisa de você" ao apagar uma nota sua;
+  - o apagar, que estava feito de dois jeitos diferentes;
+  - os encerrados da Agenda, que sumiam quando passavam de 100;
+  - acessibilidade (foco e leitor de tela).
+- A reauditoria confirmou tudo. As telas só aparecem com o v4 ligado.
