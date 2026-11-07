@@ -304,6 +304,7 @@ function fakeAdapters(searched: string[]): NonNullable<Parameters<typeof runEngi
 		web: { extract: async (url: string) => ({ url, markdown: "# Página", truncated: false }), searxng: async (query: string) => (searched.push(query), [{ url: "https://example.test/r", title: "R", snippet: "resultado" }]) },
 		deliverables: { persistArtifact: never, nextVersion: never, countRunFiles: never, loadArtifact: never, createPage: never, render: never, preview: never, persistCard: never } as never,
 		memory: { snapshot: never, add: never, getById: never, replaceById: never, removeById: never } as never,
+		notebook: { create: never, get: never, search: never, update: never, remove: never, listPinned: never } as never,
 		settings: { getBot: never, update: never } as never,
 		mcp: { listConnected: async () => [], loadRuntime: async () => null },
 	};
@@ -369,4 +370,26 @@ test("ajudante pedindo capacidade que a mãe não tem (o preset sem bot não tem
 	assert.equal(result?.status, "failed");
 	assert.match(result?.error ?? "", /does not have the capability "settings"/);
 	assert.equal(llm.requests.length, 1, "o modelo não foi chamado pelo ajudante");
+});
+
+test("regras do dono (policyJson.rules) entram na política do run: a tool negada volta como indisponível e a busca não roda", async () => {
+	const events: ComputerUseEvent[] = [];
+	const searched: string[] = [];
+	const { db } = fakeDb();
+	const llm = scripted([[{ type: "tool_call", call: { id: "c1", name: "web_search", args: { query: "atlas" } } }, done()], [{ type: "text_delta", text: "Sem busca." }, done()]]);
+	const { registry: _omit, ...input } = baseInput(llm, events, db);
+	await runEngineV4({ ...input, botId: "bot-1", adapters: fakeAdapters(searched), rules: [{ match: "web_*", verdict: "deny" }] });
+	assert.deepEqual(searched, [], "a regra deny impede a busca");
+	const second = JSON.stringify(llm.requests[1]?.messages);
+	assert.match(second, /not available|unavailable|not_available/i);
+});
+
+test("títulos fixados do caderno chegam ao modelo no [context], sem o corpo", async () => {
+	const events: ComputerUseEvent[] = [];
+	const { db } = fakeDb();
+	const llm = scripted([[{ type: "text_delta", text: "Oi." }, done()]]);
+	const { registry: _omit, ...input } = baseInput(llm, events, db);
+	await runEngineV4({ ...input, botId: "bot-1", adapters: fakeAdapters([]), contextSections: ["Pinned notebook notes (titles only; read one with note_get, find others with note_search):\n- [n1] Plano da semana"] });
+	const context = (llm.requests[0]?.messages ?? []).find((m) => m.role === "system" && typeof m.content === "string" && m.content.startsWith("[context]"));
+	assert.match(String(context?.content), /\[n1\] Plano da semana/);
 });

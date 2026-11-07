@@ -1,5 +1,5 @@
 import { createDeliverablesCapability } from "../capabilities-builtin/deliverables/index.js";
-import { FakeDeliverables, FakeHelpers, FakeFileStore, FakeMemory, FakeSearch, FakeSettings, FakeTaskListStore } from "../presets/fakes.js";
+import { FakeDeliverables, FakeHelpers, FakeFileStore, FakeMemory, FakeNotebook, FakeSearch, FakeSettings, FakeTaskListStore } from "../presets/fakes.js";
 import { setupPreset } from "../presets/presets.js";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -35,7 +35,7 @@ const hash = sha256;
 
 /** Todas as portas do preset `full`: assim nenhuma capacidade fica de fora do registro de teste. */
 function fullDeps() {
-	return { search: new FakeSearch(), files: new FakeFileStore(), memory: new FakeMemory(), settings: new FakeSettings(), taskLists: new FakeTaskListStore(), helpers: new FakeHelpers() };
+	return { search: new FakeSearch(), files: new FakeFileStore(), memory: new FakeMemory(), notebook: new FakeNotebook(), settings: new FakeSettings(), taskLists: new FakeTaskListStore(), helpers: new FakeHelpers() };
 }
 
 /** Todas as tools que existem hoje em `packages/agent` (núcleo do kernel + as de capacidade). */
@@ -93,7 +93,7 @@ describe("A. toda tool registrada declara efeito", () => {
 	const tools = allRegisteredTools();
 
 	it("o registro de teste cobre o kernel de verdade", () => {
-		expect(tools.map((t) => t.name).sort()).toEqual([ASK_OWNER_TOOL, NOTE_READ_TOOL, USE_CAPABILITY_TOOL, "create_file", "create_file", "create_page", "chart", "inspect_file", "web_extract", "web_search", "memory_list", "memory_add", "memory_update", "memory_remove", "update_task_list", "settings_get", "settings_update", "set_role_model", "update_bot_profile", "research"].sort());
+		expect(tools.map((t) => t.name).sort()).toEqual([ASK_OWNER_TOOL, NOTE_READ_TOOL, USE_CAPABILITY_TOOL, "create_file", "create_file", "create_page", "chart", "inspect_file", "web_extract", "web_search", "memory_list", "memory_add", "memory_update", "memory_remove", "note_search", "note_get", "note_add", "note_update", "note_pin", "note_remove", "update_task_list", "settings_get", "settings_update", "set_role_model", "update_bot_profile", "research"].sort());
 	});
 
 	it("o vocabulário de efeitos do motor é o mesmo de shared", () => {
@@ -107,7 +107,7 @@ describe("A. toda tool registrada declara efeito", () => {
 
 	it("tool que lê dado privado do dono declara privateData, e só leitura leva a flag (auditoria F1, N2)", () => {
 		const byName = new Map(tools.map((t) => [t.name, t]));
-		for (const name of ["memory_list"]) expect(byName.get(name)?.privateData, name).toBe(true);
+		for (const name of ["memory_list", "note_search", "note_get"]) expect(byName.get(name)?.privateData, name).toBe(true);
 		const flagged = tools.filter((t) => t.privateData);
 		expect(flagged.length).toBeGreaterThan(0);
 		expect(flagged.every((t) => t.effect === "read")).toBe(true);
