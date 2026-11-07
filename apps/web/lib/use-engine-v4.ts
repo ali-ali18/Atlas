@@ -9,20 +9,31 @@ export function isEngineV4On(settings: Pick<AccountSettingsResponse, "capabiliti
 	return settings?.capabilities?.engineV4 === true;
 }
 
-let cached: Promise<boolean> | null = null;
+/** Quanto tempo a resposta vale. Curto o bastante para a troca de conta ou de configuração aparecer sem recarregar. */
+export const ENGINE_V4_TTL_MS = 60_000;
 
-/** Uma consulta por carga da página, dividida entre todas as seções que dependem do v4 (Caderno, Agenda). Falha = desligado. */
-export function loadEngineV4(load: () => Promise<Pick<AccountSettingsResponse, "capabilities">> = getAccountSettings): Promise<boolean> {
-	cached ??= load()
-		.then(isEngineV4On)
-		.catch(() => {
-			cached = null;
-			return false;
-		});
-	return cached;
+let cached: { value: Promise<boolean>; at: number } | null = null;
+
+/**
+ * O mesmo sinal serve todas as seções que dependem do v4 (Caderno, Agenda), sem chamada extra por bot. Vale por
+ * `ENGINE_V4_TTL_MS` e é esquecido ao sair da conta (`resetEngineV4Cache`). Falha = desligado, sem guardar. O relógio é injetável.
+ */
+export function loadEngineV4(load: () => Promise<Pick<AccountSettingsResponse, "capabilities">> = getAccountSettings, now: number = Date.now()): Promise<boolean> {
+	if (cached && now - cached.at < ENGINE_V4_TTL_MS) return cached.value;
+	const entry = {
+		at: now,
+		value: load()
+			.then(isEngineV4On)
+			.catch(() => {
+				if (cached === entry) cached = null;
+				return false;
+			}),
+	};
+	cached = entry;
+	return entry.value;
 }
 
-/** Só para teste: esquece a consulta guardada. */
+/** Esquece a consulta guardada: ao sair da conta e nos testes. */
 export function resetEngineV4Cache(): void {
 	cached = null;
 }

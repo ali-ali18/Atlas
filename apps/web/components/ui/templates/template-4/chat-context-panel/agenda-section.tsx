@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { AgendaAction, AgendaItemView, AgendaListResponse } from "@workspace/shared";
 import { changeAgendaItem, listAgenda } from "@/lib/atlas-api";
 import { useT } from "@/lib/i18n/provider";
+import { useEngineV4 } from "@/lib/use-engine-v4";
 import { performAgendaAction } from "./agenda-actions";
 import { type AgendaActionResult } from "./agenda-card";
 import { AgendaList } from "./agenda-list";
@@ -11,11 +12,14 @@ import { applyAgendaChange } from "./agenda-text";
 import { LibrarySection } from "./library-section";
 
 /**
- * Seção Agenda da Biblioteca. Só existe para quem usa o motor novo: enquanto o servidor não confirma (`enabled`) e
- * quando diz que não, nada é desenhado, então o app de quem não usa fica exatamente como era.
+ * Seção Agenda da Biblioteca. Só existe quando o Motor v4 está ligado para a conta: o mesmo sinal do Caderno
+ * (`useEngineV4`, uma consulta só para todas as seções). Desligado ou ainda sem resposta, nada é desenhado e nada é
+ * buscado, então o app de quem não usa fica exatamente como era. `enabled` só existe para teste e prévia.
  */
-export function BotAgenda({ botId, active }: { botId: string; active: boolean }) {
+export function BotAgenda({ botId, active, enabled }: { botId: string; active: boolean; enabled?: boolean }) {
 	const t = useT();
+	const fromServer = useEngineV4();
+	const on = enabled ?? fromServer;
 	const [data, setData] = useState<AgendaListResponse | null>(null);
 	const [loadFailed, setLoadFailed] = useState(false);
 
@@ -41,34 +45,25 @@ export function BotAgenda({ botId, active }: { botId: string; active: boolean })
 	}, [botId]);
 
 	useEffect(() => {
-		if (!active) return;
+		if (!active || !on) return;
 		return reload();
-	}, [active, reload]);
+	}, [active, on, reload]);
 
 	const onAction = useCallback(
 		async (item: AgendaItemView, action: AgendaAction): Promise<AgendaActionResult> => {
 			const outcome = await performAgendaAction(changeAgendaItem, item, action);
-			if (outcome.result === "ok") {
-				setData((current) => (current ? applyAgendaChange(current, outcome.item) : current));
-			} else if (outcome.result === "gone") {
-				reload();
-			}
+			if (outcome.result === "ok") setData((current) => (current ? applyAgendaChange(current, outcome.item) : current));
+			else if (outcome.result === "gone") reload();
 			return outcome.result;
 		},
 		[reload],
 	);
 
-	if (!data?.enabled) return null;
+	if (!on) return null;
 	return (
-		<LibrarySection count={data.items.length} id="agenda" title={t("agenda.title")}>
+		<LibrarySection count={data?.items.length} id="agenda" title={t("agenda.title")}>
 			{loadFailed ? <p className="pb-2 text-caption text-muted-foreground">{t("agenda.loadError")}</p> : null}
-			<AgendaList
-				ended={data.ended}
-				items={data.items}
-				now={new Date()}
-				onAction={onAction}
-				timezone={data.timezone}
-			/>
+			{data ? <AgendaList ended={data.ended} items={data.items} now={new Date()} onAction={onAction} timezone={data.timezone} /> : null}
 		</LibrarySection>
 	);
 }

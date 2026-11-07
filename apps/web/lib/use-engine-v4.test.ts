@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { beforeEach, test } from "node:test";
-import { isEngineV4On, loadEngineV4, resetEngineV4Cache } from "./use-engine-v4";
+import { ENGINE_V4_TTL_MS, isEngineV4On, loadEngineV4, resetEngineV4Cache } from "./use-engine-v4";
 
 beforeEach(() => resetEngineV4Cache());
 
@@ -23,4 +23,22 @@ test("uma única consulta serve todas as seções; falha vira desligado e tenta 
 	resetEngineV4Cache();
 	assert.equal(await loadEngineV4(async () => Promise.reject(new Error("rede"))), false);
 	assert.equal(await loadEngineV4(async () => settings(true)), true, "a falha não fica guardada");
+});
+
+test("a resposta vale por pouco tempo: depois do prazo (troca de conta/configuração) consulta de novo", async () => {
+	let on = true;
+	let calls = 0;
+	const load = async () => (calls++, settings(on));
+	assert.equal(await loadEngineV4(load, 1_000), true);
+	on = false;
+	assert.equal(await loadEngineV4(load, 1_000 + ENGINE_V4_TTL_MS - 1), true, "dentro do prazo, sem chamada nova");
+	assert.equal(calls, 1);
+	assert.equal(await loadEngineV4(load, 1_000 + ENGINE_V4_TTL_MS), false, "venceu: lê de novo");
+	assert.equal(calls, 2);
+});
+
+test("resetEngineV4Cache (sair da conta) descarta a resposta da conta anterior", async () => {
+	assert.equal(await loadEngineV4(async () => settings(true)), true);
+	resetEngineV4Cache();
+	assert.equal(await loadEngineV4(async () => settings(false)), false);
 });

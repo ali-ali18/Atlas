@@ -48,6 +48,13 @@ test("seção Caderno: sem o sinal do v4 não desenha nada (nem o título)", () 
 	assert.match(on, />Caderno</);
 });
 
+test("seção Caderno: com a Biblioteca fechada (active=false) o título existe mas o corpo não monta nem busca (a seção já nasce recolhida)", () => {
+	const closed = html(<NotebookSection active={false} botId="b1" enabled />);
+	assert.match(closed, /data-library-section="notebook"/);
+	assert.doesNotMatch(closed, /data-notebook-body/);
+	assert.match(html(<NotebookSection active botId="b1" enabled />), /data-library-section="notebook"/);
+});
+
 test("notas: vazio convida a pedir ao bot; filtro mostra qual está ativo", () => {
 	const out = html(<NotesList {...notesProps()} />);
 	assert.match(out, /Ainda não há notas/);

@@ -138,3 +138,9 @@ test("sem o motor novo a seção não aparece: nem no primeiro desenho nem na Bi
 	assert.doesNotMatch(library, /data-library-section="agenda"/);
 	assert.doesNotMatch(library, />Agenda</);
 });
+
+test("a Agenda usa o mesmo sinal do v4 que o Caderno: ligado desenha a seção; sem sinal, nada", () => {
+	const on = renderToStaticMarkup(<BotAgenda active botId="b1" enabled />);
+	assert.match(on, /data-library-section="agenda"/);
+	assert.equal(renderToStaticMarkup(<BotAgenda active botId="b1" enabled={false} />), "");
+});

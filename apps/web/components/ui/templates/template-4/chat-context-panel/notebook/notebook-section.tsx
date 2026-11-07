@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { useT } from "@/lib/i18n/provider";
 import { useEngineV4 } from "@/lib/use-engine-v4";
 import { LibrarySection } from "../library-section";
@@ -20,17 +21,22 @@ export function NotebookBody({ botId, api, defaultOpen }: { botId: string; api?:
 }
 
 /**
- * Seção "Caderno" da Biblioteca. Só existe quando o Motor v4 está ligado para a conta (sinal do servidor em
- * `capabilities.engineV4`); desligado ou ainda sem resposta, não desenha nada, então ninguém vê tela de algo que o bot
- * não faz.
+ * Seção "Caderno" da Biblioteca. Só existe quando o Motor v4 está ligado para a conta (`useEngineV4`, o mesmo sinal da
+ * Agenda); desligado ou ainda sem resposta, não desenha nada. O conteúdo só é montado (e só busca) quando a Biblioteca
+ * está visível (`active`) e, depois de aberto, fica montado para não perder o que a pessoa estava editando.
+ * `enabled` e `active` explícitos existem para teste e prévia.
  */
-export function NotebookSection({ botId, enabled }: { botId: string; /** Sinal já conhecido (teste/prévia); sem ele, lê do servidor. */ enabled?: boolean }) {
+export function NotebookSection({ botId, enabled, active = true }: { botId: string; enabled?: boolean; active?: boolean }) {
 	const t = useT();
 	const fromServer = useEngineV4();
+	const [activated, setActivated] = useState(active);
+	useEffect(() => {
+		if (active) setActivated(true);
+	}, [active]);
 	if (!(enabled ?? fromServer)) return null;
 	return (
 		<LibrarySection id="notebook" title={t("notebook.title")}>
-			<NotebookBody botId={botId} />
+			{activated ? <NotebookBody botId={botId} /> : null}
 		</LibrarySection>
 	);
 }

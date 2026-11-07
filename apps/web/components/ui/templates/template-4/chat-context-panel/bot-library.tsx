@@ -170,9 +170,9 @@ export function BotLibrary({
 			>
 				{routinesBody}
 			</LibrarySection>
-			{/* Agenda do motor v4: some sozinha enquanto a conta não usa o motor novo. */}
+			{/* Agenda e Caderno do motor v4: somem sozinhos enquanto a conta não usa o motor novo (mesmo sinal, `useEngineV4`). */}
 			<BotAgenda active={active} botId={botId} />
-			<NotebookSection botId={botId} />
+			<NotebookSection active={active} botId={botId} />
 		</div>
 	);
 }
