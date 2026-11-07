@@ -1296,6 +1296,8 @@ export type ComputerUseHandlers = {
 	}) => void;
 	onFile?: (event: Extract<ComputerUseEvent, { type: "file" }>) => void;
 	onChart?: (event: Extract<ComputerUseEvent, { type: "chart" }>) => void;
+	onProduct?: (event: Extract<ComputerUseEvent, { type: "product" }>) => void;
+	onPurchase?: (event: Extract<ComputerUseEvent, { type: "purchase" }>) => void;
 	onPage?: (event: Extract<ComputerUseEvent, { type: "page" }>) => void;
 	onTaskList?: (event: Extract<ComputerUseEvent, { type: "task_list" }>) => void;
 	/** Cursor do agente no navegador do sandbox (efêmero, só para a UI). */
@@ -1420,6 +1422,12 @@ export function dispatchComputerUseEvent(
 			break;
 		case "chart":
 			handlers.onChart?.(event);
+			break;
+		case "product":
+			handlers.onProduct?.(event);
+			break;
+		case "purchase":
+			handlers.onPurchase?.(event);
 			break;
 		case "page":
 			handlers.onPage?.(event);

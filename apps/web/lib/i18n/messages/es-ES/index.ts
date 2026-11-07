@@ -37,6 +37,7 @@ import { settingsSearch } from "./settingsSearch";
 import { settingsSkills } from "./settingsSkills";
 import { settingsVault } from "./settingsVault";
 import { share } from "./share";
+import { shopping } from "./shopping";
 import { sharedLabels } from "./sharedLabels";
 import { sidebar } from "./sidebar";
 import { status } from "./status";
@@ -80,6 +81,7 @@ export const esES: MessageDictionary = {
 	...settingsSkills,
 	...settingsVault,
 	...share,
+	...shopping,
 	...sharedLabels,
 	...sidebar,
 	...status,

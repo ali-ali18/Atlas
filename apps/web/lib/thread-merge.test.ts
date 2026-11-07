@@ -198,3 +198,17 @@ test("dedupeCards: rotina criada ao vivo e gravada não vizinhas colapsam no gra
 	const result = dedupeCards([user("u"), saved, { id: "cu-1", kind: "assistant", text: "Vou montar a lista." }, live]);
 	assert.deepEqual(result.map((message) => message.id), ["u", "db-routine", "cu-1"]);
 });
+
+test("produto e compra (F6): ao vivo e gravado com a mesma identidade não duplicam e o cartão gravado reaparece após recarregar", () => {
+	const item = { name: "Fone", merchant: "Loja A", url: "https://a.test/p", price: 10, currency: "BRL", shipping: { kind: "free" as const }, total: 10, availability: "in_stock" as const, images: [] };
+	const product = (id: string): Message => ({ id, kind: "product", cardId: "run-1:product:abc", items: [item] });
+	const purchase = (id: string): Message => ({ id, kind: "purchase", purchaseId: "pur-1", merchant: "Loja A", items: [{ name: "Fone", quantity: 1 }], total: 10, currency: "BRL", purchasedAt: "2026-11-07T10:00:00.000Z" });
+	const live: Message[] = [user("db-u1", "compara"), product("product-run-1:product:abc"), purchase("purchase-pur-1")];
+	const persisted: Message[] = [user("db-u1", "compara"), product("db-pr"), purchase("db-pu")];
+	assert.deepEqual(reconcilePersistedThread(persisted, live).map((message) => message.id), ["db-u1", "db-pr", "db-pu"]);
+	assert.deepEqual(kinds(reconcilePersistedThread(persisted, [user("db-u1", "compara")])), ["user", "product", "purchase"]);
+	assert.equal(dedupeCards([product("a"), product("b")]).length, 1);
+	assert.equal(dedupeCards([purchase("a"), purchase("b")]).length, 1);
+	// Cartões diferentes continuam separados.
+	assert.equal(dedupeCards([product("a"), { ...product("b"), cardId: "run-1:product:outro" }]).length, 2);
+});

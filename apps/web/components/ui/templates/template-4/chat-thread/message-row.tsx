@@ -47,6 +47,7 @@ import { EmailReceivedCard } from "./email-received-card";
 import { LazyChart } from "@/components/ai-elements/chart/lazy-chart";
 import { CodeRunCard } from "./code-run-card";
 import { TaskListCard } from "./task-list-card";
+import { ProductCard, PurchaseCard } from "@/components/ai-elements/shopping";
 import { PageCard } from "@/components/ai-elements/pages";
 import { PlanCard, type PlanCardStatus } from "@workspace/ui/components/plan-card";
 import { CompactionCard } from "./compaction-card";
@@ -264,6 +265,10 @@ export const MessageRow = memo(function MessageRow({
 			return <CodeRunCard code={message.code} durationMs={message.durationMs} output={message.output} status={message.status} />;
 		case "chart":
 			return <LazyChart share={{ botName }} spec={message.spec} />;
+		case "product":
+			return <ProductCard cheapestUrl={message.cheapestUrl} incomplete={message.incomplete} items={message.items} />;
+		case "purchase":
+			return <PurchaseCard currency={message.currency} items={message.items} merchant={message.merchant} orderNumber={message.orderNumber} purchasedAt={message.purchasedAt} total={message.total} trackingCode={message.trackingCode} trackingUrl={message.trackingUrl} />;
 		case "page":
 			return <PageCard botName={botName} card={message} />;
 		case "task-list":
