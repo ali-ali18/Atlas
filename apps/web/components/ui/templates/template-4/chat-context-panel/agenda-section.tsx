@@ -8,7 +8,7 @@ import { useEngineV4 } from "@/lib/use-engine-v4";
 import { performAgendaAction } from "./agenda-actions";
 import { type AgendaActionResult } from "./agenda-card";
 import { AgendaList } from "./agenda-list";
-import { applyAgendaChange } from "./agenda-text";
+import { applyAgendaChange, hasAgendaLists } from "./agenda-text";
 import { LibrarySection } from "./library-section";
 
 /**
@@ -28,6 +28,8 @@ export function BotAgenda({ botId, active, enabled }: { botId: string; active: b
 		listAgenda(botId)
 			.then((next) => {
 				if (stale) return;
+				// Resposta sem lista (servidor antigo, erro de proxy): trata como falha de carregamento, nunca derruba a Biblioteca.
+				if (!hasAgendaLists(next)) return setLoadFailed(true);
 				setData(next);
 				setLoadFailed(false);
 			})

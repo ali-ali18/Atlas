@@ -3,7 +3,7 @@ import { test } from "node:test";
 import type { AgendaItemView } from "@workspace/shared";
 import { loadMessages } from "@/lib/i18n/messages";
 import { createTranslator } from "@/lib/i18n/translator";
-import { agendaCardModel, agendaEndText, agendaSummary, applyAgendaChange } from "./agenda-text";
+import { agendaCardModel, agendaEndText, agendaSummary, applyAgendaChange, hasAgendaLists } from "./agenda-text";
 
 const TZ = "America/Sao_Paulo";
 // 07/11/2026 09:00 em São Paulo.
@@ -100,4 +100,9 @@ test("aplicar mudança: pausar troca no lugar; cancelar leva para o topo dos enc
 	const cancelled = applyAgendaChange(data, { ...a, status: "cancelled", endReason: "owner", nextAt: null });
 	assert.deepEqual(cancelled.items.map((i) => i.id), ["b"]);
 	assert.deepEqual(cancelled.ended.map((i) => i.id), ["a", "old"]);
+});
+
+test("resposta da lista sem as duas listas é falha de carga (não derruba a tela)", () => {
+	assert.equal(hasAgendaLists({ enabled: true, timezone: TZ, items: [], ended: [] }), true);
+	for (const bad of [{}, { items: [] }, { ended: [] }, null, undefined, "x", { items: {}, ended: [] }]) assert.equal(hasAgendaLists(bad), false);
 });

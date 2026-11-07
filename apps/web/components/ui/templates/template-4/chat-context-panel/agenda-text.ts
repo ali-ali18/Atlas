@@ -147,6 +147,12 @@ export function agendaCardModel(item: AgendaItemView, timeZone: string, now: Dat
 	};
 }
 
+/** A resposta da lista tem as duas listas? Resposta sem elas (servidor antigo, proxy) vira falha de carga, nunca erro de tela. */
+export function hasAgendaLists(value: unknown): value is { items: AgendaItemView[]; ended: AgendaItemView[] } {
+	const record = value as { items?: unknown; ended?: unknown } | null | undefined;
+	return Array.isArray(record?.items) && Array.isArray(record.ended);
+}
+
 /** Troca o item na lista depois de uma ação: cancelado vai para o topo dos encerrados; o resto fica onde estava. */
 export function applyAgendaChange<T extends { items: AgendaItemView[]; ended: AgendaItemView[] }>(data: T, item: AgendaItemView): T {
 	const active = item.status === "pending" || item.status === "paused";

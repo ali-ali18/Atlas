@@ -1,4 +1,5 @@
-import { test, type BrowserContext, type Page } from "@playwright/test"
+import { resolveEffectiveConfig } from "@workspace/shared"
+import { test, type BrowserContext } from "@playwright/test"
 import { MockAtlas, type MockHandler } from "./mock-api"
 
 /**
@@ -54,6 +55,8 @@ const ENDED = [
 ]
 
 const library = (body: unknown): MockHandler => ({ method, path }) => {
+  // A Agenda aparece pelo mesmo sinal do Caderno: `capabilities.engineV4` de /v1/settings.
+  if (method === "GET" && path === "/v1/settings") return { body: { settings: { sandboxAutoStart: true }, config: { v: 1 }, effective: resolveEffectiveConfig({ user: { config: null }, env: {} }), capabilities: { openrouterKey: true, isOwner: true, engineV4: true } } }
   if (method === "GET" && /^\/v1\/bots\/[^/]+\/pages$/.test(path)) return { body: { items: [] } }
   if (method === "GET" && /^\/v1\/bots\/[^/]+\/artifacts/.test(path)) return { body: { files: [], nextCursor: null } }
   if (method === "GET" && path.startsWith("/v1/usage")) return { body: { totals: { costUsd: 0, promptTokens: 0, completionTokens: 0, totalTokens: 0, runs: 0 }, byBot: [], byModel: [], daily: [] } }
@@ -145,6 +148,11 @@ for (const size of SIZES) {
         await section.screenshot({ path: `${OUT}/agenda-cancelar-antes-${size.name}.png` })
         await card.dispatchEvent("pointerdown", { pointerType: "touch", clientX: 100, clientY: 400 })
         await tab.waitForTimeout(700)
+        // Ao soltar o dedo o navegador gera um clique, que a pressão longa engole de propósito (não abre o item por engano).
+        await card.evaluate((el) => {
+          el.dispatchEvent(new PointerEvent("pointerup", { pointerType: "touch", bubbles: true }))
+          el.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }))
+        })
       } else {
         await section.screenshot({ path: `${OUT}/agenda-cancelar-antes-${size.name}.png` })
         await card.hover()

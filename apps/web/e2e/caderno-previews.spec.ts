@@ -74,6 +74,7 @@ function makeHandler(state: { notes: Note[]; reports: typeof REPORTS; mode: Mode
     if (method === "GET" && path === "/v1/settings") {
       return { body: { settings: { sandboxAutoStart: true }, config: { v: 1 }, effective: resolveEffectiveConfig({ user: { config: null }, env: {} }), capabilities: { openrouterKey: true, isOwner: true, engineV4: true } } }
     }
+    if (method === "GET" && /^\/v1\/agenda/.test(path)) return { body: { enabled: true, timezone: "America/Sao_Paulo", items: [], ended: [] } }
     if (method === "GET" && /^\/v1\/bots\/[^/]+\/pages$/.test(path)) return { body: { items: [] } }
     if (method === "GET" && /^\/v1\/bots\/[^/]+\/artifacts/.test(path)) return { body: { files: [], nextCursor: null } }
     if (method === "GET" && path.startsWith("/v1/usage")) return { body: { totals: { costUsd: 0, promptTokens: 0, completionTokens: 0, totalTokens: 0, runs: 0 }, byBot: [], byModel: [], daily: [] } }
