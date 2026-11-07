@@ -41,8 +41,8 @@
 | F1 fundação | `feat/harness-v4-f1-fundacao` | **concluída, juntada em `harness/v4`** | #151 |
 | F2 capacidades | `feat/harness-v4-f2-capacidades` | **concluída, juntada em `harness/v4`** | #152 |
 | F3 pesquisa | `feat/harness-v4-f3-pesquisa` | **concluída, juntada em `harness/v4`** | #153 |
-| F4 agenda | `feat/harness-v4-f4-agenda` | **backend concluído** (auditoria fechada); a seção da Biblioteca vem na frente de UI | — |
-| F5 memória | `feat/harness-v4-f5-memoria` | backend e tela do Caderno prontos (F5.2 na frente de UI, `wip/ui-caderno`) | — |
+| F4 agenda | `feat/harness-v4-f4-agenda` | **backend juntado em `harness/v4`** (#155); tela da Agenda em `feat/harness-v4-ui-biblioteca` | #155 |
+| F5 memória | `feat/harness-v4-f5-memoria` | **backend juntado em `harness/v4`** (#154); telas do Caderno, regras e sono em `feat/harness-v4-ui-biblioteca` | #154 |
 
 ## Decisões do dono (não reabrir)
 - Base nova, do zero, em `packages/agent`, sem import do legado (05/11).
