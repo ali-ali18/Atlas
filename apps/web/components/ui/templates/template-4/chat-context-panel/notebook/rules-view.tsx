@@ -5,7 +5,6 @@ import { useState } from "react";
 import type { LearnedRuleView } from "@workspace/shared";
 import { RULE_VERDICTS } from "@workspace/shared";
 import { Button } from "@workspace/ui/components/button";
-import { ButtonGroup } from "@workspace/ui/components/button-group";
 import { Input } from "@workspace/ui/components/input";
 import { Spinner } from "@workspace/ui/components/spinner";
 import { useT, useTranslations } from "@/lib/i18n/provider";
@@ -31,13 +30,13 @@ function RuleForm({ rule, busy, error, onSubmit, onCancel }: { rule: LearnedRule
 			}}
 		>
 			<p className="m-0 font-medium text-body">{capitalize(ruleEffectPhrase(rule.effect, translator))}</p>
-			<ButtonGroup aria-label={t("notebook.rules.verdictLabel")} className="w-full">
+			<div aria-label={t("notebook.rules.verdictLabel")} className="flex flex-wrap gap-1.5" role="group">
 				{RULE_VERDICTS.map((value) => (
-					<Button aria-pressed={verdict === value} className="flex-1" disabled={busy} key={value} onClick={() => setVerdict(value)} size="sm" type="button" variant={verdict === value ? "secondary" : "outline"}>
+					<Button aria-pressed={verdict === value} disabled={busy} key={value} onClick={() => setVerdict(value)} size="sm" type="button" variant={verdict === value ? "secondary" : "outline"}>
 						{ruleVerdictLabel(value, translator)}
 					</Button>
 				))}
-			</ButtonGroup>
+			</div>
 			<label className="flex flex-col gap-1 text-caption text-muted-foreground">
 				{t("notebook.rules.noteLabel")}
 				<Input disabled={busy} onChange={(event) => setNote(event.target.value)} placeholder={t("notebook.rules.notePlaceholder")} value={note} />
