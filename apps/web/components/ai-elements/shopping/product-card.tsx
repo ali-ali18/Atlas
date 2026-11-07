@@ -66,7 +66,7 @@ function Gallery({ offer, t }: { offer: ProductOffer; t: Translator }) {
 	const current = images[Math.min(index, Math.max(images.length - 1, 0))];
 	return (
 		<div className="flex min-w-0 flex-col gap-1.5" data-testid="product-gallery">
-			<SafeImage alt={t.t("shopping.product.photoOf", { name: offer.name })} className="aspect-[4/3] w-full rounded-card" fallbackLabel={t.t("shopping.product.photoUnavailable")} src={current} />
+			<SafeImage alt={t.t("shopping.product.photoOf", { name: offer.name })} className="aspect-[4/3] max-h-72 w-full rounded-card bg-foreground/[0.06] object-contain" fallbackLabel={t.t("shopping.product.photoUnavailable")} src={current} />
 			{images.length > 1 ? (
 				<div className="flex gap-1.5 overflow-x-auto">
 					{images.map((src, i) => (
