@@ -66,7 +66,7 @@ import type {
 	BotProposalEvent,
 	RunInputMode,
 } from "@workspace/shared";
-import type { CompactConversationResponse, ReasoningEffort } from "@workspace/shared";
+import type { AgendaAction, AgendaChangeResponse, AgendaListResponse, CompactConversationResponse, ReasoningEffort } from "@workspace/shared";
 import type { RunInspection } from "@workspace/shared";
 import type {
 	CatalogBotEntry,
@@ -1984,6 +1984,19 @@ export async function listRoutines(botId: string): Promise<RoutineRecord[]> {
 		`/v1/bots/${encodeURIComponent(botId)}/routines`,
 	);
 	return body.routines;
+}
+
+/** Agenda do bot (lembretes, acompanhamentos, esperas por e-mail). `enabled: false` = a conta não usa o motor novo. */
+export async function listAgenda(botId: string): Promise<AgendaListResponse> {
+	return atlasFetch<AgendaListResponse>(`/v1/agenda?botId=${encodeURIComponent(botId)}`);
+}
+
+/** Pausa, retoma ou cancela um item da agenda. 404 = já não existe; 409 = a ação não cabe mais no estado dele. */
+export async function changeAgendaItem(id: string, action: AgendaAction): Promise<AgendaChangeResponse> {
+	return atlasFetch<AgendaChangeResponse>(`/v1/agenda/${encodeURIComponent(id)}`, {
+		method: "POST",
+		body: JSON.stringify({ action }),
+	});
 }
 
 export async function listRoutineGroups(botId: string): Promise<RoutineGroupRecord[]> {

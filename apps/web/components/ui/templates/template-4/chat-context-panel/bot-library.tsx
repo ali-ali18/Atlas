@@ -8,6 +8,7 @@ import { listBotArtifacts, type BotLibraryFile } from "@/lib/atlas-api";
 import { useT } from "@/lib/i18n/provider";
 import { defaultTranslator } from "@/lib/i18n/translator";
 import type { Routine } from "../data";
+import { BotAgenda } from "./agenda-section";
 import { LibrarySection } from "./library-section";
 import { BotPagesSection } from "./pages-library";
 
@@ -168,6 +169,8 @@ export function BotLibrary({
 			>
 				{routinesBody}
 			</LibrarySection>
+			{/* Agenda do motor v4: some sozinha enquanto a conta não usa o motor novo. */}
+			<BotAgenda active={active} botId={botId} />
 		</div>
 	);
 }
