@@ -35,6 +35,7 @@ model User {
   memories      MemoryEntry[]
   memoryChanges MemoryChange[]
   notes Note[]
+  purchases Purchase[]
   sleepReports SleepReport[]
   botLessons    BotLesson[]
   pages         Page[]
@@ -1738,4 +1739,34 @@ model SleepReport {
   @@unique([botId, kind, slot])
   @@index([userId, createdAt])
   @@map("sleep_reports")
+}
+
+/// Compra registrada (Motor v4, F6.5): fato da vida do dono (loja, itens, total pago, pedido, rastreio). Toda consulta
+/// filtra `userId`; `botId` é o bot que registrou. `dedupeKey` (loja + pedido, ou loja + total + dia) evita duplicar.
+/// `deliveryWatchId` liga ao vigia de entrega criado na agenda (BotFollowup), sem FK de propósito.
+model Purchase {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  botId           String?
+  conversationId  String?
+  merchant        String
+  /// [{ name, quantity, unitPrice? }]
+  itemsJson       Json
+  total           Decimal  @db.Decimal(14, 2)
+  currency        String
+  purchasedAt     DateTime
+  orderNumber     String?
+  trackingCode    String?
+  trackingUrl     String?
+  dedupeKey       String
+  sourceRunId     String?
+  deliveryWatchId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([userId, dedupeKey])
+  @@index([userId, purchasedAt])
+  @@index([userId, botId])
+  @@map("purchases")
 }

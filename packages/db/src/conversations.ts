@@ -396,6 +396,19 @@ export async function persistConversationCardFromEvent(
 		if (card?.kind === "chart") await appendConversationCard(conversationId, card);
 		return;
 	}
+	// Produto (F6.1) e compra (F6.5): um cartão por identidade; repetir o mesmo `cardId`/`purchaseId` não duplica.
+	if (event.type === "product" || event.type === "purchase") {
+		const card = parseConversationCard(JSON.stringify({ v: 1, kind: event.type, ...stripEventType(event) }));
+		if (card?.kind !== event.type) return;
+		const key = card.kind === "product" ? card.cardId : card.purchaseId;
+		const recent = await prisma.conversationMessage.findMany({ where: { conversationId, role: card.kind }, orderBy: { createdAt: "desc" }, take: 50, select: { content: true } });
+		const exists = recent.some((row) => {
+			const prior = parseConversationCard(row.content);
+			return prior?.kind === card.kind && (prior.kind === "product" ? prior.cardId : (prior as { purchaseId: string }).purchaseId) === key;
+		});
+		if (!exists) await appendConversationCard(conversationId, card);
+		return;
+	}
 	// Página viva: criar acrescenta; atualizar substitui o cartão do mesmo pageId na conversa (posição preservada).
 	if (event.type === "page") {
 		const card = parseConversationCard(JSON.stringify({ v: 1, kind: "page", ...stripEventType(event) }));
