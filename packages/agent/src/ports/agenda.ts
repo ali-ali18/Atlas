@@ -37,7 +37,7 @@ export type AgendaRunResult = {
 };
 
 export interface Agenda {
-	/** Fuso e horário de silêncio do dono (a base do "horário útil"). */
+	/** Fuso do dono (a agenda do v4 não usa horário de silêncio). */
 	settings(userId: string): Promise<ProactiveSettings>;
 	/** `untrustedRead`: o run criador já tinha lido conteúdo não confiável; a nota fica marcada e entra como dado no wake. */
 	create(userId: string, plan: AgendaPlan, context: { sourceRunId: string; untrustedRead?: boolean }): Promise<AgendaCreateResult>;

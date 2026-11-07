@@ -148,8 +148,8 @@ Uma entidade só para a proatividade do agente. `BotFollowup` ganha uma migratio
   - espaçamento por `noChangeStreak`;
   - `maxRuns`;
   - limite por dono;
-  - para depois de N avisos ignorados (freio da Meta);
-  - horário útil.
+  - para depois de N avisos ignorados (freio da Meta).
+- **Sem horário útil nem silêncio (decisão do dono, 07/11):** a agenda do v4 respeita o horário pedido e não empurra lembrete, vigia nem aviso para fora de um "silêncio". Motivo: o dono pede "amanhã 7h30" e espera 7h30; empurrar para as 8h quebrava o combinado e o lembrete chegava tarde. Os freios de custo acima continuam; o modo proativo do v2 em produção não muda.
 - **Contrato silencioso:** o run de agenda termina com `agenda_result(no_change | update | done)`. `no_change` não posta nada.
 - **Permissão decidida na criação e persistente:** a agenda roda com perfil sem humano. O que precisa do dono vira **pendência na fila** ("termina o resto e traz a aprovação depois", como o Duet). Nunca pergunta a cada execução, que é a falha do Cowork agendado.
 - **Visível e pausável:** seção "Agenda" na Biblioteca. A criação é silenciosa, como manda a regra de produto.

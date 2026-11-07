@@ -37,15 +37,14 @@ describe("planAgendaItem: remind", () => {
 		expect(out.ok).toBe(true);
 		if (!out.ok) return;
 		expect(local(out.plan.dueAt, SP.timezone)).toBe("2026-11-05 10:00");
-		expect(out.plan).toMatchObject({ kind: "remind", intervalMinutes: null, untilAt: null, maxRuns: 1, movedForQuietHours: false, adjustments: [] });
+		expect(out.plan).toMatchObject({ kind: "remind", intervalMinutes: null, untilAt: null, maxRuns: 1, adjustments: [] });
 	});
 
-	it("pedido para dentro do silêncio vai para o fim dele e avisa o ajuste", () => {
+	it("pedido na madrugada fica no horário pedido (a agenda do v4 não tem silêncio)", () => {
 		const out = planAgendaItem({ request: { kind: "remind", note: "x", when: "2026-11-05T23:30" }, now: NOW, settings: SP });
-		expect(out.ok && local(out.plan.dueAt, SP.timezone)).toBe("2026-11-06 08:00");
-		expect(out.ok && out.plan.movedForQuietHours).toBe(true);
-		expect(out.ok && out.plan.adjustments).toContain("moved out of the owner's quiet hours");
-		expect(out.ok && local(out.plan.requestedFor, SP.timezone)).toBe("2026-11-05 23:30");
+		expect(out.ok && local(out.plan.dueAt, SP.timezone)).toBe("2026-11-05 23:30");
+		expect(out.ok && out.plan.dueAt.getTime() === out.plan.requestedFor.getTime()).toBe(true);
+		expect(out.ok && out.plan.adjustments).toEqual([]);
 	});
 
 	it("sem quando, no passado, nota vazia ou grande demais: erro que diz o que falta", () => {
@@ -94,13 +93,13 @@ describe("planAgendaItem: watch", () => {
 		expect(out.ok && out.plan).toMatchObject({ maxRuns: 10, untilAt: null });
 	});
 
-	it("primeira checagem cai no silêncio: vai para a manhã; fim antes dela é recusado", () => {
+	it("primeira checagem à noite fica no horário pedido; fim antes dela é recusado", () => {
 		const late = new Date("2026-11-05T01:30:00.000Z"); // 22:30 em SP
 		const out = planAgendaItem({ request: { kind: "watch", note: "x", everyMinutes: 120 }, now: late, settings: SP });
-		expect(out.ok && local(out.plan.dueAt, SP.timezone)).toBe("2026-11-05 08:00");
+		expect(out.ok && local(out.plan.dueAt, SP.timezone)).toBe("2026-11-05 00:30");
 		expect(planAgendaItem({ request: { kind: "watch", note: "x", everyMinutes: 120, until: "2026-11-04T14:00:00Z" }, now: NOW, settings: SP })).toMatchObject({ ok: false, error: expect.stringContaining("after the first run") });
-		// o fim (02:00 local) vem depois do pedido (00:30) mas antes da manhã para onde o silêncio empurra a primeira checagem
-		expect(planAgendaItem({ request: { kind: "watch", note: "x", everyMinutes: 120, until: "2026-11-05T02:00" }, now: late, settings: SP })).toMatchObject({ ok: false, error: expect.stringContaining("after the end") });
+		// o fim (00:00 local) vem antes da primeira checagem (00:30)
+		expect(planAgendaItem({ request: { kind: "watch", note: "x", everyMinutes: 120, until: "2026-11-05T00:00" }, now: late, settings: SP })).toMatchObject({ ok: false, error: expect.stringContaining("after the first run") });
 	});
 
 	it("fim além de 180 dias é recusado", () => {
@@ -140,7 +139,6 @@ describe("planAgendaItem: when textual atravessando o horário de verão (audito
 		const plan = at("amanhã 9h", "2026-10-31T19:00:00.000Z");
 		expect(local(plan.dueAt, NY.timezone)).toBe("2026-11-01 09:00");
 		expect(plan.dueAt.toISOString()).toBe("2026-11-01T14:00:00.000Z");
-		expect(plan.movedForQuietHours).toBe(false);
 	});
 
 	it('"amanhã 9h" na véspera do início do horário de verão (dia de 23h) cai às 9h locais, 13:00Z (UTC-4)', () => {
@@ -260,37 +258,35 @@ describe("nextWatchDelay", () => {
 		expect(at(10, 60 * 24 * 5)).toBe(60 * 24 * 5);
 	});
 
-	it("o próximo horário que cair no silêncio vai para a manhã seguinte", () => {
+	it("o próximo horário que cair de noite fica onde o intervalo manda (sem silêncio)", () => {
 		const night = new Date("2026-11-05T00:00:00.000Z"); // 21:00 em SP
 		const out = nextWatchDelay({ now: night, intervalMinutes: 120, noChangeStreak: 0, settings: SP });
-		expect(out.ok && local(out.dueAt, SP.timezone)).toBe("2026-11-05 08:00");
-		expect(out.ok && out.movedForQuietHours).toBe(true);
+		expect(out.ok && local(out.dueAt, SP.timezone)).toBe("2026-11-04 23:00");
 	});
 
-	it("virada de dia e de mês: 23h ao fim do mês cai às 8h do dia 1", () => {
+	it("virada de dia e de mês: segue o intervalo, sem empurrar para as 8h", () => {
 		const out = nextWatchDelay({ now: new Date("2026-12-01T01:30:00.000Z"), intervalMinutes: 120, noChangeStreak: 0, settings: SP });
-		// 22:30 de 30/11 em SP + 2h = 00:30 de 01/12: silêncio até 08:00
-		expect(out.ok && local(out.dueAt, SP.timezone)).toBe("2026-12-01 08:00");
+		// 22:30 de 30/11 em SP + 2h = 00:30 de 01/12
+		expect(out.ok && local(out.dueAt, SP.timezone)).toBe("2026-12-01 00:30");
 	});
 
 	it("o fuso é o do dono: o mesmo instante cai em horário diferente", () => {
 		const now = new Date("2026-11-04T23:00:00.000Z"); // 20:00 SP, 18:00 NY
 		const sp = nextWatchDelay({ now, intervalMinutes: 180, noChangeStreak: 0, settings: SP });
 		const ny = nextWatchDelay({ now, intervalMinutes: 180, noChangeStreak: 0, settings: NY });
-		expect(sp.ok && local(sp.dueAt, SP.timezone)).toBe("2026-11-05 08:00"); // 23:00 SP está no silêncio
+		expect(sp.ok && local(sp.dueAt, SP.timezone)).toBe("2026-11-04 23:00"); // 23:00 SP: sem silêncio, fica
 		expect(ny.ok && local(ny.dueAt, NY.timezone)).toBe("2026-11-04 21:00"); // 21:00 NY está livre
 	});
 
-	it("DST (Nova York, 08/03/2026): 08:00 locais depois da mudança é 12:00Z, não 13:00Z", () => {
-		// 07/03 22:30 em NY (EST, UTC-5) = 08/03 03:30Z. Mais 2h = 00:30 de 08/03 local (EST) → silêncio até 08:00 já em EDT.
+	it("DST (Nova York, 08/03/2026): o intervalo é em tempo corrido, sem reajuste para as 08:00", () => {
+		// 07/03 22:30 em NY (EST, UTC-5) = 08/03 03:30Z. Mais 2h = 05:30Z (a mudança para EDT é às 07:00Z).
 		const out = nextWatchDelay({ now: new Date("2026-03-08T03:30:00.000Z"), intervalMinutes: 120, noChangeStreak: 0, settings: NY });
-		expect(out.ok && local(out.dueAt, NY.timezone)).toBe("2026-03-08 08:00");
-		expect(out.ok && out.dueAt.toISOString()).toBe("2026-03-08T12:00:00.000Z");
+		expect(out.ok && out.dueAt.toISOString()).toBe("2026-03-08T05:30:00.000Z");
 	});
 
-	it("DST de saída (Nova York, 01/11/2026): 08:00 vale 13:00Z", () => {
+	it("DST de saída (Nova York, 01/11/2026): sem reajuste para as 08:00", () => {
 		const out = nextWatchDelay({ now: new Date("2026-11-01T03:30:00.000Z"), intervalMinutes: 120, noChangeStreak: 0, settings: NY });
-		expect(out.ok && out.dueAt.toISOString()).toBe("2026-11-01T13:00:00.000Z");
+		expect(out.ok && out.dueAt.toISOString()).toBe("2026-11-01T05:30:00.000Z");
 	});
 
 	it("passou de untilAt: encerra", () => {
@@ -349,15 +345,10 @@ describe("planAgendaWake", () => {
 		expect(wake({ ignoredStreak: 1 }, null)).toEqual({ action: "run", ignoredStreak: 1 });
 	});
 
-	it("dentro do silêncio adia para o fim dele", () => {
+	it("de madrugada roda (sem horário de silêncio na agenda do v4), e os freios de custo valem a qualquer hora", () => {
 		const night = new Date("2026-11-05T03:00:00.000Z"); // 00:00 em SP
-		const out = wake({}, null, night);
-		expect(out).toMatchObject({ action: "defer", reason: "quiet_hours" });
-		expect(out.action === "defer" && local(out.dueAt, SP.timezone)).toBe("2026-11-05 08:00");
-	});
-
-	it("intenção por evento não adia no silêncio (o evento da noite não se perde), mas os outros freios valem", () => {
-		const night = new Date("2026-11-05T03:00:00.000Z");
+		expect(wake({}, null, night)).toEqual({ action: "run", ignoredStreak: 0 });
+		expect(wake({ kind: "remind" }, null, night)).toEqual({ action: "run", ignoredStreak: 0 });
 		expect(wake({ kind: "intent" }, null, night)).toEqual({ action: "run", ignoredStreak: 0 });
 		expect(wake({ kind: "intent", maxRuns: 3 }, null, night)).toMatchObject({ action: "stop", reason: "max_runs" });
 		expect(wake({ kind: "intent", ignoredStreak: 1 }, true, night)).toMatchObject({ action: "stop", reason: "ignored_notices" });
@@ -435,9 +426,9 @@ describe("settleAgendaRunWithoutResult", () => {
 		expect(out.dueAt).not.toBeNull();
 	});
 
-	it("a nova tentativa cai fora do silêncio e, se passar do fim, entrega a nota", () => {
+	it("a nova tentativa é em 30 min mesmo de madrugada e, se passar do fim, entrega a nota", () => {
 		const late = settleAgendaRunWithoutResult({ item: { ...item, kind: "remind", intervalMinutes: null, maxRuns: 1, missingResults: 0 }, hasText: false, now: new Date("2026-11-05T01:00:00.000Z"), settings: SP });
-		expect(late.dueAt && local(late.dueAt, SP.timezone)).toBe("2026-11-05 08:00");
+		expect(late.dueAt && local(late.dueAt, SP.timezone)).toBe("2026-11-04 22:30");
 		const ended = settle({ intervalMinutes: null as never, maxRuns: 1, untilAt: new Date(NOW.getTime() + 10 * 60_000) }, "remind", false);
 		expect(ended).toMatchObject({ status: "done", deliverNote: true, endReason: "reminder_note" });
 	});

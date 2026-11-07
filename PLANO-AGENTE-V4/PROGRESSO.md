@@ -41,8 +41,8 @@
 | F1 fundação | `feat/harness-v4-f1-fundacao` | **concluída, juntada em `harness/v4`** | #151 |
 | F2 capacidades | `feat/harness-v4-f2-capacidades` | **concluída, juntada em `harness/v4`** | #152 |
 | F3 pesquisa | `feat/harness-v4-f3-pesquisa` | **concluída, juntada em `harness/v4`** | #153 |
-| F4 agenda | `feat/harness-v4-f4-agenda` | **backend concluído** (auditoria fechada); a seção da Biblioteca vem na frente de UI | — |
-| F5 memória | `feat/harness-v4-f5-memoria` | em andamento (backend; Caderno e regras na Biblioteca na frente de UI) | — |
+| F4 agenda | `feat/harness-v4-f4-agenda` | **backend juntado em `harness/v4`**; tela da Agenda na frente de UI | #155 |
+| F5 memória | `feat/harness-v4-f5-memoria` | **backend juntado em `harness/v4`**; telas do Caderno, regras e sono na frente de UI | #154 |
 
 ## Decisões do dono (não reabrir)
 - Base nova, do zero, em `packages/agent`, sem import do legado (05/11).
@@ -60,6 +60,8 @@
 - Provedor das rodadas reais da F0 por enquanto: **OpenCode Go**, porque os créditos do OpenRouter estão acabando. Modelos: `deepseek-v4.1-flash` (maior franquia; ligar *Global* em Settings › Privacy) e `qwen3.8-flash`, mais `claude-haiku-5-5`, que também está no Go. Anthropic direto: a chave está no ambiente como `CLAUDE_KEY` (verificada, responde 200) e dá Sonnet, Haiku e Opus, com **teto de US$ 10 no total das rodadas reais pela Anthropic**. O comando `matrix` (F0.2) precisa de um teto rígido que aborta antes de passar e de um `--estimate` antes de rodar (05/11). As ideias aproveitadas estão em `02-referencias.md`.
 - **O v4 só é ligado (nem na conta do dono) quando estiver completo.** Até lá a validação é só pelos testes automáticos e pela matriz de avaliação; nada de flag ligada para teste no app (06/11).
 - Perfil do bot sempre pede confirmação; gravar memória depois de ler conteúdo de fora (e-mail, página, conector) pede confirmação com "Agora não" e expira sem resposta; o resto da memória segue automático (06/11).
+- **Merge autorizado (07/11):** fase terminada, auditada, reauditada e com a verificação verde pode ser juntada em `harness/v4` pelo agente, sem pedir de novo. Merge na `main` continua só com o ok do dono.
+- **Sem horário de silêncio no v4 (07/11):** a agenda do v4 respeita o horário pedido e não empurra lembrete, vigia nem aviso para fora de um "silêncio". Os freios de custo (intervalo mínimo, espaçamento, teto diário, parada após avisos ignorados) continuam. O v2 em produção não muda.
 
 ## Checklist
 

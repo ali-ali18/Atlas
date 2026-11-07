@@ -2,7 +2,7 @@
   "version": 1,
   "id": "generic-agenda-reminder-tomorrow-0730-toronto",
   "title": "'Remind me tomorrow at 7:30am to renew my parking permit' (nurse, Toronto) → one-time reminder for 7:30 in the user's time zone, no questionnaire",
-  "description": "Mesma capacidade do ouro 13 (lembrete de uma vez, com horário relativo), outro fuso: enfermeira em Toronto (America/Toronto, UTC-5 depois do fim do horário de verão em 01/11/2026). O horário só vale no fuso do usuário: o cenário aceita `07:30` (hora local, como o runtime recebe) ou `12:30` (o mesmo instante em UTC). O fuso que o runtime usa vem da conta, não do cenário; a `locale` do cenário só orienta o juiz. No v4 a conferência olha o que o motor RESOLVEU (auditoria F4, T1): 7:30 cai no silêncio padrão (22:00 a 08:00), então o primeiro horário permitido é 8:00 e a resposta tem de dizer isso, não 7:30.",
+  "description": "Mesma capacidade do ouro 13 (lembrete de uma vez, com horário relativo), outro fuso: enfermeira em Toronto (America/Toronto, UTC-5 depois do fim do horário de verão em 01/11/2026). O horário só vale no fuso do usuário: o cenário aceita `07:30` (hora local, como o runtime recebe) ou `12:30` (o mesmo instante em UTC). O fuso que o runtime usa vem da conta, não do cenário; a `locale` do cenário só orienta o juiz. No v4 a conferência olha o que o motor RESOLVEU (auditoria F4, T1): a agenda do v4 não tem horário de silêncio (decisão do dono, 07/11), então o horário pedido, 7:30, é o agendado e a resposta o confirma sem falar em mover.",
   "tags": [
     "generic",
     "agenda"
@@ -147,10 +147,10 @@
           "tool": "remind_me"
         },
         {
-          "id": "scheduled-0800-the-first-allowed-time-after-quiet-hours",
+          "id": "scheduled-0730-at-the-requested-time",
           "type": "tool_result",
           "tool": "remind_me",
-          "pattern": "first run 2026-11-06 08:00 \\(America/Toronto\\)\\. Adjusted: moved out of the owner's quiet hours"
+          "pattern": "first run 2026-11-06 07:30 \\(America/Toronto\\)"
         },
         {
           "type": "tool_not_called",
@@ -160,9 +160,9 @@
           "type": "no_question"
         },
         {
-          "id": "says-the-real-time",
+          "id": "says-the-requested-time",
           "type": "text_contains",
-          "pattern": "8:00|08:00|8 ?am",
+          "pattern": "7:30|07:30|7\\.30",
           "ignoreCase": true
         },
         {
@@ -193,7 +193,7 @@
             ]
           },
           {
-            "say": "Done: tomorrow at 8:00 am I will remind you to renew your parking permit (7:30 falls in your quiet hours, so I moved it to the first moment after them)."
+            "say": "Done: tomorrow at 7:30 am I will remind you to renew your parking permit."
           }
         ]
       }

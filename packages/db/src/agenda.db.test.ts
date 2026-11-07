@@ -347,14 +347,12 @@ describe("agenda (Postgres real)", { skip: dbSkip }, () => {
 		await changeAgendaItem(a, created.item.id, "cancel");
 	});
 
-	test("vigência vencida e silêncio: expira sem gastar run; no silêncio adia para a manhã", async () => {
+	test("vigência vencida expira sem gastar run; de madrugada o item roda (sem horário de silêncio)", async () => {
 		const created = await createAgendaItem({ userId: a, botId: botA, plan: watch("Com prazo", { until: "2026-11-06T10:00" }), grant: GRANT });
 		assert.ok(created.ok);
 		const night = new Date("2026-11-05T03:00:00.000Z"); // 00:00 em SP
-		const deferred = await decideAgendaWake(created.item, night, SETTINGS);
-		assert.equal(deferred.action, "defer");
-		assert.equal(deferred.action === "defer" ? deferred.dueAt.toISOString() : "", "2026-11-05T11:00:00.000Z");
-		assert.equal((await getAgendaItem(a, created.item.id))?.dueAt.toISOString(), "2026-11-05T11:00:00.000Z");
+		const early = await decideAgendaWake(created.item, night, SETTINGS);
+		assert.equal(early.action, "run");
 		const expired = await decideAgendaWake((await getAgendaItem(a, created.item.id))!, new Date("2026-11-07T15:00:00.000Z"), SETTINGS);
 		assert.deepEqual(expired, { action: "stop", reason: "expired" });
 		assert.equal((await getAgendaItem(a, created.item.id))?.status, "done");

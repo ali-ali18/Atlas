@@ -9,7 +9,7 @@ import { z } from "zod";
 import { defineCapability } from "../define-capability.js";
 import { createAgendaCapability, createAgendaRunCapability } from "./agenda-capability.js";
 
-// O relógio dos testes é 2026-11-05 12:00Z = 09:00 em São Paulo (silêncio 22:00 a 08:00).
+// O relógio dos testes é 2026-11-05 12:00Z = 09:00 em São Paulo.
 const ctx = (ownerId = "o1", runId = "run-1"): ToolContext => ({ runId, ownerId, ports: { clock: new FakeClock() } as unknown as Ports });
 const tools = (agenda: FakeAgenda) => Object.fromEntries(createAgendaCapability(agenda).tools.map((t) => [t.name, t]));
 
@@ -31,10 +31,10 @@ describe("capacidade agenda: criação", () => {
 		expect([...agenda.items.values()][0]).toMatchObject({ kind: "remind", userId: "o1", maxRuns: 1, everyMinutes: null });
 	});
 
-	it("diz quando ajustou: horário dentro do silêncio vai para a manhã", async () => {
+	it("respeita o horário pedido, mesmo de madrugada: não empurra nem fala em silêncio", async () => {
 		const out = await tools(new FakeAgenda()).remind_me!.run({ note: "x", when: "2026-11-05T23:30" }, ctx());
-		expect(out.ok && out.summary).toContain("first run 2026-11-06 08:00");
-		expect(out.ok && out.summary).toContain("moved out of the owner's quiet hours");
+		expect(out.ok && out.summary).toContain("first run 2026-11-05 23:30");
+		expect(out.ok && out.summary).not.toMatch(/quiet hours|moved/i);
 	});
 
 	it("watch: intervalo abaixo de 2h falha com a regra; com o pedido explícito declarado passa; vigia sem fim ganha 14 dias", async () => {
