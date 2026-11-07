@@ -13,6 +13,7 @@ import type { Agenda } from "../ports/agenda.js";
 import type { FileStore } from "../ports/file-store.js";
 import type { Helpers } from "../ports/helpers.js";
 import type { Memory } from "../ports/memory.js";
+import type { Notebook } from "../ports/notebook.js";
 import type { Search } from "../ports/search.js";
 import type { Settings } from "../ports/settings.js";
 import type { TaskListStore } from "../ports/task-list.js";
@@ -48,6 +49,8 @@ export type PresetDeps = {
 	files: FileStore;
 	deliverables?: DeliverablePorts;
 	memory?: Memory;
+	/** Caderno do dono (F5.1): junto da memória, vira as tools `note_*` da mesma capacidade lazy. Sem a porta, só a memória. */
+	notebook?: Notebook;
 	settings?: Settings;
 	taskLists?: TaskListStore;
 	/** Ajudantes (F3.1): runs filhos do próprio kernel. A capacidade `research` (frente R) os recebe aqui; o worker monta por run. */
@@ -65,7 +68,7 @@ type CapabilityFactory = (deps: PresetDeps) => ReturnType<typeof createWebCapabi
 const FACTORIES: Readonly<Record<CapabilityId, CapabilityFactory>> = {
 	web: (deps) => createWebCapability(deps.search),
 	"deliverables-lite": (deps) => (deps.deliverables ? createDeliverablesCapability(deps.deliverables) : createDeliverablesLiteCapability(deps.files)),
-	memory: (deps) => deps.memory && createMemoryCapability(deps.memory),
+	memory: (deps) => deps.memory && createMemoryCapability(deps.memory, deps.notebook),
 	tasks: (deps) => deps.taskLists && createTasksCapability(deps.taskLists),
 	settings: (deps) => deps.settings && createSettingsCapability(deps.settings),
 	// F3.2: pesquisa em plano; só entra quando a porta dos ajudantes existe (a frente H a implementa).

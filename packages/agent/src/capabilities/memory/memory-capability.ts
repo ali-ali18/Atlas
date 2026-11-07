@@ -3,9 +3,11 @@
 // Leitura é DADO PRIVADO do dono (`privateData`): fecha o lado privado da trifeta em `decide()`.
 import { z } from "zod";
 import type { Memory, MemoryItem, MemoryLayer } from "../../ports/memory.js";
+import type { Notebook } from "../../ports/notebook.js";
 import { MEMORY_LAYERS } from "../../ports/memory.js";
 import { defineTool } from "../../tools/define-tool.js";
 import { defineCapability } from "../define-capability.js";
+import { createNotebookTools } from "./notebook-tools.js";
 
 export const MEMORY_CONTENT_MAX_CHARS = 600;
 const LAYER_LABEL: Readonly<Record<MemoryLayer, string>> = { owner: "Owner profile", bot: "This bot's memory" };
@@ -16,7 +18,8 @@ function renderItem(item: MemoryItem): string {
 	return `- [${item.id}] (${item.layer}${item.category ? `, ${item.category}` : ""}) ${item.content}`;
 }
 
-export function createMemoryCapability(memory: Memory) {
+/** `notebook` (F5.1) é opcional: sem a porta, a capacidade segue só com a memória. */
+export function createMemoryCapability(memory: Memory, notebook?: Notebook) {
 	const memoryList = defineTool({
 		name: "memory_list",
 		description:
@@ -87,7 +90,7 @@ export function createMemoryCapability(memory: Memory) {
 	return defineCapability({
 		id: "memory",
 		title: "Memória",
-		summary: "Remember and forget the owner's profile and preferences.",
-		tools: [memoryList, memoryAdd, memoryUpdate, memoryRemove],
+		summary: notebook ? "Remember and forget the owner's profile and preferences; keep, find and edit the owner's notebook notes." : "Remember and forget the owner's profile and preferences.",
+		tools: [memoryList, memoryAdd, memoryUpdate, memoryRemove, ...(notebook ? createNotebookTools(notebook) : [])],
 	});
 }

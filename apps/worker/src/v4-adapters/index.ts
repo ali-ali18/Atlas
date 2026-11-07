@@ -22,6 +22,7 @@ import { createV4Agenda, realV4AgendaDeps, type V4AgendaDeps } from "./agenda.js
 import { createV4Deliverables, realV4DeliverablesDeps, type V4DeliverablesDeps } from "./deliverables.js";
 import { createV4Mcp, realV4McpDeps, type V4McpDeps } from "./mcp.js";
 import { createV4Memory, realV4MemoryDeps, type V4MemoryDeps } from "./memory.js";
+import { createV4Notebook, realV4NotebookDeps, type V4NotebookDeps } from "./notebook.js";
 import { createV4Settings, realV4SettingsDeps, type V4SettingsDeps } from "./settings.js";
 import { createV4Search, realV4WebDeps, type V4WebDeps } from "./web.js";
 
@@ -29,12 +30,13 @@ export type V4AdapterDeps = {
 	web: V4WebDeps;
 	deliverables: V4DeliverablesDeps;
 	memory: V4MemoryDeps;
+	notebook: V4NotebookDeps;
 	settings: V4SettingsDeps;
 	mcp: V4McpDeps;
 	agenda: V4AgendaDeps;
 };
 
-export const realV4AdapterDeps = (): V4AdapterDeps => ({ web: realV4WebDeps(), deliverables: realV4DeliverablesDeps, memory: realV4MemoryDeps, settings: realV4SettingsDeps, mcp: realV4McpDeps, agenda: realV4AgendaDeps });
+export const realV4AdapterDeps = (): V4AdapterDeps => ({ web: realV4WebDeps(), deliverables: realV4DeliverablesDeps, memory: realV4MemoryDeps, notebook: realV4NotebookDeps, settings: realV4SettingsDeps, mcp: realV4McpDeps, agenda: realV4AgendaDeps });
 
 export type V4RegistryInput = {
 	runId: string;
@@ -97,6 +99,7 @@ export async function buildV4Registry(input: V4RegistryInput): Promise<V4Registr
 		files: deliverables.fileStore,
 		deliverables: deliverables.ports,
 		memory: createV4Memory({ botId, deps: deps.memory }),
+		notebook: createV4Notebook({ botId, runId: input.runId, deps: deps.notebook }),
 		taskLists: createNoteTaskListStore(input.notes),
 		// Configurações são do bot do run: sem bot não há o que configurar.
 		...(botId && { settings: createV4Settings({ botId, deps: deps.settings }) }),

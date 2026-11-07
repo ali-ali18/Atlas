@@ -18,6 +18,7 @@ export function fakeAdapterDeps(options: { connections?: Connected; listFails?: 
 		web: { extract: async (url) => ({ url, markdown: "# Página", truncated: false }), searxng: async () => [{ url: "https://example.test/r", title: "R", snippet: "s" }] },
 		deliverables: { persistArtifact: never, nextVersion: never, countRunFiles: never, loadArtifact: never, createPage: never, render: never, preview: never, persistCard: never } as unknown as V4AdapterDeps["deliverables"],
 		memory: { snapshot: never, add: never, getById: never, replaceById: never, removeById: never } as unknown as V4AdapterDeps["memory"],
+		notebook: { create: never, get: never, search: never, update: never, remove: never, listPinned: never } as unknown as V4AdapterDeps["notebook"],
 		settings: { getBot: never, update: never } as unknown as V4AdapterDeps["settings"],
 		mcp: {
 			listConnected: async () => {

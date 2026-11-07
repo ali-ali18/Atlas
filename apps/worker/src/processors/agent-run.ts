@@ -144,6 +144,7 @@ import { isAgendaWakeObjective } from "../agenda-wake.js";
 import { closeAgendaRun, loadAgendaRunContextOrFail, mergeProvenance, releaseUnstartedAgendaRun, settleAbortedAgendaRun } from "../agenda-run.js";
 import { prepareV4Run } from "../v4-run-context.js";
 import { runV4Turn } from "../v4-turn.js";
+import { loadNotebookContext } from "../v4-adapters/notebook.js";
 import { cheapModelFromEnv, createV4Llm, dropProcessorOwnedEvents, ownerStepsLimit, runEngineV4, vaultBackendFromService } from "../engine-v4.js";
 /** Run de agenda que não chegou a executar (motor ou contexto): o item volta à fila neste prazo. */
 const AGENDA_NOT_RUN_RETRY_MS = 30 * 60_000;
@@ -154,7 +155,7 @@ import { isReadOnlyConnectorOrigin, budgetStopFallbackText, isBotConfigEventObje
 import { runToolFilter } from "../run-tool-filter.js";
 import { briefDeliveryDeps, deliverBriefFailure, deliverDailyBrief, findRoutineRunIdWithRetry, isDetachedBriefRun } from "../daily-brief.js";
 import { appendConversationMessage, getLanguageContext, listRecentLoginAsks } from "@workspace/db";
-import { resolveReplyLanguage, stopOfCompletion, systemMessages, type BotLanguage, type RunStop } from "@workspace/shared";
+import { toPolicyRules, resolveReplyLanguage, stopOfCompletion, systemMessages, type BotLanguage, type RunStop } from "@workspace/shared";
 import { stopOfBudgetError, stopOfFailure } from "../run-stop.js";
 import { runSystemLanguage } from "../system-language.js";
 import {
@@ -1247,6 +1248,8 @@ async function executeLeasedRun(ctx: {
 				const mapV4Event = dropProcessorOwnedEvents(((mapper) => (event) => mapper.mapRunEvent(event))(createSseMapper({ runId, model: run.model, language: systemLanguage })));
 				// Bot do run: escopo da camada de memória do bot, das configurações e dos painéis (sem bot, essas partes ficam indisponíveis).
 				const v4Bot = run.botId ? await getBotProfile(run.botId, runUserId).catch(() => null) : null;
+				// Títulos das notas fixadas do caderno (F5.1): só id e título, no [context]; sem nota fixada, nenhuma seção.
+				const notebookContext = await loadNotebookContext({ userId: runUserId, botId: run.botId ?? null });
 				return runEngineV4({
 					runId,
 					userId: runUserId,
@@ -1254,8 +1257,12 @@ async function executeLeasedRun(ctx: {
 					botId: run.botId ?? null,
 					botName: v4Bot?.name ?? null,
 					objective: run.objective ?? "",
+					...(notebookContext ? { contextSections: [notebookContext] } : {}),
 					// Run de agenda: o que o modelo lê ao acordar, a política sem dono (permissão da criação) e `agenda_result` no núcleo.
-					...(agendaRun ? { history: agendaRun.history, policy: agendaRun.policy, agendaRun: true } : prepared.history ? { history: prepared.history } : {}),
+					// As regras atuais do dono (`policyJson.rules`) entram por último sobre as da criação: uma `deny` nova vale no próximo wake.
+					...(agendaRun
+						? { history: agendaRun.history, policy: { ...agendaRun.policy, rules: [...agendaRun.policy.rules, ...toPolicyRules(rawBotPolicy)] }, agendaRun: true }
+						: { rules: toPolicyRules(rawBotPolicy), ...(prepared.history ? { history: prepared.history } : {}) }),
 					...(prepared.cardResponses ? { cardResponses: prepared.cardResponses } : {}),
 					// Run de agenda nasce contaminado se a nota, o memo ou o evento vieram de conteúdo não confiável (S1).
 					...(mergeProvenance(agendaRun?.provenance, prepared.priorProvenance) ? { priorProvenance: mergeProvenance(agendaRun?.provenance, prepared.priorProvenance)! } : {}),

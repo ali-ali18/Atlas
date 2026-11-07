@@ -5,6 +5,8 @@ import type { ChartStore, DeliverablePorts, DeliverableFiles, FileInspection, In
 import type { Helpers, HelperResult, HelperTask } from "../ports/helpers.js";
 import type { FileStore, StoredFile } from "../ports/file-store.js";
 import type { Memory, MemoryAddInput, MemoryItem, MemoryLayer } from "../ports/memory.js";
+import type { Notebook, NotebookAddInput, NotebookNote, NotebookPatch } from "../ports/notebook.js";
+import { findDuplicateNote, rankNotes } from "@workspace/shared";
 import type { Search, SearchExtract, SearchHit } from "../ports/search.js";
 import type { BotSettingsPatch, BotSettingsView, Settings } from "../ports/settings.js";
 import type { TaskListState, TaskListStore } from "../ports/task-list.js";
@@ -99,6 +101,60 @@ export class FakeMemory implements Memory {
 		if (index < 0) return false;
 		this.items.splice(index, 1);
 		return true;
+	}
+}
+
+/** Caderno do dono em memória, por dono; aplica a mesma regra de duplicata do banco (igualdade normalizada, no mesmo escopo). */
+export class FakeNotebook implements Notebook {
+	readonly notes: Array<NotebookNote & { userId: string }> = [];
+	private seq = 0;
+	constructor(private readonly now: () => Date = () => new Date("2026-11-06T12:00:00Z")) {}
+	private strip({ userId: _owner, ...note }: NotebookNote & { userId: string }): NotebookNote {
+		return { ...note };
+	}
+	private own(userId: string, id: string) {
+		return this.notes.find((note) => note.userId === userId && note.id === id);
+	}
+	async add(userId: string, input: NotebookAddInput): Promise<NotebookNote> {
+		const scope = (note: { layer: MemoryLayer }) => note.layer;
+		const same = this.notes.filter((note) => note.userId === userId && scope(note) === input.layer).map((note) => ({ id: note.id, body: note.body, botId: note.layer }));
+		const dup = findDuplicateNote(same, { body: input.body, botId: input.layer });
+		if (dup) throw new Error(`A note with the same text already exists: [${dup.id}].`);
+		const note = { userId, id: `note-${++this.seq}`, layer: input.layer, title: input.title, body: input.body, pinned: input.pinned === true, updatedAt: this.now() };
+		this.notes.push(note);
+		return this.strip(note);
+	}
+	async search(userId: string, query: string, limit?: number): Promise<NotebookNote[]> {
+		const mine = this.notes.filter((note) => note.userId === userId);
+		const ranked = rankNotes(mine, query, limit);
+		return ranked.map((note) => this.strip(note));
+	}
+	async get(userId: string, id: string): Promise<NotebookNote | null> {
+		const note = this.own(userId, id);
+		return note ? this.strip(note) : null;
+	}
+	async update(userId: string, id: string, patch: NotebookPatch): Promise<NotebookNote | null> {
+		const note = this.own(userId, id);
+		if (!note) return null;
+		if (patch.title !== undefined) note.title = patch.title;
+		if (patch.body !== undefined) note.body = patch.body;
+		note.updatedAt = this.now();
+		return this.strip(note);
+	}
+	async pin(userId: string, id: string, pinned: boolean): Promise<NotebookNote | null> {
+		const note = this.own(userId, id);
+		if (!note) return null;
+		note.pinned = pinned;
+		return this.strip(note);
+	}
+	async remove(userId: string, id: string): Promise<boolean> {
+		const index = this.notes.findIndex((note) => note.userId === userId && note.id === id);
+		if (index < 0) return false;
+		this.notes.splice(index, 1);
+		return true;
+	}
+	async listPinned(userId: string): Promise<Array<Pick<NotebookNote, "id" | "title">>> {
+		return this.notes.filter((note) => note.userId === userId && note.pinned).map(({ id, title }) => ({ id, title }));
 	}
 }
 

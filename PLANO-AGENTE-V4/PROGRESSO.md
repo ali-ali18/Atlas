@@ -115,10 +115,10 @@
 - [x] F4.A (06/11: auditoria + reauditoria, 15 achados e mais N1–N3 corrigidos com teste; `auditorias/F4.md` fechado) Auditoria: 5 lentes, verificação, correções com teste, reauditoria e `auditorias/F4.md` fechado.
 
 ### F5: Memória, Caderno e Sono
-- [ ] F5.1 Model `Note`, rotas `/v1/notes` (IDOR) e tools.
+- [x] F5.1 (06/11: tabela `notes` nova, não extensão de `agent_notes`; seis tools `note_*` na capacidade `memory` lazy; rotas `/v1/notes` com IDOR testado em banco real; títulos fixados no `[context]` com teto técnico; regras aprendidas: API `/v1/bots/:botId/rules`, agora valendo no autorizador; falta a UI) Model `Note`, rotas `/v1/notes` (IDOR) e tools.
 - [ ] F5.2 Seção "Caderno" e regras aprendidas visíveis e editáveis (com prévias).
-- [ ] F5.3 Job `sleep`, `MemoryChange` com desfazer e "doctor".
-- [ ] F5.A Auditoria: 5 lentes, verificação, correções com teste, reauditoria e `auditorias/F5.md` fechado.
+- [x] F5.3 (06/11: backend completo; fonte = só fala do dono citada por id; 23:30 no fuso do dono; uma chamada `sleep` por bot por dia; `MemoryChange` estendido para notas, origem `sleep`, relatório e desfazer; doctor aos domingos só propõe; skills e casos de eval só propostas; falta a UI do relatório) Job `sleep`, `MemoryChange` com desfazer e "doctor".
+- [x] F5.A (06/11: 19 achados, 1 alto; 17 corrigidos, 2 aceitos; reauditoria com 5 baixos, 1 corrigido) Auditoria: 5 lentes, verificação, correções com teste, reauditoria e `auditorias/F5.md` fechado.
 
 ### F6: Compras
 - [ ] F6.1 `product_search` estruturado e card `product`.
