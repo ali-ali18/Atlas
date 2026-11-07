@@ -116,9 +116,9 @@ describe("checkout: caminho do CVV (executor)", () => {
 	it("CVV copiado para a chave de outro pedido não abre (o selo leva a chave dentro)", async () => {
 		const t = await approved();
 		await t.escrow.deposit({ userId: "owner-1", runId: "run-1", requestId: "x" }, TEST_CVV, 60_000);
-		const [[keyX, entry]] = [...t.backend.entries.entries()];
+		const [keyX, entry] = [...t.backend.entries.entries()][0]!;
 		t.backend.entries.clear();
-		await t.backend.set(keyX!.replace(/[0-9a-f]{64}$/, "") + "0".repeat(64), entry!.value, 60_000);
+		await t.backend.set(keyX.replace(/[0-9a-f]{64}$/, "") + "0".repeat(64), entry.value, 60_000);
 		expect(await t.escrow.take(scopeOf(t.request))).toBeNull();
 		expect(t.sandbox.actions).toHaveLength(0);
 	});
