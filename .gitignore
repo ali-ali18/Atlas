@@ -47,3 +47,6 @@ next-env.d.ts
 packages/agent-runtime/evals/web/results/
 
 __pycache__/
+
+# Imagens das prévias (saída local dos specs *-previews.spec.ts)
+apps/web/e2e/__previews__/

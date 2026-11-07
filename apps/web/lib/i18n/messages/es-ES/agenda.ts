@@ -42,7 +42,7 @@ export const agenda: NamespaceMessages<typeof ptBR> = {
 	"agenda.cancelNamed": "Cancelar: {note}",
 	"agenda.cancelTitle": "¿Cancelar este plan?",
 	"agenda.cancelBody": "El bot deja de seguir esto y no volverá a avisarte. Puedes pedirlo de nuevo en el chat.",
-	"agenda.cancelConfirm": "Cancelar plan",
+	"agenda.cancelConfirm": "Cancelar",
 	"agenda.cancelKeep": "Mantener",
 	"agenda.changeError": "No pude cambiarlo ahora. Inténtalo de nuevo.",
 	"agenda.changeGone": "Ese plan ya cambió. Actualicé la lista.",

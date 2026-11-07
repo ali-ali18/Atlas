@@ -40,7 +40,7 @@ export const agenda = {
 	"agenda.cancelNamed": "Cancelar: {note}",
 	"agenda.cancelTitle": "Cancelar este combinado?",
 	"agenda.cancelBody": "O bot para de acompanhar isto e não volta a avisar. Dá para pedir de novo pelo chat.",
-	"agenda.cancelConfirm": "Cancelar combinado",
+	"agenda.cancelConfirm": "Cancelar",
 	"agenda.cancelKeep": "Manter",
 	"agenda.changeError": "Não consegui mudar agora. Tente de novo.",
 	"agenda.changeGone": "Esse combinado já mudou. Atualizei a lista.",
