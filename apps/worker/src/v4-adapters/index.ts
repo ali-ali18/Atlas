@@ -6,6 +6,7 @@ import {
 	createAgendaRunCapability,
 	createCapabilityRegistry,
 	createConnectorsCapability,
+	createEmailCapability,
 	createNoteTaskListStore,
 	createShoppingCapability,
 	presetStablePrompt,
@@ -21,6 +22,7 @@ import {
 } from "@workspace/agent";
 import { countryFromLocale, type ComputerUseEvent } from "@workspace/shared";
 import { createV4Agenda, realV4AgendaDeps, type V4AgendaDeps } from "./agenda.js";
+import { createV4Email, realV4EmailDeps, type V4EmailDeps } from "./email.js";
 import { createV4Deliverables, realV4DeliverablesDeps, type V4DeliverablesDeps } from "./deliverables.js";
 import { createV4Mcp, realV4McpDeps, type V4McpDeps } from "./mcp.js";
 import { createV4Memory, realV4MemoryDeps, type V4MemoryDeps } from "./memory.js";
@@ -38,9 +40,10 @@ export type V4AdapterDeps = {
 	mcp: V4McpDeps;
 	agenda: V4AgendaDeps;
 	shopping: V4ShoppingDeps;
+	email: V4EmailDeps;
 };
 
-export const realV4AdapterDeps = (): V4AdapterDeps => ({ web: realV4WebDeps(), deliverables: realV4DeliverablesDeps, memory: realV4MemoryDeps, notebook: realV4NotebookDeps, settings: realV4SettingsDeps, mcp: realV4McpDeps, agenda: realV4AgendaDeps, shopping: realV4ShoppingDeps });
+export const realV4AdapterDeps = (): V4AdapterDeps => ({ web: realV4WebDeps(), deliverables: realV4DeliverablesDeps, memory: realV4MemoryDeps, notebook: realV4NotebookDeps, settings: realV4SettingsDeps, mcp: realV4McpDeps, agenda: realV4AgendaDeps, shopping: realV4ShoppingDeps, email: realV4EmailDeps });
 
 export type V4RegistryInput = {
 	runId: string;
@@ -100,6 +103,7 @@ export async function buildV4Registry(input: V4RegistryInput): Promise<V4Registr
 	const search = createV4Search(deps.web, input.locale);
 	const agenda = botId ? createV4Agenda({ botId, policy: input.policy ?? { autonomy: "balanced", rules: [] }, deps: deps.agenda }) : undefined;
 	const shoppingPorts = createV4Shopping({ scope: { conversationId: input.conversationId ?? null, botId: botId ?? null, emit: input.emit, log }, deps: deps.shopping });
+	const emailPorts = createV4Email({ scope: { ownerId: input.userId, botId: botId ?? null, conversationId: input.conversationId ?? null, emit: input.emit, log }, deps: deps.email });
 	const country = countryFromLocale(input.locale);
 	const presetDeps: PresetDeps = {
 		search,
@@ -113,6 +117,8 @@ export async function buildV4Registry(input: V4RegistryInput): Promise<V4Registr
 		...(botId && { settings: createV4Settings({ botId, deps: deps.settings }) }),
 		// Compras (F6): a compra gravada cria o vigia de entrega pela agenda do preset (por isso só entra com bot).
 		shopping: shoppingPorts,
+		// E-mail (F7.1): Gmail do dono e caixa do bot; as contas são resolvidas na chamada (nenhuma leitura ao montar).
+		email: emailPorts,
 		// A agenda também é do bot do run (a conversa dele recebe o aviso).
 		...(agenda && { agenda }),
 		...(input.checkout && { checkout: input.checkout }),
@@ -134,9 +140,10 @@ export async function buildV4Registry(input: V4RegistryInput): Promise<V4Registr
 	const asAgendaRun = Boolean(input.agendaRun && agenda);
 	// No run de agenda, `shopping` perde a agenda e as tools de escrita (`readOnly`): ali o conteúdo vem de fora e não há dono para
 	// confirmar, então registrar compra (e criar vigia em cadeia) seria obedecer uma página.
+	// `email` também só lê ali: rascunho e envio agiriam sobre texto de fora, sem dono para revisar.
 	const forRun =
 		asAgendaRun && agenda
-			? [...capabilities.filter((capability) => capability.id !== "agenda" && capability.id !== "shopping"), createAgendaRunCapability(agenda), createShoppingCapability({ ...shoppingPorts, search, readOnly: true, ...(country && { country }) })]
+			? [...capabilities.filter((capability) => capability.id !== "agenda" && capability.id !== "shopping" && capability.id !== "email"), createAgendaRunCapability(agenda), createShoppingCapability({ ...shoppingPorts, search, readOnly: true, ...(country && { country }) }), createEmailCapability({ ...emailPorts, readOnly: true })]
 			: capabilities;
 	const registry = !asAgendaRun && !connectors.capability ? base.registry : createCapabilityRegistry(forRun);
 	if (base.unavailable.length > 0) log(`[engine-v4] run=${input.runId} capacidades sem porta: ${base.unavailable.join(", ")}`);
