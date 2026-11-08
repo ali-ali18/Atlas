@@ -20,7 +20,7 @@ import {
 	approvalMessageBody,
 	approvalSummaryLines,
 	approvalFacts,
-	approvalNeedsCardCode,
+	approvalPaysWithoutForm,
 	describeApproval,
 	handoffSteps,
 	safeReceiptUrl,
@@ -123,17 +123,20 @@ function ApprovalCard({ card, respond, settled, initialDecision }: InteractivePr
 	const details = approvalDetails(card);
 	const summary = approvalSummaryLines(card, translator);
 	const messageBody = approvalMessageBody(card);
-	const payment = approvalNeedsCardCode(card);
+	// Pagamento que não veio com o formulário do cartão (checkout) não tem como ser aprovado aqui: só dá para dispensar.
+	const payment = approvalPaysWithoutForm(card);
 	const base = { kind: "approval" as const, requestId: card.requestId, callId: card.callId };
 	return (
 		<RequestCard
 			actions={
 				canRespond ? (
 					<>
-						<Button className={REQUEST_PRIMARY_CLASS} disabled={busy !== null} onClick={() => void send({ ...base, decision: "approve" }, "approved")} size="sm" type="button">
-							{busy === "approved" ? <Spinner className="size-3.5" /> : null}
-							{t("agentCards.approval.approve")}
-						</Button>
+						{payment ? null : (
+							<Button className={REQUEST_PRIMARY_CLASS} disabled={busy !== null} onClick={() => void send({ ...base, decision: "approve" }, "approved")} size="sm" type="button">
+								{busy === "approved" ? <Spinner className="size-3.5" /> : null}
+								{t("agentCards.approval.approve")}
+							</Button>
+						)}
 						<Button disabled={busy !== null} onClick={() => void send({ ...base, decision: "dismiss" }, "dismissed")} size="sm" type="button" variant="secondary">
 							{copy.cardDismiss}
 						</Button>
@@ -178,23 +181,12 @@ function ApprovalCard({ card, respond, settled, initialDecision }: InteractivePr
 					))}
 				</ul>
 			) : null}
-			{payment && !resolved ? <CardCodeSlot /> : null}
+			{payment && !resolved ? (
+				<p className="m-0 text-sm text-warning" data-slot="agent-approval-pay-unavailable">
+					{t("agentCards.approval.payUnavailable")}
+				</p>
+			) : null}
 		</RequestCard>
-	);
-}
-
-/**
- * Espaço previsto do código de segurança do cartão (pagamento). O cartão salvo não tem esse código: o dono
- * digita aqui e ele vai direto para a loja, sem passar pelo servidor do Atlas nem pelo modelo (F6.3).
- * Ainda NÃO implementado: só o lugar e a explicação, sem campo que aceite digitação.
- */
-function CardCodeSlot() {
-	const t = useTranslations().t;
-	return (
-		<div className="flex min-w-0 flex-col gap-1 rounded-card border border-dashed border-border p-3" data-slot="agent-card-code-slot">
-			<p className="m-0 text-sm font-medium">{t("agentCards.approval.cardCode")}</p>
-			<p className="m-0 text-caption text-muted-foreground">{t("agentCards.approval.cardCodeHint")}</p>
-		</div>
 	);
 }
 

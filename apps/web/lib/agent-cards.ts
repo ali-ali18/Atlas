@@ -178,8 +178,11 @@ export function describeApproval(event: ApprovalEvent, translator: Translator = 
 	}
 }
 
-/** Pagamento: o card reserva o espaço do código de segurança do cartão (digitado pelo dono, vai direto à loja). */
-export function approvalNeedsCardCode(event: ApprovalEvent): boolean {
+/**
+ * Pagamento sem o formulário do cartão: o `checkout` declara o campo do código e vira o card de compra; qualquer outro
+ * pedido de dinheiro cai aqui e NÃO pode ser aprovado por este card (o código do cartão não tem onde ser digitado).
+ */
+export function approvalPaysWithoutForm(event: ApprovalEvent): boolean {
 	return event.effect === "money";
 }
 

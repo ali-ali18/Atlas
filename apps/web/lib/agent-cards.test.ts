@@ -17,7 +17,7 @@ import {
 	approvalSummaryLines,
 	askOwnerAnswerText,
 	askOwnerQuestionnaire,
-	approvalNeedsCardCode,
+	approvalPaysWithoutForm,
 	describeApproval,
 	handoffSteps,
 	safeReceiptUrl,
@@ -102,9 +102,9 @@ test("aprovação de e-mail mostra assunto, de onde sai e o corpo inteiro, sem c
 	assert.equal(approvalMessageBody(approval()), null);
 });
 
-test("pagamento reserva o espaço do código do cartão; outros efeitos não", () => {
-	assert.equal(approvalNeedsCardCode(approval({ effect: "money" })), true);
-	assert.equal(approvalNeedsCardCode(approval()), false);
+test("pagamento sem formulário do cartão não pode ser aprovado; outros efeitos podem", () => {
+	assert.equal(approvalPaysWithoutForm(approval({ effect: "money" })), true);
+	assert.equal(approvalPaysWithoutForm(approval()), false);
 });
 
 test("detalhes mostram só valores simples, sem os nomes dos campos e com teto", () => {

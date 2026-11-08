@@ -39,13 +39,15 @@ test("aprovação: frase simples, Aprovar e 'Agora não', sem nomes internos", (
 	assert.doesNotMatch(html, /agent-card-code-slot/);
 });
 
-test("aprovação de pagamento: espaço do código do cartão previsto, sem campo que aceite digitação", () => {
+test("aprovação de pagamento sem formulário do cartão: avisa que não dá para pagar por aqui, sem Aprovar e sem espaço falso de código", () => {
 	const html = render({ ...approval, effect: "money", riskFacts: { amount: 89.9, currency: "BRL", merchant: "Livraria" } });
 	assert.match(html, /Pagar R\$\s89,90 em Livraria/);
-	assert.match(html, /data-slot="agent-card-code-slot"/);
-	assert.match(html, /Código de segurança do cartão/);
-	assert.match(html, /vai direto para a loja/);
-	assert.doesNotMatch(html, /<input/);
+	assert.match(html, /Não dá para pagar por aqui/);
+	assert.doesNotMatch(html, />Aprovar</);
+	assert.match(html, />Agora não</);
+	assert.doesNotMatch(html, /agent-card-code-slot|Código de segurança|<input/);
+	// Já resolvido: some o aviso.
+	assert.doesNotMatch(render({ ...approval, effect: "money", riskFacts: { amount: 10, currency: "BRL" } }, { initialDecision: "dismissed" }), /Não dá para pagar por aqui/);
 });
 
 test("aprovação decidida: só o selo, sem botões", () => {

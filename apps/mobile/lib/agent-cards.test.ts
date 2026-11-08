@@ -1,6 +1,6 @@
 import type { AgentV4Event, ApprovalRequestEvent } from "@workspace/shared";
 import { describe, expect, it } from "vitest";
-import { addAgentCard, agentCardFromStored, agentCardItem, agentCardPending, approvalDetails, approvalMessageBody, approvalSummaryLines, askOwnerAnswerText, askOwnerQuestionnaireItem, asAgentCardEvent, cvvComplete, cvvDigits, describeApproval, formatMoney, handoffSteps, safeReceiptUrl, settleAgentCardsForCall } from "./agent-cards";
+import { addAgentCard, agentCardFromStored, agentCardItem, agentCardPending, approvalDetails, approvalMessageBody, approvalPaysWithoutForm, approvalSummaryLines, askOwnerAnswerText, askOwnerQuestionnaireItem, asAgentCardEvent, cvvComplete, cvvDigits, describeApproval, formatMoney, handoffSteps, safeReceiptUrl, settleAgentCardsForCall } from "./agent-cards";
 import type { ChatItem } from "./chat-types";
 
 const approval: ApprovalRequestEvent = { type: "approval_request", requestId: "req-1", callId: "call-1", toolName: "send_email", effect: "send", args: { to: "ana@exemplo.com", subject: "Orçamento de novembro" }, riskFacts: { recipients: ["ana@exemplo.com"], externalRecipients: ["ana@exemplo.com"], irreversible: true }, runId: "run-1" };
@@ -68,6 +68,10 @@ describe("frases", () => {
 		expect(approvalSummaryLines(mail)).toEqual(["Assunto: Orçamento", "Sai do seu Gmail."]);
 		expect(approvalMessageBody(mail)).toBe(body.trim());
 		expect(approvalDetails(mail)).toEqual([]);
+	});
+	it("pagamento sem formulário do cartão não pode ser aprovado; outros efeitos podem", () => {
+		expect(approvalPaysWithoutForm({ ...approval, effect: "money" })).toBe(true);
+		expect(approvalPaysWithoutForm(approval)).toBe(false);
 	});
 	it("passo a passo tira a numeração que o texto traz", () => {
 		expect(handoffSteps("1. Abra o app do banco\n2) Aprove o Pix\n- Volte aqui")).toEqual(["Abra o app do banco", "Aprove o Pix", "Volte aqui"]);

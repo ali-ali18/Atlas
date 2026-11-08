@@ -6,7 +6,7 @@ import { CheckCircleIcon, ExternalLinkIcon, HandIcon, ShieldCheckIcon, ShoppingC
 import { Button } from "@/components/ui/button";
 import { ChatCard, ChatCardActions, ChatCardDetails, ChatCardHeader, ChatCardLine, type ChatCardTone } from "@/components/ui/chat-card";
 import { Text } from "@/components/ui/text";
-import { approvalDetails, approvalFacts, approvalMessageBody, approvalSummaryLines, askOwnerAnswerText, askOwnerQuestionnaireItem, cvvComplete, cvvDigits, describeApproval, formatMoney, handoffSteps, safeReceiptUrl, type AgentCardDecision } from "@/lib/agent-cards";
+import { approvalDetails, approvalFacts, approvalPaysWithoutForm, approvalMessageBody, approvalSummaryLines, askOwnerAnswerText, askOwnerQuestionnaireItem, cvvComplete, cvvDigits, describeApproval, formatMoney, handoffSteps, safeReceiptUrl, type AgentCardDecision } from "@/lib/agent-cards";
 import { cn } from "@/lib/cn";
 import type { AgentV4Decision } from "@/lib/chat-api";
 import type { ChatItem } from "@/lib/chat-types";
@@ -23,6 +23,8 @@ export type AgentCardActions = {
 	onAnswerQuestion: (item: AgentCardItem, answer: string) => void;
 	onDismissQuestion: (item: AgentCardItem) => void;
 };
+
+const PAY_UNAVAILABLE = "Não dá para pagar por aqui. Conclua a compra direto no site da loja.";
 
 type Badge = { tone: ChatCardTone; label: string };
 
@@ -58,6 +60,8 @@ function ApprovalRow({ card, item, actions }: { card: Of<"approval_request">; it
 	const facts = approvalFacts(card);
 	const details = approvalDetails(card);
 	const summary = approvalSummaryLines(card);
+	// Pagamento sem o formulário do cartão (o `checkout` declara o campo do código): não dá para aprovar por aqui.
+	const noForm = approvalPaysWithoutForm(card);
 	const messageBody = approvalMessageBody(card);
 	return (
 		<ChatCard className="max-w-[min(68ch,100%)] self-start">
@@ -79,11 +83,14 @@ function ApprovalRow({ card, item, actions }: { card: Of<"approval_request">; it
 					{value}
 				</Text>
 			))}
+			{noForm && isPending(item) ? <Text className="text-body text-warning">{PAY_UNAVAILABLE}</Text> : null}
 			{isPending(item) ? (
 				<ChatCardActions>
-					<Button size="sm" accessibilityLabel="Aprovar" onPress={() => actions.onRespond(item, "approve")}>
-						<Text>Aprovar</Text>
-					</Button>
+					{noForm ? null : (
+						<Button size="sm" accessibilityLabel="Aprovar" onPress={() => actions.onRespond(item, "approve")}>
+							<Text>Aprovar</Text>
+						</Button>
+					)}
 					<Button size="sm" variant="secondary" accessibilityLabel={CHAT_CARD_COPY.dismiss} onPress={() => actions.onRespond(item, "deny")}>
 						<Text>{CHAT_CARD_COPY.dismiss}</Text>
 					</Button>

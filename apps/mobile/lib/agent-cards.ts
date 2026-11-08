@@ -146,6 +146,11 @@ export function approvalDetails(event: ApprovalEvent, max = 6): string[] {
 	return out;
 }
 
+/** Pagamento sem o formulário do cartão: o `checkout` declara o campo do código e vira o card de compra; qualquer outro pedido de dinheiro não pode ser aprovado por este card. */
+export function approvalPaysWithoutForm(event: ApprovalEvent): boolean {
+	return event.effect === "money";
+}
+
 /** Linhas do que vai ser feito para eventos de agenda e e-mails: quando, onde, quem, assunto (mesmas do web, em pt-BR). */
 export function approvalSummaryLines(event: ApprovalEvent): string[] {
 	const lines: string[] = [];
