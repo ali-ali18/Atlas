@@ -1,10 +1,14 @@
 // Tool `checkout` (F6.3): paga um carrinho já montado com o cartão salvo do dono. Efeito `money`: SEMPRE cartão de
 // aprovação (com mandato, o cartão vira "só o campo do CVV"). A tool NUNCA vê o número do cartão nem o CVV: ela entrega
 // o pedido à porta `CardFill`, que junta cofre + CVV do canal efêmero e preenche o formulário da loja na VM.
-import { cardDisplayName, normalizeMerchant } from "@workspace/shared";
+import { cardDisplayName, normalizeMerchant, normalizePurchaseInput } from "@workspace/shared";
 import { z } from "zod";
+import type { Agenda } from "../../ports/agenda.js";
 import type { CardFill, CardInfo } from "../../ports/payment.js";
+import type { Purchases } from "../../ports/shopping.js";
 import { defineTool } from "../../tools/define-tool.js";
+import type { ToolContext } from "../../tools/types.js";
+import { ensureDeliveryFollow } from "./record-purchase.js";
 
 const MAX_ITEMS = 30;
 
@@ -55,9 +59,36 @@ export type CheckoutDeps = {
 	fill: CardFill;
 };
 
+/**
+ * Compra paga: registra sozinha (loja, itens, total pago com frete, moeda, pedido), mostra o card de compra e cria o vigia de
+ * entrega. O dono já aprovou com o CVV, então pedir confirmação de `record_purchase` depois seria ruído. Falhar aqui NUNCA
+ * desfaz nem esconde o pagamento: o texto devolvido diz o que não deu certo (e o modelo ainda pode usar `record_purchase`).
+ */
+async function recordPaidPurchase(deps: CheckoutRecordDeps, input: { args: CheckoutArgs; orderRef: string | undefined; ctx: ToolContext }): Promise<string> {
+	const { args, orderRef, ctx } = input;
+	try {
+		const now = ctx.ports.clock.now();
+		const parsed = normalizePurchaseInput(
+			{ merchant: args.store, items: args.items.map((item) => ({ name: item.name, quantity: item.quantity, ...(item.price !== undefined && { unitPrice: item.price }) })), total: args.total, currency: args.currency, ...(orderRef && { orderNumber: orderRef }) },
+			now,
+		);
+		if (!parsed.ok) return `The payment went through but the purchase could not be saved to the owner's purchases (${parsed.error}). Use record_purchase to save it.`;
+		const timeZone = deps.agenda ? (await deps.agenda.settings(ctx.ownerId).catch(() => undefined))?.timezone : undefined;
+		const recorded = await deps.purchases.record(ctx.ownerId, ctx.runId, parsed.value, timeZone ? { timeZone } : undefined);
+		const follow = await ensureDeliveryFollow(deps, recorded, { ownerId: ctx.ownerId, runId: ctx.runId, untrustedReadInRun: ctx.untrustedReadInRun, now }, true);
+		await deps.purchases.show(ctx.ownerId, ctx.runId, recorded.purchase);
+		return `The purchase was saved automatically (${recorded.purchase.id}) and a card was shown: do not call record_purchase. ${follow}`;
+	} catch (error) {
+		return `The payment went through but saving the purchase failed (${error instanceof Error ? error.message : "unknown error"}). Use record_purchase to save it.`;
+	}
+}
+
 const money = (value: number, currency: string): string => `${value.toFixed(2)} ${currency.toUpperCase()}`;
 
-export function createCheckoutTool(deps: CheckoutDeps) {
+/** Onde a compra paga é registrada sozinha (a mesma lista do `record_purchase`, com o vigia de entrega). */
+export type CheckoutRecordDeps = { purchases: Purchases; agenda?: Agenda };
+
+export function createCheckoutTool(deps: CheckoutDeps, recordDeps?: CheckoutRecordDeps) {
 	const cardById = new Map(deps.cards.map((card) => [card.id, card]));
 	const cardList = deps.cards.map((card) => `${card.id} = ${cardDisplayName(card.brand as never, card.last4)}`).join("; ");
 	return defineTool({
@@ -104,8 +135,10 @@ export function createCheckoutTool(deps: CheckoutDeps) {
 			const label = cardDisplayName(card.brand as never, card.last4);
 			const what = `${money(args.total, args.currency)} at ${args.store} with ${label}`;
 			switch (result.status) {
-				case "paid":
-					return { ok: true, summary: `Payment submitted: ${what}.${result.orderRef ? ` Order reference: ${result.orderRef}.` : ""} Check the store's confirmation before telling the owner it is done.`, receipt: { what: `Purchase: ${what}`, where: merchant, ...(result.orderRef && { externalId: result.orderRef }) } };
+				case "paid": {
+					const saved = recordDeps ? await recordPaidPurchase(recordDeps, { args, orderRef: result.orderRef, ctx }) : "";
+					return { ok: true, summary: `Payment submitted: ${what}.${result.orderRef ? ` Order reference: ${result.orderRef}.` : ""} Check the store's confirmation before telling the owner it is done.${saved ? ` ${saved}` : ""}`, receipt: { what: `Purchase: ${what}`, where: merchant, ...(result.orderRef && { externalId: result.orderRef }) } };
+				}
 				case "challenge":
 					return { ok: true, summary: `The store opened a verification step (${result.kind}) for ${what}. The owner must finish it in the computer's browser; the purchase is not confirmed yet.`, receipt: { what: `Purchase started, waiting for the owner's verification: ${what}`, where: merchant }, park: "handoff" };
 				case "no_cvv":

@@ -54,6 +54,12 @@ describe("run de agenda (wake): compras só leem", () => {
 		expect(wake.instructions).not.toContain("record_purchase");
 		expect(wake.instructions).toContain("only reads");
 	});
+	it("com cartão salvo, o checkout vem com a instrução de que o pago registra sozinho; record_purchase manual segue com confirmação", () => {
+		const { shop, search, agenda } = setup();
+		const cap = createShoppingCapability({ ...shop.ports, search, agenda, checkout: { cards: [{ id: "card-1", brand: "visa", last4: "1111", label: "x" }], fill: { fill: async () => ({ status: "no_card" }) } } });
+		expect(cap.instructions).toContain("do not call record_purchase for it");
+		expect(cap.tools.find((t) => t.name === "record_purchase")!.confirm).toBe("when_untrusted");
+	});
 	it("a instrução do chat manda registrar só compra que o dono fez ou confirmou", () => {
 		expect(setup().cap.instructions).toContain("Record only a purchase the owner made or confirmed");
 	});

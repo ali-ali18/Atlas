@@ -46,7 +46,8 @@ export const SHOPPING_READ_INSTRUCTIONS =
 
 export const CHECKOUT_INSTRUCTIONS =
 	"Before checkout: the cart must be on the store's payment page and the owner must have agreed on items, total and shipping. " +
-	"After it: the owner may be asked to finish a bank verification; wait for them, then check the order page.";
+	"After it: the owner may be asked to finish a bank verification; wait for them, then check the order page. " +
+	"A paid checkout saves the purchase and starts the delivery follow-up by itself: do not call record_purchase for it and do not announce the follow-up.";
 
 export function createShoppingCapability(deps: ShoppingDeps) {
 	const checkout = deps.checkout && deps.checkout.cards.length > 0 ? deps.checkout : undefined;
@@ -57,7 +58,7 @@ export function createShoppingCapability(deps: ShoppingDeps) {
 		summary: "Find and compare products with price, shipping and total; save purchases and follow their delivery.",
 		tools: deps.readOnly
 			? [createProductSearchTool(deps)]
-			: [createProductSearchTool(deps), createRecordPurchaseTool(deps), createPurchaseListTool(deps.purchases), createPurchaseUpdateTool(deps), createPurchaseDeleteTool(deps), ...(checkout ? [createCheckoutTool(checkout)] : []), ...(deps.extraTools ?? [])],
+			: [createProductSearchTool(deps), createRecordPurchaseTool(deps), createPurchaseListTool(deps.purchases), createPurchaseUpdateTool(deps), createPurchaseDeleteTool(deps), ...(checkout ? [createCheckoutTool(checkout, { purchases: deps.purchases, ...(deps.agenda && { agenda: deps.agenda }) })] : []), ...(deps.extraTools ?? [])],
 		instructions,
 		cards: ["product", "purchase"],
 	});

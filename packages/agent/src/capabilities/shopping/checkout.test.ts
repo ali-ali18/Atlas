@@ -1,6 +1,7 @@
 import type { Mandate } from "@workspace/shared";
 import { describe, expect, it } from "vitest";
 import { grantApproval, type ApprovalRequest } from "../../contract/index.js";
+import { FakeAgenda, FakeShopping } from "../../presets/fakes.js";
 import { chatPolicy, setup } from "../../testing/contract-helpers.js";
 import { call, kernelHarness, reply } from "../../testing/kernel-fakes.js";
 import { TEST_CARD_NUMBER, TEST_CVV, TEST_HOLDER, paymentRig } from "../../testing/payment-fakes.js";
@@ -72,6 +73,46 @@ describe("checkout: resultado da loja é dado não confiável", () => {
 		expect(s.executor.provenance.untrustedReadInRun).toBe(false);
 		await s.executor.executeCall({ callId: "c1", step: 1, tool: r.tool, args: ARGS, grant: grantApproval(pending.request, s.clock.now()) });
 		expect(s.executor.provenance.untrustedReadInRun).toBe(true);
+	});
+});
+
+describe("checkout pago registra a compra e o vigia sozinho", () => {
+	async function pay(r: ReturnType<typeof rig>, record: { purchases: FakeShopping["ports"]["purchases"]; agenda?: FakeAgenda }) {
+		const tool = createCheckoutTool({ cards: [r.info], fill: r.fill }, record);
+		const s = setup();
+		const pending = await s.executor.executeCall({ callId: "c1", step: 1, tool, args: ARGS });
+		if (pending.status !== "pending_approval") throw new Error(pending.status);
+		await r.escrow.deposit(scopeOf(pending.request), TEST_CVV, 60_000);
+		return s.executor.executeCall({ callId: "c1", step: 1, tool, args: ARGS, grant: grantApproval(pending.request, s.clock.now()) });
+	}
+
+	it("paid: grava a compra (loja, itens, total com frete, moeda, pedido), mostra o card e cria o vigia, sem passar por record_purchase", async () => {
+		const shop = new FakeShopping();
+		const agenda = new FakeAgenda();
+		const out = await pay(rig(), { purchases: shop.ports.purchases, agenda });
+		expect(out.status).toBe("ok");
+		if (out.status === "ok") expect(out.summary).toContain("do not call record_purchase");
+		expect(shop.rows).toHaveLength(1);
+		expect(shop.rows[0]).toMatchObject({ merchant: "Loja Teste", total: 109.8, currency: "BRL", orderNumber: "PED-1001", items: [{ name: "Camiseta azul", quantity: 2, unitPrice: 49.9 }] });
+		expect(shop.purchaseCards).toHaveLength(1);
+		expect(agenda.items.size).toBe(1);
+		expect(shop.rows[0]!.deliveryWatchId).toBe([...agenda.items.keys()][0]);
+		expect([...agenda.items.values()][0]!.note).toContain("order PED-1001");
+	});
+	it("falha ao registrar não esconde o pagamento: continua ok:true e o texto diz o que faltou", async () => {
+		const shop = new FakeShopping();
+		const purchases = { ...shop.ports.purchases, record: async () => { throw new Error("db fora"); } };
+		const out = await pay(rig(), { purchases });
+		expect(out.status).toBe("ok");
+		if (out.status === "ok") expect(out.summary).toMatch(/payment went through but saving the purchase failed \(db fora\)/);
+	});
+	it("pedido que não é pago (recusado) não registra nada", async () => {
+		const shop = new FakeShopping();
+		const r = rig();
+		r.sandbox.respond = () => ({ ok: true, data: { state: "declined", reason: "sem limite" } });
+		const out = await pay(r, { purchases: shop.ports.purchases });
+		expect(out.status).toBe("error");
+		expect(shop.rows).toHaveLength(0);
 	});
 });
 
