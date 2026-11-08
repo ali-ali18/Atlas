@@ -6,8 +6,8 @@
 // regra das memórias. Sem conteúdo de fora o registro segue direto. No run de agenda (wake) a tool nem é oferecida.
 import { PURCHASE_DELIVERY_WATCH_DAYS, deliveryWatchNote, normalizePurchaseInput, PURCHASE_ITEMS_MAX, PURCHASE_DELIVERY_WATCH_MINUTES, planAgendaItem, formatMoney } from "@workspace/shared";
 import { z } from "zod";
-import type { Agenda } from "../../ports/agenda.js";
-import type { Purchases } from "../../ports/shopping.js";
+import type { Agenda, AgendaItemView } from "../../ports/agenda.js";
+import type { Purchases, RecordedPurchase } from "../../ports/shopping.js";
 import { defineTool } from "../../tools/define-tool.js";
 import type { ToolContext } from "../../tools/types.js";
 
@@ -24,6 +24,43 @@ export async function trackDelivery(agenda: Agenda, ownerId: string, purchase: P
 	// O vigia é DESTA compra: nunca devolve o de outra por parecer igual. Se mesmo assim vier um item existente, não é nosso.
 	if (created.ok && created.duplicate) return { ok: false, error: "an existing agenda item was returned instead of a new one for this purchase" };
 	return created.ok ? { ok: true, id: created.item.id, duplicate: created.duplicate } : { ok: false, error: created.error };
+}
+
+/** O vigia da compra já cumpriu o papel? Terminou por entrega (`done`) não recria; sumiu, cancelado ou expirado, sim. */
+function watchNeedsRecreate(item: AgendaItemView | undefined): boolean {
+	if (!item) return true;
+	if (item.status === "pending" || item.status === "paused") return false;
+	return !(item.status === "done" && item.endReason === "done");
+}
+
+/**
+ * Cria (ou mantém) o vigia de entrega da compra e devolve a frase para o resumo da tool. Compra nova cria; pedido repetido só
+ * recria o vigia que sumiu, foi cancelado ou expirou, nunca o que terminou por entrega. Falha NÃO desfaz a compra.
+ */
+export async function ensureDeliveryFollow(
+	deps: { purchases: Purchases; agenda?: Agenda },
+	recorded: RecordedPurchase,
+	ctx: { ownerId: string; runId: string; untrustedReadInRun?: boolean; now: Date },
+	wanted: boolean,
+): Promise<string> {
+	if (!wanted) return "No delivery follow-up was created (not requested).";
+	const { purchase } = recorded;
+	if (!deps.agenda) return "No delivery follow-up was created (agenda unavailable).";
+	if (recorded.duplicate) {
+		const items = recorded.deliveryWatchId ? await deps.agenda.list(ctx.ownerId, { includeEnded: true }).catch(() => []) : [];
+		const mine = items.find((item) => item.id === recorded.deliveryWatchId);
+		if (!watchNeedsRecreate(mine)) {
+			return mine?.status === "done" ? "This order was already saved (missing tracking details were added); its delivery follow-up already finished because it was delivered." : "This order was already saved (missing tracking details were added); its delivery follow-up is already running.";
+		}
+	}
+	try {
+		const tracked = await trackDelivery(deps.agenda, ctx.ownerId, purchase, { runId: ctx.runId, untrustedReadInRun: ctx.untrustedReadInRun, now: ctx.now });
+		if (!tracked.ok) return `The purchase is saved, but the delivery follow-up could not be created: ${tracked.error}`;
+		await deps.purchases.attachDeliveryWatch(ctx.ownerId, purchase.id, tracked.id);
+		return `A quiet delivery follow-up is on the agenda (${tracked.id}); the owner is told only when there is news. Do not announce it.`;
+	} catch (error) {
+		return `The purchase is saved, but the delivery follow-up failed: ${error instanceof Error ? error.message : "unknown error"}`;
+	}
 }
 
 export function createRecordPurchaseTool(deps: { purchases: Purchases; agenda?: Agenda }) {
@@ -55,23 +92,7 @@ export function createRecordPurchaseTool(deps: { purchases: Purchases; agenda?: 
 			const timeZone = deps.agenda ? (await deps.agenda.settings(ctx.ownerId).catch(() => undefined))?.timezone : undefined;
 			const recorded = await deps.purchases.record(ctx.ownerId, ctx.runId, parsed.value, timeZone ? { timeZone } : undefined);
 			const { purchase } = recorded;
-			let follow = "No delivery follow-up was created (not requested).";
-			// Pedido repetido: só recria o vigia se o da compra já acabou (ou nunca nasceu).
-			const watchAlive = recorded.duplicate && recorded.deliveryWatchId && deps.agenda ? (await deps.agenda.list(ctx.ownerId).catch(() => [])).some((item) => item.id === recorded.deliveryWatchId) : false;
-			if (followDelivery !== false && (!recorded.duplicate || (!watchAlive && deps.agenda))) {
-				if (!deps.agenda) follow = "No delivery follow-up was created (agenda unavailable).";
-				else {
-					try {
-						const tracked = await trackDelivery(deps.agenda, ctx.ownerId, purchase, { runId: ctx.runId, untrustedReadInRun: ctx.untrustedReadInRun, now });
-						if (tracked.ok) {
-							await deps.purchases.attachDeliveryWatch(ctx.ownerId, purchase.id, tracked.id);
-							follow = `A quiet delivery follow-up is on the agenda (${tracked.id}); the owner is told only when there is news. Do not announce it.`;
-						} else follow = `The purchase is saved, but the delivery follow-up could not be created: ${tracked.error}`;
-					} catch (error) {
-						follow = `The purchase is saved, but the delivery follow-up failed: ${error instanceof Error ? error.message : "unknown error"}`;
-					}
-				}
-			} else if (recorded.duplicate) follow = "This order was already saved (missing tracking details were added); its delivery follow-up is already running.";
+			const follow = await ensureDeliveryFollow(deps, recorded, { ownerId: ctx.ownerId, runId: ctx.runId, untrustedReadInRun: ctx.untrustedReadInRun, now }, followDelivery !== false);
 			await deps.purchases.show(ctx.ownerId, ctx.runId, purchase);
 			return {
 				ok: true,

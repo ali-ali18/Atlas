@@ -228,6 +228,21 @@ describe("record_purchase e o vigia de entrega", () => {
 		expect(agenda.items.size).toBe(2);
 		expect(shop.rows[0]!.deliveryWatchId).not.toBe(first!.id);
 	});
+	it("vigia que terminou por entrega (done) não é recriado quando o pedido volta; o que expirou ou foi cancelado é", async () => {
+		const { tool, agenda } = setup();
+		const noTrack = { merchant: "Loja B", items: [{ name: "Fone X", quantity: 1 }], total: 120, currency: "BRL" };
+		await tool("record_purchase").run(noTrack, ctx());
+		const [watch] = [...agenda.items.values()];
+		watch!.status = "done";
+		watch!.endReason = "done";
+		const again = await tool("record_purchase").run({ ...noTrack, trackingCode: "BR1" }, ctx());
+		expect(again.ok && again.summary).toContain("already finished because it was delivered");
+		expect(agenda.items.size).toBe(1);
+		watch!.status = "cancelled";
+		watch!.endReason = "expired";
+		await tool("record_purchase").run(noTrack, ctx());
+		expect(agenda.items.size).toBe(2);
+	});
 	it("a mesma compra informada às 22h no Brasil é uma linha só; pedidos de itens diferentes no mesmo dia são duas", async () => {
 		const sp = new FakeAgenda({ ...DEFAULT_PROACTIVE_SETTINGS, enabled: true, timezone: "America/Sao_Paulo" });
 		const shop = new FakeShopping();
