@@ -21,7 +21,7 @@ function fakeAccounts(sources: Record<string, EmailMessageSummary[] | Error>, ca
 			return {
 				info: { source, label: source },
 				list: async (id, query) => {
-					calls.push(`list:${source}:${query.since}:${query.limit}`);
+					calls.push(`list:${source}:${query.since}:${query.limit}${query.primaryOnly ? ":primary" : ""}`);
 					if (result instanceof Error) throw result;
 					return { messages: result };
 				},
@@ -46,7 +46,7 @@ test("filtra pelo instante de `since`, ordena do mais novo e respeita `limit` so
 	const source = createBriefEmailSource(fakeAccounts({ gmail: [msg("old", "2026-11-07T23:00:00.000Z"), msg("g1", "2026-11-08T09:00:00.000Z")], bot: [msg("b1", "2026-11-08T11:00:00.000Z"), msg("b2", "2026-11-08T08:00:00.000Z")] }, calls));
 	const items = await source.listRecent("user-a", { since: "2026-11-08T00:00:00.000Z", limit: 3 });
 	assert.deepEqual(items.map((i) => i.id), ["bot:b1", "gmail:g1", "bot:b2"]);
-	assert.deepEqual(calls, ["list:gmail:2026-11-08:3", "list:bot:2026-11-08:3"]);
+	assert.deepEqual(calls, ["list:gmail:2026-11-08:3:primary", "list:bot:2026-11-08:3:primary"]);
 });
 
 test("IDOR: outro dono não vê as contas (lista vazia, sem chamar a caixa)", async () => {

@@ -40,7 +40,7 @@ export function createBriefEmailSource(accounts: Pick<EmailAccounts, "list" | "o
 				try {
 					const account = await accounts.open(userId, info.source);
 					if (!account) continue;
-					const { messages } = await account.list(userId, { since: since.slice(0, 10), limit }, signal);
+					const { messages } = await account.list(userId, { since: since.slice(0, 10), limit, primaryOnly: true }, signal);
 					read += 1;
 					for (const message of messages) {
 						if (Date.parse(message.date) >= sinceMs) items.push(toItem(info.source, message));

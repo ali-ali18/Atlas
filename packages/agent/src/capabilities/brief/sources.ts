@@ -12,7 +12,8 @@ import { nowStamp } from "../calendar/shared.js";
 
 const EMAIL_WINDOW_MS = 24 * 3_600_000;
 const EMAIL_LIMIT = 30;
-const EMAIL_SHOWN = 15;
+/** Linhas de e-mail que o brief mostra ao modelo (as que pedem ação primeiro). O resto vira "(N more not shown)". */
+const EMAIL_SHOWN = 20;
 const OTHER_SHOWN = 10;
 const SNIPPET_CHARS = 160;
 
@@ -70,7 +71,7 @@ export function createBriefSourcesTool(ports: BriefPorts, state: BriefGatherStat
 				const email = ports.email;
 				add({
 					source: "email",
-					label: "EMAIL (last 24h; the category and due date are declared by the mailbox, not guessed)",
+					label: "EMAIL (last 24h; messages that need action come first, the others are not classified)",
 					run: () => email.listRecent(owner, { since: new Date(now.getTime() - EMAIL_WINDOW_MS).toISOString(), limit: EMAIL_LIMIT, ...(ctx.signal && { signal: ctx.signal }) }),
 					render: (items) => {
 						const relevant = items.filter((m) => m.category !== "ignore");
@@ -78,10 +79,13 @@ export function createBriefSourcesTool(ports: BriefPorts, state: BriefGatherStat
 						const unclassified = relevant.filter((m) => m.category === undefined);
 						const info = relevant.length - action.length - unclassified.length;
 						const line = (m: (typeof items)[number]) => `- from ${oneLine(m.from, 80)} | ${oneLine(m.subject, 120)}${m.dueAt ? ` | due ${oneLine(m.dueAt, 30)}` : ""}${m.requestedBy ? ` | asked by ${oneLine(m.requestedBy, 60)}` : ""}${m.snippet ? ` | ${oneLine(m.snippet, SNIPPET_CHARS)}` : ""}`;
+						const listed = [...action.map((m) => `${line(m)} | needs action`), ...unclassified.map((m) => `${line(m)} | not classified`)];
+						const hidden = listed.length - EMAIL_SHOWN;
 						return [
-							...action.slice(0, EMAIL_SHOWN).map((m) => `${line(m)} | needs action`),
-							...unclassified.slice(0, OTHER_SHOWN).map((m) => `${line(m)} | not classified`),
+							...listed.slice(0, EMAIL_SHOWN),
+							...(hidden > 0 ? [`- (${hidden} more not shown)`] : []),
 							...(info > 0 ? [`- ${info} other message${info === 1 ? "" : "s"} marked as just to know (not listed)`] : []),
+							...(items.length >= EMAIL_LIMIT ? [`- (only the ${EMAIL_LIMIT} most recent messages were read; there may be more)`] : []),
 						];
 					},
 				});

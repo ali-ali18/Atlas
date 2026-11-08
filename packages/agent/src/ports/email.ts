@@ -34,6 +34,8 @@ export type EmailListQuery = {
 	since?: string;
 	/** `YYYY-MM-DD`, exclusive. */
 	until?: string;
+	/** Só o que costuma importar: caixa de entrada sem promoções nem redes sociais (Gmail). Fontes sem categorias ignoram. */
+	primaryOnly?: boolean;
 	limit: number;
 };
 

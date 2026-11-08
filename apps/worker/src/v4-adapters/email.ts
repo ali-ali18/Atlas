@@ -70,7 +70,7 @@ const unquote = (value: string): string => value.replace(/["\\\u0000-\u001f]/g, 
 const gmailDay = (day: string): string => day.replaceAll("-", "/");
 
 /** Consulta do Gmail a partir do filtro estruturado. Valores entram entre aspas, sem aspas internas (nada vira operador). */
-export function gmailQuery(query: Pick<EmailListQuery, "unread" | "from" | "subject" | "since" | "until">): string {
+export function gmailQuery(query: Pick<EmailListQuery, "unread" | "from" | "subject" | "since" | "until" | "primaryOnly">): string {
 	const parts: string[] = [];
 	if (query.unread) parts.push("is:unread");
 	if (query.from) parts.push(`from:"${unquote(query.from)}"`);
@@ -79,6 +79,7 @@ export function gmailQuery(query: Pick<EmailListQuery, "unread" | "from" | "subj
 	if (query.until) parts.push(`before:${gmailDay(query.until)}`);
 	// Sem remetente nem assunto, "meu e-mail" é a caixa de entrada; com eles, busca em tudo (menos spam e lixeira).
 	if (!query.from && !query.subject) parts.push("in:inbox");
+	if (query.primaryOnly) parts.push("-category:promotions", "-category:social");
 	return parts.join(" ");
 }
 

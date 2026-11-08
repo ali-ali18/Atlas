@@ -50,6 +50,8 @@ const scope = (over: Record<string, unknown> = {}) => ({ ownerId: "user-a", botI
 
 test("gmailQuery: valores entram entre aspas e nunca viram operador; sem remetente nem assunto, é a caixa de entrada", () => {
 	assert.equal(gmailQuery({}), "in:inbox");
+	// O brief só quer o que costuma importar: sem promoções nem redes sociais.
+	assert.equal(gmailQuery({ since: "2026-11-08", primaryOnly: true }), "after:2026/11/08 in:inbox -category:promotions -category:social");
 	assert.equal(gmailQuery({ unread: true, since: "2026-11-01", until: "2026-11-08" }), 'is:unread after:2026/11/01 before:2026/11/08 in:inbox');
 	assert.equal(gmailQuery({ from: 'ana" OR in:trash', subject: "fatura\n" }), 'from:"ana OR in:trash" subject:"fatura"');
 });

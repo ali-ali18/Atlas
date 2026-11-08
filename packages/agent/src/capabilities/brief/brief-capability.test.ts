@@ -97,6 +97,23 @@ describe("brief_sources", () => {
 		// janela de 24 h e limite pedidos ao e-mail
 		expect(r.emailCalls).toEqual([{ userId: "o1", since: "2026-11-04T12:00:00.000Z", limit: 30 }]);
 	});
+	it("e-mail sem classificação (como o adaptador real devolve): mostra até o limite, avisa quantos faltam e não afirma classificação da caixa", async () => {
+		const many = Array.from({ length: 26 }, (_, i) => mail({ id: `m${i}`, subject: `Assunto ${String(i).padStart(2, "0")}` }));
+		const r = rig({ email: many });
+		const out = await r.tool("brief_sources").run({}, ctx());
+		const text = out.ok ? out.summary : "";
+		expect(text).not.toContain("declared by the mailbox");
+		expect(text).toContain("Assunto 19");
+		expect(text).not.toContain("Assunto 20");
+		expect(text).toContain("- (6 more not shown)");
+		expect(text.match(/\| not classified/g)).toHaveLength(20);
+		// Menos que o limite: sem a linha de "mais".
+		const few = await rig({ email: many.slice(0, 5) }).tool("brief_sources").run({}, ctx());
+		expect(few.ok && few.summary).not.toContain("more not shown");
+		// A leitura bateu no teto de 30: avisa que pode haver mais.
+		const capped = await rig({ email: Array.from({ length: 30 }, (_, i) => mail({ id: `c${i}`, subject: `Assunto ${i}` })) }).tool("brief_sources").run({}, ctx());
+		expect(capped.ok && capped.summary).toContain("only the 30 most recent messages were read");
+	});
 	it("o brief funciona SEM a porta de e-mail (outra frente): a seção some, sem erro", async () => {
 		const r = rig({ withEmail: false });
 		r.calendar.seed("o1", { title: "Dentista", start: "2026-11-05T19:00:00.000Z", end: "2026-11-05T20:00:00.000Z" });
