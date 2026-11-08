@@ -76,7 +76,16 @@ export async function upsertPurchaseMandate(userId: string, input: { maxAmount: 
 
 export async function getPurchaseMandate(userId: string): Promise<PurchaseMandateRow | null> {
 	if (!owned(userId)) return null;
-	return prisma.purchaseMandate.findUnique({ where: { userId }, select: MANDATE_SELECT });
+	const row = await prisma.purchaseMandate.findUnique({ where: { userId }, select: MANDATE_SELECT });
+	return row ? { ...row, merchants: normalizeStoredMerchants(row.merchants) } : null;
+}
+
+/**
+ * Lojas lidas do banco na MESMA forma que o checkout compara. Mandato antigo (gravado só com trim e minúsculo) continua
+ * casando; entrada que não normaliza é descartada (fail-closed: uma loja ilegível nunca autoriza nada).
+ */
+export function normalizeStoredMerchants(stored: readonly string[]): string[] {
+	return [...new Set(stored.map((m) => normalizeMerchant(m)).filter((m): m is string => m !== null))];
 }
 
 export async function deletePurchaseMandate(userId: string): Promise<boolean> {

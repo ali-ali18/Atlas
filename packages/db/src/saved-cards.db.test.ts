@@ -84,6 +84,14 @@ describe("saved-cards (Postgres real)", { skip: dbSkip }, () => {
 		await deletePurchaseMandate(a);
 	});
 
+	test("mandato: lojas antigas (gravadas sem normalizar) são normalizadas na leitura e as ilegíveis descartadas", async () => {
+		const until = new Date("2099-12-01T00:00:00Z");
+		await upsertPurchaseMandate(a, { maxAmount: 10, currency: "BRL", merchants: ["loja.test"], until, uses: 1 });
+		await prisma.purchaseMandate.update({ where: { userId: a }, data: { merchants: ["Https://WWW.Loja.Test/", "loja.test", "lixo sem dominio", "www.Outra.com.br/"] } });
+		assert.deepEqual((await getPurchaseMandate(a))?.merchants, ["loja.test", "outra.com.br"]);
+		await deletePurchaseMandate(a);
+	});
+
 	test("mandato: gasto de uso atômico, duas chamadas concorrentes com 1 uso passam só uma", async () => {
 		const until = new Date("2099-12-01T00:00:00Z");
 		await upsertPurchaseMandate(a, { maxAmount: 300, currency: "BRL", merchants: ["loja.test"], until, uses: 1 });
