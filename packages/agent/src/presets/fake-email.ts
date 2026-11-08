@@ -7,7 +7,7 @@ export type FakeMessage = EmailMessageContent & { userId: string; source: EmailS
 export class FakeEmail {
 	/** Mensagens de TODOS os donos: a conta só enxerga as do dono que a abriu (o IDOR fica por conta dela). */
 	readonly messages: FakeMessage[] = [];
-	readonly sent: Array<{ userId: string; source: EmailSourceId; message: EmailDraftInput }> = [];
+	readonly sent: Array<{ userId: string; source: EmailSourceId; message: EmailDraftInput; idempotencyKey?: string }> = [];
 	readonly drafts: Array<{ userId: string; source: EmailSourceId; message: EmailDraftInput }> = [];
 	readonly triageCards: Array<{ userId: string; runId: string; card: EmailTriageCardPayload }> = [];
 	readonly draftCards: Array<{ userId: string; runId: string; card: EmailDraftCardPayload }> = [];
@@ -61,9 +61,9 @@ export class FakeEmail {
 				this.drafts.push({ userId, source, message });
 				return { saved: source === "gmail", ...(source === "gmail" && { draftId: `draft-${this.drafts.length}` }), to: message.to, ...(message.cc && { cc: message.cc }), subject: message.subject ?? "Re: (original)" };
 			},
-			send: async (_user, message) => {
+			send: async (_user, message, _signal, options) => {
 				if (this.sendError) throw new Error(this.sendError);
-				this.sent.push({ userId, source, message });
+				this.sent.push({ userId, source, message, ...(options?.idempotencyKey && { idempotencyKey: options.idempotencyKey }) });
 				return { messageId: `sent-${this.sent.length}`, to: message.to, subject: message.subject ?? "Re: (original)" };
 			},
 		};

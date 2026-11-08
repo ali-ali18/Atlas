@@ -19,7 +19,7 @@ type McpRecord = Awaited<ReturnType<typeof listConnectedMcpConnections>>[number]
 /** O que o adaptador usa do serviço de e-mail do bot (`emailService` do agent-runtime). */
 export type V4BotMailService = {
 	prepareSend(request: { mailbox: BotMailboxRecord; threadId?: string; to?: string; subject?: string; body: string }): Promise<{ to: string; subject: string; body: string; threadId?: string; newRecipient: boolean }>;
-	deliver(input: { mailbox: BotMailboxRecord; prepared: Awaited<ReturnType<V4BotMailService["prepareSend"]>> }): Promise<{ threadId: string; messageId: string; to: string; subject: string }>;
+	deliver(input: { mailbox: BotMailboxRecord; prepared: Awaited<ReturnType<V4BotMailService["prepareSend"]>>; idempotencyKey?: string }): Promise<{ threadId: string; messageId: string; to: string; subject: string }>;
 	listFromProvider(mailbox: BotMailboxRecord, options?: { limit?: number; direction?: "in" | "out" }): Promise<Array<{ id: string; threadId: string; direction: "in" | "out"; from: string; to: string[]; subject: string; body: string; createdAt: string }>>;
 	readThread(mailbox: BotMailboxRecord, threadId: string): Promise<{ threadId: string; subject: string; messages: Array<{ id: string; from: string; to: string[]; body: string; createdAt: string }> }>;
 };
@@ -273,6 +273,7 @@ function openGmail(scope: V4EmailScope, deps: V4EmailDeps, record: McpRecord): E
 				return { saved: true, draftId: created.id, to: draft.to, ...(draft.cc && { cc: draft.cc }), subject };
 			});
 		},
+		// O Gmail não tem chave de idempotência no envio: quem impede o envio duplo é o journal do kernel (efeito iniciado ou concluído não roda de novo).
 		async send(userId, message, signal) {
 			guard(userId);
 			return call("send", async () => {
@@ -383,12 +384,13 @@ function openBotMailbox(scope: V4EmailScope, deps: V4EmailDeps, mailbox: BotMail
 				return { saved: false, to: [prepared.to], subject: prepared.subject };
 			});
 		},
-		async send(userId, message) {
+		async send(userId, message, _signal, options) {
 			guard(userId);
 			return call(async (service) => {
 				const prepared = await prepare(service, message);
 				// `deliver` confere o limite diário e registra a mensagem. A pergunta de "destinatário novo" é o próprio cartão de aprovação.
-				const sent = await service.deliver({ mailbox, prepared });
+				// A chave da chamada vai ao provedor: repetir o mesmo pedido não manda o e-mail duas vezes.
+				const sent = await service.deliver({ mailbox, prepared, ...(options?.idempotencyKey && { idempotencyKey: options.idempotencyKey }) });
 				return { messageId: sent.messageId, threadId: sent.threadId, to: [sent.to], subject: sent.subject };
 			});
 		},

@@ -306,6 +306,42 @@ describe("email_send: só com a aprovação do dono", () => {
 		expect(h.receipts.items).toHaveLength(1);
 	});
 
+	it("a chave de idempotência (run + chamada) vai à fonte; a retomada com a mesma chamada não envia de novo", async () => {
+		const { mail, tool } = setup(["gmail"], "owner-1");
+		const { grantApproval, createExecutor } = await import("../../contract/index.js");
+		const { setup: executorSetup } = await import("../../testing/contract-helpers.js");
+		const { sha256 } = await import("../../testing/fake-ports.js");
+		const { executor, ports } = executorSetup(chatPolicy);
+		const resume = () => createExecutor({ runId: "run-1", ownerId: "owner-1", ports, hash: sha256, policy: chatPolicy });
+		const first = await executor.executeCall({ callId: "c1", step: 1, tool: tool("email_send"), args: send });
+		if (first.status !== "pending_approval") throw new Error(`esperava pending_approval, veio ${first.status}`);
+		const grant = grantApproval(first.request, new Date());
+		expect(await executor.executeCall({ callId: "c1", step: 1, tool: tool("email_send"), args: send, grant })).toMatchObject({ status: "ok" });
+		expect(mail.sent).toHaveLength(1);
+		expect(mail.sent[0]?.idempotencyKey).toBe("run-1:s1:c1");
+		// Retomada (outro processo, mesmo run e mesma chamada): o journal já tem o efeito concluído, a fonte não é chamada.
+		const resumed = resume();
+		expect(await resumed.executeCall({ callId: "c1", step: 1, tool: tool("email_send"), args: send, grant })).toMatchObject({ status: "already_done" });
+		expect(mail.sent).toHaveLength(1);
+	});
+
+	it("envio iniciado e nunca confirmado (queda no meio): a retomada não repete às cegas", async () => {
+		const { mail, tool } = setup(["gmail"], "owner-1");
+		const { grantApproval, createExecutor } = await import("../../contract/index.js");
+		const { setup: executorSetup } = await import("../../testing/contract-helpers.js");
+		const { sha256 } = await import("../../testing/fake-ports.js");
+		const { executor, journal, ports } = executorSetup(chatPolicy);
+		const resume = () => createExecutor({ runId: "run-1", ownerId: "owner-1", ports, hash: sha256, policy: chatPolicy });
+		const first = await executor.executeCall({ callId: "c1", step: 1, tool: tool("email_send"), args: send });
+		if (first.status !== "pending_approval") throw new Error(`esperava pending_approval, veio ${first.status}`);
+		const grant = grantApproval(first.request, new Date());
+		// Simula a queda: o journal ficou em `started` (sem `succeeded`).
+		await journal.append({ runId: "run-1", userId: "owner-1", step: 1, idempotencyKey: `run-1:s1:c1:${first.request.payloadHash}`, toolName: "email_send", argsHash: first.request.payloadHash, outcome: "started" });
+		const resumed = resume();
+		expect(await resumed.executeCall({ callId: "c1", step: 1, tool: tool("email_send"), args: send, grant })).toMatchObject({ status: "interrupted_write" });
+		expect(mail.sent).toHaveLength(0);
+	});
+
 	it("falha de permissão da fonte vira ok:false com a dica, sem sucesso falso", async () => {
 		const { mail, tool } = setup();
 		mail.sendError = "The Gmail connection is not allowed to send. Hint: ask the owner to reconnect Gmail to allow sending, and offer the draft (email_draft).";

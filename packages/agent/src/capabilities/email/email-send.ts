@@ -32,7 +32,8 @@ export function createEmailSendTool(ports: Pick<EmailPorts, "accounts">) {
 		async execute(args, ctx) {
 			const message = toPortMessage(args);
 			const account = await singleAccount(ports, ctx.ownerId, args.source);
-			const sent = await account.send(ctx.ownerId, message, ctx.signal);
+			// A chave sai da chamada (estável na retomada): o kernel já não repete efeito iniciado/concluído (journal) e a fonte que aceita chave a repassa ao provedor.
+			const sent = await account.send(ctx.ownerId, message, ctx.signal, ctx.callId ? { idempotencyKey: `${ctx.runId}:${ctx.callId}` } : undefined);
 			return {
 				ok: true,
 				summary: `Sent from ${account.info.label} to ${sent.to.join(", ")}. Subject: ${sent.subject}. Tell the owner it was sent.`,

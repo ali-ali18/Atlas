@@ -162,6 +162,7 @@ test("vazamento: o token do dono nunca aparece em erro, nem quando o Google o re
 
 function botRig(over: { daily?: boolean } = {}) {
 	const delivered: Array<{ to: string; subject: string; threadId?: string }> = [];
+	const keys: Array<string | undefined> = [];
 	const mailbox = { id: "mb", botId: "bot-1", userId: "user-a", address: "bot@openmail.test", enabled: true, allowedSenders: [], dailySendLimit: 2 } as unknown as BotMailboxRecord;
 	const msgs = [
 		{ id: "p1", threadId: "t1", direction: "in" as const, from: "cliente@fora.test", to: ["bot@openmail.test"], subject: "Dúvida de preço", body: "Qual o preço do plano anual?", createdAt: "2026-11-07T10:00:00Z" },
@@ -179,7 +180,8 @@ function botRig(over: { daily?: boolean } = {}) {
 			if (request.threadId) throw Object.assign(new Error("Thread não encontrada"), { code: "no_thread" });
 			return { to: request.to!.toLowerCase(), subject: request.subject!, body: request.body, newRecipient: true };
 		},
-		deliver: async ({ prepared }) => {
+		deliver: async ({ prepared, idempotencyKey }) => {
+			keys.push(idempotencyKey);
 			if (over.daily) throw Object.assign(new Error("Limite diário de 2 e-mails atingido."), { code: "daily_limit" });
 			delivered.push({ to: prepared.to, subject: prepared.subject, ...(prepared.threadId && { threadId: prepared.threadId }) });
 			return { threadId: prepared.threadId ?? "t9", messageId: "out-1", to: prepared.to, subject: prepared.subject };
@@ -188,7 +190,7 @@ function botRig(over: { daily?: boolean } = {}) {
 	const { deps } = gmailRig({ connections: [] });
 	deps.getMailbox = async (botId, userId) => (botId === "bot-1" && userId === "user-a" ? mailbox : null);
 	deps.botMail = async () => service;
-	return { deps, delivered };
+	return { deps, delivered, keys };
 }
 
 test("caixa do bot: lista uma por conversa (a mais nova), filtra por remetente/assunto/período e avisa que não filtra por não lidos", async () => {
@@ -221,6 +223,14 @@ test("caixa do bot: rascunho não é guardado em lugar nenhum; resposta vai ao a
 	await assert.rejects(account.send("user-a", { to: ["a@b.test", "c@d.test"], subject: "s", body: "x" }), /one recipient at a time/);
 	assert.equal((await account.send("user-a", { to: ["cliente@fora.test"], body: "R$ 120", inReplyTo: "t1" })).messageId, "out-1");
 	assert.deepEqual(delivered, [{ to: "cliente@fora.test", subject: "Re: Dúvida de preço", threadId: "t1" }]);
+});
+
+test("caixa do bot: a chave de idempotência da chamada chega ao provedor (repetir o pedido não envia duas vezes)", async () => {
+	const { deps, keys } = botRig();
+	const account = (await createV4Email({ scope: scope(), deps }).accounts.open("user-a", "bot"))!;
+	await account.send("user-a", { to: ["cliente@fora.test"], body: "R$ 120", inReplyTo: "t1" }, undefined, { idempotencyKey: "run-1:s2:call_a" });
+	await account.send("user-a", { to: ["cliente@fora.test"], body: "R$ 121", inReplyTo: "t1" });
+	assert.deepEqual(keys, ["run-1:s2:call_a", undefined]);
 });
 
 test("caixa do bot: limite diário e demais erros do serviço viram mensagem em inglês com dica, sem texto cru", async () => {

@@ -74,13 +74,18 @@ export type EmailDraftSaved = {
 
 export type EmailSent = { messageId: string; threadId?: string; to: string[]; subject: string };
 
+export type EmailSendOptions = {
+	/** Chave estável desta chamada (run + chamada, igual na retomada). A fonte que aceita chave de idempotência a repassa ao provedor, para que repetir o pedido não envie duas vezes. */
+	idempotencyKey?: string;
+};
+
 export interface EmailAccount {
 	readonly info: EmailAccountInfo;
 	list(userId: string, query: EmailListQuery, signal?: AbortSignal): Promise<EmailListResult>;
 	read(userId: string, id: string, signal?: AbortSignal): Promise<EmailMessageContent>;
 	createDraft(userId: string, draft: EmailDraftInput, signal?: AbortSignal): Promise<EmailDraftSaved>;
 	/** Envio de verdade. SÓ depois da aprovação do dono (o executor exige o token); limite diário e permissão são da fonte. */
-	send(userId: string, message: EmailDraftInput, signal?: AbortSignal): Promise<EmailSent>;
+	send(userId: string, message: EmailDraftInput, signal?: AbortSignal, options?: EmailSendOptions): Promise<EmailSent>;
 }
 
 export interface EmailAccounts {
