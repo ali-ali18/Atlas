@@ -63,6 +63,28 @@ describe("compras (Postgres real)", { skip: dbSkip }, () => {
 		assert.equal(await deletePurchase(userA, purchase.id), null);
 	});
 
+	test("sem pedido, depois com pedido, depois de novo com pedido: uma linha só (a chave vira a com pedido)", async () => {
+		const base = { merchant: "Loja Pedido Tardio", items: [{ name: "Cabo", quantity: 1 }], total: 33, purchasedAt: "2026-11-06T13:00:00Z" };
+		const first = await recordPurchase({ userId: userA, purchase: make({ ...base, orderNumber: undefined }) });
+		const withOrder = await recordPurchase({ userId: userA, purchase: make({ ...base, orderNumber: "TARDIO-1" }) });
+		assert.equal(withOrder.duplicate, true);
+		assert.equal(withOrder.purchase.id, first.purchase.id);
+		assert.equal(withOrder.purchase.orderNumber, "TARDIO-1");
+		const again = await recordPurchase({ userId: userA, purchase: make({ ...base, orderNumber: "TARDIO-1", total: 40 }) });
+		assert.equal(again.duplicate, true, "agora a identidade é o pedido");
+		assert.equal(again.purchase.id, first.purchase.id);
+	});
+
+	test("o número do pedido que colidiria com outra compra: mantém a chave antiga e não estoura", async () => {
+		const other = await recordPurchase({ userId: userA, purchase: make({ merchant: "Loja Colide", orderNumber: "CLD-1" }) });
+		const base = { merchant: "Loja Colide", items: [{ name: "Fita", quantity: 1 }], total: 12, purchasedAt: "2026-11-06T13:00:00Z" };
+		const bare = await recordPurchase({ userId: userA, purchase: make({ ...base, orderNumber: undefined }) });
+		const merged = await recordPurchase({ userId: userA, purchase: make({ ...base, orderNumber: "CLD-1", currency: other.purchase.currency }) });
+		// a chave com pedido já é da outra compra: o insert cai nela como duplicata, sem estourar
+		assert.equal(merged.duplicate, true);
+		assert.ok([other.purchase.id, bare.purchase.id].includes(merged.purchase.id));
+	});
+
 	test("corrigir para os dados de outra compra do dono: erro honesto, sem a mensagem do Prisma, e nada muda", async () => {
 		const one = await recordPurchase({ userId: userA, purchase: make({ orderNumber: "COL-1" }) });
 		const two = await recordPurchase({ userId: userA, purchase: make({ orderNumber: "COL-2" }) });

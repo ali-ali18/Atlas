@@ -45,7 +45,12 @@ export async function recordPurchase(input: { userId: string; botId?: string | n
 	const { purchase } = input;
 	const dedupeKey = purchaseDedupeKey(purchase, input.timeZone);
 	const existing = await prisma.purchase.findFirst({ where: { userId: input.userId, dedupeKey } });
-	if (existing) return { purchase: await mergeIntoExisting(input.userId, existing, purchase), duplicate: true };
+	if (existing) return { purchase: await mergeIntoExisting(input.userId, existing, purchase, input.timeZone), duplicate: true };
+	// Chegou o número do pedido de uma compra que foi gravada sem ele: é a mesma compra (chave "sem pedido"), que ganha o número.
+	if (purchase.orderNumber) {
+		const bare = await prisma.purchase.findFirst({ where: { userId: input.userId, orderNumber: null, dedupeKey: purchaseDedupeKey({ ...purchase, orderNumber: undefined }, input.timeZone) } });
+		if (bare) return { purchase: await mergeIntoExisting(input.userId, bare, purchase, input.timeZone), duplicate: true };
+	}
 	try {
 		const row = await prisma.purchase.create({
 			data: {
@@ -69,18 +74,29 @@ export async function recordPurchase(input: { userId: string; botId?: string | n
 		// Corrida: outro run gravou o mesmo pedido entre a consulta e o insert.
 		if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
 			const row = await prisma.purchase.findFirst({ where: { userId: input.userId, dedupeKey } });
-			if (row) return { purchase: await mergeIntoExisting(input.userId, row, purchase), duplicate: true };
+			if (row) return { purchase: await mergeIntoExisting(input.userId, row, purchase, input.timeZone), duplicate: true };
 		}
 		throw error;
 	}
 }
 
 /** O mesmo pedido de novo traz o que faltava (rastreio, link, número do pedido): acrescenta sem trocar o que já há. */
-async function mergeIntoExisting(userId: string, existing: Row, incoming: PurchaseInput): Promise<PurchaseRecord> {
+async function mergeIntoExisting(userId: string, existing: Row, incoming: PurchaseInput, timeZone?: string): Promise<PurchaseRecord> {
 	const patch = purchaseMergePatch({ orderNumber: existing.orderNumber ?? undefined, trackingCode: existing.trackingCode ?? undefined, trackingUrl: existing.trackingUrl ?? undefined }, incoming);
 	if (Object.keys(patch).length === 0) return toPurchase(existing);
+	const merged = { ...existing, ...patch };
+	// O número do pedido passa a ser a identidade da compra: a chave vira a "com pedido", para o mesmo pedido de novo achar esta
+	// linha. Se essa chave já é de OUTRA compra, mantém a antiga (não estoura nem duplica).
+	if (patch.orderNumber) {
+		try {
+			const { count } = await prisma.purchase.updateMany({ where: { id: existing.id, userId }, data: { ...patch, dedupeKey: purchaseDedupeKey(toPurchase(merged), timeZone) } });
+			return count > 0 ? toPurchase(merged) : toPurchase(existing);
+		} catch (error) {
+			if (!(error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002")) throw error;
+		}
+	}
 	const { count } = await prisma.purchase.updateMany({ where: { id: existing.id, userId }, data: patch });
-	return count > 0 ? toPurchase({ ...existing, ...patch }) : toPurchase(existing);
+	return count > 0 ? toPurchase(merged) : toPurchase(existing);
 }
 
 export async function getPurchase(userId: string, id: string): Promise<PurchaseRecord | null> {
