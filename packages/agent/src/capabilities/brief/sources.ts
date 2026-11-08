@@ -2,7 +2,8 @@
 // estruturado. O brief NÃO usa o laço do modelo para ir de fonte em fonte (caro e sujeito a esquecer): o código lê tudo em
 // paralelo, cada fonte falha SOZINHA, e a falha vira dado (`sourceErrors`), nunca texto inventado nem silêncio.
 //
-// Fonte cuja porta não existe (sem e-mail ligado, sem Google Agenda) é simplesmente ignorada: o brief funciona sem ela.
+// Fonte cuja porta não existe, ou que o dono nunca conectou (sem e-mail, sem Google Agenda), é simplesmente ignorada: o brief funciona sem ela.
+// Só login expirado ou revogado vira aviso ("reconecte").
 import { DAY_PLAN_ITEMS_PER_SECTION, formatCalendarWhen, localDateString, resolveCalendarRange, type DayPlanSource, type DayPlanSourceError } from "@workspace/shared";
 import { z } from "zod";
 import type { BriefPorts } from "../../ports/brief.js";
@@ -24,6 +25,9 @@ const oneLine = (value: string, max: number): string => value.replace(/[\u0000-\
 function reasonOf(error: unknown): DayPlanSourceError["reason"] {
 	return typeof error === "object" && error !== null && (error as { code?: unknown }).code === "needs_connection" ? "needs_connection" : "failed";
 }
+
+/** O dono nunca conectou esta fonte (`code: "not_connected"`): ela não existe para o brief, sem seção e sem aviso. */
+const neverConnected = (error: unknown): boolean => typeof error === "object" && error !== null && (error as { code?: unknown }).code === "not_connected";
 
 type Read<T> = { source: DayPlanSource; label: string; run: () => Promise<T>; render: (value: T) => string[] };
 
@@ -117,6 +121,7 @@ export function createBriefSourcesTool(ports: BriefPorts, state: BriefGatherStat
 				const read = reads[index]!;
 				if (outcome.status === "rejected") {
 					if (ctx.signal?.aborted) throw outcome.reason;
+					if (neverConnected(outcome.reason)) return;
 					if (!errors.some((e) => e.source === read.source)) errors.push({ source: read.source, reason: reasonOf(outcome.reason) });
 					return;
 				}

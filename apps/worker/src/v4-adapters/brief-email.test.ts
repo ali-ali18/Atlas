@@ -52,12 +52,12 @@ test("filtra pelo instante de `since`, ordena do mais novo e respeita `limit` so
 test("IDOR: outro dono não vê as contas (lista vazia, sem chamar a caixa)", async () => {
 	const calls: string[] = [];
 	const source = createBriefEmailSource(fakeAccounts({ gmail: [msg("m1", "2026-11-08T10:00:00.000Z")] }, calls));
-	assert.deepEqual(await source.listRecent("user-b", { since: "2026-11-08T00:00:00.000Z", limit: 10 }), []);
+	await assert.rejects(source.listRecent("user-b", { since: "2026-11-08T00:00:00.000Z", limit: 10 }), (error: Error & { code?: string }) => error.code === "not_connected");
 	assert.deepEqual(calls, []);
 });
 
-test("sem conta conectada: lista vazia (a seção some), não é erro", async () => {
-	assert.deepEqual(await createBriefEmailSource(fakeAccounts({})).listRecent("user-a", { since: "2026-11-08T00:00:00.000Z", limit: 10 }), []);
+test("sem conta conectada (nunca conectou): sinal not_connected, não needs_connection (o brief ignora a fonte, sem pedir reconexão)", async () => {
+	await assert.rejects(createBriefEmailSource(fakeAccounts({})).listRecent("user-a", { since: "2026-11-08T00:00:00.000Z", limit: 10 }), (error: Error & { code?: string }) => error.code === "not_connected");
 });
 
 test("login expirado: o erro leva code needs_connection", async () => {
@@ -89,7 +89,7 @@ test("ponta a ponta com o adaptador do Gmail: token sem login vira needs_connect
 	const source = createBriefEmailForRun({ scope: { ownerId: "user-a", botId: "bot-1", conversationId: "conv-1" }, deps });
 	await assert.rejects(source.listRecent("user-a", { since: "2026-11-08T00:00:00.000Z", limit: 5 }), (error: Error & { code?: string }) => error.code === "needs_connection");
 	// Outro dono, mesmo chamando a mesma fonte: nenhuma conta.
-	assert.deepEqual(await source.listRecent("user-b", { since: "2026-11-08T00:00:00.000Z", limit: 5 }), []);
+	await assert.rejects(source.listRecent("user-b", { since: "2026-11-08T00:00:00.000Z", limit: 5 }), (error: Error & { code?: string }) => error.code === "not_connected");
 });
 
 test("ponta a ponta com o Gmail: só lista os cabeçalhos (metadata), nunca pede o corpo (format=full)", async () => {

@@ -114,7 +114,7 @@ export function createV4Calendar(input: { scope: V4CalendarScope; deps?: V4Calen
 
 	async function context(userId: string): Promise<GoogleApiContext> {
 		const record = (await deps.listConnected(userId)).find((c) => c.catalogId === CATALOG_ID);
-		if (!record) throw new CalendarNotConnectedError();
+		if (!record) throw new CalendarNotConnectedError(undefined, "never");
 		return { getAccessToken: () => deps.accessToken(record), fetchFn: deps.fetchFn };
 	}
 

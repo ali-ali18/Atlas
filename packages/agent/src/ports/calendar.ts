@@ -3,11 +3,15 @@
 // "sem conta conectada" é uma falha com a instrução de conectar, nunca uma lista vazia.
 import type { CalendarCardAction, CalendarCardEvent, CalendarEventDraft, CalendarEventView, CalendarPatchField } from "@workspace/shared";
 
-/** O login do Google expirou ou nunca foi feito: o dono precisa (re)conectar. O brief a distingue de uma falha qualquer. */
+/**
+ * O Google Agenda não está utilizável. `never` = o dono nunca conectou (`code: "not_connected"`: para o brief a fonte simplesmente
+ * não existe, sem aviso); `expired` = o login expirou ou foi revogado (`code: "needs_connection"`: o brief avisa para reconectar).
+ */
 export class CalendarNotConnectedError extends Error {
-	readonly code = "needs_connection" as const;
-	constructor(message = "Google Calendar is not connected. Tell the owner plainly to connect it in the connected apps.") {
+	readonly code: "needs_connection" | "not_connected";
+	constructor(message = "Google Calendar is not connected. Tell the owner plainly to connect it in the connected apps.", reason: "expired" | "never" = "expired") {
 		super(message);
+		this.code = reason === "never" ? "not_connected" : "needs_connection";
 		this.name = "CalendarNotConnectedError";
 	}
 }

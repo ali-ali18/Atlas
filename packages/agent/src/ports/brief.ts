@@ -6,7 +6,9 @@
 //  - `listRecent(userId, { since, limit })` devolve as mensagens recebidas desde `since` (ISO), mais novas primeiro, até `limit`.
 //  - Só campos declarados, nunca o corpo: remetente, assunto, data, um trecho curto opcional, a classificação POR CAMPO que a
 //    caixa já fez (`action` = precisa de ação, `info` = só para saber, `ignore`) e o prazo extraído (`dueAt`).
-//  - Falha = `throw` com a mensagem real, redigida. Login expirado = `Error` com `code === "needs_connection"`.
+//  - Falha = `throw` com a mensagem real, redigida. Login expirado ou revogado = `Error` com
+//    `code === "needs_connection"` (o brief avisa para reconectar). NUNCA conectado = `code === "not_connected"`: para o brief a fonte
+//    simplesmente não existe (a seção some, sem linha de aviso).
 import type { DayPlanSection, DayPlanSourceError } from "@workspace/shared";
 import type { Agenda } from "./agenda.js";
 import type { Calendar } from "./calendar.js";

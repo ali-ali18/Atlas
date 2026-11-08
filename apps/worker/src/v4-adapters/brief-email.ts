@@ -31,7 +31,8 @@ export function createBriefEmailSource(accounts: Pick<EmailAccounts, "list" | "o
 			const sinceMs = Date.parse(since);
 			if (!Number.isFinite(sinceMs) || limit <= 0) return [];
 			const infos = await accounts.list(userId);
-			if (infos.length === 0) return [];
+			// Nenhuma conta ligada: o dono nunca conectou e-mail. Sinal estrutural para o brief ignorar a fonte (e não pedir "reconecte").
+			if (infos.length === 0) throw Object.assign(new Error("No e-mail account is connected."), { code: "not_connected" });
 			const items: BriefEmailItem[] = [];
 			const failures: Error[] = [];
 			let read = 0;

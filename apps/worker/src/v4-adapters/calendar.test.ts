@@ -55,7 +55,7 @@ test("listar: usa o token do cofre do dono do run, pede um a mais para saber se 
 
 test("IDOR: outro dono sem a conexão não consegue ler nada e nenhuma chamada sai; erro diz para conectar", async () => {
 	const { calendar, requests, tokensFor } = rig();
-	await assert.rejects(calendar.list("user-b", { from: "a", to: "b" }), (e: unknown) => e instanceof CalendarNotConnectedError && /not connected/.test((e as Error).message));
+	await assert.rejects(calendar.list("user-b", { from: "a", to: "b" }), (e: unknown) => e instanceof CalendarNotConnectedError && /not connected/.test((e as Error).message) && (e as CalendarNotConnectedError).code === "not_connected");
 	await assert.rejects(calendar.get("user-c", "g1"), CalendarNotConnectedError);
 	await assert.rejects(calendar.remove("user-b", "g1"), CalendarNotConnectedError);
 	assert.deepEqual(requests, []);
@@ -66,7 +66,7 @@ test("login expirado (UnauthorizedError do cofre/Google) vira 'reconectar', sem 
 	const unauthorized = Object.assign(new Error("invalid_grant segredo sk-abcdefghijklmnopqrstuvwxyz0123456789"), { name: "UnauthorizedError" });
 	const { calendar } = rig();
 	const bad = createV4Calendar({ scope: { emit: () => undefined }, deps: { ...({} as V4CalendarDeps), listConnected: async () => [{ id: "c", catalogId: "google_calendar" } as never], accessToken: async () => { throw unauthorized; }, fetchFn: async () => { throw new Error("não deveria chamar"); }, loadSettings: (async () => DEFAULT_PROACTIVE_SETTINGS) as never, persistCard: async () => undefined } });
-	await assert.rejects(bad.calendar.list("u", { from: "a", to: "b" }), (e: unknown) => e instanceof CalendarNotConnectedError && !/sk-/.test((e as Error).message) && /reconnect/.test((e as Error).message));
+	await assert.rejects(bad.calendar.list("u", { from: "a", to: "b" }), (e: unknown) => e instanceof CalendarNotConnectedError && !/sk-/.test((e as Error).message) && /reconnect/.test((e as Error).message) && (e as CalendarNotConnectedError).code === "needs_connection");
 	assert.ok(calendar);
 });
 

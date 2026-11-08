@@ -124,6 +124,26 @@ describe("brief_sources", () => {
 		expect(plan.ok).toBe(true);
 		expect(r.shown[0]!.card.sourceErrors).toEqual([{ source: "calendar", reason: "needs_connection" }, { source: "email", reason: "needs_connection" }]);
 	});
+	it("NUNCA conectado (not_connected) é fonte ausente: sem seção, sem linha de aviso, sem 'reconecte'; só login expirado avisa", async () => {
+		const r = rig({ email: Object.assign(new Error("No e-mail account is connected."), { code: "not_connected" }) });
+		await wakeBrief(r.agenda);
+		r.calendar.fail = new CalendarNotConnectedError(undefined, "never");
+		const out = await r.tool("brief_sources").run({}, ctx());
+		expect(out.ok && out.summary).not.toContain("== CALENDAR");
+		expect(out.ok && out.summary).not.toContain("== EMAIL");
+		expect(out.ok && out.summary).not.toContain("COULD NOT BE READ");
+		expect(out.ok && out.summary).not.toContain("login expired");
+		const plan = await r.tool("day_plan").run({ headline: "x" }, ctx());
+		expect(plan.ok).toBe(true);
+		expect(r.shown[0]!.card.sourceErrors ?? []).toEqual([]);
+		// Misto: agenda nunca conectada some; e-mail com login expirado continua avisando.
+		const mixed = rig({ email: Object.assign(new Error("token expirado"), { code: "needs_connection" }) });
+		await wakeBrief(mixed.agenda);
+		mixed.calendar.fail = new CalendarNotConnectedError(undefined, "never");
+		const both = await mixed.tool("brief_sources").run({}, ctx());
+		expect(both.ok && both.summary).toContain("COULD NOT BE READ: email (login expired).");
+		expect(both.ok && both.summary).not.toContain("calendar");
+	});
 	it("só lê o que é do dono do run: nada de outro dono entra (IDOR)", async () => {
 		const r = rig({ email: [mail({ id: "1", subject: "Meu e-mail", category: "action" })] });
 		r.calendar.seed("alice", { title: "Segredo da Alice", start: "2026-11-05T17:00:00.000Z", end: "2026-11-05T18:00:00.000Z" });
