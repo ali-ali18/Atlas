@@ -19,6 +19,6 @@ export const emailCards = {
 	"email.draft.subject": "Subject",
 	"email.draft.readText": "Read the text",
 	"email.draft.savedGmail": "Saved in your Gmail drafts. Nothing was sent.",
-	"email.draft.savedMailbox": "Saved in the bot"s mailbox. Nothing was sent.",
+	"email.draft.savedMailbox": "Saved in the bot's mailbox. Nothing was sent.",
 	"email.draft.onlyHere": "It only exists here in the conversation. Nothing was sent; ask me to send it when it looks right.",
 } as const;
