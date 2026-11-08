@@ -24,6 +24,11 @@ test("lista mostra apelido, bandeira e final, e a lixeira com nome acessível", 
 	assert.match(html, /Adicionar cartão/);
 });
 
+test("cartão sem apelido não repete a linha de bandeira e final", () => {
+	const html = wrap(<CardsListView cards={[cards[0]!]} configured onAdd={noop} onDelete={noop} />);
+	assert.equal(html.split(">Visa final 1111<").length - 1, 1);
+});
+
 test("vazio e cofre indisponível", () => {
 	assert.match(wrap(<CardsListView cards={[]} configured onAdd={noop} onDelete={noop} />), /Nenhum cartão salvo/);
 	const off = wrap(<CardsListView cards={[]} configured={false} onAdd={noop} onDelete={noop} />);

@@ -96,7 +96,7 @@ export function CardsListView({ cards, configured, loading, error, busyId, onAdd
 											<CreditCardIcon aria-hidden className="size-5 shrink-0 text-muted-foreground" />
 											<span className="flex min-w-0 flex-1 flex-col">
 												<span className="truncate text-body leading-[18px] font-medium">{card.label}</span>
-												<span className="truncate text-xs text-muted-foreground">{name}</span>
+												{name !== card.label ? <span className="truncate text-xs text-muted-foreground">{name}</span> : null}
 											</span>
 										</div>
 									</DeletableRow>
