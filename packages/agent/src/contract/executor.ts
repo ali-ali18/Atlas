@@ -106,7 +106,8 @@ export function createExecutor(deps: ExecutorDeps) {
 		let approvalId: string | undefined;
 		if (verdict.kind === "approve" || inputOnly) {
 			// O cartão mostra o que será feito de verdade (ex.: o evento a apagar): a tool completa os fatos com uma leitura. O id do pedido não depende deles.
-			riskFacts = await tool.enrichedRiskFactsFor(args, { ownerId: deps.ownerId, ...(deps.signal && { signal: deps.signal }) });
+			// Só ao pedir: a retomada já aprovada (com grant) não relê, o cartão não será mostrado de novo.
+			if (!call.grant) riskFacts = await tool.enrichedRiskFactsFor(args, { ownerId: deps.ownerId, ...(deps.signal && { signal: deps.signal }) });
 			const request = requestApproval({ runId: deps.runId, callId: scopedCallId, toolName: tool.name, effect, args, riskFacts, hash: deps.hash, secrets: secrets(), ...(tool.ownerInput && { ownerInput: tool.ownerInput }), ...(inputOnly && { inputOnly: true }) });
 			approvalId = request.id;
 			if (!call.grant) return { status: "pending_approval", request };

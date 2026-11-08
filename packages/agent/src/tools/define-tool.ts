@@ -112,6 +112,9 @@ function isToolResult(value: unknown): value is ToolResult {
 	return r.ok === false && typeof r.error === "string" && r.error.length > 0;
 }
 
+/** Teto da leitura que completa o cartão de aprovação: passou disso, o cartão sai com o fato síncrono (nunca trava o run). */
+export const RISK_FACTS_ENRICH_TIMEOUT_MS = 3_000;
+
 export function defineTool<S extends z.ZodObject>(def: ToolDefinition<S>): Tool {
 	if (!NAME_FORMAT.test(def.name)) throw new Error(`defineTool: invalid tool name "${def.name}" (use snake_case).`);
 	if (!isEffect(def.effect)) {
@@ -164,10 +167,16 @@ export function defineTool<S extends z.ZodObject>(def: ToolDefinition<S>): Tool 
 			if (!def.enrichRiskFacts || !base) return base;
 			const checked = validateArgs(def.name, schema, acceptedFields, rawArgs);
 			if (!checked.ok) return base;
+			let timer: ReturnType<typeof setTimeout> | undefined;
 			try {
-				return { ...base, ...(await def.enrichRiskFacts(checked.args, base, ctx)) };
+				const timeout = new Promise<RiskFacts>((resolve) => {
+					timer = setTimeout(() => resolve({}), RISK_FACTS_ENRICH_TIMEOUT_MS);
+				});
+				return { ...base, ...(await Promise.race([def.enrichRiskFacts(checked.args, base, ctx), timeout])) };
 			} catch {
 				return base;
+			} finally {
+				if (timer) clearTimeout(timer);
 			}
 		},
 		handoffKindFor(rawArgs) {

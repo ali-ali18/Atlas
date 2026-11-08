@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { agendaRunPolicy } from "../../agenda/wake.js";
 import { chatPolicy, setup } from "../../testing/contract-helpers.js";
 import { FakeCalendar, FakeSearch, FakeFileStore } from "../../presets/fakes.js";
@@ -278,6 +278,38 @@ describe("cartão de aprovação: qual evento", () => {
 			throw new Error("down");
 		};
 		expect(await enriched(tool, "calendar_delete", { eventId: "e1" })).toEqual({ irreversible: true, event: { action: "delete" } });
+	});
+	it("leitura que nunca responde não trava o cartão: passa de 3 s e sai com o fato síncrono", async () => {
+		vi.useFakeTimers();
+		try {
+			const { fake, tool } = rig();
+			fake.ports.calendar.get = () => new Promise(() => undefined);
+			const pending = enriched(tool, "calendar_delete", { eventId: "e1" });
+			await vi.advanceTimersByTimeAsync(3_100);
+			expect(await pending).toEqual({ irreversible: true, event: { action: "delete" } });
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+	it("a retomada já aprovada (com grant) não lê o evento de novo", async () => {
+		const { fake, tool } = rig();
+		const seeded = fake.seed("owner-1", MEETING);
+		const first = await setup(chatPolicy).executor.executeCall({ callId: "c1", step: 1, tool: tool("calendar_delete"), args: { eventId: seeded.id } });
+		if (first.status !== "pending_approval") throw new Error("esperava pending_approval");
+		const { grantApproval, createExecutor } = await import("../../contract/index.js");
+		const { setup: s2 } = await import("../../testing/contract-helpers.js");
+		const { sha256 } = await import("../../testing/fake-ports.js");
+		const { ports } = s2(chatPolicy);
+		const executor = createExecutor({ runId: "run-1", ownerId: "owner-1", ports, hash: sha256, policy: chatPolicy });
+		let reads = 0;
+		const original = fake.ports.calendar.get;
+		fake.ports.calendar.get = (...args) => {
+			reads += 1;
+			return original(...args);
+		};
+		// O execute lê uma vez (get do próprio delete); o enriquecimento do cartão não deve ter lido.
+		await executor.executeCall({ callId: "c1", step: 1, tool: tool("calendar_delete"), args: { eventId: seeded.id }, grant: grantApproval(first.request, new Date()) });
+		expect(reads).toBe(1);
 	});
 	it("o executor pede a aprovação com o evento dentro do pedido", async () => {
 		const { fake, tool } = rig();
