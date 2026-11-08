@@ -6,7 +6,7 @@ import { defineTool } from "../tools/define-tool.js";
 import { kernelHarness, reply, call } from "../testing/kernel-fakes.js";
 import { fakeToolContext } from "../testing.js";
 import { WORK_CONTRACT_PROMPT } from "../prompt/work-contract.js";
-import { FakeAgenda, FakeDeliverables, FakeFileStore, FakeHelpers, FakeMemory, FakeSearch, FakeSettings, FakeShopping, FakeTaskListStore } from "./fakes.js";
+import { FakeAgenda, FakeCalendar, FakeDeliverables, FakeFileStore, FakeHelpers, FakeMemory, FakeSearch, FakeSettings, FakeShopping, FakeTaskListStore } from "./fakes.js";
 import { buildPresetRegistry, isPresetId, PRESETS, setupPreset } from "./presets.js";
 import { createDeliverablesLiteCapability } from "./deliverables-lite.js";
 import { createWebCapability } from "./web.js";
@@ -56,7 +56,7 @@ const checkoutDeps = () => {
 	const r = paymentRig();
 	return { cards: [r.info], fill: r.fill };
 };
-const fullDeps = () => ({ ...deps(), memory: new FakeMemory(), settings: new FakeSettings(), taskLists: new FakeTaskListStore(), helpers: new FakeHelpers(), agenda: new FakeAgenda(), shopping: new FakeShopping().ports, checkout: checkoutDeps() });
+const fullDeps = () => ({ ...deps(), memory: new FakeMemory(), settings: new FakeSettings(), taskLists: new FakeTaskListStore(), helpers: new FakeHelpers(), agenda: new FakeAgenda(), shopping: new FakeShopping().ports, checkout: checkoutDeps(), calendar: new FakeCalendar().ports });
 
 describe("preset full: memory, tasks e settings (F2.4)", () => {
 	it("entram como capacidades lazy: só o índice vai no prompt, as tools ficam de fora do primeiro passo", async () => {
@@ -67,7 +67,7 @@ describe("preset full: memory, tasks e settings (F2.4)", () => {
 		const h = kernelHarness([reply({ text: "Bom dia!" })], { capabilities: [...setup.registry.capabilities] });
 		await h.run({ input: { stableSystem: setup.stableSystem, contextSections: [], history: [{ kind: "owner", text: "Bom dia" }] } });
 		const names = h.llm.requests[0]?.tools?.map((t) => t.name) ?? [];
-		for (const lazy of ["memory_list", "memory_add", "update_task_list", "settings_get", "set_role_model", "update_bot_profile", "remind_me", "watch", "on_event", "agenda_result", "product_search", "record_purchase", "purchase_list", "purchase_update", "purchase_delete", "checkout"]) expect(names).not.toContain(lazy);
+		for (const lazy of ["memory_list", "memory_add", "update_task_list", "settings_get", "set_role_model", "update_bot_profile", "remind_me", "watch", "on_event", "agenda_result", "product_search", "record_purchase", "purchase_list", "purchase_update", "purchase_delete", "checkout", "calendar_list", "calendar_get", "calendar_create", "calendar_update", "calendar_delete"]) expect(names).not.toContain(lazy);
 	});
 
 	it("o modelo carrega memory e usa a tool no passo seguinte", async () => {
@@ -84,7 +84,7 @@ describe("preset full: memory, tasks e settings (F2.4)", () => {
 
 	it("porta ausente: a capacidade não entra e `unavailable` diz qual (nada some em silêncio)", () => {
 		const setup = setupPreset("full", deps());
-		expect(setup.unavailable).toEqual(["memory", "tasks", "settings", "research", "agenda", "shopping"]);
+		expect(setup.unavailable).toEqual(["memory", "tasks", "settings", "research", "agenda", "shopping", "calendar"]);
 		expect(setup.registry.ids()).toEqual(expect.not.arrayContaining(["memory"]));
 		expect(setupPreset("minimal", deps()).unavailable).toEqual([]);
 	});
