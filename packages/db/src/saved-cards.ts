@@ -79,6 +79,22 @@ export async function deletePurchaseMandate(userId: string): Promise<boolean> {
 }
 
 /**
+ * Gasta UM uso do mandato de forma atômica (UPDATE ... WHERE usesLeft > 0 e dentro do prazo): com dois runs correndo
+ * e `usesLeft = 1`, só um recebe `true`. `false` = sem mandato, sem usos ou vencido: a compra não roda pelo mandato.
+ */
+export async function consumePurchaseMandateUse(userId: string, now: Date = new Date()): Promise<boolean> {
+	if (!owned(userId)) return false;
+	const { count } = await prisma.purchaseMandate.updateMany({ where: { userId, usesLeft: { gt: 0 }, until: { gt: now } }, data: { usesLeft: { decrement: 1 } } });
+	return count === 1;
+}
+
+/** Devolve o uso gasto por `consumePurchaseMandateUse` quando a compra não chegou a acontecer (ex.: CVV não chegou). */
+export async function restorePurchaseMandateUse(userId: string): Promise<void> {
+	if (!owned(userId)) return;
+	await prisma.purchaseMandate.updateMany({ where: { userId }, data: { usesLeft: { increment: 1 } } });
+}
+
+/**
  * Grava os usos que restam depois de um run (o kernel gasta em memória e leva ao checkpoint). Só diminui: nunca
  * "devolve" uso, nem com dois runs correndo.
  */

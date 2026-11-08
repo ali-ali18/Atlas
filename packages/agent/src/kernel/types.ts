@@ -110,6 +110,8 @@ export type RunAgentDeps = {
 	exposeProvenance?: (read: () => PriorProvenance) => void;
 	/** Um uso do mandato foi gasto (F6.4): `usesLeft` é o que resta. O host grava o número (só diminui); sem isso o mandato só vale no checkpoint do run. */
 	onMandateSpent?: (usesLeft: number) => void | Promise<void>;
+	/** Gasto atômico do uso do mandato no banco (ver `ExecutorDeps.mandateUses`). */
+	mandateUses?: { claim(): Promise<boolean>; release(): Promise<void> };
 };
 
 export type PendingCall = { id: string; name: string; args: unknown };

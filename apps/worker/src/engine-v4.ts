@@ -498,7 +498,7 @@ export async function runEngineV4(input: RunEngineV4Input): Promise<V4EngineResu
 		// Run de agenda: não há dono para responder, então a pergunta ao dono nem é oferecida.
 		...(input.agendaRun && { askOwner: false }),
 		spend: ledger.motherHook(),
-		...(payment?.mandate && { onMandateSpent: payment.onMandateSpent }),
+		...(payment?.mandate && { mandateUses: payment.mandateUses }),
 		exposeProvenance: (read) => {
 			motherProvenance = read;
 		},

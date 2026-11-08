@@ -30,6 +30,12 @@ export type ExecutorDeps = {
 	mandateUsesLeft?: number;
 	/** Chamado depois que o mandato gasta um uso (antes do efeito). */
 	onMandateSpent?: (usesLeft: number) => void | Promise<void>;
+	/**
+	 * Gasto ATÔMICO do uso no armazém compartilhado (banco), antes do efeito: dois runs do mesmo dono nunca gastam o mesmo
+	 * uso. `claim` falso = o mandato não tem mais uso (outro run gastou): o efeito NÃO roda. `release` devolve o uso quando
+	 * a tool falhou sem pagar (ex.: o CVV não chegou). Sem isto vale só a contagem em memória do run.
+	 */
+	mandateUses?: { claim(): Promise<boolean>; release(): Promise<void> };
 };
 
 /** Uma chamada do modelo. `grant` vem da camada de fora (dono aprovou), nunca dos argumentos. */
@@ -110,6 +116,7 @@ export function createExecutor(deps: ExecutorDeps) {
 			consumed.add(request.id);
 		}
 
+		let spentUse = false;
 		if (effectful) {
 			// Worker zumbi: sem lease vigente não há efeito. Depois, o claim atômico do journal (S5).
 			await deps.ports.store.runs.assertLease?.(deps.ownerId, deps.runId);
@@ -117,7 +124,14 @@ export function createExecutor(deps: ExecutorDeps) {
 			if (!claim.claimed) return { status: "already_in_progress", hint: IN_PROGRESS_HINT };
 			// O efeito vai rodar por causa do mandato: gasta um uso ANTES de executar (os efeitos do passo são em série).
 			if (mandate && verdict.kind === "run" && verdict.reason === "mandate") {
+				if (deps.mandateUses && !(await deps.mandateUses.claim())) {
+					// Outro run gastou o último uso desde que este começou: sem uso não há mandato, nada é pago.
+					await deps.ports.store.journal.append({ ...journalBase, outcome: "failed" });
+					mandate = { ...mandate, usesLeft: 0 };
+					return { status: "error", error: "The owner's purchase allowance has no uses left, so nothing was paid.", hint: "Tell the owner plainly and ask them to confirm the purchase again; do not retry on your own." };
+				}
 				mandate = { ...mandate, usesLeft: mandate.usesLeft - 1 };
+				spentUse = true;
 				await deps.onMandateSpent?.(mandate.usesLeft);
 			}
 		}
@@ -128,6 +142,11 @@ export function createExecutor(deps: ExecutorDeps) {
 		if (tool.privateData && result.ok) provenance.markPrivateRead();
 		if (tool.trust === "untrusted" && tool.source) provenance.record(sanitizeText(result.ok ? result.summary : result.error, secrets()), tool.source);
 		if (!result.ok) {
+			// Falhou sem pagar (ex.: sem CVV): o uso do mandato volta, para não gastar mandato sem compra.
+			if (spentUse && deps.mandateUses) {
+				await deps.mandateUses.release().catch(() => undefined);
+				if (mandate) mandate = { ...mandate, usesLeft: mandate.usesLeft + 1 };
+			}
 			if (effectful) await deps.ports.store.journal.append({ ...journalBase, outcome: "failed" });
 			return { status: "error", error: sanitizeText(result.error, secrets()), ...(result.hint && { hint: sanitizeText(result.hint, secrets()) }) };
 		}

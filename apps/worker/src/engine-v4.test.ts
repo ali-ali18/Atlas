@@ -313,7 +313,7 @@ function fakeAdapters(searched: string[]): NonNullable<Parameters<typeof runEngi
 }
 
 /** Dono sem cartão nem mandato (pagamento da F6): o preset não depende do banco real nestes testes. */
-const noPaymentDeps = () => ({ listCards: async () => [], getMeta: async () => null, getSealed: async () => null, openJson: () => "{}", getMandate: async () => null, lowerUses: async () => undefined }) as never;
+const noPaymentDeps = () => ({ listCards: async () => [], getMeta: async () => null, getSealed: async () => null, openJson: () => "{}", getMandate: async () => null, consumeUse: async () => true, restoreUse: async () => undefined }) as never;
 
 test("preset full pelas portas reais: capacidades montadas, nada indisponível e a busca passa pelo adaptador do worker", async () => {
 	const events: ComputerUseEvent[] = [];

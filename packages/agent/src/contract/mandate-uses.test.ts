@@ -61,3 +61,41 @@ describe("mandato consome usos (auditoria F1, S6)", () => {
 		expect(withMandate.executor.mandateUsesLeft()).toBe(1);
 	});
 });
+
+describe("mandato: gasto atômico do uso no armazém (corrida entre runs)", () => {
+	function store(initial: number) {
+		const state = { left: initial };
+		return { state, uses: { claim: async () => (state.left > 0 ? (state.left--, true) : false), release: async () => void state.left++ } };
+	}
+
+	it("dois runs com 1 uso no banco: só um paga; o outro falha honesto, sem executar e sem deixar a escrita pendurada", async () => {
+		const shared = store(1);
+		const { tool, counter } = payTool();
+		const a = setup({ ...chatPolicy, mandate: mandate(1) }, { mandateUses: shared.uses });
+		const b = setup({ ...chatPolicy, mandate: mandate(1) }, { mandateUses: shared.uses });
+		const [ra, rb] = await Promise.all([a.executor.executeCall({ callId: "c1", step: 1, tool, args: { order: "a" } }), b.executor.executeCall({ callId: "c1", step: 1, tool, args: { order: "b" } })]);
+		expect([ra.status, rb.status].sort()).toEqual(["error", "ok"]);
+		expect(counter.runs).toBe(1);
+		expect(shared.state.left).toBe(0);
+		const loser = ra.status === "error" ? ra : rb;
+		if (loser.status !== "error") throw new Error("esperava erro");
+		expect(loser.error).toMatch(/no uses left/);
+	});
+
+	it("a tool que falha sem pagar devolve o uso (banco e memória)", async () => {
+		const shared = store(1);
+		const failing = defineTool({ name: "pay_order", description: "Pay.", inputSchema: z.object({ order: z.string() }), effect: "money", riskFacts: () => ({ amount: 30, currency: "BRL", merchant: "mercado" }), execute: () => ({ ok: false, error: "no code", hint: "ask again" }) });
+		const s = setup({ ...chatPolicy, mandate: mandate(1) }, { mandateUses: shared.uses });
+		expect((await s.executor.executeCall({ callId: "c1", step: 1, tool: failing, args: { order: "a" } })).status).toBe("error");
+		expect(shared.state.left).toBe(1);
+		expect(s.executor.mandateUsesLeft()).toBe(1);
+	});
+
+	it("a compra que paga mantém o uso gasto", async () => {
+		const shared = store(2);
+		const { tool } = payTool();
+		const s = setup({ ...chatPolicy, mandate: mandate(2) }, { mandateUses: shared.uses });
+		expect((await s.executor.executeCall({ callId: "c1", step: 1, tool, args: { order: "a" } })).status).toBe("ok");
+		expect(shared.state.left).toBe(1);
+	});
+});

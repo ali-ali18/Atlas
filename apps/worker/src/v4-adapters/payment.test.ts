@@ -15,16 +15,17 @@ const CVV = "737";
 
 type Row = { id: string; userId: string; label: string; brand: string; last4: string; secretsEnc: string; createdAt: Date };
 function fakeDeps(cards: Row[], mandate: { userId: string; maxAmount: number; currency: string; merchants: string[]; until: Date; usesLeft: number } | null = null) {
-	const lowered: Array<[string, number]> = [];
+	const uses = { consumed: [] as string[], restored: [] as string[] };
 	const deps: V4PaymentDeps = {
 		listCards: async (userId) => cards.filter((c) => c.userId === userId),
 		getMeta: async (userId, id) => cards.find((c) => c.userId === userId && c.id === id) ?? null,
 		getSealed: async (userId, id) => cards.find((c) => c.userId === userId && c.id === id) ?? null,
 		openJson: (sealed) => sealed.replace("sealed:", ""),
 		getMandate: async (userId) => (mandate && mandate.userId === userId ? { id: "m", ...mandate } : null),
-		lowerUses: async (userId, left) => void lowered.push([userId, left]),
+		consumeUse: async (userId) => (uses.consumed.push(userId), true),
+		restoreUse: async (userId) => void uses.restored.push(userId),
 	};
-	return { deps: deps as V4PaymentDeps, lowered };
+	return { deps: deps as V4PaymentDeps, uses };
 }
 const row = (userId: string, id = "card-1"): Row => ({ id, userId, label: "Visa final 1111", brand: "visa", last4: "1111", secretsEnc: `sealed:${JSON.stringify(CARD)}`, createdAt: NOW });
 
@@ -80,14 +81,15 @@ test("card_fill de ponta a ponta no worker: cartão do cofre + CVV do canal vão
 	assert.equal(await escrow.take(scopeB), null);
 });
 
-test("mandato: só vale com dono presente, usos e prazo; o uso gasto é gravado só para baixo", async () => {
+test("mandato: só vale com dono presente, usos e prazo; o uso é gasto e devolvido pelo banco, escopado ao dono", async () => {
 	const until = new Date("2026-12-01T00:00:00Z");
 	const m = { userId: "a", maxAmount: 100, currency: "BRL", merchants: ["loja.test"], until, usesLeft: 2 };
 	const live = fakeDeps([], m);
 	const p = await createV4Payment({ userId: "a", escrow: null, sandbox: vm([]), ownerPresent: true, deps: live.deps, now: () => NOW });
 	assert.deepEqual(p.mandate, { maxAmount: 100, currency: "BRL", merchants: ["loja.test"], until: until.toISOString(), usesLeft: 2 });
-	await p.onMandateSpent(1);
-	assert.deepEqual(live.lowered, [["a", 1]]);
+	assert.equal(await p.mandateUses.claim(), true);
+	await p.mandateUses.release();
+	assert.deepEqual(live.uses, { consumed: ["a"], restored: ["a"] });
 	assert.equal((await createV4Payment({ userId: "b", escrow: null, sandbox: vm([]), ownerPresent: true, deps: live.deps, now: () => NOW })).mandate, undefined);
 	assert.equal((await createV4Payment({ userId: "a", escrow: null, sandbox: vm([]), ownerPresent: false, deps: live.deps, now: () => NOW })).mandate, undefined);
 	assert.equal((await createV4Payment({ userId: "a", escrow: null, sandbox: vm([]), ownerPresent: true, deps: fakeDeps([], { ...m, usesLeft: 0 }).deps, now: () => NOW })).mandate, undefined);

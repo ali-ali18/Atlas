@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import { prisma } from "./client.js";
-import { createSavedCard, deletePurchaseMandate, deleteSavedCard, getPurchaseMandate, getSavedCardMeta, getSavedCardSealed, listSavedCards, lowerPurchaseMandateUses, SAVED_CARDS_MAX_PER_OWNER, SavedCardLimitError, upsertPurchaseMandate } from "./saved-cards.js";
+import { consumePurchaseMandateUse, createSavedCard, deletePurchaseMandate, deleteSavedCard, getPurchaseMandate, getSavedCardMeta, getSavedCardSealed, listSavedCards, lowerPurchaseMandateUses, restorePurchaseMandateUse, SAVED_CARDS_MAX_PER_OWNER, SavedCardLimitError, upsertPurchaseMandate } from "./saved-cards.js";
 import { createTestUser, dbSkip } from "./testing/test-db.js";
 
 describe("saved-cards (Postgres real)", { skip: dbSkip }, () => {
@@ -63,5 +63,26 @@ describe("saved-cards (Postgres real)", { skip: dbSkip }, () => {
 		await lowerPurchaseMandateUses(b, 0);
 		assert.equal(await deletePurchaseMandate(b), false);
 		assert.equal(await deletePurchaseMandate(a), true);
+	});
+
+	test("mandato: gasto de uso atômico, duas chamadas concorrentes com 1 uso passam só uma", async () => {
+		const until = new Date("2099-12-01T00:00:00Z");
+		await upsertPurchaseMandate(a, { maxAmount: 300, currency: "BRL", merchants: ["loja.test"], until, uses: 1 });
+		const results = await Promise.all(Array.from({ length: 8 }, () => consumePurchaseMandateUse(a)));
+		assert.equal(results.filter(Boolean).length, 1);
+		assert.equal((await getPurchaseMandate(a))?.usesLeft, 0);
+		assert.equal(await consumePurchaseMandateUse(a), false);
+		assert.equal((await getPurchaseMandate(a))?.usesLeft, 0, "nunca fica negativo");
+		await restorePurchaseMandateUse(a);
+		assert.equal((await getPurchaseMandate(a))?.usesLeft, 1);
+	});
+
+	test("mandato: vencido, inexistente ou de outro dono não gasta uso", async () => {
+		await upsertPurchaseMandate(a, { maxAmount: 300, currency: "BRL", merchants: ["loja.test"], until: new Date("2020-01-01T00:00:00Z"), uses: 3 });
+		assert.equal(await consumePurchaseMandateUse(a), false);
+		assert.equal(await consumePurchaseMandateUse(b), false);
+		assert.equal(await consumePurchaseMandateUse(""), false);
+		assert.equal((await getPurchaseMandate(a))?.usesLeft, 3);
+		await deletePurchaseMandate(a);
 	});
 });
