@@ -5,7 +5,9 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { ApprovalRequestEvent } from "@workspace/shared";
 import { I18nProvider } from "@/lib/i18n/provider";
 import { PurchaseApprovalCardView } from "./purchase-approval-card";
-import { formatMoney, purchaseRequestFromEvent } from "./purchase-facts";
+import { payments as ptBR } from "@/lib/i18n/messages/pt-BR/payments";
+import { AtlasApiError } from "@/lib/atlas-api";
+import { formatMoney, purchaseRequestFromEvent, purchaseSendErrorKey } from "./purchase-facts";
 
 Object.assign(globalThis, { React });
 
@@ -75,4 +77,13 @@ test("aprovado: sem campo de CVV, selo e nota; dispensado e vencido também", ()
 
 test("erro de envio aparece no cartão", () => {
 	assert.match(render({ error: "Não consegui enviar. Tente de novo." }), /Não consegui enviar/);
+});
+
+test("erro ao enviar: 400 cvv_required pede o código (mensagem do campo), 503 é indisponível, o resto é genérico", () => {
+	assert.equal(purchaseSendErrorKey(new AtlasApiError("cvv_required", 400, { error: "cvv_required" })), "payments.purchase.cvvInvalid");
+	assert.equal(purchaseSendErrorKey(new AtlasApiError("Bad request", 400, { error: "cvv_required" })), "payments.purchase.cvvInvalid");
+	assert.equal(purchaseSendErrorKey(new AtlasApiError("cvv_not_accepted", 400, { error: "cvv_not_accepted" })), "payments.purchase.errorSend");
+	assert.equal(purchaseSendErrorKey(new AtlasApiError("payment_unavailable", 503)), "payments.purchase.errorUnavailable");
+	assert.equal(purchaseSendErrorKey(new Error("rede")), "payments.purchase.errorSend");
+	assert.match(ptBR[purchaseSendErrorKey(new AtlasApiError("cvv_required", 400))], /Digite os 3 ou 4 números do código/);
 });

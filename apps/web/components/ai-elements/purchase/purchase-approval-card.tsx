@@ -7,7 +7,7 @@ import { CvvField, type CvvFieldHandle } from "@workspace/ui/components/cvv-fiel
 import { RequestCard } from "@workspace/ui/components/request-card";
 import { AtlasApiError, respondAgentV4Request } from "@/lib/atlas-api";
 import { useTranslations } from "@/lib/i18n/provider";
-import { formatMoney, type PurchaseFacts, type PurchaseRequest } from "./purchase-facts";
+import { formatMoney, purchaseSendErrorKey, type PurchaseFacts, type PurchaseRequest } from "./purchase-facts";
 
 export type PurchaseStatus = "pending" | "sending" | "approved" | "dismissed" | "expired";
 
@@ -145,7 +145,7 @@ export function PurchaseApprovalCard({ request, initialStatus = "pending" }: { r
 			if (cause instanceof AtlasApiError && cause.status === 410) setStatus("expired");
 			else {
 				setStatus("pending");
-				setError(cause instanceof AtlasApiError && cause.status === 503 ? t("payments.purchase.errorUnavailable") : t("payments.purchase.errorSend"));
+				setError(t(purchaseSendErrorKey(cause)));
 			}
 		}
 	};
