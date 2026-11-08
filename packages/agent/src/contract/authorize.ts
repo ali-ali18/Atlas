@@ -15,7 +15,8 @@ export type AuthorizeFacts = PolicyContext & {
 	toolName: string;
 	handoffKind?: HandoffKind;
 	taint: DecideInput["taint"];
-	riskFacts?: RiskFacts;
+	/** Só o que a política lê (valor, moeda, loja). O resto dos fatos (destinatários, evento, corpo do e-mail) é do cartão e nunca entra aqui (cláusula 7). */
+	riskFacts?: Pick<RiskFacts, "amount" | "currency" | "merchant">;
 	/** A tool declarou `egress` (manda URL/consulta do modelo a terceiro). */
 	egress?: boolean;
 	/** A tool declarou `confirm` (enum). */
@@ -24,7 +25,7 @@ export type AuthorizeFacts = PolicyContext & {
 };
 
 /** O `decide()` só entende valor, moeda e loja; o resto do `RiskFacts` é do cartão. */
-function policyFacts(facts: RiskFacts | undefined): PolicyRiskFacts | undefined {
+function policyFacts(facts: AuthorizeFacts["riskFacts"]): PolicyRiskFacts | undefined {
 	if (!facts) return undefined;
 	const { amount, currency, merchant } = facts;
 	return { ...(amount !== undefined && { amount }), ...(currency !== undefined && { currency }), ...(merchant !== undefined && { merchant }) };
