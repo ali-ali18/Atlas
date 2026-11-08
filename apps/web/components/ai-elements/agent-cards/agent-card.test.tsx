@@ -8,6 +8,7 @@ import { I18nProvider } from "@/lib/i18n/provider";
 import { loadMessages } from "@/lib/i18n/messages";
 import { agentCardMessage } from "@/lib/agent-cards";
 import { AgentCard } from "./agent-card";
+import { purchaseRequestFromEvent } from "@/components/ai-elements/purchase/purchase-facts";
 
 Object.assign(globalThis, { React });
 
@@ -134,4 +135,50 @@ test("cards no idioma da tela", async () => {
 	);
 	assert.match(html, /This one&#x27;s on you/);
 	assert.doesNotMatch(html, /Isso é com você/);
+});
+
+const checkout: AgentV4Event = {
+	type: "approval_request",
+	requestId: "req-pay-1",
+	callId: "call-pay-1",
+	toolName: "checkout",
+	effect: "money",
+	args: { url: "https://loja.test/pagar" },
+	riskFacts: { amount: 109.8, currency: "BRL", merchant: "loja.test", shipping: 10, card: "Visa final 1111", items: ["2× Camiseta azul"], irreversible: true },
+	ownerInput: "card_cvv",
+	runId: "run-1",
+};
+
+test("aprovação de compra: card de compra com o campo do CVV; o card genérico não tem campo", () => {
+	assert.ok(purchaseRequestFromEvent(checkout as Extract<AgentV4Event, { type: "approval_request" }>));
+	const html = render(checkout);
+	assert.match(html, /data-purchase-card="loja.test"/);
+	assert.match(html, /Camiseta azul/);
+	assert.match(html, /Visa final 1111/);
+	assert.match(html, /type="password"|inputMode="numeric"|inputmode="numeric"/);
+	assert.doesNotMatch(html, /agent-card-code-slot/);
+	// O genérico (mesmo pedido sem o campo declarado) não ganha um campo de digitação.
+	const generic = render({ ...checkout, ownerInput: undefined } as AgentV4Event);
+	assert.doesNotMatch(generic, /data-purchase-card/);
+	assert.doesNotMatch(generic, /<input/);
+});
+
+test("aprovação de compra não vaza id do pedido, nome da tool nem fatos crus", () => {
+	const html = render(checkout);
+	assert.doesNotMatch(html, /req-pay-1|call-pay-1|checkout|riskFacts|approval_request|card_cvv|ownerInput|irreversible/);
+});
+
+test("compra com mandato (inputOnly): só o campo do código, sem 'confirmar'", () => {
+	const html = render({ ...checkout, inputOnly: true } as AgentV4Event);
+	assert.match(html, /Enviar código e pagar/);
+	assert.doesNotMatch(html, /Pagar R\$/);
+	assert.equal(render(checkout).includes("Enviar código e pagar"), false);
+});
+
+test("compra decidida ou resolvida em outro lugar: sem campo de CVV", () => {
+	assert.doesNotMatch(render(checkout, { initialDecision: "approved" }), /<input/);
+	assert.doesNotMatch(render(checkout, { initialDecision: "dismissed" }), /<input/);
+	const settled = renderToStaticMarkup(<AgentCard message={{ ...agentCardMessage(checkout), settled: true }} />);
+	assert.doesNotMatch(settled, /<input/);
+	assert.match(settled, /Resolvido/);
 });

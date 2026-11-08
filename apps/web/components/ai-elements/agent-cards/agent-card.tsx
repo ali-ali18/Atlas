@@ -25,6 +25,8 @@ import {
 } from "@/lib/agent-cards";
 import { type QuestionnaireAnswersMap, QuestionnaireCard } from "@/components/ui/templates/template-4/chat-thread/questionnaire-card";
 import { type AgentCardDecision, setAgentCardDecision, useAgentCardDecision } from "@/lib/agent-card-state";
+import { PurchaseApprovalCard } from "@/components/ai-elements/purchase/purchase-approval-card";
+import { purchaseRequestFromEvent } from "@/components/ai-elements/purchase/purchase-facts";
 import { AGENT_CARD_ANSWER_MAX, type AgentCardResponse, respondToAgentCard } from "@/lib/atlas-api";
 
 /** Envio da resposta: injetável para teste e prévia; o padrão é a função de `lib/atlas-api.ts`. */
@@ -46,7 +48,7 @@ export function AgentCard({ message, respond = respondToAgentCard, initialDecisi
 		case "receipt":
 			return <ReceiptLine card={card} />;
 		case "approval_request":
-			return <ApprovalCard card={card} initialDecision={initialDecision} respond={respond} settled={message.settled} />;
+			return <ApprovalOrPurchase card={card} initialDecision={initialDecision} respond={respond} settled={message.settled} />;
 		case "handoff_request":
 			return <HandoffCard card={card} initialDecision={initialDecision} respond={respond} settled={message.settled} />;
 		case "ask_owner":
@@ -90,6 +92,23 @@ function resolvedBadge(decision: AgentCardDecision | null, labels: { ok: string;
 	if (decision === "dismissed") return { tone: "muted" as const, label: labels.dismissed };
 	if (decision) return { tone: "success" as const, label: labels.ok };
 	return { tone: "muted" as const, label: labels.settled };
+}
+
+/**
+ * Pedido de aprovação. A compra (`checkout`, com o campo de CVV) tem cartão próprio, que fala direto com a API
+ * (o CVV vai só no corpo da chamada, nunca por aqui); qualquer outro pedido usa o cartão genérico.
+ */
+function ApprovalOrPurchase(props: InteractiveProps<"approval_request">) {
+	const purchase = purchaseRequestFromEvent(props.card);
+	return purchase ? <PurchaseCard {...props} request={purchase} /> : <ApprovalCard {...props} />;
+}
+
+function PurchaseCard({ card, settled, initialDecision, request }: InteractiveProps<"approval_request"> & { request: NonNullable<ReturnType<typeof purchaseRequestFromEvent>> }) {
+	const key = agentCardKey(card);
+	const stored = useAgentCardDecision(key);
+	const decision = stored ?? initialDecision ?? null;
+	const status = decision === "dismissed" ? "dismissed" : decision ? "approved" : settled ? "settled" : "pending";
+	return <PurchaseApprovalCard initialStatus={status} key={status} onDecided={(next) => setAgentCardDecision(key, next)} request={request} />;
 }
 
 function ApprovalCard({ card, respond, settled, initialDecision }: InteractiveProps<"approval_request">) {
