@@ -44,7 +44,7 @@
 | F4 agenda | `feat/harness-v4-f4-agenda` | **backend juntado em `harness/v4`** (#155); tela da Agenda juntada | #155, #157 |
 | F5 memória | `feat/harness-v4-f5-memoria` | **backend juntado em `harness/v4`** (#154); telas do Caderno, regras e sono juntadas | #154, #157 |
 | F6 compras | `feat/harness-v4-f6-compras` | concluída (08/11): produto, compra registrada, cartão sem CVV, checkout com CVV, mandato; auditoria + reauditoria em `auditorias/F6.md` | #158 |
-| F7 e-mail e dia | `feat/harness-v4-f7-email-dia` | em auditoria (08/11): frentes E, K e W integradas, 15 correções da auditoria feitas; **falta a reauditoria**, o PR e o merge (`auditorias/F7.md`) | #159 (issue-mãe) |
+| F7 e-mail e dia | `feat/harness-v4-f7-email-dia` | **concluída** (08/11): frentes E, K e W integradas; auditoria, correções e reauditoria em `auditorias/F7.md`; falta o PR e o merge em `harness/v4` | #159 (issue-mãe) |
 
 ## Decisões do dono (não reabrir)
 - Base nova, do zero, em `packages/agent`, sem import do legado (05/11).
@@ -137,7 +137,7 @@
   - [x] F7.1 e-mail (08/11, frente E: `email_list`, `email_read`, `email_triage`, `email_draft` e `email_send` nativos para o Gmail do dono e a caixa do bot; escopo `gmail.send`; cards de triagem e rascunho; intenção "quando chegar o e-mail" pelo webhook da caixa do bot; 2 cenários seed v4; `docs/features/email-v4.md`). Falta a ingestão do Gmail para o gatilho.
   - [x] F7.1 calendário (08/11, frente K): capacidade lazy `calendar` (5 tools, Google Agenda do dono pelo cofre do conector), conflito por horário, convite como `send`, só leitura no run de agenda, cartão `calendar` em 3 idiomas.
 - [x] F7.2 `brief` na agenda (plano do dia) (08/11, frente K: `brief_set` um por bot no horário exato, run com `brief_sources` e `day_plan`, cartão `day-plan`, fontes por portas com e-mail opcional, modelo de ajudante do bot). A porta de e-mail do brief (`ports/brief.ts`, `listRecent`) está ligada à porta real de e-mail no worker (`v4-adapters/brief-email.ts`, passada em `processors/agent-run.ts` só no run de brief; nunca lê o corpo; login expirado = `needs_connection`).
-- [~] F7.A Auditoria (08/11): auditoria feita e as 15 correções com teste feitas (`auditorias/F7.md`, commits `b56a6524..0f1d835a`). **Falta a reauditoria** (um auditor novo, só leitura, sobre `5b9c3ca2..HEAD`), fechar o relatório, o PR para `harness/v4` e o merge.
+- [x] F7.A Auditoria (08/11): auditoria, 15 correções, reauditoria (N1 a N8) e `auditorias/F7.md` fechado. Falta só o PR para `harness/v4` e o merge.
 
 ### F8: Navegador e código
 - [ ] F8.1 `browser` sobre a porta `Sandbox`: árvore de acessibilidade com refs, página inteira em partes (nunca poda escondida) e visão só quando a árvore for pobre.
@@ -231,3 +231,7 @@
   - **Próximo passo:** rodar um auditor novo (Sonnet, só leitura) sobre `git diff 5b9c3ca2..HEAD`, corrigir o que achar, fechar `auditorias/F7.md`, abrir o PR contra `harness/v4` (issue #159) e, com a verificação verde, juntar.
   - **Como verificar:** receita da issue #159 (`pnpm exec turbo typecheck`; suítes shared, agent, web, mobile; api e worker com `tsx --test`; db com Postgres real).
   - **Dúvidas para o dono:** nenhuma.
+
+- **08/11/2026 · sessão F7 · reauditoria fechada**
+  - **Feito:** N1 a N6 corrigidos, um commit cada (`dca3a881` a `e0f9bff3`); N7 e N8 aceitos. `auditorias/F7.md` fechado.
+  - **Próximo passo:** abrir o PR `feat/harness-v4-f7-email-dia` contra `harness/v4` e juntar com a verificação verde.
