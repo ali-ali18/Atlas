@@ -10,7 +10,8 @@
  * Nenhuma decisão aqui lê texto livre do dono ou do modelo para decidir comportamento: o filtro de evento compara
  * CAMPOS declarados (remetente, assunto contém, anexo) e os freios usam contadores e datas.
  */
-import { findDuplicateFollowup, resolveFollowupWhen, type ProactiveSettings } from "./proactive.js";
+import { findDuplicateFollowup, localParts, resolveFollowupWhen, type ProactiveSettings } from "./proactive.js";
+import { zonedWallTimeToUtc } from "./routine-once.js";
 
 export const AGENDA_KINDS = ["remind", "watch", "intent", "brief"] as const;
 export type AgendaKind = (typeof AGENDA_KINDS)[number];
@@ -37,6 +38,13 @@ export const AGENDA_INTENT_DEFAULT_DAYS = 30;
 export const AGENDA_MAX_HORIZON_DAYS = 180;
 /** A agenda para sozinha depois de tantos avisos seguidos ignorados (freio da Meta; contagem por item). */
 export const AGENDA_IGNORED_NOTICE_LIMIT = 2;
+/**
+ * O `brief` (plano do dia) é pedido pelo dono para todo dia: ficar 2 dias sem abrir o app (fim de semana) não o encerra.
+ * Passados tantos planos seguidos sem leitura, ele para (o custo de LLM não corre solto).
+ */
+export const AGENDA_BRIEF_IGNORED_NOTICE_LIMIT = 7;
+/** O plano do dia roda uma vez por dia, no mesmo horário do relógio do dono. */
+export const AGENDA_BRIEF_INTERVAL_MINUTES = 24 * 60;
 /** Execuções seguidas sem `agenda_result` que encerram o item. */
 export const AGENDA_MISSING_RESULT_LIMIT = 3;
 /** Lembrete que acordou sem resultado e sem texto: tenta de novo neste prazo. */
@@ -175,6 +183,44 @@ function validateInterval(request: AgendaRequest): { ok: true; minutes: number |
 }
 
 /**
+ * Próxima vez, DEPOIS de `after`, em que o relógio do dono marca a mesma hora do `anchor` (o horário que ele pediu).
+ * Âncora no relógio local (não "+24h"), então o plano de 7h30 continua às 7h30 quando o horário de verão muda.
+ */
+export function nextBriefOccurrence(anchor: Date, after: Date, timeZone: string): Date {
+	const wanted = localParts(anchor, timeZone);
+	const today = localParts(after, timeZone);
+	for (let offset = 0; offset <= 2; offset += 1) {
+		const day = new Date(Date.UTC(today.year, today.month - 1, today.day + offset));
+		const at = zonedWallTimeToUtc({ year: day.getUTCFullYear(), month: day.getUTCMonth() + 1, day: day.getUTCDate(), hour: wanted.hour, minute: wanted.minute, second: 0 }, timeZone);
+		if (at.getTime() > after.getTime()) return at;
+	}
+	return new Date(after.getTime() + AGENDA_BRIEF_INTERVAL_MINUTES * MINUTE_MS);
+}
+
+/** Plano do dia: todo dia no horário pedido (`when` obrigatório), um por bot (o db atualiza em vez de duplicar). */
+function planBriefItem(input: { request: AgendaRequest; note: string; now: Date; settings: ProactiveSettings }): PlanAgendaResult {
+	const { request, note, now, settings } = input;
+	if (request.eventFilter !== undefined) return { ok: false, error: "eventFilter belongs to kind intent only." };
+	if (request.everyMinutes !== undefined && request.everyMinutes !== AGENDA_BRIEF_INTERVAL_MINUTES) return { ok: false, error: `brief runs once a day: leave everyMinutes out (or ${AGENDA_BRIEF_INTERVAL_MINUTES}).` };
+	if (request.when === undefined) return { ok: false, error: 'brief needs when: the first time, exactly as the owner asked (ISO 8601 like 2026-11-09T07:30, or text like "tomorrow 07:30").' };
+	const first = resolveFollowupWhen(request.when, now, settings.timezone);
+	if (!first.ok) return { ok: false, error: `when: ${first.error}` };
+	if (request.maxRuns !== undefined && (!Number.isInteger(request.maxRuns) || request.maxRuns < 1 || request.maxRuns > AGENDA_MAX_RUNS_CAP)) return { ok: false, error: `maxRuns must be a whole number from 1 to ${AGENDA_MAX_RUNS_CAP}.` };
+	let untilAt: Date | null = null;
+	if (request.until !== undefined) {
+		const until = resolveFollowupWhen(request.until, now, settings.timezone);
+		if (!until.ok) return { ok: false, error: `until: ${until.error}` };
+		if (until.dueAt.getTime() > now.getTime() + AGENDA_MAX_HORIZON_DAYS * DAY_MS) return { ok: false, error: `until is at most ${AGENDA_MAX_HORIZON_DAYS} days ahead.` };
+		if (until.dueAt.getTime() <= first.dueAt.getTime()) return { ok: false, error: "until must be after the first run." };
+		untilAt = until.dueAt;
+	}
+	return {
+		ok: true,
+		plan: { kind: "brief", note, dueAt: first.dueAt, requestedFor: first.dueAt, intervalMinutes: AGENDA_BRIEF_INTERVAL_MINUTES, untilAt, maxRuns: request.maxRuns ?? null, eventFilter: null, adjustments: [] },
+	};
+}
+
+/**
  * Valida e normaliza o pedido de criação de um item da agenda. Recusa com a lista do que é aceito (tool honesta);
  * nunca descarta campo em silêncio. O horário pedido é respeitado; `watch` sem fim ganha 14 dias.
  */
@@ -182,10 +228,11 @@ export function planAgendaItem(input: { request: AgendaRequest; now: Date; setti
 	const { request, now, settings } = input;
 	const adjustments: string[] = [];
 	if (!(AGENDA_KINDS as readonly string[]).includes(request.kind)) return { ok: false, error: `kind must be one of: ${AGENDA_KINDS.join(", ")}.` };
-	if (request.kind === "brief") return { ok: false, error: "brief items are not created from a request yet. Use remind for a one-off or recurring reminder." };
 	const note = request.note.trim();
 	if (!note) return { ok: false, error: "note is empty. Write what to do when it wakes, in one or two sentences." };
 	if (note.length > AGENDA_NOTE_MAX_CHARS) return { ok: false, error: `note is ${note.length} characters; the limit is ${AGENDA_NOTE_MAX_CHARS}. Shorten it.` };
+
+	if (request.kind === "brief") return planBriefItem({ request, note, now, settings });
 
 	const interval = validateInterval(request);
 	if (!interval.ok) return interval;
@@ -362,7 +409,7 @@ export function planAgendaWake(input: { item: AgendaWakeItem; now: Date; setting
 	if (item.untilAt && item.untilAt.getTime() <= now.getTime()) return { action: "stop", reason: "expired", ignoredStreak };
 	const retryingReminder = item.kind === "remind" && (item.missingResults ?? 0) > 0;
 	if (item.maxRuns !== null && item.runCount >= item.maxRuns && !retryingReminder) return { action: "stop", reason: "max_runs", ignoredStreak };
-	if (ignoredStreak >= AGENDA_IGNORED_NOTICE_LIMIT) return { action: "stop", reason: "ignored_notices", ignoredStreak };
+	if (ignoredStreak >= (item.kind === "brief" ? AGENDA_BRIEF_IGNORED_NOTICE_LIMIT : AGENDA_IGNORED_NOTICE_LIMIT)) return { action: "stop", reason: "ignored_notices", ignoredStreak };
 	return { action: "run", ignoredStreak };
 }
 
@@ -396,7 +443,7 @@ export function nextAgendaEventWindow(window: AgendaEventWindow, now: Date): { w
 // Fechar: o que o resultado do run faz com o item
 // ---------------------------------------------------------------------------
 
-export type AgendaSettleItem = { kind: AgendaKind; intervalMinutes: number | null; untilAt: Date | null; maxRuns: number | null; runCount: number; noChangeStreak: number };
+export type AgendaSettleItem = { kind: AgendaKind; intervalMinutes: number | null; untilAt: Date | null; maxRuns: number | null; runCount: number; noChangeStreak: number; /** O horário pedido na criação: o `brief` repete a mesma hora do relógio do dono. */ requestedFor?: Date | null };
 
 export type AgendaSettlement = {
 	status: "pending" | "done";
@@ -428,6 +475,12 @@ export function settleAgendaRun(input: { item: AgendaSettleItem; outcome: Agenda
 	}
 	if (item.intervalMinutes === null) return end("completed");
 	if (item.maxRuns !== null && item.runCount >= item.maxRuns) return end("max_runs");
+	// Plano do dia: a mesma hora do relógio do dono todo dia (não "24h depois de terminar o run", que escorregaria).
+	if (item.kind === "brief" && item.requestedFor) {
+		const dueAt = nextBriefOccurrence(item.requestedFor, input.now, input.settings.timezone);
+		if (item.untilAt && dueAt.getTime() >= item.untilAt.getTime()) return end("expired");
+		return { status: "pending", dueAt, noChangeStreak, endReason: null, post };
+	}
 	const next = nextWatchDelay({ now: input.now, intervalMinutes: item.intervalMinutes, noChangeStreak, settings: input.settings, untilAt: item.untilAt });
 	if (!next.ok) return end("expired");
 	return { status: "pending", dueAt: next.dueAt, noChangeStreak, endReason: null, post };
