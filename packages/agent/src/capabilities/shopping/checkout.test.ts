@@ -4,9 +4,9 @@ import { grantApproval, type ApprovalRequest } from "../../contract/index.js";
 import { chatPolicy, setup } from "../../testing/contract-helpers.js";
 import { call, kernelHarness, reply } from "../../testing/kernel-fakes.js";
 import { TEST_CARD_NUMBER, TEST_CVV, TEST_HOLDER, paymentRig } from "../../testing/payment-fakes.js";
-import { createCheckoutTool } from "./checkout.js";
+import { createCheckoutTool, type CheckoutArgs } from "./checkout.js";
 
-const ARGS = {
+const ARGS: CheckoutArgs = {
 	store: "Loja Teste",
 	items: [{ name: "Camiseta azul", quantity: 2, price: 49.9 }],
 	total: 109.8,
@@ -55,6 +55,38 @@ describe("checkout: cartão de aprovação", () => {
 		const { tool } = rig();
 		expect(tool.riskFactsFor({ ...ARGS, store: "mercado" })?.merchant).toBe("loja.test");
 		expect(tool.riskFactsFor({ ...ARGS, checkoutUrl: "http://loja.test/x" })?.merchant).toBeUndefined();
+	});
+});
+
+describe("checkout: total coerente com o carrinho", () => {
+	const okDeposit = async (r: ReturnType<typeof rig>, args: CheckoutArgs) => {
+		const s = setup();
+		const pending = await s.executor.executeCall({ callId: "c1", step: 1, tool: r.tool, args });
+		if (pending.status !== "pending_approval") throw new Error(pending.status);
+		await r.escrow.deposit(scopeOf(pending.request), TEST_CVV, 60_000);
+		return s.executor.executeCall({ callId: "c1", step: 1, tool: r.tool, args, grant: grantApproval(pending.request, s.clock.now()) });
+	};
+
+	it("total menor que itens × quantidade + frete: erro honesto e nada é pago (nem gasta o CVV)", async () => {
+		const r = rig();
+		const out = await okDeposit(r, { ...ARGS, total: 50 });
+		expect(out.status).toBe("error");
+		if (out.status === "error") expect(out.hint).toMatch(/payment page/);
+		expect(r.sandbox.actions).toHaveLength(0);
+		expect(r.backend.entries.size).toBe(1);
+	});
+
+	it("o limite é exato (centavos): total = itens + frete passa; um centavo a menos não", async () => {
+		const ok = rig();
+		expect((await okDeposit(ok, { ...ARGS, total: 109.8 })).status).toBe("ok");
+		const low = rig();
+		expect((await okDeposit(low, { ...ARGS, total: 109.79 })).status).toBe("error");
+		expect(low.sandbox.actions).toHaveLength(0);
+	});
+
+	it("total acima (imposto, taxa) passa, e item sem preço não entra na conta", async () => {
+		const r = rig();
+		expect((await okDeposit(r, { ...ARGS, items: [{ name: "Brinde", quantity: 1 }, ...ARGS.items], total: 120 })).status).toBe("ok");
 	});
 });
 

@@ -50,6 +50,12 @@ export type CardFillResult =
 	| { status: "unavailable"; reason: string }
 	| { status: "failed"; reason: string };
 
+/**
+ * CONTRATO DO ADAPTADOR REAL (F8, obrigatório): antes de pagar, ler na PÁGINA FINAL da loja o host que cobra e o total
+ * cobrado. Se o host não for `merchant` (domínio da URL de pagamento aprovada) ou o total divergir de `amount`, devolver
+ * `declined`/`failed` SEM pagar: o dono aprovou aquele valor naquela loja, e `amount`/`merchant` vêm do modelo.
+ * O adaptador NUNCA grava `params` da ação `card_fill` (número, CVV, titular) em log, trace, journal, erro nem resultado.
+ */
 export interface CardFill {
 	fill(input: CardFillInput, signal?: AbortSignal): Promise<CardFillResult>;
 }

@@ -35,6 +35,17 @@ export function merchantOf(checkoutUrl: string): string | null {
 	}
 }
 
+const cents = (value: number): number => Math.round(value * 100);
+
+/**
+ * Menor total possível do carrinho: itens com preço × quantidade (item sem preço não entra) + frete. O `total` é o que
+ * o dono aprova e o que o mandato compara; um total abaixo disso é conta errada ou tentativa de passar por um teto.
+ */
+export function minimumTotal(args: Pick<CheckoutArgs, "items" | "shipping">): number {
+	const itemCents = args.items.reduce((sum, item) => sum + (item.price !== undefined ? cents(item.price) * item.quantity : 0), 0);
+	return (itemCents + cents(args.shipping)) / 100;
+}
+
 export type CheckoutDeps = {
 	/** Cartões do dono (só id, bandeira e final) lidos ao montar o run. Sem cartão, a tool não é oferecida. */
 	cards: readonly CardInfo[];
@@ -73,6 +84,10 @@ export function createCheckoutTool(deps: CheckoutDeps) {
 		async execute(args, ctx) {
 			const merchant = merchantOf(args.checkoutUrl);
 			if (!merchant) return { ok: false, error: "checkoutUrl must be an https address without credentials.", hint: "Send the store's payment page URL (https)." };
+			const floor = minimumTotal(args);
+			if (cents(args.total) < cents(floor)) {
+				return { ok: false, error: `The total (${money(args.total, args.currency)}) is lower than the items plus shipping (${money(floor, args.currency)}), so nothing was paid.`, hint: "Read the final amount from the store's payment page and send it as total, shipping included." };
+			}
 			const card = cardById.get(args.cardId);
 			if (!card) return { ok: false, error: "That saved card is not available.", hint: `Use one of: ${cardList || "none (the owner has no saved card)"}.` };
 			if (!ctx.approvalId) return { ok: false, error: "The purchase was not confirmed by the owner, so nothing was paid.", hint: "Ask the owner to confirm the purchase again." };
