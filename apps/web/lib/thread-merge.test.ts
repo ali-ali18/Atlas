@@ -250,3 +250,15 @@ test("card v4 resolvido ao vivo continua resolvido quando o gravado o substitui 
 	const card = reconcilePersistedThread(persisted, live).find((message) => message.kind === "agent-card");
 	assert.ok(card?.kind === "agent-card" && card.id === "db-card" && card.settled === true);
 });
+
+test("e-mail (F7.1): triagem e rascunho ao vivo e gravados com o mesmo cardId não duplicam; cardId diferente fica separado", () => {
+	const triage = (id: string, cardId = "run-1:email-triage:a"): Message => ({ id, kind: "email-triage", cardId, items: [{ id: "m1", category: "needs_action", summary: "Aprovar" }] });
+	const draft = (id: string, cardId = "run-1:email-draft:b"): Message => ({ id, kind: "email-draft", cardId, source: "gmail", to: ["ana@empresa.test"], subject: "Re", body: "Ok.", saved: true });
+	const live: Message[] = [user("db-u1", "o que tem no e-mail"), triage("email-triage-live"), draft("email-draft-live")];
+	const persisted: Message[] = [user("db-u1", "o que tem no e-mail"), triage("db-t"), draft("db-d")];
+	assert.deepEqual(reconcilePersistedThread(persisted, live).map((message) => message.id), ["db-u1", "db-t", "db-d"]);
+	assert.deepEqual(kinds(reconcilePersistedThread(persisted, [user("db-u1", "o que tem no e-mail")])), ["user", "email-triage", "email-draft"]);
+	assert.equal(dedupeCards([triage("a"), triage("b")]).length, 1);
+	assert.equal(dedupeCards([draft("a"), draft("b")]).length, 1);
+	assert.equal(dedupeCards([draft("a"), draft("b", "run-1:email-draft:outro")]).length, 2);
+});

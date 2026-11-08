@@ -4,6 +4,7 @@ import { createCapabilityRegistry } from "../capabilities/registry.js";
 import { FakeMcp } from "../connectors/fake-mcp.js";
 import { createConnectorsCapability } from "../connectors/capability.js";
 import { OWNER_DATA_KINDS, PRIVATE_TRUST_SOURCES, TRUST_SOURCES, TRUST_SOURCE_PRIVACY } from "../contract/provenance.js";
+import { FakeEmail } from "../presets/fake-email.js";
 import { FakeDeliverables, FakeFileStore, FakeHelpers, FakeMemory, FakeNotebook, FakeSearch, FakeSettings, FakeShopping, FakeTaskListStore } from "../presets/fakes.js";
 import { PRESET_IDS, setupPreset } from "../presets/presets.js";
 import { defineTool, type Tool } from "../tools/define-tool.js";
@@ -29,7 +30,7 @@ async function productionTools(): Promise<Tool[]> {
 	const tools: Tool[] = [];
 	for (const id of PRESET_IDS) {
 		// Com todas as portas (e sem a de entregas ricas, para conferir a lite também): toda capacidade do preset entra na varredura.
-		const all = { search: new FakeSearch(), files: new FakeFileStore(), memory: new FakeMemory(), notebook: new FakeNotebook(), settings: new FakeSettings(), taskLists: new FakeTaskListStore(), helpers: new FakeHelpers(), shopping: new FakeShopping().ports };
+		const all = { search: new FakeSearch(), files: new FakeFileStore(), memory: new FakeMemory(), notebook: new FakeNotebook(), settings: new FakeSettings(), taskLists: new FakeTaskListStore(), helpers: new FakeHelpers(), shopping: new FakeShopping().ports, email: new FakeEmail().ports };
 		for (const deps of [all, { ...all, deliverables: new FakeDeliverables().ports() }]) {
 			const { registry } = setupPreset(id, deps);
 			for (const capability of registry.capabilities) tools.push(...capability.tools);
@@ -52,7 +53,7 @@ const fake = (name: string, extra: Partial<Parameters<typeof defineTool>[0]>) =>
 describe("guarda N2: dado do dono declara privateData", () => {
 	it("toda tool read de produção com origem privada ou ownerData declara privateData: true", async () => {
 		const tools = await productionTools();
-		expect(tools.map((t) => t.name)).toEqual(expect.arrayContaining(["memory_list", "note_search", "note_get", "inspect_file", "web_extract", "research", "mcp_gmail_read", "purchase_list"]));
+		expect(tools.map((t) => t.name)).toEqual(expect.arrayContaining(["memory_list", "note_search", "note_get", "inspect_file", "web_extract", "research", "mcp_gmail_read", "purchase_list", "email_list", "email_read"]));
 		expect(privateDataViolations(tools)).toEqual([]);
 	});
 

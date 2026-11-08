@@ -1298,6 +1298,8 @@ export type ComputerUseHandlers = {
 	onChart?: (event: Extract<ComputerUseEvent, { type: "chart" }>) => void;
 	onProduct?: (event: Extract<ComputerUseEvent, { type: "product" }>) => void;
 	onPurchase?: (event: Extract<ComputerUseEvent, { type: "purchase" }>) => void;
+	onEmailTriage?: (event: Extract<ComputerUseEvent, { type: "email_triage" }>) => void;
+	onEmailDraft?: (event: Extract<ComputerUseEvent, { type: "email_draft" }>) => void;
 	onPage?: (event: Extract<ComputerUseEvent, { type: "page" }>) => void;
 	onTaskList?: (event: Extract<ComputerUseEvent, { type: "task_list" }>) => void;
 	/** Cards do motor v4 (aprovação, "isso é com você", pergunta do bot, recibo), já validados por `parseAgentV4Event`. */
@@ -1430,6 +1432,12 @@ export function dispatchComputerUseEvent(
 			break;
 		case "purchase":
 			handlers.onPurchase?.(event);
+			break;
+		case "email_triage":
+			handlers.onEmailTriage?.(event);
+			break;
+		case "email_draft":
+			handlers.onEmailDraft?.(event);
 			break;
 		case "page":
 			handlers.onPage?.(event);

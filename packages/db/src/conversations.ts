@@ -409,6 +409,20 @@ export async function persistConversationCardFromEvent(
 		if (!exists) await appendConversationCard(conversationId, card);
 		return;
 	}
+	// E-mail (F7.1): triagem e rascunho têm `cardId` estável; repetir o mesmo não duplica (retomada do run, evento ao vivo + gravado).
+	if (event.type === "email_triage" || event.type === "email_draft") {
+		const kind = event.type === "email_triage" ? "email-triage" : "email-draft";
+		const card = parseConversationCard(JSON.stringify({ v: 1, kind, ...stripEventType(event) }));
+		if (card?.kind !== kind) return;
+		const cardId = (card as { cardId: string }).cardId;
+		const recent = await prisma.conversationMessage.findMany({ where: { conversationId, role: kind }, orderBy: { createdAt: "desc" }, take: 50, select: { content: true } });
+		const exists = recent.some((row) => {
+			const prior = parseConversationCard(row.content);
+			return prior?.kind === kind && (prior as { cardId: string }).cardId === cardId;
+		});
+		if (!exists) await appendConversationCard(conversationId, card);
+		return;
+	}
 	// Página viva: criar acrescenta; atualizar substitui o cartão do mesmo pageId na conversa (posição preservada).
 	if (event.type === "page") {
 		const card = parseConversationCard(JSON.stringify({ v: 1, kind: "page", ...stripEventType(event) }));

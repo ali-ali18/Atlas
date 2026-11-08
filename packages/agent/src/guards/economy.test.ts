@@ -4,6 +4,8 @@ import { createConnectorsCapability } from "../connectors/capability.js";
 import { FakeMcp } from "../connectors/fake-mcp.js";
 import { createDeliverablesCapability } from "../capabilities-builtin/deliverables/index.js";
 import { createShoppingCapability } from "../capabilities/shopping/index.js";
+import { createEmailCapability } from "../capabilities/email/index.js";
+import { FakeEmail } from "../presets/fake-email.js";
 import { createAgendaCapability } from "../capabilities/agenda/index.js";
 import { createResearchCapability } from "../capabilities-builtin/research/index.js";
 import { createMemoryCapability } from "../capabilities/memory/index.js";
@@ -118,6 +120,27 @@ describe("economia: Bom dia", () => {
 		expect((first?.tools ?? []).map((t) => t.name)).not.toContain("research");
 		expect((second?.tools ?? []).map((t) => t.name)).toContain("research");
 		expect(JSON.stringify(second?.messages)).toContain("One source per claim");
+	});
+
+	it("a capacidade email é lazy: 'Bom dia' não ganha as tools nem as regras, só uma linha do índice", async () => {
+		const base = await measureGoodMorning();
+		const withEmail = await measureGoodMorning([createEmailCapability(new FakeEmail().ports)]);
+		expect(withEmail.toolNames).toEqual(base.toolNames);
+		for (const name of ["email_list", "email_read", "email_triage", "email_draft", "email_send"]) expect(withEmail.toolNames).not.toContain(name);
+		expect(withEmail.tokens - base.tokens).toBeLessThan(60);
+		expect(JSON.stringify(withEmail.result)).not.toContain("E-mail rules");
+		expect(withEmail.tokens).toBeLessThanOrEqual(GOOD_MORNING_INPUT_TOKENS_CEILING + 60);
+	});
+
+	it("'o que tem de importante no meu e-mail' carrega a capacidade no passo 1; as tools e as regras só no passo seguinte", async () => {
+		const core = defineCapability({ id: "core", title: "Core", summary: "core tools", core: true, tools: [] });
+		const h = kernelHarness([reply({ calls: [call("c1", "use_capability", { id: "email" })] }), reply({ text: "Pronto." })], { capabilities: [core, createEmailCapability(new FakeEmail().ports)] });
+		await h.run({ input: { contextSections: [], history: [{ kind: "owner", text: "O que tem de importante no meu e-mail?" }] } });
+		const [first, second] = h.llm.requests;
+		expect(JSON.stringify(first?.messages)).not.toContain("E-mail rules");
+		expect((first?.tools ?? []).map((t) => t.name)).not.toContain("email_list");
+		expect((second?.tools ?? []).map((t) => t.name)).toEqual(expect.arrayContaining(["email_list", "email_read", "email_triage", "email_draft", "email_send"]));
+		expect(JSON.stringify(second?.messages)).toContain("E-mail rules");
 	});
 
 	it("a capacidade agenda é lazy: 'Bom dia' não ganha remind_me, watch nem on_event, só uma linha do índice", async () => {

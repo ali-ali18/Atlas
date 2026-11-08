@@ -7,7 +7,9 @@ import { createResearchCapability } from "../capabilities-builtin/research/index
 import type { DeliverablePorts } from "../ports/deliverables.js";
 import { createAgendaCapability } from "../capabilities/agenda/index.js";
 import { createMemoryCapability } from "../capabilities/memory/index.js";
+import { createEmailCapability } from "../capabilities/email/index.js";
 import { createShoppingCapability } from "../capabilities/shopping/index.js";
+import type { EmailPorts } from "../ports/email.js";
 import type { ShoppingPorts } from "../ports/shopping.js";
 import { createSettingsCapability } from "../capabilities/settings/index.js";
 import type { CheckoutDeps } from "../capabilities/shopping/checkout.js";
@@ -27,7 +29,7 @@ import { createWebCapability } from "./web.js";
 export const PRESET_IDS = ["minimal", "full"] as const;
 export type PresetId = (typeof PRESET_IDS)[number];
 
-export type CapabilityId = "web" | "deliverables-lite" | "memory" | "tasks" | "settings" | "research" | "agenda" | "shopping";
+export type CapabilityId = "web" | "deliverables-lite" | "memory" | "tasks" | "settings" | "research" | "agenda" | "shopping" | "email";
 
 export type AgentPreset = {
 	id: PresetId;
@@ -39,7 +41,7 @@ export type AgentPreset = {
 
 export const PRESETS: Readonly<Record<PresetId, AgentPreset>> = Object.freeze({
 	minimal: Object.freeze({ id: "minimal", capabilities: Object.freeze(["web", "deliverables-lite"] as const), workContract: false }),
-	full: Object.freeze({ id: "full", capabilities: Object.freeze(["web", "deliverables-lite", "memory", "tasks", "settings", "research", "agenda", "shopping"] as const), workContract: true }),
+	full: Object.freeze({ id: "full", capabilities: Object.freeze(["web", "deliverables-lite", "memory", "tasks", "settings", "research", "agenda", "shopping", "email"] as const), workContract: true }),
 });
 
 /**
@@ -66,6 +68,8 @@ export type PresetDeps = {
 	checkout?: CheckoutDeps;
 	/** País do dono (ISO alfa-2) para o frete por destino da página de produto. */
 	shoppingCountry?: string;
+	/** E-mail (F7.1): Gmail do dono e caixa do bot. Lazy; sem as portas a capacidade não entra. */
+	email?: EmailPorts;
 };
 
 export function isPresetId(value: unknown): value is PresetId {
@@ -86,6 +90,8 @@ const FACTORIES: Readonly<Record<CapabilityId, CapabilityFactory>> = {
 	agenda: (deps) => deps.agenda && createAgendaCapability(deps.agenda),
 	// F6: lazy; a compra grava o vigia de entrega pela agenda do próprio preset.
 	shopping: (deps) => deps.shopping && createShoppingCapability({ ...deps.shopping, search: deps.search, ...(deps.agenda && { agenda: deps.agenda }), ...(deps.checkout && { checkout: deps.checkout }), ...(deps.shoppingCountry && { country: deps.shoppingCountry }) }),
+	// F7.1: lazy; ler, triar e rascunhar livres, enviar sempre com a aprovação do dono.
+	email: (deps) => deps.email && createEmailCapability(deps.email),
 };
 
 /** Capacidades do preset que não entram por falta da porta. */

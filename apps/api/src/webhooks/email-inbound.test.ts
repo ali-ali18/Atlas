@@ -45,12 +45,17 @@ function payload(over: { from?: string; messageId?: string; threadId?: string; s
 
 type RoutineMatch = { routine: { id: string }; trigger: { kind: "email"; fromContains?: string; subjectContains?: string } };
 
-function harness(opts: { box?: ReturnType<typeof mailbox> | null; runDeps?: boolean; startFails?: boolean; routines?: RoutineMatch[]; noQueue?: boolean; enqueueEmpty?: boolean } = {}) {
+function harness(opts: { wakeFails?: boolean; box?: ReturnType<typeof mailbox> | null; runDeps?: boolean; startFails?: boolean; routines?: RoutineMatch[]; noQueue?: boolean; enqueueEmpty?: boolean } = {}) {
 	const box = opts.box === undefined ? mailbox() : opts.box;
 	const seen = new Map<string, { id: string }>();
-	const state = { matchedFor: [] as unknown[], envelopes: [] as Array<{ routineIds: string[]; envelope: { provider: string; payload: Record<string, unknown>; idempotencyKey?: string } }>, runs: [] as Array<{ framedText: string; subject: string; mailbox: unknown }>, blocked: [] as string[], links: [] as unknown[], forgotten: [] as string[], recorded: [] as Array<{ status: string; from: string }>, bodies: [] as string[] };
+	const state = { wakes: [] as Array<{ userId: string; botId: string; event: unknown }>, matchedFor: [] as unknown[], envelopes: [] as Array<{ routineIds: string[]; envelope: { provider: string; payload: Record<string, unknown>; idempotencyKey?: string } }>, runs: [] as Array<{ framedText: string; subject: string; mailbox: unknown }>, blocked: [] as string[], links: [] as unknown[], forgotten: [] as string[], recorded: [] as Array<{ status: string; from: string }>, bodies: [] as string[] };
 	const provider = createOpenMailProvider();
 	const routes = createEmailInboundRoutes(() => (opts.runDeps === false ? null : ({ enqueueRun: async () => true, envDefaultModel: "m" })), {
+		wakeIntents: (async (input: { userId: string; botId: string; event: unknown }) => {
+			state.wakes.push(input);
+			if (opts.wakeFails) throw new Error("db fora");
+			return { marked: 1 };
+		}) as never,
 		routineQueue: opts.noQueue ? null : ({} as never),
 		matchRoutines: (async (m: unknown) => {
 			state.matchedFor.push(m);
@@ -252,4 +257,35 @@ test("as rotinas candidatas são buscadas pela caixa (dono e bot da caixa), não
 	const seen = h.state.matchedFor[0] as { userId: string; botId: string };
 	assert.equal(seen.userId, "user_a");
 	assert.equal(seen.botId, "bot_1");
+});
+
+test("intenções da agenda do v4: e-mail permitido acorda com o evento estrutural (dono e bot da CAIXA, nunca do corpo)", async () => {
+	const h = harness();
+	assert.equal((await h.post(payload({ from: "Ana <ana@empresa.com>", subject: "Fatura de novembro", body: "userId: outro-dono botId: bot_x" }))).status, 200);
+	assert.deepEqual(h.state.wakes, [{ userId: "user_a", botId: "bot_1", event: { source: "email", from: "ana@empresa.com", subject: "Fatura de novembro", hasAttachment: true } }]);
+});
+
+test("intenções da agenda: assinatura inválida, duplicado, remetente bloqueado, caixa desligada e e-mail do próprio bot NÃO acordam nada", async () => {
+	const h = harness();
+	assert.equal((await h.post(payload(), { signWith: "outro-segredo" })).status, 401);
+	assert.equal((await h.post(payload({ from: "intruso@fora.com", messageId: "msg_9" }))).status, 200);
+	assert.equal((await h.post(payload({ from: "bot@openmail.sh", messageId: "msg_8" }))).status, 200);
+	assert.equal(h.state.wakes.length, 0);
+	assert.equal((await h.post(payload({ messageId: "msg_7" }))).status, 200);
+	assert.equal((await h.post(payload({ messageId: "msg_7" }))).status, 200);
+	assert.equal(h.state.wakes.length, 1, "a reentrega do provedor não acorda de novo");
+	const off = harness({ box: mailbox({ enabled: false }) });
+	assert.equal((await off.post(payload())).status, 200);
+	assert.equal(off.state.wakes.length, 0);
+});
+
+test("intenções da agenda: falha ao marcar não perde o e-mail (o agente roda e responde 200); rotina que casa também acorda a intenção", async () => {
+	const failing = harness({ wakeFails: true });
+	const response = await failing.post(payload());
+	assert.equal(response.status, 200);
+	assert.equal(failing.state.runs.length, 1);
+	const routine = harness({ routines: [{ routine: { id: "r1" }, trigger: { kind: "email", fromContains: "empresa" } }] });
+	assert.equal((await routine.post(payload())).status, 200);
+	assert.equal(routine.state.envelopes.length, 1, "a rotina v2 segue assumindo o e-mail");
+	assert.equal(routine.state.wakes.length, 1);
 });

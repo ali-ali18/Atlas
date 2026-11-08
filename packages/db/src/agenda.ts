@@ -551,9 +551,10 @@ async function markNotice(item: AgendaItemRecord, now: Date): Promise<void> {
 }
 
 /** Itens `intent` do dono que o evento acorda (filtro estrutural) e já passaram do intervalo mínimo entre acordares. */
-export async function findAgendaItemsForEvent(userId: string, event: AgendaEvent, now: Date, minGapMinutes: number): Promise<{ matched: AgendaItemRecord[]; coalesced: AgendaItemRecord[] }> {
+export async function findAgendaItemsForEvent(userId: string, event: AgendaEvent, now: Date, minGapMinutes: number, options: { botId?: string } = {}): Promise<{ matched: AgendaItemRecord[]; coalesced: AgendaItemRecord[] }> {
 	if (!validOwner(userId)) return { matched: [], coalesced: [] };
-	const rows = await prisma.botFollowup.findMany({ where: { userId, agendaKind: "intent", status: "pending", OR: [{ untilAt: null }, { untilAt: { gt: now } }] } });
+	// `botId` (e-mail da caixa de UM bot): a intenção de outro bot do mesmo dono lê a caixa dele, não esta.
+	const rows = await prisma.botFollowup.findMany({ where: { userId, agendaKind: "intent", status: "pending", ...(options.botId && { botId: options.botId }), OR: [{ untilAt: null }, { untilAt: { gt: now } }] } });
 	const hits = records(rows).filter((item) => item.eventFilter !== null && matchEventFilter(item.eventFilter, event));
 	const matched: AgendaItemRecord[] = [];
 	const coalesced: AgendaItemRecord[] = [];
@@ -564,4 +565,27 @@ export async function findAgendaItemsForEvent(userId: string, event: AgendaEvent
 		(busy || verdict !== "wake" ? coalesced : matched).push(item);
 	}
 	return { matched, coalesced };
+}
+
+/** Marca de "tem evento esperando" num item de intenção (`endReason`). A varredura do worker acorda o item quando livre. */
+export const AGENDA_EVENT_PENDING = "event_pending";
+
+/** Marca o item de intenção do dono como "tem evento esperando". `false` = não era item `intent` pendente dele. */
+export async function markAgendaEventPending(userId: string, id: string): Promise<boolean> {
+	if (!validOwner(userId)) return false;
+	const result = await prisma.botFollowup.updateMany({ where: { id, userId, agendaKind: "intent", status: "pending" }, data: { endReason: AGENDA_EVENT_PENDING } });
+	return result.count === 1;
+}
+
+/**
+ * Um e-mail chegou na caixa do bot (F7.1): marca as intenções PENDENTES do dono, daquele bot, cujo filtro estrutural casa. Não
+ * cria run: a varredura do worker (`claimPendingEventItems`) acorda cada item quando o anterior terminou, respeitando o
+ * espaçamento mínimo e o teto diário (`planAgendaEventWake`), então vale em várias instâncias e sem perder o evento. O run lê a
+ * caixa; a marca não guarda o conteúdo do e-mail.
+ */
+export async function queueAgendaEventWakes(input: { userId: string; botId: string; event: AgendaEvent; now: Date; minGapMinutes: number }): Promise<{ marked: number }> {
+	const { matched, coalesced } = await findAgendaItemsForEvent(input.userId, input.event, input.now, input.minGapMinutes, { botId: input.botId });
+	let marked = 0;
+	for (const item of [...matched, ...coalesced]) if (await markAgendaEventPending(item.userId, item.id)) marked += 1;
+	return { marked };
 }

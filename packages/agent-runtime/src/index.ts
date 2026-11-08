@@ -161,6 +161,8 @@ export {
 	type McpTransportKind,
 } from "./mcp/client-pool.js";
 export { createGoogleMcpServer, type GoogleProduct } from "./mcp/builtin/google.js";
+// REST do Google com o token do dono (usado pelo adaptador de e-mail do motor v4, no worker).
+export { GoogleApiError, googleFetch, googleJson, type GoogleApiContext, type GoogleFetchFn } from "./mcp/builtin/google-api.js";
 export {
 	MCP_CALL_TIMEOUT_MS,
 	MCP_RESULT_MAX_CHARS,

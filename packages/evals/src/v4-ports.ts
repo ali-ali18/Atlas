@@ -1,4 +1,4 @@
-import { FakeShopping, productPageHtml, type Search, type SearchExtract, type SearchHit } from "@workspace/agent";
+import { FakeEmail, FakeShopping, productPageHtml, type Search, type SearchExtract, type SearchHit } from "@workspace/agent";
 import { parseMoneyNumber } from "@workspace/shared";
 import { argsMatch } from "./predicates.js";
 import type { NativeFixture, Scenario } from "./scenario.js";
@@ -88,4 +88,20 @@ export function createFixtureShopping(fixtures: readonly NativeFixture[]): FakeS
 		);
 	}
 	return shopping;
+}
+
+/**
+ * E-mail no eval do v4 (F7.1): a caixa do dono é o fixture `email_inbox`, cujo `result.summary` é um JSON com a lista de
+ * mensagens (`id`, `from`, `subject`, `snippet`, `date`, `body`, `unread`, `attachments`). Sem esse fixture não há conta
+ * conectada, e as tools de e-mail falham com a dica (nada de caixa inventada). Rascunho e envio ficam registrados no fake.
+ */
+export function createFixtureEmail(fixtures: readonly NativeFixture[], ownerId: string): FakeEmail {
+	const email = new FakeEmail();
+	for (const fixture of fixtures) {
+		if (fixture.tool !== "email_inbox" || !fixture.result.ok) continue;
+		const list = JSON.parse(fixture.result.summary) as Array<{ id: string; from: string; subject: string; snippet?: string; date?: string; body?: string; unread?: boolean; attachments?: string[] }>;
+		email.connect(ownerId, "gmail");
+		for (const message of list) email.add({ userId: ownerId, ...message });
+	}
+	return email;
 }

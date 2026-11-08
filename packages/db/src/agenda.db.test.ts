@@ -14,6 +14,8 @@ import {
 	finalizeAgendaRun,
 	findAgendaItemsForEvent,
 	getAgendaItem,
+	queueAgendaEventWakes,
+	AGENDA_EVENT_PENDING,
 	getAgendaItemByRunId,
 	isAgendaRunInFlight,
 	listAgendaItems,
@@ -173,6 +175,27 @@ describe("agenda (Postgres real)", { skip: dbSkip }, () => {
 		await beginAgendaRun(item, "run-cap-next", nextDay);
 		assert.equal((await getAgendaItem(a, id))?.eventWindowCount, 1);
 		await changeAgendaItem(a, id, "cancel");
+	});
+
+	test("e-mail na caixa de UM bot (F7.1): marca só as intenções desse bot e desse dono que o filtro casa; o worker acorda depois", async () => {
+		const botA2 = (await prisma.bot.create({ data: { ownerId: a, name: "A2", conversationId: (await prisma.conversation.create({ data: { userId: a } })).id }, select: { id: true } })).id;
+		const mine = await createAgendaItem({ userId: a, botId: botA, plan: plan({ kind: "intent", note: "Resumir a fatura do cartão Roxo", eventFilter: { source: "email", from: "cartao.test", subjectContains: "fatura" } }), grant: GRANT });
+		const otherBot = await createAgendaItem({ userId: a, botId: botA2, plan: plan({ kind: "intent", note: "Avisar boleto vencido da escola", eventFilter: { source: "email", from: "cartao.test", subjectContains: "fatura" } }), grant: GRANT });
+		const noMatch = await createAgendaItem({ userId: a, botId: botA, plan: plan({ kind: "intent", note: "Guardar contrato assinado do aluguel", eventFilter: { source: "email", from: "imobiliaria.test" } }), grant: GRANT });
+		assert.ok(mine.ok && otherBot.ok && noMatch.ok);
+		const event = { source: "email" as const, from: "Cartão <aviso@cartao.test>", subject: "Sua fatura chegou", hasAttachment: false };
+		const found = await findAgendaItemsForEvent(a, event, T0, 10, { botId: botA });
+		assert.deepEqual(found.matched.map((i) => i.id), [mine.item.id]);
+		assert.equal((await findAgendaItemsForEvent(a, event, T0, 10)).matched.length, 2, "sem botId, os dois bots casam (comportamento de antes)");
+		// Outro dono com o mesmo bot: nada é marcado.
+		assert.deepEqual(await queueAgendaEventWakes({ userId: b, botId: botA, event, now: T0, minGapMinutes: 10 }), { marked: 0 });
+		assert.deepEqual(await queueAgendaEventWakes({ userId: a, botId: botA, event, now: T0, minGapMinutes: 10 }), { marked: 1 });
+		assert.equal((await getAgendaItem(a, mine.item.id))?.endReason, AGENDA_EVENT_PENDING);
+		assert.equal((await getAgendaItem(a, otherBot.item.id))?.endReason ?? null, null);
+		assert.equal((await getAgendaItem(a, noMatch.item.id))?.endReason ?? null, null);
+		// Marcar de novo é idempotente (webhook reentregue).
+		assert.deepEqual(await queueAgendaEventWakes({ userId: a, botId: botA, event, now: T0, minGapMinutes: 10 }), { marked: 1 });
+		for (const item of [mine, otherBot, noMatch]) if (item.ok) await changeAgendaItem(a, item.item.id, "cancel");
 	});
 
 	test("outro dono: não cria no bot alheio, não lê, não pausa, não cancela e não grava resultado", async () => {

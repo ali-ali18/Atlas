@@ -20,6 +20,7 @@ import {
 	isAddressAllowed,
 	normalizeEmailAddress,
 } from "@workspace/shared";
+import { wakeIntentsForEmail, type EmailIntentWake } from "./agenda-event.js";
 import { enqueueMatchedRoutineEvents } from "./dispatch.js";
 
 /** Um e-mail com anexos já convertidos em texto cabe folgado em 5 MB. */
@@ -38,6 +39,8 @@ export type EmailInboundDeps = {
 	routineQueue: RoutineQueue | null;
 	matchRoutines: typeof listEmailRoutinesForMailbox;
 	enqueueRoutines: typeof enqueueMatchedRoutineEvents;
+	/** Intenções da agenda do v4 (F7.1): marca as que o e-mail acorda. Nunca derruba a entrega. */
+	wakeIntents: (input: Parameters<typeof wakeIntentsForEmail>[0]) => Promise<EmailIntentWake>;
 	now?: () => Date;
 };
 
@@ -61,6 +64,7 @@ export function createEmailInboundRoutes(runDeps: () => StartEmailRunDeps | null
 		routineQueue: null,
 		matchRoutines: listEmailRoutinesForMailbox,
 		enqueueRoutines: enqueueMatchedRoutineEvents,
+		wakeIntents: (input) => wakeIntentsForEmail(input),
 		...deps,
 	};
 	const app = new Hono();
@@ -115,6 +119,12 @@ export function createEmailInboundRoutes(runDeps: () => StartEmailRunDeps | null
 			await d.notifyBlocked(mailbox, from, row.id);
 			return c.json({ ok: true, blocked: true }, 200);
 		}
+
+		// Intenções da agenda do v4 ("quando chegar o e-mail tal, faço Y"): dono e bot vêm da caixa. Só marca; o worker acorda.
+		// Independe das rotinas e do agente de conversa abaixo, e uma falha aqui nunca perde o e-mail.
+		await d
+			.wakeIntents({ userId: mailbox.userId, botId: mailbox.botId, event: { source: "email", from, subject: event.subject, hasAttachment: (event.attachments?.length ?? 0) > 0 } })
+			.catch((error: unknown) => console.error("email inbound: falha ao marcar intenções da agenda", error instanceof Error ? error.message : "erro"));
 
 		// Rotinas com gatilho de e-mail da MESMA caixa (dono e bot vêm da caixa) e filtros que casam: a rotina
 		// assume o e-mail (o agente de conversa não responde em paralelo). Só chega aqui remetente permitido.
