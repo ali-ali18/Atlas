@@ -71,6 +71,16 @@ describe("produto da página e preço inicial (auditoria F6)", () => {
 		const byUrl = html([product("Outro", { url: "/p/x" }), product("Esse", { url: "/p/fone/", offers: { "@type": "Offer", price: 77, priceCurrency: "BRL" } })]);
 		expect(parseProductPage(byUrl, "https://a.test/p/fone")).toMatchObject({ name: "Esse", price: 77 });
 	});
+	it("URL com query (?variant, utm_*) ainda acha o Product da página", () => {
+		const page = html({ "@graph": [product("Relacionado", { url: "/p/outro" }), product("Esse", { url: "https://a.test/p/fone", offers: { "@type": "Offer", price: 77, priceCurrency: "BRL" } })] });
+		expect(parseProductPage(page, "https://a.test/p/fone?variant=1&utm_source=news#reviews")).toMatchObject({ name: "Esse", price: 77 });
+	});
+	it("página redirecionada: sem match pela URL, usa o og:url; sem nenhum dos dois, null", () => {
+		const products = html({ "@graph": [product("Relacionado", { url: "/p/outro" }), product("Esse", { url: "https://a.test/p/fone", offers: { "@type": "Offer", price: 55, priceCurrency: "BRL" } })] });
+		const withOg = products.replace("</head>", '<meta property="og:url" content="https://www.a.test/p/fone/"></head>');
+		expect(parseProductPage(withOg, "https://a.test/r/abc123")).toMatchObject({ name: "Esse", price: 55 });
+		expect(parseProductPage(products, "https://a.test/r/abc123")).toBeNull();
+	});
 	it("vários Product distintos e nenhum bate: null (sem dado estruturado confiável), mesmo com og:price", () => {
 		const page = html([product("Carrossel 1", { url: "/p/1" }), product("Carrossel 2", { url: "/p/2" })]).replace("</head>", '<meta property="product:price:amount" content="5,00"></head>');
 		expect(parseProductPage(page, "https://a.test/p/fone")).toBeNull();

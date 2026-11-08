@@ -365,28 +365,32 @@ function hostLabel(url: string): string {
 	}
 }
 
-/** Endereço sem o que varia à toa (esquema, `www.`, hash, barra final), para achar "a mesma página". */
+/** Endereço sem o que varia à toa (esquema, `www.`, query como `?variant=1` ou `utm_*`, hash, barra final), para achar "a mesma página". */
 function samePageKey(raw: Json, base: string): string | undefined {
 	const s = str(raw);
 	if (!s) return undefined;
 	try {
 		const u = new URL(s, base);
-		return `${u.hostname.toLowerCase().replace(/^www\./, "")}${u.pathname.replace(/\/+$/, "")}${u.search}`;
+		return `${u.hostname.toLowerCase().replace(/^www\./, "")}${u.pathname.replace(/\/+$/, "")}`;
 	} catch {
 		return undefined;
 	}
 }
 
 /**
- * Escolhe o `Product` DA página: o cujo `url` ou `@id` bate com o endereço dela. Um só candidato (ou vários com o mesmo
+ * Escolhe o `Product` DA página: o cujo `url` ou `@id` bate com o endereço dela (sem query nem hash) ou, senão, com o `og:url` da página. Um só candidato (ou vários com o mesmo
  * nome, o JSON-LD repetido) basta; vários distintos sem nenhum que bata = `undefined` (não há dado confiável).
  */
-function chooseProduct(products: Record<string, Json>[], pageUrl: string): Record<string, Json> | undefined {
+function chooseProduct(products: Record<string, Json>[], pageUrl: string, ogUrl?: string): Record<string, Json> | undefined {
 	const withOffers = products.filter((p) => p.offers !== undefined);
 	const pool = withOffers.length > 0 ? withOffers : products;
-	const here = samePageKey(pageUrl, pageUrl);
-	const matching = pool.find((p) => [p.url, p["@id"]].some((id) => here !== undefined && samePageKey(id, pageUrl) === here));
-	if (matching) return matching;
+	// Primeiro o endereço da página; se ela foi redirecionada, o `og:url` (o endereço que a própria página declara) é a 2ª chave.
+	for (const known of [pageUrl, ogUrl]) {
+		const here = known === undefined ? undefined : samePageKey(known, pageUrl);
+		if (here === undefined) continue;
+		const matching = pool.find((p) => [p.url, p["@id"]].some((id) => samePageKey(id, pageUrl) === here));
+		if (matching) return matching;
+	}
 	const names = new Set(pool.map((p) => str(p.name)?.toLowerCase() ?? ""));
 	return names.size <= 1 ? pool[0] : undefined;
 }
@@ -398,7 +402,7 @@ function chooseProduct(products: Record<string, Json>[], pageUrl: string): Recor
 export function parseProductPage(html: string, pageUrl: string, options: { country?: string } = {}): ProductOffer | null {
 	const meta = metaMap(html);
 	const products = jsonLdBlocks(html).flatMap((b) => findNodes(b, "Product"));
-	const product = chooseProduct(products, pageUrl);
+	const product = chooseProduct(products, pageUrl, meta.get("og:url"));
 	// Várias entidades `Product` e nenhuma é a da página (lista, carrossel de relacionados): não chuta a primeira.
 	if (products.length > 1 && !product) return null;
 	const offer = product ? pickOffer(product.offers, options.country) : null;
