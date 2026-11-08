@@ -199,6 +199,11 @@ describe("preço, total e comparação", () => {
 		const c = offer("https://c.test/", 130, { kind: "paid", amount: 5 }); // 135
 		expect(compareOffers([a, b, c])).toEqual({ cheapestUrl: "https://b.test/", incomplete: false, mixedCurrency: false });
 	});
+	it("loja sem moeda deixa a comparação incompleta (o total dela não é comparável)", () => {
+		const a = offer("https://a.test/", 50, { kind: "free" }, { currency: null });
+		const b = offer("https://b.test/", 120, { kind: "free" });
+		expect(compareOffers([a, b])).toEqual({ cheapestUrl: "https://b.test/", incomplete: true, mixedCurrency: false });
+	});
 	it("frete desconhecido marca a comparação como incompleta e não ganha por 'frete zero'", () => {
 		const a = offer("https://a.test/", 90, { kind: "unknown" });
 		const b = offer("https://b.test/", 120, { kind: "free" });

@@ -443,7 +443,7 @@ export function parseProductPage(html: string, pageUrl: string, options: { count
 export type OfferComparison = {
 	/** Mais barata pelo TOTAL, só entre as comparáveis (mesma moeda, frete conhecido, fora de estoque não conta). */
 	cheapestUrl?: string;
-	/** Alguma loja sem total (preço ou frete desconhecido): o "mais barata" pode estar errado. */
+	/** Alguma loja sem total ou sem moeda (preço ou frete desconhecido): o "mais barata" pode estar errado. */
 	incomplete: boolean;
 	mixedCurrency: boolean;
 };
@@ -452,7 +452,8 @@ export function compareOffers(offers: readonly ProductOffer[]): OfferComparison 
 	const known = offers.filter((o) => o.total !== null && o.currency !== null);
 	const mixedCurrency = new Set(known.map((o) => o.currency)).size > 1;
 	// "Não entrega" é definitivo (fora do ranking), não um dado que falta.
-	const incomplete = offers.some((o) => o.total === null && o.shipping.kind !== "unavailable");
+	// Sem moeda o total não é comparável com o dos outros: também deixa a comparação incompleta.
+	const incomplete = offers.some((o) => (o.total === null && o.shipping.kind !== "unavailable") || o.currency === null);
 	if (mixedCurrency) return { incomplete, mixedCurrency };
 	const buyable = known.filter((o) => o.availability !== "out_of_stock" && o.shipping.kind !== "unavailable");
 	const cheapest = buyable.reduce<ProductOffer | undefined>((best, o) => (best === undefined || o.total! < best.total! ? o : best), undefined);
