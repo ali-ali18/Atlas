@@ -129,7 +129,7 @@
 - [x] F6.3 (07/11, frente C: `checkout` em `capabilities/shopping/checkout.ts`, canal efêmero do CVV (Redis selado, GETDEL, chave = pedido), `card_fill` sobre a porta `Sandbox` com fake, handoff pós-efeito sem repetir, `CvvField` em `packages/ui`, cartão de compra mínimo em `ai-elements/purchase`, rota de resposta com `cvv` só para compra; testes de vazamento em evento, pedido ao modelo, journal, recibo e checkpoint. Falta na F8: o adaptador real de `card_fill` na VM) `checkout` com campo de CVV no cartão de aprovação e `card_fill` (teste de vazamento).
 - [x] F6.4 (07/11, frente C: tabela `purchase_mandates`, rotas `/v1/purchase-mandate`, mandato carregado pelo worker; com mandato o cartão pede só o CVV (`inputOnly`) e o uso é gasto e gravado; falta a tela do mandato, que por ora se cria pela API) Mandato opcional.
 - [x] F6.5 (07/11: `record_purchase` `write_internal` sem confirmação, tabela `purchases`, rotas `/v1/purchases` com IDOR testado, card `purchase`, vigia de entrega criado em silêncio pela agenda do preset (12 h, ~30 dias); o `checkout` da frente C é uma tool da mesma capacidade `shopping`) `record_purchase` e vigia de entrega automático.
-- [ ] F6.A Auditoria: 5 lentes, verificação, correções com teste, reauditoria e `auditorias/F6.md` fechado.
+- [~] F6.A Auditoria (08/11: duas leituras, 19 achados, todos corrigidos com teste, 6 aceitos; relatório em `auditorias/F6.md`; falta a reauditoria e a lista de verificação final)
 
 ### F7: E-mail e dia
 - [ ] F7.1 `email` e `calendar` (corpo, classificação por campo, prazos, rascunhos, envio com cartão).
