@@ -273,6 +273,7 @@ export * from "./tool-cache.js";
 export * from "./task-list.js";
 export * from "./product.js";
 export * from "./purchase.js";
+export * from "./email-triage.js";
 export * from "./task-ledger.js";
 export * from "./browser-subagents.js";
 export { COMPACT_TAIL_KEEP, selectCompactTail } from "./compact.js";
