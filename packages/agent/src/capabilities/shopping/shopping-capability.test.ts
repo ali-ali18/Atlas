@@ -30,19 +30,75 @@ describe("capacidade shopping: forma", () => {
 		const { cap, tool } = setup();
 		expect(cap.core).toBe(false);
 		expect(cap.cards).toEqual(["product", "purchase"]);
-		expect(cap.tools.map((t) => t.name)).toEqual(["product_search", "record_purchase", "purchase_list"]);
+		expect(cap.tools.map((t) => t.name)).toEqual(["product_search", "record_purchase", "purchase_list", "purchase_update", "purchase_delete"]);
 		expect(tool("product_search")).toMatchObject({ effect: "read", trust: "untrusted", source: "web", egress: true });
 		expect(tool("record_purchase")).toMatchObject({ effect: "write_internal", egress: false });
-		expect(tool("record_purchase").confirm).toBeUndefined();
+		for (const name of ["record_purchase", "purchase_update", "purchase_delete"]) expect(tool(name).confirm).toBe("when_untrusted");
 		expect(tool("purchase_list")).toMatchObject({ effect: "read", privateData: true, ownerData: "purchase" });
 	});
 	it("a frente C anexa tools à mesma capacidade, sem mexer nas daqui", async () => {
 		const { shop, search } = setup();
 		const checkout = defineTool({ name: "checkout", description: "x", inputSchema: z.object({}), effect: "money", execute: () => ({ ok: true, summary: "ok" }) });
 		const extended = createShoppingCapability({ ...shop.ports, search, extraTools: [checkout], extraInstructions: "Checkout rules." });
-		expect(extended.tools.map((t) => t.name)).toEqual(["product_search", "record_purchase", "purchase_list", "checkout"]);
+		expect(extended.tools.map((t) => t.name)).toEqual(["product_search", "record_purchase", "purchase_list", "purchase_update", "purchase_delete", "checkout"]);
 		expect(extended.instructions).toContain("Checkout rules.");
 		expect(extended.id).toBe("shopping");
+	});
+});
+
+describe("run de agenda (wake): compras só leem", () => {
+	it("readOnly deixa só product_search; as tools de escrita ficam fora e a instrução não as promete", () => {
+		const { shop, search, agenda } = setup();
+		const wake = createShoppingCapability({ ...shop.ports, search, agenda, readOnly: true });
+		expect(wake.tools.map((t) => t.name)).toEqual(["product_search"]);
+		expect(wake.instructions).not.toContain("record_purchase");
+		expect(wake.instructions).toContain("only reads");
+	});
+	it("a instrução do chat manda registrar só compra que o dono fez ou confirmou", () => {
+		expect(setup().cap.instructions).toContain("Record only a purchase the owner made or confirmed");
+	});
+});
+
+describe("purchase_update e purchase_delete", () => {
+	const buy = { merchant: "Loja B", items: [{ name: "Fone X", quantity: 1 }], total: 120, currency: "BRL", orderNumber: "B-77" };
+
+	it("update mescla só o que veio, revalida e mostra o card", async () => {
+		const { tool, shop } = setup();
+		await tool("record_purchase").run(buy, ctx());
+		const out = await tool("purchase_update").run({ purchaseId: "pur-1", trackingCode: "BR9", trackingUrl: "https://rastreio.test/BR9", total: 130 }, ctx());
+		expect(out).toMatchObject({ ok: true, receipt: { externalId: "pur-1" } });
+		expect(shop.rows[0]).toMatchObject({ merchant: "Loja B", orderNumber: "B-77", trackingCode: "BR9", total: 130 });
+		expect(shop.purchaseCards.length).toBeGreaterThan(1);
+		expect(await tool("purchase_update").run({ purchaseId: "pur-1", trackingUrl: "javascript:alert(1)" }, ctx())).toMatchObject({ ok: false, error: expect.stringContaining("trackingUrl") });
+		expect(await tool("purchase_update").run({ purchaseId: "pur-1" }, ctx())).toMatchObject({ ok: false, error: expect.stringContaining("Nothing to change") });
+		expect(shop.rows[0]!.trackingUrl).toBe("https://rastreio.test/BR9");
+	});
+	it("delete apaga a compra e encerra o vigia dela", async () => {
+		const { tool, shop, agenda } = setup();
+		await tool("record_purchase").run(buy, ctx());
+		const out = await tool("purchase_delete").run({ purchaseId: "pur-1" }, ctx());
+		expect(out.ok && out.summary).toContain("follow-up was stopped");
+		expect(shop.rows).toHaveLength(0);
+		expect([...agenda.items.values()][0]).toMatchObject({ status: "cancelled" });
+	});
+	it("IDOR: outro dono não corrige nem apaga (mesmo erro de inexistente) e nada muda", async () => {
+		const { tool, shop, agenda } = setup();
+		await tool("record_purchase").run(buy, ctx({ ownerId: "o1" }));
+		const upd = await tool("purchase_update").run({ purchaseId: "pur-1", total: 1 }, ctx({ ownerId: "o2" }));
+		const del = await tool("purchase_delete").run({ purchaseId: "pur-1" }, ctx({ ownerId: "o2" }));
+		const missing = await tool("purchase_delete").run({ purchaseId: "nao-existe" }, ctx({ ownerId: "o1" }));
+		for (const r of [upd, del, missing]) expect(r).toMatchObject({ ok: false, error: expect.stringContaining("Purchase not found") });
+		expect(shop.rows).toHaveLength(1);
+		expect(shop.rows[0]!.total).toBe(120);
+		expect([...agenda.items.values()][0]!.status).toBe("pending");
+	});
+	it("contrato: descrição diz quando usar e quando não usar; efeito write_internal", () => {
+		const { tool } = setup();
+		for (const name of ["purchase_update", "purchase_delete"]) {
+			expect(tool(name).effect).toBe("write_internal");
+			expect(tool(name).description).toMatch(/Use it/);
+			expect(tool(name).description).toMatch(/Do not use/);
+		}
 	});
 });
 

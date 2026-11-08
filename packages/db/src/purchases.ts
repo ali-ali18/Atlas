@@ -102,3 +102,32 @@ export async function attachDeliveryWatch(userId: string, id: string, watchId: s
 	const result = await prisma.purchase.updateMany({ where: { id, userId }, data: { deliveryWatchId: watchId } });
 	return result.count > 0;
 }
+
+/** Corrige a compra do dono (valor já validado por `normalizePurchaseInput`). `null` = não existe ou é de outro dono. */
+export async function updatePurchase(userId: string, id: string, purchase: PurchaseInput, timeZone?: string): Promise<PurchaseRecord | null> {
+	const current = await prisma.purchase.findFirst({ where: { id, userId }, select: { id: true } });
+	if (!current) return null;
+	const { count } = await prisma.purchase.updateMany({
+		where: { id, userId },
+		data: {
+			merchant: purchase.merchant,
+			itemsJson: purchase.items as unknown as Prisma.InputJsonValue,
+			total: purchase.total.toFixed(2),
+			currency: purchase.currency,
+			purchasedAt: new Date(purchase.purchasedAt),
+			orderNumber: purchase.orderNumber ?? null,
+			trackingCode: purchase.trackingCode ?? null,
+			trackingUrl: purchase.trackingUrl ?? null,
+			dedupeKey: purchaseDedupeKey(purchase, timeZone),
+		},
+	});
+	return count > 0 ? getPurchase(userId, id) : null;
+}
+
+/** Apaga a compra do dono e devolve o vigia que estava ligado a ela (para quem chamou encerrá-lo). `null` = não existe ou é de outro dono. */
+export async function deletePurchase(userId: string, id: string): Promise<{ deliveryWatchId: string | null } | null> {
+	const row = await prisma.purchase.findFirst({ where: { id, userId }, select: { deliveryWatchId: true } });
+	if (!row) return null;
+	const { count } = await prisma.purchase.deleteMany({ where: { id, userId } });
+	return count > 0 ? { deliveryWatchId: row.deliveryWatchId } : null;
+}

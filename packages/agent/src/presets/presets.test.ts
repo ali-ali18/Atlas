@@ -67,7 +67,7 @@ describe("preset full: memory, tasks e settings (F2.4)", () => {
 		const h = kernelHarness([reply({ text: "Bom dia!" })], { capabilities: [...setup.registry.capabilities] });
 		await h.run({ input: { stableSystem: setup.stableSystem, contextSections: [], history: [{ kind: "owner", text: "Bom dia" }] } });
 		const names = h.llm.requests[0]?.tools?.map((t) => t.name) ?? [];
-		for (const lazy of ["memory_list", "memory_add", "update_task_list", "settings_get", "set_role_model", "update_bot_profile", "remind_me", "watch", "on_event", "agenda_result", "product_search", "record_purchase", "purchase_list", "checkout"]) expect(names).not.toContain(lazy);
+		for (const lazy of ["memory_list", "memory_add", "update_task_list", "settings_get", "set_role_model", "update_bot_profile", "remind_me", "watch", "on_event", "agenda_result", "product_search", "record_purchase", "purchase_list", "purchase_update", "purchase_delete", "checkout"]) expect(names).not.toContain(lazy);
 	});
 
 	it("o modelo carrega memory e usa a tool no passo seguinte", async () => {
@@ -98,7 +98,7 @@ describe("preset full: checkout dentro de shopping (F6.3)", () => {
 	};
 
 	it("com cartão salvo a tool checkout faz parte da capacidade shopping", () => {
-		expect(shoppingTools(checkoutDeps())).toEqual(["product_search", "record_purchase", "purchase_list", "checkout"]);
+		expect(shoppingTools(checkoutDeps())).toEqual(["product_search", "record_purchase", "purchase_list", "purchase_update", "purchase_delete", "checkout"]);
 	});
 
 	it("sem a porta de pagamento a tool checkout não é oferecida", () => {

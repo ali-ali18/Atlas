@@ -7,7 +7,7 @@ import { after, before, describe, test } from "node:test";
 import { normalizePurchaseInput, type PurchaseInput } from "@workspace/shared";
 import { prisma } from "./client.js";
 import { persistConversationCardFromEvent } from "./conversations.js";
-import { attachDeliveryWatch, getPurchase, listPurchases, recordPurchase } from "./purchases.js";
+import { attachDeliveryWatch, deletePurchase, getPurchase, updatePurchase, listPurchases, recordPurchase } from "./purchases.js";
 import { createTestBot, createTestUser, dbSkip } from "./testing/test-db.js";
 
 const NOW = new Date("2026-11-07T12:00:00Z");
@@ -46,6 +46,21 @@ describe("compras (Postgres real)", { skip: dbSkip }, () => {
 		assert.equal((await getPurchase(userA, first.purchase.id))?.trackingUrl, "https://rastreio.test/BR777");
 		const keep = await recordPurchase({ userId: userA, purchase: make({ ...base, items: [{ name: "Fone", quantity: 1 }], purchasedAt: "2026-11-06T13:00:00Z", trackingCode: "OUTRO" }), timeZone: sp });
 		assert.equal(keep.purchase.trackingCode, "BR777", "não troca o que já existe");
+	});
+
+	test("corrigir e apagar: só o dono (outro dono recebe null e nada muda); apagar devolve o vigia", async () => {
+		const { purchase } = await recordPurchase({ userId: userA, purchase: make() });
+		await attachDeliveryWatch(userA, purchase.id, "watch-1");
+		const patched = { ...make({ orderNumber: purchase.orderNumber }), total: 10, trackingCode: "NOVO" };
+		assert.equal(await updatePurchase(userB, purchase.id, patched), null);
+		assert.equal(await deletePurchase(userB, purchase.id), null);
+		assert.equal((await getPurchase(userA, purchase.id))?.total, 219.8);
+		const updated = await updatePurchase(userA, purchase.id, patched);
+		assert.equal(updated?.total, 10);
+		assert.equal(updated?.trackingCode, "NOVO");
+		assert.deepEqual(await deletePurchase(userA, purchase.id), { deliveryWatchId: "watch-1" });
+		assert.equal(await getPurchase(userA, purchase.id), null);
+		assert.equal(await deletePurchase(userA, purchase.id), null);
 	});
 
 	test("grava com valores exatos e lê de volta (total decimal, itens, rastreio)", async () => {

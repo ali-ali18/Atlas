@@ -15,7 +15,7 @@ const NOW = new Date("2026-11-05T12:00:00.000Z");
 const ctx = (over: Partial<ToolContext> = {}): ToolContext => ({ runId: "run-1", ownerId: "user-a", ports: { clock: { now: () => NOW } } as never, ...over });
 
 function fakeDeps() {
-	const calls = { record: [] as Array<{ userId: string; botId?: string | null; conversationId?: string | null; sourceRunId?: string | null }>, persisted: [] as Array<{ conversationId: string; type: string }>, fetched: [] as string[], attached: [] as string[][], listed: [] as Array<{ userId: string; botId?: string }> };
+	const calls = { record: [] as Array<{ userId: string; botId?: string | null; conversationId?: string | null; sourceRunId?: string | null }>, persisted: [] as Array<{ conversationId: string; type: string }>, fetched: [] as string[], attached: [] as string[][], listed: [] as Array<{ userId: string; botId?: string }>, scoped: [] as string[][] };
 	const rows: PurchaseRecord[] = [];
 	const deps: V4ShoppingDeps = {
 		fetchHtml: async (url) => {
@@ -33,6 +33,13 @@ function fakeDeps() {
 		},
 		attachWatch: async (userId, id, watch) => (calls.attached.push([userId, id, watch]), true),
 		list: async (userId, options) => (calls.listed.push({ userId, ...(options?.botId && { botId: options.botId }) }), rows),
+		get: async (userId, id) => (calls.scoped.push(["get", userId, id]), rows.find((r) => r.id === id && userId === "user-a") ?? null),
+		update: async (userId, id, purchase, timeZone) => {
+			calls.scoped.push(["update", userId, id, timeZone ?? ""]);
+			const row = rows.find((r) => r.id === id && userId === "user-a");
+			return row ? Object.assign(row, purchase) : null;
+		},
+		remove: async (userId, id) => (calls.scoped.push(["remove", userId, id]), userId === "user-a" && rows.some((r) => r.id === id) ? { deliveryWatchId: "watch-9" } : null),
 		persistCard: async (conversationId, event) => void calls.persisted.push({ conversationId, type: event.type }),
 	};
 	return { deps, calls, rows };
@@ -79,7 +86,7 @@ test("compra: dono, bot e conversa vêm do run; listagem é do dono e do bot; o 
 	assert.deepEqual(calls.listed, [{ userId: "user-a", botId: "bot-1" }]);
 });
 
-test("run de agenda: shopping continua, mas gravar compra ali NÃO cria vigia novo em cadeia", async () => {
+test("run de agenda: shopping só lê (sem record_purchase, purchase_update e purchase_delete), então nada é gravado nem vigiado em cadeia", async () => {
 	const { deps } = fakeDeps();
 	const agendaCalls: string[] = [];
 	const adapters = fakeAdapterDeps();
@@ -91,9 +98,24 @@ test("run de agenda: shopping continua, mas gravar compra ali NÃO cria vigia no
 	const buy = { merchant: "A", items: [{ name: "x" }], total: 5, currency: "BRL" };
 	const chatOut = await chat.registry.toolByName("record_purchase")!.run({ ...buy, orderNumber: "C1" }, ctx());
 	assert.equal(chatOut.ok && chatOut.summary.includes("delivery follow-up could not be created"), true);
-	assert.deepEqual(agendaCalls, ["settings", "create"]);
+	assert.deepEqual(agendaCalls, ["settings", "settings", "create"]);
 	agendaCalls.length = 0;
-	const wakeOut = await wake.registry.toolByName("record_purchase")!.run({ ...buy, orderNumber: "C2" }, ctx());
-	assert.equal(wakeOut.ok && wakeOut.summary.includes("agenda unavailable"), true);
+	for (const name of ["record_purchase", "purchase_update", "purchase_delete", "purchase_list"]) assert.equal(wake.registry.toolByName(name), undefined, name);
+	assert.ok(wake.registry.toolByName("product_search"));
 	assert.deepEqual(agendaCalls, []);
+});
+
+test("corrigir e apagar: sempre com o userId do run (outro dono não acha) e o fuso chega ao db", async () => {
+	const { deps, calls, rows } = fakeDeps();
+	const { purchases } = createV4Shopping({ scope: { emit: () => undefined }, deps });
+	const saved = await purchases.record("user-a", "run-1", { merchant: "A", items: [{ name: "x", quantity: 1 }], total: 5, currency: "BRL", purchasedAt: NOW.toISOString(), orderNumber: "Z1" });
+	const id = saved.purchase.id;
+	assert.equal(await purchases.get("user-b", id), null);
+	assert.equal(await purchases.update("user-b", id, { ...saved.purchase, total: 1 }), null);
+	assert.equal(await purchases.remove("user-b", id), null);
+	assert.equal(rows[0]!.total, 5);
+	const updated = await purchases.update("user-a", id, { ...saved.purchase, total: 9 }, { timeZone: "America/Sao_Paulo" });
+	assert.equal(updated?.total, 9);
+	assert.deepEqual(calls.scoped.find((c) => c[0] === "update" && c[1] === "user-a"), ["update", "user-a", id, "America/Sao_Paulo"]);
+	assert.deepEqual(await purchases.remove("user-a", id), { deliveryWatchId: "watch-9" });
 });

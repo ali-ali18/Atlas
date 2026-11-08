@@ -96,7 +96,7 @@ describe("A. toda tool registrada declara efeito", () => {
 	const tools = allRegisteredTools();
 
 	it("o registro de teste cobre o kernel de verdade", () => {
-		expect(tools.map((t) => t.name).sort()).toEqual([ASK_OWNER_TOOL, NOTE_READ_TOOL, USE_CAPABILITY_TOOL, "create_file", "create_file", "create_page", "chart", "inspect_file", "web_extract", "web_search", "memory_list", "memory_add", "memory_update", "memory_remove", "update_task_list", "settings_get", "settings_update", "set_role_model", "update_bot_profile", "research", "remind_me", "watch", "on_event", "agenda_list", "agenda_change", "agenda_result", "note_search", "note_get", "note_add", "note_update", "note_pin", "note_remove", "product_search", "record_purchase", "purchase_list", "checkout"].sort());
+		expect(tools.map((t) => t.name).sort()).toEqual([ASK_OWNER_TOOL, NOTE_READ_TOOL, USE_CAPABILITY_TOOL, "create_file", "create_file", "create_page", "chart", "inspect_file", "web_extract", "web_search", "memory_list", "memory_add", "memory_update", "memory_remove", "update_task_list", "settings_get", "settings_update", "set_role_model", "update_bot_profile", "research", "remind_me", "watch", "on_event", "agenda_list", "agenda_change", "agenda_result", "note_search", "note_get", "note_add", "note_update", "note_pin", "note_remove", "product_search", "record_purchase", "purchase_list", "purchase_update", "purchase_delete", "checkout"].sort());
 	});
 
 	it("o vocabulário de efeitos do motor é o mesmo de shared", () => {

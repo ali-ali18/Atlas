@@ -4,7 +4,7 @@
 //
 // As FOTOS são só URLs dentro do cartão: o servidor não as baixa. Quem as desenha é o app (http/https, sem cookie).
 import type { ProductCardPayload, ProductPages, Purchases, ShoppingPorts } from "@workspace/agent";
-import { attachDeliveryWatch, listPurchases, persistConversationCardFromEvent, recordPurchase, type PurchaseRecord } from "@workspace/db";
+import { attachDeliveryWatch, deletePurchase, getPurchase, listPurchases, updatePurchase, persistConversationCardFromEvent, recordPurchase, type PurchaseRecord } from "@workspace/db";
 import { fetchPageHtml } from "@workspace/search";
 import type { ComputerUseEvent, PurchaseView } from "@workspace/shared";
 
@@ -12,6 +12,9 @@ export type V4ShoppingDeps = {
 	fetchHtml: (url: string, options: { signal?: AbortSignal; timeoutMs?: number }) => Promise<{ url: string; html: string }>;
 	record: typeof recordPurchase;
 	attachWatch: typeof attachDeliveryWatch;
+	get: typeof getPurchase;
+	update: typeof updatePurchase;
+	remove: typeof deletePurchase;
 	list: typeof listPurchases;
 	persistCard: (conversationId: string, event: ComputerUseEvent) => Promise<void>;
 };
@@ -20,6 +23,9 @@ export const realV4ShoppingDeps: V4ShoppingDeps = {
 	fetchHtml: (url, options) => fetchPageHtml(url, options),
 	record: recordPurchase,
 	attachWatch: attachDeliveryWatch,
+	get: getPurchase,
+	update: updatePurchase,
+	remove: deletePurchase,
 	list: listPurchases,
 	persistCard: (conversationId, event) => persistConversationCardFromEvent(conversationId, event),
 };
@@ -85,6 +91,15 @@ export function createV4Shopping(input: { scope: V4ShoppingScope; deps?: V4Shopp
 		async attachDeliveryWatch(userId, purchaseId, watchId) {
 			await deps.attachWatch(userId, purchaseId, watchId);
 		},
+		async get(userId, purchaseId) {
+			const found = await deps.get(userId, purchaseId);
+			return found ? { ...toView(found), deliveryWatchId: found.deliveryWatchId } : null;
+		},
+		async update(userId, purchaseId, purchase, options) {
+			const saved = await deps.update(userId, purchaseId, purchase, options?.timeZone);
+			return saved ? toView(saved) : null;
+		},
+		remove: (userId, purchaseId) => deps.remove(userId, purchaseId),
 		async show(_userId, runId, purchase) {
 			const { id, botId: _bot, createdAt: _created, ...rest } = purchase;
 			void _bot;

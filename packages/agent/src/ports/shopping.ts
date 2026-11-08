@@ -27,6 +27,12 @@ export interface Purchases {
 	record(userId: string, runId: string, purchase: PurchaseInput, options?: { timeZone?: string }): Promise<RecordedPurchase>;
 	/** Liga a compra ao vigia de entrega da agenda. */
 	attachDeliveryWatch(userId: string, purchaseId: string, watchId: string): Promise<void>;
+	/** Uma compra do dono. `null` = não existe ou é de outro dono (a tool responde igual). */
+	get(userId: string, purchaseId: string): Promise<(PurchaseView & { deliveryWatchId?: string | null }) | null>;
+	/** Troca os dados da compra (já validados e mesclados pela tool). `null` = não existe ou é de outro dono. Lança se colidir com outra compra. */
+	update(userId: string, purchaseId: string, purchase: PurchaseInput, options?: { timeZone?: string }): Promise<PurchaseView | null>;
+	/** Apaga a compra. Devolve o vigia de entrega que estava ligado a ela. `null` = não existe ou é de outro dono. */
+	remove(userId: string, purchaseId: string): Promise<{ deliveryWatchId: string | null } | null>;
 	/** Mostra (e grava na conversa) o cartão `purchase`. */
 	show(userId: string, runId: string, purchase: PurchaseView): Promise<void>;
 	list(userId: string, options?: { limit?: number }): Promise<PurchaseView[]>;

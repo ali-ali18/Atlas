@@ -130,10 +130,11 @@ export async function buildV4Registry(input: V4RegistryInput): Promise<V4Registr
 	// Run de agenda: sai `agenda` (sem criar item em cadeia), entra `agenda_result` (núcleo).
 	const capabilities = [...base.registry.capabilities, ...(connectors.capability ? [connectors.capability] : [])];
 	const asAgendaRun = Boolean(input.agendaRun && agenda);
-	// No run de agenda, `shopping` também perde a agenda: gravar uma compra ali não pode criar vigia novo em cadeia.
+	// No run de agenda, `shopping` perde a agenda e as tools de escrita (`readOnly`): ali o conteúdo vem de fora e não há dono para
+	// confirmar, então registrar compra (e criar vigia em cadeia) seria obedecer uma página.
 	const forRun =
 		asAgendaRun && agenda
-			? [...capabilities.filter((capability) => capability.id !== "agenda" && capability.id !== "shopping"), createAgendaRunCapability(agenda), createShoppingCapability({ ...shoppingPorts, search })]
+			? [...capabilities.filter((capability) => capability.id !== "agenda" && capability.id !== "shopping"), createAgendaRunCapability(agenda), createShoppingCapability({ ...shoppingPorts, search, readOnly: true })]
 			: capabilities;
 	const registry = !asAgendaRun && !connectors.capability ? base.registry : createCapabilityRegistry(forRun);
 	if (base.unavailable.length > 0) log(`[engine-v4] run=${input.runId} capacidades sem porta: ${base.unavailable.join(", ")}`);

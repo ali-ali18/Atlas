@@ -358,6 +358,25 @@ export class FakeShopping {
 				const row = this.rows.find((r) => r.userId === userId && r.id === purchaseId);
 				if (row) row.deliveryWatchId = watchId;
 			},
+			get: async (userId, id) => {
+				const row = this.rows.find((r) => r.userId === userId && r.id === id);
+				return row ? { ...this.view(row), deliveryWatchId: row.deliveryWatchId ?? null } : null;
+			},
+			update: async (userId, id, purchase, options) => {
+				const row = this.rows.find((r) => r.userId === userId && r.id === id);
+				if (!row) return null;
+				const key = purchaseDedupeKey(purchase, options?.timeZone);
+				if (this.rows.some((r) => r !== row && r.userId === userId && r.key === key)) throw new Error("another purchase already has these details");
+				for (const k of ["orderNumber", "trackingCode", "trackingUrl"] as const) delete row[k];
+				Object.assign(row, structuredClone(purchase), { key });
+				return this.view(row);
+			},
+			remove: async (userId, id) => {
+				const at = this.rows.findIndex((r) => r.userId === userId && r.id === id);
+				if (at < 0) return null;
+				const [row] = this.rows.splice(at, 1);
+				return { deliveryWatchId: row!.deliveryWatchId ?? null };
+			},
 			show: async (userId, runId, purchase) => {
 				this.purchaseCards.push({ userId, runId, purchase });
 			},
