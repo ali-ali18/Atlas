@@ -190,6 +190,11 @@ function conversationCardToMessage(
 		const { v: _v, kind: _kind, runId: _runId, ...fields } = card;
 		return { id, kind: "purchase", ...fields };
 	}
+	if (card.kind === "email-triage") return { id, kind: "email-triage", cardId: card.cardId, items: card.items };
+	if (card.kind === "email-draft") {
+		const { v: _v, kind: _kind, runId: _runId, ...fields } = card;
+		return { id, kind: "email-draft", ...fields };
+	}
 	if (card.kind === "chart") return { id, kind: "chart", chartId: card.chartId, spec: card.spec, ...(card.filename ? { filename: card.filename } : {}) };
 	if (card.kind === "page") {
 		return { id, kind: "page", pageId: card.pageId, revision: card.revision, title: card.title, action: card.action, sourceCount: card.sourceCount, ...(card.spec ? { spec: card.spec } : {}) };
@@ -440,6 +445,8 @@ export function buildSessionMessage(message: SessionMessage): Message | null {
 		|| (message.role as string) === "chart"
 		|| (message.role as string) === "product"
 		|| (message.role as string) === "purchase"
+		|| (message.role as string) === "email-triage"
+		|| (message.role as string) === "email-draft"
 		|| (message.role as string) === "page"
 		|| (message.role as string) === "task-list"
 		|| (message.role as string) === "compaction"
@@ -1031,6 +1038,28 @@ export function createComputerHandlers(params: {
 				if (previous.some((m) => m.kind === "purchase" && m.purchaseId === event.purchaseId)) return previous;
 				const { type: _type, runId: _runId, ...fields } = event;
 				const message: Message = { id: `purchase-${event.purchaseId}`, kind: "purchase", ...fields };
+				return dedupeCards(insertCardAfterCurrentTurn(previous, message));
+			});
+		},
+		onEmailTriage: (event) => {
+			params.onActivity?.();
+			// Mesmo parser do cartão gravado: categoria e prazo revalidados, item inválido derruba o cartão.
+			const card = parseConversationCard(JSON.stringify({ v: 1, kind: "email-triage", cardId: event.cardId, items: event.items }));
+			if (card?.kind !== "email-triage") return;
+			params.setMessages((previous) => {
+				if (previous.some((m) => m.kind === "email-triage" && m.cardId === card.cardId)) return previous;
+				const message: Message = { id: `email-triage-${card.cardId}`, kind: "email-triage", cardId: card.cardId, items: card.items };
+				return dedupeCards(insertCardAfterCurrentTurn(previous, message));
+			});
+		},
+		onEmailDraft: (event) => {
+			params.onActivity?.();
+			const card = parseConversationCard(JSON.stringify({ v: 1, kind: "email-draft", ...event, type: undefined }));
+			if (card?.kind !== "email-draft") return;
+			params.setMessages((previous) => {
+				if (previous.some((m) => m.kind === "email-draft" && m.cardId === card.cardId)) return previous;
+				const { v: _v, kind: _kind, runId: _runId, ...fields } = card;
+				const message: Message = { id: `email-draft-${card.cardId}`, kind: "email-draft", ...fields };
 				return dedupeCards(insertCardAfterCurrentTurn(previous, message));
 			});
 		},

@@ -6,7 +6,7 @@ import { collapseBotProposalCards } from "@/lib/bot-proposal-message";
 
 /** Cartão ao vivo que, quando o servidor já gravou o equivalente, vale o gravado. */
 function isDedupedLiveCard(message: Message): boolean {
-	return message.kind === "images" || message.kind === "provider-fallback" || message.kind === "code-run" || message.kind === "chart" || message.kind === "product" || message.kind === "purchase" || message.kind === "task-list" || message.kind === "compaction" || (message.kind === "routine" && message.action === "created" && !!message.routineId);
+	return message.kind === "images" || message.kind === "provider-fallback" || message.kind === "code-run" || message.kind === "chart" || message.kind === "product" || message.kind === "purchase" || message.kind === "email-triage" || message.kind === "email-draft" || message.kind === "task-list" || message.kind === "compaction" || (message.kind === "routine" && message.action === "created" && !!message.routineId);
 }
 
 function cardDedupeKey(message: Message): string | null {
@@ -46,6 +46,9 @@ function cardDedupeKey(message: Message): string | null {
 	// Produto e compra: a identidade é o cardId / purchaseId (o ao vivo e o gravado colapsam).
 	if (message.kind === "product") return `product|${message.cardId}`;
 	if (message.kind === "purchase") return `purchase|${message.purchaseId}`;
+	// E-mail (F7.1): triagem e rascunho têm `cardId` estável entre o ao vivo e o gravado.
+	if (message.kind === "email-triage") return `email-triage|${message.cardId}`;
+	if (message.kind === "email-draft") return `email-draft|${message.cardId}`;
 	// Uma página, um cartão: o colapso por pageId (collapsePageCards) escolhe a revisão; a chave só evita vizinhos iguais.
 	if (message.kind === "page") return `page|${message.pageId}|${message.revision}`;
 	// Um cartão por run: o ao vivo (id do run) e o gravado (id do banco) colapsam.
@@ -387,6 +390,8 @@ export function reconcilePersistedThread(persisted: Message[], live: Message[], 
 		message.kind !== "chart" &&
 		message.kind !== "product" &&
 		message.kind !== "purchase" &&
+		message.kind !== "email-triage" &&
+		message.kind !== "email-draft" &&
 		message.kind !== "page" &&
 		message.kind !== "task-list" &&
 		message.kind !== "compaction" &&

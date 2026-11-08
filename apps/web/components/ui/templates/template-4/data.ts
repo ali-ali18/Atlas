@@ -1,5 +1,5 @@
 import { AVATAR_COLORS, eyeColorFor as engineEyeColorFor } from "@workspace/ui/lib/avatar/identity";
-import type { AlertRule, MessageSource, BotLanguageSetting, BotNeed, BotProposalData, DevApprovalCardInfo, LoginConnector, LoginVaultOffer, RoutineProposalMode, RoutineProposalSpec, RoutineProposalStatus, SkillProposalData, SubagentTaskView, ChartSpec, PageSpec, ProductOffer, PersistedPurchaseCard } from "@workspace/shared";
+import type { AlertRule, MessageSource, BotLanguageSetting, BotNeed, BotProposalData, DevApprovalCardInfo, LoginConnector, LoginVaultOffer, RoutineProposalMode, RoutineProposalSpec, RoutineProposalStatus, SkillProposalData, SubagentTaskView, ChartSpec, PageSpec, ProductOffer, PersistedPurchaseCard, PersistedEmailDraftCard, EmailTriageEntry } from "@workspace/shared";
 import type { BotProfileProposal } from "@/components/ai-elements/confirm";
 
 export type BodyColor = {
@@ -334,6 +334,7 @@ export type QuestionnaireAnswersData = Record<string, string | string[]>;
 
 /** `createdAt` (ISO): hora local ao criar, depois a do servidor; alimenta os separadores de horário. */
 type PurchaseCardFields = Omit<PersistedPurchaseCard, "v" | "kind" | "purchaseId" | "runId">;
+type EmailDraftCardFields = Omit<PersistedEmailDraftCard, "v" | "kind" | "cardId" | "runId">;
 
 export type Message = MessageVariant & { createdAt?: string };
 
@@ -479,6 +480,10 @@ type MessageVariant =
 	| { id: string; kind: "product"; cardId: string; items: ProductOffer[]; cheapestUrl?: string; incomplete?: boolean }
 	/** F6.5: compra registrada; `purchaseId` é a identidade. */
 	| ({ id: string; kind: "purchase"; purchaseId: string } & PurchaseCardFields)
+	/** F7.1: triagem do e-mail (categoria declarada pelo bot por mensagem); `cardId` é a identidade. */
+	| { id: string; kind: "email-triage"; cardId: string; items: EmailTriageEntry[] }
+	/** F7.1: rascunho de e-mail para revisar (nada foi enviado); `cardId` é a identidade. */
+	| ({ id: string; kind: "email-draft"; cardId: string } & EmailDraftCardFields)
 	/** Gráfico nativo (spec validado) gerado pelo run_code em *.chart.json. */
 	| { id: string; kind: "chart"; chartId: string; spec: ChartSpec; filename?: string }
 	/** Página viva (relatório/painel) inline; o mesmo `pageId` é atualizado no lugar (revision maior). */
