@@ -63,6 +63,16 @@ describe("compras (Postgres real)", { skip: dbSkip }, () => {
 		assert.equal(await deletePurchase(userA, purchase.id), null);
 	});
 
+	test("corrigir para os dados de outra compra do dono: erro honesto, sem a mensagem do Prisma, e nada muda", async () => {
+		const one = await recordPurchase({ userId: userA, purchase: make({ orderNumber: "COL-1" }) });
+		const two = await recordPurchase({ userId: userA, purchase: make({ orderNumber: "COL-2" }) });
+		await assert.rejects(
+			() => updatePurchase(userA, two.purchase.id, make({ orderNumber: "COL-1", merchant: one.purchase.merchant, currency: one.purchase.currency })),
+			(error: Error) => error.message === "another purchase already has these details" && !/prisma|Unique constraint|invocation/i.test(error.message),
+		);
+		assert.equal((await getPurchase(userA, two.purchase.id))?.orderNumber, "COL-2");
+	});
+
 	test("grava com valores exatos e lê de volta (total decimal, itens, rastreio)", async () => {
 		const { purchase, duplicate } = await recordPurchase({ userId: userA, botId: botA, sourceRunId: "run-1", purchase: make({ trackingCode: "BR123", trackingUrl: "https://rastreio.test/BR123" }) });
 		assert.equal(duplicate, false);

@@ -107,7 +107,9 @@ export async function attachDeliveryWatch(userId: string, id: string, watchId: s
 export async function updatePurchase(userId: string, id: string, purchase: PurchaseInput, timeZone?: string): Promise<PurchaseRecord | null> {
 	const current = await prisma.purchase.findFirst({ where: { id, userId }, select: { id: true } });
 	if (!current) return null;
-	const { count } = await prisma.purchase.updateMany({
+	let count: number;
+	try {
+		({ count } = await prisma.purchase.updateMany({
 		where: { id, userId },
 		data: {
 			merchant: purchase.merchant,
@@ -120,7 +122,12 @@ export async function updatePurchase(userId: string, id: string, purchase: Purch
 			trackingUrl: purchase.trackingUrl ?? null,
 			dedupeKey: purchaseDedupeKey(purchase, timeZone),
 		},
-	});
+		}));
+	} catch (error) {
+		// Outra compra do dono já tem estes dados (mesma chave de dedupe): erro honesto, sem a mensagem crua do Prisma.
+		if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") throw new Error("another purchase already has these details");
+		throw error;
+	}
 	return count > 0 ? getPurchase(userId, id) : null;
 }
 
