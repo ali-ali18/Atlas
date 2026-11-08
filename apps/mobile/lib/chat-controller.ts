@@ -70,7 +70,12 @@ const ACTIVE_CONFLICT = "A conversa já tem uma tarefa em andamento";
 const DEFAULT_RETRY = [400, 1_000, 2_000] as const;
 
 /** Aviso amigável quando a resposta a um card v4 não passou (sem expor código técnico). */
-export function requestErrorText(reason: unknown): string {
+export function requestErrorText(reason: unknown, withCode = false): string {
+	// O código do cartão nunca é reenviado sozinho: falha passageira (rede, run ainda não parado, 5xx) = o dono digita de novo.
+	if (withCode) {
+		const transient = reason instanceof ChatApiError ? (reason.status === 409 && reason.message === "run_not_paused") || (reason.status >= 500 && reason.status !== 503) : true;
+		if (transient) return "Não deu para enviar o código agora. Nada foi cobrado. Digite o código de novo.";
+	}
 	if (reason instanceof ChatApiError) {
 		if (reason.status === 400 && reason.message === "cvv_required") return "Digite os 3 ou 4 números do código.";
 		if (reason.status === 503) return "O envio não está disponível agora. Nada foi aprovado nem cobrado.";
@@ -551,6 +556,7 @@ export class ChatController {
 		this.set({ error: null, agentDecisions: { ...this.state.agentDecisions, [key]: local } });
 		void (async () => {
 			try {
+				// Com o código do cartão a chamada é UMA só: sem repetição automática, o valor não fica guardado esperando um retry.
 				const result = await this.respondWithRetry({ runId, key: requestKey, decision, ...(cvv !== undefined ? { cvv } : {}) });
 				if (result.resumed && !this.disposed) void this.follow(runId);
 			} catch (reason) {
@@ -559,14 +565,15 @@ export class ChatController {
 				const expired = reason instanceof ChatApiError && reason.status === 410;
 				this.set({ agentDecisions: expired ? { ...rest, [key]: "dismissed" } : rest });
 				this.fail(reason);
-				if (!this.disposed) this.set({ error: requestErrorText(reason) });
+				if (!this.disposed) this.set({ error: requestErrorText(reason, cvv !== undefined) });
 			}
 		})();
 	}
 
 	/** Repete o mesmo POST quando o run ainda não estacionou (409 `run_not_paused`) ou não podia ser retomado ainda. */
 	private async respondWithRetry(input: { runId: string; key: string; decision: AgentV4Decision; cvv?: string }): Promise<AgentRequestResult> {
-		const delays = this.deps.retryDelays ?? DEFAULT_RETRY;
+		// Com o código do cartão (`cvv`) não há repetição: cada envio é uma tentativa do dono, que digita o código de novo se falhar.
+		const delays = input.cvv !== undefined ? [] : (this.deps.retryDelays ?? DEFAULT_RETRY);
 		const sleep = this.deps.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
 		for (let attempt = 0; ; attempt += 1) {
 			const delay = delays[attempt];

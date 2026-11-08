@@ -687,7 +687,42 @@ describe("cards do motor v4", () => {
 		expect(Object.values(controller.getSnapshot().agentDecisions)).toEqual(["dismissed"]);
 	});
 
-	it("run que ainda não estacionou (409 run_not_paused) repete o mesmo pedido", async () => {
+	it("com o CVV, falha passageira NÃO repete o envio: libera o card e pede para digitar o código de novo", async () => {
+		const sent: Array<string | undefined> = [];
+		let attempt = 0;
+		const { controller } = setup({
+			api: {
+				respondRequest: async (input) => {
+					sent.push(input.cvv);
+					attempt += 1;
+					if (attempt === 1) throw new ChatApiError("run_not_paused", 409);
+					if (attempt === 2) throw new TypeError("Network request failed");
+					return { ok: true, status: "recorded", resumed: true };
+				},
+			},
+			follow: async () => new Promise<FollowResult>(() => undefined),
+		});
+		await controller.open();
+		controller.respondToRequest(approvalItem(), "approve", "123");
+		await flush();
+		await flush();
+		expect(sent).toEqual(["123"]);
+		expect(controller.getSnapshot().agentDecisions).toEqual({});
+		expect(controller.getSnapshot().error).toBe("Não deu para enviar o código agora. Nada foi cobrado. Digite o código de novo.");
+		// Falha de rede: também uma tentativa só; o código foi digitado de novo pelo dono na segunda.
+		controller.respondToRequest(approvalItem(), "approve", "456");
+		await flush();
+		expect(sent).toEqual(["123", "456"]);
+		expect(controller.getSnapshot().error).toBe("Não deu para enviar o código agora. Nada foi cobrado. Digite o código de novo.");
+		expect(JSON.stringify(controller.getSnapshot())).not.toMatch(/123|456/);
+		// Na terceira, o dono digita de novo e vai.
+		controller.respondToRequest(approvalItem(), "approve", "789");
+		await flush();
+		expect(sent).toEqual(["123", "456", "789"]);
+		expect(controller.getSnapshot().error).toBeNull();
+	});
+
+	it("run que ainda não estacionou (409 run_not_paused) repete o mesmo pedido (sem CVV)", async () => {
 		let attempt = 0;
 		const { controller } = setup({
 			api: {
@@ -700,7 +735,7 @@ describe("cards do motor v4", () => {
 			follow: async () => new Promise<FollowResult>(() => undefined),
 		});
 		await controller.open();
-		controller.respondToRequest(approvalItem(), "approve", "123");
+		controller.respondToRequest(approvalItem(), "deny");
 		await flush();
 		await flush();
 		expect(attempt).toBe(3);
