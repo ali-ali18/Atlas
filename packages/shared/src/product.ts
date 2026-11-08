@@ -340,11 +340,21 @@ function pickOffer(raw: Json, country?: string): Picked | null {
 	return best;
 }
 
+/** Nota ("4.5", "4,5", "4.333", 4.2): o separador é SEMPRE decimal (nota não tem milhar), ao contrário do preço. */
+function parseRatingNumber(v: Json): number | null {
+	if (typeof v === "number") return Number.isFinite(v) && v > 0 ? v : null;
+	if (typeof v !== "string") return null;
+	const text = v.replace(/[^\d.,]/g, "");
+	if (!text || (text.match(/[.,]/g) ?? []).length > 1) return null;
+	const n = Number(text.replace(",", "."));
+	return Number.isFinite(n) && n > 0 ? Math.round(n * 1000) / 1000 : null;
+}
+
 function ratingOf(v: Json): ProductRating | undefined {
 	if (!isRecord(v)) return undefined;
-	const value = parseMoneyNumber(v.ratingValue);
+	const value = parseRatingNumber(v.ratingValue);
 	if (value === null) return undefined;
-	const best = parseMoneyNumber(v.bestRating) ?? 5;
+	const best = parseRatingNumber(v.bestRating) ?? 5;
 	if (best <= 0 || value > best) return undefined;
 	const count = parseCount(v.ratingCount ?? v.reviewCount);
 	return { value, best, ...(count !== null && count > 0 && { count: Math.round(count) }) };

@@ -141,6 +141,21 @@ describe("frete por destino (auditoria F6)", () => {
 	});
 });
 
+describe("nota da avaliação (separador sempre decimal)", () => {
+	const page = (ratingValue: unknown, bestRating?: unknown) => `<html><head><title>T</title><script type="application/ld+json">${JSON.stringify({ "@type": "Product", name: "Fone", offers: { "@type": "Offer", price: 10, priceCurrency: "BRL" }, aggregateRating: { "@type": "AggregateRating", ratingValue, ...(bestRating !== undefined && { bestRating }), reviewCount: "1.234" } })}</script></head></html>`;
+	it("'4.333' e '4,125' são notas, não um valor ambíguo de preço", () => {
+		expect(parseProductPage(page("4.333"), "https://a.test/p")?.rating).toEqual({ value: 4.333, best: 5, count: 1234 });
+		expect(parseProductPage(page("4,125"), "https://a.test/p")?.rating?.value).toBe(4.125);
+		expect(parseProductPage(page("4,5", "5"), "https://a.test/p")?.rating?.value).toBe(4.5);
+		expect(parseProductPage(page(4.2), "https://a.test/p")?.rating?.value).toBe(4.2);
+	});
+	it("nota acima do máximo ou ilegível é descartada", () => {
+		expect(parseProductPage(page("6.0"), "https://a.test/p")?.rating).toBeUndefined();
+		expect(parseProductPage(page("1.2.3"), "https://a.test/p")?.rating).toBeUndefined();
+		expect(parseProductPage(page("ótimo"), "https://a.test/p")?.rating).toBeUndefined();
+	});
+});
+
 describe("imagens de loja (auditoria F6)", () => {
 	it("safeImageUrl: só https com domínio público; descarta http, localhost, host sem ponto, IP e rede interna", () => {
 		expect(safeImageUrl("https://cdn.loja.test/a.jpg")).toBe("https://cdn.loja.test/a.jpg");
