@@ -41,6 +41,16 @@ describe("saved-cards (Postgres real)", { skip: dbSkip }, () => {
 		assert.equal(await getSavedCardSealed("", cardA), null);
 	});
 
+	test("limite por dono: criações concorrentes não passam do teto", async () => {
+		const d = (await createTestUser("sccrace")).id;
+		const input = (i: number) => ({ label: `c${i}`, brand: "visa", last4: "1111", secretsEnc: "x" });
+		for (let i = 0; i < SAVED_CARDS_MAX_PER_OWNER - 2; i++) await createSavedCard(d, input(i));
+		const results = await Promise.allSettled(Array.from({ length: 8 }, (_, i) => createSavedCard(d, input(100 + i))));
+		assert.equal(results.filter((r) => r.status === "fulfilled").length, 2);
+		assert.ok(results.filter((r) => r.status === "rejected").every((r) => (r as PromiseRejectedResult).reason instanceof SavedCardLimitError));
+		assert.equal((await listSavedCards(d)).length, SAVED_CARDS_MAX_PER_OWNER);
+	});
+
 	test("limite por dono e apagar", async () => {
 		const c = (await createTestUser("scc")).id;
 		for (let i = 0; i < SAVED_CARDS_MAX_PER_OWNER; i++) await createSavedCard(c, { label: `c${i}`, brand: "visa", last4: "1111", secretsEnc: "x" });

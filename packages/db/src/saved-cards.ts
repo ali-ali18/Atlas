@@ -27,9 +27,12 @@ export class SavedCardLimitError extends Error {
 
 export async function createSavedCard(userId: string, input: CreateSavedCardInput): Promise<SavedCardRow> {
 	if (!owned(userId)) throw new RangeError("dono inválido");
-	if ((await prisma.savedCard.count({ where: { userId } })) >= SAVED_CARDS_MAX_PER_OWNER) throw new SavedCardLimitError();
-	const row = await prisma.savedCard.create({ data: { userId, label: input.label, brand: input.brand, last4: input.last4, secretsEnc: input.secretsEnc }, select: { id: true, label: true, brand: true, last4: true, createdAt: true } });
-	return row;
+	// Contar e criar na MESMA transação sob trava por dono: sem ela, criações paralelas leem a mesma contagem e passam do teto.
+	return prisma.$transaction(async (tx) => {
+		await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`saved-card-create:${userId}`}))`;
+		if ((await tx.savedCard.count({ where: { userId } })) >= SAVED_CARDS_MAX_PER_OWNER) throw new SavedCardLimitError();
+		return tx.savedCard.create({ data: { userId, label: input.label, brand: input.brand, last4: input.last4, secretsEnc: input.secretsEnc }, select: { id: true, label: true, brand: true, last4: true, createdAt: true } });
+	});
 }
 
 /** Só metadado público (rótulo, bandeira, final). Nunca o texto selado. */
