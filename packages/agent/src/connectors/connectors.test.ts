@@ -298,3 +298,52 @@ describe("nomes", () => {
 		expect(connectorToolNames("gmail")).toEqual({ read: "mcp_gmail_read", write: "mcp_gmail_write" });
 	});
 });
+
+describe("capacidade nativa esconde o conector que a duplica", () => {
+	const gmailConn = conn({ tools: [...gmailTools] });
+	const calendarConn = conn({ id: "conn-c", slug: "google_calendar", name: "Google Calendar", catalogId: "google_calendar", tools: [tool("list_events", { annotations: { readOnlyHint: true } }), tool("create_event")] });
+	const driveConn = conn({ id: "conn-d", slug: "google_drive", name: "Drive", catalogId: "google_drive", tools: [tool("search_files", { annotations: { readOnlyHint: true } })] });
+	const composio = conn({ id: "conn-x", slug: "composio", name: "Composio", catalogId: "composio", tools: [tool("GMAIL_SEND_EMAIL"), tool("GOOGLECALENDAR_CREATE_EVENT"), tool("GOOGLE_CALENDAR_EVENTS_LIST", { annotations: { readOnlyHint: true } }), tool("NOTION_CREATE_PAGE")] });
+	const names = async (connections: McpConnectionSnapshot[], native: { email?: boolean; calendar?: boolean }) => {
+		const { capability } = await createConnectorsCapability(new FakeMcp(connections), "owner-1", undefined, native);
+		return capability?.tools.map((t) => t.name) ?? [];
+	};
+
+	it("sem a nativa o conector embutido continua (nada muda)", async () => {
+		expect(await names([gmailConn, calendarConn], {})).toEqual(expect.arrayContaining(["mcp_gmail_write", "mcp_google_calendar_write"]));
+	});
+	it("com email nativo o Gmail do conector sai inteiro (create_draft/send não contornam as regras); a agenda fica", async () => {
+		const list = await names([gmailConn, calendarConn], { email: true });
+		expect(list).not.toContain("mcp_gmail_write");
+		expect(list).not.toContain("mcp_gmail_read");
+		expect(list).toContain("mcp_google_calendar_write");
+	});
+	it("com calendar nativo o conector de agenda sai (create_event com convidados não contorna a aprovação)", async () => {
+		const list = await names([gmailConn, calendarConn, driveConn], { calendar: true });
+		expect(list).not.toContain("mcp_google_calendar_write");
+		expect(list).toEqual(expect.arrayContaining(["mcp_gmail_write", "mcp_google_drive_read"]));
+	});
+	it("quem só tem Composio (sem o embutido conectado) mantém as tools de Gmail e Agenda do Composio", async () => {
+		const { capability } = await createConnectorsCapability(new FakeMcp([composio]), "owner-1", undefined, { email: true, calendar: true });
+		const found = await createCapabilityRegistry([capability!]).toolByName("tool_search")!.run({ query: "send email create event" }, ctx());
+		expect(found.ok && found.summary).toMatch(/GMAIL_SEND_EMAIL/);
+		expect(found.ok && found.summary).toMatch(/GOOGLECALENDAR_CREATE_EVENT/);
+	});
+	it("embutido desconectado não esconde o Composio; embutido conectado esconde o duplicado", async () => {
+		const off = conn({ ...gmailConn, status: "error" as never });
+		const kept = await createConnectorsCapability(new FakeMcp([off, composio]), "owner-1", undefined, { email: true });
+		expect(JSON.stringify(await createCapabilityRegistry([kept.capability!]).toolByName("tool_search")!.run({ query: "send email" }, ctx()))).toContain("GMAIL_SEND_EMAIL");
+		const hidden = await createConnectorsCapability(new FakeMcp([gmailConn, composio]), "owner-1", undefined, { email: true });
+		expect(JSON.stringify(await createCapabilityRegistry([hidden.capability!]).toolByName("tool_search")!.run({ query: "send email" }, ctx()))).not.toContain("GMAIL_SEND_EMAIL");
+	});
+	it("só o conector duplicado: sem conexão sobrando não há capacidade", async () => {
+		expect((await createConnectorsCapability(new FakeMcp([gmailConn, calendarConn]), "owner-1", undefined, { email: true, calendar: true })).capability).toBeNull();
+	});
+	it("Composio perde só as tools de Gmail e Agenda cobertas; o resto fica e a busca não as acha", async () => {
+		const { capability } = await createConnectorsCapability(new FakeMcp([gmailConn, calendarConn, composio]), "owner-1", undefined, { email: true, calendar: true });
+		const registry = createCapabilityRegistry([capability!]);
+		const found = await registry.toolByName("tool_search")!.run({ query: "create send email event page" }, ctx());
+		expect(found.ok && found.summary).toContain("NOTION_CREATE_PAGE");
+		expect(found.ok && found.summary).not.toMatch(/GMAIL_SEND_EMAIL|GOOGLECALENDAR_CREATE_EVENT|GOOGLE_CALENDAR_EVENTS_LIST/);
+	});
+});

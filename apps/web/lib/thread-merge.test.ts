@@ -212,3 +212,76 @@ test("produto e compra (F6): ao vivo e gravado com a mesma identidade não dupli
 	// Cartões diferentes continuam separados.
 	assert.equal(dedupeCards([product("a"), { id: "b", kind: "product", cardId: "run-1:product:outro", items: [item] } as Message]).length, 2);
 });
+
+const v4Approval = { type: "approval_request", requestId: "req-1", callId: "call-1", toolName: "send_email", effect: "send", args: {}, riskFacts: {}, runId: "run-1" } as const;
+const agentCard = (id: string, settled?: boolean): Message => ({ id, kind: "agent-card", card: v4Approval, ...(settled ? { settled } : {}) });
+
+test("card v4: o ao vivo e o gravado (mesmo pedido do mesmo run) viram um só, o gravado na posição dele", () => {
+	const live: Message[] = [user("db-u1"), { id: "cu-a", kind: "assistant", text: "Vou enviar." }, agentCard("agent-card-approval_request|run-1|req-1", true)];
+	const persisted: Message[] = [user("db-u1"), agentCard("db-card"), { id: "db-a", kind: "assistant", text: "Vou enviar." }];
+	const result = reconcilePersistedThread(persisted, live);
+	const cards = result.filter((message) => message.kind === "agent-card");
+	assert.deepEqual(cards.map((card) => card.id), ["db-card"]);
+	assert.deepEqual(result.map((message) => message.id), ["db-u1", "db-card", "db-a"]);
+});
+
+test("card v4: dedupe não vizinho fica com o gravado e herda o 'resolvido' do ao vivo", () => {
+	const result = dedupeCards([user("u1"), agentCard("db-card"), { id: "a1", kind: "assistant", text: "texto entre os dois" }, agentCard("agent-card-approval_request|run-1|req-1", true)]);
+	const cards = result.filter((message) => message.kind === "agent-card");
+	assert.equal(cards.length, 1);
+	assert.ok(cards[0]?.kind === "agent-card" && cards[0].id === "db-card" && cards[0].settled === true);
+});
+
+test("card v4: pedidos diferentes, ou o mesmo pedido em outro run, ficam os dois", () => {
+	const other: Message = { id: "x2", kind: "agent-card", card: { ...v4Approval, requestId: "req-2" } };
+	const otherRun: Message = { id: "x3", kind: "agent-card", card: { ...v4Approval, runId: "run-2" } };
+	assert.equal(dedupeCards([agentCard("x1"), other, otherRun]).length, 3);
+});
+
+test("card v4 só ao vivo (sem gravado ainda) continua na tela depois da reconciliação", () => {
+	const live: Message[] = [user("db-u1"), agentCard("agent-card-approval_request|run-1|req-1")];
+	const result = reconcilePersistedThread([user("db-u1")], live);
+	assert.deepEqual(kinds(result), ["user", "agent-card"]);
+});
+
+test("card v4 resolvido ao vivo continua resolvido quando o gravado o substitui (auditoria: botões voltavam)", () => {
+	const live: Message[] = [user("db-u1"), agentCard("agent-card-approval_request|run-1|req-1", true)];
+	const persisted: Message[] = [user("db-u1"), agentCard("db-card")];
+	const card = reconcilePersistedThread(persisted, live).find((message) => message.kind === "agent-card");
+	assert.ok(card?.kind === "agent-card" && card.id === "db-card" && card.settled === true);
+});
+
+test("e-mail (F7.1): triagem e rascunho ao vivo e gravados com o mesmo cardId não duplicam; cardId diferente fica separado", () => {
+	const triage = (id: string, cardId = "run-1:email-triage:a"): Message => ({ id, kind: "email-triage", cardId, items: [{ id: "m1", category: "needs_action", summary: "Aprovar" }] });
+	const draft = (id: string, cardId = "run-1:email-draft:b"): Message => ({ id, kind: "email-draft", cardId, source: "gmail", to: ["ana@empresa.test"], subject: "Re", body: "Ok.", saved: true });
+	const live: Message[] = [user("db-u1", "o que tem no e-mail"), triage("email-triage-live"), draft("email-draft-live")];
+	const persisted: Message[] = [user("db-u1", "o que tem no e-mail"), triage("db-t"), draft("db-d")];
+	assert.deepEqual(reconcilePersistedThread(persisted, live).map((message) => message.id), ["db-u1", "db-t", "db-d"]);
+	assert.deepEqual(kinds(reconcilePersistedThread(persisted, [user("db-u1", "o que tem no e-mail")])), ["user", "email-triage", "email-draft"]);
+	assert.equal(dedupeCards([triage("a"), triage("b")]).length, 1);
+	assert.equal(dedupeCards([draft("a"), draft("b")]).length, 1);
+	assert.equal(dedupeCards([draft("a"), draft("b", "run-1:email-draft:outro")]).length, 2);
+});
+
+test("plano do dia: a fala com a abertura (texto do push) não repete o card no fio; outra fala do mesmo run e falas de outro run ficam", () => {
+	const plan: Message = { id: "db-plan", kind: "day-plan", planId: "day-plan:run-1", date: "2026-11-10", timeZone: "America/Sao_Paulo", headline: "Hoje: 1 compromisso.", sections: [], sourceErrors: [] };
+	const say = (id: string, text: string, runId: string): Message => ({ id, kind: "assistant", text, runId });
+	const out = dedupeCards([say("a1", "Hoje:  1 compromisso.", "run-1"), plan, say("a2", "Quer que eu mova a reunião?", "run-1"), say("a3", "Hoje: 1 compromisso.", "run-2")]);
+	assert.deepEqual(out.map((message) => message.id), ["db-plan", "a2", "a3"]);
+	// Sem card do plano nada some.
+	assert.equal(dedupeCards([say("a1", "Hoje: 1 compromisso.", "run-1")]).length, 1);
+});
+
+test("calendário e plano do dia (F7): ao vivo e gravado com a mesma identidade não duplicam; identidades diferentes seguem separadas", () => {
+	const ev = { id: "e1", title: "Reunião", start: "2026-11-10T17:00:00.000Z", end: "2026-11-10T18:00:00.000Z", allDay: false };
+	const calendar = (id: string, cardId = "calendar:run-1:created:e1"): Message => ({ id, kind: "calendar", cardId, action: "created", timeZone: "America/Sao_Paulo", events: [ev] });
+	const plan = (id: string, planId = "day-plan:run-1"): Message => ({ id, kind: "day-plan", planId, date: "2026-11-10", timeZone: "America/Sao_Paulo", headline: "Hoje: 1 compromisso.", sections: [], sourceErrors: [] });
+	const live: Message[] = [user("db-u1", "marca"), calendar("calendar-live"), plan("day-plan-live")];
+	const persisted: Message[] = [user("db-u1", "marca"), calendar("db-cal"), plan("db-plan")];
+	assert.deepEqual(reconcilePersistedThread(persisted, live).map((message) => message.id), ["db-u1", "db-cal", "db-plan"]);
+	assert.deepEqual(kinds(reconcilePersistedThread(persisted, [user("db-u1", "marca")])), ["user", "calendar", "day-plan"]);
+	assert.equal(dedupeCards([calendar("a"), calendar("b")]).length, 1);
+	assert.equal(dedupeCards([plan("a"), plan("b")]).length, 1);
+	assert.equal(dedupeCards([calendar("a"), calendar("b", "calendar:run-1:updated:e1:call-2")]).length, 2);
+	assert.equal(dedupeCards([plan("a"), plan("b", "day-plan:run-2")]).length, 2);
+});

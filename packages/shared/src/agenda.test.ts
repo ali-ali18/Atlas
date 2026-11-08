@@ -120,9 +120,9 @@ describe("planAgendaItem: intent e brief", () => {
 		expect(ok.ok && ok.plan.untilAt?.toISOString()).toBe("2026-12-04T13:00:00.000Z");
 	});
 
-	it("eventFilter fora de intent é recusado; brief ainda não é criado por pedido", () => {
+	it("eventFilter fora de intent é recusado", () => {
 		expect(planAgendaItem({ request: { kind: "watch", note: "x", everyMinutes: 180, eventFilter: { source: "email", from: "a@b.com" } }, now: NOW, settings: SP }).ok).toBe(false);
-		expect(planAgendaItem({ request: { kind: "brief", note: "x", when: "2026-11-05T08:00" }, now: NOW, settings: SP })).toMatchObject({ ok: false, error: expect.stringContaining("brief") });
+		expect(planAgendaItem({ request: { kind: "brief", note: "x", when: "2026-11-05T08:00", eventFilter: { source: "email", from: "a@b.com" } }, now: NOW, settings: SP }).ok).toBe(false);
 		expect(planAgendaItem({ request: { kind: "nope" as never, note: "x" }, now: NOW, settings: SP }).ok).toBe(false);
 	});
 });

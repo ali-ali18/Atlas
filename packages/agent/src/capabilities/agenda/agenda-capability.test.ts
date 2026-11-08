@@ -17,8 +17,8 @@ describe("capacidade agenda: criação", () => {
 	it("é lazy e as tools de criação são write_internal (silenciosas em autonomia normal)", () => {
 		const cap = createAgendaCapability(new FakeAgenda());
 		expect(cap.core).toBe(false);
-		expect(cap.tools.map((t) => t.name)).toEqual(["remind_me", "watch", "on_event", "agenda_list", "agenda_change"]);
-		for (const name of ["remind_me", "watch", "on_event", "agenda_change"]) expect(cap.tools.find((t) => t.name === name)).toMatchObject({ effect: "write_internal", egress: false, trust: "trusted" });
+		expect(cap.tools.map((t) => t.name)).toEqual(["remind_me", "watch", "on_event", "brief_set", "agenda_list", "agenda_change"]);
+		for (const name of ["remind_me", "watch", "on_event", "brief_set", "agenda_change"]) expect(cap.tools.find((t) => t.name === name)).toMatchObject({ effect: "write_internal", egress: false, trust: "trusted" });
 		expect(cap.tools.find((t) => t.name === "agenda_list")?.effect).toBe("read");
 	});
 

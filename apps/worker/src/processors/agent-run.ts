@@ -144,6 +144,7 @@ import { isAgendaWakeObjective } from "../agenda-wake.js";
 import { closeAgendaRun, loadAgendaRunContextOrFail, mergeProvenance, releaseUnstartedAgendaRun, settleAbortedAgendaRun } from "../agenda-run.js";
 import { prepareV4Run } from "../v4-run-context.js";
 import { runV4Turn } from "../v4-turn.js";
+import { createBriefEmailForRun } from "../v4-adapters/brief-email.js";
 import { loadNotebookContext } from "../v4-adapters/notebook.js";
 import { cheapModelFromEnv, createV4Llm, dropProcessorOwnedEvents, ownerStepsLimit, runEngineV4, vaultBackendFromService } from "../engine-v4.js";
 /** Run de agenda que não chegou a executar (motor ou contexto): o item volta à fila neste prazo. */
@@ -1263,7 +1264,7 @@ async function executeLeasedRun(ctx: {
 					// Run de agenda: o que o modelo lê ao acordar, a política sem dono (permissão da criação) e `agenda_result` no núcleo.
 					// As regras atuais do dono (`policyJson.rules`) entram por último sobre as da criação: uma `deny` nova vale no próximo wake.
 					...(agendaRun
-						? { history: agendaRun.history, policy: { ...agendaRun.policy, rules: [...agendaRun.policy.rules, ...toPolicyRules(rawBotPolicy)] }, agendaRun: true }
+						? { history: agendaRun.history, policy: { ...agendaRun.policy, rules: [...agendaRun.policy.rules, ...toPolicyRules(rawBotPolicy)] }, agendaRun: true, agendaKind: agendaRun.item.kind, ...(agendaRun.item.kind === "brief" && { briefEmail: createBriefEmailForRun({ scope: { ownerId: runUserId, botId: run.botId ?? null, conversationId: run.conversationId } }) }) }
 						: { rules: toPolicyRules(rawBotPolicy), ...(prepared.history ? { history: prepared.history } : {}) }),
 					...(prepared.cardResponses ? { cardResponses: prepared.cardResponses } : {}),
 					// Run de agenda nasce contaminado se a nota, o memo ou o evento vieram de conteúdo não confiável (S1).

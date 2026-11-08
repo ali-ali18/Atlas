@@ -7,18 +7,16 @@
  * a sobrescreve e retomar zera). Não usa `dueAt` porque o fechamento do run o refaz (em `intent` volta para o fim da vigência).
  * Tudo filtra pelo dono; a reserva usa `FOR UPDATE SKIP LOCKED` como a do `claimDueAgendaItems`.
  */
-import { getAgendaItem, prisma, type AgendaItemRecord } from "@workspace/db";
+import { AGENDA_EVENT_PENDING, getAgendaItem, markAgendaEventPending, prisma, type AgendaItemRecord } from "@workspace/db";
 import { AGENDA_EVENT_MAX_WAKES_PER_DAY } from "@workspace/shared";
 
-export const EVENT_PENDING = "event_pending";
+export const EVENT_PENDING = AGENDA_EVENT_PENDING;
 const CLAIM_MS = 2 * 60_000;
 const BATCH = 20;
 
 /** Marca o item de intenção do dono como "tem evento esperando". `false` = não era item `intent` pendente dele. */
 export async function markPendingEvent(userId: string, id: string): Promise<boolean> {
-	if (!userId || userId === "default") return false;
-	const result = await prisma.botFollowup.updateMany({ where: { id, userId, agendaKind: "intent", status: "pending" }, data: { endReason: EVENT_PENDING } });
-	return result.count === 1;
+	return markAgendaEventPending(userId, id);
 }
 
 /** O run do item começou (ou o item voltou ao normal): tira a marca. */

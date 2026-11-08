@@ -83,7 +83,7 @@ import type {
 	ScanFinding,
 	TextDiff,
 } from "@workspace/shared";
-import { parseSseBlock, type DevApprovalCardInfo, type DevSessionEvent, type DevTimingEvent, type FilePreview, type LoginConnector } from "@workspace/shared";
+import { parseAgentV4Event, parseSseBlock, type AgentV4Event, type DevApprovalCardInfo, type DevSessionEvent, type DevTimingEvent, type FilePreview, type LoginConnector } from "@workspace/shared";
 import { filePreviewPath } from "@/lib/file-card";
 import { getStoredSseCursor, setStoredSseCursor } from "@/lib/active-run";
 import { isJevToolReview, type JevToolReview } from "@/lib/jev-status";
@@ -1298,8 +1298,14 @@ export type ComputerUseHandlers = {
 	onChart?: (event: Extract<ComputerUseEvent, { type: "chart" }>) => void;
 	onProduct?: (event: Extract<ComputerUseEvent, { type: "product" }>) => void;
 	onPurchase?: (event: Extract<ComputerUseEvent, { type: "purchase" }>) => void;
+	onEmailTriage?: (event: Extract<ComputerUseEvent, { type: "email_triage" }>) => void;
+	onEmailDraft?: (event: Extract<ComputerUseEvent, { type: "email_draft" }>) => void;
+	onCalendar?: (event: Extract<ComputerUseEvent, { type: "calendar" }>) => void;
+	onDayPlan?: (event: Extract<ComputerUseEvent, { type: "day_plan" }>) => void;
 	onPage?: (event: Extract<ComputerUseEvent, { type: "page" }>) => void;
 	onTaskList?: (event: Extract<ComputerUseEvent, { type: "task_list" }>) => void;
+	/** Cards do motor v4 (aprovação, "isso é com você", pergunta do bot, recibo), já validados por `parseAgentV4Event`. */
+	onAgentCard?: (event: AgentV4Event) => void;
 	/** Cursor do agente no navegador do sandbox (efêmero, só para a UI). */
 	onAgentPointer?: (event: AgentPointerEvent) => void;
 	onLogin?: (event: {
@@ -1429,12 +1435,33 @@ export function dispatchComputerUseEvent(
 		case "purchase":
 			handlers.onPurchase?.(event);
 			break;
+		case "email_triage":
+			handlers.onEmailTriage?.(event);
+			break;
+		case "email_draft":
+			handlers.onEmailDraft?.(event);
+			break;
+		case "calendar":
+			handlers.onCalendar?.(event);
+			break;
+		case "day_plan":
+			handlers.onDayPlan?.(event);
+			break;
 		case "page":
 			handlers.onPage?.(event);
 			break;
 		case "task_list":
 			handlers.onTaskList?.(event);
 			break;
+		case "approval_request":
+		case "handoff_request":
+		case "ask_owner":
+		case "receipt": {
+			// Payload persistido/reentregue pode vir de uma versão diferente do worker: valida antes de virar card.
+			const card = parseAgentV4Event(event);
+			if (card) handlers.onAgentCard?.(card);
+			break;
+		}
 		case "agent_pointer":
 			handlers.onAgentPointer?.(event);
 			break;
@@ -1650,6 +1677,41 @@ export async function resolveBotProfileProposal(request: {
 			body: JSON.stringify(request),
 		},
 	);
+}
+
+/**
+ * Resposta do dono a um card do motor v4. `approve`/`dismiss` no pedido de aprovação; `done` no "isso é com
+ * você" (que não tem "Agora não" na API: o pedido só vence pelo prazo); `answer`/`dismiss` na pergunta do bot.
+ * O recibo não tem resposta.
+ *
+ * O texto da resposta à pergunta NÃO vai nesta chamada: ela só marca o card como respondido. O texto segue como
+ * mensagem normal da conversa (quem chama envia), que é como o run seguinte o recebe.
+ * O código de segurança do cartão (pagamento) também não passa por aqui: ver `respondAgentV4Request`.
+ */
+export type AgentCardResponse =
+	| { kind: "approval"; requestId: string; callId: string; decision: "approve" | "dismiss" }
+	| { kind: "handoff"; callId: string; decision: "done" }
+	| { kind: "ask_owner"; cardId: string; decision: "answer"; answer: string }
+	| { kind: "ask_owner"; cardId: string; decision: "dismiss" };
+
+/** Teto da resposta digitada no card de pergunta (o mesmo teto de texto dos eventos v4). */
+export const AGENT_CARD_ANSWER_MAX = 8_000;
+
+/**
+ * Envia a resposta do card ao servidor: aprovação e handoff em `POST /v1/agent-v4/runs/:runId/requests/:key/respond`
+ * (retoma o run estacionado), pergunta em `POST /v1/agent-v4/cards/:cardId/respond` (o run seguinte leva a resposta).
+ * Falhou = lança `AtlasApiError` e o card continua pendente, sem marcar a decisão como feita.
+ */
+export async function respondToAgentCard(runId: string, response: AgentCardResponse): Promise<unknown> {
+	if (response.kind === "approval") {
+		return respondAgentV4Request({ runId, key: response.requestId, decision: response.decision === "approve" ? "approve" : "deny" });
+	}
+	if (response.kind === "handoff") return respondAgentV4Request({ runId, key: response.callId, decision: "handoff_done" });
+	if (response.decision === "answer" && response.answer.length > AGENT_CARD_ANSWER_MAX) throw new Error("answer too long");
+	return atlasFetch<{ ok: boolean; status: string }>(`/v1/agent-v4/cards/${encodeURIComponent(response.cardId)}/respond`, {
+		method: "POST",
+		body: JSON.stringify({ response: response.decision === "answer" ? "answered" : "dismissed" }),
+	});
 }
 
 export async function getAgentRun(runId: string): Promise<{

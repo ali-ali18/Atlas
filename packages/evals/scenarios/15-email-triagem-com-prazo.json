@@ -1,0 +1,168 @@
+{
+  "version": 1,
+  "bot": {
+    "name": "Ada",
+    "about": "Assistente pessoal do dono: e-mail, compras, estudos e agenda.",
+    "language": "pt-BR"
+  },
+  "locale": {
+    "country": "BR",
+    "currency": "BRL",
+    "timezone": "America/Sao_Paulo"
+  },
+  "history": [],
+  "run": {
+    "maxSteps": 10,
+    "origin": "chat",
+    "engine": "v4"
+  },
+  "id": "seed-email-triagem-com-prazo",
+  "title": "'O que tem de importante no meu e-mail?' → lista, lê o que precisa, triagem declarada com prazo e quem pede",
+  "description": "F7.1 (só v4): carrega a capacidade email, lista a caixa, lê o pedido que tem prazo e declara a categoria de cada mensagem no email_triage (ação, só para saber, ignorar) com o prazo que o e-mail diz. A decisão é o campo declarado; o cartão traz a lista, então a resposta é curta. Não envia nada.",
+  "tags": [
+    "email",
+    "triagem",
+    "v4-only"
+  ],
+  "source": {
+    "kind": "seed",
+    "note": "F7.1: capacidade email do motor v4."
+  },
+  "user": "o que tem de importante no meu e-mail?",
+  "tools": {
+    "fixtures": [
+      {
+        "tool": "email_inbox",
+        "result": {
+          "ok": true,
+          "summary": "[{\"id\": \"g1\", \"from\": \"Ana Souza <ana@empresa.test>\", \"subject\": \"Orçamento do servidor para aprovar\", \"snippet\": \"Preciso do seu ok até quinta.\", \"date\": \"2026-11-06T13:00:00.000Z\", \"unread\": true, \"body\": \"Oi! O orçamento do servidor novo ficou em R$ 18.400. Preciso do seu ok até quinta-feira, 12/11, para fechar com o fornecedor. Abraço, Ana\"}, {\"id\": \"g2\", \"from\": \"ops@empresa.test\", \"subject\": \"Relatório mensal publicado\", \"snippet\": \"O relatório de outubro já está no painel.\", \"date\": \"2026-11-06T09:00:00.000Z\", \"unread\": true, \"body\": \"O relatório de outubro foi publicado no painel. Nenhuma ação necessária.\"}, {\"id\": \"g3\", \"from\": \"promo@loja-exemplo.test\", \"subject\": \"Black Friday: 40% em tudo\", \"snippet\": \"Só até domingo.\", \"date\": \"2026-11-05T20:00:00.000Z\", \"unread\": false, \"body\": \"Aproveite 40% de desconto em toda a loja até domingo. Use o cupom BF40.\"}]"
+        }
+      }
+    ],
+    "connectors": [],
+    "allowReal": []
+  },
+  "expect": [
+    {
+      "type": "completed"
+    },
+    {
+      "id": "carregou-email",
+      "type": "tool_called",
+      "tool": "use_capability",
+      "args": {
+        "id": {
+          "equals": "email"
+        }
+      }
+    },
+    {
+      "id": "leu-o-pedido",
+      "type": "tool_called",
+      "tool": "email_read",
+      "args": {
+        "id": {
+          "equals": "g1"
+        }
+      }
+    },
+    {
+      "id": "triou-com-prazo",
+      "type": "tool_called",
+      "tool": "email_triage",
+      "args": {
+        "items": {
+          "contains": "2026-11-12"
+        }
+      }
+    },
+    {
+      "id": "triagem-ok",
+      "type": "tool_result",
+      "tool": "email_triage",
+      "pattern": "1 need action, 1 for information, 1 to ignore"
+    },
+    {
+      "id": "nao-enviou-nem-rascunhou",
+      "type": "tool_not_called",
+      "toolPattern": "^email_(send|draft)$"
+    },
+    {
+      "type": "no_question"
+    },
+    {
+      "type": "no_internals"
+    }
+  ],
+  "mock": {
+    "turns": [
+      {
+        "calls": [
+          {
+            "name": "use_capability",
+            "args": {
+              "id": "email"
+            }
+          }
+        ]
+      },
+      {
+        "calls": [
+          {
+            "name": "email_list",
+            "args": {
+              "unread": false
+            }
+          }
+        ]
+      },
+      {
+        "calls": [
+          {
+            "name": "email_read",
+            "args": {
+              "id": "g1"
+            }
+          }
+        ]
+      },
+      {
+        "calls": [
+          {
+            "name": "email_triage",
+            "args": {
+              "items": [
+                {
+                  "id": "g1",
+                  "source": "gmail",
+                  "category": "needs_action",
+                  "subject": "Orçamento do servidor para aprovar",
+                  "summary": "Pede o seu ok no orçamento de R$ 18.400.",
+                  "requester": "Ana Souza",
+                  "deadline": "2026-11-12"
+                },
+                {
+                  "id": "g2",
+                  "source": "gmail",
+                  "category": "fyi",
+                  "subject": "Relatório mensal publicado",
+                  "summary": "O relatório de outubro está no painel."
+                },
+                {
+                  "id": "g3",
+                  "source": "gmail",
+                  "category": "ignore",
+                  "subject": "Black Friday: 40% em tudo",
+                  "summary": "Promoção de loja."
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "say": "Só uma mensagem pede ação: a Ana precisa do seu ok no orçamento do servidor (R$ 18.400) até quinta, 12/11. O relatório de outubro saiu, sem nada a fazer, e o resto é promoção."
+      }
+    ]
+  }
+}

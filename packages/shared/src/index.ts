@@ -144,14 +144,21 @@ export type {
 export {
 	AGENT_V4_EVENT_TYPES,
 	AGENT_V4_TEXT_MAX,
+	ASK_OWNER_CHOICES_MAX,
+	agentCardCallId,
+	agentCardIdentity,
+	agentCardKey,
 	isAgentV4EventType,
 	parseAgentV4Event,
 	type AgentV4Event,
 	type ApprovalRequestEvent,
+	type AskOwnerChoice,
 	type AskOwnerEvent,
 	type HandoffRequestEvent,
 	type ReceiptEvent,
 } from "./agent-v4-events.js";
+export { approvalEventFact, approvalMessageFact, formatApprovalEventWhen, type ApprovalEventFact, type ApprovalMessageFact } from "./agent-v4-approval-facts.js";
+export { purchaseRequestFromEvent, type PurchaseFacts, type PurchaseRequest } from "./agent-v4-purchase.js";
 export {
 	AGENT_POINTER_NAME_MAX,
 	type AgentPointerAction,
@@ -273,6 +280,9 @@ export * from "./tool-cache.js";
 export * from "./task-list.js";
 export * from "./product.js";
 export * from "./purchase.js";
+export * from "./email-triage.js";
+export * from "./calendar.js";
+export * from "./day-plan.js";
 export * from "./task-ledger.js";
 export * from "./browser-subagents.js";
 export { COMPACT_TAIL_KEEP, selectCompactTail } from "./compact.js";

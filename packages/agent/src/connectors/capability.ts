@@ -12,7 +12,7 @@
 //    confiável no run a chamada pede cartão. Conector privado do dono (Gmail, Drive) não declara: é o serviço dele.
 //  - Resultado e erro de MCP são `trust: "untrusted"`, `source: "mcp"`, com segredo redigido.
 //    Conector privado (padrão) declara `privateData: true`.
-import { classifyMcpEffect, isPrivateConnector, sanitizeErrorMessage, type McpEffectClass } from "@workspace/shared";
+import { classifyMcpEffect, COMPOSIO_CATALOG_ID, composioToolkitOfTool, isPrivateConnector, sanitizeErrorMessage, type McpEffectClass } from "@workspace/shared";
 import { z } from "zod";
 import { type Capability, defineCapability, SUMMARY_MAX_LENGTH } from "../capabilities/define-capability.js";
 import { sanitizeText } from "../contract/sanitize.js";
@@ -64,9 +64,36 @@ function capabilitySummary(prepared: readonly PreparedConnection[]): string {
 	return clip(`Owner's connected apps (${shown.join(", ")}${more}): find a tool with tool_search, then call it.`, SUMMARY_MAX_LENGTH);
 }
 
-export async function createConnectorsCapability(mcp: Mcp, ownerId: string, signal?: AbortSignal): Promise<ConnectorsSetup> {
+/** Capacidades nativas já presentes no run: o conector que duplica uma delas sai (o nativo tem aprovação, fuso e cartão; o conector contornaria as regras). */
+export type NativeCoverage = { email?: boolean; calendar?: boolean };
+
+const NATIVE_CATALOG_IDS: Readonly<Record<keyof NativeCoverage, string>> = { email: "gmail", calendar: "google_calendar" };
+const NATIVE_COMPOSIO_TOOLKITS: Readonly<Record<keyof NativeCoverage, string>> = { email: "gmail", calendar: "googlecalendar" };
+
+/** Tira da conexão o que a capacidade nativa já cobre: o conector embutido inteiro, ou as tools de Gmail/Agenda de um Composio. */
+function withoutNativeDuplicates(connections: readonly McpConnectionSnapshot[], native: NativeCoverage, ownerId: string): McpConnectionSnapshot[] {
+	// Só vale esconder quando a capacidade nativa consegue resolver a conta: a conexão embutida correspondente está conectada para o dono.
+	// Quem só tem Composio (sem o embutido) mantém as tools do Composio, senão ficaria sem e-mail ou agenda.
+	const covered = (Object.keys(native) as (keyof NativeCoverage)[]).filter((key) => native[key] && connections.some((c) => c.ownerId === ownerId && c.status === "connected" && c.catalogId === NATIVE_CATALOG_IDS[key]));
+	if (covered.length === 0) return [...connections];
+	const out: McpConnectionSnapshot[] = [];
+	for (const connection of connections) {
+		if (covered.some((key) => connection.catalogId === NATIVE_CATALOG_IDS[key])) continue;
+		if (connection.catalogId === COMPOSIO_CATALOG_ID) {
+			const toolkits = new Set(covered.map((key) => NATIVE_COMPOSIO_TOOLKITS[key]));
+			const tools = connection.tools.filter((t) => !toolkits.has(composioToolkitOfTool(t.name)));
+			if (tools.length === 0) continue;
+			out.push(tools.length === connection.tools.length ? connection : { ...connection, tools });
+			continue;
+		}
+		out.push(connection);
+	}
+	return out;
+}
+
+export async function createConnectorsCapability(mcp: Mcp, ownerId: string, signal?: AbortSignal, native: NativeCoverage = {}): Promise<ConnectorsSetup> {
 	if (!isOwner(ownerId)) return { capability: null };
-	const listed = await mcp.listConnections(ownerId, signal);
+	const listed = withoutNativeDuplicates(await mcp.listConnections(ownerId, signal), native, ownerId);
 	const usable = listed.filter((c) => c.ownerId === ownerId && c.status === "connected");
 	if (usable.length === 0) return { capability: null };
 	const parts = uniqueSlugParts(usable.map((c) => c.slug));

@@ -37,8 +37,11 @@ import {
 	SUPERSEDED_CARD_DETAIL,
 	type ReasoningEffort,
 	decideRunFollow,
+	isAgentV4EventType,
 	decideStreamFailure,
 	runFollowBackoffMs,
+	parseCalendarCard,
+	parseDayPlanCard,
 } from "@workspace/shared";
 import { activityForAssistantEvent, activityForToolIntent, runStatusOnProgress, type AgentActivity } from "@/lib/working-status";
 import { jevStatusText } from "@/lib/jev-status";
@@ -65,6 +68,7 @@ import { subscribeAppResume } from "@/lib/resume-sync";
 import { createThreadSync, type ThreadSync } from "@/lib/thread-sync";
 import { createSendQueue } from "@/lib/send-queue";
 import { inboundEmailBodyOf, inboundEmailThreadMessage } from "@/lib/email-message";
+import { agentCardFromStored, applyAgentCardEvent, settleAgentCardsForCall } from "@/lib/agent-cards";
 import { adoptLoadedThread, applyLiveEvent, applyTaskListEvent, createLiveBubbleState, hydrateRunEvents, mergePreservingSkills, trackSupersededBubbles, type LiveBubbleState } from "@/lib/thread-live";
 import { eventRunStatus, isActiveRunStatus, isParkedRunStatus, isTerminalRunStatus, type HubEvent } from "@/lib/event-hub";
 import { currentPollMode, getSharedEventHub, shouldPollTick } from "@/lib/event-hub-client";
@@ -189,6 +193,19 @@ function conversationCardToMessage(
 	if (card.kind === "purchase") {
 		const { v: _v, kind: _kind, runId: _runId, ...fields } = card;
 		return { id, kind: "purchase", ...fields };
+	}
+	if (card.kind === "email-triage") return { id, kind: "email-triage", cardId: card.cardId, items: card.items };
+	if (card.kind === "email-draft") {
+		const { v: _v, kind: _kind, runId: _runId, ...fields } = card;
+		return { id, kind: "email-draft", ...fields };
+	}
+	if (card.kind === "calendar") {
+		const { v: _v, kind: _kind, runId: _runId, ...fields } = card;
+		return { id, kind: "calendar", ...fields };
+	}
+	if (card.kind === "day-plan") {
+		const { v: _v, kind: _kind, runId: _runId, ...fields } = card;
+		return { id, kind: "day-plan", ...fields };
 	}
 	if (card.kind === "chart") return { id, kind: "chart", chartId: card.chartId, spec: card.spec, ...(card.filename ? { filename: card.filename } : {}) };
 	if (card.kind === "page") {
@@ -406,6 +423,8 @@ export function buildSessionMessage(message: SessionMessage): Message | null {
 		}
 		return { id: message.id, kind: "assistant", text: message.content };
 	}
+	// Card do motor v4 gravado na conversa: `role` = tipo do evento, `content` = o evento em JSON (validado).
+	if (isAgentV4EventType(message.role)) return agentCardFromStored(message.id, message.role, message.content, message.runId ?? undefined);
 	// Card `questionnaire` (role próprio, não vai ao LLM): parse via
 	// parseConversationCard + narrow para o kind.
 	if ((message.role as string) === "questionnaire") {
@@ -440,6 +459,10 @@ export function buildSessionMessage(message: SessionMessage): Message | null {
 		|| (message.role as string) === "chart"
 		|| (message.role as string) === "product"
 		|| (message.role as string) === "purchase"
+		|| (message.role as string) === "email-triage"
+		|| (message.role as string) === "email-draft"
+		|| (message.role as string) === "calendar"
+		|| (message.role as string) === "day-plan"
 		|| (message.role as string) === "page"
 		|| (message.role as string) === "task-list"
 		|| (message.role as string) === "compaction"
@@ -728,6 +751,8 @@ export function createComputerHandlers(params: {
 			params.onStreamingMessage?.(null);
 			// Falha da ferramenta: o texto do indicador não muda, mas o avatar faz cara de erro.
 			params.onAgentActivity?.(result.ok === false ? { phase: "thinking", toolFailed: true } : { phase: "thinking" });
+			// Chamada estacionada num card v4 (aprovação, "isso é com você") teve resultado: o card fica sem botões.
+			params.setMessages((previous) => settleAgentCardsForCall(previous, result.id, params.runId));
 			if (result.name === "generate_image") {
 				params.setMessages((previous) => settleImageGen(previous, result.id, result));
 			}
@@ -996,6 +1021,13 @@ export function createComputerHandlers(params: {
 				return dedupeCards(insertCardAfterCurrentTurn(previous, confirmMessage));
 			});
 		},
+		onAgentCard: (event) => {
+			params.onActivity?.();
+			params.setMessages((previous) => {
+				const next = applyAgentCardEvent(previous, event, params.runId);
+				return next === previous ? previous : dedupeCards(next);
+			});
+		},
 		onTaskList: (event) => {
 			params.onActivity?.();
 			params.setMessages((previous) => applyTaskListEvent(previous, event, params.runId));
@@ -1032,6 +1064,49 @@ export function createComputerHandlers(params: {
 				const { type: _type, runId: _runId, ...fields } = event;
 				const message: Message = { id: `purchase-${event.purchaseId}`, kind: "purchase", ...fields };
 				return dedupeCards(insertCardAfterCurrentTurn(previous, message));
+			});
+		},
+		onEmailTriage: (event) => {
+			params.onActivity?.();
+			// Mesmo parser do cartão gravado: categoria e prazo revalidados, item inválido derruba o cartão.
+			const card = parseConversationCard(JSON.stringify({ v: 1, kind: "email-triage", cardId: event.cardId, items: event.items }));
+			if (card?.kind !== "email-triage") return;
+			params.setMessages((previous) => {
+				if (previous.some((m) => m.kind === "email-triage" && m.cardId === card.cardId)) return previous;
+				const message: Message = { id: `email-triage-${card.cardId}`, kind: "email-triage", cardId: card.cardId, items: card.items };
+				return dedupeCards(insertCardAfterCurrentTurn(previous, message));
+			});
+		},
+		onEmailDraft: (event) => {
+			params.onActivity?.();
+			const card = parseConversationCard(JSON.stringify({ v: 1, kind: "email-draft", ...event, type: undefined }));
+			if (card?.kind !== "email-draft") return;
+			params.setMessages((previous) => {
+				if (previous.some((m) => m.kind === "email-draft" && m.cardId === card.cardId)) return previous;
+				const { v: _v, kind: _kind, runId: _runId, ...fields } = card;
+				const message: Message = { id: `email-draft-${card.cardId}`, kind: "email-draft", ...fields };
+				return dedupeCards(insertCardAfterCurrentTurn(previous, message));
+			});
+		},
+		onCalendar: (event) => {
+			params.onActivity?.();
+			// Mesmo parser do cartão gravado: fuso, horários e link validados; evento inválido descarta o cartão.
+			const card = parseCalendarCard({ ...event });
+			if (!card) return;
+			params.setMessages((previous) => {
+				if (previous.some((m) => m.kind === "calendar" && m.cardId === card.cardId)) return previous;
+				const { v: _v, kind: _kind, runId: _runId, ...fields } = card;
+				return dedupeCards(insertCardAfterCurrentTurn(previous, { id: `calendar-${card.cardId}`, kind: "calendar", ...fields }));
+			});
+		},
+		onDayPlan: (event) => {
+			params.onActivity?.();
+			const card = parseDayPlanCard({ ...event });
+			if (!card) return;
+			params.setMessages((previous) => {
+				if (previous.some((m) => m.kind === "day-plan" && m.planId === card.planId)) return previous;
+				const { v: _v, kind: _kind, runId: _runId, ...fields } = card;
+				return dedupeCards(insertCardAfterCurrentTurn(previous, { id: `day-plan-${card.planId}`, kind: "day-plan", ...fields }));
 			});
 		},
 		onPage: (event) => {

@@ -43,7 +43,8 @@
 | F3 pesquisa | `feat/harness-v4-f3-pesquisa` | **concluída, juntada em `harness/v4`** | #153 |
 | F4 agenda | `feat/harness-v4-f4-agenda` | **backend juntado em `harness/v4`** (#155); tela da Agenda juntada | #155, #157 |
 | F5 memória | `feat/harness-v4-f5-memoria` | **backend juntado em `harness/v4`** (#154); telas do Caderno, regras e sono juntadas | #154, #157 |
-| F6 compras | `feat/harness-v4-f6-compras` | concluída (08/11): produto, compra registrada, cartão sem CVV, checkout com CVV, mandato; auditoria + reauditoria em `auditorias/F6.md` | PR para `harness/v4` |
+| F6 compras | `feat/harness-v4-f6-compras` | concluída (08/11): produto, compra registrada, cartão sem CVV, checkout com CVV, mandato; auditoria + reauditoria em `auditorias/F6.md` | #158 |
+| F7 e-mail e dia | `feat/harness-v4-f7-email-dia` | **concluída** (08/11): frentes E, K e W integradas; auditoria, correções e reauditoria em `auditorias/F7.md`; falta o PR e o merge em `harness/v4` | #159 (issue-mãe) |
 
 ## Decisões do dono (não reabrir)
 - Base nova, do zero, em `packages/agent`, sem import do legado (05/11).
@@ -129,12 +130,14 @@
 - [x] F6.3 (07/11, frente C: `checkout` em `capabilities/shopping/checkout.ts`, canal efêmero do CVV (Redis selado, GETDEL, chave = pedido), `card_fill` sobre a porta `Sandbox` com fake, handoff pós-efeito sem repetir, `CvvField` em `packages/ui`, cartão de compra mínimo em `ai-elements/purchase`, rota de resposta com `cvv` só para compra; testes de vazamento em evento, pedido ao modelo, journal, recibo e checkpoint. Falta na F8: o adaptador real de `card_fill` na VM) `checkout` com campo de CVV no cartão de aprovação e `card_fill` (teste de vazamento).
 - [x] F6.4 (07/11, frente C: tabela `purchase_mandates`, rotas `/v1/purchase-mandate`, mandato carregado pelo worker; com mandato o cartão pede só o CVV (`inputOnly`) e o uso é gasto e gravado; falta a tela do mandato, que por ora se cria pela API) Mandato opcional.
 - [x] F6.5 (07/11: `record_purchase` `write_internal` (após a auditoria: confirma quando o run leu conteúdo de fora, sai do run de agenda, ganha `purchase_update`/`purchase_delete`; checkout pago registra sozinho), tabela `purchases`, rotas `/v1/purchases` com IDOR testado, card `purchase`, vigia de entrega criado em silêncio pela agenda do preset (12 h, ~30 dias); o `checkout` da frente C é uma tool da mesma capacidade `shopping`) `record_purchase` e vigia de entrega automático.
-- [x] F6.A Auditoria (08/11: duas leituras, 19 achados corrigidos com teste; reauditoria com 11 achados novos, 10 corrigidos e 1 adiado para a tela do mandato; aceitos registrados em `auditorias/F6.md`. Pendências da F6 fora deste PR: o web ainda não renderiza `approval_request` no fio (cartão de compra pronto em `ai-elements/purchase`, falta ligar junto com os cards da outra conta), tela e tool de chat do mandato, cards `product`/`purchase` e CVV no app mobile, `card_fill` real na F8.0)
+- [x] F6.A Auditoria (08/11: duas leituras, 19 achados corrigidos com teste; reauditoria com 11 achados novos, 10 corrigidos e 1 adiado para a tela do mandato; aceitos registrados em `auditorias/F6.md`. Pendências da F6 fora deste PR: tela e tool de chat do mandato, cards `product`/`purchase` no app mobile, `card_fill` real na F8.0)
 
 ### F7: E-mail e dia
-- [ ] F7.1 `email` e `calendar` (corpo, classificação por campo, prazos, rascunhos, envio com cartão).
-- [ ] F7.2 `brief` na agenda (plano do dia).
-- [ ] F7.A Auditoria: 5 lentes, verificação, correções com teste, reauditoria e `auditorias/F7.md` fechado.
+- [x] F7.1 `email` e `calendar` (corpo, classificação por campo, prazos, rascunhos, envio com cartão).
+  - [x] F7.1 e-mail (08/11, frente E: `email_list`, `email_read`, `email_triage`, `email_draft` e `email_send` nativos para o Gmail do dono e a caixa do bot; escopo `gmail.send`; cards de triagem e rascunho; intenção "quando chegar o e-mail" pelo webhook da caixa do bot; 2 cenários seed v4; `docs/features/email-v4.md`). Falta a ingestão do Gmail para o gatilho.
+  - [x] F7.1 calendário (08/11, frente K): capacidade lazy `calendar` (5 tools, Google Agenda do dono pelo cofre do conector), conflito por horário, convite como `send`, só leitura no run de agenda, cartão `calendar` em 3 idiomas.
+- [x] F7.2 `brief` na agenda (plano do dia) (08/11, frente K: `brief_set` um por bot no horário exato, run com `brief_sources` e `day_plan`, cartão `day-plan`, fontes por portas com e-mail opcional, modelo de ajudante do bot). A porta de e-mail do brief (`ports/brief.ts`, `listRecent`) está ligada à porta real de e-mail no worker (`v4-adapters/brief-email.ts`, passada em `processors/agent-run.ts` só no run de brief; nunca lê o corpo; login expirado = `needs_connection`).
+- [x] F7.A Auditoria (08/11): auditoria, 15 correções, reauditoria (N1 a N8) e `auditorias/F7.md` fechado. Falta só o PR para `harness/v4` e o merge.
 
 ### F8: Navegador e código
 - [ ] F8.1 `browser` sobre a porta `Sandbox`: árvore de acessibilidade com refs, página inteira em partes (nunca poda escondida) e visão só quando a árvore for pobre.
@@ -160,6 +163,14 @@
 
 ## Diário de passagem
 > A entrada mais nova fica no topo. Formato: data · conta ou sessão · fase · feito · pela metade · próximo passo · como verificar · dúvidas.
+
+- **06/11/2026 · sessão de cards do app · F2.6 (parte do app, B6)**
+  - **Feito:** branch `feat/harness-v4-cards-app` (a partir de `feat/harness-v4-f2-capacidades`), só `apps/web`. Os 4 eventos do v4 viram cards no chat (aprovação, "isso é com você", pergunta, recibo), com restauração dos eventos do run vivo, dedupe ao vivo × gravado e testes. Auditoria independente (Sonnet) feita; 5 achados corrigidos.
+  - **Pela metade (fora de `apps/web`):**
+    - rota `POST /v1/runs/:runId/cards/respond` (api) e a retomada com o grant; o app só chama `respondToAgentCard` em `lib/atlas-api.ts`;
+    - o worker gravar os cards na conversa (`role` = tipo do evento, `content` = evento em JSON). Sem isso, o recibo de run encerrado some ao recarregar, e o card gravado de outro aparelho não sabe que já foi resolvido;
+    - campo do código de segurança do cartão (F6.3), hoje só o espaço.
+  - **Como verificar:** `cd apps/web && pnpm test`, `pnpm exec turbo typecheck` e as prévias com `AGENT_CARDS_PREVIEW_DIR=<pasta> pnpm e2e agent-cards-previews`.
 
 - **06/11/2026 · sessão principal · F1**
   - **Feito:** F0 juntada em `harness/v4` (#150). F1.1 a F1.13 prontos em `feat/harness-v4-f1-fundacao`.
@@ -208,3 +219,19 @@
   - **Pela metade:** nada.
   - **Próximo passo:** começar a F0.1, criando o branch `feat/harness-v4-f0-baseline` a partir de `harness/v4`. Se `harness/v4` não existir, criá-lo a partir do ramo da versão atual (`release/<versão>`).
   - **Dúvidas para o dono:** nenhuma (provedor e modelos da F0.5 definidos acima).
+
+- **08/11/2026 · sessão F7-W · cards genéricos do agente no web e no celular (branch `wip/f7-w`)**
+  - **Feito:** merge de `feat/harness-v4-cards-app` (11 commits da outra conta, sem reescrever) com a F6, por união. O web agora chama as rotas reais (`/v1/agent-v4/runs/:runId/requests/:key/respond` e `/v1/agent-v4/cards/:cardId/respond`; a rota inexistente `/v1/runs/:id/cards/respond` saiu). O pedido do `checkout` (`ownerInput: card_cvv`) no fio vira o card de compra com o campo do CVV (`PurchaseApprovalCard`), com `inputOnly` só com o campo. A resposta digitada à pergunta do bot segue como fala depois de o servidor marcar o card. O handoff perdeu o "Agora não" (a API só aceita `handoff_done`). `agentCardKey` e `purchaseRequestFromEvent` foram para `packages/shared`. Celular: cards ao vivo e gravados, resposta pelas mesmas rotas, CVV (`secureTextEntry`, `number-pad`, `oneTimeCode`, valor só numa ref, apagado antes da chamada).
+  - **Pendente:** o worker ainda não grava os cards v4 como mensagens da conversa (`role` = tipo do evento): o web restaura pelos eventos do run, o celular só de run ativo ou parado esperando, então recibo de run encerrado some ao recarregar no celular. Decisão local só em memória no celular (web: localStorage). Handoff sem "Agora não" até a API ter essa decisão. Prévias do celular nativo não foram geradas (só web em Chromium).
+  - **Como verificar:** `pnpm exec turbo typecheck`; `pnpm --filter @workspace/shared test`; `cd apps/web && pnpm test`; `cd apps/mobile && pnpm test`; prévias: `AGENT_CARDS_PREVIEW_DIR=<pasta> AGENT_CARDS_CHROMIUM_PATH=<chrome> pnpm e2e e2e/agent-cards-previews.spec.ts`.
+
+- **08/11/2026 · sessão F7 · correções da auditoria (branch `feat/harness-v4-f7-email-dia`)**
+  - **Feito:** os 15 achados da auditoria de `5b9c3ca2`, um commit por achado com teste (`b56a6524` a `0f1d835a`), relatório em `auditorias/F7.md`. Gancho novo `enrichRiskFacts` nas tools (o cartão de aprovação lê o evento antes de pedir); `riskFacts.event` e `riskFacts.message` estruturados, com o texto montado no front.
+  - **Pela metade:** reauditoria das correções (nada começou).
+  - **Próximo passo:** rodar um auditor novo (Sonnet, só leitura) sobre `git diff 5b9c3ca2..HEAD`, corrigir o que achar, fechar `auditorias/F7.md`, abrir o PR contra `harness/v4` (issue #159) e, com a verificação verde, juntar.
+  - **Como verificar:** receita da issue #159 (`pnpm exec turbo typecheck`; suítes shared, agent, web, mobile; api e worker com `tsx --test`; db com Postgres real).
+  - **Dúvidas para o dono:** nenhuma.
+
+- **08/11/2026 · sessão F7 · reauditoria fechada**
+  - **Feito:** N1 a N6 corrigidos, um commit cada (`dca3a881` a `e0f9bff3`); N7 e N8 aceitos. `auditorias/F7.md` fechado.
+  - **Próximo passo:** abrir o PR `feat/harness-v4-f7-email-dia` contra `harness/v4` e juntar com a verificação verde.

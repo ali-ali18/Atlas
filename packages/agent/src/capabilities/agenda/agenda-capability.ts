@@ -24,6 +24,7 @@ import { z } from "zod";
 import type { Agenda, AgendaItemView } from "../../ports/agenda.js";
 import { defineTool } from "../../tools/define-tool.js";
 import { defineCapability } from "../define-capability.js";
+import { createBriefSetTool } from "./brief-set.js";
 
 const whenField = z.string().trim().min(1).max(120);
 const noteField = z.string().trim().min(1).max(AGENDA_NOTE_MAX_CHARS);
@@ -164,11 +165,11 @@ export function createAgendaCapability(agenda: Agenda) {
 	return defineCapability({
 		id: "agenda",
 		title: "Agenda",
-		summary: "Reminders, quiet watches and event triggers that wake you later.",
-		tools: [remindMe, watch, onEvent, agendaList, agendaChange],
+		summary: "Reminders, quiet watches, event triggers and the daily plan that wake you later.",
+		tools: [remindMe, watch, onEvent, createBriefSetTool(agenda), agendaList, agendaChange],
 		instructions:
 			"Agenda rules: creating is silent (no card). Mention a new item only if the owner asked for it, in one plain sentence with the day and time; never name tools or fields. " +
-			"Check agenda_list before adding something that may already exist. The server caps active items and stops a watch after two unread notices in a row, so do not work around it. " +
+			"Check agenda_list before adding something that may already exist. The daily plan (brief_set) is the exception to silence: the owner asked for it, so confirm its time in one sentence. The server caps active items and stops a watch after two unread notices in a row, so do not work around it. " +
 			"Say what you did or could not do in the owner's words, and offer an alternative when a limit blocks you.",
 	});
 }

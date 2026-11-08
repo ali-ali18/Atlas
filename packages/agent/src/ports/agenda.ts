@@ -21,7 +21,8 @@ export type AgendaItemView = {
 	endReason: string | null;
 };
 
-export type AgendaCreateResult = { ok: true; item: AgendaItemView; duplicate: boolean } | { ok: false; error: string };
+/** `updated`: já havia um item único deste tipo (o plano do dia, um por bot) e ele foi ATUALIZADO em vez de duplicado. */
+export type AgendaCreateResult = { ok: true; item: AgendaItemView; duplicate: boolean; updated?: boolean } | { ok: false; error: string };
 
 export type AgendaAction = "pause" | "resume" | "cancel";
 

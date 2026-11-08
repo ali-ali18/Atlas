@@ -276,3 +276,48 @@ test("B3: só o objetivo de wake escrito por este arquivo conta como run de agen
 	assert.equal(isAgendaWakeObjective("Follow-up: ver o preço"), false);
 	assert.equal(isAgendaWakeObjective(null), false);
 });
+
+test("plano do dia (F7.2): roda com o modelo de ajudante do bot (helperModel) quando existe; os outros tipos seguem o modelo do bot", async () => {
+	const models: string[] = [];
+	const create = (async (input: { model: string; request: { objective?: string; origin?: string } }) => (models.push(input.model), { id: "run-1", origin: input.request.origin, objective: input.request.objective })) as unknown as AgendaWakeDeps["createRun"];
+	const withHelper = harness({ createRun: create, loadBot: async () => ({ id: "bot-1", conversationId: "conv-1", policyJson: { helperModel: "anthropic/claude-haiku-5.5" } }) });
+	await dispatchAgendaItem(item({ kind: "brief", intervalMinutes: 1440 }), withHelper.deps, fresh());
+	await dispatchAgendaItem(item({ kind: "watch" }), withHelper.deps, fresh());
+	assert.deepEqual(models, ["anthropic/claude-haiku-5.5", "test/model"]);
+	// Sem helperModel (ou com valor inválido), o brief usa o modelo barato do deploy, nunca o de chat do bot.
+	models.length = 0;
+	const without = harness({ createRun: create, cheapModel: () => "test/barato", loadBot: async () => ({ id: "bot-1", conversationId: "conv-1", policyJson: { helperModel: "modelo com espaço!" } }) });
+	await dispatchAgendaItem(item({ kind: "brief", intervalMinutes: 1440 }), without.deps, fresh());
+	await dispatchAgendaItem(item({ kind: "watch" }), without.deps, fresh());
+	assert.deepEqual(models, ["test/barato", "test/model"]);
+});
+
+test("plano do dia sem helperModel e sem cheapModel injetado usa o padrão barato do deploy (Haiku)", async () => {
+	const models: string[] = [];
+	const create = (async (input: { model: string; request: { objective?: string; origin?: string } }) => (models.push(input.model), { id: "run-1", origin: input.request.origin, objective: input.request.objective })) as unknown as AgendaWakeDeps["createRun"];
+	const { deps } = harness({ createRun: create });
+	await dispatchAgendaItem(item({ kind: "brief", intervalMinutes: 1440 }), deps, fresh());
+	assert.equal(models[0], "anthropic/claude-haiku-5.5");
+});
+
+test("plano do dia encerrado por avisos ignorados: o dono é avisado uma vez, no idioma do bot; outros tipos e outros motivos não avisam", async () => {
+	const sent: Array<{ conversationId: string; text: string }> = [];
+	const base = { language: async () => "en-US", deliver: async (conversationId: string, text: string) => void sent.push({ conversationId, text }) };
+	const stop = harness({ ...base, decision: { action: "stop", reason: "ignored_notices" } });
+	const result = fresh();
+	await dispatchAgendaItem(item({ kind: "brief", intervalMinutes: 1440 }), stop.deps, result);
+	assert.equal(result.stopped, 1);
+	assert.equal(stop.calls.created.length, 0);
+	assert.equal(sent.length, 1);
+	assert.equal(sent[0]?.conversationId, "conv-1");
+	assert.match(sent[0]?.text ?? "", /daily plan/);
+	// Vigia ignorado e brief que acabou por outro motivo: sem aviso.
+	await dispatchAgendaItem(item({ kind: "watch" }), stop.deps, fresh());
+	const other = harness({ ...base, decision: { action: "stop", reason: "max_runs" } });
+	await dispatchAgendaItem(item({ kind: "brief", intervalMinutes: 1440 }), other.deps, fresh());
+	assert.equal(sent.length, 1);
+	// Falha ao entregar não derruba a passada.
+	const failing = harness({ language: async () => "pt-BR", deliver: async () => { throw new Error("db fora"); }, decision: { action: "stop", reason: "ignored_notices" } });
+	await dispatchAgendaItem(item({ kind: "brief", intervalMinutes: 1440 }), failing.deps, fresh());
+	assert.match(failing.calls.logs.join("\n"), /aviso de parada não entregue/);
+});

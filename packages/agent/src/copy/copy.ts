@@ -60,6 +60,12 @@ export const COPY = {
 		"en-US": "I stopped following \"{note}\": I couldn't check it three times in a row. Ask me again if you still want it.",
 		"es-ES": "Dejé de seguir \"{note}\": no pude comprobarlo tres veces seguidas. Pídemelo de nuevo si todavía lo quieres.",
 	},
+	/** O plano do dia parou porque os últimos avisos não foram abertos (7 seguidos). O dono pode pedir de novo. */
+	agenda_brief_stopped_ignored: {
+		"pt-BR": "Parei de mandar o plano do dia porque você não abriu os últimos avisos. Me peça de novo quando quiser voltar.",
+		"en-US": "I stopped sending the daily plan because you didn't open the last few. Ask me again whenever you want it back.",
+		"es-ES": "Dejé de enviar el plan del día porque no abriste los últimos avisos. Pídemelo de nuevo cuando quieras que vuelva.",
+	},
 	/** Lembrete que não conseguiu ser preparado: o motor entrega a própria nota que o dono pediu. `{note}` = o lembrete. */
 	agenda_reminder_note: {
 		"pt-BR": "Lembrete: {note}",

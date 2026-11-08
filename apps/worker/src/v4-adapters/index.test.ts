@@ -29,6 +29,9 @@ export function fakeAdapterDeps(options: { connections?: Connected; listFails?: 
 		},
 		agenda: { loadSettings: never, create: never, list: never, change: never, record: never } as unknown as V4AdapterDeps["agenda"],
 		shopping: { fetchHtml: never, record: never, attachWatch: never, list: never, persistCard: never } as unknown as V4AdapterDeps["shopping"],
+		email: { listConnected: never, accessToken: never, googleFetch: never, googleJson: never, getMailbox: never, botMail: never, persistCard: never } as unknown as V4AdapterDeps["email"],
+		calendar: { listConnected: never, accessToken: never, fetchFn: never, loadSettings: never, persistCard: never } as unknown as V4AdapterDeps["calendar"],
+		brief: { listPurchases: never, listAgendaItems: never, conversationTasks: never, persistCard: never } as unknown as V4AdapterDeps["brief"],
 	};
 }
 
@@ -41,7 +44,7 @@ test("com bot e portas reais montadas, o preset full não tem capacidade indispo
 	const setup = await buildV4Registry({ ...base, botId: "bot-1", deps: fakeAdapterDeps(), log: (m) => void logs.push(m) });
 	assert.deepEqual(setup.unavailable, []);
 	assert.deepEqual(logs, []);
-	assert.deepEqual(setup.registry.ids(), ["agenda", "connectors", "deliverables", "memory", "research", "settings", "shopping", "tasks", "web"]);
+	assert.deepEqual(setup.registry.ids(), ["agenda", "calendar", "connectors", "deliverables", "email", "memory", "research", "settings", "shopping", "tasks", "web"]);
 	assert.match(setup.stableSystem, /Work contract/);
 	assert.match(setup.stableSystem, /connectors/);
 	// confirmWrites do conector vira `confirm: "always"` na tool genérica de escrita
@@ -122,4 +125,62 @@ test("run de agenda sem nenhum conector conectado: a troca de agenda por agenda-
 	assert.ok(!setup.registry.ids().includes("connectors"));
 	assert.ok(setup.registry.ids().includes("agenda-run"));
 	assert.ok(!setup.registry.ids().includes("agenda"));
+});
+
+test("e-mail (F7.1): lazy no chat com as cinco tools; no run de agenda só lê (sem rascunho nem envio) e sem bot segue valendo o Gmail", async () => {
+	const chat = await buildV4Registry({ ...base, botId: "bot-1", deps: fakeAdapterDeps() });
+	assert.ok(!chat.registry.core().some((c) => c.id === "email"));
+	assert.match(chat.stableSystem, /- email:/);
+	for (const name of ["email_list", "email_read", "email_triage", "email_draft", "email_send"]) assert.ok(chat.registry.toolByName(name), name);
+	assert.equal(chat.registry.toolByName("email_send")?.effect, "send");
+	assert.equal(chat.registry.toolByName("email_send")?.confirm, "always");
+	const wake = await buildV4Registry({ ...base, botId: "bot-1", deps: fakeAdapterDeps(), unattended: true, agendaRun: true });
+	assert.deepEqual(wake.registry.ids().includes("email"), true);
+	for (const name of ["email_list", "email_read", "email_triage"]) assert.ok(wake.registry.toolByName(name), name);
+	for (const name of ["email_draft", "email_send"]) assert.equal(wake.registry.toolByName(name), undefined, name);
+	const noBot = await buildV4Registry({ ...base, deps: fakeAdapterDeps(), log: () => undefined });
+	assert.ok(noBot.registry.ids().includes("email"));
+});
+
+test("calendário (F7.1): lazy no chat; 'Bom dia' não carrega as tools dele", async () => {
+	const setup = await buildV4Registry({ ...base, botId: "bot-1", deps: fakeAdapterDeps() });
+	assert.ok(setup.registry.ids().includes("calendar"));
+	assert.ok(!setup.registry.core().some((c) => c.id === "calendar"));
+	assert.match(setup.stableSystem, /- calendar:/);
+	assert.equal(setup.stableSystem.includes("calendar_create"), false);
+	assert.deepEqual(setup.registry.toolByName("calendar_create")?.effect, "write_external");
+});
+
+test("run de agenda comum: calendário só lê (sem criar, alterar nem apagar)", async () => {
+	const setup = await buildV4Registry({ ...base, botId: "bot-1", deps: fakeAdapterDeps(), unattended: true, agendaRun: true, agendaKind: "watch" });
+	assert.equal(setup.registry.toolByName("calendar_list")?.effect, "read");
+	for (const name of ["calendar_create", "calendar_update", "calendar_delete"]) assert.equal(setup.registry.toolByName(name), undefined);
+});
+
+test("run do plano do dia (brief): só agenda_result, brief_sources e day_plan; sem web, escrita nem conectores", async () => {
+	const setup = await buildV4Registry({ ...base, botId: "bot-1", deps: fakeAdapterDeps(), unattended: true, agendaRun: true, agendaKind: "brief" });
+	assert.deepEqual(setup.registry.ids(), ["agenda-run", "brief"]);
+	assert.deepEqual(setup.registry.core().map((c) => c.id).sort(), ["agenda-run", "brief"]);
+	assert.equal(setup.registry.toolByName("day_plan")?.endsRun, true);
+	for (const name of ["web_search", "remind_me", "calendar_create", "record_purchase"]) assert.equal(setup.registry.toolByName(name), undefined);
+});
+
+test("brief com a fonte de e-mail da outra frente: entra na leitura; sem ela o registro é o mesmo", async () => {
+	const calls: string[] = [];
+	const email = { listRecent: async (userId: string) => (calls.push(userId), []) };
+	const withEmail = await buildV4Registry({ ...base, botId: "bot-1", deps: fakeAdapterDeps(), unattended: true, agendaRun: true, agendaKind: "brief", briefEmail: email });
+	const without = await buildV4Registry({ ...base, botId: "bot-1", deps: fakeAdapterDeps(), unattended: true, agendaRun: true, agendaKind: "brief" });
+	assert.deepEqual(withEmail.registry.ids(), without.registry.ids());
+});
+
+test("com email e calendar nativos no run, os conectores embutidos Gmail e Google Agenda saem (não contornam a aprovação)", async () => {
+	const embedded = (id: string, slug: string, tools: string[]) =>
+		({ id, slug, name: slug, catalogId: slug, status: "connected", confirmWrites: false, tools: tools.map((name) => ({ name, inputSchema: { type: "object", properties: {} } })), disabledTools: [], toolMarks: {} }) as unknown as Connected[number];
+	const connections = [embedded("g1", "gmail", ["create_draft", "search_messages"]), embedded("g2", "google_calendar", ["create_event"]), embedded("g3", "google_drive", ["search_files"])];
+	const setup = await buildV4Registry({ ...base, botId: "bot-1", deps: fakeAdapterDeps({ connections }), log: () => undefined });
+	assert.ok(setup.registry.ids().includes("email") && setup.registry.ids().includes("calendar"));
+	assert.equal(setup.registry.toolByName("mcp_gmail_write"), undefined);
+	assert.equal(setup.registry.toolByName("mcp_gmail_read"), undefined);
+	assert.equal(setup.registry.toolByName("mcp_google_calendar_write"), undefined);
+	assert.ok(setup.registry.toolByName("mcp_google_drive_read"));
 });

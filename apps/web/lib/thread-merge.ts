@@ -3,10 +3,11 @@ import type { Message } from "@/components/ui/templates/template-4/data";
 import { insertDevSessionCards } from "@/lib/dev-session/cards";
 import { collapseSkillProposalCards } from "@/lib/skill-proposal-message";
 import { collapseBotProposalCards } from "@/lib/bot-proposal-message";
+import { agentCardKey, LIVE_AGENT_CARD_PREFIX } from "@/lib/agent-cards";
 
 /** Cartão ao vivo que, quando o servidor já gravou o equivalente, vale o gravado. */
 function isDedupedLiveCard(message: Message): boolean {
-	return message.kind === "images" || message.kind === "provider-fallback" || message.kind === "code-run" || message.kind === "chart" || message.kind === "product" || message.kind === "purchase" || message.kind === "task-list" || message.kind === "compaction" || (message.kind === "routine" && message.action === "created" && !!message.routineId);
+	return message.kind === "images" || message.kind === "provider-fallback" || message.kind === "code-run" || message.kind === "chart" || message.kind === "product" || message.kind === "purchase" || message.kind === "email-triage" || message.kind === "email-draft" || message.kind === "calendar" || message.kind === "day-plan" || message.kind === "agent-card" || message.kind === "task-list" || message.kind === "compaction" || (message.kind === "routine" && message.action === "created" && !!message.routineId);
 }
 
 function cardDedupeKey(message: Message): string | null {
@@ -46,12 +47,20 @@ function cardDedupeKey(message: Message): string | null {
 	// Produto e compra: a identidade é o cardId / purchaseId (o ao vivo e o gravado colapsam).
 	if (message.kind === "product") return `product|${message.cardId}`;
 	if (message.kind === "purchase") return `purchase|${message.purchaseId}`;
+	// E-mail (F7.1): triagem e rascunho têm `cardId` estável entre o ao vivo e o gravado.
+	if (message.kind === "email-triage") return `email-triage|${message.cardId}`;
+	if (message.kind === "email-draft") return `email-draft|${message.cardId}`;
+	// Calendário e plano do dia: a identidade é o cardId / planId.
+	if (message.kind === "calendar") return `calendar|${message.cardId}`;
+	if (message.kind === "day-plan") return `day-plan|${message.planId}`;
 	// Uma página, um cartão: o colapso por pageId (collapsePageCards) escolhe a revisão; a chave só evita vizinhos iguais.
 	if (message.kind === "page") return `page|${message.pageId}|${message.revision}`;
 	// Um cartão por run: o ao vivo (id do run) e o gravado (id do banco) colapsam.
 	if (message.kind === "task-list") return `task-list|${message.runId}`;
 	// O ao vivo usa o id do cartão gravado: os dois colapsam num só.
 	if (message.kind === "compaction") return `compaction|${message.id}`;
+	// Card do motor v4: tipo + run + pedido/chamada/cartão. O ao vivo, o restaurado dos eventos e o gravado colapsam.
+	if (message.kind === "agent-card") return `agent-card|${agentCardKey(message.card)}`;
 	if (message.kind === "questionnaire") {
 		return `questionnaire|${message.questionnaireId}|${message.title}`;
 	}
@@ -220,9 +229,59 @@ export function settleTurnCards(messages: Message[]): Message[] {
 	return result.every((message, index) => message === messages[index]) ? messages : result;
 }
 
+type AgentCardThreadMessage = Extract<Message, { kind: "agent-card" }>;
+
+/**
+ * Um card do motor v4 (mesma chave: tipo + run + pedido) existe uma vez só, mesmo sem ser vizinho do outro
+ * (texto do passo entre o ao vivo e o gravado). Fica o gravado (id do banco), na posição dele; se qualquer um
+ * dos dois já sabe que a chamada foi resolvida, o que fica também sabe.
+ */
+export function collapseAgentCards(messages: Message[]): Message[] {
+	const groups = new Map<string, AgentCardThreadMessage[]>();
+	for (const message of messages) {
+		if (message.kind !== "agent-card") continue;
+		const key = agentCardKey(message.card);
+		groups.set(key, [...(groups.get(key) ?? []), message]);
+	}
+	if ([...groups.values()].every((cards) => cards.length === 1)) return messages;
+	return messages.flatMap((message): Message[] => {
+		if (message.kind !== "agent-card") return [message];
+		const cards = groups.get(agentCardKey(message.card)) ?? [message];
+		if (cards.length === 1) return [message];
+		const keeper = cards.find((card) => !card.id.startsWith(LIVE_AGENT_CARD_PREFIX)) ?? cards[0]!;
+		if (message !== keeper) return [];
+		return [cards.some((card) => card.settled) && !keeper.settled ? { ...keeper, settled: true } : keeper];
+	});
+}
+
+/**
+ * O card v4 ao vivo que já sabe que a chamada foi resolvida (chegou o `tool_result`) sai da tela quando o
+ * gravado chega; o gravado não sabe disso. Passa o "resolvido" para ele antes, senão os botões voltariam.
+ */
+function settlePersistedAgentCards(persisted: Message[], live: Message[]): Message[] {
+	const settled = new Set(live.flatMap((message) => (message.kind === "agent-card" && message.settled ? [agentCardKey(message.card)] : [])));
+	if (settled.size === 0) return persisted;
+	return persisted.map((message) => (message.kind === "agent-card" && !message.settled && settled.has(agentCardKey(message.card)) ? { ...message, settled: true } : message));
+}
+
+const DAY_PLAN_ID_PREFIX = "day-plan:";
+
+/**
+ * O plano do dia posta a frase de abertura como fala (é o texto do push) e o card já a mostra no topo: no fio fica só o card.
+ * Some a fala do MESMO run (o `planId` é `day-plan:<run>`) cujo texto é exatamente a abertura do card. A fala com outro texto fica.
+ */
+export function collapseDayPlanHeadlineEcho(messages: Message[]): Message[] {
+	const headlines = new Map<string, string>();
+	for (const message of messages) {
+		if (message.kind === "day-plan" && message.planId.startsWith(DAY_PLAN_ID_PREFIX)) headlines.set(message.planId.slice(DAY_PLAN_ID_PREFIX.length), normalizeUserText(message.headline));
+	}
+	if (headlines.size === 0) return messages;
+	return messages.filter((message) => !(message.kind === "assistant" && message.runId && headlines.get(message.runId) === normalizeUserText(message.text)));
+}
+
 /** Cards iguais consecutivos ou com o mesmo id aparecem uma vez; turnos diferentes ficam. */
 export function dedupeCards(input: Message[]): Message[] {
-	const messages = collapseContextSummaries(collapseRoutineCreatedCards(collapsePageCards(collapseBotProposalCards(collapseSkillProposalCards(collapseConfirmCards(collapseSubagentGroups(collapseDevSessionCards(input))))))));
+	const messages = collapseDayPlanHeadlineEcho(collapseAgentCards(collapseContextSummaries(collapseRoutineCreatedCards(collapsePageCards(collapseBotProposalCards(collapseSkillProposalCards(collapseConfirmCards(collapseSubagentGroups(collapseDevSessionCards(input))))))))));
 	const seenIds = new Set<string>();
 	const result: Message[] = [];
 	// Aviso de fallback repetido no mesmo turno (run retomado) aparece uma vez, mesmo não consecutivo.
@@ -245,7 +304,8 @@ export function dedupeCards(input: Message[]): Message[] {
 }
 
 /** Usa a thread persistida como fonte principal e mantém apenas bolhas live ainda sem equivalente. */
-export function reconcilePersistedThread(persisted: Message[], live: Message[], resultText?: string | null): Message[] {
+export function reconcilePersistedThread(persistedRows: Message[], live: Message[], resultText?: string | null): Message[] {
+	const persisted = settlePersistedAgentCards(persistedRows, live);
 	const persistedIds = new Set(persisted.map((message) => message.id));
 	const persistedImageKeys = new Set(persisted.filter((message) => isDedupedLiveCard(message)).map((message) => cardDedupeKey(message)));
 	const firstOverlap = live.findIndex((message) => persistedIds.has(message.id));
@@ -387,11 +447,16 @@ export function reconcilePersistedThread(persisted: Message[], live: Message[], 
 		message.kind !== "chart" &&
 		message.kind !== "product" &&
 		message.kind !== "purchase" &&
+		message.kind !== "email-triage" &&
+		message.kind !== "email-draft" &&
+		message.kind !== "calendar" &&
+		message.kind !== "day-plan" &&
 		message.kind !== "page" &&
 		message.kind !== "task-list" &&
 		message.kind !== "compaction" &&
 		message.kind !== "subagents" &&
 		message.kind !== "context-summary" &&
+		message.kind !== "agent-card" &&
 		message.kind !== "confirm" && message.kind !== "questionnaire" &&
 		message.kind !== "skill-proposal" &&
 		message.kind !== "routine-proposal" &&

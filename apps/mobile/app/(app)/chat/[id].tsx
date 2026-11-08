@@ -95,13 +95,16 @@ export default function ChatScreen() {
 		() => ({
 			onDecide: chat.decide,
 			onAnswer: chat.answer,
+			onRespond: chat.respondToRequest,
+			onAnswerQuestion: chat.answerAgentCard,
+			onDismissQuestion: chat.dismissAgentCard,
 			onOpenWeb: openWeb,
 			onOpenMenu: messageMenu.open,
 			activeRunId: chat.runTasks?.runId ?? null,
 			running: chat.running,
 			userBubble: userBubble,
 		}),
-		[chat.decide, chat.answer, openWeb, messageMenu.open, chat.running, chat.runTasks?.runId, userBubble],
+		[chat.decide, chat.answer, chat.respondToRequest, chat.answerAgentCard, chat.dismissAgentCard, openWeb, messageMenu.open, chat.running, chat.runTasks?.runId, userBubble],
 	);
 
 	// A lista é invertida (o fim da conversa fica embaixo e o teclado não a desloca): mais novo primeiro.

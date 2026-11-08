@@ -3,6 +3,9 @@ import type { ChartSpec } from "./chart-spec.js";
 import type { PageSpec } from "./page-spec.js";
 import type { ProductOffer } from "./product.js";
 import type { PurchaseItem } from "./purchase.js";
+import type { EmailSourceId, EmailTriageEntry } from "./email-triage.js";
+import type { CalendarCardAction, CalendarCardEvent } from "./calendar.js";
+import type { DayPlanSection, DayPlanSourceError } from "./day-plan.js";
 import type { RunTelemetryMeta } from "./run-telemetry.js";
 import type { ComputerMetrics } from "./computer-state.js";
 import type { DevApprovalCardInfo } from "./dev-command-approval.js";
@@ -209,6 +212,48 @@ export type ComputerUseEvent =
 		orderNumber?: string;
 		trackingCode?: string;
 		trackingUrl?: string;
+		runId?: string;
+	  }
+	| {
+		/** F7.1: triagem do e-mail (cada mensagem com a categoria que o MODELO declarou). O `cardId` é a identidade ao vivo e gravada. */
+		type: "email_triage";
+		cardId: string;
+		items: EmailTriageEntry[];
+		runId?: string;
+	  }
+	| {
+		/** F7.1: rascunho de e-mail para o dono revisar (nada foi enviado). O `cardId` é a identidade ao vivo e gravada. */
+		type: "email_draft";
+		cardId: string;
+		source: EmailSourceId;
+		to: string[];
+		cc?: string[];
+		subject: string;
+		body: string;
+		reply?: boolean;
+		saved: boolean;
+		runId?: string;
+	  }
+	| {
+		/** F7.1: evento criado/alterado ou lista de um período do Google Agenda. O mesmo `cardId` não vira outra mensagem. */
+		type: "calendar";
+		cardId: string;
+		action: CalendarCardAction;
+		timeZone: string;
+		events: CalendarCardEvent[];
+		more?: number;
+		notified?: boolean;
+		runId?: string;
+	  }
+	| {
+		/** F7.2: "Plano do dia" do brief da agenda. O `planId` é a identidade ao vivo e gravada. */
+		type: "day_plan";
+		planId: string;
+		date: string;
+		timeZone: string;
+		headline: string;
+		sections: DayPlanSection[];
+		sourceErrors: DayPlanSourceError[];
 		runId?: string;
 	  }
 	| {

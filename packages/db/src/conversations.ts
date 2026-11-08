@@ -409,6 +409,31 @@ export async function persistConversationCardFromEvent(
 		if (!exists) await appendConversationCard(conversationId, card);
 		return;
 	}
+	// E-mail (F7.1): triagem e rascunho têm `cardId` estável; repetir o mesmo não duplica (retomada do run, evento ao vivo + gravado).
+	if (event.type === "email_triage" || event.type === "email_draft") {
+		const kind = event.type === "email_triage" ? "email-triage" : "email-draft";
+		const card = parseConversationCard(JSON.stringify({ v: 1, kind, ...stripEventType(event) }));
+		if (card?.kind !== kind) return;
+		const cardId = (card as { cardId: string }).cardId;
+		const recent = await prisma.conversationMessage.findMany({ where: { conversationId, role: kind }, orderBy: { createdAt: "desc" }, take: 50, select: { content: true } });
+		const exists = recent.some((row) => {
+			const prior = parseConversationCard(row.content);
+			return prior?.kind === kind && (prior as { cardId: string }).cardId === cardId;
+		});
+		if (!exists) await appendConversationCard(conversationId, card);
+		return;
+	}
+	// Calendário (F7.1) e plano do dia (F7.2): um cartão por identidade (`cardId` / `planId`); repetir não duplica.
+	if (event.type === "calendar" || event.type === "day_plan") {
+		const kind = event.type === "calendar" ? "calendar" : "day-plan";
+		const card = parseConversationCard(JSON.stringify({ v: 1, kind, ...stripEventType(event) }));
+		if (card?.kind !== kind) return;
+		const key = card.kind === "calendar" ? card.cardId : card.kind === "day-plan" ? card.planId : "";
+		const keyOf = (c: ReturnType<typeof parseConversationCard>) => (c?.kind === "calendar" ? c.cardId : c?.kind === "day-plan" ? c.planId : null);
+		const recent = await prisma.conversationMessage.findMany({ where: { conversationId, role: kind }, orderBy: { createdAt: "desc" }, take: 50, select: { content: true } });
+		if (!recent.some((row) => keyOf(parseConversationCard(row.content)) === key)) await appendConversationCard(conversationId, card);
+		return;
+	}
 	// Página viva: criar acrescenta; atualizar substitui o cartão do mesmo pageId na conversa (posição preservada).
 	if (event.type === "page") {
 		const card = parseConversationCard(JSON.stringify({ v: 1, kind: "page", ...stripEventType(event) }));

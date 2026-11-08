@@ -1,5 +1,6 @@
 /** Dicionário pt-BR: fonte da verdade das chaves. Um arquivo por área; acrescente o `...area` abaixo. */
 import { agenda } from "./agenda";
+import { agentCards } from "./agentCards";
 import { aiElements } from "./aiElements";
 import { app } from "./app";
 import { autonomy } from "./autonomy";
@@ -37,6 +38,8 @@ import { settingsSearch } from "./settingsSearch";
 import { settingsSkills } from "./settingsSkills";
 import { settingsVault } from "./settingsVault";
 import { share } from "./share";
+import { emailCards } from "./email-cards";
+import { calendar } from "./calendar";
 import { shopping } from "./shopping";
 import { sharedLabels } from "./sharedLabels";
 import { sidebar } from "./sidebar";
@@ -45,6 +48,7 @@ import { ui } from "./ui";
 
 export const ptBR = {
 	...agenda,
+	...agentCards,
 	...aiElements,
 	...app,
 	...autonomy,
@@ -82,6 +86,8 @@ export const ptBR = {
 	...settingsSkills,
 	...settingsVault,
 	...share,
+	...emailCards,
+	...calendar,
 	...shopping,
 	...sharedLabels,
 	...sidebar,

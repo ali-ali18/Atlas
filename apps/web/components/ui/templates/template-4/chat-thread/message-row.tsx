@@ -47,10 +47,13 @@ import { EmailReceivedCard } from "./email-received-card";
 import { LazyChart } from "@/components/ai-elements/chart/lazy-chart";
 import { CodeRunCard } from "./code-run-card";
 import { TaskListCard } from "./task-list-card";
+import { EmailDraftCard, EmailTriageCard } from "@/components/ai-elements/email";
+import { CalendarCard, DayPlanCard } from "@/components/ai-elements/calendar";
 import { ProductCard, PurchaseCard } from "@/components/ai-elements/shopping";
 import { PageCard } from "@/components/ai-elements/pages";
 import { PlanCard, type PlanCardStatus } from "@workspace/ui/components/plan-card";
 import { CompactionCard } from "./compaction-card";
+import { AgentCard } from "@/components/ai-elements/agent-cards";
 import { ImagePendingCard } from "@/components/ai-elements/images/image-pending-card";
 import { MemoryUpdatedMarker } from "./memory-updated-marker";
 import { ImageGallery } from "@/components/ai-elements/images/image-gallery";
@@ -90,6 +93,7 @@ export const MessageRow = memo(function MessageRow({
 	onOpenRoutine,
 	onQuestionnaireSubmit,
 	onQuestionnaireDismiss,
+	onAgentCardAnswer,
 	onSkillProposalApprove,
 	onSkillProposalReject,
 	onSkillProposalEdit,
@@ -143,6 +147,8 @@ export const MessageRow = memo(function MessageRow({
 		answers: QuestionnaireAnswersMap,
 	) => void;
 	onQuestionnaireDismiss?: (message: QuestionnaireCardMessage) => void;
+	/** Resposta digitada à pergunta do bot (card do motor v4): segue como mensagem da conversa. */
+	onAgentCardAnswer?: (answer: string) => void;
 	/** Gate humano do propose_skill/delete_skill (aprovar, recusar, editar antes). */
 	onSkillProposalApprove?: (message: Extract<Message, { kind: "skill-proposal" }>) => void;
 	onSkillProposalReject?: (message: Extract<Message, { kind: "skill-proposal" }>) => void;
@@ -269,10 +275,20 @@ export const MessageRow = memo(function MessageRow({
 			return <ProductCard cheapestUrl={message.cheapestUrl} incomplete={message.incomplete} items={message.items} />;
 		case "purchase":
 			return <PurchaseCard currency={message.currency} items={message.items} merchant={message.merchant} orderNumber={message.orderNumber} purchasedAt={message.purchasedAt} total={message.total} trackingCode={message.trackingCode} trackingUrl={message.trackingUrl} />;
+		case "email-triage":
+			return <EmailTriageCard items={message.items} />;
+		case "email-draft":
+			return <EmailDraftCard body={message.body} cc={message.cc} reply={message.reply} saved={message.saved} source={message.source} subject={message.subject} to={message.to} />;
+		case "calendar":
+			return <CalendarCard action={message.action} events={message.events} more={message.more} notified={message.notified} timeZone={message.timeZone} />;
+		case "day-plan":
+			return <DayPlanCard date={message.date} headline={message.headline} sections={message.sections} sourceErrors={message.sourceErrors} timeZone={message.timeZone} />;
 		case "page":
 			return <PageCard botName={botName} card={message} />;
 		case "task-list":
 			return <TaskListCard items={message.items} />;
+		case "agent-card":
+			return <AgentCard message={message} onAnswer={onAgentCardAnswer} />;
 		case "compaction":
 			return <CompactionCard after={message.after} before={message.before} focus={message.focus} summary={message.summary} />;
 		case "memory-updated":

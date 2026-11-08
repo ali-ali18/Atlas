@@ -7,7 +7,9 @@ import { Text } from "@/components/ui/text";
 import { taskCardActive } from "@/lib/chat-thread";
 import type { ChatItem, Reaction, ReplyQuote } from "@/lib/chat-types";
 import type { AnswerMap } from "@/lib/questionnaire";
+import { AgentCardRow, type AgentCardActions } from "./agent-cards";
 import { ConfirmCard, MarkerRow, QuestionnaireCard, WebCardRow } from "./cards";
+import { CalendarRow, DayPlanRow, EmailDraftRow, EmailTriageRow } from "./day-cards";
 import { MarkdownBlocks, TableCard } from "./markdown-text";
 import { useAppColorScheme } from "@/lib/use-theme";
 import { chatSurface } from "@/lib/chat-surface";
@@ -15,7 +17,7 @@ import { parseMarkdown, splitSegments } from "@/lib/markdown";
 import { ReplyPill } from "./reply-pill";
 import { TaskSummary } from "./task-dock";
 
-export type RowActions = {
+export type RowActions = AgentCardActions & {
 	onDecide: (item: Extract<ChatItem, { kind: "confirm" }>, approve: boolean) => void;
 	onAnswer: (item: Extract<ChatItem, { kind: "questionnaire" }>, answers: AnswerMap) => void;
 	/** Run ativo (id): o cartão de tarefas desse run mostra a tarefa em execução. */
@@ -142,6 +144,16 @@ function RowContent({ item, actions, position }: { item: ChatItem; actions: RowA
 			return <ConfirmCard item={item} onDecide={actions.onDecide} />;
 		case "questionnaire":
 			return <QuestionnaireCard item={item} onAnswer={actions.onAnswer} />;
+		case "agent-card":
+			return <AgentCardRow item={item} actions={actions} />;
+		case "day-plan":
+			return <DayPlanRow item={item} />;
+		case "calendar":
+			return <CalendarRow item={item} />;
+		case "email-triage":
+			return <EmailTriageRow item={item} />;
+		case "email-draft":
+			return <EmailDraftRow item={item} />;
 		case "web-card":
 			return <WebCardRow item={item} onOpen={actions.onOpenWeb} />;
 		case "marker":

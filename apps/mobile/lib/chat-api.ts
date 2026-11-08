@@ -98,6 +98,27 @@ export async function submitQuestionnaire(apiFetch: ApiFetch, input: { conversat
 	return { runId: typeof result.runId === "string" ? result.runId : null };
 }
 
+export type AgentV4Decision = "approve" | "deny" | "handoff_done";
+export type AgentRequestResult = { ok: boolean; status: string; resumed: boolean; pending?: number };
+
+/**
+ * `POST /v1/agent-v4/runs/:runId/requests/:key/respond`: aprova, dispensa ("Agora não") ou conclui o passo do dono. Na
+ * compra, `cvv` (o código do cartão) vai SÓ no corpo desta chamada; quem chama o tira do campo antes e não o guarda.
+ */
+export async function respondAgentRequest(apiFetch: ApiFetch, input: { runId: string; key: string; decision: AgentV4Decision; cvv?: string }): Promise<AgentRequestResult> {
+	const { cvv, decision } = input;
+	const body = await json<{ ok?: unknown; status?: unknown; resumed?: unknown; pending?: unknown }>(apiFetch, `/v1/agent-v4/runs/${encodeURIComponent(input.runId)}/requests/${encodeURIComponent(input.key)}/respond`, {
+		method: "POST",
+		body: JSON.stringify(cvv !== undefined ? { decision, cvv } : { decision }),
+	});
+	return { ok: body.ok === true, status: typeof body.status === "string" ? body.status : "", resumed: body.resumed === true, ...(typeof body.pending === "number" ? { pending: body.pending } : {}) };
+}
+
+/** `POST /v1/agent-v4/cards/:cardId/respond`: marca a pergunta do bot como respondida ou dispensada (o texto segue como fala). */
+export async function respondAgentCard(apiFetch: ApiFetch, cardId: string, response: "answered" | "dismissed"): Promise<void> {
+	await json(apiFetch, `/v1/agent-v4/cards/${encodeURIComponent(cardId)}/respond`, { method: "POST", body: JSON.stringify({ response }) });
+}
+
 /** `PUT /v1/messages/:id/reaction`: troca a reação do usuário (uma por mensagem). */
 export async function setReaction(apiFetch: ApiFetch, messageId: string, emoji: string): Promise<void> {
 	await json(apiFetch, `/v1/messages/${encodeURIComponent(messageId)}/reaction`, { method: "PUT", body: JSON.stringify({ emoji }) });

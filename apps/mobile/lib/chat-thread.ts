@@ -1,13 +1,15 @@
 // Fio da conversa: do que o servidor grava (`SessionMessage`) ao que a tela desenha, e a junção do gravado com o
 // que só existe ao vivo (balão do usuário ainda não gravado, fala em andamento, cartões do run). Porta enxuta do
 // `use-atlas-chat.ts` / `thread-merge.ts` / `thread-live.ts` do web: o gravado manda, o ao vivo preenche o resto.
-import { BOT_LINK_ROLE, formatSourceMarker, isCardConfirmToken, type MessageSource, parseBotLinkCard, parseConversationCard, type PersistedConversationCard, type SessionMessage } from "@workspace/shared";
+import { agentCardKey, BOT_LINK_ROLE, formatSourceMarker, isAgentV4EventType, isCardConfirmToken, type MessageSource, parseBotLinkCard, parseConversationCard, type PersistedConversationCard, type SessionMessage } from "@workspace/shared";
+import { agentCardFromStored } from "./agent-cards";
 import type { ChatItem, Reaction, TaskItem } from "./chat-types";
 import { parseReplyTo } from "./reply-quote";
 
 const CARD_ROLES = new Set([
 	"skill", "confirm", "login", "file", "routine", "tool-budget", "jev-status", "provider-fallback", "subagents", "routine-proposal", "bot-proposal",
 	"images", "code-run", "chart", "page", "task-list", "compaction", "revised-draft", "questionnaire", "bot-profile", "skill-proposal",
+	"day-plan", "calendar", "email-triage", "email-draft",
 ]);
 
 /** Texto que os botões dos cartões enviam ("confirmado: …", "recusado: …", "cancela isso"): não é fala, não aparece. */
@@ -46,6 +48,20 @@ export function cardToItem(id: string, card: PersistedConversationCard, createdA
 			};
 		case "task-list":
 			return { ...base, kind: "task-list", runId: card.runId, items: card.items };
+		case "day-plan": {
+			const { v: _v, kind: _kind, runId: _runId, ...fields } = card;
+			return { ...base, kind: "day-plan", ...fields };
+		}
+		case "calendar": {
+			const { v: _v, kind: _kind, runId: _runId, ...fields } = card;
+			return { ...base, kind: "calendar", ...fields };
+		}
+		case "email-triage":
+			return { ...base, kind: "email-triage", cardId: card.cardId, items: card.items };
+		case "email-draft": {
+			const { v: _v, kind: _kind, runId: _runId, ...fields } = card;
+			return { ...base, kind: "email-draft", ...fields };
+		}
 		case "compaction":
 			return { ...base, kind: "marker", text: `Conversa compactada · ${card.before} → ${card.after}` };
 		case "chart":
@@ -132,6 +148,8 @@ export function sessionMessageToItem(message: SessionMessage): ChatItem | null {
 			...(replyTo ? { replyTo } : {}),
 		};
 	}
+	// Card do motor v4 gravado: `role` = tipo do evento, `content` = o evento em JSON (validado).
+	if (isAgentV4EventType(role)) return agentCardFromStored(message.id, role, message.content, { ...(message.runId ? { runId: message.runId } : {}), createdAt });
 	if (CARD_ROLES.has(role)) {
 		const card = parseConversationCard(message.content);
 		return card ? cardToItem(message.id, card, createdAt) : null;
@@ -222,6 +240,20 @@ export function persistedAssistantCovers(rows: readonly ChatItem[], text: string
 	return false;
 }
 
+const DAY_PLAN_ID_PREFIX = "day-plan:";
+const sameText = (a: string, b: string) => a.split(/\s+/).filter(Boolean).join(" ") === b.split(/\s+/).filter(Boolean).join(" ");
+
+/**
+ * O plano do dia posta a frase de abertura como fala (é o texto do push) e o cartão já a mostra no topo: no fio fica só o cartão.
+ * Some a fala do MESMO run (o `planId` é `day-plan:<run>`) cujo texto é exatamente a abertura do cartão.
+ */
+export function dropDayPlanHeadlineEcho(items: readonly ChatItem[]): ChatItem[] {
+	const headlines = new Map<string, string>();
+	for (const item of items) if (item.kind === "day-plan" && item.planId.startsWith(DAY_PLAN_ID_PREFIX)) headlines.set(item.planId.slice(DAY_PLAN_ID_PREFIX.length), item.headline);
+	if (headlines.size === 0) return [...items];
+	return items.filter((item) => !(item.kind === "assistant" && item.runId && sameText(headlines.get(item.runId) ?? "\u0000", item.text)));
+}
+
 /** Identidade de um cartão entre ao vivo e gravado (igual ao `cardDedupeKey` do web): o merge nunca mostra os dois. */
 export function cardKey(item: ChatItem): string | null {
 	switch (item.kind) {
@@ -233,6 +265,8 @@ export function cardKey(item: ChatItem): string | null {
 			return `task-list|${item.runId}`;
 		case "web-card":
 			return item.key;
+		case "agent-card":
+			return `agent-card|${agentCardKey(item.card)}`;
 		default:
 			return null;
 	}
@@ -275,11 +309,17 @@ export function reconcile(persisted: readonly ChatItem[], live: readonly ChatIte
 			if (normalize(item.text).length >= MIN_COVERED_LENGTH && persistedAssistantCovers(persisted, item.text)) continue;
 		} else {
 			const key = cardKey(item);
-			if (key && persistedKeys.has(key)) continue;
+			if (key && persistedKeys.has(key)) {
+				// Card v4 resolvido ao vivo continua resolvido quando o gravado o substitui (os botões não voltam).
+				const at = persistedKeys.get(key)!;
+				const stored = result[at];
+				if (item.kind === "agent-card" && item.settled && stored?.kind === "agent-card" && !stored.settled) result[at] = { ...stored, settled: true };
+				continue;
+			}
 		}
 		result.push(item);
 	}
-	return dedupeKeys(result);
+	return dropDayPlanHeadlineEcho(dedupeKeys(result));
 }
 
 function isOlderThan(row: ChatItem, optimistic: ChatItem): boolean {
