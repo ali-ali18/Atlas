@@ -3,7 +3,7 @@ import type { AgentV4Event } from "@workspace/shared"
 import { MockAtlas, type MockHandler } from "./mock-api"
 
 /**
- * Capturas (tema escuro; 1440 e 390) dos cards do motor v4: aprovação, "isso é com você", pergunta do bot e
+ * Capturas (tema escuro; 1440 e 390) dos cards do motor v4: aprovação (envio de e-mail e compra com CVV), "isso é com você", pergunta do bot e
  * recibo. A conversa mockada tem os cards gravados (`role` = tipo do evento, como o use-atlas-chat os restaura)
  * e um recorte por grupo, no máximo 3 itens por imagem. Só roda com AGENT_CARDS_PREVIEW_DIR (pasta de saída).
  * AGENT_CARDS_CHROMIUM_PATH aponta um Chromium já instalado (opcional).
@@ -25,11 +25,12 @@ const SEEDS: Seed[] = [
   text("a01", "user", "Manda o orçamento para a Ana e compra o livro de estatística que ela indicou."),
   text("a02", "assistant", "Já deixei o e-mail pronto e achei o livro. Preciso do seu ok antes de enviar e de pagar."),
   card("a03", { type: "approval_request", requestId: "req-1", callId: "call-1", toolName: "send_email", effect: "send", args: { to: "ana@exemplo.com", subject: "Orçamento de novembro", body: "Oi, Ana! Segue o orçamento de novembro em anexo." }, riskFacts: { recipients: ["ana@exemplo.com"], externalRecipients: ["ana@exemplo.com"] }, runId: "run-1" }),
-  card("a04", { type: "approval_request", requestId: "req-2", callId: "call-2", toolName: "checkout", effect: "money", args: { item: "Estatística Básica, 9ª edição", card: "Cartão final 4242" }, riskFacts: { amount: 89.9, currency: "BRL", merchant: "Livraria Exemplo", irreversible: true }, runId: "run-1" }),
+  card("a04", { type: "approval_request", requestId: "req-2", callId: "call-2", toolName: "checkout", effect: "money", args: { url: "https://livrariaexemplo.com.br/pagar" }, riskFacts: { amount: 99.9, currency: "BRL", merchant: "livrariaexemplo.com.br", shipping: 10, card: "Visa final 4242", items: ["1× Estatística Básica, 9ª edição · R$ 89,90"], irreversible: true }, ownerInput: "card_cvv", runId: "run-1" }),
   card("a05", { type: "approval_request", requestId: "req-3", callId: "call-3", toolName: "share_page", effect: "public_link", args: { title: "Pedidos da semana" }, riskFacts: { target: "Pedidos da semana" }, runId: "run-1" }),
   card("a06", { type: "handoff_request", callId: "call-4", message: "1. Abra o app do banco\n2. Toque em Pix > Aprovar pendentes\n3. Confirme o pagamento de R$ 89,90 para a Livraria Exemplo", runId: "run-1" }),
   card("a07", { type: "ask_owner", cardId: "ask-1", question: "O livro tem capa comum e capa dura (R$ 30 a mais). Qual prefere?", choices: [{ value: "comum", label: "Capa comum" }, { value: "dura", label: "Capa dura", description: "R$ 30 a mais" }], runId: "run-1" }),
   card("a08", { type: "receipt", id: "call-1", name: "send_email", what: "E-mail enviado para ana@exemplo.com", where: "Gmail", url: "https://mail.example.com/m/1", runId: "run-1" }),
+  card("a10", { type: "approval_request", requestId: "req-4", callId: "call-6", toolName: "checkout", effect: "money", args: {}, riskFacts: { amount: 214.8, currency: "BRL", merchant: "lojadecafe.com.br", shipping: 10, card: "Visa final 1111", items: ["2× Café em grãos 500 g · R$ 42,90"] }, ownerInput: "card_cvv", inputOnly: true, runId: "run-1" }),
   card("a09", { type: "receipt", id: "call-5", name: "create_event", what: "Evento criado: entrega do livro", where: "Google Agenda", runId: "run-1" }),
 ]
 
@@ -38,6 +39,7 @@ const GROUPS: Array<[string, string[]]> = [
   ["aprovacao-envio-e-pagamento", ["a03", "a04"]],
   ["aprovacao-decidida-e-handoff", ["a05", "a06"]],
   ["pergunta-e-recibos", ["a07", "a08", "a09"]],
+  ["compra-com-mandato-so-cvv", ["a10"]],
 ]
 
 const libraryHandler: MockHandler = ({ method, path }) =>
