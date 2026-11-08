@@ -30,7 +30,7 @@ import { DEFAULT_PROACTIVE_SETTINGS, parseModelRef, type ComputerUseEvent, type 
 import { EVAL_USER_ID } from "./environment.js";
 import type { StreamChat } from "./mock-model.js";
 import type { Scenario } from "./scenario.js";
-import { createFixtureShopping, fixtureSearchFor } from "./v4-ports.js";
+import { createFixtureEmail, createFixtureShopping, fixtureSearchFor } from "./v4-ports.js";
 
 /**
  * Motor v4 no eval: `runAgent` com o preset `full`, o mesmo que o worker monta (F3, auditoria T1), e portas falsas em
@@ -100,7 +100,8 @@ export async function runScenarioV4(params: RunV4Params): Promise<{ text: string
 		...(language && { language }),
 	});
 	const shopping = createFixtureShopping(scenario.tools.fixtures);
-	const setup = setupPreset("full", { search, files: new FakeFileStore(), deliverables: new FakeDeliverables().ports(), memory: new FakeMemory(), settings: new FakeSettings(), taskLists: new FakeTaskListStore(), helpers, shopping: shopping.ports, agenda: new FakeAgenda({ ...DEFAULT_PROACTIVE_SETTINGS, enabled: true, timezone: scenario.locale?.timezone ?? DEFAULT_PROACTIVE_SETTINGS.timezone }) });
+	const email = createFixtureEmail(scenario.tools.fixtures, EVAL_USER_ID);
+	const setup = setupPreset("full", { search, files: new FakeFileStore(), deliverables: new FakeDeliverables().ports(), memory: new FakeMemory(), settings: new FakeSettings(), taskLists: new FakeTaskListStore(), helpers, shopping: shopping.ports, email: email.ports, agenda: new FakeAgenda({ ...DEFAULT_PROACTIVE_SETTINGS, enabled: true, timezone: scenario.locale?.timezone ?? DEFAULT_PROACTIVE_SETTINGS.timezone }) });
 	motherRegistry = setup.registry;
 	const history = [
 		...scenario.history.map((message) => {
