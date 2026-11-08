@@ -130,6 +130,16 @@ describe("record_purchase e o vigia de entrega", () => {
 		expect(shop.rows).toHaveLength(1);
 		expect(agenda.items.size).toBe(1);
 	});
+	it("duas compras de lojas e itens diferentes geram dois vigias (a nota parecida não engole a segunda)", async () => {
+		const { tool, shop, agenda } = setup();
+		await tool("record_purchase").run(buy, ctx());
+		const second = await tool("record_purchase").run({ merchant: "Loja Z", items: [{ name: "Teclado mecânico", quantity: 1 }], total: 300, currency: "BRL", orderNumber: "Z-9" }, ctx());
+		expect(second.ok && second.summary).toContain("Do not announce it");
+		expect(agenda.items.size).toBe(2);
+		const watches = shop.rows.map((r) => r.deliveryWatchId);
+		expect(new Set(watches).size).toBe(2);
+		expect(watches.every(Boolean)).toBe(true);
+	});
 	it("followDelivery false não cria vigia; sem agenda a compra fica salva e a tool diz", async () => {
 		const { tool, agenda, shop, search } = setup();
 		await tool("record_purchase").run({ ...buy, orderNumber: "D-1", followDelivery: false }, ctx());

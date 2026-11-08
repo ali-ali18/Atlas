@@ -21,7 +21,9 @@ export async function trackDelivery(agenda: Agenda, ownerId: string, purchase: P
 		settings,
 	});
 	if (!planned.ok) return { ok: false, error: planned.error };
-	const created = await agenda.create(ownerId, planned.plan, { sourceRunId: ctx.runId, untrustedRead: ctx.untrustedReadInRun === true });
+	const created = await agenda.create(ownerId, planned.plan, { sourceRunId: ctx.runId, untrustedRead: ctx.untrustedReadInRun === true, exactIdentity: true });
+	// O vigia é DESTA compra: nunca devolve o de outra por parecer igual. Se mesmo assim vier um item existente, não é nosso.
+	if (created.ok && created.duplicate) return { ok: false, error: "an existing agenda item was returned instead of a new one for this purchase" };
 	return created.ok ? { ok: true, id: created.item.id, duplicate: created.duplicate } : { ok: false, error: created.error };
 }
 

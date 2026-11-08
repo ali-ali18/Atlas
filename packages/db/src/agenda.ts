@@ -200,6 +200,8 @@ export async function createAgendaItem(input: {
 	sourceRunId?: string | null;
 	/** O run criador já tinha lido conteúdo não confiável (`untrustedReadInRun`): a nota é guardada como contaminada. */
 	untrustedRead?: boolean;
+	/** O item tem identidade própria (ex.: vigia de uma compra): não passa pelo dedupe por similaridade de texto. */
+	exactIdentity?: boolean;
 }): Promise<CreateAgendaResult> {
 	if (!validOwner(input.userId)) return { ok: false, error: "Bot não encontrado" };
 	const bot = await prisma.bot.findFirst({ where: { id: input.botId, ownerId: input.userId }, select: { id: true, conversationId: true } });
@@ -210,7 +212,7 @@ export async function createAgendaItem(input: {
 	return prisma.$transaction(async (tx) => {
 		await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`agenda-create:${input.userId}`}))`;
 		const active = records(await tx.botFollowup.findMany({ where: { userId: input.userId, agendaKind: { not: null }, status: { in: ["pending", "paused"] } } }));
-		const same = findDuplicateAgendaItem(active, plan);
+		const same = input.exactIdentity ? undefined : findDuplicateAgendaItem(active, plan);
 		if (same) return { ok: true as const, item: same, duplicate: true };
 		if (active.length >= AGENDA_MAX_ACTIVE_PER_OWNER) {
 			return { ok: false as const, error: `There are already ${AGENDA_MAX_ACTIVE_PER_OWNER} active agenda items. Cancel or finish one before adding another.` };
