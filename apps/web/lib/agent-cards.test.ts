@@ -82,7 +82,7 @@ test("aprovação de evento diz qual evento, quando e quem, em português, sem i
 test("aprovação de evento sem título lido cai numa frase genérica (nunca no id)", () => {
 	const card = approval({ effect: "destructive", args: { eventId: "abc123xyz" }, riskFacts: { irreversible: true, event: { action: "delete" } } });
 	assert.equal(describeApproval(card), "Apagar um evento da agenda");
-	assert.deepEqual(approvalSummaryLines(card), []);
+	assert.deepEqual(approvalSummaryLines(card), ["Não consegui ler o evento. Identificador: abc123xyz"]);
 });
 
 test("aprovação de evento no idioma da tela", async () => {

@@ -61,6 +61,7 @@ describe("frases", () => {
 		expect(approvalDetails(event)).toEqual([]);
 		expect([describeApproval(event), ...lines].join(" ")).not.toMatch(/abc123xyz|Google Calendar|delete event/);
 		expect(describeApproval({ ...event, riskFacts: { event: { action: "delete" } } })).toBe("Apagar um evento da agenda");
+		expect(approvalSummaryLines({ ...event, riskFacts: { event: { action: "delete" } } })).toEqual(["Não consegui ler o evento. Identificador: abc123xyz"]);
 	});
 	it("aprovação de e-mail: assunto, de onde sai e corpo inteiro; sem source nem in_reply_to", () => {
 		const body = "Olá,\n".repeat(300);

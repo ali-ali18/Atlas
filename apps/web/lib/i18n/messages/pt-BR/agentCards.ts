@@ -36,6 +36,8 @@ export const agentCards = {
 	"agentCards.approval.subject": "Assunto: {subject}",
 	"agentCards.approval.fromGmail": "Sai do seu Gmail.",
 	"agentCards.approval.fromBot": "Sai da caixa de e-mail do bot.",
+	"agentCards.approval.eventUnread": "Não consegui ler o evento.",
+	"agentCards.approval.eventUnreadId": "Não consegui ler o evento. Identificador: {id}",
 	"agentCards.approval.payUnavailable": "Não dá para pagar por aqui. Conclua a compra direto no site da loja.",
 	"agentCards.handoff.title": "Isso é com você",
 	"agentCards.handoff.done": "Já fiz",

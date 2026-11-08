@@ -156,6 +156,9 @@ export function approvalSummaryLines(event: ApprovalEvent): string[] {
 	const lines: string[] = [];
 	const calendarEvent = approvalEventFact(event.riskFacts);
 	if (calendarEvent) {
+		// Leitura do evento falhou: não esconde a identificação, avisa e mostra o identificador.
+		const eventId = typeof (event.args as { eventId?: unknown } | null)?.eventId === "string" ? (event.args as { eventId: string }).eventId.slice(0, 120) : null;
+		if (!calendarEvent.title && calendarEvent.action !== "create") lines.push(eventId ? `Não consegui ler o evento. Identificador: ${eventId}` : "Não consegui ler o evento.");
 		const when = formatApprovalEventWhen(calendarEvent, "pt-BR");
 		if (when) lines.push(when);
 		if (calendarEvent.location) lines.push(`Local: ${calendarEvent.location}`);

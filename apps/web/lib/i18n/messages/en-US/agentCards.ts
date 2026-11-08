@@ -38,6 +38,8 @@ export const agentCards: NamespaceMessages<typeof ptBR> = {
 	"agentCards.approval.subject": "Subject: {subject}",
 	"agentCards.approval.fromGmail": "Sent from your Gmail.",
 	"agentCards.approval.fromBot": "Sent from the bot's mailbox.",
+	"agentCards.approval.eventUnread": "I couldn't read the event.",
+	"agentCards.approval.eventUnreadId": "I couldn't read the event. Identifier: {id}",
 	"agentCards.approval.payUnavailable": "Payment can't be made here. Finish the purchase on the store's site.",
 	"agentCards.handoff.title": "This one's on you",
 	"agentCards.handoff.done": "Done",
