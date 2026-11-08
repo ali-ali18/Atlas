@@ -58,6 +58,21 @@ describe("checkout: cartão de aprovação", () => {
 	});
 });
 
+describe("checkout: resultado da loja é dado não confiável", () => {
+	it("a tool é untrusted (web) e o motivo/orderRef da loja contaminam o run", async () => {
+		const r = rig();
+		expect(r.tool.trust).toBe("untrusted");
+		expect(r.tool.source).toBe("web");
+		const s = setup();
+		const pending = await s.executor.executeCall({ callId: "c1", step: 1, tool: r.tool, args: ARGS });
+		if (pending.status !== "pending_approval") throw new Error(pending.status);
+		await r.escrow.deposit(scopeOf(pending.request), TEST_CVV, 60_000);
+		expect(s.executor.provenance.untrustedReadInRun).toBe(false);
+		await s.executor.executeCall({ callId: "c1", step: 1, tool: r.tool, args: ARGS, grant: grantApproval(pending.request, s.clock.now()) });
+		expect(s.executor.provenance.untrustedReadInRun).toBe(true);
+	});
+});
+
 describe("checkout: total coerente com o carrinho", () => {
 	const okDeposit = async (r: ReturnType<typeof rig>, args: CheckoutArgs) => {
 		const s = setup();

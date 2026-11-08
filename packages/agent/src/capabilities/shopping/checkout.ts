@@ -66,6 +66,10 @@ export function createCheckoutTool(deps: CheckoutDeps) {
 		inputSchema: checkoutInputSchema,
 		effect: "money",
 		ownerInput: "card_cvv",
+		// O motivo da recusa e a referência do pedido vêm da loja/banco (texto de terceiro): dado, nunca instrução. O
+		// resultado contamina o run antes de voltar ao modelo (efeito seguinte, como o vigia de entrega, sai marcado).
+		trust: "untrusted",
+		source: "web",
 		riskFacts: (args) => {
 			const card = cardById.get(args.cardId);
 			const merchant = merchantOf(args.checkoutUrl);
