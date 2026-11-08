@@ -32,6 +32,9 @@ describe("copy: textos ao dono por idioma do bot (F1.11)", () => {
 	});
 
 	it("lembrete entregue pela própria nota diz o lembrete nos três idiomas, sem internals (auditoria F4, C1/B2)", () => {
+		expect(copyFor("pt-BR", "agenda_brief_stopped_ignored")).toContain("plano do dia");
+		expect(copyFor("en-US", "agenda_brief_stopped_ignored")).toContain("daily plan");
+		expect(copyFor("es-ES", "agenda_brief_stopped_ignored")).toContain("plan del día");
 		expect(copyFor("pt-BR", "agenda_reminder_note", { note: "Pagar o condomínio" })).toBe("Lembrete: Pagar o condomínio");
 		expect(copyFor("en-US", "agenda_reminder_note", { note: "Pay the rent" })).toBe("Reminder: Pay the rent");
 		expect(copyFor("es-ES", "agenda_reminder_note", { note: "Pagar el alquiler" })).toBe("Recordatorio: Pagar el alquiler");

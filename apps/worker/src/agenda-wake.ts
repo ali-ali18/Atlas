@@ -20,7 +20,9 @@ import {
 	type EngineDefault,
 	type EngineV4Gate,
 } from "@workspace/shared";
+import { copyFor } from "@workspace/agent";
 import {
+	appendConversationMessage,
 	beginAgendaRun,
 	claimDueAgendaItems,
 	createAgentRun,
@@ -38,7 +40,9 @@ import {
 } from "@workspace/db";
 import { claimPendingEventItems, clearPendingEvent, markPendingEvent } from "./agenda-pending-event.js";
 import { settleAbortedAgendaRun } from "./agenda-run.js";
+import { cheapModelFromEnv } from "./engine-v4.js";
 import { singleFlight } from "./single-flight.js";
+import { runSystemLanguage } from "./system-language.js";
 
 const SWEEP_INTERVAL_MS = 60_000;
 const BUSY_RETRY_MS = 2 * 60_000;
@@ -85,6 +89,12 @@ export type AgendaWakeDeps = {
 	clearPending?: typeof clearPendingEvent;
 	claimPending?: typeof claimPendingEventItems;
 	resolveModel?: (botId: string, userId: string, envDefault: string) => Promise<string>;
+	/** Modelo barato do deploy para o plano do dia quando o bot não tem `helperModel` (padrão: `cheapModelFromEnv`, Haiku). */
+	cheapModel?: () => string;
+	/** Posta na conversa do bot o aviso de que o plano do dia parou (7 avisos seguidos sem abrir). */
+	deliver?: (conversationId: string, text: string) => Promise<unknown>;
+	/** Idioma dos textos de sistema do bot. */
+	language?: (input: { userId: string; botId: string; conversationId: string }) => Promise<unknown>;
 };
 
 const defaultLoadBot: NonNullable<AgendaWakeDeps["loadBot"]> = (userId, botId) =>
@@ -164,15 +174,21 @@ export async function dispatchAgendaItem(item: AgendaItemRecord, deps: AgendaWak
 		if (decision.action === "stop") {
 			result.stopped += 1;
 			log(`[agenda] item=${item.id} stopped reason=${decision.reason}`);
+			// O plano do dia que o dono nunca abre para: uma mensagem curta avisa que parou (o item fecha uma vez só, então avisa uma vez).
+			if (item.kind === "brief" && decision.reason === "ignored_notices") {
+				const language = await (deps.language ?? runSystemLanguage)({ userId: item.userId, botId: item.botId, conversationId: bot.conversationId }).catch(() => "pt-BR");
+				await (deps.deliver ?? ((conversationId, text) => appendConversationMessage(conversationId, "assistant", text)))(bot.conversationId, copyFor(language, "agenda_brief_stopped_ignored")).catch((error: unknown) => log(`[agenda] item=${item.id} aviso de parada não entregue: ${error instanceof Error ? error.message : "erro"}`));
+			}
 			return;
 		}
 		// O run anterior ainda vive (rodando ou parado num cartão): não empilha outro.
 		if (runAlive) return await defer("run_in_flight", IN_FLIGHT_RETRY_MS);
 		if (((await (deps.activeRuns ?? listActiveRunsForConversation)(bot.conversationId))).length > 0) return await defer("bot_busy", BUSY_RETRY_MS);
-		// Plano do dia: gasta o modelo de ajudante que o dono configurou no bot (`helperModel`, "forte coordena, barato trabalha"),
-		// pois só lê fontes e escreve um cartão. Sem ele, o modelo de sempre do bot (papel de chat).
+		// Plano do dia: só lê fontes e escreve um cartão, então gasta o modelo de ajudante que o dono configurou no bot (`helperModel`,
+		// "forte coordena, barato trabalha"). Sem ele, o modelo barato do deploy (Haiku: decisão do dono para ajudantes e sono),
+		// nunca o modelo de chat, que custaria caro todo dia por um trabalho simples.
 		const helperModel = item.kind === "brief" ? readHelperPolicy(bot.policyJson).helperModel : null;
-		const model = helperModel ?? (await (deps.resolveModel ?? resolveProactiveModel)(item.botId, item.userId, deps.envDefaultModel));
+		const model = helperModel ?? (item.kind === "brief" ? (deps.cheapModel ?? cheapModelFromEnv)() : await (deps.resolveModel ?? resolveProactiveModel)(item.botId, item.userId, deps.envDefaultModel));
 		const objective = agendaObjective(item, event);
 		const run = await (deps.createRun ?? createAgentRun)({
 			userId: item.userId,
