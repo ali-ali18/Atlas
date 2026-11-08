@@ -9,6 +9,7 @@ export const shopping = {
 	"shopping.product.store": "Loja {store}",
 	"shopping.product.discount": "{percent}% de desconto",
 	"shopping.product.wasPrice": "Antes {price}",
+	"shopping.product.priceFrom": "a partir de {price}",
 	"shopping.product.priceMissing": "Preço não informado",
 	"shopping.product.shippingFree": "Frete grátis",
 	"shopping.product.shippingPaid": "Frete {amount}",

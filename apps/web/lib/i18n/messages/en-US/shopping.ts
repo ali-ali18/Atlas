@@ -11,6 +11,7 @@ export const shopping: NamespaceMessages<typeof ptBR> = {
 	"shopping.product.store": "Store {store}",
 	"shopping.product.discount": "{percent}% off",
 	"shopping.product.wasPrice": "Was {price}",
+	"shopping.product.priceFrom": "from {price}",
 	"shopping.product.priceMissing": "Price not informed",
 	"shopping.product.shippingFree": "Free shipping",
 	"shopping.product.shippingPaid": "Shipping {amount}",

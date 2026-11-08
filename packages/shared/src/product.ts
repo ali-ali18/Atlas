@@ -22,6 +22,8 @@ export type ProductOffer = {
 	merchant: string;
 	url: string;
 	price: number | null;
+	/** `true` quando a página é um AggregateOffer com preço mínimo diferente do máximo: `price` é o "a partir de". */
+	priceFrom?: boolean;
 	/** Preço antes do desconto, só quando a página traz e é maior que o preço. */
 	oldPrice?: number;
 	currency: string | null;
@@ -304,7 +306,7 @@ function shippingOf(offer: Record<string, Json>, currency: string | null, countr
 	return { kind: "unknown" };
 }
 
-type Picked = { price: number | null; oldPrice?: number; currency: string | null; availability: ProductAvailability; shipping: ProductShipping };
+type Picked = { price: number | null; priceFrom?: boolean; oldPrice?: number; currency: string | null; availability: ProductAvailability; shipping: ProductShipping };
 
 function offerCandidates(raw: Json): Record<string, Json>[] {
 	const list = Array.isArray(raw) ? raw : raw ? [raw] : [];
@@ -325,7 +327,9 @@ function pickOffer(raw: Json, country?: string): Picked | null {
 		const listPrice = isRecord(o.priceSpecification) && str(o.priceSpecification.priceType)?.toLowerCase().includes("listprice") ? parseMoneyNumber(o.priceSpecification.price, { currency }) : null;
 		const highPrice = parseMoneyNumber(o.highPrice, { currency });
 		const old = listPrice ?? (o["@type"] === "AggregateOffer" ? null : highPrice);
-		return { raw: o, price, currency, availability: availabilityOf(o.availability), shipping: shippingOf(o, currency, country), ...(price !== null && old !== null && old > price && { oldPrice: old }) };
+		// AggregateOffer com faixa de preço: o valor é "a partir de", não o preço de uma variante.
+		const priceFrom = o["@type"] === "AggregateOffer" && price !== null && highPrice !== null && highPrice !== price;
+		return { raw: o, price, currency, availability: availabilityOf(o.availability), shipping: shippingOf(o, currency, country), ...(priceFrom && { priceFrom: true }), ...(price !== null && old !== null && old > price && { oldPrice: old }) };
 	});
 	if (cands.length === 0) return null;
 	// Prefere oferta com preço e em estoque; dentro disso, a mais barata.
@@ -361,6 +365,32 @@ function hostLabel(url: string): string {
 	}
 }
 
+/** Endereço sem o que varia à toa (esquema, `www.`, hash, barra final), para achar "a mesma página". */
+function samePageKey(raw: Json, base: string): string | undefined {
+	const s = str(raw);
+	if (!s) return undefined;
+	try {
+		const u = new URL(s, base);
+		return `${u.hostname.toLowerCase().replace(/^www\./, "")}${u.pathname.replace(/\/+$/, "")}${u.search}`;
+	} catch {
+		return undefined;
+	}
+}
+
+/**
+ * Escolhe o `Product` DA página: o cujo `url` ou `@id` bate com o endereço dela. Um só candidato (ou vários com o mesmo
+ * nome, o JSON-LD repetido) basta; vários distintos sem nenhum que bata = `undefined` (não há dado confiável).
+ */
+function chooseProduct(products: Record<string, Json>[], pageUrl: string): Record<string, Json> | undefined {
+	const withOffers = products.filter((p) => p.offers !== undefined);
+	const pool = withOffers.length > 0 ? withOffers : products;
+	const here = samePageKey(pageUrl, pageUrl);
+	const matching = pool.find((p) => [p.url, p["@id"]].some((id) => here !== undefined && samePageKey(id, pageUrl) === here));
+	if (matching) return matching;
+	const names = new Set(pool.map((p) => str(p.name)?.toLowerCase() ?? ""));
+	return names.size <= 1 ? pool[0] : undefined;
+}
+
 /**
  * Lê UMA página de produto. `null` quando não há dado estruturado de produto (nem `Product` em JSON-LD, nem preço em
  * OpenGraph): a tool então diz isso ao modelo em vez de chutar. Campos ausentes na página ficam ausentes.
@@ -368,7 +398,9 @@ function hostLabel(url: string): string {
 export function parseProductPage(html: string, pageUrl: string, options: { country?: string } = {}): ProductOffer | null {
 	const meta = metaMap(html);
 	const products = jsonLdBlocks(html).flatMap((b) => findNodes(b, "Product"));
-	const product = products.find((p) => p.offers !== undefined) ?? products[0];
+	const product = chooseProduct(products, pageUrl);
+	// Várias entidades `Product` e nenhuma é a da página (lista, carrossel de relacionados): não chuta a primeira.
+	if (products.length > 1 && !product) return null;
 	const offer = product ? pickOffer(product.offers, options.country) : null;
 
 	const ogCurrency = currencyOf(meta.get("product:price:currency") ?? meta.get("og:price:currency"));
@@ -394,6 +426,7 @@ export function parseProductPage(html: string, pageUrl: string, options: { count
 		merchant: merchant.slice(0, 120),
 		url: httpUrl(meta.get("og:url"), pageUrl) && hostLabel(httpUrl(meta.get("og:url"), pageUrl)!) === hostLabel(pageUrl) ? httpUrl(meta.get("og:url"), pageUrl)! : pageUrl,
 		price,
+		...(offer?.priceFrom && price !== null && { priceFrom: true }),
 		...(offer?.oldPrice !== undefined && { oldPrice: offer.oldPrice }),
 		currency,
 		shipping,
@@ -432,7 +465,7 @@ export function formatMoney(amount: number, currency: string | null): string {
 
 /** Linha para o MODELO (inglês): o total é explícito e o frete desconhecido é dito, nunca zero. */
 export function describeOffer(o: ProductOffer): string {
-	const price = o.price === null ? "price not found" : `price ${formatMoney(o.price, o.currency)}${o.oldPrice !== undefined ? ` (was ${formatMoney(o.oldPrice, o.currency)})` : ""}`;
+	const price = o.price === null ? "price not found" : `price ${o.priceFrom ? "FROM " : ""}${formatMoney(o.price, o.currency)}${o.oldPrice !== undefined ? ` (was ${formatMoney(o.oldPrice, o.currency)})` : ""}`;
 	const ship = o.shipping.kind === "unavailable" ? "DOES NOT SHIP to the owner's country" : o.shipping.kind === "free" ? "shipping free" : o.shipping.kind === "paid" ? `shipping ${formatMoney(o.shipping.amount, o.currency)}` : "shipping not informed";
 	const total = o.shipping.kind === "unavailable" ? "no total (does not ship here; leave it out of the ranking)" : o.total === null ? (o.price === null ? "total unknown" : "total unknown (shipping not informed, do not assume zero)") : `TOTAL ${formatMoney(o.total, o.currency)}`;
 	const extra = [o.availability !== "unknown" && o.availability.replace("_", " "), o.rating && `rating ${o.rating.value}/${o.rating.best}${o.rating.count ? ` (${o.rating.count})` : ""}`].filter(Boolean).join(", ");
@@ -495,6 +528,7 @@ export function parseProductOffer(v: Json): ProductOffer | null {
 		merchant: merchant.slice(0, 120),
 		url,
 		price,
+		...(v.priceFrom === true && price !== null && { priceFrom: true }),
 		...(finite(v.oldPrice) && price !== null && v.oldPrice > price && { oldPrice: round2(v.oldPrice) }),
 		currency: currencyOf(v.currency),
 		shipping,

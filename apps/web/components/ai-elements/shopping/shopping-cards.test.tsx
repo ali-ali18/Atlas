@@ -107,3 +107,11 @@ test("loja que não entrega no país do dono diz 'Não entrega' e fica sem total
 	assert.match(html, /Não entrega/);
 	assert.match(html, /Total indisponível/);
 });
+
+test("preço de faixa (AggregateOffer) aparece como 'a partir de' nos dois cards", async () => {
+	const a = offer({ merchant: "Loja A", url: "https://a.test/p", price: 100, shipping: { kind: "free" }, priceFrom: true });
+	assert.match(await render(<ProductCard items={[a]} />), /a partir de/);
+	const b = offer({ merchant: "Loja B", url: "https://b.test/p", price: 120, shipping: { kind: "free" } });
+	const html = await render(<ProductCard items={[a, b]} />);
+	assert.equal((html.match(/a partir de/g) ?? []).length, 1);
+});

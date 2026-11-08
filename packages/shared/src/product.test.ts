@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compareOffers, countryFromLocale, parseProductCard, discountPercent, offerTotal, parseConversationCard, parseMoneyNumber, safeImageUrl, parseProductPage, productCardId, serializeConversationCard, type ProductOffer } from "./index.js";
+import { compareOffers, describeOffer, countryFromLocale, parseProductCard, discountPercent, offerTotal, parseConversationCard, parseMoneyNumber, safeImageUrl, parseProductPage, productCardId, serializeConversationCard, type ProductOffer } from "./index.js";
 
 const ld = (obj: unknown) => `<script type="application/ld+json">${JSON.stringify(obj)}</script>`;
 const page = (head: string) => `<!doctype html><html><head>${head}</head><body></body></html>`;
@@ -58,6 +58,37 @@ describe("parseProductPage: JSON-LD", () => {
 		const o = parseProductPage(page(ld({ "@type": "Product", name: "A", aggregateRating: { ratingValue: 9, bestRating: 5 }, offers: { price: 10, priceCurrency: "BRL" } })), URL1)!;
 		expect(o.rating).toBeUndefined();
 		expect(o.merchant).toBe("loja-a.test");
+	});
+});
+
+describe("produto da página e preço inicial (auditoria F6)", () => {
+	const product = (name: string, extra: Record<string, unknown> = {}) => ({ "@type": "Product", name, offers: { "@type": "Offer", price: 10, priceCurrency: "BRL" }, ...extra });
+	const html = (...blocks: unknown[]) => `<html><head><title>T</title>${blocks.map((b) => `<script type="application/ld+json">${JSON.stringify(b)}</script>`).join("")}</head></html>`;
+
+	it("com vários Product prefere o que tem url ou @id igual ao da página (ignorando www, barra final e hash)", () => {
+		const page = html({ "@graph": [product("Fone relacionado", { url: "https://a.test/p/outro" }), product("Fone certo", { "@id": "https://www.a.test/p/fone/#product", url: undefined, offers: { "@type": "Offer", price: 99, priceCurrency: "BRL" } })] });
+		expect(parseProductPage(page, "https://a.test/p/fone")?.name).toBe("Fone certo");
+		const byUrl = html([product("Outro", { url: "/p/x" }), product("Esse", { url: "/p/fone/", offers: { "@type": "Offer", price: 77, priceCurrency: "BRL" } })]);
+		expect(parseProductPage(byUrl, "https://a.test/p/fone")).toMatchObject({ name: "Esse", price: 77 });
+	});
+	it("vários Product distintos e nenhum bate: null (sem dado estruturado confiável), mesmo com og:price", () => {
+		const page = html([product("Carrossel 1", { url: "/p/1" }), product("Carrossel 2", { url: "/p/2" })]).replace("</head>", '<meta property="product:price:amount" content="5,00"></head>');
+		expect(parseProductPage(page, "https://a.test/p/fone")).toBeNull();
+	});
+	it("um Product só, ou o mesmo repetido, continua valendo sem precisar de url", () => {
+		expect(parseProductPage(html(product("Fone")), "https://a.test/p")?.name).toBe("Fone");
+		expect(parseProductPage(html(product("Fone"), product("Fone")), "https://a.test/p")?.name).toBe("Fone");
+	});
+	it("AggregateOffer com faixa vira 'a partir de' (priceFrom); faixa igual ou oferta simples não", () => {
+		const agg = (low: number, high: number) => html({ "@type": "Product", name: "Fone", offers: { "@type": "AggregateOffer", lowPrice: low, highPrice: high, priceCurrency: "BRL" } });
+		expect(parseProductPage(agg(100, 300), "https://a.test/p")).toMatchObject({ price: 100, priceFrom: true });
+		expect(parseProductPage(agg(100, 100), "https://a.test/p")?.priceFrom).toBeUndefined();
+		expect(parseProductPage(html(product("Fone")), "https://a.test/p")?.priceFrom).toBeUndefined();
+		expect(describeOffer(parseProductPage(agg(100, 300), "https://a.test/p")!)).toContain("price FROM 100.00 BRL");
+	});
+	it("priceFrom sobrevive ao cartão gravado", () => {
+		const row = { v: 1, kind: "product", cardId: "r:product:1", items: [{ name: "X", merchant: "A", url: "https://a.test/p", price: 10, priceFrom: true, currency: "BRL", shipping: { kind: "free" }, total: 10, availability: "in_stock", images: [] }] };
+		expect(parseProductCard(row)?.items[0]?.priceFrom).toBe(true);
 	});
 });
 

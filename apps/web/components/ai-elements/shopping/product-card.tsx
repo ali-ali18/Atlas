@@ -21,6 +21,9 @@ type Format = ReturnType<typeof useFormat>;
 
 const money = (f: Format, value: number, currency: string | null) => (currency ? f.currency(value, currency) : f.number(value, { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
 
+/** Preço da oferta; "a partir de" quando a página só dá a faixa (AggregateOffer). */
+const priceText = (o: ProductOffer, t: Translator, f: Format): string => (o.price === null ? t.t("shopping.product.priceMissing") : o.priceFrom ? t.t("shopping.product.priceFrom", { price: money(f, o.price, o.currency) }) : money(f, o.price, o.currency));
+
 function shippingText(o: ProductOffer, t: Translator, f: Format): string {
 	if (o.shipping.kind === "free") return t.t("shopping.product.shippingFree");
 	if (o.shipping.kind === "paid") return t.t("shopping.product.shippingPaid", { amount: money(f, o.shipping.amount, o.currency) });
@@ -53,7 +56,7 @@ function PriceBlock({ offer, t, f }: { offer: ProductOffer; t: Translator; f: Fo
 			{offer.price === null ? (
 				<span className="text-body text-muted-foreground">{t.t("shopping.product.priceMissing")}</span>
 			) : (
-				<span className="text-lg leading-6 font-semibold tabular-nums" data-testid="product-price">{money(f, offer.price, offer.currency)}</span>
+				<span className="text-lg leading-6 font-semibold tabular-nums" data-testid="product-price">{priceText(offer, t, f)}</span>
 			)}
 			{offer.oldPrice !== undefined ? <s className="text-caption text-muted-foreground tabular-nums" data-testid="product-old-price">{t.t("shopping.product.wasPrice", { price: money(f, offer.oldPrice, offer.currency) })}</s> : null}
 			{discount !== null ? <Badge variant="success">{t.t("shopping.product.discount", { percent: discount })}</Badge> : null}
@@ -137,7 +140,7 @@ function CompareRow({ offer, best }: { offer: ProductOffer; best: boolean }) {
 				</div>
 				<span className="truncate text-caption text-muted-foreground">{offer.name}</span>
 				<div className="flex flex-wrap items-baseline justify-between gap-x-3 text-body">
-					<span className="tabular-nums">{offer.price === null ? t.t("shopping.product.priceMissing") : money(f, offer.price, offer.currency)} · <span className={cn(offer.shipping.kind === "unknown" && "text-warning", offer.shipping.kind === "unavailable" && "text-destructive")}>{shippingText(offer, t, f)}</span></span>
+					<span className="tabular-nums">{priceText(offer, t, f)} · <span className={cn(offer.shipping.kind === "unknown" && "text-warning", offer.shipping.kind === "unavailable" && "text-destructive")}>{shippingText(offer, t, f)}</span></span>
 					<span className={cn("font-medium tabular-nums", offer.total === null && "text-muted-foreground")} data-testid="product-total">{totalText(offer, t, f)}</span>
 				</div>
 				<div className="flex flex-wrap items-center justify-between gap-2">
