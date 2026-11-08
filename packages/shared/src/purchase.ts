@@ -1,6 +1,8 @@
 // Compra registrada (F6.5): validação pura do que o bot grava, chave de dedupe e o cartão `purchase`.
 // O registro é do dono (fato da vida dele); nada aqui move dinheiro.
 
+import { normalizeMerchant } from "./merchant.js";
+
 export const PURCHASE_ITEMS_MAX = 30;
 export const PURCHASE_TEXT_MAX = 200;
 /** O vigia de entrega acaba sozinho depois disto (ou ao entregar). */
@@ -90,13 +92,42 @@ export function normalizePurchaseInput(raw: Record<string, unknown>, now: Date):
 	return { ok: true, value: { merchant, items, total: round2(raw.total), currency, purchasedAt: purchasedAt.toISOString(), ...(orderNumber && { orderNumber }), ...(trackingCode && { trackingCode }), ...(trackingUrl && { trackingUrl }) } };
 }
 
+const collapse = (v: string): string => v.replace(/\s+/g, " ").trim().toLowerCase();
+
+/** Dia (AAAA-MM-DD) do instante no fuso dado; fuso inválido ou ausente cai em UTC. */
+export function purchaseDay(iso: string, timeZone?: string): string {
+	const date = new Date(iso);
+	if (Number.isNaN(date.getTime())) return iso.slice(0, 10);
+	if (timeZone) {
+		try {
+			return new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
+		} catch {
+			// fuso desconhecido: usa UTC
+		}
+	}
+	return date.toISOString().slice(0, 10);
+}
+
 /**
- * Registrar o mesmo pedido duas vezes não duplica: com número do pedido, loja + pedido; sem ele, loja + total + dia.
+ * Registrar o mesmo pedido duas vezes não duplica. A loja é normalizada (domínio se for URL; senão espaços e caixa).
+ * Com número do pedido: loja + pedido + moeda. Sem ele: loja + itens (nome e quantidade, normalizados e ordenados) + total +
+ * moeda + DIA NO FUSO do dono (`timeZone`), para dois pedidos iguais em valor no mesmo dia, mas de itens diferentes, não
+ * virarem um só, e para uma compra feita às 22h no Brasil não "mudar de dia" em UTC.
  */
-export function purchaseDedupeKey(p: Pick<PurchaseInput, "merchant" | "orderNumber" | "total" | "currency" | "purchasedAt">): string {
-	const merchant = p.merchant.toLowerCase();
-	if (p.orderNumber) return `${merchant}|order|${p.orderNumber.toLowerCase()}`;
-	return `${merchant}|${p.total.toFixed(2)}|${p.currency}|${p.purchasedAt.slice(0, 10)}`;
+export function purchaseDedupeKey(p: Pick<PurchaseInput, "merchant" | "orderNumber" | "total" | "currency" | "purchasedAt"> & { items?: readonly PurchaseItem[] }, timeZone?: string): string {
+	const merchant = normalizeMerchant(p.merchant) ?? collapse(p.merchant);
+	if (p.orderNumber) return `${merchant}|order|${collapse(p.orderNumber)}|${p.currency.toUpperCase()}`;
+	const items = (p.items ?? []).map((i) => `${collapse(i.name)}x${i.quantity}`).sort().join(";");
+	return `${merchant}|${items}|${p.total.toFixed(2)}|${p.currency.toUpperCase()}|${purchaseDay(p.purchasedAt, timeZone)}`;
+}
+
+/** O que a segunda notícia da MESMA compra acrescenta: só campos que faltam (nunca troca o que já está). */
+export function purchaseMergePatch(existing: Pick<PurchaseInput, "orderNumber" | "trackingCode" | "trackingUrl">, incoming: Pick<PurchaseInput, "orderNumber" | "trackingCode" | "trackingUrl">): Partial<Pick<PurchaseInput, "orderNumber" | "trackingCode" | "trackingUrl">> {
+	return {
+		...(!existing.orderNumber && incoming.orderNumber && { orderNumber: incoming.orderNumber }),
+		...(!existing.trackingCode && incoming.trackingCode && { trackingCode: incoming.trackingCode }),
+		...(!existing.trackingUrl && incoming.trackingUrl && { trackingUrl: incoming.trackingUrl }),
+	};
 }
 
 /** Nota do vigia de entrega (vai ao MODELO, inglês). Só dados que o dono ou a loja deram. */

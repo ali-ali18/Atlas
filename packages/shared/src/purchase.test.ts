@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deliveryWatchNote, normalizePurchaseInput, parseConversationCard, purchaseDedupeKey, serializeConversationCard } from "./index.js";
+import { purchaseDay, purchaseMergePatch, deliveryWatchNote, normalizePurchaseInput, parseConversationCard, purchaseDedupeKey, serializeConversationCard } from "./index.js";
 
 const NOW = new Date("2026-11-07T12:00:00Z");
 const base = { merchant: "Loja A", items: [{ name: "Fone", quantity: 1, unitPrice: 199.9 }], total: 219.8, currency: "brl" };
@@ -30,6 +30,41 @@ describe("normalizePurchaseInput", () => {
 		const d = normalizePurchaseInput({ ...base, total: 220 }, NOW);
 		if (!c.ok || !d.ok) throw new Error("x");
 		expect(purchaseDedupeKey(c.value)).not.toBe(purchaseDedupeKey(d.value));
+	});
+});
+
+describe("chave de dedupe (auditoria F6)", () => {
+	const key = (raw: Record<string, unknown>, tz?: string, now = NOW) => {
+		const r = normalizePurchaseInput({ ...base, ...raw }, now);
+		if (!r.ok) throw new Error(r.error);
+		return purchaseDedupeKey(r.value, tz);
+	};
+	it("sem número do pedido, itens diferentes no mesmo dia e total viram duas chaves; ordem e caixa dos itens não importam", () => {
+		const a = { items: [{ name: "Fone", quantity: 1 }], total: 100 };
+		const b = { items: [{ name: "Mouse", quantity: 1 }], total: 100 };
+		expect(key(a)).not.toBe(key(b));
+		const two = [{ name: "Fone", quantity: 1 }, { name: "Mouse", quantity: 2 }];
+		expect(key({ items: two, total: 9 })).toBe(key({ items: [{ name: " mouse ", quantity: 2 }, { name: "FONE", quantity: 1 }], total: 9 }));
+		expect(key({ items: [{ name: "Fone", quantity: 1 }], total: 9 })).not.toBe(key({ items: [{ name: "Fone", quantity: 2 }], total: 9 }));
+	});
+	it("loja: espaços e caixa não contam; URL vira o domínio; a moeda entra na chave com pedido", () => {
+		expect(key({ merchant: "  Loja   A " })).toBe(key({ merchant: "loja a" }));
+		expect(key({ merchant: "https://www.Loja.com/x", orderNumber: "1" })).toBe(key({ merchant: "loja.com", orderNumber: " 1 " }));
+		expect(key({ orderNumber: "1", currency: "BRL" })).not.toBe(key({ orderNumber: "1", currency: "USD" }));
+	});
+	it("o dia é o do fuso do dono: compra às 22h em São Paulo (01h UTC do dia seguinte) é a mesma do mesmo dia local", () => {
+		const night = "2026-11-07T01:00:00Z"; // 06/11 22h em São Paulo
+		const morning = "2026-11-06T13:00:00Z"; // 06/11 10h em São Paulo
+		const sp = "America/Sao_Paulo";
+		expect(purchaseDay(night, sp)).toBe("2026-11-06");
+		expect(purchaseDay(night)).toBe("2026-11-07");
+		expect(key({ purchasedAt: night }, sp)).toBe(key({ purchasedAt: morning }, sp));
+		expect(key({ purchasedAt: night })).not.toBe(key({ purchasedAt: morning }));
+		expect(purchaseDay(night, "Fuso/Invalido")).toBe("2026-11-07");
+	});
+	it("mescla só o que falta, sem trocar o que já existe", () => {
+		expect(purchaseMergePatch({ orderNumber: "A" }, { orderNumber: "B", trackingCode: "BR1", trackingUrl: "https://t.test/1" })).toEqual({ trackingCode: "BR1", trackingUrl: "https://t.test/1" });
+		expect(purchaseMergePatch({ trackingCode: "X" }, { trackingCode: "Y" })).toEqual({});
 	});
 });
 

@@ -6,7 +6,7 @@ import type { Helpers, HelperResult, HelperTask } from "../ports/helpers.js";
 import type { FileStore, StoredFile } from "../ports/file-store.js";
 import type { Memory, MemoryAddInput, MemoryItem, MemoryLayer } from "../ports/memory.js";
 import type { Notebook, NotebookAddInput, NotebookNote, NotebookPatch } from "../ports/notebook.js";
-import { findDuplicateNote, purchaseDedupeKey, rankNotes, type PurchaseView } from "@workspace/shared";
+import { findDuplicateNote, purchaseDedupeKey, purchaseMergePatch, rankNotes, type PurchaseView } from "@workspace/shared";
 import type { ProductCardPayload, ShoppingPorts } from "../ports/shopping.js";
 import type { Search, SearchExtract, SearchHit } from "../ports/search.js";
 import type { BotSettingsPatch, BotSettingsView, Settings } from "../ports/settings.js";
@@ -343,13 +343,16 @@ export class FakeShopping {
 			},
 		},
 		purchases: {
-			record: async (userId, _runId, purchase) => {
-				const key = purchaseDedupeKey(purchase);
+			record: async (userId, _runId, purchase, options) => {
+				const key = purchaseDedupeKey(purchase, options?.timeZone);
 				const found = this.rows.find((r) => r.userId === userId && r.key === key);
-				if (found) return { purchase: this.view(found), duplicate: true };
+				if (found) {
+					Object.assign(found, purchaseMergePatch(found, purchase));
+					return { purchase: this.view(found), duplicate: true, deliveryWatchId: found.deliveryWatchId ?? null };
+				}
 				const row = { ...structuredClone(purchase), id: `pur-${++this.seq}`, botId: null, createdAt: new Date(0).toISOString(), userId, key };
 				this.rows.push(row);
-				return { purchase: this.view(row), duplicate: false };
+				return { purchase: this.view(row), duplicate: false, deliveryWatchId: null };
 			},
 			attachDeliveryWatch: async (userId, purchaseId, watchId) => {
 				const row = this.rows.find((r) => r.userId === userId && r.id === purchaseId);

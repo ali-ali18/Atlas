@@ -3,6 +3,7 @@ import { FakeAgenda, FakeSearch, FakeShopping, productPageHtml } from "../../pre
 import { FakeClock } from "../../testing/fake-ports.js";
 import type { Ports } from "../../ports/index.js";
 import type { ToolContext } from "../../tools/types.js";
+import { DEFAULT_PROACTIVE_SETTINGS } from "@workspace/shared";
 import { z } from "zod";
 import { defineTool } from "../../tools/define-tool.js";
 import { createShoppingCapability } from "./index.js";
@@ -139,6 +140,34 @@ describe("record_purchase e o vigia de entrega", () => {
 		const watches = shop.rows.map((r) => r.deliveryWatchId);
 		expect(new Set(watches).size).toBe(2);
 		expect(watches.every(Boolean)).toBe(true);
+	});
+	it("mesmo pedido de novo com rastreio novo: mescla na compra e mantém um vigia só; se o vigia acabou, recria", async () => {
+		const { tool, shop, agenda } = setup();
+		const noTrack = { merchant: "Loja B", items: [{ name: "Fone X", quantity: 1 }], total: 120, currency: "BRL" };
+		await tool("record_purchase").run(noTrack, ctx());
+		const again = await tool("record_purchase").run({ ...noTrack, trackingCode: "BR555", trackingUrl: "https://rastreio.test/BR555" }, ctx());
+		expect(again.ok && again.summary).toContain("Already saved");
+		expect(shop.rows).toHaveLength(1);
+		expect(shop.rows[0]).toMatchObject({ trackingCode: "BR555", trackingUrl: "https://rastreio.test/BR555" });
+		expect(agenda.items.size).toBe(1);
+		// o vigia acaba (entregue): o mesmo pedido de novo recria
+		const [first] = [...agenda.items.values()];
+		await agenda.change("o1", first!.id, "cancel");
+		await tool("record_purchase").run(noTrack, ctx());
+		expect(agenda.items.size).toBe(2);
+		expect(shop.rows[0]!.deliveryWatchId).not.toBe(first!.id);
+	});
+	it("a mesma compra informada às 22h no Brasil é uma linha só; pedidos de itens diferentes no mesmo dia são duas", async () => {
+		const sp = new FakeAgenda({ ...DEFAULT_PROACTIVE_SETTINGS, enabled: true, timezone: "America/Sao_Paulo" });
+		const shop = new FakeShopping();
+		const cap = createShoppingCapability({ ...shop.ports, search: new FakeSearch([]), agenda: sp });
+		const record = cap.tools.find((t) => t.name === "record_purchase")!;
+		const item = (name: string) => ({ merchant: "Loja B", items: [{ name, quantity: 1 }], total: 50, currency: "BRL", followDelivery: false });
+		await record.run({ ...item("Fone X"), purchasedAt: "2026-11-05T01:00:00Z" }, ctx());
+		await record.run({ ...item("Fone X"), purchasedAt: "2026-11-04T13:00:00Z" }, ctx());
+		expect(shop.rows).toHaveLength(1);
+		await record.run({ ...item("Mouse"), purchasedAt: "2026-11-04T13:00:00Z" }, ctx());
+		expect(shop.rows).toHaveLength(2);
 	});
 	it("followDelivery false não cria vigia; sem agenda a compra fica salva e a tool diz", async () => {
 		const { tool, agenda, shop, search } = setup();

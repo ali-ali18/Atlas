@@ -15,11 +15,16 @@ export interface ProductCards {
 	show(userId: string, runId: string, card: ProductCardPayload): Promise<void>;
 }
 
-export type RecordedPurchase = { purchase: PurchaseView; duplicate: boolean };
+export type RecordedPurchase = {
+	purchase: PurchaseView;
+	duplicate: boolean;
+	/** Vigia de entrega ligado à compra (se houver). Serve para recriar o vigia que já acabou. */
+	deliveryWatchId?: string | null;
+};
 
 export interface Purchases {
-	/** Grava a compra do dono. O mesmo pedido duas vezes devolve o existente (`duplicate`). */
-	record(userId: string, runId: string, purchase: PurchaseInput): Promise<RecordedPurchase>;
+	/** Grava a compra do dono. O mesmo pedido duas vezes devolve o existente (`duplicate`), com o que faltava acrescentado (rastreio, link, número). `timeZone` define o "dia" da chave. */
+	record(userId: string, runId: string, purchase: PurchaseInput, options?: { timeZone?: string }): Promise<RecordedPurchase>;
 	/** Liga a compra ao vigia de entrega da agenda. */
 	attachDeliveryWatch(userId: string, purchaseId: string, watchId: string): Promise<void>;
 	/** Mostra (e grava na conversa) o cartão `purchase`. */

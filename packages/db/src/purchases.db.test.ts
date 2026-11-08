@@ -31,6 +31,23 @@ describe("compras (Postgres real)", { skip: dbSkip }, () => {
 		await prisma.$disconnect();
 	});
 
+	test("sem pedido: itens diferentes no mesmo dia são duas linhas; a mesma compra às 22h no Brasil é uma só e recebe o rastreio por mescla", async () => {
+		const base = { merchant: "Loja Mescla", total: 50, orderNumber: undefined };
+		const sp = "America/Sao_Paulo";
+		const fone = make({ ...base, items: [{ name: "Fone", quantity: 1 }], purchasedAt: "2026-11-07T01:00:00Z" }); // 06/11 22h em SP
+		const first = await recordPurchase({ userId: userA, purchase: fone, timeZone: sp });
+		assert.equal(first.duplicate, false);
+		const sameDayOther = await recordPurchase({ userId: userA, purchase: make({ ...base, items: [{ name: "Mouse", quantity: 1 }], purchasedAt: "2026-11-06T13:00:00Z" }), timeZone: sp });
+		assert.equal(sameDayOther.duplicate, false, "itens diferentes: outra linha");
+		const again = await recordPurchase({ userId: userA, purchase: make({ ...base, items: [{ name: "Fone", quantity: 1 }], purchasedAt: "2026-11-06T13:00:00Z", trackingCode: "BR777", trackingUrl: "https://rastreio.test/BR777" }), timeZone: sp });
+		assert.equal(again.duplicate, true);
+		assert.equal(again.purchase.id, first.purchase.id);
+		assert.equal(again.purchase.trackingCode, "BR777");
+		assert.equal((await getPurchase(userA, first.purchase.id))?.trackingUrl, "https://rastreio.test/BR777");
+		const keep = await recordPurchase({ userId: userA, purchase: make({ ...base, items: [{ name: "Fone", quantity: 1 }], purchasedAt: "2026-11-06T13:00:00Z", trackingCode: "OUTRO" }), timeZone: sp });
+		assert.equal(keep.purchase.trackingCode, "BR777", "não troca o que já existe");
+	});
+
 	test("grava com valores exatos e lê de volta (total decimal, itens, rastreio)", async () => {
 		const { purchase, duplicate } = await recordPurchase({ userId: userA, botId: botA, sourceRunId: "run-1", purchase: make({ trackingCode: "BR123", trackingUrl: "https://rastreio.test/BR123" }) });
 		assert.equal(duplicate, false);

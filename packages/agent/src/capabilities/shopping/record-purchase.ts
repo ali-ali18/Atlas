@@ -51,10 +51,14 @@ export function createRecordPurchaseTool(deps: { purchases: Purchases; agenda?: 
 			const now = ctx.ports.clock.now();
 			const parsed = normalizePurchaseInput(raw, now);
 			if (!parsed.ok) throw new Error(`${parsed.error} Hint: fix that field and call again.`);
-			const recorded = await deps.purchases.record(ctx.ownerId, ctx.runId, parsed.value);
+			// O "dia" da chave de dedupe é o do dono (fuso da agenda), não o UTC.
+			const timeZone = deps.agenda ? (await deps.agenda.settings(ctx.ownerId).catch(() => undefined))?.timezone : undefined;
+			const recorded = await deps.purchases.record(ctx.ownerId, ctx.runId, parsed.value, timeZone ? { timeZone } : undefined);
 			const { purchase } = recorded;
 			let follow = "No delivery follow-up was created (not requested).";
-			if (followDelivery !== false && !recorded.duplicate) {
+			// Pedido repetido: só recria o vigia se o da compra já acabou (ou nunca nasceu).
+			const watchAlive = recorded.duplicate && recorded.deliveryWatchId && deps.agenda ? (await deps.agenda.list(ctx.ownerId).catch(() => [])).some((item) => item.id === recorded.deliveryWatchId) : false;
+			if (followDelivery !== false && (!recorded.duplicate || (!watchAlive && deps.agenda))) {
 				if (!deps.agenda) follow = "No delivery follow-up was created (agenda unavailable).";
 				else {
 					try {
@@ -67,7 +71,7 @@ export function createRecordPurchaseTool(deps: { purchases: Purchases; agenda?: 
 						follow = `The purchase is saved, but the delivery follow-up failed: ${error instanceof Error ? error.message : "unknown error"}`;
 					}
 				}
-			} else if (recorded.duplicate) follow = "This order was already saved; nothing new was created.";
+			} else if (recorded.duplicate) follow = "This order was already saved (missing tracking details were added); its delivery follow-up is already running.";
 			await deps.purchases.show(ctx.ownerId, ctx.runId, purchase);
 			return {
 				ok: true,

@@ -78,9 +78,9 @@ export function createV4Shopping(input: { scope: V4ShoppingScope; deps?: V4Shopp
 	};
 
 	const purchases: Purchases = {
-		async record(userId, runId, purchase) {
-			const saved = await deps.record({ userId, botId: scope.botId ?? null, conversationId: scope.conversationId ?? null, sourceRunId: runId, purchase });
-			return { purchase: toView(saved.purchase), duplicate: saved.duplicate };
+		async record(userId, runId, purchase, options) {
+			const saved = await deps.record({ userId, botId: scope.botId ?? null, conversationId: scope.conversationId ?? null, sourceRunId: runId, purchase, ...(options?.timeZone && { timeZone: options.timeZone }) });
+			return { purchase: toView(saved.purchase), duplicate: saved.duplicate, deliveryWatchId: saved.purchase.deliveryWatchId };
 		},
 		async attachDeliveryWatch(userId, purchaseId, watchId) {
 			await deps.attachWatch(userId, purchaseId, watchId);
