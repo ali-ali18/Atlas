@@ -85,6 +85,8 @@ describe("isSummaryFreshSnapshot", () => {
 			"code-run",
 			"compaction",
 			"confirm",
+			"email-draft",
+			"email-triage",
 			"file",
 			"login",
 			"page",
