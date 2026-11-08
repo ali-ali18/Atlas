@@ -118,6 +118,8 @@ test("questionário: pendente tem selo e dispensar; respondido recolhe as respos
 	const pending = html(<QuestionnaireCard message={base} onDismiss={() => {}} />);
 	assert.match(pending, /Precisa de você/);
 	assert.match(pending, /Dispensar questionário/);
+	// O padrão continua sendo o X, sem o botão de texto.
+	assert.doesNotMatch(pending, /Agora não/);
 	const answered = html(<QuestionnaireCard message={{ ...base, status: "submitted", answers: { a: "x" } }} />);
 	assert.match(answered, />Respondido</);
 	assert.match(answered, />Ver respostas</);

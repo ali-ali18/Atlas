@@ -37,12 +37,20 @@ export type HandoffRequestEvent = {
 	runId?: string;
 };
 
+/** Alternativa de uma pergunta ao dono. */
+export type AskOwnerChoice = { value: string; label?: string; description?: string };
+
+/** Máximo de alternativas por pergunta. */
+export const ASK_OWNER_CHOICES_MAX = 12;
+
 /** Cartão de pergunta ao dono (termina o turno). `offer` é a oferta que fica registrada na conversa. */
 export type AskOwnerEvent = {
 	type: "ask_owner";
 	cardId: string;
 	question: string;
 	offer?: string;
+	/** Alternativas opcionais; sem elas o dono responde só pelo campo livre. */
+	choices?: AskOwnerChoice[];
 	runId?: string;
 };
 
@@ -95,7 +103,16 @@ export function parseAgentV4Event(value: unknown): AgentV4Event | null {
 		}
 		case "ask_owner": {
 			if (!text(value.cardId) || typeof value.question !== "string" || value.question.length > AGENT_V4_TEXT_MAX || !optText(value.offer)) return null;
-			return { type: "ask_owner", cardId: value.cardId, question: value.question, ...(value.offer !== undefined && { offer: value.offer }), ...base };
+			let choices: AskOwnerChoice[] | undefined;
+			if (value.choices !== undefined) {
+				if (!Array.isArray(value.choices) || value.choices.length > ASK_OWNER_CHOICES_MAX) return null;
+				choices = [];
+				for (const raw of value.choices) {
+					if (!isObject(raw) || !text(raw.value) || !optText(raw.label) || !optText(raw.description)) return null;
+					choices.push({ value: raw.value, ...(raw.label !== undefined && { label: raw.label }), ...(raw.description !== undefined && { description: raw.description }) });
+				}
+			}
+			return { type: "ask_owner", cardId: value.cardId, question: value.question, ...(value.offer !== undefined && { offer: value.offer }), ...(choices && { choices }), ...base };
 		}
 		case "receipt": {
 			const { id, name, what, where, externalId, url } = value;

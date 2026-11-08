@@ -212,3 +212,41 @@ test("produto e compra (F6): ao vivo e gravado com a mesma identidade não dupli
 	// Cartões diferentes continuam separados.
 	assert.equal(dedupeCards([product("a"), { id: "b", kind: "product", cardId: "run-1:product:outro", items: [item] } as Message]).length, 2);
 });
+
+const v4Approval = { type: "approval_request", requestId: "req-1", callId: "call-1", toolName: "send_email", effect: "send", args: {}, riskFacts: {}, runId: "run-1" } as const;
+const agentCard = (id: string, settled?: boolean): Message => ({ id, kind: "agent-card", card: v4Approval, ...(settled ? { settled } : {}) });
+
+test("card v4: o ao vivo e o gravado (mesmo pedido do mesmo run) viram um só, o gravado na posição dele", () => {
+	const live: Message[] = [user("db-u1"), { id: "cu-a", kind: "assistant", text: "Vou enviar." }, agentCard("agent-card-approval_request|run-1|req-1", true)];
+	const persisted: Message[] = [user("db-u1"), agentCard("db-card"), { id: "db-a", kind: "assistant", text: "Vou enviar." }];
+	const result = reconcilePersistedThread(persisted, live);
+	const cards = result.filter((message) => message.kind === "agent-card");
+	assert.deepEqual(cards.map((card) => card.id), ["db-card"]);
+	assert.deepEqual(result.map((message) => message.id), ["db-u1", "db-card", "db-a"]);
+});
+
+test("card v4: dedupe não vizinho fica com o gravado e herda o 'resolvido' do ao vivo", () => {
+	const result = dedupeCards([user("u1"), agentCard("db-card"), { id: "a1", kind: "assistant", text: "texto entre os dois" }, agentCard("agent-card-approval_request|run-1|req-1", true)]);
+	const cards = result.filter((message) => message.kind === "agent-card");
+	assert.equal(cards.length, 1);
+	assert.ok(cards[0]?.kind === "agent-card" && cards[0].id === "db-card" && cards[0].settled === true);
+});
+
+test("card v4: pedidos diferentes, ou o mesmo pedido em outro run, ficam os dois", () => {
+	const other: Message = { id: "x2", kind: "agent-card", card: { ...v4Approval, requestId: "req-2" } };
+	const otherRun: Message = { id: "x3", kind: "agent-card", card: { ...v4Approval, runId: "run-2" } };
+	assert.equal(dedupeCards([agentCard("x1"), other, otherRun]).length, 3);
+});
+
+test("card v4 só ao vivo (sem gravado ainda) continua na tela depois da reconciliação", () => {
+	const live: Message[] = [user("db-u1"), agentCard("agent-card-approval_request|run-1|req-1")];
+	const result = reconcilePersistedThread([user("db-u1")], live);
+	assert.deepEqual(kinds(result), ["user", "agent-card"]);
+});
+
+test("card v4 resolvido ao vivo continua resolvido quando o gravado o substitui (auditoria: botões voltavam)", () => {
+	const live: Message[] = [user("db-u1"), agentCard("agent-card-approval_request|run-1|req-1", true)];
+	const persisted: Message[] = [user("db-u1"), agentCard("db-card")];
+	const card = reconcilePersistedThread(persisted, live).find((message) => message.kind === "agent-card");
+	assert.ok(card?.kind === "agent-card" && card.id === "db-card" && card.settled === true);
+});

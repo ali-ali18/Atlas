@@ -3,10 +3,11 @@ import type { Message } from "@/components/ui/templates/template-4/data";
 import { insertDevSessionCards } from "@/lib/dev-session/cards";
 import { collapseSkillProposalCards } from "@/lib/skill-proposal-message";
 import { collapseBotProposalCards } from "@/lib/bot-proposal-message";
+import { agentCardKey, LIVE_AGENT_CARD_PREFIX } from "@/lib/agent-cards";
 
 /** Cartão ao vivo que, quando o servidor já gravou o equivalente, vale o gravado. */
 function isDedupedLiveCard(message: Message): boolean {
-	return message.kind === "images" || message.kind === "provider-fallback" || message.kind === "code-run" || message.kind === "chart" || message.kind === "product" || message.kind === "purchase" || message.kind === "task-list" || message.kind === "compaction" || (message.kind === "routine" && message.action === "created" && !!message.routineId);
+	return message.kind === "images" || message.kind === "provider-fallback" || message.kind === "code-run" || message.kind === "chart" || message.kind === "product" || message.kind === "purchase" || message.kind === "agent-card" || message.kind === "task-list" || message.kind === "compaction" || (message.kind === "routine" && message.action === "created" && !!message.routineId);
 }
 
 function cardDedupeKey(message: Message): string | null {
@@ -52,6 +53,8 @@ function cardDedupeKey(message: Message): string | null {
 	if (message.kind === "task-list") return `task-list|${message.runId}`;
 	// O ao vivo usa o id do cartão gravado: os dois colapsam num só.
 	if (message.kind === "compaction") return `compaction|${message.id}`;
+	// Card do motor v4: tipo + run + pedido/chamada/cartão. O ao vivo, o restaurado dos eventos e o gravado colapsam.
+	if (message.kind === "agent-card") return `agent-card|${agentCardKey(message.card)}`;
 	if (message.kind === "questionnaire") {
 		return `questionnaire|${message.questionnaireId}|${message.title}`;
 	}
@@ -220,9 +223,44 @@ export function settleTurnCards(messages: Message[]): Message[] {
 	return result.every((message, index) => message === messages[index]) ? messages : result;
 }
 
+type AgentCardThreadMessage = Extract<Message, { kind: "agent-card" }>;
+
+/**
+ * Um card do motor v4 (mesma chave: tipo + run + pedido) existe uma vez só, mesmo sem ser vizinho do outro
+ * (texto do passo entre o ao vivo e o gravado). Fica o gravado (id do banco), na posição dele; se qualquer um
+ * dos dois já sabe que a chamada foi resolvida, o que fica também sabe.
+ */
+export function collapseAgentCards(messages: Message[]): Message[] {
+	const groups = new Map<string, AgentCardThreadMessage[]>();
+	for (const message of messages) {
+		if (message.kind !== "agent-card") continue;
+		const key = agentCardKey(message.card);
+		groups.set(key, [...(groups.get(key) ?? []), message]);
+	}
+	if ([...groups.values()].every((cards) => cards.length === 1)) return messages;
+	return messages.flatMap((message): Message[] => {
+		if (message.kind !== "agent-card") return [message];
+		const cards = groups.get(agentCardKey(message.card)) ?? [message];
+		if (cards.length === 1) return [message];
+		const keeper = cards.find((card) => !card.id.startsWith(LIVE_AGENT_CARD_PREFIX)) ?? cards[0]!;
+		if (message !== keeper) return [];
+		return [cards.some((card) => card.settled) && !keeper.settled ? { ...keeper, settled: true } : keeper];
+	});
+}
+
+/**
+ * O card v4 ao vivo que já sabe que a chamada foi resolvida (chegou o `tool_result`) sai da tela quando o
+ * gravado chega; o gravado não sabe disso. Passa o "resolvido" para ele antes, senão os botões voltariam.
+ */
+function settlePersistedAgentCards(persisted: Message[], live: Message[]): Message[] {
+	const settled = new Set(live.flatMap((message) => (message.kind === "agent-card" && message.settled ? [agentCardKey(message.card)] : [])));
+	if (settled.size === 0) return persisted;
+	return persisted.map((message) => (message.kind === "agent-card" && !message.settled && settled.has(agentCardKey(message.card)) ? { ...message, settled: true } : message));
+}
+
 /** Cards iguais consecutivos ou com o mesmo id aparecem uma vez; turnos diferentes ficam. */
 export function dedupeCards(input: Message[]): Message[] {
-	const messages = collapseContextSummaries(collapseRoutineCreatedCards(collapsePageCards(collapseBotProposalCards(collapseSkillProposalCards(collapseConfirmCards(collapseSubagentGroups(collapseDevSessionCards(input))))))));
+	const messages = collapseAgentCards(collapseContextSummaries(collapseRoutineCreatedCards(collapsePageCards(collapseBotProposalCards(collapseSkillProposalCards(collapseConfirmCards(collapseSubagentGroups(collapseDevSessionCards(input)))))))));
 	const seenIds = new Set<string>();
 	const result: Message[] = [];
 	// Aviso de fallback repetido no mesmo turno (run retomado) aparece uma vez, mesmo não consecutivo.
@@ -245,7 +283,8 @@ export function dedupeCards(input: Message[]): Message[] {
 }
 
 /** Usa a thread persistida como fonte principal e mantém apenas bolhas live ainda sem equivalente. */
-export function reconcilePersistedThread(persisted: Message[], live: Message[], resultText?: string | null): Message[] {
+export function reconcilePersistedThread(persistedRows: Message[], live: Message[], resultText?: string | null): Message[] {
+	const persisted = settlePersistedAgentCards(persistedRows, live);
 	const persistedIds = new Set(persisted.map((message) => message.id));
 	const persistedImageKeys = new Set(persisted.filter((message) => isDedupedLiveCard(message)).map((message) => cardDedupeKey(message)));
 	const firstOverlap = live.findIndex((message) => persistedIds.has(message.id));
@@ -392,6 +431,7 @@ export function reconcilePersistedThread(persisted: Message[], live: Message[], 
 		message.kind !== "compaction" &&
 		message.kind !== "subagents" &&
 		message.kind !== "context-summary" &&
+		message.kind !== "agent-card" &&
 		message.kind !== "confirm" && message.kind !== "questionnaire" &&
 		message.kind !== "skill-proposal" &&
 		message.kind !== "routine-proposal" &&

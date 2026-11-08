@@ -22,7 +22,10 @@ import {
 	QuestionnaireTitle,
 } from "@workspace/ui/components/questionnaire";
 
+import { Button } from "@workspace/ui/components/button";
 import { RequestCard, REQUEST_PRIMARY_CLASS } from "@workspace/ui/components/request-card";
+
+import { useUiCopy } from "@workspace/ui/components/ui-copy";
 
 import type { Message } from "../data";
 import { useT } from "@/lib/i18n/provider";
@@ -83,6 +86,7 @@ export function QuestionnaireCard({
 	message,
 	onSubmit,
 	onDismiss,
+	dismissAs = "icon",
 }: {
 	message: QuestionnaireCardMessage;
 	onSubmit?: (
@@ -90,8 +94,15 @@ export function QuestionnaireCard({
 		answers: QuestionnaireAnswersMap,
 	) => void;
 	onDismiss?: (message: QuestionnaireCardMessage) => void;
+	/**
+	 * Como dispensar: "icon" = X no cabeçalho (padrão); "action" = botão de
+	 * texto "Agora não" ao lado de "Enviar" (card que não deve parecer exclusão).
+	 * "action" é para pergunta obrigatória: o botão ocupa a coluna do "Pular", que só aparece em pergunta opcional.
+	 */
+	dismissAs?: "icon" | "action";
 }) {
 	const t = useT();
+	const copy = useUiCopy();
 	const status = message.status ?? "pending";
 
 	if (status === "submitted") {
@@ -198,7 +209,7 @@ export function QuestionnaireCard({
 			badge={{ tone: "pending", label: t("chat.questionnaire.needsYou") }}
 			className="max-w-xl"
 			headerAction={
-				onDismiss ? (
+				onDismiss && dismissAs === "icon" ? (
 					<button
 						aria-label={t("chat.questionnaire.dismiss")}
 						className="-my-0.5 -mr-1 shrink-0 rounded-full p-1 text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
@@ -270,6 +281,18 @@ export function QuestionnaireCard({
 								<QuestionnairePrevious>{t("chat.questionnaire.back")}</QuestionnairePrevious>
 								<QuestionnaireSkip>{t("chat.questionnaire.skip")}</QuestionnaireSkip>
 								<QuestionnaireNext>{t("chat.questionnaire.next")}</QuestionnaireNext>
+								{/* Coluna 2 da barra (a de "Pular", que não aparece em pergunta obrigatória): fica à direita, colado no "Enviar". */}
+								{onDismiss && dismissAs === "action" ? (
+									<Button
+										className="col-start-2 row-start-1 min-h-11 justify-self-end sm:min-h-0"
+										onClick={() => onDismiss(message)}
+										size="sm"
+										type="button"
+										variant="secondary"
+									>
+										{copy.cardDismiss}
+									</Button>
+								) : null}
 								<QuestionnaireSubmit className={REQUEST_PRIMARY_CLASS}>{t("chat.questionnaire.submit")}</QuestionnaireSubmit>
 							</QuestionnaireActions>
 						</QuestionnaireItem>
