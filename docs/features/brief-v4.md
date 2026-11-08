@@ -31,6 +31,8 @@ O brief do v2 era uma rotina que deixava o modelo caçar fonte por fonte (caro, 
 `packages/agent/src/ports/brief.ts` define o que o brief consome, sem importar `ports/email.ts`:
 `BriefEmailSource.listRecent(userId, { since, limit, signal? }) => BriefEmailItem[]` com `{ id, from, subject, receivedAt, snippet?, category?: "action"|"info"|"ignore", dueAt?, requestedBy? }`. Só campos declarados (nunca o corpo). Falha = `throw` com a mensagem real; login expirado = `Error` com `code === "needs_connection"`. O integrador passa uma implementação em `buildV4Registry({ briefEmail })` (`V4RegistryInput.briefEmail`).
 
+**Ligação real (F7 integrada):** `apps/worker/src/v4-adapters/brief-email.ts` adapta `EmailAccounts` (Gmail do dono e caixa do bot do run) a `listRecent`. Só chama `list` (cabeçalhos e o trecho curto), nunca `read`, então o corpo não entra; não há classificação (`category` fica ausente: quem decide o que pede ação é o modelo no `day_plan`). Sem conta conectada a lista vem vazia e a seção some; login expirado ou revogado sobe com `code: "needs_connection"` (o Gmail marca isso em `email.ts`); se uma fonte falha e a outra lê, o brief segue com a que leu. `processors/agent-run.ts` passa `briefEmail` só em run de brief.
+
 ## Riscos
 - E-mail hostil no dia é dado: o run não tem tool de escrita, envio nem web.
 - Tarefas abertas vêm da lista da conversa do bot (a lista de tarefas é por run).

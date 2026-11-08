@@ -170,8 +170,17 @@ export function gmailErrorMessage(error: unknown, action: "read" | "send" | "dra
 	}
 	if (status === 404) return "Message not found. Hint: use an id from email_list.";
 	if (status === 429) return "Gmail is limiting requests right now. Hint: try again in a few minutes.";
-	if (error instanceof Error && error.message.startsWith("The Gmail connection has no login")) return redact(error.message, token);
+	if (error instanceof Error && error.message.startsWith(NO_LOGIN_PREFIX)) return redact(error.message, token);
 	return redact(`Gmail failed: ${raw}`, token).slice(0, 300);
+}
+
+const NO_LOGIN_PREFIX = "The Gmail connection has no login";
+
+/** Login do Gmail ausente, expirado ou revogado (o dono precisa reconectar). */
+export function isGmailLoginProblem(error: unknown): boolean {
+	if (!(error instanceof Error)) return false;
+	const status = "status" in error && typeof (error as { status: unknown }).status === "number" ? (error as { status: number }).status : undefined;
+	return error.constructor.name === "UnauthorizedError" || status === 401 || error.message.startsWith(NO_LOGIN_PREFIX);
 }
 
 const redact = (text: string, token?: string): string => redactSecrets(text, token ? [token] : []);
@@ -192,7 +201,10 @@ function openGmail(scope: V4EmailScope, deps: V4EmailDeps, record: McpRecord): E
 		try {
 			return await run();
 		} catch (error) {
-			throw new Error(gmailErrorMessage(error, action, token));
+			const failure = new Error(gmailErrorMessage(error, action, token));
+			// Sinal estrutural para quem consome a porta (o brief distingue "reconectar" de "falhou").
+			if (isGmailLoginProblem(error)) Object.assign(failure, { code: "needs_connection" });
+			throw failure;
 		}
 	}
 	const get = <T>(path: string, signal?: AbortSignal) => deps.googleJson<T>(api, `${GMAIL_API}${path}`, signal ? { signal } : undefined);
