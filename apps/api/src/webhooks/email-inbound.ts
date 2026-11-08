@@ -122,8 +122,10 @@ export function createEmailInboundRoutes(runDeps: () => StartEmailRunDeps | null
 
 		// Intenções da agenda do v4 ("quando chegar o e-mail tal, faço Y"): dono e bot vêm da caixa. Só marca; o worker acorda.
 		// Independe das rotinas e do agente de conversa abaixo, e uma falha aqui nunca perde o e-mail.
+		let intentsMarked = 0;
 		await d
 			.wakeIntents({ userId: mailbox.userId, botId: mailbox.botId, event: { source: "email", from, subject: event.subject, hasAttachment: (event.attachments?.length ?? 0) > 0 } })
+			.then((wake) => void (intentsMarked = wake.marked))
 			.catch((error: unknown) => console.error("email inbound: falha ao marcar intenções da agenda", error instanceof Error ? error.message : "erro"));
 
 		// Rotinas com gatilho de e-mail da MESMA caixa (dono e bot vêm da caixa) e filtros que casam: a rotina
@@ -151,6 +153,10 @@ export function createEmailInboundRoutes(runDeps: () => StartEmailRunDeps | null
 				return c.json({ error: "Não foi possível iniciar a rotina" }, 503);
 			}
 		}
+
+		// Intenção marcada: ela assume o e-mail, como a rotina (o worker acorda o item). O agente de conversa não roda em paralelo
+		// para não tratar o mesmo e-mail duas vezes (duas respostas, dois avisos).
+		if (intentsMarked > 0) return c.json({ ok: true, intents: intentsMarked }, 200);
 
 		const startDeps = d.runDeps();
 		if (!startDeps) {
