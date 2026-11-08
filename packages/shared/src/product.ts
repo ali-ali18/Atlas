@@ -113,20 +113,54 @@ function str(v: Json): string | undefined {
 	return undefined;
 }
 
-/** "199.90", 199.9, "1.299,90" e "1,299.90": o último separador é o decimal. */
-export function parseMoneyNumber(v: Json): number | null {
-	if (typeof v === "number") return Number.isFinite(v) && v >= 0 ? round2(v) : null;
+/** Moedas em que o ponto separa milhar e a vírgula é decimal ("1.299,90"). */
+const DOT_THOUSANDS_CURRENCIES = new Set(["BRL", "EUR", "ARS", "CLP", "COP", "PYG", "UYU", "DKK", "TRY", "VND", "IDR"]);
+/** Moedas em que a vírgula separa milhar e o ponto é decimal ("1,299.90"). */
+const COMMA_THOUSANDS_CURRENCIES = new Set(["USD", "GBP", "CAD", "AUD", "NZD", "MXN", "JPY", "CNY", "HKD", "SGD", "INR", "ZAR"]);
+
+/**
+ * "199.90", 199.9, "1.299,90" e "1,299.90": com os dois separadores o último é o decimal. Com UM separador seguido de
+ * exatamente 3 dígitos ("1.299", "1,299") o texto é ambíguo (milhar ou decimal?): só a moeda resolve (BRL/EUR: ponto é milhar;
+ * USD/GBP: vírgula é milhar); sem moeda que resolva, devolve `null` (preço desconhecido), nunca um palpite. Negativo vira
+ * `null`, e zero também, salvo `allowZero` (frete grátis é 0 de verdade).
+ */
+export function parseMoneyNumber(v: Json, options: { currency?: string | null; allowZero?: boolean } = {}): number | null {
+	const accept = (n: number): number | null => (Number.isFinite(n) && n >= 0 && (n > 0 || options.allowZero === true) ? round2(n) : null);
+	if (typeof v === "number") return accept(v);
 	if (typeof v !== "string") return null;
+	// Sinal negativo antes do primeiro dígito ("-10", "R$ -10"): não é preço.
+	const firstDigit = v.search(/\d/);
+	if (firstDigit < 0 || /[-\u2212]/.test(v.slice(0, firstDigit))) return null;
 	let s = v.replace(/[^\d.,]/g, "");
-	if (!s) return null;
 	const lastDot = s.lastIndexOf(".");
 	const lastComma = s.lastIndexOf(",");
 	if (lastDot >= 0 && lastComma >= 0) {
 		const dec = Math.max(lastDot, lastComma);
 		s = `${s.slice(0, dec).replace(/[.,]/g, "")}.${s.slice(dec + 1)}`;
-	} else if (lastComma >= 0) s = s.replace(",", ".");
-	const n = Number(s);
-	return Number.isFinite(n) && n >= 0 ? round2(n) : null;
+	} else if (lastDot >= 0 || lastComma >= 0) {
+		const sep = lastDot >= 0 ? "." : ",";
+		const parts = s.split(sep);
+		const tail = parts[parts.length - 1] ?? "";
+		const repeated = parts.length > 2;
+		if (repeated) {
+			// "1.299.000": o separador repetido só pode ser milhar.
+			s = parts.join("");
+		} else if (tail.length === 3 && parts[0] !== "0") {
+			const currency = options.currency?.toUpperCase() ?? "";
+			const thousands = sep === "." ? DOT_THOUSANDS_CURRENCIES.has(currency) : COMMA_THOUSANDS_CURRENCIES.has(currency);
+			if (!thousands) return null;
+			s = parts.join("");
+		} else s = parts.join(".");
+	}
+	return accept(Number(s));
+}
+
+/** Quantidade ("1.234 avaliações", 1234): só dígitos; separadores são de milhar. */
+function parseCount(v: Json): number | null {
+	if (typeof v === "number") return Number.isFinite(v) && v >= 0 ? v : null;
+	if (typeof v !== "string") return null;
+	const digits = v.replace(/\D/g, "");
+	return digits ? Number(digits) : null;
 }
 
 function currencyOf(v: Json): string | null {
@@ -186,8 +220,8 @@ function shippingOf(offer: Record<string, Json>, currency: string | null): Produ
 		if (!isRecord(d)) continue;
 		const rate = d.shippingRate;
 		if (!isRecord(rate)) continue;
-		const amount = parseMoneyNumber(rate.value);
 		const rateCurrency = currencyOf(rate.currency);
+		const amount = parseMoneyNumber(rate.value, { currency: rateCurrency ?? currency, allowZero: true });
 		if (amount === null) continue;
 		// Frete em outra moeda não soma com o preço: tratado como não informado.
 		if (rateCurrency && currency && rateCurrency !== currency) continue;
@@ -212,10 +246,10 @@ function offerCandidates(raw: Json): Record<string, Json>[] {
 function pickOffer(raw: Json): Picked | null {
 	const cands = offerCandidates(raw).map((o): Picked & { raw: Record<string, Json> } => {
 		const spec = Array.isArray(o.priceSpecification) ? o.priceSpecification.find(isRecord) : isRecord(o.priceSpecification) ? o.priceSpecification : undefined;
-		const price = parseMoneyNumber(o.price ?? o.lowPrice ?? spec?.price);
 		const currency = currencyOf(o.priceCurrency ?? spec?.priceCurrency);
-		const listPrice = isRecord(o.priceSpecification) && str(o.priceSpecification.priceType)?.toLowerCase().includes("listprice") ? parseMoneyNumber(o.priceSpecification.price) : null;
-		const highPrice = parseMoneyNumber(o.highPrice);
+		const price = parseMoneyNumber(o.price ?? o.lowPrice ?? spec?.price, { currency });
+		const listPrice = isRecord(o.priceSpecification) && str(o.priceSpecification.priceType)?.toLowerCase().includes("listprice") ? parseMoneyNumber(o.priceSpecification.price, { currency }) : null;
+		const highPrice = parseMoneyNumber(o.highPrice, { currency });
 		const old = listPrice ?? (o["@type"] === "AggregateOffer" ? null : highPrice);
 		return { raw: o, price, currency, availability: availabilityOf(o.availability), shipping: shippingOf(o, currency), ...(price !== null && old !== null && old > price && { oldPrice: old }) };
 	});
@@ -234,7 +268,7 @@ function ratingOf(v: Json): ProductRating | undefined {
 	if (value === null) return undefined;
 	const best = parseMoneyNumber(v.bestRating) ?? 5;
 	if (best <= 0 || value > best) return undefined;
-	const count = parseMoneyNumber(v.ratingCount ?? v.reviewCount);
+	const count = parseCount(v.ratingCount ?? v.reviewCount);
 	return { value, best, ...(count !== null && count > 0 && { count: Math.round(count) }) };
 }
 
@@ -263,13 +297,14 @@ export function parseProductPage(html: string, pageUrl: string): ProductOffer | 
 	const product = products.find((p) => p.offers !== undefined) ?? products[0];
 	const offer = product ? pickOffer(product.offers) : null;
 
-	const ogPrice = parseMoneyNumber(meta.get("product:price:amount") ?? meta.get("og:price:amount"));
+	const ogCurrency = currencyOf(meta.get("product:price:currency") ?? meta.get("og:price:currency"));
+	const ogPrice = parseMoneyNumber(meta.get("product:price:amount") ?? meta.get("og:price:amount"), { currency: ogCurrency });
 	if (!product && ogPrice === null) return null;
 
 	const name = str(product?.name) ?? meta.get("og:title") ?? titleTag(html);
 	if (!name) return null;
 	const price = offer?.price ?? ogPrice;
-	const currency = offer?.currency ?? currencyOf(meta.get("product:price:currency") ?? meta.get("og:price:currency"));
+	const currency = offer?.currency ?? ogCurrency;
 	const shipping = offer?.shipping ?? { kind: "unknown" as const };
 	const availability = offer && offer.availability !== "unknown" ? offer.availability : availabilityOf(meta.get("product:availability") ?? meta.get("og:availability"));
 	const seller = isRecord(product?.offers) && isRecord(product.offers.seller) ? str(product.offers.seller.name) : Array.isArray(product?.offers) && isRecord(product.offers[0]) && isRecord(product.offers[0].seller) ? str(product.offers[0].seller.name) : undefined;

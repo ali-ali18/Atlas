@@ -61,12 +61,46 @@ describe("parseProductPage: JSON-LD", () => {
 	});
 });
 
+describe("preço ambíguo na página (auditoria F6)", () => {
+	const page = (price: string, currency?: string) => `<html><head><title>X</title><script type="application/ld+json">${JSON.stringify({ "@type": "Product", name: "Fone", offers: { "@type": "Offer", price, ...(currency && { priceCurrency: currency }) } })}</script></head></html>`;
+	it("'1.299' sem moeda é preço desconhecido (não 1,299); com BRL é mil duzentos e noventa e nove", () => {
+		expect(parseProductPage(page("1.299"), "https://a.test/p")?.price).toBeNull();
+		expect(parseProductPage(page("1.299", "BRL"), "https://a.test/p")?.price).toBe(1299);
+	});
+	it("preço 0 vira desconhecido, mas frete 0 continua sendo frete grátis", () => {
+		expect(parseProductPage(page("0", "BRL"), "https://a.test/p")?.price).toBeNull();
+		const html = productPageHtml0();
+		expect(parseProductPage(html, "https://a.test/p")?.shipping).toEqual({ kind: "free" });
+	});
+});
+
+function productPageHtml0(): string {
+	return `<html><head><title>X</title><script type="application/ld+json">${JSON.stringify({ "@type": "Product", name: "Fone", offers: { "@type": "Offer", price: 10, priceCurrency: "BRL", shippingDetails: { shippingRate: { value: 0, currency: "BRL" } } } })}</script></head></html>`;
+}
+
 describe("preço, total e comparação", () => {
 	it("parseMoneyNumber lê os formatos de preço", () => {
 		expect(parseMoneyNumber("1.299,90")).toBe(1299.9);
 		expect(parseMoneyNumber("1,299.90")).toBe(1299.9);
 		expect(parseMoneyNumber("R$ 49,90")).toBe(49.9);
 		expect(parseMoneyNumber(-3)).toBeNull();
+		// um separador + exatamente 3 dígitos é ambíguo (auditoria F6): só a moeda resolve, senão preço desconhecido
+		expect(parseMoneyNumber("1.299")).toBeNull();
+		expect(parseMoneyNumber("1,299")).toBeNull();
+		expect(parseMoneyNumber("1.299", { currency: "BRL" })).toBe(1299);
+		expect(parseMoneyNumber("1,299", { currency: "BRL" })).toBeNull();
+		expect(parseMoneyNumber("1,299", { currency: "USD" })).toBe(1299);
+		expect(parseMoneyNumber("1.299", { currency: "USD" })).toBeNull();
+		expect(parseMoneyNumber("1.299.000")).toBe(1299000);
+		expect(parseMoneyNumber("0.500")).toBe(0.5);
+		expect(parseMoneyNumber("19,90")).toBe(19.9);
+		expect(parseMoneyNumber("1.299,90")).toBe(1299.9);
+		expect(parseMoneyNumber("1,299.90")).toBe(1299.9);
+		expect(parseMoneyNumber("-10")).toBeNull();
+		expect(parseMoneyNumber("R$ -10,00")).toBeNull();
+		expect(parseMoneyNumber("0")).toBeNull();
+		expect(parseMoneyNumber(0)).toBeNull();
+		expect(parseMoneyNumber(0, { allowZero: true })).toBe(0);
 		expect(parseMoneyNumber("grátis")).toBeNull();
 	});
 	it("offerTotal arredonda e nunca soma frete desconhecido", () => {
