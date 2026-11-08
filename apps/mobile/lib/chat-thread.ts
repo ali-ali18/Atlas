@@ -240,6 +240,20 @@ export function persistedAssistantCovers(rows: readonly ChatItem[], text: string
 	return false;
 }
 
+const DAY_PLAN_ID_PREFIX = "day-plan:";
+const sameText = (a: string, b: string) => a.split(/\s+/).filter(Boolean).join(" ") === b.split(/\s+/).filter(Boolean).join(" ");
+
+/**
+ * O plano do dia posta a frase de abertura como fala (é o texto do push) e o cartão já a mostra no topo: no fio fica só o cartão.
+ * Some a fala do MESMO run (o `planId` é `day-plan:<run>`) cujo texto é exatamente a abertura do cartão.
+ */
+export function dropDayPlanHeadlineEcho(items: readonly ChatItem[]): ChatItem[] {
+	const headlines = new Map<string, string>();
+	for (const item of items) if (item.kind === "day-plan" && item.planId.startsWith(DAY_PLAN_ID_PREFIX)) headlines.set(item.planId.slice(DAY_PLAN_ID_PREFIX.length), item.headline);
+	if (headlines.size === 0) return [...items];
+	return items.filter((item) => !(item.kind === "assistant" && item.runId && sameText(headlines.get(item.runId) ?? "\u0000", item.text)));
+}
+
 /** Identidade de um cartão entre ao vivo e gravado (igual ao `cardDedupeKey` do web): o merge nunca mostra os dois. */
 export function cardKey(item: ChatItem): string | null {
 	switch (item.kind) {
@@ -305,7 +319,7 @@ export function reconcile(persisted: readonly ChatItem[], live: readonly ChatIte
 		}
 		result.push(item);
 	}
-	return dedupeKeys(result);
+	return dropDayPlanHeadlineEcho(dedupeKeys(result));
 }
 
 function isOlderThan(row: ChatItem, optimistic: ChatItem): boolean {

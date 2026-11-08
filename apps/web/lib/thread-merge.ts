@@ -264,9 +264,24 @@ function settlePersistedAgentCards(persisted: Message[], live: Message[]): Messa
 	return persisted.map((message) => (message.kind === "agent-card" && !message.settled && settled.has(agentCardKey(message.card)) ? { ...message, settled: true } : message));
 }
 
+const DAY_PLAN_ID_PREFIX = "day-plan:";
+
+/**
+ * O plano do dia posta a frase de abertura como fala (é o texto do push) e o card já a mostra no topo: no fio fica só o card.
+ * Some a fala do MESMO run (o `planId` é `day-plan:<run>`) cujo texto é exatamente a abertura do card. A fala com outro texto fica.
+ */
+export function collapseDayPlanHeadlineEcho(messages: Message[]): Message[] {
+	const headlines = new Map<string, string>();
+	for (const message of messages) {
+		if (message.kind === "day-plan" && message.planId.startsWith(DAY_PLAN_ID_PREFIX)) headlines.set(message.planId.slice(DAY_PLAN_ID_PREFIX.length), normalizeUserText(message.headline));
+	}
+	if (headlines.size === 0) return messages;
+	return messages.filter((message) => !(message.kind === "assistant" && message.runId && headlines.get(message.runId) === normalizeUserText(message.text)));
+}
+
 /** Cards iguais consecutivos ou com o mesmo id aparecem uma vez; turnos diferentes ficam. */
 export function dedupeCards(input: Message[]): Message[] {
-	const messages = collapseAgentCards(collapseContextSummaries(collapseRoutineCreatedCards(collapsePageCards(collapseBotProposalCards(collapseSkillProposalCards(collapseConfirmCards(collapseSubagentGroups(collapseDevSessionCards(input)))))))));
+	const messages = collapseDayPlanHeadlineEcho(collapseAgentCards(collapseContextSummaries(collapseRoutineCreatedCards(collapsePageCards(collapseBotProposalCards(collapseSkillProposalCards(collapseConfirmCards(collapseSubagentGroups(collapseDevSessionCards(input))))))))));
 	const seenIds = new Set<string>();
 	const result: Message[] = [];
 	// Aviso de fallback repetido no mesmo turno (run retomado) aparece uma vez, mesmo não consecutivo.

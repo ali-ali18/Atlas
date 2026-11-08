@@ -263,6 +263,15 @@ test("e-mail (F7.1): triagem e rascunho ao vivo e gravados com o mesmo cardId n�
 	assert.equal(dedupeCards([draft("a"), draft("b", "run-1:email-draft:outro")]).length, 2);
 });
 
+test("plano do dia: a fala com a abertura (texto do push) não repete o card no fio; outra fala do mesmo run e falas de outro run ficam", () => {
+	const plan: Message = { id: "db-plan", kind: "day-plan", planId: "day-plan:run-1", date: "2026-11-10", timeZone: "America/Sao_Paulo", headline: "Hoje: 1 compromisso.", sections: [], sourceErrors: [] };
+	const say = (id: string, text: string, runId: string): Message => ({ id, kind: "assistant", text, runId });
+	const out = dedupeCards([say("a1", "Hoje:  1 compromisso.", "run-1"), plan, say("a2", "Quer que eu mova a reunião?", "run-1"), say("a3", "Hoje: 1 compromisso.", "run-2")]);
+	assert.deepEqual(out.map((message) => message.id), ["db-plan", "a2", "a3"]);
+	// Sem card do plano nada some.
+	assert.equal(dedupeCards([say("a1", "Hoje: 1 compromisso.", "run-1")]).length, 1);
+});
+
 test("calendário e plano do dia (F7): ao vivo e gravado com a mesma identidade não duplicam; identidades diferentes seguem separadas", () => {
 	const ev = { id: "e1", title: "Reunião", start: "2026-11-10T17:00:00.000Z", end: "2026-11-10T18:00:00.000Z", allDay: false };
 	const calendar = (id: string, cardId = "calendar:run-1:created:e1"): Message => ({ id, kind: "calendar", cardId, action: "created", timeZone: "America/Sao_Paulo", events: [ev] });

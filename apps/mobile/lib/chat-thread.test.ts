@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ChatItem } from "./chat-types";
-import { taskCardActive, dedupeKeys, dockedTaskList, mergeTail, messagesPath, oldestCursor, parsePage, persistedAssistantCovers, prependOlder, reconcile, sessionMessageToItem, withSourceMarkers, taskListDockLine, taskListProgress, taskListSettledLabel } from "./chat-thread";
+import { dropDayPlanHeadlineEcho, taskCardActive, dedupeKeys, dockedTaskList, mergeTail, messagesPath, oldestCursor, parsePage, persistedAssistantCovers, prependOlder, reconcile, sessionMessageToItem, withSourceMarkers, taskListDockLine, taskListProgress, taskListSettledLabel } from "./chat-thread";
 
 const row = (id: string, role: string, content: string, createdAt = "2026-11-01T10:00:00.000Z") => ({ id, conversationId: "c1", role, content, createdAt }) as never;
 const user = (id: string, text: string, createdAt?: string): ChatItem => ({ id, kind: "user", text, ...(createdAt ? { createdAt } : {}) });
@@ -67,6 +67,13 @@ describe("sessionMessageToItem", () => {
 		expect(sessionMessageToItem(row("dr", "email-draft", draft))).toMatchObject({ kind: "email-draft", cardId: "dr1", subject: "Oi", saved: true });
 		// Cartão malformado não vira linha quebrada.
 		expect(sessionMessageToItem(row("bad", "day-plan", JSON.stringify({ v: 1, kind: "day-plan" })))).toBeNull();
+	});
+	it("plano do dia: a fala com a abertura (texto do push) não repete o cartão; outra fala do mesmo run e de outro run ficam", () => {
+		const plan: ChatItem = { id: "p", kind: "day-plan", planId: "day-plan:run-1", date: "2026-11-05", timeZone: "America/Sao_Paulo", headline: "Hoje: 1 compromisso.", sections: [], sourceErrors: [] };
+		const say = (id: string, text: string, runId: string): ChatItem => ({ id, kind: "assistant", text, runId });
+		const out = dropDayPlanHeadlineEcho([say("a1", "Hoje:  1 compromisso.", "run-1"), plan, say("a2", "Quer mover a reunião?", "run-1"), say("a3", "Hoje: 1 compromisso.", "run-2")]);
+		expect(out.map((item) => item.id)).toEqual(["p", "a2", "a3"]);
+		expect(reconcile([say("a1", "Hoje: 1 compromisso.", "run-1"), plan], []).map((item) => item.id)).toEqual(["p"]);
 	});
 	it("papel desconhecido e rascunho revisado não aparecem", () => {
 		expect(sessionMessageToItem(row("1", "tool", "x"))).toBeNull();
