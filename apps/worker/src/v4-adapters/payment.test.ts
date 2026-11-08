@@ -14,16 +14,16 @@ const CARD = { number: "4111111111111111", holder: "TESTE DA SILVA", expMonth: 1
 const CVV = "737";
 
 type Row = { id: string; userId: string; label: string; brand: string; last4: string; secretsEnc: string; createdAt: Date };
-function fakeDeps(cards: Row[], mandate: { userId: string; maxAmount: number; currency: string; merchants: string[]; until: Date; usesLeft: number } | null = null) {
-	const uses = { consumed: [] as string[], restored: [] as string[] };
+function fakeDeps(cards: Row[], mandate: { userId: string; maxAmount: number; currency: string; merchants: string[]; until: Date; usesLeft: number; rev?: number } | null = null) {
+	const uses = { consumed: [] as string[], restored: [] as string[], tokens: [] as Array<{ id: string; rev: number } | undefined> };
 	const deps: V4PaymentDeps = {
 		listCards: async (userId) => cards.filter((c) => c.userId === userId),
 		getMeta: async (userId, id) => cards.find((c) => c.userId === userId && c.id === id) ?? null,
 		getSealed: async (userId, id) => cards.find((c) => c.userId === userId && c.id === id) ?? null,
 		openJson: (sealed) => sealed.replace("sealed:", ""),
-		getMandate: async (userId) => (mandate && mandate.userId === userId ? { id: "m", ...mandate } : null),
-		consumeUse: async (userId) => (uses.consumed.push(userId), true),
-		restoreUse: async (userId) => void uses.restored.push(userId),
+		getMandate: async (userId) => (mandate && mandate.userId === userId ? { id: "m", rev: 0, ...mandate } : null),
+		consumeUse: async (userId, _now, token) => (uses.consumed.push(userId), uses.tokens.push(token), true),
+		restoreUse: async (userId, token) => void (uses.restored.push(userId), uses.tokens.push(token)),
 	};
 	return { deps: deps as V4PaymentDeps, uses };
 }
@@ -89,7 +89,7 @@ test("mandato: só vale com dono presente, usos e prazo; o uso é gasto e devolv
 	assert.deepEqual(p.mandate, { maxAmount: 100, currency: "BRL", merchants: ["loja.test"], until: until.toISOString(), usesLeft: 2 });
 	assert.equal(await p.mandateUses.claim(), true);
 	await p.mandateUses.release();
-	assert.deepEqual(live.uses, { consumed: ["a"], restored: ["a"] });
+	assert.deepEqual({ consumed: live.uses.consumed, restored: live.uses.restored }, { consumed: ["a"], restored: ["a"] });
 	assert.equal((await createV4Payment({ userId: "b", escrow: null, sandbox: vm([]), ownerPresent: true, deps: live.deps, now: () => NOW })).mandate, undefined);
 	assert.equal((await createV4Payment({ userId: "a", escrow: null, sandbox: vm([]), ownerPresent: false, deps: live.deps, now: () => NOW })).mandate, undefined);
 	assert.equal((await createV4Payment({ userId: "a", escrow: null, sandbox: vm([]), ownerPresent: true, deps: fakeDeps([], { ...m, usesLeft: 0 }).deps, now: () => NOW })).mandate, undefined);
@@ -108,4 +108,17 @@ test("o registro do run lista a tool de pagamento dentro de shopping (lazy) só 
 	assert.equal(withCard.stableSystem.includes("Visa"), false);
 	const without = await buildV4Registry(base);
 	assert.equal(toolsOf(without).includes("checkout"), false);
+});
+
+test("mandato: gasto e devolução levam o id e a revisão que o run viu; sem mandato visto não há uso", async () => {
+	const until = new Date("2026-12-01T00:00:00Z");
+	const live = fakeDeps([], { userId: "a", maxAmount: 100, currency: "BRL", merchants: ["loja.test"], until, usesLeft: 2, rev: 3 });
+	const p = await createV4Payment({ userId: "a", escrow: null, sandbox: vm([]), ownerPresent: true, deps: live.deps, now: () => NOW });
+	await p.mandateUses.claim();
+	await p.mandateUses.release();
+	assert.deepEqual(live.uses.tokens, [{ id: "m", rev: 3 }, { id: "m", rev: 3 }]);
+	const none = await createV4Payment({ userId: "b", escrow: null, sandbox: vm([]), ownerPresent: true, deps: live.deps, now: () => NOW });
+	assert.equal(await none.mandateUses.claim(), false);
+	await none.mandateUses.release();
+	assert.equal(live.uses.consumed.length, 1, "sem mandato visto nada vai ao banco");
 });

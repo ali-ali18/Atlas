@@ -20,7 +20,7 @@ const body = { number: NUMBER, holder: "TESTE DA SILVA", expMonth: 12, expYear: 
 
 function world(configured = true) {
 	const cards: Array<{ id: string; userId: string; label: string; brand: string; last4: string; secretsEnc: string; createdAt: Date }> = [];
-	const mandates = new Map<string, { id: string; maxAmount: number; currency: string; merchants: string[]; until: Date; usesLeft: number }>();
+	const mandates = new Map<string, { id: string; maxAmount: number; currency: string; merchants: string[]; until: Date; usesLeft: number; rev: number }>();
 	let seq = 0;
 	const routes = createCardRoutes({
 		now: () => T0,
@@ -39,7 +39,7 @@ function world(configured = true) {
 		},
 		getMandate: async (userId) => mandates.get(userId) ?? null,
 		putMandate: async (userId, input) => {
-			const row = { id: "m1", maxAmount: input.maxAmount, currency: input.currency.toUpperCase(), merchants: input.merchants.map((m) => m.toLowerCase()), until: input.until, usesLeft: input.uses };
+			const row = { id: "m1", maxAmount: input.maxAmount, currency: input.currency.toUpperCase(), merchants: input.merchants.map((m) => m.toLowerCase()), until: input.until, usesLeft: input.uses, rev: 0 };
 			mandates.set(userId, row);
 			return row;
 		},

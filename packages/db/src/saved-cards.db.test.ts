@@ -104,6 +104,32 @@ describe("saved-cards (Postgres real)", { skip: dbSkip }, () => {
 		assert.equal((await getPurchaseMandate(a))?.usesLeft, 1);
 	});
 
+	test("mandato: devolver nunca passa do total original, e com token só vale para o mandato que o run viu", async () => {
+		const until = new Date("2099-12-01T00:00:00Z");
+		const first = await upsertPurchaseMandate(a, { maxAmount: 10, currency: "BRL", merchants: ["loja.test"], until, uses: 2 });
+		const token = { id: first.id, rev: first.rev };
+		await restorePurchaseMandateUse(a, token);
+		await restorePurchaseMandateUse(a);
+		assert.equal((await getPurchaseMandate(a))?.usesLeft, 2, "sem uso gasto, devolver não passa de 2");
+		assert.equal(await consumePurchaseMandateUse(a, new Date(), token), true);
+		assert.equal((await getPurchaseMandate(a))?.usesLeft, 1);
+		// o dono troca o mandato no meio do run: o token antigo não gasta nem devolve no novo
+		const second = await upsertPurchaseMandate(a, { maxAmount: 20, currency: "BRL", merchants: ["outra.test"], until, uses: 5 });
+		assert.notEqual(second.rev, first.rev);
+		assert.equal(second.usesLeft, 5);
+		assert.equal(await consumePurchaseMandateUse(a, new Date(), token), false);
+		await restorePurchaseMandateUse(a, token);
+		assert.equal((await getPurchaseMandate(a))?.usesLeft, 5);
+		// o token novo funciona; apagar e recriar também invalida o antigo (id novo)
+		const fresh = { id: second.id, rev: second.rev };
+		assert.equal(await consumePurchaseMandateUse(a, new Date(), fresh), true);
+		await deletePurchaseMandate(a);
+		const third = await upsertPurchaseMandate(a, { maxAmount: 20, currency: "BRL", merchants: ["outra.test"], until, uses: 5 });
+		assert.equal(await consumePurchaseMandateUse(a, new Date(), fresh), false);
+		assert.equal((await getPurchaseMandate(a))?.usesLeft, third.usesLeft);
+		await deletePurchaseMandate(a);
+	});
+
 	test("mandato: vencido, inexistente ou de outro dono não gasta uso", async () => {
 		await upsertPurchaseMandate(a, { maxAmount: 300, currency: "BRL", merchants: ["loja.test"], until: new Date("2020-01-01T00:00:00Z"), uses: 3 });
 		assert.equal(await consumePurchaseMandateUse(a), false);

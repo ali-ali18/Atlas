@@ -1801,6 +1801,10 @@ model PurchaseMandate {
   merchants String[]
   until     DateTime
   usesLeft  Int
+  /// Total de usos original: o teto da devolução de um uso (nunca passa disto).
+  usesTotal Int      @default(0)
+  /// Sobe a cada troca do mandato: gasto e devolução valem só para a revisão que o run viu.
+  rev       Int      @default(0)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

@@ -2,7 +2,7 @@
 // Tudo escopado pelo `userId` do RUN (40-seguranca). Número e CVV só existem dentro do `card_fill`; as tools e o modelo
 // veem bandeira e final.
 import { createCardFill, createCardVaultAdapter, type CheckoutDeps, type CvvEscrow, type Sandbox } from "@workspace/agent";
-import { getPurchaseMandate, getSavedCardMeta, getSavedCardSealed, listSavedCards, consumePurchaseMandateUse, restorePurchaseMandateUse } from "@workspace/db";
+import { getPurchaseMandate, getSavedCardMeta, getSavedCardSealed, listSavedCards, consumePurchaseMandateUse, restorePurchaseMandateUse, type MandateToken } from "@workspace/db";
 import { openCardSecretsJson } from "@workspace/agent-runtime";
 import type { Mandate } from "@workspace/shared";
 
@@ -30,15 +30,19 @@ export type V4Payment = {
 export async function createV4Payment(input: { userId: string; escrow: CvvEscrow | null | undefined; sandbox: Sandbox; ownerPresent: boolean; now?: () => Date; deps?: V4PaymentDeps; log?: (message: string) => void }): Promise<V4Payment> {
 	const deps = input.deps ?? realV4PaymentDeps;
 	const now = input.now ?? (() => new Date());
+	// O mandato que ESTE run viu (id + revisão): gasto e devolução só valem para ele. Se o dono trocar o mandato no meio do run,
+	// o gasto falha (a compra volta a pedir confirmação) e a devolução não mexe no mandato novo.
+	let token: MandateToken | undefined;
 	const mandateUses = {
-		// Falha do banco = sem uso (fail-closed): a compra cai no cartão completo, nunca roda sem o uso gravado.
-		claim: () => deps.consumeUse(input.userId, now()).catch(() => (input.log?.("[engine-v4] não consegui gastar o uso do mandato"), false)),
-		release: () => deps.restoreUse(input.userId).catch(() => input.log?.("[engine-v4] não consegui devolver o uso do mandato")),
+		// Falha do banco ou sem mandato visto = sem uso (fail-closed): nunca roda sem o uso gravado.
+		claim: () => (token ? deps.consumeUse(input.userId, now(), token).catch(() => (input.log?.("[engine-v4] não consegui gastar o uso do mandato"), false)) : Promise.resolve(false)),
+		release: () => (token ? deps.restoreUse(input.userId, token).catch(() => input.log?.("[engine-v4] não consegui devolver o uso do mandato")) : Promise.resolve()),
 	};
 	// Sem dono na conversa não há quem aprove ou digite o CVV: dinheiro nem é oferecido (a política já esconde).
 	if (!input.ownerPresent) return { mandateUses };
 	try {
 		const [cards, row] = await Promise.all([deps.listCards(input.userId), deps.getMandate(input.userId)]);
+		if (row) token = { id: row.id, rev: row.rev };
 		const mandate: Mandate | undefined = row && row.usesLeft > 0 && row.until.getTime() > now().getTime() ? { maxAmount: row.maxAmount, currency: row.currency, merchants: row.merchants, until: row.until.toISOString(), usesLeft: row.usesLeft } : undefined;
 		if (!input.escrow || cards.length === 0) return { ...(mandate && { mandate }), mandateUses };
 		const vault = createCardVaultAdapter({

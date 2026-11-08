@@ -61,8 +61,11 @@ export async function deleteSavedCard(userId: string, id: string): Promise<boole
 
 // ------------------------------------------------------------------ mandato
 
-export type PurchaseMandateRow = { id: string; maxAmount: number; currency: string; merchants: string[]; until: Date; usesLeft: number };
-const MANDATE_SELECT = { id: true, maxAmount: true, currency: true, merchants: true, until: true, usesLeft: true } as const;
+export type PurchaseMandateRow = { id: string; maxAmount: number; currency: string; merchants: string[]; until: Date; usesLeft: number; /** Sobe a cada troca do mandato. */ rev: number };
+const MANDATE_SELECT = { id: true, maxAmount: true, currency: true, merchants: true, until: true, usesLeft: true, rev: true } as const;
+
+/** Qual mandato o run viu: gasto e devolução de uso só valem para ele (a troca do mandato no meio do run os invalida). */
+export type MandateToken = { id: string; rev: number };
 
 /** Um mandato por dono: criar um novo substitui o anterior. */
 export async function upsertPurchaseMandate(userId: string, input: { maxAmount: number; currency: string; merchants: readonly string[]; until: Date; uses: number }): Promise<PurchaseMandateRow> {
@@ -71,7 +74,8 @@ export async function upsertPurchaseMandate(userId: string, input: { maxAmount: 
 	const merchants = [...new Set(input.merchants.map((m) => normalizeMerchant(m)))];
 	if (merchants.length === 0 || merchants.some((m) => m === null)) throw new RangeError("loja inválida");
 	const data = { maxAmount: input.maxAmount, currency: input.currency.toUpperCase(), merchants: merchants as string[], until: input.until, usesLeft: input.uses };
-	return prisma.purchaseMandate.upsert({ where: { userId }, create: { userId, ...data }, update: data, select: MANDATE_SELECT });
+	const row = await prisma.purchaseMandate.upsert({ where: { userId }, create: { userId, ...data, usesTotal: input.uses }, update: { ...data, usesTotal: input.uses, rev: { increment: 1 } }, select: MANDATE_SELECT });
+	return { ...row, merchants: normalizeStoredMerchants(row.merchants) };
 }
 
 export async function getPurchaseMandate(userId: string): Promise<PurchaseMandateRow | null> {
@@ -98,16 +102,21 @@ export async function deletePurchaseMandate(userId: string): Promise<boolean> {
  * Gasta UM uso do mandato de forma atômica (UPDATE ... WHERE usesLeft > 0 e dentro do prazo): com dois runs correndo
  * e `usesLeft = 1`, só um recebe `true`. `false` = sem mandato, sem usos ou vencido: a compra não roda pelo mandato.
  */
-export async function consumePurchaseMandateUse(userId: string, now: Date = new Date()): Promise<boolean> {
+export async function consumePurchaseMandateUse(userId: string, now: Date = new Date(), token?: MandateToken): Promise<boolean> {
 	if (!owned(userId)) return false;
-	const { count } = await prisma.purchaseMandate.updateMany({ where: { userId, usesLeft: { gt: 0 }, until: { gt: now } }, data: { usesLeft: { decrement: 1 } } });
+	const { count } = await prisma.purchaseMandate.updateMany({ where: { userId, usesLeft: { gt: 0 }, until: { gt: now }, ...(token && { id: token.id, rev: token.rev }) }, data: { usesLeft: { decrement: 1 } } });
 	return count === 1;
 }
 
-/** Devolve o uso gasto por `consumePurchaseMandateUse` quando a compra não chegou a acontecer (ex.: CVV não chegou). */
-export async function restorePurchaseMandateUse(userId: string): Promise<void> {
+/**
+ * Devolve o uso gasto por `consumePurchaseMandateUse` quando a compra não chegou a acontecer (ex.: CVV não chegou). Nunca
+ * passa do total original do mandato e, com `token`, só mexe no mesmo mandato que o run viu (se o dono o trocou, o novo fica
+ * como está).
+ */
+export async function restorePurchaseMandateUse(userId: string, token?: MandateToken): Promise<void> {
 	if (!owned(userId)) return;
-	await prisma.purchaseMandate.updateMany({ where: { userId }, data: { usesLeft: { increment: 1 } } });
+	if (token) await prisma.$executeRaw`UPDATE "purchase_mandates" SET "usesLeft" = "usesLeft" + 1 WHERE "userId" = ${userId} AND "id" = ${token.id} AND "rev" = ${token.rev} AND "usesLeft" < "usesTotal"`;
+	else await prisma.$executeRaw`UPDATE "purchase_mandates" SET "usesLeft" = "usesLeft" + 1 WHERE "userId" = ${userId} AND "usesLeft" < "usesTotal"`;
 }
 
 /**
