@@ -13,6 +13,7 @@ import {
 	applyAgentCardEvents,
 	approvalDetailValues,
 	approvalDetails,
+	approvalMessageBody,
 	approvalSummaryLines,
 	askOwnerAnswerText,
 	askOwnerQuestionnaire,
@@ -88,6 +89,17 @@ test("aprovação de evento no idioma da tela", async () => {
 	const en = createTranslator("en-US", await loadMessages("en-US"));
 	assert.equal(describeApproval(eventApproval("delete"), en), "Delete the event “Reunião de produto”");
 	assert.ok(approvalSummaryLines(eventApproval("delete"), en).includes("The guests won't be notified."));
+});
+
+test("aprovação de e-mail mostra assunto, de onde sai e o corpo inteiro, sem campos internos", () => {
+	const body = "Olá,\n".repeat(300);
+	const mail = approval({ args: { source: "bot", to: ["ana@exemplo.com"], body, in_reply_to: "msg-1" }, riskFacts: { recipients: ["ana@exemplo.com"], message: { subject: "Orçamento", body, from: "bot", reply: true } } });
+	const lines = approvalSummaryLines(mail);
+	assert.deepEqual(lines, ["Assunto: Orçamento", "Sai da caixa de e-mail do bot."]);
+	assert.equal(approvalMessageBody(mail), body.trim());
+	assert.deepEqual(approvalDetails(mail), []);
+	assert.doesNotMatch(lines.join(" "), /source|in_reply_to|msg-1/);
+	assert.equal(approvalMessageBody(approval()), null);
 });
 
 test("pagamento reserva o espaço do código do cartão; outros efeitos não", () => {

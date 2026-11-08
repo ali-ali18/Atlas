@@ -18,10 +18,16 @@ export function createEmailSendTool(ports: Pick<EmailPorts, "accounts">) {
 		inputSchema: z.object(messageShape),
 		effect: "send",
 		confirm: "always",
-		// Quem lê o cartão: todos os destinatários. Sem uma lista de endereços do dono aqui, todos contam como de fora (o conservador).
-		riskFacts: ({ source, to, cc }) => {
+		// Quem lê o cartão: todos os destinatários, o assunto e o corpo inteiro (o dono aprova o que vai sair, não só para quem).
+		// Sem uma lista de endereços do dono aqui, todos contam como de fora (o conservador). `source` e `in_reply_to` são internos: não vão ao cartão.
+		riskFacts: ({ source, to, cc, subject, body, in_reply_to }) => {
 			const recipients = [...to, ...(cc ?? [])];
-			return { recipients, externalRecipients: recipients, irreversible: true, target: source === "gmail" ? "Gmail" : source === "bot" ? "Bot mailbox" : "E-mail" };
+			return {
+				recipients,
+				externalRecipients: recipients,
+				irreversible: true,
+				message: { ...(subject && { subject }), body, ...((source === "gmail" || source === "bot") && { from: source }), reply: in_reply_to !== undefined },
+			};
 		},
 		async execute(args, ctx) {
 			const message = toPortMessage(args);

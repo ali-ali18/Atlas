@@ -62,7 +62,13 @@ describe("capacidade email: contrato", () => {
 
 	it("riskFacts do envio: todos os destinatários (to + cc), externos, irreversível", () => {
 		const { tool } = setup();
-		expect(tool("email_send").riskFactsFor({ source: "gmail", to: ["a@x.test"], cc: ["b@y.test"], subject: "s", body: "b" })).toEqual({ recipients: ["a@x.test", "b@y.test"], externalRecipients: ["a@x.test", "b@y.test"], irreversible: true, target: "Gmail" });
+		expect(tool("email_send").riskFactsFor({ source: "gmail", to: ["a@x.test"], cc: ["b@y.test"], subject: "s", body: "b" })).toEqual({ recipients: ["a@x.test", "b@y.test"], externalRecipients: ["a@x.test", "b@y.test"], irreversible: true, message: { subject: "s", body: "b", from: "gmail", reply: false } });
+		// Resposta sem assunto: o corpo inteiro vai ao cartão (sem truncar) e o id da mensagem respondida fica de fora.
+		const long = "linha\n".repeat(400);
+		const reply = tool("email_send").riskFactsFor({ source: "bot", to: ["a@x.test"], body: long, in_reply_to: "msg-123" });
+		expect(reply).toMatchObject({ message: { body: long.trim(), from: "bot", reply: true } });
+		expect(JSON.stringify(reply)).not.toContain("msg-123");
+		expect(JSON.stringify(reply)).not.toContain("in_reply_to");
 	});
 });
 

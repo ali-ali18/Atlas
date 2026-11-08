@@ -4,9 +4,9 @@ import * as React from "react";
 import { Linking, TextInput, View } from "react-native";
 import { CheckCircleIcon, ExternalLinkIcon, HandIcon, ShieldCheckIcon, ShoppingCartIcon } from "@/components/icons";
 import { Button } from "@/components/ui/button";
-import { ChatCard, ChatCardActions, ChatCardHeader, ChatCardLine, type ChatCardTone } from "@/components/ui/chat-card";
+import { ChatCard, ChatCardActions, ChatCardDetails, ChatCardHeader, ChatCardLine, type ChatCardTone } from "@/components/ui/chat-card";
 import { Text } from "@/components/ui/text";
-import { approvalDetails, approvalFacts, approvalSummaryLines, askOwnerAnswerText, askOwnerQuestionnaireItem, cvvComplete, cvvDigits, describeApproval, formatMoney, handoffSteps, safeReceiptUrl, type AgentCardDecision } from "@/lib/agent-cards";
+import { approvalDetails, approvalFacts, approvalMessageBody, approvalSummaryLines, askOwnerAnswerText, askOwnerQuestionnaireItem, cvvComplete, cvvDigits, describeApproval, formatMoney, handoffSteps, safeReceiptUrl, type AgentCardDecision } from "@/lib/agent-cards";
 import { cn } from "@/lib/cn";
 import type { AgentV4Decision } from "@/lib/chat-api";
 import type { ChatItem } from "@/lib/chat-types";
@@ -58,6 +58,7 @@ function ApprovalRow({ card, item, actions }: { card: Of<"approval_request">; it
 	const facts = approvalFacts(card);
 	const details = approvalDetails(card);
 	const summary = approvalSummaryLines(card);
+	const messageBody = approvalMessageBody(card);
 	return (
 		<ChatCard className="max-w-[min(68ch,100%)] self-start">
 			<ChatCardHeader leading={<ShieldCheckIcon />} title={describeApproval(card)} badge={badgeFor(item, { ok: "Aprovado" })} />
@@ -68,6 +69,11 @@ function ApprovalRow({ card, item, actions }: { card: Of<"approval_request">; it
 					{line}
 				</Text>
 			))}
+			{messageBody ? (
+				<ChatCardDetails>
+					<Text className="text-body">{messageBody}</Text>
+				</ChatCardDetails>
+			) : null}
 			{details.map((value, index) => (
 				<Text key={`${index}-${value}`} variant="muted" className="text-body">
 					{value}

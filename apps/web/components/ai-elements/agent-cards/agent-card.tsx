@@ -4,7 +4,7 @@ import { useState } from "react";
 import { CheckIcon, CreditCardIcon, ExternalLinkIcon, HandIcon, ShieldCheckIcon } from "lucide-react";
 import type { AgentV4Event } from "@workspace/shared";
 import { Button } from "@workspace/ui/components/button";
-import { ChatCard, ChatCardError, ChatCardLine } from "@workspace/ui/components/chat-card";
+import { ChatCard, ChatCardDetails, ChatCardError, ChatCardLine } from "@workspace/ui/components/chat-card";
 import { REQUEST_PRIMARY_CLASS, RequestCard } from "@workspace/ui/components/request-card";
 import { Spinner } from "@workspace/ui/components/spinner";
 import { useUiCopy } from "@workspace/ui/components/ui-copy";
@@ -17,6 +17,7 @@ import {
 	askOwnerAnswerText,
 	askOwnerQuestionnaire,
 	approvalDetails,
+	approvalMessageBody,
 	approvalSummaryLines,
 	approvalFacts,
 	approvalNeedsCardCode,
@@ -121,6 +122,7 @@ function ApprovalCard({ card, respond, settled, initialDecision }: InteractivePr
 	const facts = approvalFacts(card);
 	const details = approvalDetails(card);
 	const summary = approvalSummaryLines(card, translator);
+	const messageBody = approvalMessageBody(card);
 	const payment = approvalNeedsCardCode(card);
 	const base = { kind: "approval" as const, requestId: card.requestId, callId: card.callId };
 	return (
@@ -159,6 +161,13 @@ function ApprovalCard({ card, respond, settled, initialDecision }: InteractivePr
 						</li>
 					))}
 				</ul>
+			) : null}
+			{messageBody ? (
+				<ChatCardDetails>
+					<p className="m-0 whitespace-pre-wrap text-sm [overflow-wrap:anywhere]" data-slot="agent-approval-message">
+						{messageBody}
+					</p>
+				</ChatCardDetails>
 			) : null}
 			{details.length > 0 ? (
 				<ul className="m-0 flex list-none flex-col gap-1 p-0 text-sm text-muted-foreground" data-slot="agent-approval-details">
