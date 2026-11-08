@@ -132,8 +132,8 @@
 - [x] F6.A Auditoria (08/11: duas leituras, 19 achados corrigidos com teste; reauditoria com 11 achados novos, 10 corrigidos e 1 adiado para a tela do mandato; aceitos registrados em `auditorias/F6.md`. Pendências da F6 fora deste PR: o web ainda não renderiza `approval_request` no fio (cartão de compra pronto em `ai-elements/purchase`, falta ligar junto com os cards da outra conta), tela e tool de chat do mandato, cards `product`/`purchase` e CVV no app mobile, `card_fill` real na F8.0)
 
 ### F7: E-mail e dia
-- [ ] F7.1 `email` e `calendar` (corpo, classificação por campo, prazos, rascunhos, envio com cartão).
-- [ ] F7.2 `brief` na agenda (plano do dia).
+- [ ] F7.1 `email` e `calendar` (corpo, classificação por campo, prazos, rascunhos, envio com cartão). **Calendário pronto (08/11, frente K):** capacidade lazy `calendar` (5 tools, Google Agenda do dono pelo cofre do conector), conflito por horário, convite como `send`, só leitura no run de agenda, cartão `calendar` em 3 idiomas. Falta a parte `email` (outra frente).
+- [x] F7.2 `brief` na agenda (plano do dia) (08/11, frente K: `brief_set` um por bot no horário exato, run com `brief_sources` e `day_plan`, cartão `day-plan`, fontes por portas com e-mail opcional, modelo de ajudante do bot). A porta de e-mail do brief é `ports/brief.ts`; falta a frente de e-mail ligá-la em `buildV4Registry({ briefEmail })`.
 - [ ] F7.A Auditoria: 5 lentes, verificação, correções com teste, reauditoria e `auditorias/F7.md` fechado.
 
 ### F8: Navegador e código

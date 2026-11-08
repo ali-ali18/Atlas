@@ -212,3 +212,17 @@ test("produto e compra (F6): ao vivo e gravado com a mesma identidade não dupli
 	// Cartões diferentes continuam separados.
 	assert.equal(dedupeCards([product("a"), { id: "b", kind: "product", cardId: "run-1:product:outro", items: [item] } as Message]).length, 2);
 });
+
+test("calendário e plano do dia (F7): ao vivo e gravado com a mesma identidade não duplicam; identidades diferentes seguem separadas", () => {
+	const ev = { id: "e1", title: "Reunião", start: "2026-11-10T17:00:00.000Z", end: "2026-11-10T18:00:00.000Z", allDay: false };
+	const calendar = (id: string, cardId = "calendar:run-1:created:e1"): Message => ({ id, kind: "calendar", cardId, action: "created", timeZone: "America/Sao_Paulo", events: [ev] });
+	const plan = (id: string, planId = "day-plan:run-1"): Message => ({ id, kind: "day-plan", planId, date: "2026-11-10", timeZone: "America/Sao_Paulo", headline: "Hoje: 1 compromisso.", sections: [], sourceErrors: [] });
+	const live: Message[] = [user("db-u1", "marca"), calendar("calendar-live"), plan("day-plan-live")];
+	const persisted: Message[] = [user("db-u1", "marca"), calendar("db-cal"), plan("db-plan")];
+	assert.deepEqual(reconcilePersistedThread(persisted, live).map((message) => message.id), ["db-u1", "db-cal", "db-plan"]);
+	assert.deepEqual(kinds(reconcilePersistedThread(persisted, [user("db-u1", "marca")])), ["user", "calendar", "day-plan"]);
+	assert.equal(dedupeCards([calendar("a"), calendar("b")]).length, 1);
+	assert.equal(dedupeCards([plan("a"), plan("b")]).length, 1);
+	assert.equal(dedupeCards([calendar("a"), calendar("b", "calendar:run-1:updated:e1:call-2")]).length, 2);
+	assert.equal(dedupeCards([plan("a"), plan("b", "day-plan:run-2")]).length, 2);
+});

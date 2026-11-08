@@ -47,6 +47,7 @@ import { EmailReceivedCard } from "./email-received-card";
 import { LazyChart } from "@/components/ai-elements/chart/lazy-chart";
 import { CodeRunCard } from "./code-run-card";
 import { TaskListCard } from "./task-list-card";
+import { CalendarCard, DayPlanCard } from "@/components/ai-elements/calendar";
 import { ProductCard, PurchaseCard } from "@/components/ai-elements/shopping";
 import { PageCard } from "@/components/ai-elements/pages";
 import { PlanCard, type PlanCardStatus } from "@workspace/ui/components/plan-card";
@@ -269,6 +270,10 @@ export const MessageRow = memo(function MessageRow({
 			return <ProductCard cheapestUrl={message.cheapestUrl} incomplete={message.incomplete} items={message.items} />;
 		case "purchase":
 			return <PurchaseCard currency={message.currency} items={message.items} merchant={message.merchant} orderNumber={message.orderNumber} purchasedAt={message.purchasedAt} total={message.total} trackingCode={message.trackingCode} trackingUrl={message.trackingUrl} />;
+		case "calendar":
+			return <CalendarCard action={message.action} events={message.events} more={message.more} notified={message.notified} timeZone={message.timeZone} />;
+		case "day-plan":
+			return <DayPlanCard date={message.date} headline={message.headline} sections={message.sections} sourceErrors={message.sourceErrors} timeZone={message.timeZone} />;
 		case "page":
 			return <PageCard botName={botName} card={message} />;
 		case "task-list":

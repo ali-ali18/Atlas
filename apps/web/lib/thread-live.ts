@@ -68,6 +68,8 @@ export function mergePreservingSkills(
 			item.kind === "chart" ||
 			item.kind === "product" ||
 			item.kind === "purchase" ||
+			item.kind === "calendar" ||
+			item.kind === "day-plan" ||
 			item.kind === "page" ||
 			item.kind === "task-list" ||
 			item.kind === "compaction" ||

@@ -39,6 +39,8 @@ import {
 	decideRunFollow,
 	decideStreamFailure,
 	runFollowBackoffMs,
+	parseCalendarCard,
+	parseDayPlanCard,
 } from "@workspace/shared";
 import { activityForAssistantEvent, activityForToolIntent, runStatusOnProgress, type AgentActivity } from "@/lib/working-status";
 import { jevStatusText } from "@/lib/jev-status";
@@ -189,6 +191,14 @@ function conversationCardToMessage(
 	if (card.kind === "purchase") {
 		const { v: _v, kind: _kind, runId: _runId, ...fields } = card;
 		return { id, kind: "purchase", ...fields };
+	}
+	if (card.kind === "calendar") {
+		const { v: _v, kind: _kind, runId: _runId, ...fields } = card;
+		return { id, kind: "calendar", ...fields };
+	}
+	if (card.kind === "day-plan") {
+		const { v: _v, kind: _kind, runId: _runId, ...fields } = card;
+		return { id, kind: "day-plan", ...fields };
 	}
 	if (card.kind === "chart") return { id, kind: "chart", chartId: card.chartId, spec: card.spec, ...(card.filename ? { filename: card.filename } : {}) };
 	if (card.kind === "page") {
@@ -440,6 +450,8 @@ export function buildSessionMessage(message: SessionMessage): Message | null {
 		|| (message.role as string) === "chart"
 		|| (message.role as string) === "product"
 		|| (message.role as string) === "purchase"
+		|| (message.role as string) === "calendar"
+		|| (message.role as string) === "day-plan"
 		|| (message.role as string) === "page"
 		|| (message.role as string) === "task-list"
 		|| (message.role as string) === "compaction"
@@ -1032,6 +1044,27 @@ export function createComputerHandlers(params: {
 				const { type: _type, runId: _runId, ...fields } = event;
 				const message: Message = { id: `purchase-${event.purchaseId}`, kind: "purchase", ...fields };
 				return dedupeCards(insertCardAfterCurrentTurn(previous, message));
+			});
+		},
+		onCalendar: (event) => {
+			params.onActivity?.();
+			// Mesmo parser do cartão gravado: fuso, horários e link validados; evento inválido descarta o cartão.
+			const card = parseCalendarCard({ ...event });
+			if (!card) return;
+			params.setMessages((previous) => {
+				if (previous.some((m) => m.kind === "calendar" && m.cardId === card.cardId)) return previous;
+				const { v: _v, kind: _kind, runId: _runId, ...fields } = card;
+				return dedupeCards(insertCardAfterCurrentTurn(previous, { id: `calendar-${card.cardId}`, kind: "calendar", ...fields }));
+			});
+		},
+		onDayPlan: (event) => {
+			params.onActivity?.();
+			const card = parseDayPlanCard({ ...event });
+			if (!card) return;
+			params.setMessages((previous) => {
+				if (previous.some((m) => m.kind === "day-plan" && m.planId === card.planId)) return previous;
+				const { v: _v, kind: _kind, runId: _runId, ...fields } = card;
+				return dedupeCards(insertCardAfterCurrentTurn(previous, { id: `day-plan-${card.planId}`, kind: "day-plan", ...fields }));
 			});
 		},
 		onPage: (event) => {
