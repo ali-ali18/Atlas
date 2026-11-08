@@ -74,6 +74,14 @@ describe("ordem e contagem do cartão", () => {
 		expect(emailTriageCardId("run-1", entries.map((e) => (e.id === "a" ? { ...e, category: "ignore" as const } : e)))).not.toBe(a);
 		expect(emailTriageCardId("run-2", entries)).not.toBe(a);
 	});
+	it("o id muda com o que o cartão mostra (resumo, quem pede, remetente, assunto); campos que colam não colidem", () => {
+		const one = [{ id: "a", category: "needs_action" as const, summary: "Pede o recibo", from: "ana@x.test", subject: "Recibo", requester: "Ana" }];
+		const base = emailTriageCardId("run-1", one);
+		for (const change of [{ summary: "Pede a nota fiscal" }, { requester: "Bia" }, { from: "bia@x.test" }, { subject: "Nota" }]) {
+			expect(emailTriageCardId("run-1", [{ ...one[0]!, ...change }])).not.toBe(base);
+		}
+		expect(emailTriageCardId("run-1", [{ id: "a", category: "fyi", summary: "x|y" }])).not.toBe(emailTriageCardId("run-1", [{ id: "a", category: "fyi", summary: "x", requester: "y" }]));
+	});
 });
 
 describe("cartões persistidos", () => {
@@ -98,6 +106,14 @@ describe("cartões persistidos", () => {
 		const base = { source: "gmail" as const, to: ["a@b.test"], subject: "s", body: "um" };
 		expect(emailDraftCardId("r", base)).toBe(emailDraftCardId("r", { ...base }));
 		expect(emailDraftCardId("r", base)).not.toBe(emailDraftCardId("r", { ...base, body: "dois" }));
+	});
+	it("o id do rascunho muda com cópia, resposta e guardado (o cartão mostra os três)", () => {
+		const base = { source: "gmail" as const, to: ["a@b.test"], subject: "s", body: "um" };
+		const id = emailDraftCardId("r", base);
+		expect(emailDraftCardId("r", { ...base, cc: ["c@d.test"] })).not.toBe(id);
+		expect(emailDraftCardId("r", { ...base, reply: true })).not.toBe(id);
+		expect(emailDraftCardId("r", { ...base, saved: true })).not.toBe(id);
+		expect(emailDraftCardId("r", { ...base, cc: [], reply: false, saved: false })).toBe(id);
 	});
 	it("endereço plausível: um @, sem espaço, vírgula nem quebra de linha", () => {
 		for (const ok of ["a@b.co", "nome.sobrenome+tag@empresa.com.br"]) expect(isPlausibleEmailAddress(ok)).toBe(true);

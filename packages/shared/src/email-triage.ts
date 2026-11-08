@@ -158,14 +158,18 @@ function fnv(value: string): string {
 	return h.toString(16).padStart(8, "0");
 }
 
-/** Identidade do cartão de triagem: o mesmo run com as mesmas mensagens e categorias é o mesmo cartão (retomada não duplica). */
+/**
+ * Identidade do cartão de triagem: o mesmo run com o mesmo conteúdo é o mesmo cartão (retomada não duplica). Entra tudo o que o
+ * cartão mostra (resumo, quem pede, remetente, assunto, prazo): a triagem corrigida de uma mensagem é outro cartão, não o antigo.
+ * JSON evita colisão entre campos (um `|` dentro do resumo não emenda com o campo seguinte).
+ */
 export function emailTriageCardId(runId: string, items: readonly EmailTriageEntry[]): string {
-	return `${runId}:email-triage:${fnv(items.map((item) => `${item.source ?? ""}|${item.id}|${item.category}|${item.deadline ?? ""}`).sort().join("\n"))}`;
+	return `${runId}:email-triage:${fnv(items.map((item) => JSON.stringify([item.source ?? "", item.id, item.category, item.deadline ?? "", item.summary, item.requester ?? "", item.from ?? "", item.subject ?? ""])).sort().join("\n"))}`;
 }
 
-/** Identidade do cartão de rascunho: o mesmo conteúdo no mesmo run é o mesmo cartão; texto novo é outro rascunho. */
-export function emailDraftCardId(runId: string, draft: { source: EmailSourceId; to: readonly string[]; subject: string; body: string }): string {
-	return `${runId}:email-draft:${fnv([draft.source, draft.to.join(","), draft.subject, draft.body].join("\n"))}`;
+/** Identidade do cartão de rascunho: o mesmo conteúdo no mesmo run é o mesmo cartão; texto, cópia, resposta ou guardado novos são outro rascunho. */
+export function emailDraftCardId(runId: string, draft: { source: EmailSourceId; to: readonly string[]; cc?: readonly string[]; subject: string; body: string; reply?: boolean; saved?: boolean }): string {
+	return `${runId}:email-draft:${fnv(JSON.stringify([draft.source, [...draft.to], [...(draft.cc ?? [])], draft.subject, draft.body, draft.reply === true, draft.saved === true]))}`;
 }
 
 export type PersistedEmailTriageCard = {
