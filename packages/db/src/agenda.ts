@@ -186,7 +186,8 @@ export async function loadAgendaSettings(userId: string, botId: string): Promise
 
 const validOwner = (userId: string): boolean => userId.trim().length > 0 && userId !== "default";
 
-export type CreateAgendaResult = { ok: true; item: AgendaItemRecord; duplicate: boolean } | { ok: false; error: string };
+/** `updated`: o item é único por bot (o plano do dia) e já existia: foi ATUALIZADO, não duplicado. */
+export type CreateAgendaResult = { ok: true; item: AgendaItemRecord; duplicate: boolean; updated?: boolean } | { ok: false; error: string };
 
 /**
  * Cria um item já planejado (`planAgendaItem`). Devolve o existente quando é o mesmo pedido. O limite de itens ativos por
@@ -212,6 +213,32 @@ export async function createAgendaItem(input: {
 	return prisma.$transaction(async (tx) => {
 		await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`agenda-create:${input.userId}`}))`;
 		const active = records(await tx.botFollowup.findMany({ where: { userId: input.userId, agendaKind: { not: null }, status: { in: ["pending", "paused"] } } }));
+		// Plano do dia: UM ativo por bot. Pedir de novo troca horário e foco do que já existe (e o retoma, se estava pausado).
+		const existingBrief = plan.kind === "brief" ? active.find((item) => item.kind === "brief" && item.botId === bot.id) : undefined;
+		if (existingBrief) {
+			const row = await tx.botFollowup.update({
+				where: { id: existingBrief.id },
+				data: {
+					dueAt: plan.dueAt,
+					requestedFor: plan.requestedFor,
+					note: plan.note,
+					noteUntrusted: input.untrustedRead === true,
+					intervalMinutes: plan.intervalMinutes,
+					untilAt: plan.untilAt,
+					maxRuns: plan.maxRuns,
+					status: "pending",
+					noChangeStreak: 0,
+					ignoredStreak: 0,
+					attempts: 0,
+					lastError: null,
+					endReason: null,
+					doneAt: null,
+					grantJson: toJson(input.grant),
+					sourceRunId: input.sourceRunId ?? null,
+				},
+			});
+			return { ok: true as const, item: toRecord(row)!, duplicate: false, updated: true };
+		}
 		const same = input.exactIdentity ? undefined : findDuplicateAgendaItem(active, plan);
 		if (same) return { ok: true as const, item: same, duplicate: true };
 		if (active.length >= AGENDA_MAX_ACTIVE_PER_OWNER) {
@@ -225,6 +252,7 @@ export async function createAgendaItem(input: {
 				dueAt: plan.dueAt,
 				requestedFor: plan.requestedFor,
 				note: plan.note,
+				// Coluna legada (v2): `check` = conferir algo; o resto (lembrete e plano do dia) é `reminder`.
 				kind: plan.kind === "watch" || plan.kind === "intent" ? "check" : "reminder",
 				source: "chat",
 				sourceRunId: input.sourceRunId ?? null,
