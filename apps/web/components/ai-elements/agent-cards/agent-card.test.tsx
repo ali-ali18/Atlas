@@ -64,12 +64,12 @@ test("card sem run não oferece botões (não teria para onde responder)", () =>
 	assert.doesNotMatch(html, />Aprovar</);
 });
 
-test("isso é com você: título, passo a passo numerado, 'Já fiz' e 'Agora não'", () => {
+test("isso é com você: título, passo a passo numerado e 'Já fiz' (a API não tem 'Agora não' para ele)", () => {
 	const html = render({ type: "handoff_request", callId: "c2", message: "1. Abra o app do banco\n2. Aprove o Pix", runId: "run-1" });
 	assert.match(html, /Isso é com você/);
 	assert.match(html, /<ol[^>]*>.*<li[^>]*>Abra o app do banco<\/li><li[^>]*>Aprove o Pix<\/li><\/ol>/);
 	assert.match(html, />Já fiz</);
-	assert.match(html, />Agora não</);
+	assert.doesNotMatch(html, />Agora não</);
 });
 
 test("pergunta do bot com alternativas: as duas opções, o campo livre e o selo pendente", () => {

@@ -35,10 +35,12 @@ export type AgentCardProps = {
 	respond?: AgentCardRespond;
 	/** Estado inicial (teste e prévia); na tela vem do que o dono decidiu neste aparelho. */
 	initialDecision?: AgentCardDecision;
+	/** Resposta digitada à pergunta do bot: segue como mensagem da conversa (o card só marca "respondido"). */
+	onAnswer?: (answer: string) => void;
 };
 
 /** Um card do motor v4 no chat. Escolhe a forma pelo tipo do evento. */
-export function AgentCard({ message, respond = respondToAgentCard, initialDecision }: AgentCardProps) {
+export function AgentCard({ message, respond = respondToAgentCard, initialDecision, onAnswer }: AgentCardProps) {
 	const { card } = message;
 	switch (card.type) {
 		case "receipt":
@@ -48,7 +50,7 @@ export function AgentCard({ message, respond = respondToAgentCard, initialDecisi
 		case "handoff_request":
 			return <HandoffCard card={card} initialDecision={initialDecision} respond={respond} settled={message.settled} />;
 		case "ask_owner":
-			return <AskOwnerCard card={card} initialDecision={initialDecision} respond={respond} settled={message.settled} />;
+			return <AskOwnerCard card={card} initialDecision={initialDecision} onAnswer={onAnswer} respond={respond} settled={message.settled} />;
 	}
 }
 
@@ -65,15 +67,17 @@ function useCardResponse(card: AgentV4Event, respond: AgentCardRespond, initialD
 	const [busy, setBusy] = useState<AgentCardDecision | null>(null);
 	const [failed, setFailed] = useState(false);
 	const decision = stored ?? initialDecision ?? null;
-	const send = async (response: AgentCardResponse, next: AgentCardDecision) => {
-		if (!card.runId || busy) return;
+	const send = async (response: AgentCardResponse, next: AgentCardDecision): Promise<boolean> => {
+		if (!card.runId || busy) return false;
 		setBusy(next);
 		setFailed(false);
 		try {
 			await respond(card.runId, response);
 			setAgentCardDecision(key, next);
+			return true;
 		} catch {
 			setFailed(true);
+			return false;
 		} finally {
 			setBusy(null);
 		}
@@ -171,13 +175,10 @@ function HandoffCard({ card, respond, settled, initialDecision }: InteractivePro
 							{busy === "done" ? <Spinner className="size-3.5" /> : null}
 							{t("agentCards.handoff.done")}
 						</Button>
-						<Button disabled={busy !== null} onClick={() => void send({ ...base, decision: "dismiss" }, "dismissed")} size="sm" type="button" variant="secondary">
-							{copy.cardDismiss}
-						</Button>
 					</>
 				) : null
 			}
-			badge={resolved ? resolvedBadge(decision, { ok: t("agentCards.handoff.doneBadge"), dismissed: copy.cardDismissed, settled: t("agentCards.settled") }) : { tone: "pending", label: copy.cardNeedsYou }}
+			badge={resolved ? resolvedBadge(decision, { ok: t("agentCards.handoff.doneBadge"), dismissed: t("agentCards.settled"), settled: t("agentCards.settled") }) : { tone: "pending", label: copy.cardNeedsYou }}
 			data-kind="agent-handoff"
 			error={failed ? t("agentCards.sendFailed") : undefined}
 			leading={<HandIcon aria-hidden />}
@@ -199,7 +200,7 @@ function HandoffCard({ card, respond, settled, initialDecision }: InteractivePro
 	);
 }
 
-function AskOwnerCard({ card, respond, settled, initialDecision }: InteractiveProps<"ask_owner">) {
+function AskOwnerCard({ card, respond, settled, initialDecision, onAnswer }: InteractiveProps<"ask_owner"> & { onAnswer?: (answer: string) => void }) {
 	const t = useTranslations().t;
 	const { decision, failed, send, canRespond } = useCardResponse(card, respond, initialDecision);
 	const [sentAnswer, setSentAnswer] = useState<string | null>(null);
@@ -217,7 +218,10 @@ function AskOwnerCard({ card, respond, settled, initialDecision }: InteractivePr
 		}
 		setTooLong(false);
 		setSentAnswer(answer);
-		void send({ kind: "ask_owner", cardId: card.cardId, decision: "answer", answer }, "answered");
+		// O card só marca "respondido"; o texto segue como mensagem da conversa, depois de o servidor aceitar.
+		void send({ kind: "ask_owner", cardId: card.cardId, decision: "answer", answer }, "answered").then((ok) => {
+			if (ok) onAnswer?.(answer);
+		});
 	};
 	const dismiss = () => void send({ kind: "ask_owner", cardId: card.cardId, decision: "dismiss" }, "dismissed");
 	return (

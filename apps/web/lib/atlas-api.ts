@@ -1664,15 +1664,17 @@ export async function resolveBotProfileProposal(request: {
 }
 
 /**
- * Resposta do dono a um card do motor v4. `approve`/`dismiss` no pedido de aprovação; `done`/`dismiss` no
- * "isso é com você"; `answer` (com o texto) ou `dismiss` na pergunta do bot. O recibo não tem resposta.
+ * Resposta do dono a um card do motor v4. `approve`/`dismiss` no pedido de aprovação; `done` no "isso é com
+ * você" (que não tem "Agora não" na API: o pedido só vence pelo prazo); `answer`/`dismiss` na pergunta do bot.
+ * O recibo não tem resposta.
  *
- * O código de segurança do cartão (pagamento) NUNCA passa por aqui: o dono o digita no card e ele vai direto
- * para a loja (F6.3). Este corpo não tem campo para ele de propósito.
+ * O texto da resposta à pergunta NÃO vai nesta chamada: ela só marca o card como respondido. O texto segue como
+ * mensagem normal da conversa (quem chama envia), que é como o run seguinte o recebe.
+ * O código de segurança do cartão (pagamento) também não passa por aqui: ver `respondAgentV4Request`.
  */
 export type AgentCardResponse =
 	| { kind: "approval"; requestId: string; callId: string; decision: "approve" | "dismiss" }
-	| { kind: "handoff"; callId: string; decision: "done" | "dismiss" }
+	| { kind: "handoff"; callId: string; decision: "done" }
 	| { kind: "ask_owner"; cardId: string; decision: "answer"; answer: string }
 	| { kind: "ask_owner"; cardId: string; decision: "dismiss" };
 
@@ -1680,19 +1682,19 @@ export type AgentCardResponse =
 export const AGENT_CARD_ANSWER_MAX = 8_000;
 
 /**
- * Envia a resposta do card ao servidor, que retoma o run estacionado.
- *
- * PENDENTE: a rota `POST /v1/runs/:runId/cards/respond` ainda NÃO existe na API (F2.6, retomada com grants).
- * Esta é a única chamada do app para ela: quando a rota entrar, só o caminho e o corpo daqui mudam. Até lá a
- * chamada falha (404) e o card mostra o erro amigável sem marcar a decisão como feita.
+ * Envia a resposta do card ao servidor: aprovação e handoff em `POST /v1/agent-v4/runs/:runId/requests/:key/respond`
+ * (retoma o run estacionado), pergunta em `POST /v1/agent-v4/cards/:cardId/respond` (o run seguinte leva a resposta).
+ * Falhou = lança `AtlasApiError` e o card continua pendente, sem marcar a decisão como feita.
  */
-export async function respondToAgentCard(runId: string, response: AgentCardResponse): Promise<{ status: "applied" | "already" }> {
-	if (response.kind === "ask_owner" && response.decision === "answer" && response.answer.length > AGENT_CARD_ANSWER_MAX) {
-		throw new Error("answer too long");
+export async function respondToAgentCard(runId: string, response: AgentCardResponse): Promise<unknown> {
+	if (response.kind === "approval") {
+		return respondAgentV4Request({ runId, key: response.requestId, decision: response.decision === "approve" ? "approve" : "deny" });
 	}
-	return atlasFetch<{ status: "applied" | "already" }>(`/v1/runs/${encodeURIComponent(runId)}/cards/respond`, {
+	if (response.kind === "handoff") return respondAgentV4Request({ runId, key: response.callId, decision: "handoff_done" });
+	if (response.decision === "answer" && response.answer.length > AGENT_CARD_ANSWER_MAX) throw new Error("answer too long");
+	return atlasFetch<{ ok: boolean; status: string }>(`/v1/agent-v4/cards/${encodeURIComponent(response.cardId)}/respond`, {
 		method: "POST",
-		body: JSON.stringify(response),
+		body: JSON.stringify({ response: response.decision === "answer" ? "answered" : "dismissed" }),
 	});
 }
 

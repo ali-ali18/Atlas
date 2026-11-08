@@ -91,6 +91,7 @@ export const MessageRow = memo(function MessageRow({
 	onOpenRoutine,
 	onQuestionnaireSubmit,
 	onQuestionnaireDismiss,
+	onAgentCardAnswer,
 	onSkillProposalApprove,
 	onSkillProposalReject,
 	onSkillProposalEdit,
@@ -144,6 +145,8 @@ export const MessageRow = memo(function MessageRow({
 		answers: QuestionnaireAnswersMap,
 	) => void;
 	onQuestionnaireDismiss?: (message: QuestionnaireCardMessage) => void;
+	/** Resposta digitada à pergunta do bot (card do motor v4): segue como mensagem da conversa. */
+	onAgentCardAnswer?: (answer: string) => void;
 	/** Gate humano do propose_skill/delete_skill (aprovar, recusar, editar antes). */
 	onSkillProposalApprove?: (message: Extract<Message, { kind: "skill-proposal" }>) => void;
 	onSkillProposalReject?: (message: Extract<Message, { kind: "skill-proposal" }>) => void;
@@ -275,7 +278,7 @@ export const MessageRow = memo(function MessageRow({
 		case "task-list":
 			return <TaskListCard items={message.items} />;
 		case "agent-card":
-			return <AgentCard message={message} />;
+			return <AgentCard message={message} onAnswer={onAgentCardAnswer} />;
 		case "compaction":
 			return <CompactionCard after={message.after} before={message.before} focus={message.focus} summary={message.summary} />;
 		case "memory-updated":
