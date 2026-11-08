@@ -42,6 +42,7 @@ export const payments = {
 	"payments.purchase.items": "Itens",
 	"payments.purchase.shipping": "Frete",
 	"payments.purchase.total": "Total",
+	"payments.purchase.discount": "Desconto",
 	"payments.purchase.free": "Grátis",
 	"payments.purchase.card": "Cartão",
 	"payments.purchase.cvvLabel": "Código de segurança (CVV)",

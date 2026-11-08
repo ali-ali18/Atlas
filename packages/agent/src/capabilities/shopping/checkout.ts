@@ -17,6 +17,7 @@ export const checkoutInputSchema = z.object({
 		.describe("What is in the cart."),
 	total: z.number().positive().max(10_000_000).describe("Final amount charged, shipping included."),
 	shipping: z.number().min(0).max(10_000_000).describe("Shipping included in total (0 if free)."),
+	discount: z.number().min(0).max(10_000_000).optional().describe("Coupon or discount already taken off the total, in the same currency. Omit when there is none."),
 	currency: z.string().trim().length(3).describe("ISO 4217 code, e.g. BRL."),
 	checkoutUrl: z.string().url().max(2000).describe("https URL of the store's checkout (payment) page, with the cart already filled."),
 	cardId: z.string().trim().min(1).max(100).describe("Id of one of the owner's saved cards (listed in this tool's description)."),
@@ -39,12 +40,13 @@ export function merchantOf(checkoutUrl: string): string | null {
 const cents = (value: number): number => Math.round(value * 100);
 
 /**
- * Menor total possível do carrinho: itens com preço × quantidade (item sem preço não entra) + frete. O `total` é o que
+ * Menor total possível do carrinho: itens com preço × quantidade (item sem preço não entra) + frete - desconto (cupom,
+ * informado e mostrado ao dono no cartão de aprovação). Nunca abaixo de zero. O `total` é o que
  * o dono aprova e o que o mandato compara; um total abaixo disso é conta errada ou tentativa de passar por um teto.
  */
-export function minimumTotal(args: Pick<CheckoutArgs, "items" | "shipping">): number {
+export function minimumTotal(args: Pick<CheckoutArgs, "items" | "shipping" | "discount">): number {
 	const itemCents = args.items.reduce((sum, item) => sum + (item.price !== undefined ? cents(item.price) * item.quantity : 0), 0);
-	return (itemCents + cents(args.shipping)) / 100;
+	return Math.max(0, itemCents + cents(args.shipping) - cents(args.discount ?? 0)) / 100;
 }
 
 export type CheckoutDeps = {
@@ -63,6 +65,7 @@ export function createCheckoutTool(deps: CheckoutDeps) {
 		description:
 			"Pay a cart with one of the owner's saved cards. The owner always confirms on a card and types the card's security code themselves; you never see card numbers or codes. " +
 			"Use only after the owner chose what to buy and the cart is on the store's payment page. Do not use to search, compare or just add to a cart. " +
+			"total is what the store will charge; if a coupon lowers it below items plus shipping, send the coupon amount as discount so the owner sees it. " +
 			`Saved cards: ${cardList || "none"}.`,
 		inputSchema: checkoutInputSchema,
 		effect: "money",
@@ -82,6 +85,7 @@ export function createCheckoutTool(deps: CheckoutDeps) {
 				target: merchant ?? args.store,
 				irreversible: true,
 				shipping: args.shipping,
+				...(args.discount !== undefined && args.discount > 0 && { discount: args.discount }),
 				items: args.items.map((item) => `${item.quantity}× ${item.name}${item.price !== undefined ? ` · ${money(item.price, args.currency)}` : ""}`),
 				...(card && { card: cardDisplayName(card.brand as never, card.last4) }),
 			};

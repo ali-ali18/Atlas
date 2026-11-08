@@ -87,3 +87,13 @@ test("erro ao enviar: 400 cvv_required pede o código (mensagem do campo), 503 �
 	assert.equal(purchaseSendErrorKey(new Error("rede")), "payments.purchase.errorSend");
 	assert.match(ptBR[purchaseSendErrorKey(new AtlasApiError("cvv_required", 400))], /Digite os 3 ou 4 números do código/);
 });
+
+test("cupom aparece no cartão de compra (e vem do evento) quando há desconto", () => {
+	const r = purchaseRequestFromEvent(event({ riskFacts: { amount: 89.8, currency: "BRL", merchant: "loja.test", shipping: 10, discount: 20, card: "Visa final 1111", items: [] } }));
+	assert.equal(r?.facts.discount, 20);
+	assert.equal(purchaseRequestFromEvent(event())?.facts.discount, undefined);
+	const withDiscount = render({ facts: r!.facts });
+	assert.match(withDiscount, /data-purchase-discount/);
+	assert.match(withDiscount, /Desconto/);
+	assert.doesNotMatch(render({}), /data-purchase-discount/);
+});

@@ -44,6 +44,7 @@ export const payments: NamespaceMessages<typeof ptBR> = {
 	"payments.purchase.items": "Items",
 	"payments.purchase.shipping": "Shipping",
 	"payments.purchase.total": "Total",
+	"payments.purchase.discount": "Discount",
 	"payments.purchase.free": "Free",
 	"payments.purchase.card": "Card",
 	"payments.purchase.cvvLabel": "Security code (CVV)",

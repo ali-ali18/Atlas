@@ -99,6 +99,14 @@ export function PurchaseApprovalCardView({ facts, inputOnly = false, status = "p
 						<dd className="m-0">{facts.shipping === 0 ? t("payments.purchase.free") : formatMoney(facts.shipping, facts.currency, locale)}</dd>
 					</>
 				) : null}
+				{facts.discount ? (
+					<>
+						<dt className="text-muted-foreground">{t("payments.purchase.discount")}</dt>
+						<dd className="m-0" data-purchase-discount>
+							−{formatMoney(facts.discount, facts.currency, locale)}
+						</dd>
+					</>
+				) : null}
 				<dt className="font-medium">{t("payments.purchase.total")}</dt>
 				<dd className="m-0 font-semibold" data-purchase-total>
 					{total}

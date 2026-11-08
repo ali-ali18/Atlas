@@ -37,6 +37,8 @@ export type RiskFacts = {
 	items?: readonly string[];
 	/** Frete, na moeda de `currency`. */
 	shipping?: number;
+	/** Desconto (cupom) já abatido de `amount`, na moeda de `currency`. */
+	discount?: number;
 	/** Cartão que paga, só bandeira e final ("Visa final 1111"). Nunca o número. */
 	card?: string;
 };

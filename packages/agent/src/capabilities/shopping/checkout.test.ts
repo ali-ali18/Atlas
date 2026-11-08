@@ -4,7 +4,7 @@ import { grantApproval, type ApprovalRequest } from "../../contract/index.js";
 import { chatPolicy, setup } from "../../testing/contract-helpers.js";
 import { call, kernelHarness, reply } from "../../testing/kernel-fakes.js";
 import { TEST_CARD_NUMBER, TEST_CVV, TEST_HOLDER, paymentRig } from "../../testing/payment-fakes.js";
-import { createCheckoutTool, type CheckoutArgs } from "./checkout.js";
+import { createCheckoutTool, minimumTotal, type CheckoutArgs } from "./checkout.js";
 
 const ARGS: CheckoutArgs = {
 	store: "Loja Teste",
@@ -101,6 +101,20 @@ describe("checkout: total coerente com o carrinho", () => {
 		expect(low.sandbox.actions).toHaveLength(0);
 	});
 
+	it("cupom: total = itens + frete - desconto passa; um centavo abaixo disso não; o cartão mostra o desconto", async () => {
+		const withCoupon = { ...ARGS, discount: 20, total: 89.8 };
+		const ok = rig();
+		expect((await okDeposit(ok, withCoupon)).status).toBe("ok");
+		const low = rig();
+		expect((await okDeposit(low, { ...withCoupon, total: 89.79 })).status).toBe("error");
+		expect(low.sandbox.actions).toHaveLength(0);
+		expect(minimumTotal(withCoupon)).toBe(89.8);
+		expect(minimumTotal({ ...ARGS, discount: 99999 })).toBe(0);
+		const { tool } = rig();
+		expect(tool.riskFactsFor(withCoupon)).toMatchObject({ discount: 20, amount: 89.8 });
+		expect(tool.riskFactsFor(ARGS)?.discount).toBeUndefined();
+		expect(tool.description).toMatch(/discount/);
+	});
 	it("total acima (imposto, taxa) passa, e item sem preço não entra na conta", async () => {
 		const r = rig();
 		expect((await okDeposit(r, { ...ARGS, items: [{ name: "Brinde", quantity: 1 }, ...ARGS.items], total: 120 })).status).toBe("ok");

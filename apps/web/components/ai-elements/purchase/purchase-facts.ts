@@ -13,6 +13,8 @@ export type PurchaseFacts = {
 	amount: number;
 	currency: string;
 	shipping: number | null;
+	/** Cupom já abatido do total (só quando houver). */
+	discount?: number | null;
 	/** "Visa final 1111". */
 	card: string | null;
 };
@@ -40,7 +42,7 @@ export function purchaseRequestFromEvent(event: ApprovalRequestEvent): PurchaseR
 		requestId: event.requestId,
 		runId: event.runId,
 		inputOnly: event.inputOnly === true,
-		facts: { store, items, amount, currency, shipping: typeof f.shipping === "number" && Number.isFinite(f.shipping) ? f.shipping : null, card: isString(f.card) ? f.card : null },
+		facts: { store, items, amount, currency, shipping: typeof f.shipping === "number" && Number.isFinite(f.shipping) ? f.shipping : null, ...(typeof f.discount === "number" && Number.isFinite(f.discount) && f.discount > 0 && { discount: f.discount }), card: isString(f.card) ? f.card : null },
 	};
 }
 
