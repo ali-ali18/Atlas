@@ -39,7 +39,8 @@ export function createCardVaultAdapter(backend: CardVaultBackend): CardVault {
 
 /** Subconjunto do Redis usado pelo canal (injetável em teste). */
 export type EscrowBackend = {
-	set(key: string, value: string, ttlMs: number): Promise<void>;
+	/** Com `nx`, só grava se a chave não existe (SET NX): devolve `false` se já havia valor, que fica intacto. */
+	set(key: string, value: string, ttlMs: number, opts?: { nx?: boolean }): Promise<boolean>;
 	/** Lê e apaga numa operação atômica (GETDEL). */
 	getdel(key: string): Promise<string | null>;
 	del(key: string): Promise<void>;
@@ -62,7 +63,8 @@ export function createCvvEscrow(backend: EscrowBackend, sealer: EscrowSealer): C
 		async deposit(scope, cvv, ttlMs) {
 			const key = cvvEscrowKey(scope);
 			// O selo leva a própria chave dentro: um valor copiado para a chave de outro pedido não abre.
-			await backend.set(key, sealer.seal(JSON.stringify({ bind: key, cvv })), ttlMs);
+			// NX: o CVV do primeiro clique de um pedido nunca é sobrescrito (nem apagado) por um segundo clique em corrida.
+			return backend.set(key, sealer.seal(JSON.stringify({ bind: key, cvv })), ttlMs, { nx: true });
 		},
 		async take(scope) {
 			const key = cvvEscrowKey(scope);

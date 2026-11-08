@@ -98,8 +98,9 @@ export function createAgentV4Routes(deps: AgentV4RouteDeps) {
 			if (needsCvv && target.state === "pending") {
 				if (!deps.cvvEscrow) return c.json({ error: "payment_unavailable" }, 503);
 				try {
-					await deps.cvvEscrow.deposit(scope, cvv as string, CVV_TTL_MS);
-					deposited = true;
+					// `deposited` só é verdade se ESTE clique gravou (set if not exists): um CVV já depositado pelo primeiro clique
+					// não é nosso para sobrescrever nem apagar.
+					deposited = await deps.cvvEscrow.deposit(scope, cvv as string, CVV_TTL_MS);
 				} catch {
 					return c.json({ error: "payment_unavailable" }, 503);
 				}
@@ -108,8 +109,9 @@ export function createAgentV4Routes(deps: AgentV4RouteDeps) {
 				if (deposited) await deps.cvvEscrow?.discard(scope).catch(() => undefined);
 				throw error;
 			});
-			// Só a decisão gravada AGORA mantém o CVV; qualquer outro resultado o descarta.
-			if (deposited && outcome.status !== "recorded") await deps.cvvEscrow?.discard(scope).catch(() => undefined);
+			// Decisão recusada (conflito, vencido, inválido, inexistente) descarta o CVV que ESTE clique depositou. Em "already"
+			// a decisão é a de um clique anterior, dono do CVV depositado: não se toca nele.
+			if (deposited && outcome.status !== "recorded" && outcome.status !== "already") await deps.cvvEscrow?.discard(scope).catch(() => undefined);
 			if (outcome.status === "not_found") return c.json({ error: "Not found" }, 404);
 			if (outcome.status === "invalid_decision") return c.json({ error: `decision not valid for a ${outcome.kind} request` }, 400);
 			if (outcome.status === "expired") return c.json({ error: "expired" }, 410);

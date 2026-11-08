@@ -30,7 +30,7 @@ const row = (userId: string, id = "card-1"): Row => ({ id, userId, label: "Visa 
 
 function memoryEscrow() {
 	const map = new Map<string, string>();
-	return createCvvEscrow({ set: async (k, v) => void map.set(k, v), getdel: async (k) => { const v = map.get(k) ?? null; map.delete(k); return v; }, del: async (k) => void map.delete(k) }, { seal: (p) => `s:${p}`, open: (s) => (s.startsWith("s:") ? s.slice(2) : null) });
+	return createCvvEscrow({ set: async (k, v, _ttl, opts) => (opts?.nx && map.has(k) ? false : (map.set(k, v), true)), getdel: async (k) => { const v = map.get(k) ?? null; map.delete(k); return v; }, del: async (k) => void map.delete(k) }, { seal: (p) => `s:${p}`, open: (s) => (s.startsWith("s:") ? s.slice(2) : null) });
 }
 const vm = (actions: unknown[]): Sandbox => ({ run: async (_u, a) => (actions.push(a), { ok: true, data: { state: "paid", orderRef: "PED-1" } }), release: async () => undefined });
 

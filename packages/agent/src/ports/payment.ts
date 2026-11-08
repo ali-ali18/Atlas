@@ -20,8 +20,8 @@ export type CvvScope = { userId: string; runId: string; requestId: string };
 
 /** Canal efêmero do CVV. O valor nunca vai a banco, journal, checkpoint, log ou evento. */
 export interface CvvEscrow {
-	/** API: guarda o CVV para ESTE pedido. Sobrescreve o anterior do mesmo pedido. */
-	deposit(scope: CvvScope, cvv: string, ttlMs: number): Promise<void>;
+	/** API: guarda o CVV para ESTE pedido, só se ainda não há um (set if not exists). `false` = já havia: o primeiro fica intacto. */
+	deposit(scope: CvvScope, cvv: string, ttlMs: number): Promise<boolean>;
 	/** Execução: lê e APAGA (uso único). `null` se não há (nunca depositado, já usado, expirado, outro pedido). */
 	take(scope: CvvScope): Promise<SecretValue | null>;
 	/** API: descarta sem ler (a decisão não foi gravada). */

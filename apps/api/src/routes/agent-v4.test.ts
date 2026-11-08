@@ -82,7 +82,7 @@ function world(opts: { runStatus?: string; both?: boolean; toolName?: string } =
 	return { runs, requests, resumeUpdate };
 }
 
-function appFor(userId: string, opts: { queue?: { add: () => Promise<unknown> } | null; now?: Date; escrow?: { deposit: (scope: unknown, cvv: string, ttl: number) => Promise<void>; discard: (scope: unknown) => Promise<void> } | null } = {}) {
+function appFor(userId: string, opts: { queue?: { add: () => Promise<unknown> } | null; now?: Date; escrow?: { deposit: (scope: unknown, cvv: string, ttl: number) => Promise<boolean>; discard: (scope: unknown) => Promise<void> } | null } = {}) {
 	const add = mock.fn(opts.queue?.add ?? (async () => ({ id: "job" })));
 	const queue = opts.queue === null ? null : ({ add, getJob: async () => undefined } as never);
 	const app = new Hono<AuthEnv>();
@@ -243,7 +243,24 @@ test("cartão ask_owner: o dono dispensa uma vez; B recebe 404; repetir é alrea
 function fakeEscrow() {
 	const deposits: Array<{ scope: { userId: string; runId: string; requestId: string }; cvv: string; ttl: number }> = [];
 	const discards: unknown[] = [];
-	return { deposits, discards, deposit: async (scope: unknown, cvv: string, ttl: number) => void deposits.push({ scope: scope as never, cvv, ttl }), discard: async (scope: unknown) => void discards.push(scope) };
+	// Canal com a semântica real: guarda só se não existe (NX), descarte apaga.
+	const stored = new Map<string, string>();
+	const keyOf = (scope: unknown) => JSON.stringify(scope);
+	return {
+		deposits,
+		discards,
+		stored,
+		deposit: async (scope: unknown, cvv: string, ttl: number) => {
+			deposits.push({ scope: scope as never, cvv, ttl });
+			if (stored.has(keyOf(scope))) return false;
+			stored.set(keyOf(scope), cvv);
+			return true;
+		},
+		discard: async (scope: unknown) => {
+			discards.push(scope);
+			stored.delete(keyOf(scope));
+		},
+	};
 }
 
 test("compra: aprovar com CVV deposita no canal efêmero ligado ao pedido e NÃO grava o CVV em lugar nenhum", async () => {
@@ -325,4 +342,17 @@ test("compra: pedido vencido (410) descarta o CVV que acabou de depositar", asyn
 	const { app } = appFor(A, { escrow, now: new Date(T0.getTime() + 2 * DAY) });
 	assert.equal((await respond(app, `${REQ}/req-1/respond`, { decision: "approve", cvv: "737" })).status, 410);
 	assert.equal(escrow.deposits.length, escrow.discards.length);
+});
+
+test("compra: dois cliques em corrida com CVV: o do primeiro fica no canal e o segundo ('already') não o apaga", async () => {
+	world({ toolName: "checkout" });
+	const escrow = fakeEscrow();
+	const { app } = appFor(A, { escrow });
+	const [first, second] = await Promise.all([respond(app, `${REQ}/req-1/respond`, { decision: "approve", cvv: "737" }), respond(app, `${REQ}/req-1/respond`, { decision: "approve", cvv: "919" })]);
+	assert.equal(first.status, 200);
+	assert.equal(second.status, 200);
+	assert.deepEqual([(await first.json() as { status: string }).status, (await second.json() as { status: string }).status].sort(), ["already", "recorded"]);
+	assert.equal(escrow.discards.length, 0);
+	assert.equal(escrow.stored.size, 1);
+	assert.equal([...escrow.stored.values()][0], "737");
 });

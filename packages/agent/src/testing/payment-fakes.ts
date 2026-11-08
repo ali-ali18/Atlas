@@ -32,8 +32,11 @@ export class FakeCardSandbox implements Sandbox {
 export class MemoryEscrowBackend implements EscrowBackend {
 	readonly entries = new Map<string, { value: string; expiresAt: number }>();
 	now = 1_000_000;
-	async set(key: string, value: string, ttlMs: number) {
+	async set(key: string, value: string, ttlMs: number, opts?: { nx?: boolean }) {
+		const live = this.entries.get(key);
+		if (opts?.nx && live && live.expiresAt > this.now) return false;
 		this.entries.set(key, { value, expiresAt: this.now + ttlMs });
+		return true;
 	}
 	async getdel(key: string) {
 		const entry = this.entries.get(key);
