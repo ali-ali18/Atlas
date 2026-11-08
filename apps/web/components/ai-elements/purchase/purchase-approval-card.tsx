@@ -9,7 +9,7 @@ import { AtlasApiError, respondAgentV4Request } from "@/lib/atlas-api";
 import { useTranslations } from "@/lib/i18n/provider";
 import { formatMoney, purchaseSendErrorKey, type PurchaseFacts, type PurchaseRequest } from "./purchase-facts";
 
-export type PurchaseStatus = "pending" | "sending" | "approved" | "dismissed" | "expired";
+export type PurchaseStatus = "pending" | "sending" | "approved" | "dismissed" | "expired" | "settled";
 
 export type PurchaseApprovalCardViewProps = {
 	facts: PurchaseFacts;
@@ -25,8 +25,8 @@ export type PurchaseApprovalCardViewProps = {
 
 /**
  * Cartão de aprovação de COMPRA: loja, itens, frete, total e o final do cartão, com o campo de CVV (componente seguro, o
- * valor nunca passa por estado). Com mandato (`inputOnly`) o cartão só pede o código. É o cartão mínimo desta frente; ver
- * `docs/features/compras.md` para encaixá-lo no cartão de aprovação geral do v4.
+ * valor nunca passa por estado). Com mandato (`inputOnly`) o cartão só pede o código. No chat, o `AgentCard` (cards do agente) usa
+ * este cartão para o pedido de aprovação do `checkout` (`purchaseRequestFromEvent` não nulo).
  */
 export function PurchaseApprovalCardView({ facts, inputOnly = false, status = "pending", error, onApprove, onDismiss, cvvHandleRef }: PurchaseApprovalCardViewProps) {
 	const { t, locale } = useTranslations();
@@ -53,6 +53,7 @@ export function PurchaseApprovalCardView({ facts, inputOnly = false, status = "p
 		status === "approved" ? { tone: "success" as const, label: t("payments.purchase.badgeApproved") }
 		: status === "dismissed" ? { tone: "muted" as const, label: t("payments.purchase.badgeDismissed") }
 		: status === "expired" ? { tone: "muted" as const, label: t("payments.purchase.badgeExpired") }
+		: status === "settled" ? { tone: "muted" as const, label: t("agentCards.settled") }
 		: { tone: "pending" as const, label: t("payments.purchase.badgePending") };
 	const note = status === "approved" ? t("payments.purchase.noteApproved") : status === "dismissed" ? t("payments.purchase.noteDismissed") : status === "expired" ? t("payments.purchase.noteExpired") : undefined;
 
@@ -138,7 +139,7 @@ export function PurchaseApprovalCardView({ facts, inputOnly = false, status = "p
 }
 
 /** Cartão de compra ligado à API: aprova com o CVV (só no corpo da chamada) ou dispensa. */
-export function PurchaseApprovalCard({ request, initialStatus = "pending" }: { request: PurchaseRequest; initialStatus?: PurchaseStatus }) {
+export function PurchaseApprovalCard({ request, initialStatus = "pending", onDecided }: { request: PurchaseRequest; initialStatus?: PurchaseStatus; onDecided?: (decision: "approved" | "dismissed") => void }) {
 	const { t } = useTranslations();
 	const [status, setStatus] = useState<PurchaseStatus>(initialStatus);
 	const [error, setError] = useState<string | null>(null);
@@ -149,6 +150,7 @@ export function PurchaseApprovalCard({ request, initialStatus = "pending" }: { r
 		try {
 			await respondAgentV4Request({ runId: request.runId, key: request.requestId, decision, ...(cvv !== undefined && { cvv }) });
 			setStatus(decision === "approve" ? "approved" : "dismissed");
+			onDecided?.(decision === "approve" ? "approved" : "dismissed");
 		} catch (cause) {
 			if (cause instanceof AtlasApiError && cause.status === 410) setStatus("expired");
 			else {

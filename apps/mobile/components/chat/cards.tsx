@@ -48,7 +48,7 @@ export function ConfirmCard({ item, onDecide }: { item: Confirm; onDecide: (item
 }
 
 /** Pergunta do bot: escolhas (uma ou várias) e texto livre; "Responder" envia o mapa de respostas do web. */
-export function QuestionnaireCard({ item, onAnswer }: { item: Questionnaire; onAnswer: (item: Questionnaire, answers: AnswerMap) => void }) {
+export function QuestionnaireCard({ item, onAnswer, onDismiss }: { item: Questionnaire; onAnswer: (item: Questionnaire, answers: AnswerMap) => void; onDismiss?: () => void }) {
 	const scheme = useAppColorScheme();
 	const [selected, setSelected] = React.useState<Record<string, string[]>>({});
 	const [free, setFree] = React.useState<Record<string, string>>({});
@@ -130,6 +130,11 @@ export function QuestionnaireCard({ item, onAnswer }: { item: Questionnaire; onA
 				<Button size="sm" onPress={submit}>
 					<Text>Responder</Text>
 				</Button>
+				{onDismiss ? (
+					<Button size="sm" variant="secondary" accessibilityLabel={CHAT_CARD_COPY.dismiss} onPress={onDismiss}>
+						<Text>{CHAT_CARD_COPY.dismiss}</Text>
+					</Button>
+				) : null}
 			</ChatCardActions>
 		</ChatCard>
 	);

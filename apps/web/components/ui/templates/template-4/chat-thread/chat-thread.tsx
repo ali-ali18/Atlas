@@ -1046,6 +1046,7 @@ export function ChatThread({
 				answers,
 			}).catch(() => setQuestionnaireStatus(questionnaire.id, "pending"));
 		},
+		onAgentCardAnswer: (answer: string) => void sendFollowing(answer),
 		onQuestionnaireDismiss: (questionnaire: QuestionnaireCardMessage) => {
 			// Dispensar não envia nada: só marca dismissed.
 			setQuestionnaireStatus(questionnaire.id, "dismissed");
@@ -1498,6 +1499,7 @@ export function ChatThread({
 										onBotProfileDismiss={rowHandlers.onBotProfileDismiss}
 										onQuestionnaireSubmit={rowHandlers.onQuestionnaireSubmit}
 										onQuestionnaireDismiss={rowHandlers.onQuestionnaireDismiss}
+										onAgentCardAnswer={rowHandlers.onAgentCardAnswer}
 									/>
 								</div>
 							);

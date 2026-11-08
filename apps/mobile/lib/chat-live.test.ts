@@ -83,3 +83,30 @@ describe("applyRunEvent", () => {
 		expect(isRunBoundary(delta("a", "b"))).toBe(false);
 	});
 });
+
+describe("cards do motor v4", () => {
+	const approval: ComputerUseEvent = { type: "approval_request", requestId: "req-1", callId: "call-1", toolName: "send_email", effect: "send", args: {}, riskFacts: {}, runId: "r1" } as never;
+	it("aprovação, handoff, pergunta e recibo entram no fio uma vez (replay não duplica)", () => {
+		const events: ComputerUseEvent[] = [
+			approval,
+			{ type: "handoff_request", callId: "call-2", message: "Troque a senha." } as never,
+			{ type: "ask_owner", cardId: "r1:k1", question: "Qual?" } as never,
+			{ type: "receipt", id: "call-3", name: "create_event", what: "Evento criado" } as never,
+		];
+		const once = apply(events);
+		expect(once.items.map((item) => item.kind)).toEqual(["agent-card", "agent-card", "agent-card", "agent-card"]);
+		expect(apply(events, once).items).toHaveLength(4);
+		// o run de reserva vai para o card quando o evento não traz o dele
+		expect(once.items[1]).toMatchObject({ card: { runId: "r1" } });
+	});
+	it("o resultado da chamada estacionada tira os botões do card", () => {
+		const parked = apply([approval, { type: "paused" }]);
+		expect(parked.paused).toBe(true);
+		const after = apply([{ type: "tool_result", id: "call-1", name: "send_email", ok: true, summary: "ok" }], parked);
+		expect(after.items[0]).toMatchObject({ kind: "agent-card", settled: true });
+	});
+	it("evento v4 malformado é ignorado", () => {
+		const state = apply([{ type: "approval_request", requestId: "", callId: "c" } as never]);
+		expect(state.items).toEqual([]);
+	});
+});
