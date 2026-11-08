@@ -56,6 +56,18 @@ describe("sessionMessageToItem", () => {
 		expect(sessionMessageToItem(row("c", "confirm", confirm))).toMatchObject({ kind: "confirm", confirmId: "k1", status: "pending" });
 		expect(sessionMessageToItem(row("x", "chart", "não é json"))).toBeNull();
 	});
+	it("plano do dia, agenda e e-mail gravados aparecem no celular (antes sumiam: o papel não estava na lista)", () => {
+		const plan = JSON.stringify({ v: 1, kind: "day-plan", planId: "p1", date: "2026-11-05", timeZone: "America/Sao_Paulo", headline: "Dia leve", sections: [{ id: "commitments", items: [{ text: "Reunião", time: "14:00" }] }], sourceErrors: [{ source: "email", reason: "needs_connection" }] });
+		expect(sessionMessageToItem(row("d", "day-plan", plan))).toMatchObject({ kind: "day-plan", planId: "p1", headline: "Dia leve", sections: [{ id: "commitments" }], sourceErrors: [{ source: "email", reason: "needs_connection" }] });
+		const calendar = JSON.stringify({ v: 1, kind: "calendar", cardId: "c1", action: "created", timeZone: "America/Sao_Paulo", events: [{ id: "e1", title: "Dentista", start: "2026-11-05T17:00:00.000Z", end: "2026-11-05T18:00:00.000Z", allDay: false }] });
+		expect(sessionMessageToItem(row("k", "calendar", calendar))).toMatchObject({ kind: "calendar", cardId: "c1", action: "created", events: [{ title: "Dentista" }] });
+		const triage = JSON.stringify({ v: 1, kind: "email-triage", cardId: "t1", items: [{ id: "m1", category: "needs_action", summary: "Pede o recibo" }] });
+		expect(sessionMessageToItem(row("t1", "email-triage", triage))).toMatchObject({ kind: "email-triage", cardId: "t1", items: [{ id: "m1" }] });
+		const draft = JSON.stringify({ v: 1, kind: "email-draft", cardId: "dr1", source: "gmail", to: ["ana@exemplo.com"], subject: "Oi", body: "Texto", saved: true });
+		expect(sessionMessageToItem(row("dr", "email-draft", draft))).toMatchObject({ kind: "email-draft", cardId: "dr1", subject: "Oi", saved: true });
+		// Cartão malformado não vira linha quebrada.
+		expect(sessionMessageToItem(row("bad", "day-plan", JSON.stringify({ v: 1, kind: "day-plan" })))).toBeNull();
+	});
 	it("papel desconhecido e rascunho revisado não aparecem", () => {
 		expect(sessionMessageToItem(row("1", "tool", "x"))).toBeNull();
 	});

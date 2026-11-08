@@ -9,6 +9,7 @@ import { parseReplyTo } from "./reply-quote";
 const CARD_ROLES = new Set([
 	"skill", "confirm", "login", "file", "routine", "tool-budget", "jev-status", "provider-fallback", "subagents", "routine-proposal", "bot-proposal",
 	"images", "code-run", "chart", "page", "task-list", "compaction", "revised-draft", "questionnaire", "bot-profile", "skill-proposal",
+	"day-plan", "calendar", "email-triage", "email-draft",
 ]);
 
 /** Texto que os botões dos cartões enviam ("confirmado: …", "recusado: …", "cancela isso"): não é fala, não aparece. */
@@ -47,6 +48,20 @@ export function cardToItem(id: string, card: PersistedConversationCard, createdA
 			};
 		case "task-list":
 			return { ...base, kind: "task-list", runId: card.runId, items: card.items };
+		case "day-plan": {
+			const { v: _v, kind: _kind, runId: _runId, ...fields } = card;
+			return { ...base, kind: "day-plan", ...fields };
+		}
+		case "calendar": {
+			const { v: _v, kind: _kind, runId: _runId, ...fields } = card;
+			return { ...base, kind: "calendar", ...fields };
+		}
+		case "email-triage":
+			return { ...base, kind: "email-triage", cardId: card.cardId, items: card.items };
+		case "email-draft": {
+			const { v: _v, kind: _kind, runId: _runId, ...fields } = card;
+			return { ...base, kind: "email-draft", ...fields };
+		}
 		case "compaction":
 			return { ...base, kind: "marker", text: `Conversa compactada · ${card.before} → ${card.after}` };
 		case "chart":
