@@ -64,7 +64,7 @@
       "id": "tool-informou-a-sobreposicao",
       "type": "tool_result",
       "tool": "calendar_create",
-      "pattern": "OVERLAPS 1 event[\\s\\S]*Reunião de produto[\\s\\S]*12:00–13:00"
+      "pattern": "OVERLAPS 1 event[\\s\\S]*12:00–13:00[\\s\\S]*Reunião de produto"
     },
     {
       "id": "sem-convite",

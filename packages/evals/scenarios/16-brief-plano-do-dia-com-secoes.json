@@ -53,7 +53,9 @@
   },
   "expect": [
     {
-      "type": "completed"
+      "id": "fecha-em-poucos-passos",
+      "type": "max_model_calls",
+      "value": 4
     },
     {
       "id": "leu-as-fontes-uma-vez",
