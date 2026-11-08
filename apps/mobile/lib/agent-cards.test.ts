@@ -69,6 +69,12 @@ describe("frases", () => {
 		expect(approvalMessageBody(mail)).toBe(body.trim());
 		expect(approvalDetails(mail)).toEqual([]);
 	});
+	it("mostra todos os destinatários e convidados, sem cortar em 5", () => {
+		const many = Array.from({ length: 10 }, (_, i) => `p${i}@exemplo.com`);
+		expect(describeApproval({ ...approval, riskFacts: { recipients: many } })).toContain("p9@exemplo.com");
+		const guests = Array.from({ length: 12 }, (_, i) => `g${i}@exemplo.com`);
+		expect(approvalSummaryLines({ ...approval, riskFacts: { event: { action: "update", title: "x", guests } } }).join(" ")).toContain("g11@exemplo.com");
+	});
 	it("pagamento sem formulário do cartão não pode ser aprovado; outros efeitos podem", () => {
 		expect(approvalPaysWithoutForm({ ...approval, effect: "money" })).toBe(true);
 		expect(approvalPaysWithoutForm(approval)).toBe(false);

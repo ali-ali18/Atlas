@@ -102,6 +102,14 @@ test("aprovação de e-mail mostra assunto, de onde sai e o corpo inteiro, sem c
 	assert.equal(approvalMessageBody(approval()), null);
 });
 
+test("aprovação mostra TODOS os destinatários e convidados (os tetos da tool são 10 e 20), sem cortar em 5", () => {
+	const many = Array.from({ length: 10 }, (_, i) => `p${i}@exemplo.com`);
+	assert.ok(describeApproval(approval({ riskFacts: { recipients: many } })).includes("p9@exemplo.com"));
+	const guests = Array.from({ length: 12 }, (_, i) => `g${i}@exemplo.com`);
+	const lines = approvalSummaryLines(eventApproval("update", { guests }));
+	assert.ok(lines.some((line) => line.includes("g11@exemplo.com")));
+});
+
 test("pagamento sem formulário do cartão não pode ser aprovado; outros efeitos podem", () => {
 	assert.equal(approvalPaysWithoutForm(approval({ effect: "money" })), true);
 	assert.equal(approvalPaysWithoutForm(approval()), false);

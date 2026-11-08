@@ -152,7 +152,7 @@ function ApprovalCard({ card, respond, settled, initialDecision }: InteractivePr
 		>
 			{facts.externalRecipients.length > 0 || facts.irreversible ? (
 				<ul className="m-0 flex list-none flex-col gap-1 p-0 text-sm text-warning">
-					{facts.externalRecipients.length > 0 ? <li>{t("agentCards.approval.external", { recipients: formatList(facts.externalRecipients.slice(0, 5), locale) })}</li> : null}
+					{facts.externalRecipients.length > 0 ? <li>{t("agentCards.approval.external", { recipients: formatList(facts.externalRecipients, locale) })}</li> : null}
 					{facts.irreversible ? <li>{t("agentCards.approval.irreversible")}</li> : null}
 				</ul>
 			) : null}

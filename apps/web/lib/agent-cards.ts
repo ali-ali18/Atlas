@@ -159,7 +159,7 @@ export function describeApproval(event: ApprovalEvent, translator: Translator = 
 		}
 		case "send":
 			return facts.recipients.length > 0
-				? t("agentCards.approval.sendTo", { recipients: formatList(facts.recipients.slice(0, 5), locale) })
+				? t("agentCards.approval.sendTo", { recipients: formatList(facts.recipients, locale) })
 				: t("agentCards.approval.sendGeneric");
 		case "public_link":
 			return facts.target ? t("agentCards.approval.publicLinkOf", { target: facts.target }) : t("agentCards.approval.publicLink");
@@ -211,7 +211,7 @@ export function approvalSummaryLines(event: ApprovalEvent, translator: Translato
 		if (when) lines.push(when);
 		if (calendarEvent.location) lines.push(t("agentCards.approval.eventLocation", { location: calendarEvent.location }));
 		if (calendarEvent.guests.length > 0) {
-			lines.push(t("agentCards.approval.eventGuests", { guests: formatList(calendarEvent.guests.slice(0, 5), locale) }));
+			lines.push(t("agentCards.approval.eventGuests", { guests: formatList(calendarEvent.guests, locale) }));
 			if (calendarEvent.notifyGuests !== undefined) lines.push(calendarEvent.notifyGuests ? t("agentCards.approval.eventNotify") : t("agentCards.approval.eventNoNotify"));
 		}
 	}

@@ -90,7 +90,7 @@ export function describeApproval(event: ApprovalEvent): string {
 	const currency = typeof facts.currency === "string" && /^[A-Za-z]{3}$/.test(facts.currency) ? facts.currency.toUpperCase() : undefined;
 	const merchant = shortText(facts.merchant);
 	const target = shortText(facts.target);
-	const recipients = textList(facts.recipients).slice(0, 5);
+	const recipients = textList(facts.recipients);
 	const calendarEvent = approvalEventFact(facts);
 	if (calendarEvent) {
 		const title = calendarEvent.title;
@@ -160,7 +160,7 @@ export function approvalSummaryLines(event: ApprovalEvent): string[] {
 		if (when) lines.push(when);
 		if (calendarEvent.location) lines.push(`Local: ${calendarEvent.location}`);
 		if (calendarEvent.guests.length > 0) {
-			lines.push(`Convidados: ${calendarEvent.guests.slice(0, 5).join(", ")}`);
+			lines.push(`Convidados: ${calendarEvent.guests.join(", ")}`);
 			if (calendarEvent.notifyGuests !== undefined) lines.push(calendarEvent.notifyGuests ? "Os convidados vão receber um e-mail." : "Os convidados não serão avisados.");
 		}
 	}

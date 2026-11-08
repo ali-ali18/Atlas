@@ -66,7 +66,7 @@ function ApprovalRow({ card, item, actions }: { card: Of<"approval_request">; it
 	return (
 		<ChatCard className="max-w-[min(68ch,100%)] self-start">
 			<ChatCardHeader leading={<ShieldCheckIcon />} title={describeApproval(card)} badge={badgeFor(item, { ok: "Aprovado" })} />
-			{facts.externalRecipients.length > 0 ? <Text className="text-body text-warning">Vai para fora do seu círculo: {facts.externalRecipients.slice(0, 5).join(", ")}</Text> : null}
+			{facts.externalRecipients.length > 0 ? <Text className="text-body text-warning">Vai para fora do seu círculo: {facts.externalRecipients.join(", ")}</Text> : null}
 			{facts.irreversible ? <Text className="text-body text-warning">Não dá para desfazer depois.</Text> : null}
 			{summary.map((line, index) => (
 				<Text key={`s${index}-${line}`} variant="muted" className="text-body">
