@@ -143,7 +143,9 @@ export async function buildV4Registry(input: V4RegistryInput): Promise<V4Registr
 	let connectors: Awaited<ReturnType<typeof createConnectorsCapability>> = { capability: null };
 	try {
 		const mcp = createV4Mcp({ scope: { ownerId: input.userId, unattended: input.unattended, botId: botId ?? null, botName: input.botName ?? null, conversationId: input.conversationId ?? null }, deps: deps.mcp });
-		connectors = await createConnectorsCapability(mcp, input.userId, input.signal);
+		// Com `email`/`calendar` nativos no run, o conector embutido (e as tools de Gmail/Agenda do Composio) que os duplica sai: ele contornaria a aprovação e as regras.
+		const nativeIds = new Set(base.registry.capabilities.map((capability) => capability.id));
+		connectors = await createConnectorsCapability(mcp, input.userId, input.signal, { email: nativeIds.has("email"), calendar: nativeIds.has("calendar") });
 	} catch {
 		log(`[engine-v4] run=${input.runId} conectores indisponíveis: falha ao listar as conexões do dono; o run segue sem eles`);
 	}

@@ -172,3 +172,15 @@ test("brief com a fonte de e-mail da outra frente: entra na leitura; sem ela o r
 	const without = await buildV4Registry({ ...base, botId: "bot-1", deps: fakeAdapterDeps(), unattended: true, agendaRun: true, agendaKind: "brief" });
 	assert.deepEqual(withEmail.registry.ids(), without.registry.ids());
 });
+
+test("com email e calendar nativos no run, os conectores embutidos Gmail e Google Agenda saem (não contornam a aprovação)", async () => {
+	const embedded = (id: string, slug: string, tools: string[]) =>
+		({ id, slug, name: slug, catalogId: slug, status: "connected", confirmWrites: false, tools: tools.map((name) => ({ name, inputSchema: { type: "object", properties: {} } })), disabledTools: [], toolMarks: {} }) as unknown as Connected[number];
+	const connections = [embedded("g1", "gmail", ["create_draft", "search_messages"]), embedded("g2", "google_calendar", ["create_event"]), embedded("g3", "google_drive", ["search_files"])];
+	const setup = await buildV4Registry({ ...base, botId: "bot-1", deps: fakeAdapterDeps({ connections }), log: () => undefined });
+	assert.ok(setup.registry.ids().includes("email") && setup.registry.ids().includes("calendar"));
+	assert.equal(setup.registry.toolByName("mcp_gmail_write"), undefined);
+	assert.equal(setup.registry.toolByName("mcp_gmail_read"), undefined);
+	assert.equal(setup.registry.toolByName("mcp_google_calendar_write"), undefined);
+	assert.ok(setup.registry.toolByName("mcp_google_drive_read"));
+});
