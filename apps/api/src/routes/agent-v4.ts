@@ -65,6 +65,12 @@ export type AgentV4RouteDeps = {
 export function createAgentV4Routes(deps: AgentV4RouteDeps) {
 	const app = new Hono<AuthEnv>();
 	const now = deps.clock ?? (() => new Date());
+	// Descarte do CVV depositado: se falhar, o CVV só some pelo TTL; avisa no log (ids e tipo do erro, nunca o valor).
+	const discardCvv = async (scope: { userId: string; runId: string; requestId: string }): Promise<void> => {
+		await deps.cvvEscrow?.discard(scope).catch((error: unknown) => {
+			console.warn(`[agent-v4] não consegui descartar o CVV do pedido (run=${scope.runId} pedido=${scope.requestId}): ${error instanceof Error ? error.name : "erro"}; ele expira sozinho pelo TTL`);
+		});
+	};
 
 	app.post("/v1/agent-v4/runs/:runId/requests/:key/respond", async (c) => {
 		const { userId } = scopeFor(c.get("session"));
@@ -106,12 +112,12 @@ export function createAgentV4Routes(deps: AgentV4RouteDeps) {
 				}
 			}
 			const outcome = await decideAgentV4Request(userId, runId, key, decision, now()).catch(async (error) => {
-				if (deposited) await deps.cvvEscrow?.discard(scope).catch(() => undefined);
+				if (deposited) await discardCvv(scope);
 				throw error;
 			});
 			// Decisão recusada (conflito, vencido, inválido, inexistente) descarta o CVV que ESTE clique depositou. Em "already"
 			// a decisão é a de um clique anterior, dono do CVV depositado: não se toca nele.
-			if (deposited && outcome.status !== "recorded" && outcome.status !== "already") await deps.cvvEscrow?.discard(scope).catch(() => undefined);
+			if (deposited && outcome.status !== "recorded" && outcome.status !== "already") await discardCvv(scope);
 			if (outcome.status === "not_found") return c.json({ error: "Not found" }, 404);
 			if (outcome.status === "invalid_decision") return c.json({ error: `decision not valid for a ${outcome.kind} request` }, 400);
 			if (outcome.status === "expired") return c.json({ error: "expired" }, 410);

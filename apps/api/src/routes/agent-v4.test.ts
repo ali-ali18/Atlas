@@ -356,3 +356,21 @@ test("compra: dois cliques em corrida com CVV: o do primeiro fica no canal e o s
 	assert.equal(escrow.stored.size, 1);
 	assert.equal([...escrow.stored.values()][0], "737");
 });
+
+test("compra: se o descarte do CVV falhar, o aviso vai ao log sem o valor e a resposta segue", async () => {
+	world({ toolName: "checkout" });
+	const escrow = { ...fakeEscrow(), discard: async () => { throw new Error("redis caiu com 737"); } };
+	const warned: string[] = [];
+	const original = console.warn;
+	console.warn = (...args: unknown[]) => void warned.push(args.join(" "));
+	try {
+		const { app } = appFor(A, { escrow, now: new Date(T0.getTime() + 2 * DAY) });
+		assert.equal((await respond(app, `${REQ}/req-1/respond`, { decision: "approve", cvv: "737" })).status, 410);
+	} finally {
+		console.warn = original;
+	}
+	assert.equal(warned.length, 1);
+	assert.match(warned[0]!, /não consegui descartar o CVV/);
+	assert.match(warned[0]!, /run=run-a/);
+	assert.equal(warned[0]!.includes("737"), false);
+});
