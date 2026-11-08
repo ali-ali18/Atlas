@@ -42,8 +42,8 @@ test("bot de outro dono ou inexistente: não marca (a consulta é escopada pelo 
 	assert.equal(queued.length, 0);
 });
 
-test("bot com o motor fixado fora do v4: não marca (o item não rodaria; o v2 segue como antes)", async () => {
-	const { deps, queued } = rig({ policy: { engine: "v2" } });
+test("bot com o motor fixado no v1: não marca (o item não rodaria; o fluxo de antes segue)", async () => {
+	const { deps, queued } = rig({ policy: { engine: "v1" } });
 	assert.deepEqual(await wakeIntentsForEmail({ userId: "user_a", botId: "bot_1", event: EVENT }, deps), { marked: 0, skipped: "engine_not_v4" });
 	assert.equal(queued.length, 0);
 });
