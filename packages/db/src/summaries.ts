@@ -86,6 +86,8 @@ export const FRESH_SUMMARY_IGNORE_ROLES: readonly string[] = [
 	"chart",
 	"product",
 	"purchase",
+	"calendar",
+	"day-plan",
 	"page",
 	"task-list",
 	"compaction",

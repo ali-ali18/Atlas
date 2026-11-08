@@ -50,7 +50,7 @@ export function createV4Agenda(input: { botId: string; policy: V4AgendaPolicy; d
 		settings: (userId) => deps.loadSettings(userId, input.botId),
 		async create(userId, plan, context) {
 			const created = await deps.create({ userId, botId: input.botId, plan, grant, sourceRunId: context.sourceRunId, ...(context.untrustedRead === true && { untrustedRead: true }), ...(context.exactIdentity === true && { exactIdentity: true }) });
-			return created.ok ? { ok: true, item: toAgendaView(created.item), duplicate: created.duplicate } : { ok: false, error: created.error };
+			return created.ok ? { ok: true, item: toAgendaView(created.item), duplicate: created.duplicate, ...(created.updated && { updated: true }) } : { ok: false, error: created.error };
 		},
 		async list(userId, options) {
 			return (await deps.list(userId, { includeEnded: options?.includeEnded === true })).map(toAgendaView);
