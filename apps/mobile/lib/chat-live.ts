@@ -1,6 +1,7 @@
 // Eventos ao vivo de um run (SSE) aplicados ao que só existe no aparelho: a fala chegando, a lista de tarefas e os
 // cartões do run. Porta enxuta de `applyLiveEvent` e dos handlers de `use-atlas-chat.ts` (web). Pura: sem React.
 import type { ComputerUseEvent } from "@workspace/shared";
+import { addAgentCard, asAgentCardEvent, settleAgentCardsForCall } from "./agent-cards";
 import type { ChatItem, ChatPhase } from "./chat-types";
 
 export type LiveState = {
@@ -76,7 +77,8 @@ export function applyRunEvent(state: LiveState, event: ComputerUseEvent): LiveSt
 		case "tool_result":
 			// A ferramenta acabou: o modelo decide o próximo passo (o avatar volta a "pensando"). Falha de uma ferramenta
 			// não é falha do run (o bot costuma tentar de novo): a cara de erro fica só para o `error` do run.
-			return { ...state, phase: "thinking", tool: null };
+			// Se a chamada estava estacionada num card v4 (aprovação, "isso é com você"), o card fica sem botões.
+			return { ...state, phase: "thinking", tool: null, items: settleAgentCardsForCall(state.items, event.id, state.runId) };
 		case "task_list": {
 			const runId = event.runId ?? state.runId ?? "local";
 			const id = `task-list-${runId}`;
@@ -142,8 +144,13 @@ export function applyRunEvent(state: LiveState, event: ComputerUseEvent): LiveSt
 		case "status":
 			if (event.status === "budget_exhausted") return { ...state, ended: true, phase: "idle", tool: null, notice: "Cheguei no limite desta tarefa. Posso continuar se você pedir." };
 			return state;
-		default:
-			return state;
+		default: {
+			// Cards do motor v4. O `paused` que o run emite em seguida é o que marca "esperando a pessoa".
+			const card = asAgentCardEvent(event);
+			if (!card) return state;
+			const items = addAgentCard(state.items, card, state.runId);
+			return items === state.items ? state : { ...state, items };
+		}
 	}
 }
 

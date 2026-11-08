@@ -1,7 +1,8 @@
 // Fio da conversa: do que o servidor grava (`SessionMessage`) ao que a tela desenha, e a junção do gravado com o
 // que só existe ao vivo (balão do usuário ainda não gravado, fala em andamento, cartões do run). Porta enxuta do
 // `use-atlas-chat.ts` / `thread-merge.ts` / `thread-live.ts` do web: o gravado manda, o ao vivo preenche o resto.
-import { BOT_LINK_ROLE, formatSourceMarker, isCardConfirmToken, type MessageSource, parseBotLinkCard, parseConversationCard, type PersistedConversationCard, type SessionMessage } from "@workspace/shared";
+import { agentCardKey, BOT_LINK_ROLE, formatSourceMarker, isAgentV4EventType, isCardConfirmToken, type MessageSource, parseBotLinkCard, parseConversationCard, type PersistedConversationCard, type SessionMessage } from "@workspace/shared";
+import { agentCardFromStored } from "./agent-cards";
 import type { ChatItem, Reaction, TaskItem } from "./chat-types";
 import { parseReplyTo } from "./reply-quote";
 
@@ -132,6 +133,8 @@ export function sessionMessageToItem(message: SessionMessage): ChatItem | null {
 			...(replyTo ? { replyTo } : {}),
 		};
 	}
+	// Card do motor v4 gravado: `role` = tipo do evento, `content` = o evento em JSON (validado).
+	if (isAgentV4EventType(role)) return agentCardFromStored(message.id, role, message.content, { ...(message.runId ? { runId: message.runId } : {}), createdAt });
 	if (CARD_ROLES.has(role)) {
 		const card = parseConversationCard(message.content);
 		return card ? cardToItem(message.id, card, createdAt) : null;
@@ -233,6 +236,8 @@ export function cardKey(item: ChatItem): string | null {
 			return `task-list|${item.runId}`;
 		case "web-card":
 			return item.key;
+		case "agent-card":
+			return `agent-card|${agentCardKey(item.card)}`;
 		default:
 			return null;
 	}
@@ -275,7 +280,13 @@ export function reconcile(persisted: readonly ChatItem[], live: readonly ChatIte
 			if (normalize(item.text).length >= MIN_COVERED_LENGTH && persistedAssistantCovers(persisted, item.text)) continue;
 		} else {
 			const key = cardKey(item);
-			if (key && persistedKeys.has(key)) continue;
+			if (key && persistedKeys.has(key)) {
+				// Card v4 resolvido ao vivo continua resolvido quando o gravado o substitui (os botões não voltam).
+				const at = persistedKeys.get(key)!;
+				const stored = result[at];
+				if (item.kind === "agent-card" && item.settled && stored?.kind === "agent-card" && !stored.settled) result[at] = { ...stored, settled: true };
+				continue;
+			}
 		}
 		result.push(item);
 	}
