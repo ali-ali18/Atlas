@@ -71,8 +71,10 @@ const NATIVE_CATALOG_IDS: Readonly<Record<keyof NativeCoverage, string>> = { ema
 const NATIVE_COMPOSIO_TOOLKITS: Readonly<Record<keyof NativeCoverage, string>> = { email: "gmail", calendar: "googlecalendar" };
 
 /** Tira da conexão o que a capacidade nativa já cobre: o conector embutido inteiro, ou as tools de Gmail/Agenda de um Composio. */
-function withoutNativeDuplicates(connections: readonly McpConnectionSnapshot[], native: NativeCoverage): McpConnectionSnapshot[] {
-	const covered = (Object.keys(native) as (keyof NativeCoverage)[]).filter((key) => native[key]);
+function withoutNativeDuplicates(connections: readonly McpConnectionSnapshot[], native: NativeCoverage, ownerId: string): McpConnectionSnapshot[] {
+	// Só vale esconder quando a capacidade nativa consegue resolver a conta: a conexão embutida correspondente está conectada para o dono.
+	// Quem só tem Composio (sem o embutido) mantém as tools do Composio, senão ficaria sem e-mail ou agenda.
+	const covered = (Object.keys(native) as (keyof NativeCoverage)[]).filter((key) => native[key] && connections.some((c) => c.ownerId === ownerId && c.status === "connected" && c.catalogId === NATIVE_CATALOG_IDS[key]));
 	if (covered.length === 0) return [...connections];
 	const out: McpConnectionSnapshot[] = [];
 	for (const connection of connections) {
@@ -91,7 +93,7 @@ function withoutNativeDuplicates(connections: readonly McpConnectionSnapshot[], 
 
 export async function createConnectorsCapability(mcp: Mcp, ownerId: string, signal?: AbortSignal, native: NativeCoverage = {}): Promise<ConnectorsSetup> {
 	if (!isOwner(ownerId)) return { capability: null };
-	const listed = withoutNativeDuplicates(await mcp.listConnections(ownerId, signal), native);
+	const listed = withoutNativeDuplicates(await mcp.listConnections(ownerId, signal), native, ownerId);
 	const usable = listed.filter((c) => c.ownerId === ownerId && c.status === "connected");
 	if (usable.length === 0) return { capability: null };
 	const parts = uniqueSlugParts(usable.map((c) => c.slug));
