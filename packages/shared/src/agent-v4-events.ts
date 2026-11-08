@@ -22,6 +22,10 @@ export type ApprovalRequestEvent = {
 	effect: EffectClass;
 	args: unknown;
 	riskFacts: Record<string, unknown>;
+	/** O cartão traz um campo que só o dono preenche (hoje: o CVV do cartão). O valor nunca vem no evento. */
+	ownerInput?: "card_cvv";
+	/** Mandato vale: o cartão não pede "confirmar", só o campo. */
+	inputOnly?: boolean;
 	runId?: string;
 };
 
@@ -83,7 +87,7 @@ export function parseAgentV4Event(value: unknown): AgentV4Event | null {
 		case "approval_request": {
 			const { requestId, callId, toolName, effect, args, riskFacts } = value;
 			if (!text(requestId) || !text(callId) || !text(toolName) || typeof effect !== "string" || !EFFECT_SET.has(effect) || !isObject(riskFacts)) return null;
-			return { type: "approval_request", requestId, callId, toolName, effect: effect as EffectClass, args, riskFacts, ...base };
+			return { type: "approval_request", requestId, callId, toolName, effect: effect as EffectClass, args, riskFacts, ...(value.ownerInput === "card_cvv" && { ownerInput: "card_cvv" as const }), ...(value.inputOnly === true && { inputOnly: true }), ...base };
 		}
 		case "handoff_request": {
 			if (!text(value.callId) || !text(value.message)) return null;

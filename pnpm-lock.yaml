@@ -55,6 +55,9 @@ importers:
       '@hono/node-server':
         specifier: ^1.19.9
         version: 1.19.17(hono@4.13.13)
+      '@workspace/agent':
+        specifier: workspace:*
+        version: link:../../packages/agent
       '@workspace/agent-runtime':
         specifier: workspace:*
         version: link:../../packages/agent-runtime

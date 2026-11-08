@@ -1,4 +1,5 @@
-import type { Search, SearchExtract, SearchHit } from "@workspace/agent";
+import { FakeShopping, productPageHtml, type Search, type SearchExtract, type SearchHit } from "@workspace/agent";
+import { parseMoneyNumber } from "@workspace/shared";
 import { argsMatch } from "./predicates.js";
 import type { NativeFixture, Scenario } from "./scenario.js";
 
@@ -46,3 +47,45 @@ export function createFixtureSearch(fixtures: readonly NativeFixture[]): Search 
 }
 
 export const fixtureSearchFor = (scenario: Scenario) => createFixtureSearch(scenario.tools.fixtures);
+
+/**
+ * Compras no eval do v4: a página de cada loja é montada A PARTIR DO FIXTURE `web_extract` do cenário (as linhas
+ * "Preço:", "Entrega:", "Loja:", "Link:" e a imagem), como HTML com JSON-LD, que é o que o `product_search` lê de verdade.
+ * É conversão de formato do fixture do harness, não decisão de comportamento. Frete que o fixture não declara com valor
+ * (ex.: "grátis acima de R$ 199") fica SEM `shippingDetails`: o total sai "não informado", como numa página real.
+ */
+const labelValue = (text: string, label: RegExp): string | undefined => label.exec(text)?.[1]?.trim();
+
+export function createFixtureShopping(fixtures: readonly NativeFixture[]): FakeShopping {
+	const shopping = new FakeShopping();
+	for (const fixture of fixtures) {
+		if (fixture.tool !== "web_extract" || !fixture.result.ok) continue;
+		const text = fixture.result.summary;
+		const url = labelValue(text, /Link:\s*(https?:\/\/\S+)/i);
+		const priceText = labelValue(text, /(?:Pre[cç]o|Price):\s*(?:R\$|US\$|\$|€)\s*([\d.,]+)/i);
+		if (!url || !priceText) continue;
+		const [firstLine = "Produto"] = text.split("\n");
+		const [name = firstLine, titleStore] = firstLine.split(" | ");
+		const price = parseMoneyNumber(priceText);
+		if (price === null) continue;
+		const oldText = labelValue(text, /\((?:de|was)\s*(?:R\$|US\$|\$|€)\s*([\d.,]+)\)/i);
+		const image = labelValue(text, /(https?:\/\/\S+\.(?:jpe?g|png|webp))/i);
+		const delivery = labelValue(text, /(?:Entrega|Shipping):\s*(.+)/i) ?? "";
+		const currency = /R\$/.test(text) ? "BRL" : /€/.test(text) ? "EUR" : "USD";
+		const shipping = /(?:frete gr[aá]tis|free)$/i.test(delivery) ? 0 : parseMoneyNumber(/(?:frete )?(?:R\$|US\$|\$|€)\s*([\d.,]+)/i.exec(delivery)?.[1]);
+		shopping.html.set(
+			url,
+			productPageHtml({
+				name: name.trim(),
+				price,
+				currency,
+				merchant: labelValue(text, /Loja:\s*(.+)/i) ?? titleStore?.trim() ?? new URL(url).hostname,
+				...(oldText && parseMoneyNumber(oldText) !== null && { oldPrice: parseMoneyNumber(oldText)! }),
+				...(image && { images: [image] }),
+				...(shipping !== null && shipping !== undefined && { shipping }),
+				...(/dispon[ií]vel/i.test(text) && { availability: "InStock" }),
+			}),
+		);
+	}
+	return shopping;
+}

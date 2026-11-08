@@ -57,6 +57,17 @@ describe("agenda (Postgres real)", { skip: dbSkip }, () => {
 		await prisma.$disconnect();
 	});
 
+	test("identidade exata: dois vigias de nota quase igual (duas compras) viram dois itens; sem a marca, o segundo é engolido", async () => {
+		const note = (store: string, item: string) => `Follow the delivery of the order at ${store} (order 1): ${item}. Check the tracking page, or search the web for the carrier tracking if there is no link. News = the status changed (shipped, out for delivery, delayed, problem, delivered): report with agenda_result update, in the owner's language. Nothing new = no_change. When it is delivered, finish with done.`;
+		const first = await createAgendaItem({ userId: a, botId: botA, plan: watch(note("Loja Um", "Fone X")), grant: GRANT, exactIdentity: true });
+		const second = await createAgendaItem({ userId: a, botId: botA, plan: watch(note("Loja Dois", "Mouse Y")), grant: GRANT, exactIdentity: true });
+		assert.ok(first.ok && second.ok);
+		assert.equal(second.duplicate, false);
+		assert.notEqual(first.item.id, second.item.id);
+		const swallowed = await createAgendaItem({ userId: a, botId: botA, plan: watch(note("Loja Tres", "Cabo Z")), grant: GRANT });
+		assert.ok(swallowed.ok && swallowed.duplicate, "o dedupe por similaridade segue valendo para os demais itens");
+	});
+
 	const watch = (note: string, over: Partial<Parameters<typeof plan>[0]> = {}) => plan({ kind: "watch", note, everyMinutes: 120, ...over });
 
 	test("encerrados: com mais de 100, vêm os mais recentes (por encerramento), só do dono e do bot pedido", async () => {

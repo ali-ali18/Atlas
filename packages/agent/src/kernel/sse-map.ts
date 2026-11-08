@@ -120,8 +120,8 @@ export function createSseMapper(options: SseMapOptions): SseMapper {
 			case "card": {
 				const card = event.data;
 				if (card.kind === "approval") {
-					const { id, toolName, effect, args, riskFacts } = card.request;
-					return [{ type: "approval_request", requestId: id, callId: card.callId, toolName, effect, args, riskFacts: { ...riskFacts }, ...withRun }];
+					const { id, toolName, effect, args, riskFacts, ownerInput, inputOnly } = card.request;
+					return [{ type: "approval_request", requestId: id, callId: card.callId, toolName, effect, args, riskFacts: { ...riskFacts }, ...(ownerInput && { ownerInput }), ...(inputOnly && { inputOnly }), ...withRun }];
 				}
 				if (card.kind === "handoff") return [{ type: "handoff_request", callId: card.callId, message: card.userMessage, ...withRun }];
 				return [{ type: "ask_owner", cardId: card.cardId, question: card.question, ...(card.offer && { offer: card.offer }), ...withRun }];

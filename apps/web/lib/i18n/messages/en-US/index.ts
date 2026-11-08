@@ -20,6 +20,7 @@ import { login } from "./login";
 import { marketplace } from "./marketplace";
 import { mobile } from "./mobile";
 import { notebook } from "./notebook";
+import { payments } from "./payments";
 import { reasoning } from "./reasoning";
 import { modelPicker } from "./modelPicker";
 import { providerCallback } from "./providerCallback";
@@ -37,6 +38,7 @@ import { settingsSearch } from "./settingsSearch";
 import { settingsSkills } from "./settingsSkills";
 import { settingsVault } from "./settingsVault";
 import { share } from "./share";
+import { shopping } from "./shopping";
 import { sharedLabels } from "./sharedLabels";
 import { sidebar } from "./sidebar";
 import { status } from "./status";
@@ -66,6 +68,7 @@ export const enUS: MessageDictionary = {
 	...reasoning,
 	...modelPicker,
 	...providerCallback,
+	...payments,
 	...routines,
 	...settings,
 	...settingsComposio,
@@ -80,6 +83,7 @@ export const enUS: MessageDictionary = {
 	...settingsSkills,
 	...settingsVault,
 	...share,
+	...shopping,
 	...sharedLabels,
 	...sidebar,
 	...status,

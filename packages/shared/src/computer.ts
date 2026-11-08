@@ -1,6 +1,8 @@
 import type { DraftRevisionReason } from "./draft-revision.js";
 import type { ChartSpec } from "./chart-spec.js";
 import type { PageSpec } from "./page-spec.js";
+import type { ProductOffer } from "./product.js";
+import type { PurchaseItem } from "./purchase.js";
 import type { RunTelemetryMeta } from "./run-telemetry.js";
 import type { ComputerMetrics } from "./computer-state.js";
 import type { DevApprovalCardInfo } from "./dev-command-approval.js";
@@ -184,6 +186,29 @@ export type ComputerUseEvent =
 		/** Checklist de passos do run (`update_task_list`): a lista inteira substitui a anterior; vazia = removida. */
 		type: "task_list";
 		items: Array<{ content: string; status: "pending" | "in_progress" | "completed" }>;
+		runId?: string;
+	  }
+	| {
+		/** F6.1: produto(s) de loja lidos da página (preço, frete, total, foto…). O mesmo `cardId` não vira outra mensagem. */
+		type: "product";
+		cardId: string;
+		items: ProductOffer[];
+		cheapestUrl?: string;
+		incomplete?: boolean;
+		runId?: string;
+	  }
+	| {
+		/** F6.5: compra registrada. O `purchaseId` é a identidade ao vivo e gravada. */
+		type: "purchase";
+		purchaseId: string;
+		merchant: string;
+		items: PurchaseItem[];
+		total: number;
+		currency: string;
+		purchasedAt: string;
+		orderNumber?: string;
+		trackingCode?: string;
+		trackingUrl?: string;
 		runId?: string;
 	  }
 	| {

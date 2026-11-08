@@ -7,6 +7,7 @@ import {
 	createCapabilityRegistry,
 	createConnectorsCapability,
 	createNoteTaskListStore,
+	createShoppingCapability,
 	presetStablePrompt,
 	setupPreset,
 	type CapabilityId,
@@ -14,16 +15,18 @@ import {
 	type Helpers,
 	type NoteStore,
 	type PolicyContext,
+	type CheckoutDeps,
 	type PresetDeps,
 	type Search,
 } from "@workspace/agent";
-import type { ComputerUseEvent } from "@workspace/shared";
+import { countryFromLocale, type ComputerUseEvent } from "@workspace/shared";
 import { createV4Agenda, realV4AgendaDeps, type V4AgendaDeps } from "./agenda.js";
 import { createV4Deliverables, realV4DeliverablesDeps, type V4DeliverablesDeps } from "./deliverables.js";
 import { createV4Mcp, realV4McpDeps, type V4McpDeps } from "./mcp.js";
 import { createV4Memory, realV4MemoryDeps, type V4MemoryDeps } from "./memory.js";
 import { createV4Notebook, realV4NotebookDeps, type V4NotebookDeps } from "./notebook.js";
 import { createV4Settings, realV4SettingsDeps, type V4SettingsDeps } from "./settings.js";
+import { createV4Shopping, realV4ShoppingDeps, type V4ShoppingDeps } from "./shopping.js";
 import { createV4Search, realV4WebDeps, type V4WebDeps } from "./web.js";
 
 export type V4AdapterDeps = {
@@ -34,9 +37,10 @@ export type V4AdapterDeps = {
 	settings: V4SettingsDeps;
 	mcp: V4McpDeps;
 	agenda: V4AgendaDeps;
+	shopping: V4ShoppingDeps;
 };
 
-export const realV4AdapterDeps = (): V4AdapterDeps => ({ web: realV4WebDeps(), deliverables: realV4DeliverablesDeps, memory: realV4MemoryDeps, notebook: realV4NotebookDeps, settings: realV4SettingsDeps, mcp: realV4McpDeps, agenda: realV4AgendaDeps });
+export const realV4AdapterDeps = (): V4AdapterDeps => ({ web: realV4WebDeps(), deliverables: realV4DeliverablesDeps, memory: realV4MemoryDeps, notebook: realV4NotebookDeps, settings: realV4SettingsDeps, mcp: realV4McpDeps, agenda: realV4AgendaDeps, shopping: realV4ShoppingDeps });
 
 export type V4RegistryInput = {
 	runId: string;
@@ -69,6 +73,8 @@ export type V4RegistryInput = {
 	 * nunca criar itens novos em cadeia.
 	 */
 	agendaRun?: boolean;
+	/** Pagamento (F6.3): cartões do dono (bandeira e final) e o `card_fill`. Sem cartão salvo, a tool `checkout` não entra na capacidade `shopping`. */
+	checkout?: CheckoutDeps;
 };
 
 export type V4RegistrySetup = {
@@ -93,6 +99,8 @@ export async function buildV4Registry(input: V4RegistryInput): Promise<V4Registr
 	});
 	const search = createV4Search(deps.web, input.locale);
 	const agenda = botId ? createV4Agenda({ botId, policy: input.policy ?? { autonomy: "balanced", rules: [] }, deps: deps.agenda }) : undefined;
+	const shoppingPorts = createV4Shopping({ scope: { conversationId: input.conversationId ?? null, botId: botId ?? null, emit: input.emit, log }, deps: deps.shopping });
+	const country = countryFromLocale(input.locale);
 	const presetDeps: PresetDeps = {
 		search,
 		...(input.makeHelpers && { helpers: input.makeHelpers({ search }) }),
@@ -103,10 +111,15 @@ export async function buildV4Registry(input: V4RegistryInput): Promise<V4Registr
 		taskLists: createNoteTaskListStore(input.notes),
 		// Configurações são do bot do run: sem bot não há o que configurar.
 		...(botId && { settings: createV4Settings({ botId, deps: deps.settings }) }),
+		// Compras (F6): a compra gravada cria o vigia de entrega pela agenda do preset (por isso só entra com bot).
+		shopping: shoppingPorts,
 		// A agenda também é do bot do run (a conversa dele recebe o aviso).
 		...(agenda && { agenda }),
+		...(input.checkout && { checkout: input.checkout }),
+		...(country && { shoppingCountry: country }),
 	};
-	const base = setupPreset("full", presetDeps);
+	const preset = setupPreset("full", presetDeps);
+	const base = preset;
 
 	let connectors: Awaited<ReturnType<typeof createConnectorsCapability>> = { capability: null };
 	try {
@@ -119,7 +132,12 @@ export async function buildV4Registry(input: V4RegistryInput): Promise<V4Registr
 	// Run de agenda: sai `agenda` (sem criar item em cadeia), entra `agenda_result` (núcleo).
 	const capabilities = [...base.registry.capabilities, ...(connectors.capability ? [connectors.capability] : [])];
 	const asAgendaRun = Boolean(input.agendaRun && agenda);
-	const forRun = asAgendaRun && agenda ? [...capabilities.filter((capability) => capability.id !== "agenda"), createAgendaRunCapability(agenda)] : capabilities;
+	// No run de agenda, `shopping` perde a agenda e as tools de escrita (`readOnly`): ali o conteúdo vem de fora e não há dono para
+	// confirmar, então registrar compra (e criar vigia em cadeia) seria obedecer uma página.
+	const forRun =
+		asAgendaRun && agenda
+			? [...capabilities.filter((capability) => capability.id !== "agenda" && capability.id !== "shopping"), createAgendaRunCapability(agenda), createShoppingCapability({ ...shoppingPorts, search, readOnly: true, ...(country && { country }) })]
+			: capabilities;
 	const registry = !asAgendaRun && !connectors.capability ? base.registry : createCapabilityRegistry(forRun);
 	if (base.unavailable.length > 0) log(`[engine-v4] run=${input.runId} capacidades sem porta: ${base.unavailable.join(", ")}`);
 	return {

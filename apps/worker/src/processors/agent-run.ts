@@ -150,7 +150,7 @@ import { cheapModelFromEnv, createV4Llm, dropProcessorOwnedEvents, ownerStepsLim
 const AGENDA_NOT_RUN_RETRY_MS = 30 * 60_000;
 import { earlyWallMs, engineDefaultFromEnv, engineV4GateFromEnv, pickRunEngine, resolveRunLimits, runSelectedEngine } from "../engine-choice.js";
 import { getVaultService, type RunComputerUseResult } from "@workspace/agent-runtime";
-import { createSseMapper, type BullLikeQueue } from "@workspace/agent";
+import { createSseMapper, type BullLikeQueue, type CvvEscrow } from "@workspace/agent";
 import { isReadOnlyConnectorOrigin, budgetStopFallbackText, isBotConfigEventObjective, createReviewerClient, resolveMaintenanceCandidates } from "@workspace/agent-runtime";
 import { runToolFilter } from "../run-tool-filter.js";
 import { briefDeliveryDeps, deliverBriefFailure, deliverDailyBrief, findRoutineRunIdWithRetry, isDetachedBriefRun } from "../daily-brief.js";
@@ -272,6 +272,8 @@ export type AgentRunProcessorDeps = {
 	enqueueNextRun?: (runId: string, options?: { delayMs?: number }) => Promise<boolean>;
 	/** Fila do motor v4 (só criada com `ATLAS_ENGINE_V4` ligada). */
 	v4Queue?: BullLikeQueue;
+	/** Canal efêmero do CVV (F6.3), ligado ao Redis do worker. Ausente = sem pagamento no v4. */
+	cvvEscrow?: CvvEscrow | null;
 	/** Teste: troca a ligação da retomada automática com banco e fila. */
 	autoContinueIo?: AutoContinueIo;
 	extendLock?: () => Promise<void>;
@@ -1280,6 +1282,7 @@ async function executeLeasedRun(ctx: {
 					signal: aborter.signal,
 					vault: vaultBackendFromService(getVaultService()),
 					...(deps.v4Queue ? { queue: deps.v4Queue } : {}),
+					...(deps.cvvEscrow ? { cvvEscrow: deps.cvvEscrow } : {}),
 				});
 			},
 		});

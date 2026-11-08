@@ -1,5 +1,5 @@
 import { AVATAR_COLORS, eyeColorFor as engineEyeColorFor } from "@workspace/ui/lib/avatar/identity";
-import type { AlertRule, MessageSource, BotLanguageSetting, BotNeed, BotProposalData, DevApprovalCardInfo, LoginConnector, LoginVaultOffer, RoutineProposalMode, RoutineProposalSpec, RoutineProposalStatus, SkillProposalData, SubagentTaskView, ChartSpec, PageSpec } from "@workspace/shared";
+import type { AlertRule, MessageSource, BotLanguageSetting, BotNeed, BotProposalData, DevApprovalCardInfo, LoginConnector, LoginVaultOffer, RoutineProposalMode, RoutineProposalSpec, RoutineProposalStatus, SkillProposalData, SubagentTaskView, ChartSpec, PageSpec, ProductOffer, PersistedPurchaseCard } from "@workspace/shared";
 import type { BotProfileProposal } from "@/components/ai-elements/confirm";
 
 export type BodyColor = {
@@ -333,6 +333,8 @@ export type QuestionnaireStatus = "pending" | "submitted" | "dismissed";
 export type QuestionnaireAnswersData = Record<string, string | string[]>;
 
 /** `createdAt` (ISO): hora local ao criar, depois a do servidor; alimenta os separadores de horário. */
+type PurchaseCardFields = Omit<PersistedPurchaseCard, "v" | "kind" | "purchaseId" | "runId">;
+
 export type Message = MessageVariant & { createdAt?: string };
 
 /**
@@ -473,6 +475,10 @@ type MessageVariant =
 	| { id: string; kind: "task-list"; runId: string; items: Array<{ content: string; status: "pending" | "in_progress" | "completed" }> }
 	/** `/compact`: a conversa levada foi resumida (números antes/depois e o texto do resumo); persistido na thread. */
 	| { id: string; kind: "compaction"; before: number; after: number; summary: string; focus?: string }
+	/** F6.1: produto(s) lidos da página da loja; `cardId` é a identidade (ao vivo = gravado). */
+	| { id: string; kind: "product"; cardId: string; items: ProductOffer[]; cheapestUrl?: string; incomplete?: boolean }
+	/** F6.5: compra registrada; `purchaseId` é a identidade. */
+	| ({ id: string; kind: "purchase"; purchaseId: string } & PurchaseCardFields)
 	/** Gráfico nativo (spec validado) gerado pelo run_code em *.chart.json. */
 	| { id: string; kind: "chart"; chartId: string; spec: ChartSpec; filename?: string }
 	/** Página viva (relatório/painel) inline; o mesmo `pageId` é atualizado no lugar (revision maior). */

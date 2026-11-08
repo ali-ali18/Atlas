@@ -40,7 +40,11 @@ export interface Agenda {
 	/** Fuso do dono (a agenda do v4 não usa horário de silêncio). */
 	settings(userId: string): Promise<ProactiveSettings>;
 	/** `untrustedRead`: o run criador já tinha lido conteúdo não confiável; a nota fica marcada e entra como dado no wake. */
-	create(userId: string, plan: AgendaPlan, context: { sourceRunId: string; untrustedRead?: boolean }): Promise<AgendaCreateResult>;
+	/**
+	 * `exactIdentity`: o item tem identidade própria fora da nota (ex.: o vigia de UMA compra). Pula o dedupe por similaridade
+	 * de texto, que trataria a nota de dois vigias parecidos como o mesmo item; o limite de itens ativos continua valendo.
+	 */
+	create(userId: string, plan: AgendaPlan, context: { sourceRunId: string; untrustedRead?: boolean; exactIdentity?: boolean }): Promise<AgendaCreateResult>;
 	list(userId: string, options?: { includeEnded?: boolean }): Promise<AgendaItemView[]>;
 	/** `null` = não existe, não é do dono ou a ação não cabe no estado dele (a tool responde igual nos três casos). */
 	change(userId: string, id: string, action: AgendaAction): Promise<AgendaItemView | null>;

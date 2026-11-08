@@ -521,3 +521,4 @@ export { MARKET_KEY_CATALOG_IDS, ownerMarketAccess, probeMarketKey, reportReject
 export { runEngineV2, type EngineV2Options } from "./engine-v2/index.js";
 export { executeSetEngine, shouldExposeSetEngine, SET_ENGINE_TOOL, SET_ENGINE_TOOL_NAME } from "./tools/set-engine.js";
 export type { ComputerUseParams, RunComputerUseResult } from "./computer-use.js";
+export { connectorEscrowSealer, isCardVaultConfigured, openCardSecretsJson, sealCardSecrets } from "./payment/card-seal.js";

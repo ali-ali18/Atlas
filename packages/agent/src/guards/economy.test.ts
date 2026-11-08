@@ -3,10 +3,11 @@ import { createCapabilityRegistry, defineCapability } from "../capabilities/inde
 import { createConnectorsCapability } from "../connectors/capability.js";
 import { FakeMcp } from "../connectors/fake-mcp.js";
 import { createDeliverablesCapability } from "../capabilities-builtin/deliverables/index.js";
+import { createShoppingCapability } from "../capabilities/shopping/index.js";
 import { createAgendaCapability } from "../capabilities/agenda/index.js";
 import { createResearchCapability } from "../capabilities-builtin/research/index.js";
 import { createMemoryCapability } from "../capabilities/memory/index.js";
-import { FakeAgenda, FakeDeliverables, FakeHelpers, FakeMemory, FakeNotebook } from "../presets/fakes.js";
+import { FakeAgenda, FakeDeliverables, FakeHelpers, FakeMemory, FakeNotebook, FakeSearch, FakeShopping } from "../presets/fakes.js";
 import { call, kernelHarness, reply } from "../testing/kernel-fakes.js";
 
 // Economia (05-fases, guardas permanentes #5): "Bom dia" é barato.
@@ -138,6 +139,27 @@ describe("economia: Bom dia", () => {
 		expect((first?.tools ?? []).map((t) => t.name)).not.toContain("remind_me");
 		expect((second?.tools ?? []).map((t) => t.name)).toEqual(expect.arrayContaining(["remind_me", "watch", "on_event", "agenda_list", "agenda_change"]));
 		expect(JSON.stringify(second?.messages)).toContain("Agenda rules");
+	});
+
+	it("a capacidade shopping é lazy: 'Bom dia' não ganha product_search nem record_purchase, só uma linha do índice", async () => {
+		const base = await measureGoodMorning();
+		const withShopping = await measureGoodMorning([createShoppingCapability({ ...new FakeShopping().ports, search: new FakeSearch(), agenda: new FakeAgenda() })]);
+		expect(withShopping.toolNames).toEqual(base.toolNames);
+		for (const name of ["product_search", "record_purchase", "purchase_list"]) expect(withShopping.toolNames).not.toContain(name);
+		expect(withShopping.tokens - base.tokens).toBeLessThan(60);
+		expect(JSON.stringify(withShopping.result)).not.toContain("Shopping rules");
+		expect(withShopping.tokens).toBeLessThanOrEqual(GOOD_MORNING_INPUT_TOKENS_CEILING + 60);
+	});
+
+	it("o pedido de comparar preços carrega a capacidade no passo 1 e as regras só então", async () => {
+		const core = defineCapability({ id: "core", title: "Core", summary: "core tools", core: true, tools: [] });
+		const h = kernelHarness([reply({ calls: [call("c1", "use_capability", { id: "shopping" })] }), reply({ text: "Pronto." })], { capabilities: [core, createShoppingCapability({ ...new FakeShopping().ports, search: new FakeSearch() })] });
+		await h.run({ input: { contextSections: [], history: [{ kind: "owner", text: "Compare o preço do fone X em 3 lojas, com frete" }] } });
+		const [first, second] = h.llm.requests;
+		expect(JSON.stringify(first?.messages)).not.toContain("Shopping rules");
+		expect((first?.tools ?? []).map((t) => t.name)).not.toContain("product_search");
+		expect((second?.tools ?? []).map((t) => t.name)).toEqual(expect.arrayContaining(["product_search", "record_purchase", "purchase_list"]));
+		expect(JSON.stringify(second?.messages)).toContain("Shopping rules");
 	});
 
 	it("o caderno é lazy: 'Bom dia' não ganha as tools note_*, só uma linha do índice", async () => {

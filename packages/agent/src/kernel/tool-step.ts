@@ -2,6 +2,8 @@
 // `read` roda em paralelo (lote de leituras seguidas); qualquer outro efeito roda em série e em ordem.
 // Cada resultado fica em `snap.results` (o efeito já está no journal); chamada que pede aprovação ou
 // handoff fica em `snap.parked` e o run estaciona. Na retomada só o que falta roda de novo.
+import { copyFor } from "../copy/index.js";
+import type { BotLanguage } from "@workspace/shared";
 import { storageSafe, type CallOutcome, type Executor } from "../contract/index.js";
 import type { Tool } from "../tools/define-tool.js";
 import type { KernelEvent, KernelSnapshot, PendingCall, ResumeInput } from "./types.js";
@@ -14,6 +16,8 @@ export type ToolStepEnv = {
 	emit: (event: KernelEvent) => Promise<void>;
 	/** Ajusta a saída ao que cabe na janela sem perder nada (F1.8b: páginas + ponteiro). */
 	fit: (call: PendingCall, text: string) => Promise<string>;
+	/** Idioma do bot (textos ao dono). */
+	language?: BotLanguage;
 };
 
 export const DENIED_TEXT = "The owner declined this action. Do not retry it; offer an alternative or ask what they would prefer.";
@@ -127,6 +131,13 @@ export async function runPending(env: ToolStepEnv): Promise<{ malformed: number 
 		if (outcome.status === "ok" && outcome.receipt) {
 			const { what, where, externalId, url } = outcome.receipt;
 			await env.emit({ type: "receipt", data: { callId: call.id, name: call.name, what, ...(where && { where }), ...(externalId && { externalId }), ...(url && { url }) } });
+		}
+		// O efeito já foi feito (journal `succeeded`), mas o resto é do dono (3DS, app do banco, captcha). Estaciona SEM reexecutar:
+		// na retomada, `handoff_done` fecha a chamada com o texto de "o dono assumiu", nunca roda a tool de novo.
+		if (outcome.status === "ok" && outcome.park === "handoff") {
+			snap.parked[call.id] = { kind: "handoff" };
+			await env.emit({ type: "card", data: { kind: "handoff", callId: call.id, userMessage: copyFor(env.language, "checkout_challenge") } });
+			return;
 		}
 		await finish(call, outcome.status, outcomeText(outcome));
 	}

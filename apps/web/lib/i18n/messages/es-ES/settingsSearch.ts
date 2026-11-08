@@ -44,6 +44,7 @@ export const settingsSearch: NamespaceMessages<typeof ptBR> = {
 	"settings.search.item.composio.chave": "Clave de Composio; api key; token; quitar; guardar; composio; byo",
 	"settings.search.item.composio.apps": "Apps de Composio; conectar; desconectar; buscar; toolkit; trello; linear; hubspot; composio",
 	"settings.search.item.cofre.lista": "Caja fuerte de secretos e inicios de sesión; contraseña; contraseñas; secreto; clave; api key; token; inicio de sesión; sitio; 2fa; totp; autenticador; generar contraseña; mostrar; copiar; credenciales; el bot usa",
+	"settings.search.item.cartoes.lista": "Tarjetas de compra; tarjeta; tarjetas; crédito; débito; compra; pago; cvv; marca; últimos dígitos; dirección de facturación; visa; mastercard; el bot compra",
 	"settings.search.item.habilidades.lista": "Habilidades; skill; skills; habilidad; procedimiento; receta; instrucciones; markdown; importar; exportar; borrador",
 	"settings.search.item.uso.custos": "Uso y costes; costo; coste; consumo; tokens; gastos",
 	"settings.search.item.provedores.openrouter": "Clave de OpenRouter; openrouter; clave; api key; proveedores; servidor; modelos",

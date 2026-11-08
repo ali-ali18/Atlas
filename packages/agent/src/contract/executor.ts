@@ -28,6 +28,14 @@ export type ExecutorDeps = {
 	language?: BotLanguage;
 	/** Usos do mandato que restam ao retomar (vem do checkpoint). Sem valor, vale `policy.mandate.usesLeft`. */
 	mandateUsesLeft?: number;
+	/** Chamado depois que o mandato gasta um uso (antes do efeito). */
+	onMandateSpent?: (usesLeft: number) => void | Promise<void>;
+	/**
+	 * Gasto ATÔMICO do uso no armazém compartilhado (banco), antes do efeito: dois runs do mesmo dono nunca gastam o mesmo
+	 * uso. `claim` falso = o mandato não tem mais uso (outro run gastou): o efeito NÃO roda. `release` devolve o uso quando
+	 * a tool falhou sem pagar (ex.: o CVV não chegou). Sem isto vale só a contagem em memória do run.
+	 */
+	mandateUses?: { claim(): Promise<boolean>; release(): Promise<void> };
 };
 
 /** Uma chamada do modelo. `grant` vem da camada de fora (dono aprovou), nunca dos argumentos. */
@@ -93,8 +101,12 @@ export function createExecutor(deps: ExecutorDeps) {
 			if (prior?.outcome === "succeeded") return { status: "already_done", hint: ALREADY_DONE_HINT };
 		}
 
-		if (verdict.kind === "approve") {
-			const request = requestApproval({ runId: deps.runId, callId: scopedCallId, toolName: tool.name, effect, args, riskFacts, hash: deps.hash, secrets: secrets() });
+		// Tool que precisa de um dado só do dono (CVV): com mandato vale o cartão "só o campo", nunca a execução direta.
+		const inputOnly = verdict.kind === "run" && verdict.reason === "mandate" && tool.ownerInput !== undefined;
+		let approvalId: string | undefined;
+		if (verdict.kind === "approve" || inputOnly) {
+			const request = requestApproval({ runId: deps.runId, callId: scopedCallId, toolName: tool.name, effect, args, riskFacts, hash: deps.hash, secrets: secrets(), ...(tool.ownerInput && { ownerInput: tool.ownerInput }), ...(inputOnly && { inputOnly: true }) });
+			approvalId = request.id;
 			if (!call.grant) return { status: "pending_approval", request };
 			// O grant só é consumido junto com o claim do journal. Entrada `failed` = o efeito já gastou este grant (talvez em
 			// outro processo, onde `consumed` está vazio): não vale de novo (S5).
@@ -104,21 +116,37 @@ export function createExecutor(deps: ExecutorDeps) {
 			consumed.add(request.id);
 		}
 
+		let spentUse = false;
 		if (effectful) {
 			// Worker zumbi: sem lease vigente não há efeito. Depois, o claim atômico do journal (S5).
 			await deps.ports.store.runs.assertLease?.(deps.ownerId, deps.runId);
 			const claim = await deps.ports.store.journal.append({ ...journalBase, outcome: "started" });
 			if (!claim.claimed) return { status: "already_in_progress", hint: IN_PROGRESS_HINT };
 			// O efeito vai rodar por causa do mandato: gasta um uso ANTES de executar (os efeitos do passo são em série).
-			if (mandate && verdict.kind === "run" && verdict.reason === "mandate") mandate = { ...mandate, usesLeft: mandate.usesLeft - 1 };
+			if (mandate && verdict.kind === "run" && verdict.reason === "mandate") {
+				if (deps.mandateUses && !(await deps.mandateUses.claim())) {
+					// Outro run gastou o último uso desde que este começou: sem uso não há mandato, nada é pago.
+					await deps.ports.store.journal.append({ ...journalBase, outcome: "failed" });
+					mandate = { ...mandate, usesLeft: 0 };
+					return { status: "error", error: "The owner's purchase allowance has no uses left, so nothing was paid.", hint: "Tell the owner plainly and ask them to confirm the purchase again; do not retry on your own." };
+				}
+				mandate = { ...mandate, usesLeft: mandate.usesLeft - 1 };
+				spentUse = true;
+				await deps.onMandateSpent?.(mandate.usesLeft);
+			}
 		}
-		const ctx: ToolContext = { runId: deps.runId, ownerId: deps.ownerId, ports: deps.ports, signal: deps.signal, callId: scopedCallId, untrustedReadInRun: provenance.untrustedReadInRun };
+		const ctx: ToolContext = { runId: deps.runId, ownerId: deps.ownerId, ports: deps.ports, signal: deps.signal, callId: scopedCallId, untrustedReadInRun: provenance.untrustedReadInRun, ...(approvalId && { approvalId }) };
 		const result = await tool.run(args, ctx);
 		// Dado de fonte não confiável marca o run ANTES de voltar ao modelo (vale também para o texto de erro).
 		// Redigido ANTES de registrar: a proveniência vai no checkpoint e não pode guardar segredo que a tool deixou escapar.
 		if (tool.privateData && result.ok) provenance.markPrivateRead();
 		if (tool.trust === "untrusted" && tool.source) provenance.record(sanitizeText(result.ok ? result.summary : result.error, secrets()), tool.source);
 		if (!result.ok) {
+			// Falhou sem pagar (ex.: sem CVV): o uso do mandato volta, para não gastar mandato sem compra.
+			if (spentUse && deps.mandateUses) {
+				await deps.mandateUses.release().catch(() => undefined);
+				if (mandate) mandate = { ...mandate, usesLeft: mandate.usesLeft + 1 };
+			}
 			if (effectful) await deps.ports.store.journal.append({ ...journalBase, outcome: "failed" });
 			return { status: "error", error: sanitizeText(result.error, secrets()), ...(result.hint && { hint: sanitizeText(result.hint, secrets()) }) };
 		}
@@ -142,7 +170,7 @@ export function createExecutor(deps: ExecutorDeps) {
 			});
 			await deps.ports.store.journal.append({ ...journalBase, outcome: "succeeded" });
 		}
-		return { status: "ok", summary: sanitizeText(result.summary, secrets()), ...(result.receipt && { receipt: redactDeep(result.receipt, secrets()) }) };
+		return { status: "ok", summary: sanitizeText(result.summary, secrets()), ...(result.receipt && { receipt: redactDeep(result.receipt, secrets()) }), ...(result.park && { park: result.park }) };
 	}
 
 	return { executeCall, provenance, mandateUsesLeft: () => mandate?.usesLeft };

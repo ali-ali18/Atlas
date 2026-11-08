@@ -6,7 +6,7 @@ import { collapseBotProposalCards } from "@/lib/bot-proposal-message";
 
 /** Cartão ao vivo que, quando o servidor já gravou o equivalente, vale o gravado. */
 function isDedupedLiveCard(message: Message): boolean {
-	return message.kind === "images" || message.kind === "provider-fallback" || message.kind === "code-run" || message.kind === "chart" || message.kind === "task-list" || message.kind === "compaction" || (message.kind === "routine" && message.action === "created" && !!message.routineId);
+	return message.kind === "images" || message.kind === "provider-fallback" || message.kind === "code-run" || message.kind === "chart" || message.kind === "product" || message.kind === "purchase" || message.kind === "task-list" || message.kind === "compaction" || (message.kind === "routine" && message.action === "created" && !!message.routineId);
 }
 
 function cardDedupeKey(message: Message): string | null {
@@ -43,6 +43,9 @@ function cardDedupeKey(message: Message): string | null {
 	// Cartão ao vivo (id da chamada) e o gravado (id do banco) colapsam.
 	if (message.kind === "code-run" && message.callId) return `code-run|${message.callId}`;
 	if (message.kind === "chart") return `chart|${message.chartId}`;
+	// Produto e compra: a identidade é o cardId / purchaseId (o ao vivo e o gravado colapsam).
+	if (message.kind === "product") return `product|${message.cardId}`;
+	if (message.kind === "purchase") return `purchase|${message.purchaseId}`;
 	// Uma página, um cartão: o colapso por pageId (collapsePageCards) escolhe a revisão; a chave só evita vizinhos iguais.
 	if (message.kind === "page") return `page|${message.pageId}|${message.revision}`;
 	// Um cartão por run: o ao vivo (id do run) e o gravado (id do banco) colapsam.
@@ -382,6 +385,8 @@ export function reconcilePersistedThread(persisted: Message[], live: Message[], 
 		message.kind !== "code-run" &&
 		message.kind !== "image-gen" &&
 		message.kind !== "chart" &&
+		message.kind !== "product" &&
+		message.kind !== "purchase" &&
 		message.kind !== "page" &&
 		message.kind !== "task-list" &&
 		message.kind !== "compaction" &&

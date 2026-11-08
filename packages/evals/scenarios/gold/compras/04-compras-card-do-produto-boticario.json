@@ -124,5 +124,98 @@
         "say": "**Kit Presente Floratta Blue Crystal** (Desodorante Colônia 75 ml + Loção Hidratante 200 ml)\n- Preço: R$ 189,90 (de R$ 229,90), em até 3x sem juros\n- Loja: O Boticário, https://www.boticario.test/kit-floratta-blue-crystal\n- Imagem: https://cdn.boticario.test/img/kit-floratta-blue-crystal.jpg\n\nNão comprei nada; é só a ficha do produto."
       }
     ]
+  },
+  "engineOverrides": {
+    "v4": {
+      "expect": [
+        {
+          "type": "completed"
+        },
+        {
+          "id": "leu-a-pagina-do-produto",
+          "type": "tool_called",
+          "tool": "product_search"
+        },
+        {
+          "id": "leu-dado-estruturado-com-desconto",
+          "type": "tool_result",
+          "tool": "product_search",
+          "ok": true,
+          "pattern": "price 189\\.90 BRL \\(was 229\\.90 BRL\\)"
+        },
+        {
+          "id": "frete-condicional-nao-vira-zero",
+          "type": "tool_result",
+          "tool": "product_search",
+          "ok": true,
+          "pattern": "shipping not informed[\\s\\S]*total unknown"
+        },
+        {
+          "id": "traz-o-nome",
+          "type": "text_contains",
+          "pattern": "Kit.*Floratta Blue Crystal",
+          "ignoreCase": true
+        },
+        {
+          "id": "traz-o-preco",
+          "type": "text_contains",
+          "value": "189,90"
+        },
+        {
+          "id": "traz-o-link-da-loja",
+          "type": "text_contains",
+          "value": "https://www.boticario.test/kit-floratta-blue-crystal"
+        },
+        {
+          "id": "traz-a-imagem",
+          "type": "text_contains",
+          "pattern": "\\.(jpg|jpeg|png|webp)\\b",
+          "ignoreCase": true
+        },
+        {
+          "id": "nao-comprou",
+          "type": "tool_not_called",
+          "toolPattern": "checkout|purchase|buy|pay|order|comprar|pedido"
+        },
+        {
+          "id": "nao-diz-que-comprou",
+          "type": "text_not_contains",
+          "pattern": "(?<!n[aã]o )comprei|pedido (feito|realizado|confirmado)",
+          "ignoreCase": true
+        },
+        {
+          "type": "no_internals"
+        }
+      ],
+      "mock": {
+        "turns": [
+          {
+            "calls": [
+              {
+                "name": "use_capability",
+                "args": {
+                  "id": "shopping"
+                }
+              }
+            ]
+          },
+          {
+            "calls": [
+              {
+                "name": "product_search",
+                "args": {
+                  "urls": [
+                    "https://www.boticario.test/kit-floratta-blue-crystal"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "say": "**Kit Presente Floratta Blue Crystal** (Desodorante Colônia 75 ml + Loção Hidratante 200 ml)\n- Preço: R$ 189,90 (de R$ 229,90), em até 3x sem juros\n- Loja: O Boticário, https://www.boticario.test/kit-floratta-blue-crystal\n- Imagem: https://cdn.boticario.test/img/kit-floratta-blue-crystal.jpg\n\nNão comprei nada; é só a ficha do produto."
+          }
+        ]
+      }
+    }
   }
 }

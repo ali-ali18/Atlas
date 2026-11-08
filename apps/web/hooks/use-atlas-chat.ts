@@ -2,6 +2,7 @@
 
 import { readProviderRunUsage } from "@/lib/provider-run-usage";
 import { canUseLegacyChat } from "@/lib/provider-model-picker";
+import { parseLiveProductEvent } from "@/lib/product-event";
 import type { OutgoingAttachment } from "@/hooks/use-file-attachments";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
@@ -184,6 +185,11 @@ function conversationCardToMessage(
 	}
 	if (card.kind === "task-list") return { id, kind: "task-list", runId: card.runId, items: card.items };
 	if (card.kind === "compaction") return { id, kind: "compaction", before: card.before, after: card.after, summary: card.summary, ...(card.focus ? { focus: card.focus } : {}) };
+	if (card.kind === "product") return { id, kind: "product", cardId: card.cardId, items: card.items, ...(card.cheapestUrl ? { cheapestUrl: card.cheapestUrl } : {}), ...(card.incomplete ? { incomplete: true } : {}) };
+	if (card.kind === "purchase") {
+		const { v: _v, kind: _kind, runId: _runId, ...fields } = card;
+		return { id, kind: "purchase", ...fields };
+	}
 	if (card.kind === "chart") return { id, kind: "chart", chartId: card.chartId, spec: card.spec, ...(card.filename ? { filename: card.filename } : {}) };
 	if (card.kind === "page") {
 		return { id, kind: "page", pageId: card.pageId, revision: card.revision, title: card.title, action: card.action, sourceCount: card.sourceCount, ...(card.spec ? { spec: card.spec } : {}) };
@@ -432,6 +438,8 @@ export function buildSessionMessage(message: SessionMessage): Message | null {
 		|| (message.role as string) === "images"
 		|| (message.role as string) === "code-run"
 		|| (message.role as string) === "chart"
+		|| (message.role as string) === "product"
+		|| (message.role as string) === "purchase"
 		|| (message.role as string) === "page"
 		|| (message.role as string) === "task-list"
 		|| (message.role as string) === "compaction"
@@ -1004,6 +1012,26 @@ export function createComputerHandlers(params: {
 					...(event.filename ? { filename: event.filename } : {}),
 				};
 				return dedupeCards(insertCardAfterCurrentTurn(previous, chartMessage));
+			});
+		},
+		onProduct: (event) => {
+			params.onActivity?.();
+			// Mesmo parser do cartão gravado: total recalculado, foto insegura fora, item inválido descartado.
+			const card = parseLiveProductEvent(event);
+			if (!card) return;
+			params.setMessages((previous) => {
+				if (previous.some((m) => m.kind === "product" && m.cardId === card.cardId)) return previous;
+				const message: Message = { id: `product-${card.cardId}`, kind: "product", cardId: card.cardId, items: card.items, ...(card.cheapestUrl ? { cheapestUrl: card.cheapestUrl } : {}), ...(card.incomplete ? { incomplete: true } : {}) };
+				return dedupeCards(insertCardAfterCurrentTurn(previous, message));
+			});
+		},
+		onPurchase: (event) => {
+			params.onActivity?.();
+			params.setMessages((previous) => {
+				if (previous.some((m) => m.kind === "purchase" && m.purchaseId === event.purchaseId)) return previous;
+				const { type: _type, runId: _runId, ...fields } = event;
+				const message: Message = { id: `purchase-${event.purchaseId}`, kind: "purchase", ...fields };
+				return dedupeCards(insertCardAfterCurrentTurn(previous, message));
 			});
 		},
 		onPage: (event) => {

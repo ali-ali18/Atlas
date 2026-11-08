@@ -271,6 +271,8 @@ export {
 export * from "./task-contracts.js";
 export * from "./tool-cache.js";
 export * from "./task-list.js";
+export * from "./product.js";
+export * from "./purchase.js";
 export * from "./task-ledger.js";
 export * from "./browser-subagents.js";
 export { COMPACT_TAIL_KEEP, selectCompactTail } from "./compact.js";
@@ -1039,3 +1041,5 @@ export * from "./owner-notes.js";
 export * from "./sleep.js";
 export * from "./memory-doctor.js";
 export * from "./learned-rules.js";
+export * from "./payment-card.js";
+export * from "./merchant.js";

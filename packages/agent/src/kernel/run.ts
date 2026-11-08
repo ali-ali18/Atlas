@@ -50,7 +50,7 @@ export async function runAgent(deps: RunAgentDeps): Promise<RunResult> {
 	const loaded = createLoadedSet(registry, snap.loadedIds);
 	// Toda tool recebe o cofre "rastreado": o valor que ele entrega entra na redação do run (ver vault-tracking.ts).
 	const tracked = ports.vault ? trackVault(ports.vault) : undefined;
-	const executor = createExecutor({ runId, ownerId, ports: tracked ? { ...ports, vault: tracked.vault } : ports, ...(tracked && { secrets: tracked.secrets }), hash: deps.hash, policy: deps.policy, provenance: RunProvenance.restore(snap.provenance), ...(snap.mandateUsesLeft !== undefined && { mandateUsesLeft: snap.mandateUsesLeft }), ...(deps.language && { language: deps.language }), ...(deps.signal && { signal: deps.signal }) });
+	const executor = createExecutor({ runId, ownerId, ports: tracked ? { ...ports, vault: tracked.vault } : ports, ...(tracked && { secrets: tracked.secrets }), hash: deps.hash, policy: deps.policy, provenance: RunProvenance.restore(snap.provenance), ...(snap.mandateUsesLeft !== undefined && { mandateUsesLeft: snap.mandateUsesLeft }), ...(deps.language && { language: deps.language }), ...(deps.signal && { signal: deps.signal }), ...(deps.onMandateSpent && { onMandateSpent: deps.onMandateSpent }), ...(deps.mandateUses && { mandateUses: deps.mandateUses }) });
 	deps.exposeProvenance?.(() => {
 		const { untrustedReadInRun, privateReadInRun, sources } = executor.provenance.snapshot();
 		return { untrustedReadInRun, ...(privateReadInRun !== undefined && { privateReadInRun }), sources };
@@ -176,7 +176,7 @@ export async function runAgent(deps: RunAgentDeps): Promise<RunResult> {
 				state = "TOOLS";
 				await save(state);
 			} else if (state === "TOOLS") {
-				const { malformed } = await runPending({ tools: toolMap(), executor, snap, emit, fit, ...(deps.input.resume && { resume: deps.input.resume }) });
+				const { malformed } = await runPending({ tools: toolMap(), executor, snap, emit, fit, ...(deps.language && { language: deps.language }), ...(deps.input.resume && { resume: deps.input.resume }) });
 				snap.malformedNow += malformed;
 				if (Object.keys(snap.parked).length > 0) return await finish("parked", "");
 				state = "SETTLE";

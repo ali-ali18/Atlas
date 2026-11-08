@@ -43,6 +43,7 @@
 | F3 pesquisa | `feat/harness-v4-f3-pesquisa` | **concluída, juntada em `harness/v4`** | #153 |
 | F4 agenda | `feat/harness-v4-f4-agenda` | **backend juntado em `harness/v4`** (#155); tela da Agenda juntada | #155, #157 |
 | F5 memória | `feat/harness-v4-f5-memoria` | **backend juntado em `harness/v4`** (#154); telas do Caderno, regras e sono juntadas | #154, #157 |
+| F6 compras | `feat/harness-v4-f6-compras` | concluída (08/11): produto, compra registrada, cartão sem CVV, checkout com CVV, mandato; auditoria + reauditoria em `auditorias/F6.md` | PR para `harness/v4` |
 
 ## Decisões do dono (não reabrir)
 - Base nova, do zero, em `packages/agent`, sem import do legado (05/11).
@@ -123,12 +124,12 @@
 - [x] F5.A (06/11: 19 achados, 1 alto; 17 corrigidos, 2 aceitos; reauditoria com 5 baixos, 1 corrigido) Auditoria: 5 lentes, verificação, correções com teste, reauditoria e `auditorias/F5.md` fechado.
 
 ### F6: Compras
-- [ ] F6.1 `product_search` estruturado e card `product`.
-- [ ] F6.2 Cartão no cofre sem CVV.
-- [ ] F6.3 `checkout` com campo de CVV no cartão de aprovação e `card_fill` (teste de vazamento).
-- [ ] F6.4 Mandato opcional.
-- [ ] F6.5 `record_purchase` e vigia de entrega automático.
-- [ ] F6.A Auditoria: 5 lentes, verificação, correções com teste, reauditoria e `auditorias/F6.md` fechado.
+- [x] F6.1 (07/11: capacidade lazy `shopping`, `product_search` com JSON-LD/OpenGraph em `shared/product.ts`, total = preço + frete com frete desconhecido explícito, HTML pela proteção SSRF do extrator (`fetchPageHtml`), card `product` com fotos, desconto, nota e comparação; prévias em `apps/web/e2e/__previews__/compras/`) `product_search` estruturado e card `product`.
+- [x] F6.2 (07/11, frente C: tabelas `saved_cards` e `purchase_mandates` por acréscimo, `secretsEnc` com a caixa dos conectores, rotas `/v1/cards` com IDOR testado em Postgres, validação Luhn/validade, corpo estrito sem CVV, tela em Configurações › Cofre; prévias em `apps/web/e2e/__previews__/compras/`) Cartão no cofre sem CVV.
+- [x] F6.3 (07/11, frente C: `checkout` em `capabilities/shopping/checkout.ts`, canal efêmero do CVV (Redis selado, GETDEL, chave = pedido), `card_fill` sobre a porta `Sandbox` com fake, handoff pós-efeito sem repetir, `CvvField` em `packages/ui`, cartão de compra mínimo em `ai-elements/purchase`, rota de resposta com `cvv` só para compra; testes de vazamento em evento, pedido ao modelo, journal, recibo e checkpoint. Falta na F8: o adaptador real de `card_fill` na VM) `checkout` com campo de CVV no cartão de aprovação e `card_fill` (teste de vazamento).
+- [x] F6.4 (07/11, frente C: tabela `purchase_mandates`, rotas `/v1/purchase-mandate`, mandato carregado pelo worker; com mandato o cartão pede só o CVV (`inputOnly`) e o uso é gasto e gravado; falta a tela do mandato, que por ora se cria pela API) Mandato opcional.
+- [x] F6.5 (07/11: `record_purchase` `write_internal` (após a auditoria: confirma quando o run leu conteúdo de fora, sai do run de agenda, ganha `purchase_update`/`purchase_delete`; checkout pago registra sozinho), tabela `purchases`, rotas `/v1/purchases` com IDOR testado, card `purchase`, vigia de entrega criado em silêncio pela agenda do preset (12 h, ~30 dias); o `checkout` da frente C é uma tool da mesma capacidade `shopping`) `record_purchase` e vigia de entrega automático.
+- [x] F6.A Auditoria (08/11: duas leituras, 19 achados corrigidos com teste; reauditoria com 11 achados novos, 10 corrigidos e 1 adiado para a tela do mandato; aceitos registrados em `auditorias/F6.md`. Pendências da F6 fora deste PR: o web ainda não renderiza `approval_request` no fio (cartão de compra pronto em `ai-elements/purchase`, falta ligar junto com os cards da outra conta), tela e tool de chat do mandato, cards `product`/`purchase` e CVV no app mobile, `card_fill` real na F8.0)
 
 ### F7: E-mail e dia
 - [ ] F7.1 `email` e `calendar` (corpo, classificação por campo, prazos, rascunhos, envio com cartão).
@@ -141,6 +142,7 @@
 - [ ] F8.1b `browser-bench` real comparando o navegador atual (ADR 0005) com o `agent-browser` da Vercel Labs na VM; fica o que acertar mais.
 - [ ] F8.2 `code` (plan/build, edição precisa, verificação).
 - [ ] F8.3 Experimento Code Mode.
+- [ ] F8.0 Adaptador real de `card_fill` (pendência OBRIGATÓRIA da F6, ver contrato em `packages/agent/src/ports/payment.ts`): na página final da loja, ler o host que cobra e o total cobrado e devolver `declined`/`failed` SEM pagar se divergirem de `merchant`/`amount`; NUNCA gravar `params` (número, CVV, titular) em log, trace, journal ou mensagem de erro. Teste com VM fake: host trocado e total diferente não pagam; nenhum segredo em log.
 - [ ] F8.A Auditoria: 5 lentes, verificação, correções com teste, reauditoria e `auditorias/F8.md` fechado.
 
 ### F9: Ponte → zero
