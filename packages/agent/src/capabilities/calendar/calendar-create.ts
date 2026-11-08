@@ -7,7 +7,7 @@ import { findCalendarConflicts, formatCalendarWhen, normalizeCalendarEventInput 
 import { z } from "zod";
 import type { CalendarPorts } from "../../ports/calendar.js";
 import { defineTool } from "../../tools/define-tool.js";
-import { cardEvents, describeEvent, eventCardId, nowStamp, showCard } from "./shared.js";
+import { cardEvents, describeEvent, eventCardId, nowStamp, riskEvent, showCard } from "./shared.js";
 
 /** Início mais antigo que isto (em relação a agora) é quase certamente o dia errado, não um pedido do dono. */
 const PAST_TOLERANCE_MS = 10 * 60_000;
@@ -34,10 +34,16 @@ export function createCalendarCreateTool(ports: CalendarPorts) {
 		}),
 		effect: "write_external",
 		effectForArgs: ({ attendees }) => (attendees !== undefined && attendees.length > 0 ? "send" : "write_external"),
-		riskFacts: ({ title, start, attendees }) => ({
-			target: `Google Calendar: ${title} (${start})`,
+		riskFacts: ({ title, location, attendees }) => ({
+			event: riskEvent("create", { title, ...(location && { location }), ...(attendees && { attendees }) }, { notifyGuests: attendees !== undefined && attendees.length > 0 }),
 			...(attendees && attendees.length > 0 && { recipients: attendees, externalRecipients: attendees }),
 		}),
+		// Com o fuso do dono os horários viram instantes que o cartão mostra no idioma e no fuso dele.
+		async enrichRiskFacts(args, base, ctx) {
+			const timeZone = await ports.calendar.timeZone(ctx.ownerId);
+			const parsed = normalizeCalendarEventInput(args, timeZone);
+			return parsed.ok ? { ...base, event: riskEvent("create", parsed.value, { timeZone, notifyGuests: parsed.value.attendees.length > 0 }) } : base;
+		},
 		async execute(args, ctx) {
 			const now = ctx.ports.clock.now();
 			const timeZone = await ports.calendar.timeZone(ctx.ownerId);

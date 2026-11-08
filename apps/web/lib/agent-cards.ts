@@ -1,4 +1,4 @@
-import { type AgentV4Event, type ComputerUseEvent, agentCardCallId, agentCardIdentity, agentCardKey, isAgentV4EventType, parseAgentV4Event } from "@workspace/shared";
+import { type AgentV4Event, type ComputerUseEvent, agentCardCallId, agentCardIdentity, agentCardKey, approvalEventFact, approvalMessageFact, formatApprovalEventWhen, isAgentV4EventType, parseAgentV4Event } from "@workspace/shared";
 import type { Message } from "@/components/ui/templates/template-4/data";
 import { formatCurrency, formatList } from "@/lib/format";
 import { defaultTranslator, type Translator } from "@/lib/i18n/translator";
@@ -142,6 +142,13 @@ export function approvalFacts(event: ApprovalEvent): ApprovalFacts {
 export function describeApproval(event: ApprovalEvent, translator: Translator = defaultTranslator): string {
 	const { t, locale } = translator;
 	const facts = approvalFacts(event);
+	const calendarEvent = approvalEventFact(event.riskFacts);
+	if (calendarEvent) {
+		const title = calendarEvent.title;
+		if (calendarEvent.action === "delete") return title ? t("agentCards.approval.eventDelete", { title }) : t("agentCards.approval.eventDeleteGeneric");
+		if (calendarEvent.action === "update") return title ? t("agentCards.approval.eventUpdate", { title }) : t("agentCards.approval.eventUpdateGeneric");
+		return title ? t("agentCards.approval.eventCreate", { title }) : t("agentCards.approval.eventCreateGeneric");
+	}
 	switch (event.effect) {
 		case "money": {
 			const amount = facts.amount !== undefined ? (facts.currency ? formatCurrency(facts.amount, facts.currency, locale) : String(facts.amount)) : null;
@@ -186,7 +193,36 @@ export function approvalDetailValues(args: unknown, max = 6): string[] {
 
 /** Valores do card de aprovação para a tela. Credencial não mostra nada: a frase basta e o valor nunca aparece. */
 export function approvalDetails(event: ApprovalEvent, max = 6): string[] {
-	return event.effect === "credential" ? [] : collectDetailValues(event.args, max);
+	// Evento e e-mail têm linhas próprias (`approvalSummaryLines`): os argumentos crus trariam o id do evento e campos internos.
+	if (event.effect === "credential" || approvalEventFact(event.riskFacts) || approvalMessageFact(event.riskFacts)) return [];
+	return collectDetailValues(event.args, max);
+}
+
+/** Linhas do que vai ser feito para eventos de agenda e e-mails: quando, onde, quem, assunto. Em palavras do dono, sem campos internos. */
+export function approvalSummaryLines(event: ApprovalEvent, translator: Translator = defaultTranslator): string[] {
+	const { t, locale } = translator;
+	const lines: string[] = [];
+	const calendarEvent = approvalEventFact(event.riskFacts);
+	if (calendarEvent) {
+		const when = formatApprovalEventWhen(calendarEvent, locale);
+		if (when) lines.push(when);
+		if (calendarEvent.location) lines.push(t("agentCards.approval.eventLocation", { location: calendarEvent.location }));
+		if (calendarEvent.guests.length > 0) {
+			lines.push(t("agentCards.approval.eventGuests", { guests: formatList(calendarEvent.guests.slice(0, 5), locale) }));
+			if (calendarEvent.notifyGuests !== undefined) lines.push(calendarEvent.notifyGuests ? t("agentCards.approval.eventNotify") : t("agentCards.approval.eventNoNotify"));
+		}
+	}
+	const message = approvalMessageFact(event.riskFacts);
+	if (message) {
+		if (message.subject) lines.push(t("agentCards.approval.subject", { subject: message.subject }));
+		if (message.from) lines.push(message.from === "gmail" ? t("agentCards.approval.fromGmail") : t("agentCards.approval.fromBot"));
+	}
+	return lines;
+}
+
+/** O corpo inteiro do e-mail a enviar (para o trecho recolhível do card), ou `null`. */
+export function approvalMessageBody(event: ApprovalEvent): string | null {
+	return approvalMessageFact(event.riskFacts)?.body ?? null;
 }
 
 function collectDetailValues(args: unknown, max: number): string[] {

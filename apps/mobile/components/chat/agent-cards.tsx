@@ -6,7 +6,7 @@ import { CheckCircleIcon, ExternalLinkIcon, HandIcon, ShieldCheckIcon, ShoppingC
 import { Button } from "@/components/ui/button";
 import { ChatCard, ChatCardActions, ChatCardHeader, ChatCardLine, type ChatCardTone } from "@/components/ui/chat-card";
 import { Text } from "@/components/ui/text";
-import { approvalDetails, approvalFacts, askOwnerAnswerText, askOwnerQuestionnaireItem, cvvComplete, cvvDigits, describeApproval, formatMoney, handoffSteps, safeReceiptUrl, type AgentCardDecision } from "@/lib/agent-cards";
+import { approvalDetails, approvalFacts, approvalSummaryLines, askOwnerAnswerText, askOwnerQuestionnaireItem, cvvComplete, cvvDigits, describeApproval, formatMoney, handoffSteps, safeReceiptUrl, type AgentCardDecision } from "@/lib/agent-cards";
 import { cn } from "@/lib/cn";
 import type { AgentV4Decision } from "@/lib/chat-api";
 import type { ChatItem } from "@/lib/chat-types";
@@ -57,11 +57,17 @@ export function AgentCardRow({ item, actions }: { item: AgentCardItem; actions: 
 function ApprovalRow({ card, item, actions }: { card: Of<"approval_request">; item: AgentCardItem; actions: AgentCardActions }) {
 	const facts = approvalFacts(card);
 	const details = approvalDetails(card);
+	const summary = approvalSummaryLines(card);
 	return (
 		<ChatCard className="max-w-[min(68ch,100%)] self-start">
 			<ChatCardHeader leading={<ShieldCheckIcon />} title={describeApproval(card)} badge={badgeFor(item, { ok: "Aprovado" })} />
 			{facts.externalRecipients.length > 0 ? <Text className="text-body text-warning">Vai para fora do seu círculo: {facts.externalRecipients.slice(0, 5).join(", ")}</Text> : null}
 			{facts.irreversible ? <Text className="text-body text-warning">Não dá para desfazer depois.</Text> : null}
+			{summary.map((line, index) => (
+				<Text key={`s${index}-${line}`} variant="muted" className="text-body">
+					{line}
+				</Text>
+			))}
 			{details.map((value, index) => (
 				<Text key={`${index}-${value}`} variant="muted" className="text-body">
 					{value}

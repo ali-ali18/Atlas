@@ -6,7 +6,7 @@ import { z } from "zod";
 import type { CalendarPorts } from "../../ports/calendar.js";
 import { defineTool } from "../../tools/define-tool.js";
 import { eventFields } from "./calendar-create.js";
-import { cardEvents, describeEvent, eventCardId, nowStamp, showCard } from "./shared.js";
+import { cardEvents, describeEvent, eventCardId, nowStamp, riskEvent, showCard } from "./shared.js";
 
 const PAST_TOLERANCE_MS = 10 * 60_000;
 
@@ -29,10 +29,21 @@ export function createCalendarUpdateTool(ports: CalendarPorts) {
 		}),
 		effect: "write_external",
 		effectForArgs: ({ attendees, notifyGuests }) => ((attendees !== undefined && attendees.length > 0) || notifyGuests === true ? "send" : "write_external"),
-		riskFacts: ({ eventId, attendees, notifyGuests, title }) => ({
-			target: `Google Calendar: change ${title ?? "event"} (${eventId})${notifyGuests === true ? ", guests will be emailed" : ""}`,
+		riskFacts: ({ title, location, attendees, notifyGuests }) => ({
+			event: riskEvent("update", { ...(title && { title }), ...(location && { location }), ...(attendees && { attendees }) }, { notifyGuests: notifyGuests === true || (attendees !== undefined && attendees.length > 0) }),
 			...(attendees && attendees.length > 0 && { recipients: attendees, externalRecipients: attendees }),
 		}),
+		// Lê o evento: o cartão mostra como ele ficará e, com aviso, os convidados que realmente recebem o e-mail
+		// (os do evento, quando o pedido só liga `notifyGuests`).
+		async enrichRiskFacts({ eventId, notifyGuests, ...patch }, base, ctx) {
+			const [existing, timeZone] = await Promise.all([ports.calendar.get(ctx.ownerId, eventId, ctx.signal), ports.calendar.timeZone(ctx.ownerId)]);
+			if (!existing) return base;
+			const merged = mergeCalendarEventPatch(existing, patch, timeZone);
+			const after = merged.ok ? merged.value : existing;
+			const notify = notifyGuests === true || (patch.attendees !== undefined && patch.attendees.length > 0);
+			const guests = notify ? after.attendees ?? [] : [];
+			return { ...base, event: riskEvent("update", after, { timeZone, notifyGuests: notify }), ...(guests.length > 0 && { recipients: guests, externalRecipients: guests }) };
+		},
 		async execute({ eventId, notifyGuests, ...patch }, ctx) {
 			const now = ctx.ports.clock.now();
 			const timeZone = await ports.calendar.timeZone(ctx.ownerId);

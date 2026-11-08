@@ -157,6 +157,7 @@ export {
 	type HandoffRequestEvent,
 	type ReceiptEvent,
 } from "./agent-v4-events.js";
+export { approvalEventFact, approvalMessageFact, formatApprovalEventWhen, type ApprovalEventFact, type ApprovalMessageFact } from "./agent-v4-approval-facts.js";
 export { purchaseRequestFromEvent, type PurchaseFacts, type PurchaseRequest } from "./agent-v4-purchase.js";
 export {
 	AGENT_POINTER_NAME_MAX,

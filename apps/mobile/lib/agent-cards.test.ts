@@ -1,6 +1,6 @@
 import type { AgentV4Event, ApprovalRequestEvent } from "@workspace/shared";
 import { describe, expect, it } from "vitest";
-import { addAgentCard, agentCardFromStored, agentCardItem, agentCardPending, approvalDetails, askOwnerAnswerText, askOwnerQuestionnaireItem, asAgentCardEvent, cvvComplete, cvvDigits, describeApproval, formatMoney, handoffSteps, safeReceiptUrl, settleAgentCardsForCall } from "./agent-cards";
+import { addAgentCard, agentCardFromStored, agentCardItem, agentCardPending, approvalDetails, approvalSummaryLines, askOwnerAnswerText, askOwnerQuestionnaireItem, asAgentCardEvent, cvvComplete, cvvDigits, describeApproval, formatMoney, handoffSteps, safeReceiptUrl, settleAgentCardsForCall } from "./agent-cards";
 import type { ChatItem } from "./chat-types";
 
 const approval: ApprovalRequestEvent = { type: "approval_request", requestId: "req-1", callId: "call-1", toolName: "send_email", effect: "send", args: { to: "ana@exemplo.com", subject: "Orçamento de novembro" }, riskFacts: { recipients: ["ana@exemplo.com"], externalRecipients: ["ana@exemplo.com"], irreversible: true }, runId: "run-1" };
@@ -51,6 +51,16 @@ describe("frases", () => {
 	it("detalhes: só valores simples; credencial não mostra nada", () => {
 		expect(approvalDetails(approval)).toEqual(["ana@exemplo.com", "Orçamento de novembro"]);
 		expect(approvalDetails({ ...approval, effect: "credential" })).toEqual([]);
+	});
+	it("aprovação de evento diz qual evento, quando e quem, sem id nem texto interno", () => {
+		const event = { ...approval, toolName: "calendar_delete", effect: "destructive" as const, args: { eventId: "abc123xyz" }, riskFacts: { irreversible: true, event: { action: "delete", title: "Reunião de produto", start: "2026-11-05T17:00:00.000Z", end: "2026-11-05T18:00:00.000Z", timeZone: "America/Sao_Paulo", location: "Sala 2", guests: ["ana@exemplo.com"], notifyGuests: false } } };
+		expect(describeApproval(event)).toBe("Apagar o evento “Reunião de produto”");
+		const lines = approvalSummaryLines(event);
+		expect(lines[0]).toMatch(/14:00/);
+		expect(lines.slice(1)).toEqual(["Local: Sala 2", "Convidados: ana@exemplo.com", "Os convidados não serão avisados."]);
+		expect(approvalDetails(event)).toEqual([]);
+		expect([describeApproval(event), ...lines].join(" ")).not.toMatch(/abc123xyz|Google Calendar|delete event/);
+		expect(describeApproval({ ...event, riskFacts: { event: { action: "delete" } } })).toBe("Apagar um evento da agenda");
 	});
 	it("passo a passo tira a numeração que o texto traz", () => {
 		expect(handoffSteps("1. Abra o app do banco\n2) Aprove o Pix\n- Volte aqui")).toEqual(["Abra o app do banco", "Aprove o Pix", "Volte aqui"]);

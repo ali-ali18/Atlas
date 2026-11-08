@@ -13,6 +13,7 @@ import {
 	applyAgentCardEvents,
 	approvalDetailValues,
 	approvalDetails,
+	approvalSummaryLines,
 	askOwnerAnswerText,
 	askOwnerQuestionnaire,
 	approvalNeedsCardCode,
@@ -54,6 +55,39 @@ test("frase da aprovação sai do efeito e dos fatos, nunca do nome da ferrament
 test("frase da aprovação no idioma da tela", async () => {
 	const en = createTranslator("en-US", await loadMessages("en-US"));
 	assert.equal(describeApproval(approval({ effect: "money", riskFacts: { amount: 10, currency: "USD", merchant: "Shop" } }), en).replace(/\s/g, " "), "Pay $10.00 at Shop");
+});
+
+const eventApproval = (action: "create" | "update" | "delete", over: Record<string, unknown> = {}) =>
+	approval({
+		toolName: "calendar_delete",
+		effect: action === "delete" ? "destructive" : "write_external",
+		args: { eventId: "abc123xyz", title: "Reunião" },
+		riskFacts: { irreversible: action === "delete", event: { action, title: "Reunião de produto", start: "2026-11-05T17:00:00.000Z", end: "2026-11-05T18:00:00.000Z", timeZone: "America/Sao_Paulo", location: "Sala 2", guests: ["ana@exemplo.com"], notifyGuests: false, ...over } },
+	});
+
+test("aprovação de evento diz qual evento, quando e quem, em português, sem id nem texto interno", () => {
+	const delCard = eventApproval("delete");
+	assert.equal(describeApproval(delCard), "Apagar o evento “Reunião de produto”");
+	const lines = approvalSummaryLines(delCard);
+	assert.match(lines[0] ?? "", /14:00/);
+	assert.deepEqual(lines.slice(1), ["Local: Sala 2", "Convidados: ana@exemplo.com", "Os convidados não serão avisados."]);
+	assert.deepEqual(approvalDetails(delCard), []);
+	assert.doesNotMatch([describeApproval(delCard), ...lines].join(" "), /abc123xyz|Google Calendar|delete event|eventId/);
+	assert.equal(describeApproval(eventApproval("update")), "Alterar o evento “Reunião de produto”");
+	assert.equal(describeApproval(eventApproval("create")), "Criar o evento “Reunião de produto”");
+	assert.ok(approvalSummaryLines(eventApproval("update", { notifyGuests: true })).includes("Os convidados vão receber um e-mail."));
+});
+
+test("aprovação de evento sem título lido cai numa frase genérica (nunca no id)", () => {
+	const card = approval({ effect: "destructive", args: { eventId: "abc123xyz" }, riskFacts: { irreversible: true, event: { action: "delete" } } });
+	assert.equal(describeApproval(card), "Apagar um evento da agenda");
+	assert.deepEqual(approvalSummaryLines(card), []);
+});
+
+test("aprovação de evento no idioma da tela", async () => {
+	const en = createTranslator("en-US", await loadMessages("en-US"));
+	assert.equal(describeApproval(eventApproval("delete"), en), "Delete the event “Reunião de produto”");
+	assert.ok(approvalSummaryLines(eventApproval("delete"), en).includes("The guests won't be notified."));
 });
 
 test("pagamento reserva o espaço do código do cartão; outros efeitos não", () => {

@@ -1,7 +1,7 @@
 // Cards do motor v4 no celular (aprovação, compra com CVV, "isso é com você", pergunta do bot, recibo). Parte pura,
 // sem React: monta o item do fio a partir do evento (ao vivo e gravado, mesma chave que o web), diz em frase simples
 // o que vai ser feito e prepara as respostas. O evento já vem validado por `parseAgentV4Event` (shared).
-import { agentCardCallId, agentCardKey, isAgentV4EventType, parseAgentV4Event, type AgentV4Event, type ComputerUseEvent, type QuestionnaireCardItem } from "@workspace/shared";
+import { agentCardCallId, agentCardKey, approvalEventFact, approvalMessageFact, formatApprovalEventWhen, isAgentV4EventType, parseAgentV4Event, type AgentV4Event, type ComputerUseEvent, type QuestionnaireCardItem } from "@workspace/shared";
 import type { ChatItem } from "./chat-types";
 
 export type AgentCardItem = Extract<ChatItem, { kind: "agent-card" }>;
@@ -91,6 +91,13 @@ export function describeApproval(event: ApprovalEvent): string {
 	const merchant = shortText(facts.merchant);
 	const target = shortText(facts.target);
 	const recipients = textList(facts.recipients).slice(0, 5);
+	const calendarEvent = approvalEventFact(facts);
+	if (calendarEvent) {
+		const title = calendarEvent.title;
+		if (calendarEvent.action === "delete") return title ? `Apagar o evento “${title}”` : "Apagar um evento da agenda";
+		if (calendarEvent.action === "update") return title ? `Alterar o evento “${title}”` : "Alterar um evento da agenda";
+		return title ? `Criar o evento “${title}”` : "Criar um evento na agenda";
+	}
 	switch (event.effect) {
 		case "money": {
 			const total = amount !== undefined ? (currency ? formatMoney(amount, currency) : String(amount)) : null;
@@ -119,7 +126,8 @@ export function describeApproval(event: ApprovalEvent): string {
 
 /** Valores simples dos argumentos (sem os nomes dos campos, que são internos). Credencial não mostra nada. */
 export function approvalDetails(event: ApprovalEvent, max = 6): string[] {
-	if (event.effect === "credential") return [];
+	// Evento e e-mail têm linhas próprias (`approvalSummaryLines`): os argumentos crus trariam o id do evento e campos internos.
+	if (event.effect === "credential" || approvalEventFact(event.riskFacts) || approvalMessageFact(event.riskFacts)) return [];
 	const out: string[] = [];
 	const visit = (value: unknown, depth: number) => {
 		if (out.length >= max || depth > 2) return;
@@ -136,6 +144,32 @@ export function approvalDetails(event: ApprovalEvent, max = 6): string[] {
 	};
 	visit(event.args, 0);
 	return out;
+}
+
+/** Linhas do que vai ser feito para eventos de agenda e e-mails: quando, onde, quem, assunto (mesmas do web, em pt-BR). */
+export function approvalSummaryLines(event: ApprovalEvent): string[] {
+	const lines: string[] = [];
+	const calendarEvent = approvalEventFact(event.riskFacts);
+	if (calendarEvent) {
+		const when = formatApprovalEventWhen(calendarEvent, "pt-BR");
+		if (when) lines.push(when);
+		if (calendarEvent.location) lines.push(`Local: ${calendarEvent.location}`);
+		if (calendarEvent.guests.length > 0) {
+			lines.push(`Convidados: ${calendarEvent.guests.slice(0, 5).join(", ")}`);
+			if (calendarEvent.notifyGuests !== undefined) lines.push(calendarEvent.notifyGuests ? "Os convidados vão receber um e-mail." : "Os convidados não serão avisados.");
+		}
+	}
+	const message = approvalMessageFact(event.riskFacts);
+	if (message) {
+		if (message.subject) lines.push(`Assunto: ${message.subject}`);
+		if (message.from) lines.push(message.from === "gmail" ? "Sai do seu Gmail." : "Sai da caixa de e-mail do bot.");
+	}
+	return lines;
+}
+
+/** O corpo inteiro do e-mail a enviar (trecho recolhível do card), ou `null`. */
+export function approvalMessageBody(event: ApprovalEvent): string | null {
+	return approvalMessageFact(event.riskFacts)?.body ?? null;
 }
 
 /** Passo a passo do "isso é com você": uma linha por passo, sem a numeração que o texto já traz. */

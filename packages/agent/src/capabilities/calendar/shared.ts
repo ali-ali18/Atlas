@@ -1,6 +1,23 @@
 // Peças comuns das tools de calendário (F7.1): cartão, linha de evento e o aviso de data errada.
 import { CALENDAR_CARD_EVENTS_MAX, formatCalendarWhen, toCalendarCardEvent, type CalendarEventView } from "@workspace/shared";
 import type { CalendarCardPayload, CalendarPorts } from "../../ports/calendar.js";
+import type { RiskEvent } from "../../tools/types.js";
+
+/** Evento do cartão de aprovação a partir de um evento (ou rascunho) já com instantes ISO. */
+export function riskEvent(action: RiskEvent["action"], event: { title?: string; start?: string; end?: string; allDay?: boolean; location?: string; attendees?: readonly string[] }, extra: { timeZone?: string; notifyGuests?: boolean } = {}): RiskEvent {
+	const guests = event.attendees && event.attendees.length > 0 ? [...event.attendees] : undefined;
+	return {
+		action,
+		...(event.title && { title: event.title }),
+		...(event.start && { start: event.start }),
+		...(event.end && { end: event.end }),
+		...(event.allDay !== undefined && { allDay: event.allDay }),
+		...(extra.timeZone && { timeZone: extra.timeZone }),
+		...(event.location && { location: event.location }),
+		...(guests && { guests }),
+		...(extra.notifyGuests !== undefined && { notifyGuests: extra.notifyGuests }),
+	};
+}
 
 /** "2026-11-10 14:00–15:00 | Reunião @ Sala 2 | 3 guests | id abc". Só título e local: a descrição só vem em `calendar_get`. */
 export function describeEvent(event: CalendarEventView, timeZone: string): string {

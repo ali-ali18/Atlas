@@ -243,6 +243,50 @@ describe("calendar_delete", () => {
 	});
 });
 
+describe("cartão de aprovação: qual evento", () => {
+	const enriched = (tool: ReturnType<typeof rig>["tool"], name: string, args: Record<string, unknown>) => tool(name).enrichedRiskFactsFor(args, { ownerId: "o1" });
+
+	it("apagar: o pedido leva título, horário, fuso e convidados do evento (lido antes de pedir)", async () => {
+		const { fake, tool } = rig();
+		const seeded = fake.seed("o1", { ...MEETING, attendees: ["ana@example.com"] });
+		const facts = await enriched(tool, "calendar_delete", { eventId: seeded.id });
+		expect(facts).toMatchObject({ irreversible: true, event: { action: "delete", title: "Reunião de produto", start: MEETING.start, end: MEETING.end, timeZone: "America/Sao_Paulo", location: "Sala 2", guests: ["ana@example.com"], notifyGuests: false } });
+		expect(JSON.stringify(facts)).not.toContain("Google Calendar:");
+	});
+	it("apagar evento de outro dono ou que não existe: o cartão sai sem o evento (nada vaza) e sem erro", async () => {
+		const { fake, tool } = rig();
+		const alice = fake.seed("alice", MEETING);
+		expect((await enriched(tool, "calendar_delete", { eventId: alice.id }))?.event).toEqual({ action: "delete" });
+	});
+	it("alterar: mostra o evento como ficará; com notifyGuests os destinatários são os convidados do evento", async () => {
+		const { fake, tool } = rig();
+		const seeded = fake.seed("o1", { ...MEETING, attendees: ["ana@example.com", "bia@example.com"] });
+		const facts = await enriched(tool, "calendar_update", { eventId: seeded.id, title: "Reunião adiada", notifyGuests: true });
+		expect(facts).toMatchObject({ event: { action: "update", title: "Reunião adiada", notifyGuests: true, guests: ["ana@example.com", "bia@example.com"] }, recipients: ["ana@example.com", "bia@example.com"], externalRecipients: ["ana@example.com", "bia@example.com"] });
+		const silent = await enriched(tool, "calendar_update", { eventId: seeded.id, title: "Só renomear" });
+		expect(silent?.recipients).toBeUndefined();
+		expect(silent?.event?.notifyGuests).toBe(false);
+	});
+	it("criar: o horário do pedido vira instante no fuso do dono", async () => {
+		const { tool } = rig();
+		const facts = await enriched(tool, "calendar_create", { title: "Almoço", start: "2026-11-06T12:00", attendees: ["ana@example.com"] });
+		expect(facts).toMatchObject({ event: { action: "create", title: "Almoço", start: "2026-11-06T15:00:00.000Z", end: "2026-11-06T16:00:00.000Z", timeZone: "America/Sao_Paulo", guests: ["ana@example.com"], notifyGuests: true }, recipients: ["ana@example.com"] });
+	});
+	it("falha ao ler a agenda não impede o cartão: sai com o fato síncrono", async () => {
+		const { fake, tool } = rig();
+		fake.ports.calendar.get = async () => {
+			throw new Error("down");
+		};
+		expect(await enriched(tool, "calendar_delete", { eventId: "e1" })).toEqual({ irreversible: true, event: { action: "delete" } });
+	});
+	it("o executor pede a aprovação com o evento dentro do pedido", async () => {
+		const { fake, tool } = rig();
+		const seeded = fake.seed("owner-1", MEETING);
+		const out = await setup(chatPolicy).executor.executeCall({ callId: "c1", step: 1, tool: tool("calendar_delete"), args: { eventId: seeded.id } });
+		expect(out).toMatchObject({ status: "pending_approval", request: { riskFacts: { event: { action: "delete", title: "Reunião de produto" } } } });
+	});
+});
+
 describe("política: quem decide o quê", () => {
 	const pol = (autonomy: "always_ask" | "balanced" | "autonomous") => ({ ...chatPolicy, autonomy });
 	const args = { title: "Almoço", start: "2026-11-06T12:00" };

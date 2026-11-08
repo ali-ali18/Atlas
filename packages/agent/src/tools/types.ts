@@ -18,8 +18,9 @@ export type ToolContext = {
 };
 
 /**
- * Fatos de risco que o cartão de aprovação mostra (cláusula 3). Só metadados tipados tirados dos
- * argumentos pela própria tool, nunca texto do modelo nem corpo de e-mail/página (cláusula 7).
+ * Fatos de risco que o cartão de aprovação mostra (cláusula 3). Só dados tipados tirados dos argumentos
+ * (ou lidos pela própria tool), nunca texto livre do modelo como instrução. O texto que o dono vê é montado
+ * no front, no idioma dele, a partir destes campos; por isso `event` e `message` são estruturados.
  */
 export type RiskFacts = {
 	amount?: number;
@@ -41,6 +42,36 @@ export type RiskFacts = {
 	discount?: number;
 	/** Cartão que paga, só bandeira e final ("Visa final 1111"). Nunca o número. */
 	card?: string;
+	/** Evento de agenda a que o pedido se refere (criar, alterar, apagar). */
+	event?: RiskEvent;
+	/** E-mail que vai sair (o dono lê o que será enviado, não só para quem). */
+	message?: RiskMessage;
+};
+
+/** Evento do cartão de aprovação. `start`/`end` são instantes ISO (ou datas, se `allDay`) para o front formatar no fuso `timeZone`. */
+export type RiskEvent = {
+	action: "create" | "update" | "delete";
+	/** Ausente quando a tool ainda não leu o evento (apagar/alterar sem conseguir buscá-lo). */
+	title?: string;
+	start?: string;
+	end?: string;
+	allDay?: boolean;
+	timeZone?: string;
+	location?: string;
+	/** Convidados que o evento passa a ter (criar/alterar) ou tem (apagar). */
+	guests?: readonly string[];
+	/** Os convidados recebem e-mail por causa deste pedido. */
+	notifyGuests?: boolean;
+};
+
+/** E-mail do cartão de aprovação: o corpo inteiro, para o dono ler antes de aprovar. */
+export type RiskMessage = {
+	subject?: string;
+	body: string;
+	/** De onde sai: `gmail` (conta do dono) ou `bot` (caixa do bot). */
+	from?: "gmail" | "bot";
+	/** É resposta a uma conversa. */
+	reply?: boolean;
 };
 
 /** Recibo mínimo de uma tool de efeito. A F1.6 o torna o `Receipt` do journal. */

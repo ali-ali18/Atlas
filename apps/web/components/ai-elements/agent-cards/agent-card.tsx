@@ -17,6 +17,7 @@ import {
 	askOwnerAnswerText,
 	askOwnerQuestionnaire,
 	approvalDetails,
+	approvalSummaryLines,
 	approvalFacts,
 	approvalNeedsCardCode,
 	describeApproval,
@@ -119,6 +120,7 @@ function ApprovalCard({ card, respond, settled, initialDecision }: InteractivePr
 	const resolved = Boolean(decision || settled);
 	const facts = approvalFacts(card);
 	const details = approvalDetails(card);
+	const summary = approvalSummaryLines(card, translator);
 	const payment = approvalNeedsCardCode(card);
 	const base = { kind: "approval" as const, requestId: card.requestId, callId: card.callId };
 	return (
@@ -147,6 +149,15 @@ function ApprovalCard({ card, respond, settled, initialDecision }: InteractivePr
 				<ul className="m-0 flex list-none flex-col gap-1 p-0 text-sm text-warning">
 					{facts.externalRecipients.length > 0 ? <li>{t("agentCards.approval.external", { recipients: formatList(facts.externalRecipients.slice(0, 5), locale) })}</li> : null}
 					{facts.irreversible ? <li>{t("agentCards.approval.irreversible")}</li> : null}
+				</ul>
+			) : null}
+			{summary.length > 0 ? (
+				<ul className="m-0 flex list-none flex-col gap-1 p-0 text-sm text-muted-foreground" data-slot="agent-approval-summary">
+					{summary.map((line, index) => (
+						<li className="[overflow-wrap:anywhere]" key={`${index}-${line}`}>
+							{line}
+						</li>
+					))}
 				</ul>
 			) : null}
 			{details.length > 0 ? (

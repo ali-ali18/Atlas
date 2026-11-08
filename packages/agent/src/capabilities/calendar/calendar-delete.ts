@@ -4,6 +4,7 @@ import { formatCalendarWhen } from "@workspace/shared";
 import { z } from "zod";
 import type { CalendarPorts } from "../../ports/calendar.js";
 import { defineTool } from "../../tools/define-tool.js";
+import { riskEvent } from "./shared.js";
 
 export function createCalendarDeleteTool(ports: CalendarPorts) {
 	return defineTool({
@@ -14,7 +15,12 @@ export function createCalendarDeleteTool(ports: CalendarPorts) {
 		inputSchema: z.object({ eventId: z.string().trim().min(1).max(300) }),
 		effect: "destructive",
 		confirm: "always",
-		riskFacts: ({ eventId }) => ({ target: `Google Calendar: delete event ${eventId}`, irreversible: true }),
+		// O cartão diz QUAL evento: a leitura completa título, horário e convidados (o texto do cartão é do front, no idioma do dono).
+		riskFacts: () => ({ irreversible: true, event: riskEvent("delete", {}) }),
+		async enrichRiskFacts({ eventId }, base, ctx) {
+			const [existing, timeZone] = await Promise.all([ports.calendar.get(ctx.ownerId, eventId, ctx.signal), ports.calendar.timeZone(ctx.ownerId)]);
+			return existing ? { ...base, event: riskEvent("delete", existing, { timeZone, notifyGuests: false }) } : base;
+		},
 		async execute({ eventId }, ctx) {
 			const [existing, timeZone] = await Promise.all([ports.calendar.get(ctx.ownerId, eventId, ctx.signal), ports.calendar.timeZone(ctx.ownerId)]);
 			if (!existing) return { ok: false, error: `No event "${eventId}" on the owner's calendar.`, hint: "Call calendar_list for the ids." };

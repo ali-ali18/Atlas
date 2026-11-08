@@ -18,6 +18,11 @@ export type ToolDefinition<S extends z.ZodObject> = {
 	effectForArgs?: (args: z.output<S>) => Effect;
 	/** Fatos tipados para o cartão de aprovação, tirados dos argumentos. */
 	riskFacts?: (args: z.output<S>) => RiskFacts;
+	/**
+	 * Completa os fatos com uma leitura (ex.: o evento que será apagado). Roda só quando o cartão de aprovação vai ser
+	 * pedido, com o fato síncrono já pronto; se falhar, o cartão sai com o fato síncrono (melhor esforço, nunca bloqueia).
+	 */
+	enrichRiskFacts?: (args: z.output<S>, base: RiskFacts, ctx: { ownerId: string; signal?: AbortSignal }) => Promise<RiskFacts>;
 	/** Ação da lista fixa de handoff (trocar senha, aceitar termos…), decidida pela tool a partir dos args tipados. */
 	handoffKind?: (args: z.output<S>) => HandoffKind | undefined;
 	/** O resultado vem de fora (e-mail, web, arquivo, MCP de terceiro, outro bot)? Então é dado, nunca instrução, e vira taint do run. Padrão: confiável. */
@@ -69,6 +74,8 @@ export interface Tool {
 	/** Classe de efeito desta chamada (a base, ou a de `effectForArgs`). Args inválidos usam a base. */
 	effectFor(rawArgs: unknown): Effect;
 	riskFactsFor(rawArgs: unknown): RiskFacts | undefined;
+	/** Fatos do cartão já completos pela leitura da tool (ver `ToolDefinition.enrichRiskFacts`). Nunca lança. */
+	enrichedRiskFactsFor(rawArgs: unknown, ctx: { ownerId: string; signal?: AbortSignal }): Promise<RiskFacts | undefined>;
 	handoffKindFor(rawArgs: unknown): HandoffKind | undefined;
 	/** Valida os args, executa e devolve sempre um `ToolResult` honesto; nunca lança. */
 	run(rawArgs: unknown, ctx: ToolContext): Promise<ToolResult>;
@@ -151,6 +158,17 @@ export function defineTool<S extends z.ZodObject>(def: ToolDefinition<S>): Tool 
 			if (!def.riskFacts) return undefined;
 			const checked = validateArgs(def.name, schema, acceptedFields, rawArgs);
 			return checked.ok ? def.riskFacts(checked.args) : undefined;
+		},
+		async enrichedRiskFactsFor(rawArgs, ctx) {
+			const base = tool.riskFactsFor(rawArgs);
+			if (!def.enrichRiskFacts || !base) return base;
+			const checked = validateArgs(def.name, schema, acceptedFields, rawArgs);
+			if (!checked.ok) return base;
+			try {
+				return { ...base, ...(await def.enrichRiskFacts(checked.args, base, ctx)) };
+			} catch {
+				return base;
+			}
 		},
 		handoffKindFor(rawArgs) {
 			if (!def.handoffKind) return undefined;
