@@ -1,0 +1,123 @@
+{
+  "version": 1,
+  "id": "seed-calendario-criar-evento-com-conflito",
+  "title": "'Marca almoço dia 06/11 às 12h30' → cria no Google Agenda, a tool informa a sobreposição e o bot avisa em palavras simples",
+  "description": "F7.1 (só v4): calendar_create cria o evento no fuso do dono (12h30 em São Paulo), compara por HORÁRIO com os eventos que já existem (fixture calendar_events) e devolve 'OVERLAPS' com o evento que bate. O bot conta o conflito sem nome de tool ou id e oferece mover. Sem convidado, nenhum convite é enviado.",
+  "tags": [
+    "calendario",
+    "conflito",
+    "v4-only"
+  ],
+  "source": {
+    "kind": "seed",
+    "note": "F7.1: capacidade calendar (Google Agenda do dono)."
+  },
+  "bot": {
+    "name": "Ada",
+    "about": "Assistente pessoal do dono: e-mail, compras, estudos e agenda.",
+    "language": "pt-BR"
+  },
+  "locale": {
+    "country": "BR",
+    "currency": "BRL",
+    "timezone": "America/Sao_Paulo"
+  },
+  "history": [],
+  "user": "marca um almoço com a Ana amanhã, dia 06/11, às 12h30, por uma hora",
+  "tools": {
+    "fixtures": [
+      {
+        "tool": "calendar_events",
+        "result": {
+          "ok": true,
+          "summary": "[{\"title\": \"Reunião de produto\", \"start\": \"2026-11-06T15:00:00.000Z\", \"end\": \"2026-11-06T16:00:00.000Z\", \"location\": \"Sala 2\"}]"
+        }
+      }
+    ],
+    "connectors": [],
+    "allowReal": []
+  },
+  "run": {
+    "maxSteps": 8,
+    "origin": "chat",
+    "engine": "v4",
+    "autonomy": "autonomous"
+  },
+  "expect": [
+    {
+      "type": "completed"
+    },
+    {
+      "id": "criou-no-horario-pedido",
+      "type": "tool_called",
+      "tool": "calendar_create",
+      "args": {
+        "start": {
+          "equals": "2026-11-06T12:30"
+        },
+        "durationMinutes": {
+          "equals": 60
+        }
+      }
+    },
+    {
+      "id": "tool-informou-a-sobreposicao",
+      "type": "tool_result",
+      "tool": "calendar_create",
+      "pattern": "OVERLAPS 1 event[\\s\\S]*12:00–13:00[\\s\\S]*Reunião de produto"
+    },
+    {
+      "id": "sem-convite",
+      "type": "tool_not_called",
+      "tool": "calendar_create",
+      "args": {
+        "attendees": {
+          "contains": "@"
+        }
+      }
+    },
+    {
+      "id": "bot-conta-o-conflito",
+      "type": "text_contains",
+      "pattern": "Reuni[ãa]o de produto",
+      "ignoreCase": true
+    },
+    {
+      "id": "oferece-mover",
+      "type": "asks_question",
+      "max": 2
+    },
+    {
+      "type": "no_internals"
+    }
+  ],
+  "mock": {
+    "turns": [
+      {
+        "calls": [
+          {
+            "name": "use_capability",
+            "args": {
+              "id": "calendar"
+            }
+          }
+        ]
+      },
+      {
+        "calls": [
+          {
+            "name": "calendar_create",
+            "args": {
+              "title": "Almoço com a Ana",
+              "start": "2026-11-06T12:30",
+              "durationMinutes": 60
+            }
+          }
+        ]
+      },
+      {
+        "say": "Marquei o almoço com a Ana amanhã às 12h30, mas ele bate com a Reunião de produto, que vai das 12h às 13h. Quer que eu mude o horário de um dos dois?"
+      }
+    ]
+  }
+}

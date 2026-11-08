@@ -15,6 +15,7 @@ import {
 	chooseRunEngine,
 	isEngineV4Enabled,
 	readEnginePolicy,
+	readHelperPolicy,
 	type AgendaEvent,
 	type EngineDefault,
 	type EngineV4Gate,
@@ -168,7 +169,10 @@ export async function dispatchAgendaItem(item: AgendaItemRecord, deps: AgendaWak
 		// O run anterior ainda vive (rodando ou parado num cartão): não empilha outro.
 		if (runAlive) return await defer("run_in_flight", IN_FLIGHT_RETRY_MS);
 		if (((await (deps.activeRuns ?? listActiveRunsForConversation)(bot.conversationId))).length > 0) return await defer("bot_busy", BUSY_RETRY_MS);
-		const model = await (deps.resolveModel ?? resolveProactiveModel)(item.botId, item.userId, deps.envDefaultModel);
+		// Plano do dia: gasta o modelo de ajudante que o dono configurou no bot (`helperModel`, "forte coordena, barato trabalha"),
+		// pois só lê fontes e escreve um cartão. Sem ele, o modelo de sempre do bot (papel de chat).
+		const helperModel = item.kind === "brief" ? readHelperPolicy(bot.policyJson).helperModel : null;
+		const model = helperModel ?? (await (deps.resolveModel ?? resolveProactiveModel)(item.botId, item.userId, deps.envDefaultModel));
 		const objective = agendaObjective(item, event);
 		const run = await (deps.createRun ?? createAgentRun)({
 			userId: item.userId,

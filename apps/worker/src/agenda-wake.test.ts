@@ -276,3 +276,17 @@ test("B3: só o objetivo de wake escrito por este arquivo conta como run de agen
 	assert.equal(isAgendaWakeObjective("Follow-up: ver o preço"), false);
 	assert.equal(isAgendaWakeObjective(null), false);
 });
+
+test("plano do dia (F7.2): roda com o modelo de ajudante do bot (helperModel) quando existe; os outros tipos seguem o modelo do bot", async () => {
+	const models: string[] = [];
+	const create = (async (input: { model: string; request: { objective?: string; origin?: string } }) => (models.push(input.model), { id: "run-1", origin: input.request.origin, objective: input.request.objective })) as unknown as AgendaWakeDeps["createRun"];
+	const withHelper = harness({ createRun: create, loadBot: async () => ({ id: "bot-1", conversationId: "conv-1", policyJson: { helperModel: "anthropic/claude-haiku-5.5" } }) });
+	await dispatchAgendaItem(item({ kind: "brief", intervalMinutes: 1440 }), withHelper.deps, fresh());
+	await dispatchAgendaItem(item({ kind: "watch" }), withHelper.deps, fresh());
+	assert.deepEqual(models, ["anthropic/claude-haiku-5.5", "test/model"]);
+	// Sem helperModel (ou com valor inválido), o brief usa o modelo do bot.
+	models.length = 0;
+	const without = harness({ createRun: create, loadBot: async () => ({ id: "bot-1", conversationId: "conv-1", policyJson: { helperModel: "modelo com espaço!" } }) });
+	await dispatchAgendaItem(item({ kind: "brief", intervalMinutes: 1440 }), without.deps, fresh());
+	assert.deepEqual(models, ["test/model"]);
+});

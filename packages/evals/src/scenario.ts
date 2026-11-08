@@ -173,6 +173,10 @@ export const scenarioSchema = z
 				proactive: z.boolean().optional(),
 				/** Run com VM disponível: oferece navegador, `login_fill` e sessão de código (a execução é sempre por fixture, nunca há VM). */
 				sandbox: z.boolean().optional(),
+				/** Autonomia do dono no motor v4 (padrão `balanced`): `autonomous` deixa o cenário executar uma escrita externa sem cartão. */
+				autonomy: z.enum(["always_ask", "balanced", "autonomous"]).optional(),
+				/** Motor v4: o run é o do PLANO DO DIA (brief da agenda): sem dono, só `agenda_result`, `brief_sources` e `day_plan`. */
+				agendaBrief: z.boolean().optional(),
 			})
 			.strict()
 			.default({ maxSteps: 8, origin: "chat", briefReadOnly: false, engine: "v1" }),

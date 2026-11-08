@@ -1263,7 +1263,7 @@ async function executeLeasedRun(ctx: {
 					// Run de agenda: o que o modelo lê ao acordar, a política sem dono (permissão da criação) e `agenda_result` no núcleo.
 					// As regras atuais do dono (`policyJson.rules`) entram por último sobre as da criação: uma `deny` nova vale no próximo wake.
 					...(agendaRun
-						? { history: agendaRun.history, policy: { ...agendaRun.policy, rules: [...agendaRun.policy.rules, ...toPolicyRules(rawBotPolicy)] }, agendaRun: true }
+						? { history: agendaRun.history, policy: { ...agendaRun.policy, rules: [...agendaRun.policy.rules, ...toPolicyRules(rawBotPolicy)] }, agendaRun: true, agendaKind: agendaRun.item.kind }
 						: { rules: toPolicyRules(rawBotPolicy), ...(prepared.history ? { history: prepared.history } : {}) }),
 					...(prepared.cardResponses ? { cardResponses: prepared.cardResponses } : {}),
 					// Run de agenda nasce contaminado se a nota, o memo ou o evento vieram de conteúdo não confiável (S1).

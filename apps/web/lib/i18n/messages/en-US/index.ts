@@ -40,6 +40,7 @@ import { settingsSkills } from "./settingsSkills";
 import { settingsVault } from "./settingsVault";
 import { share } from "./share";
 import { emailCards } from "./email-cards";
+import { calendar } from "./calendar";
 import { shopping } from "./shopping";
 import { sharedLabels } from "./sharedLabels";
 import { sidebar } from "./sidebar";
@@ -87,6 +88,7 @@ export const enUS: MessageDictionary = {
 	...settingsVault,
 	...share,
 	...emailCards,
+	...calendar,
 	...shopping,
 	...sharedLabels,
 	...sidebar,

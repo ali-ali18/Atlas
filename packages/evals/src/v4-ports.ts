@@ -1,5 +1,6 @@
-import { FakeEmail, FakeShopping, productPageHtml, type Search, type SearchExtract, type SearchHit } from "@workspace/agent";
-import { parseMoneyNumber } from "@workspace/shared";
+import { FakeCalendar, FakeEmail, FakeShopping, productPageHtml, type BriefEmailItem, type BriefEmailSource, type Search, type SearchExtract, type SearchHit } from "@workspace/agent";
+import { parseMoneyNumber, type CalendarEventView } from "@workspace/shared";
+import { EVAL_USER_ID } from "./environment.js";
 import { argsMatch } from "./predicates.js";
 import type { NativeFixture, Scenario } from "./scenario.js";
 
@@ -104,4 +105,26 @@ export function createFixtureEmail(fixtures: readonly NativeFixture[], ownerId: 
 		for (const message of list) email.add({ userId: ownerId, ...message });
 	}
 	return email;
+}
+
+/**
+ * Google Agenda no eval do v4: os eventos vêm do fixture `calendar_events` (o `summary` é um JSON com a lista de
+ * `CalendarEventView`), no nome do dono do eval. A porta é a `FakeCalendar` do pacote (mesmas regras de conflito e de dono).
+ */
+export function createFixtureCalendar(fixtures: readonly NativeFixture[], timeZone?: string): FakeCalendar {
+	const calendar = new FakeCalendar();
+	if (timeZone) calendar.timeZoneValue = timeZone;
+	for (const fixture of fixtures) {
+		if (fixture.tool !== "calendar_events" || !fixture.result.ok) continue;
+		for (const event of JSON.parse(fixture.result.summary) as Array<Partial<CalendarEventView> & Pick<CalendarEventView, "title" | "start" | "end">>) calendar.seed(EVAL_USER_ID, event);
+	}
+	return calendar;
+}
+
+/** E-mail do plano do dia no eval: o fixture `email_recent` traz a lista de `BriefEmailItem` já classificada pela caixa. */
+export function createFixtureBriefEmail(fixtures: readonly NativeFixture[]): BriefEmailSource | undefined {
+	const fixture = fixtures.find((f) => f.tool === "email_recent" && f.result.ok);
+	if (!fixture || !fixture.result.ok) return undefined;
+	const items = JSON.parse(fixture.result.summary) as BriefEmailItem[];
+	return { listRecent: async (userId, options) => (userId === EVAL_USER_ID ? items.slice(0, options.limit) : []) };
 }

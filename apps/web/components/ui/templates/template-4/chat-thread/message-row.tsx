@@ -48,6 +48,7 @@ import { LazyChart } from "@/components/ai-elements/chart/lazy-chart";
 import { CodeRunCard } from "./code-run-card";
 import { TaskListCard } from "./task-list-card";
 import { EmailDraftCard, EmailTriageCard } from "@/components/ai-elements/email";
+import { CalendarCard, DayPlanCard } from "@/components/ai-elements/calendar";
 import { ProductCard, PurchaseCard } from "@/components/ai-elements/shopping";
 import { PageCard } from "@/components/ai-elements/pages";
 import { PlanCard, type PlanCardStatus } from "@workspace/ui/components/plan-card";
@@ -278,6 +279,10 @@ export const MessageRow = memo(function MessageRow({
 			return <EmailTriageCard items={message.items} />;
 		case "email-draft":
 			return <EmailDraftCard body={message.body} cc={message.cc} reply={message.reply} saved={message.saved} source={message.source} subject={message.subject} to={message.to} />;
+		case "calendar":
+			return <CalendarCard action={message.action} events={message.events} more={message.more} notified={message.notified} timeZone={message.timeZone} />;
+		case "day-plan":
+			return <DayPlanCard date={message.date} headline={message.headline} sections={message.sections} sourceErrors={message.sourceErrors} timeZone={message.timeZone} />;
 		case "page":
 			return <PageCard botName={botName} card={message} />;
 		case "task-list":

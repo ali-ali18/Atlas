@@ -2,6 +2,8 @@ import { parseChartSpec, type ChartSpec } from "./chart-spec.js";
 import { parseProductCard, type PersistedProductCard } from "./product.js";
 import { parsePurchaseCard, type PersistedPurchaseCard } from "./purchase.js";
 import { parseEmailDraftCard, parseEmailTriageCard, type PersistedEmailDraftCard, type PersistedEmailTriageCard } from "./email-triage.js";
+import { parseCalendarCard, type PersistedCalendarCard } from "./calendar.js";
+import { parseDayPlanCard, type PersistedDayPlanCard } from "./day-plan.js";
 import { parsePageSpec, type PageSpec } from "./page-spec.js";
 import { parseDevApprovalInfo, type DevApprovalCardInfo } from "./dev-command-approval.js";
 import { parseEmailKeyRequestInfo, type EmailKeyRequestInfo } from "./email.js";
@@ -45,6 +47,8 @@ export type ConversationCardRole =
 	| "purchase"
 	| "email-triage"
 	| "email-draft"
+	| "calendar"
+	| "day-plan"
 	| "page"
 	| "task-list"
 	| "compaction"
@@ -346,6 +350,8 @@ export type PersistedConversationCard =
 	| PersistedPurchaseCard
 	| PersistedEmailTriageCard
 	| PersistedEmailDraftCard
+	| PersistedCalendarCard
+	| PersistedDayPlanCard
 	| PersistedPageCard
 	| PersistedTaskListCard
 	| PersistedSkillCard
@@ -394,6 +400,8 @@ export function isConversationCardRole(role: string): role is ConversationCardRo
 		role === "purchase" ||
 		role === "email-triage" ||
 		role === "email-draft" ||
+		role === "calendar" ||
+		role === "day-plan" ||
 		role === "task-list" ||
 		role === "compaction" ||
 		role === "revised-draft"
@@ -737,6 +745,8 @@ export function parseConversationCard(content: string): PersistedConversationCar
 	if (row.kind === "purchase") return parsePurchaseCard(row);
 	if (row.kind === "email-triage") return parseEmailTriageCard(row);
 	if (row.kind === "email-draft") return parseEmailDraftCard(row);
+	if (row.kind === "calendar") return parseCalendarCard(row);
+	if (row.kind === "day-plan") return parseDayPlanCard(row);
 	if (row.kind === "chart") {
 		const chartId = asOptionalString(row.chartId);
 		const parsed = parseChartSpec(row.spec);
@@ -926,6 +936,8 @@ export function insertCardAfterCurrentTurn<T extends { kind: string }>(
 			messages[insertAt]?.kind === "purchase" ||
 			messages[insertAt]?.kind === "email-triage" ||
 			messages[insertAt]?.kind === "email-draft" ||
+			messages[insertAt]?.kind === "calendar" ||
+			messages[insertAt]?.kind === "day-plan" ||
 			messages[insertAt]?.kind === "page" ||
 			messages[insertAt]?.kind === "task-list" ||
 			messages[insertAt]?.kind === "compaction" ||

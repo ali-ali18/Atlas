@@ -7,7 +7,7 @@ import { agentCardKey, LIVE_AGENT_CARD_PREFIX } from "@/lib/agent-cards";
 
 /** Cartão ao vivo que, quando o servidor já gravou o equivalente, vale o gravado. */
 function isDedupedLiveCard(message: Message): boolean {
-	return message.kind === "images" || message.kind === "provider-fallback" || message.kind === "code-run" || message.kind === "chart" || message.kind === "product" || message.kind === "purchase" || message.kind === "email-triage" || message.kind === "email-draft" || message.kind === "agent-card" || message.kind === "task-list" || message.kind === "compaction" || (message.kind === "routine" && message.action === "created" && !!message.routineId);
+	return message.kind === "images" || message.kind === "provider-fallback" || message.kind === "code-run" || message.kind === "chart" || message.kind === "product" || message.kind === "purchase" || message.kind === "email-triage" || message.kind === "email-draft" || message.kind === "calendar" || message.kind === "day-plan" || message.kind === "agent-card" || message.kind === "task-list" || message.kind === "compaction" || (message.kind === "routine" && message.action === "created" && !!message.routineId);
 }
 
 function cardDedupeKey(message: Message): string | null {
@@ -50,6 +50,9 @@ function cardDedupeKey(message: Message): string | null {
 	// E-mail (F7.1): triagem e rascunho têm `cardId` estável entre o ao vivo e o gravado.
 	if (message.kind === "email-triage") return `email-triage|${message.cardId}`;
 	if (message.kind === "email-draft") return `email-draft|${message.cardId}`;
+	// Calendário e plano do dia: a identidade é o cardId / planId.
+	if (message.kind === "calendar") return `calendar|${message.cardId}`;
+	if (message.kind === "day-plan") return `day-plan|${message.planId}`;
 	// Uma página, um cartão: o colapso por pageId (collapsePageCards) escolhe a revisão; a chave só evita vizinhos iguais.
 	if (message.kind === "page") return `page|${message.pageId}|${message.revision}`;
 	// Um cartão por run: o ao vivo (id do run) e o gravado (id do banco) colapsam.
@@ -431,6 +434,8 @@ export function reconcilePersistedThread(persistedRows: Message[], live: Message
 		message.kind !== "purchase" &&
 		message.kind !== "email-triage" &&
 		message.kind !== "email-draft" &&
+		message.kind !== "calendar" &&
+		message.kind !== "day-plan" &&
 		message.kind !== "page" &&
 		message.kind !== "task-list" &&
 		message.kind !== "compaction" &&

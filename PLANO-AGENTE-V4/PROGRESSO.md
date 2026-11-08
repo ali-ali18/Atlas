@@ -132,9 +132,10 @@
 - [x] F6.A Auditoria (08/11: duas leituras, 19 achados corrigidos com teste; reauditoria com 11 achados novos, 10 corrigidos e 1 adiado para a tela do mandato; aceitos registrados em `auditorias/F6.md`. Pendências da F6 fora deste PR: tela e tool de chat do mandato, cards `product`/`purchase` no app mobile, `card_fill` real na F8.0)
 
 ### F7: E-mail e dia
-- [ ] F7.1 `email` e `calendar` (corpo, classificação por campo, prazos, rascunhos, envio com cartão).
-  - [x] F7.1 e-mail (08/11, frente E: `email_list`, `email_read`, `email_triage`, `email_draft` e `email_send` nativos para o Gmail do dono e a caixa do bot; escopo `gmail.send`; cards de triagem e rascunho; intenção "quando chegar o e-mail" pelo webhook da caixa do bot; 2 cenários seed v4; `docs/features/email-v4.md`). Falta o calendário (frente K) e a ingestão do Gmail para o gatilho.
-- [ ] F7.2 `brief` na agenda (plano do dia).
+- [x] F7.1 `email` e `calendar` (corpo, classificação por campo, prazos, rascunhos, envio com cartão).
+  - [x] F7.1 e-mail (08/11, frente E: `email_list`, `email_read`, `email_triage`, `email_draft` e `email_send` nativos para o Gmail do dono e a caixa do bot; escopo `gmail.send`; cards de triagem e rascunho; intenção "quando chegar o e-mail" pelo webhook da caixa do bot; 2 cenários seed v4; `docs/features/email-v4.md`). Falta a ingestão do Gmail para o gatilho.
+  - [x] F7.1 calendário (08/11, frente K): capacidade lazy `calendar` (5 tools, Google Agenda do dono pelo cofre do conector), conflito por horário, convite como `send`, só leitura no run de agenda, cartão `calendar` em 3 idiomas.
+- [x] F7.2 `brief` na agenda (plano do dia) (08/11, frente K: `brief_set` um por bot no horário exato, run com `brief_sources` e `day_plan`, cartão `day-plan`, fontes por portas com e-mail opcional, modelo de ajudante do bot). A porta de e-mail do brief (`ports/brief.ts`, `listRecent`) é ligada à porta real de e-mail no worker na integração.
 - [ ] F7.A Auditoria: 5 lentes, verificação, correções com teste, reauditoria e `auditorias/F7.md` fechado.
 
 ### F8: Navegador e código

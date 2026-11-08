@@ -6,7 +6,8 @@ import type { Helpers, HelperResult, HelperTask } from "../ports/helpers.js";
 import type { FileStore, StoredFile } from "../ports/file-store.js";
 import type { Memory, MemoryAddInput, MemoryItem, MemoryLayer } from "../ports/memory.js";
 import type { Notebook, NotebookAddInput, NotebookNote, NotebookPatch } from "../ports/notebook.js";
-import { findDuplicateNote, purchaseDedupeKey, purchaseMergePatch, rankNotes, type PurchaseView } from "@workspace/shared";
+import { findDuplicateNote, purchaseDedupeKey, purchaseMergePatch, rankNotes, type CalendarEventView, type PurchaseView } from "@workspace/shared";
+import type { CalendarCardPayload, CalendarPorts } from "../ports/calendar.js";
 import type { ProductCardPayload, ShoppingPorts } from "../ports/shopping.js";
 import type { Search, SearchExtract, SearchHit } from "../ports/search.js";
 import type { BotSettingsPatch, BotSettingsView, Settings } from "../ports/settings.js";
@@ -249,6 +250,12 @@ export class FakeAgenda implements Agenda {
 	}
 	async create(userId: string, plan: AgendaPlan, context?: { sourceRunId: string; untrustedRead?: boolean; exactIdentity?: boolean }): Promise<AgendaCreateResult> {
 		const active = [...this.items.values()].filter((i) => i.userId === userId && (i.status === "pending" || i.status === "paused"));
+		// Plano do dia: um por dono (o db: um por bot); criar de novo ATUALIZA o existente.
+		const brief = plan.kind === "brief" ? active.find((i) => i.kind === "brief") : undefined;
+		if (brief) {
+			Object.assign(brief, { note: plan.note, nextRunAt: plan.dueAt.toISOString(), everyMinutes: plan.intervalMinutes, untilAt: plan.untilAt?.toISOString() ?? null, maxRuns: plan.maxRuns, status: "pending" as const, endReason: null, noteUntrusted: context?.untrustedRead === true });
+			return { ok: true, item: this.view(brief), duplicate: false, updated: true };
+		}
 		const found = context?.exactIdentity ? undefined : findDuplicateAgendaItem(active.map((i) => ({ ...i, dueAt: new Date(i.nextRunAt), intervalMinutes: i.everyMinutes })), plan);
 		const same = found ? this.items.get(found.id) : undefined;
 		if (same) return { ok: true, item: this.view(same), duplicate: true };
@@ -390,4 +397,104 @@ export class FakeShopping {
 		void _d;
 		return view;
 	}
+}
+
+/**
+ * Agenda do Google falsa em memória (F7.1): eventos por dono, com as mesmas regras da porta real (outro dono não vê nada,
+ * id desconhecido = `null`/`false`). `fail` simula o Google fora do ar ou o login expirado.
+ */
+export class FakeCalendar {
+	readonly events: Array<CalendarEventView & { userId: string }> = [];
+	readonly cards: Array<{ userId: string; runId: string; card: CalendarCardPayload }> = [];
+	readonly writes: Array<{ userId: string; op: "create" | "update" | "remove"; id?: string; notifyGuests?: boolean; requestKey?: string }> = [];
+	/** Erro que as próximas chamadas lançam (null = sem falha). */
+	fail: Error | null = null;
+	/** Erro só de `list` (a escrita segue funcionando): simula a checagem de conflito falhando. */
+	failList: Error | null = null;
+	timeZoneValue = "America/Sao_Paulo";
+	private seq = 0;
+
+	seed(userId: string, event: Partial<CalendarEventView> & Pick<CalendarEventView, "title" | "start" | "end">): CalendarEventView {
+		const view: CalendarEventView = { id: `ev-${++this.seq}`, allDay: false, ...structuredClone(event) };
+		this.events.push({ ...view, userId });
+		return view;
+	}
+	private strip(event: CalendarEventView & { userId: string }): CalendarEventView {
+		const { userId: _userId, ...view } = structuredClone(event);
+		void _userId;
+		return view;
+	}
+	private check(): void {
+		if (this.fail) throw this.fail;
+	}
+
+	readonly ports: CalendarPorts = {
+		calendar: {
+			timeZone: async () => this.timeZoneValue,
+			list: async (userId, range, options) => {
+				this.check();
+				if (this.failList) throw this.failList;
+				const inRange = this.events
+					.filter((e) => e.userId === userId && Date.parse(e.allDay ? `${e.end}T00:00:00Z` : e.end) > Date.parse(range.from) && Date.parse(e.allDay ? `${e.start}T00:00:00Z` : e.start) < Date.parse(range.to))
+					.sort((a, b) => a.start.localeCompare(b.start))
+					.map((e) => this.strip(e));
+				const limit = options?.limit ?? 50;
+				return { events: inRange.slice(0, limit), truncated: inRange.length > limit };
+			},
+			get: async (userId, id) => {
+				this.check();
+				const found = this.events.find((e) => e.userId === userId && e.id === id);
+				return found ? this.strip(found) : null;
+			},
+			create: async (userId, draft, options) => {
+				this.check();
+				const prior = options.requestKey ? this.writes.find((w) => w.userId === userId && w.op === "create" && w.requestKey === options.requestKey) : undefined;
+				const existing = prior?.id ? this.events.find((e) => e.id === prior.id) : undefined;
+				if (existing) return this.strip(existing);
+				const event: CalendarEventView & { userId: string } = {
+					id: `ev-${++this.seq}`,
+					userId,
+					title: draft.title,
+					start: draft.start,
+					end: draft.end,
+					allDay: draft.allDay,
+					...(draft.location && { location: draft.location }),
+					...(draft.description && { description: draft.description }),
+					...(draft.attendees.length > 0 && { attendees: draft.attendees }),
+					link: `https://calendar.example.com/event/${this.seq}`,
+				};
+				this.events.push(event);
+				this.writes.push({ userId, op: "create", id: event.id, notifyGuests: options.notifyGuests, ...(options.requestKey && { requestKey: options.requestKey }) });
+				return this.strip(event);
+			},
+			update: async (userId, id, patch, options) => {
+				this.check();
+				const event = this.events.find((e) => e.userId === userId && e.id === id);
+				if (!event) return null;
+				const { draft } = patch;
+				Object.assign(event, { title: draft.title, start: draft.start, end: draft.end, allDay: draft.allDay });
+				for (const key of ["location", "description"] as const) {
+					if (draft[key]) event[key] = draft[key];
+					else delete event[key];
+				}
+				if (draft.attendees.length > 0) event.attendees = draft.attendees;
+				else delete event.attendees;
+				this.writes.push({ userId, op: "update", id, notifyGuests: options.notifyGuests });
+				return this.strip(event);
+			},
+			remove: async (userId, id) => {
+				this.check();
+				const at = this.events.findIndex((e) => e.userId === userId && e.id === id);
+				if (at < 0) return false;
+				this.events.splice(at, 1);
+				this.writes.push({ userId, op: "remove", id });
+				return true;
+			},
+		},
+		cards: {
+			show: async (userId, runId, card) => {
+				if (!this.cards.some((c) => c.card.cardId === card.cardId)) this.cards.push({ userId, runId, card });
+			},
+		},
+	};
 }

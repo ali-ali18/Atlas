@@ -88,6 +88,8 @@ export const FRESH_SUMMARY_IGNORE_ROLES: readonly string[] = [
 	"purchase",
 	"email-triage",
 	"email-draft",
+	"calendar",
+	"day-plan",
 	"page",
 	"task-list",
 	"compaction",
