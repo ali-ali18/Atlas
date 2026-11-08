@@ -14,7 +14,7 @@ function rig(over: Partial<EmailIntentWakeDeps> & { policy?: unknown } = {}) {
 		gate: () => ({ enabled: true, accounts: ["user_a"] }),
 		engineDefault: () => "all",
 		loadBot: async (userId, botId) => (loaded.push([userId, botId]), botId === "bot_1" && userId === "user_a" ? { policyJson: over.policy ?? {} } : null),
-		queue: (async (input) => (queued.push(input), { marked: 2 })) as typeof queueAgendaEventWakes,
+		queue: (async (input) => (queued.push(input), { marked: 2, willRun: 1 })) as typeof queueAgendaEventWakes,
 		now: () => NOW,
 		...over,
 	};
@@ -24,7 +24,7 @@ function rig(over: Partial<EmailIntentWakeDeps> & { policy?: unknown } = {}) {
 
 test("v4 ligado para a conta e para o bot: marca as intenções do dono e do bot, com o espaçamento mínimo da agenda", async () => {
 	const { deps, queued } = rig();
-	assert.deepEqual(await wakeIntentsForEmail({ userId: "user_a", botId: "bot_1", event: EVENT }, deps), { marked: 2 });
+	assert.deepEqual(await wakeIntentsForEmail({ userId: "user_a", botId: "bot_1", event: EVENT }, deps), { marked: 2, willRun: 1 });
 	assert.deepEqual(queued, [{ userId: "user_a", botId: "bot_1", event: EVENT, now: NOW, minGapMinutes: 30 }]);
 });
 

@@ -24,7 +24,8 @@ export const realEmailIntentWakeDeps: EmailIntentWakeDeps = {
 	queue: queueAgendaEventWakes,
 };
 
-export type EmailIntentWake = { marked: number; skipped?: "v4_off" | "no_bot" | "engine_not_v4" };
+/** `marked` = intenções marcadas; `willRun` = quantas delas acordam agora e rodam de fato (as juntadas ou que vão parar não contam). */
+export type EmailIntentWake = { marked: number; willRun?: number; skipped?: "v4_off" | "no_bot" | "engine_not_v4" };
 
 export async function wakeIntentsForEmail(input: { userId: string; botId: string; event: AgendaEvent }, deps: EmailIntentWakeDeps = realEmailIntentWakeDeps): Promise<EmailIntentWake> {
 	const gate = deps.gate();
@@ -35,6 +36,6 @@ export async function wakeIntentsForEmail(input: { userId: string; botId: string
 	// A mesma escolha de motor que o worker faz ao acordar o item: se o bot está fixado em outro motor, o item não rodaria.
 	const engine = chooseRunEngine({ policy: readEnginePolicy(bot.policyJson), origin: "proactive", isGroupRun: false, globalDefault: deps.engineDefault(), userId: input.userId, v4Gate: gate, agenda: true });
 	if (engine !== "v4") return { marked: 0, skipped: "engine_not_v4" };
-	const { marked } = await deps.queue({ userId: input.userId, botId: input.botId, event: input.event, now: (deps.now ?? (() => new Date()))(), minGapMinutes: AGENDA_EVENT_MIN_GAP_MINUTES });
-	return { marked };
+	const { marked, willRun } = await deps.queue({ userId: input.userId, botId: input.botId, event: input.event, now: (deps.now ?? (() => new Date()))(), minGapMinutes: AGENDA_EVENT_MIN_GAP_MINUTES });
+	return { marked, willRun };
 }

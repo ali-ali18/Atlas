@@ -13,6 +13,7 @@ import {
 	nextAgendaEventWindow,
 	parseAgendaEventFilter,
 	planAgendaEventWake,
+	DEFAULT_PROACTIVE_SETTINGS,
 	planAgendaWake,
 	readProactiveSettings,
 	settleAgendaRun,
@@ -611,9 +612,16 @@ export async function markAgendaEventPending(userId: string, id: string): Promis
  * espaçamento mínimo e o teto diário (`planAgendaEventWake`), então vale em várias instâncias e sem perder o evento. O run lê a
  * caixa; a marca não guarda o conteúdo do e-mail.
  */
-export async function queueAgendaEventWakes(input: { userId: string; botId: string; event: AgendaEvent; now: Date; minGapMinutes: number }): Promise<{ marked: number }> {
+export async function queueAgendaEventWakes(input: { userId: string; botId: string; event: AgendaEvent; now: Date; minGapMinutes: number }): Promise<{ marked: number; willRun: number }> {
 	const { matched, coalesced } = await findAgendaItemsForEvent(input.userId, input.event, input.now, input.minGapMinutes, { botId: input.botId });
 	let marked = 0;
-	for (const item of [...matched, ...coalesced]) if (await markAgendaEventPending(item.userId, item.id)) marked += 1;
-	return { marked };
+	let willRun = 0;
+	for (const item of [...matched, ...coalesced]) {
+		if (!(await markAgendaEventPending(item.userId, item.id))) continue;
+		marked += 1;
+		// `willRun`: o item acorda AGORA (não foi juntado por espaçamento, teto do dia ou run em andamento) e os freios estruturais
+		// (`maxRuns`, avisos ignorados) não o param. Só então o e-mail dispensa o run de conversa; os outros ficam para a conversa.
+		if (matched.includes(item) && planAgendaWake({ item, now: input.now, settings: DEFAULT_PROACTIVE_SETTINGS, noticeIgnored: null }).action === "run") willRun += 1;
+	}
+	return { marked, willRun };
 }

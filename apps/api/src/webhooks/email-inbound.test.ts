@@ -45,7 +45,7 @@ function payload(over: { from?: string; messageId?: string; threadId?: string; s
 
 type RoutineMatch = { routine: { id: string }; trigger: { kind: "email"; fromContains?: string; subjectContains?: string } };
 
-function harness(opts: { wakeFails?: boolean; box?: ReturnType<typeof mailbox> | null; runDeps?: boolean; startFails?: boolean; routines?: RoutineMatch[]; noQueue?: boolean; enqueueEmpty?: boolean; marked?: number } = {}) {
+function harness(opts: { wakeFails?: boolean; box?: ReturnType<typeof mailbox> | null; runDeps?: boolean; startFails?: boolean; routines?: RoutineMatch[]; noQueue?: boolean; enqueueEmpty?: boolean; marked?: number; willRun?: number } = {}) {
 	const box = opts.box === undefined ? mailbox() : opts.box;
 	const seen = new Map<string, { id: string }>();
 	const state = { wakes: [] as Array<{ userId: string; botId: string; event: unknown }>, matchedFor: [] as unknown[], envelopes: [] as Array<{ routineIds: string[]; envelope: { provider: string; payload: Record<string, unknown>; idempotencyKey?: string } }>, runs: [] as Array<{ framedText: string; subject: string; mailbox: unknown }>, blocked: [] as string[], links: [] as unknown[], forgotten: [] as string[], recorded: [] as Array<{ status: string; from: string }>, bodies: [] as string[] };
@@ -54,7 +54,7 @@ function harness(opts: { wakeFails?: boolean; box?: ReturnType<typeof mailbox> |
 		wakeIntents: (async (input: { userId: string; botId: string; event: unknown }) => {
 			state.wakes.push(input);
 			if (opts.wakeFails) throw new Error("db fora");
-			return { marked: opts.marked ?? 0 };
+			return { marked: opts.marked ?? 0, willRun: opts.willRun ?? opts.marked ?? 0 };
 		}) as never,
 		routineQueue: opts.noQueue ? null : ({} as never),
 		matchRoutines: (async (m: unknown) => {
@@ -309,4 +309,16 @@ test("intenção marcada e rotina que casa: a rotina segue assumindo o e-mail (u
 	assert.equal((await h.post(payload())).status, 200);
 	assert.equal(h.state.envelopes.length, 1);
 	assert.equal(h.state.runs.length, 0);
+});
+
+test("intenção só marcada (juntada ou que vai parar): o e-mail NÃO se perde, a conversa responde", async () => {
+	const h = harness({ marked: 2, willRun: 0 });
+	const response = await h.post(payload());
+	assert.equal(response.status, 200);
+	assert.equal(h.state.wakes.length, 1);
+	assert.equal(h.state.runs.length, 1, "nenhuma intenção roda agora: o run de conversa trata o e-mail");
+	// Uma que roda de fato basta para dispensar a conversa.
+	const some = harness({ marked: 2, willRun: 1 });
+	await some.post(payload());
+	assert.equal(some.state.runs.length, 0);
 });

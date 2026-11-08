@@ -125,7 +125,7 @@ export function createEmailInboundRoutes(runDeps: () => StartEmailRunDeps | null
 		let intentsMarked = 0;
 		await d
 			.wakeIntents({ userId: mailbox.userId, botId: mailbox.botId, event: { source: "email", from, subject: event.subject, hasAttachment: (event.attachments?.length ?? 0) > 0 } })
-			.then((wake) => void (intentsMarked = wake.marked))
+			.then((wake) => void (intentsMarked = wake.willRun ?? 0))
 			.catch((error: unknown) => console.error("email inbound: falha ao marcar intenções da agenda", error instanceof Error ? error.message : "erro"));
 
 		// Rotinas com gatilho de e-mail da MESMA caixa (dono e bot vêm da caixa) e filtros que casam: a rotina
@@ -154,8 +154,10 @@ export function createEmailInboundRoutes(runDeps: () => StartEmailRunDeps | null
 			}
 		}
 
-		// Intenção marcada: ela assume o e-mail, como a rotina (o worker acorda o item). O agente de conversa não roda em paralelo
-		// para não tratar o mesmo e-mail duas vezes (duas respostas, dois avisos).
+		// Intenção que vai rodar de fato (item ativo, na vigência, fora do teto e do espaçamento, motor v4): ela assume o e-mail, como a
+		// rotina. O agente de conversa não roda em paralelo para não tratar o mesmo e-mail duas vezes. Intenção só "juntada" ou que vai
+		// parar não conta: ali o e-mail ainda vai para a conversa (pode haver resposta repetida se a intenção rodar depois, mas nunca e-mail perdido).
+		// Se o worker não consumir a marca (motor mudou entre o webhook e o wake), o e-mail já foi gravado na caixa e o próximo run o lê.
 		if (intentsMarked > 0) return c.json({ ok: true, intents: intentsMarked }, 200);
 
 		const startDeps = d.runDeps();

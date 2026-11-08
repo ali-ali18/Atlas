@@ -15,6 +15,7 @@ import {
 	findAgendaItemsForEvent,
 	getAgendaItem,
 	queueAgendaEventWakes,
+	reserveAgendaItem,
 	AGENDA_EVENT_PENDING,
 	getAgendaItemByRunId,
 	isAgendaRunInFlight,
@@ -188,14 +189,27 @@ describe("agenda (Postgres real)", { skip: dbSkip }, () => {
 		assert.deepEqual(found.matched.map((i) => i.id), [mine.item.id]);
 		assert.equal((await findAgendaItemsForEvent(a, event, T0, 10)).matched.length, 2, "sem botId, os dois bots casam (comportamento de antes)");
 		// Outro dono com o mesmo bot: nada é marcado.
-		assert.deepEqual(await queueAgendaEventWakes({ userId: b, botId: botA, event, now: T0, minGapMinutes: 10 }), { marked: 0 });
-		assert.deepEqual(await queueAgendaEventWakes({ userId: a, botId: botA, event, now: T0, minGapMinutes: 10 }), { marked: 1 });
+		assert.deepEqual(await queueAgendaEventWakes({ userId: b, botId: botA, event, now: T0, minGapMinutes: 10 }), { marked: 0, willRun: 0 });
+		assert.deepEqual(await queueAgendaEventWakes({ userId: a, botId: botA, event, now: T0, minGapMinutes: 10 }), { marked: 1, willRun: 1 });
 		assert.equal((await getAgendaItem(a, mine.item.id))?.endReason, AGENDA_EVENT_PENDING);
 		assert.equal((await getAgendaItem(a, otherBot.item.id))?.endReason ?? null, null);
 		assert.equal((await getAgendaItem(a, noMatch.item.id))?.endReason ?? null, null);
 		// Marcar de novo é idempotente (webhook reentregue).
-		assert.deepEqual(await queueAgendaEventWakes({ userId: a, botId: botA, event, now: T0, minGapMinutes: 10 }), { marked: 1 });
+		assert.deepEqual(await queueAgendaEventWakes({ userId: a, botId: botA, event, now: T0, minGapMinutes: 10 }), { marked: 1, willRun: 1 });
 		for (const item of [mine, otherBot, noMatch]) if (item.ok) await changeAgendaItem(a, item.item.id, "cancel");
+	});
+
+	test("e-mail: só conta como `willRun` o item que acorda agora e não vai parar (juntado ou no teto de execuções, não)", async () => {
+		const filter = { source: "email" as const, from: "boleto.test", subjectContains: "vence" };
+		const free = await createAgendaItem({ userId: a, botId: botA, plan: plan({ kind: "intent", note: "Avisar boleto que vence em breve", eventFilter: filter }), grant: GRANT });
+		const busy = await createAgendaItem({ userId: a, botId: botA, plan: plan({ kind: "intent", note: "Guardar comprovante do boleto da escola", eventFilter: filter }), grant: GRANT });
+		const spent = await createAgendaItem({ userId: a, botId: botA, plan: plan({ kind: "intent", note: "Anotar boleto no caderno financeiro", eventFilter: filter, maxRuns: 1 }), grant: GRANT });
+		assert.ok(free.ok && busy.ok && spent.ok);
+		await prisma.botFollowup.update({ where: { id: spent.item.id }, data: { runCount: 1 } });
+		assert.equal(await reserveAgendaItem(a, busy.item.id, T0), true);
+		const event = { source: "email" as const, from: "Banco <aviso@boleto.test>", subject: "Seu boleto vence amanhã", hasAttachment: false };
+		assert.deepEqual(await queueAgendaEventWakes({ userId: a, botId: botA, event, now: T0, minGapMinutes: 10 }), { marked: 3, willRun: 1 });
+		for (const item of [free, busy, spent]) if (item.ok) await changeAgendaItem(a, item.item.id, "cancel");
 	});
 
 	test("outro dono: não cria no bot alheio, não lê, não pausa, não cancela e não grava resultado", async () => {
