@@ -46,7 +46,7 @@ describe("capacidade calendar: forma", () => {
 	it("riskFacts de convite listam os destinatários (todos externos)", () => {
 		const { tool } = rig();
 		expect(tool("calendar_create").riskFactsFor({ title: "Almoço", start: "2026-11-06T12:00", attendees: ["ana@example.com", "bia@example.com"] })).toMatchObject({ recipients: ["ana@example.com", "bia@example.com"], externalRecipients: ["ana@example.com", "bia@example.com"] });
-		expect(tool("calendar_create").riskFactsFor({ title: "Almoço", start: "2026-11-06T12:00" }).recipients).toBeUndefined();
+		expect(tool("calendar_create").riskFactsFor({ title: "Almoço", start: "2026-11-06T12:00" })?.recipients).toBeUndefined();
 	});
 	it("run de agenda (readOnly): só lê, sem cartão e a instrução não promete escrita", () => {
 		const fake = new FakeCalendar();
