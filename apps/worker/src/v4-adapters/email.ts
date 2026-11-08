@@ -190,8 +190,20 @@ const redact = (text: string, token?: string): string => redactSecrets(text, tok
 
 function openGmail(scope: V4EmailScope, deps: V4EmailDeps, record: McpRecord): EmailAccount {
 	let token: string | undefined;
+	// Uma abertura = uma renovação de token: a listagem busca N mensagens em paralelo e cada chamada pedia o token (N refresh de uma vez).
+	// A promessa é guardada; se a renovação falha, a próxima chamada tenta de novo.
+	let pending: Promise<string> | undefined;
 	const api: GoogleApiContext = {
-		getAccessToken: async () => (token = await deps.accessToken(record)),
+		getAccessToken: () => {
+			pending ??= deps.accessToken(record).then(
+				(value) => (token = value),
+				(error: unknown) => {
+					pending = undefined;
+					throw error;
+				},
+			);
+			return pending;
+		},
 		fetchFn: deps.googleFetch,
 	};
 	const info: EmailAccountInfo = { source: "gmail", label: "Gmail", ...(record.accountLabel && { address: record.accountLabel }) };

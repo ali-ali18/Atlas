@@ -107,6 +107,33 @@ test("Gmail: lista traz remetente, assunto, data e não lido; a conta recusa out
 	await assert.rejects(account.list("user-b", { limit: 5 }), /not connected/);
 });
 
+test("Gmail: a listagem em paralelo renova o token UMA vez por abertura; falha na renovação não fica presa", async () => {
+	let refreshes = 0;
+	const messages = Object.fromEntries(Array.from({ length: 6 }, (_, i) => [`m${i}`, { id: `m${i}`, threadId: `t${i}`, internalDate: "1", payload: { headers: [{ name: "From", value: "a@x.test" }, { name: "Subject", value: `s${i}` }] } }]));
+	const { deps } = gmailRig({ messages });
+	deps.accessToken = async () => {
+		refreshes += 1;
+		return TOKEN;
+	};
+	const account = (await createV4Email({ scope: scope(), deps }).accounts.open("user-a", "gmail"))!;
+	assert.equal((await account.list("user-a", { limit: 10 })).messages.length, 6);
+	assert.equal(refreshes, 1, "7 chamadas ao Google (1 lista + 6 mensagens) com 1 só renovação");
+	// Nova abertura = nova renovação (o token pode ter vencido entre tool calls).
+	await (await createV4Email({ scope: scope(), deps }).accounts.open("user-a", "gmail"))!.list("user-a", { limit: 10 });
+	assert.equal(refreshes, 2);
+	// Falha na renovação: a próxima chamada da mesma abertura tenta de novo.
+	let attempts = 0;
+	deps.accessToken = async () => {
+		attempts += 1;
+		if (attempts === 1) throw new Error("The Gmail connection has no login. Hint: ask the owner to reconnect Gmail in Apps.");
+		return TOKEN;
+	};
+	const again = (await createV4Email({ scope: scope(), deps }).accounts.open("user-a", "gmail"))!;
+	await assert.rejects(again.list("user-a", { limit: 10 }), /no login/);
+	assert.equal((await again.list("user-a", { limit: 10 })).messages.length, 6);
+	assert.equal(attempts, 2);
+});
+
 test("Gmail: leitura traz corpo, destinatários e nomes de anexo; id inexistente vira 'não encontrada'", async () => {
 	const { deps } = gmailRig({
 		messages: {
