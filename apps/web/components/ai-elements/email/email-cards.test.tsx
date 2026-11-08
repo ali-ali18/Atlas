@@ -59,7 +59,7 @@ test("rascunho: destinatários, assunto, texto, selo 'Não enviado' e onde ficou
 	assert.match(onlyHere, /Rascunho de e-mail/);
 });
 
-test("rascunho: texto longo fica atrás de "Ler o texto" (aberto, mostra tudo: conferido nas prévias)", async () => {
+test("rascunho: texto longo fica atrás de 'Ler o texto' (aberto, mostra tudo: conferido nas prévias)", async () => {
 	const body = "palavra ".repeat(200);
 	const html = await render(<EmailDraftCard body={body} saved source="gmail" subject="s" to={["a@b.test"]} />);
 	assert.match(html, /Ler o texto/);
