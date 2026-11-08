@@ -43,7 +43,8 @@
 | F3 pesquisa | `feat/harness-v4-f3-pesquisa` | **concluída, juntada em `harness/v4`** | #153 |
 | F4 agenda | `feat/harness-v4-f4-agenda` | **backend juntado em `harness/v4`** (#155); tela da Agenda juntada | #155, #157 |
 | F5 memória | `feat/harness-v4-f5-memoria` | **backend juntado em `harness/v4`** (#154); telas do Caderno, regras e sono juntadas | #154, #157 |
-| F6 compras | `feat/harness-v4-f6-compras` | concluída (08/11): produto, compra registrada, cartão sem CVV, checkout com CVV, mandato; auditoria + reauditoria em `auditorias/F6.md` | PR para `harness/v4` |
+| F6 compras | `feat/harness-v4-f6-compras` | concluída (08/11): produto, compra registrada, cartão sem CVV, checkout com CVV, mandato; auditoria + reauditoria em `auditorias/F6.md` | #158 |
+| F7 e-mail e dia | `feat/harness-v4-f7-email-dia` | em auditoria (08/11): frentes E, K e W integradas, 15 correções da auditoria feitas; **falta a reauditoria**, o PR e o merge (`auditorias/F7.md`) | #159 (issue-mãe) |
 
 ## Decisões do dono (não reabrir)
 - Base nova, do zero, em `packages/agent`, sem import do legado (05/11).
@@ -136,7 +137,7 @@
   - [x] F7.1 e-mail (08/11, frente E: `email_list`, `email_read`, `email_triage`, `email_draft` e `email_send` nativos para o Gmail do dono e a caixa do bot; escopo `gmail.send`; cards de triagem e rascunho; intenção "quando chegar o e-mail" pelo webhook da caixa do bot; 2 cenários seed v4; `docs/features/email-v4.md`). Falta a ingestão do Gmail para o gatilho.
   - [x] F7.1 calendário (08/11, frente K): capacidade lazy `calendar` (5 tools, Google Agenda do dono pelo cofre do conector), conflito por horário, convite como `send`, só leitura no run de agenda, cartão `calendar` em 3 idiomas.
 - [x] F7.2 `brief` na agenda (plano do dia) (08/11, frente K: `brief_set` um por bot no horário exato, run com `brief_sources` e `day_plan`, cartão `day-plan`, fontes por portas com e-mail opcional, modelo de ajudante do bot). A porta de e-mail do brief (`ports/brief.ts`, `listRecent`) está ligada à porta real de e-mail no worker (`v4-adapters/brief-email.ts`, passada em `processors/agent-run.ts` só no run de brief; nunca lê o corpo; login expirado = `needs_connection`).
-- [ ] F7.A Auditoria: 5 lentes, verificação, correções com teste, reauditoria e `auditorias/F7.md` fechado.
+- [~] F7.A Auditoria (08/11): auditoria feita e as 15 correções com teste feitas (`auditorias/F7.md`, commits `b56a6524..0f1d835a`). **Falta a reauditoria** (um auditor novo, só leitura, sobre `5b9c3ca2..HEAD`), fechar o relatório, o PR para `harness/v4` e o merge.
 
 ### F8: Navegador e código
 - [ ] F8.1 `browser` sobre a porta `Sandbox`: árvore de acessibilidade com refs, página inteira em partes (nunca poda escondida) e visão só quando a árvore for pobre.
@@ -223,3 +224,10 @@
   - **Feito:** merge de `feat/harness-v4-cards-app` (11 commits da outra conta, sem reescrever) com a F6, por união. O web agora chama as rotas reais (`/v1/agent-v4/runs/:runId/requests/:key/respond` e `/v1/agent-v4/cards/:cardId/respond`; a rota inexistente `/v1/runs/:id/cards/respond` saiu). O pedido do `checkout` (`ownerInput: card_cvv`) no fio vira o card de compra com o campo do CVV (`PurchaseApprovalCard`), com `inputOnly` só com o campo. A resposta digitada à pergunta do bot segue como fala depois de o servidor marcar o card. O handoff perdeu o "Agora não" (a API só aceita `handoff_done`). `agentCardKey` e `purchaseRequestFromEvent` foram para `packages/shared`. Celular: cards ao vivo e gravados, resposta pelas mesmas rotas, CVV (`secureTextEntry`, `number-pad`, `oneTimeCode`, valor só numa ref, apagado antes da chamada).
   - **Pendente:** o worker ainda não grava os cards v4 como mensagens da conversa (`role` = tipo do evento): o web restaura pelos eventos do run, o celular só de run ativo ou parado esperando, então recibo de run encerrado some ao recarregar no celular. Decisão local só em memória no celular (web: localStorage). Handoff sem "Agora não" até a API ter essa decisão. Prévias do celular nativo não foram geradas (só web em Chromium).
   - **Como verificar:** `pnpm exec turbo typecheck`; `pnpm --filter @workspace/shared test`; `cd apps/web && pnpm test`; `cd apps/mobile && pnpm test`; prévias: `AGENT_CARDS_PREVIEW_DIR=<pasta> AGENT_CARDS_CHROMIUM_PATH=<chrome> pnpm e2e e2e/agent-cards-previews.spec.ts`.
+
+- **08/11/2026 · sessão F7 · correções da auditoria (branch `feat/harness-v4-f7-email-dia`)**
+  - **Feito:** os 15 achados da auditoria de `5b9c3ca2`, um commit por achado com teste (`b56a6524` a `0f1d835a`), relatório em `auditorias/F7.md`. Gancho novo `enrichRiskFacts` nas tools (o cartão de aprovação lê o evento antes de pedir); `riskFacts.event` e `riskFacts.message` estruturados, com o texto montado no front.
+  - **Pela metade:** reauditoria das correções (nada começou).
+  - **Próximo passo:** rodar um auditor novo (Sonnet, só leitura) sobre `git diff 5b9c3ca2..HEAD`, corrigir o que achar, fechar `auditorias/F7.md`, abrir o PR contra `harness/v4` (issue #159) e, com a verificação verde, juntar.
+  - **Como verificar:** receita da issue #159 (`pnpm exec turbo typecheck`; suítes shared, agent, web, mobile; api e worker com `tsx --test`; db com Postgres real).
+  - **Dúvidas para o dono:** nenhuma.
