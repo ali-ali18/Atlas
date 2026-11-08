@@ -19,7 +19,7 @@ import {
 	type PresetDeps,
 	type Search,
 } from "@workspace/agent";
-import type { ComputerUseEvent } from "@workspace/shared";
+import { countryFromLocale, type ComputerUseEvent } from "@workspace/shared";
 import { createV4Agenda, realV4AgendaDeps, type V4AgendaDeps } from "./agenda.js";
 import { createV4Deliverables, realV4DeliverablesDeps, type V4DeliverablesDeps } from "./deliverables.js";
 import { createV4Mcp, realV4McpDeps, type V4McpDeps } from "./mcp.js";
@@ -100,6 +100,7 @@ export async function buildV4Registry(input: V4RegistryInput): Promise<V4Registr
 	const search = createV4Search(deps.web, input.locale);
 	const agenda = botId ? createV4Agenda({ botId, policy: input.policy ?? { autonomy: "balanced", rules: [] }, deps: deps.agenda }) : undefined;
 	const shoppingPorts = createV4Shopping({ scope: { conversationId: input.conversationId ?? null, botId: botId ?? null, emit: input.emit, log }, deps: deps.shopping });
+	const country = countryFromLocale(input.locale);
 	const presetDeps: PresetDeps = {
 		search,
 		...(input.makeHelpers && { helpers: input.makeHelpers({ search }) }),
@@ -115,6 +116,7 @@ export async function buildV4Registry(input: V4RegistryInput): Promise<V4Registr
 		// A agenda também é do bot do run (a conversa dele recebe o aviso).
 		...(agenda && { agenda }),
 		...(input.checkout && { checkout: input.checkout }),
+		...(country && { shoppingCountry: country }),
 	};
 	const preset = setupPreset("full", presetDeps);
 	const base = preset;
@@ -134,7 +136,7 @@ export async function buildV4Registry(input: V4RegistryInput): Promise<V4Registr
 	// confirmar, então registrar compra (e criar vigia em cadeia) seria obedecer uma página.
 	const forRun =
 		asAgendaRun && agenda
-			? [...capabilities.filter((capability) => capability.id !== "agenda" && capability.id !== "shopping"), createAgendaRunCapability(agenda), createShoppingCapability({ ...shoppingPorts, search, readOnly: true })]
+			? [...capabilities.filter((capability) => capability.id !== "agenda" && capability.id !== "shopping"), createAgendaRunCapability(agenda), createShoppingCapability({ ...shoppingPorts, search, readOnly: true, ...(country && { country }) })]
 			: capabilities;
 	const registry = !asAgendaRun && !connectors.capability ? base.registry : createCapabilityRegistry(forRun);
 	if (base.unavailable.length > 0) log(`[engine-v4] run=${input.runId} capacidades sem porta: ${base.unavailable.join(", ")}`);

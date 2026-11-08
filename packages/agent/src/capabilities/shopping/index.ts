@@ -23,6 +23,8 @@ export type ShoppingDeps = ShoppingPorts & {
 	agenda?: Agenda;
 	/** Pagamento (F6.3): cartões do dono (só bandeira e final) e o `card_fill`. Sem cartão salvo a tool `checkout` não é oferecida. */
 	checkout?: CheckoutDeps;
+	/** País do dono (ISO alfa-2), do idioma do bot: escolhe o frete da página para o país certo. */
+	country?: string;
 	/** Run de agenda (wake): só `product_search`. Tool de escrita ali agiria sobre conteúdo de fora, sem dono para confirmar. */
 	readOnly?: boolean;
 	/** Tools extras anexadas à mesma capacidade. */

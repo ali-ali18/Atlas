@@ -24,6 +24,7 @@ const money = (f: Format, value: number, currency: string | null) => (currency ?
 function shippingText(o: ProductOffer, t: Translator, f: Format): string {
 	if (o.shipping.kind === "free") return t.t("shopping.product.shippingFree");
 	if (o.shipping.kind === "paid") return t.t("shopping.product.shippingPaid", { amount: money(f, o.shipping.amount, o.currency) });
+	if (o.shipping.kind === "unavailable") return t.t("shopping.product.shippingUnavailable");
 	return t.t("shopping.product.shippingUnknown");
 }
 
@@ -110,7 +111,7 @@ function SingleProduct({ offer }: { offer: ProductOffer }) {
 			<div className="flex flex-col gap-1 text-body">
 				<span className="flex items-center gap-1.5 text-muted-foreground" title={t.t("shopping.product.store", { store: offer.merchant })}><StoreIcon aria-hidden className="size-3.5" />{offer.merchant}</span>
 				<div className="flex flex-wrap items-center justify-between gap-x-3" data-testid="product-shipping">
-					<span className={cn(offer.shipping.kind === "unknown" && "text-warning")}>{shippingText(offer, t, f)}</span>
+					<span className={cn(offer.shipping.kind === "unknown" && "text-warning", offer.shipping.kind === "unavailable" && "text-destructive")}>{shippingText(offer, t, f)}</span>
 					<span className={cn("font-medium tabular-nums", offer.total === null && "text-muted-foreground")} data-testid="product-total">{totalText(offer, t, f)}</span>
 				</div>
 			</div>
@@ -136,7 +137,7 @@ function CompareRow({ offer, best }: { offer: ProductOffer; best: boolean }) {
 				</div>
 				<span className="truncate text-caption text-muted-foreground">{offer.name}</span>
 				<div className="flex flex-wrap items-baseline justify-between gap-x-3 text-body">
-					<span className="tabular-nums">{offer.price === null ? t.t("shopping.product.priceMissing") : money(f, offer.price, offer.currency)} · <span className={cn(offer.shipping.kind === "unknown" && "text-warning")}>{shippingText(offer, t, f)}</span></span>
+					<span className="tabular-nums">{offer.price === null ? t.t("shopping.product.priceMissing") : money(f, offer.price, offer.currency)} · <span className={cn(offer.shipping.kind === "unknown" && "text-warning", offer.shipping.kind === "unavailable" && "text-destructive")}>{shippingText(offer, t, f)}</span></span>
 					<span className={cn("font-medium tabular-nums", offer.total === null && "text-muted-foreground")} data-testid="product-total">{totalText(offer, t, f)}</span>
 				</div>
 				<div className="flex flex-wrap items-center justify-between gap-2">

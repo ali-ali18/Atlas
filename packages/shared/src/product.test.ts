@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compareOffers, discountPercent, offerTotal, parseConversationCard, parseMoneyNumber, safeImageUrl, parseProductPage, productCardId, serializeConversationCard, type ProductOffer } from "./index.js";
+import { compareOffers, countryFromLocale, parseProductCard, discountPercent, offerTotal, parseConversationCard, parseMoneyNumber, safeImageUrl, parseProductPage, productCardId, serializeConversationCard, type ProductOffer } from "./index.js";
 
 const ld = (obj: unknown) => `<script type="application/ld+json">${JSON.stringify(obj)}</script>`;
 const page = (head: string) => `<!doctype html><html><head>${head}</head><body></body></html>`;
@@ -58,6 +58,45 @@ describe("parseProductPage: JSON-LD", () => {
 		const o = parseProductPage(page(ld({ "@type": "Product", name: "A", aggregateRating: { ratingValue: 9, bestRating: 5 }, offers: { price: 10, priceCurrency: "BRL" } })), URL1)!;
 		expect(o.rating).toBeUndefined();
 		expect(o.merchant).toBe("loja-a.test");
+	});
+});
+
+describe("frete por destino (auditoria F6)", () => {
+	const rate = (value: number, country?: string, extra: Record<string, unknown> = {}) => ({ "@type": "OfferShippingDetails", shippingRate: { "@type": "MonetaryAmount", value, currency: "BRL" }, ...(country && { shippingDestination: { "@type": "DefinedRegion", addressCountry: country } }), ...extra });
+	const html = (shippingDetails: unknown) => `<html><head><title>X</title><script type="application/ld+json">${JSON.stringify({ "@type": "Product", name: "Fone", offers: { "@type": "Offer", price: 100, priceCurrency: "BRL", shippingDetails } })}</script></head></html>`;
+	const ship = (shippingDetails: unknown, country?: string) => parseProductPage(html(shippingDetails), "https://a.test/p", country ? { country } : {})?.shipping;
+
+	it("escolhe o detalhe cujo país bate com o do dono (código ou nome), não o primeiro", () => {
+		const details = [rate(80, "US"), rate(20, "BR")];
+		expect(ship(details, "BR")).toEqual({ kind: "paid", amount: 20 });
+		expect(ship([rate(80, "US"), rate(0, "Brasil")], "BR")).toEqual({ kind: "free" });
+		expect(ship([rate(80, "US"), rate(30, "Brazil")], "BR")).toEqual({ kind: "paid", amount: 30 });
+	});
+	it("sem país para provar, ou sem nenhum destino que bata, o frete é desconhecido (nunca o de outro país)", () => {
+		expect(ship([rate(80, "US"), rate(20, "BR")])).toEqual({ kind: "unknown" });
+		expect(ship([rate(80, "US"), rate(20, "PT")], "BR")).toEqual({ kind: "unknown" });
+	});
+	it("página sem destinos mantém o comportamento antigo (primeiro valor informado)", () => {
+		expect(ship([rate(25)])).toEqual({ kind: "paid", amount: 25 });
+	});
+	it("doesNotShip no país do dono vira 'não entrega': sem total, fora do ranking e a comparação não fica incompleta por ele", () => {
+		const blocked = ship([{ "@type": "OfferShippingDetails", doesNotShip: true, shippingDestination: { addressCountry: "BR" } }, rate(10, "US")], "BR");
+		expect(blocked).toEqual({ kind: "unavailable" });
+		expect(offerTotal(100, blocked!)).toBeNull();
+		const mk = (url: string, price: number, shipping: ProductOffer["shipping"]): ProductOffer => ({ name: "X", merchant: url, url, price, currency: "BRL", shipping, total: offerTotal(price, shipping), availability: "in_stock", images: [] });
+		const cmp = compareOffers([mk("https://a.test/", 50, { kind: "unavailable" }), mk("https://b.test/", 120, { kind: "free" })]);
+		expect(cmp).toEqual({ cheapestUrl: "https://b.test/", incomplete: false, mixedCurrency: false });
+	});
+	it("o país vem da região do idioma", () => {
+		expect(countryFromLocale("pt-BR")).toBe("BR");
+		expect(countryFromLocale("en_us")).toBe("US");
+		expect(countryFromLocale("pt")).toBeUndefined();
+		expect(countryFromLocale(undefined)).toBeUndefined();
+	});
+	it("o cartão gravado aceita 'não entrega' e continua sem total", () => {
+		const row = { v: 1, kind: "product", cardId: "r:product:1", items: [{ name: "X", merchant: "A", url: "https://a.test/p", price: 10, currency: "BRL", shipping: { kind: "unavailable" }, total: 10, availability: "in_stock", images: [] }] };
+		const parsed = parseProductCard(row);
+		expect(parsed?.items[0]).toMatchObject({ shipping: { kind: "unavailable" }, total: null });
 	});
 });
 

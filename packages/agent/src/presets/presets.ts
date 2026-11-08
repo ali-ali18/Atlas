@@ -64,6 +64,8 @@ export type PresetDeps = {
 	shopping?: ShoppingPorts;
 	/** Pagamento (F6.3): cartões do dono (só bandeira e final) e o `card_fill`. A tool `checkout` entra na capacidade `shopping` só com cartão salvo. */
 	checkout?: CheckoutDeps;
+	/** País do dono (ISO alfa-2) para o frete por destino da página de produto. */
+	shoppingCountry?: string;
 };
 
 export function isPresetId(value: unknown): value is PresetId {
@@ -83,7 +85,7 @@ const FACTORIES: Readonly<Record<CapabilityId, CapabilityFactory>> = {
 	// F4.2: lazy como as demais (o núcleo do plano é "agenda disponível", não "schema sempre carregado": "Bom dia" segue barato).
 	agenda: (deps) => deps.agenda && createAgendaCapability(deps.agenda),
 	// F6: lazy; a compra grava o vigia de entrega pela agenda do próprio preset.
-	shopping: (deps) => deps.shopping && createShoppingCapability({ ...deps.shopping, search: deps.search, ...(deps.agenda && { agenda: deps.agenda }), ...(deps.checkout && { checkout: deps.checkout }) }),
+	shopping: (deps) => deps.shopping && createShoppingCapability({ ...deps.shopping, search: deps.search, ...(deps.agenda && { agenda: deps.agenda }), ...(deps.checkout && { checkout: deps.checkout }), ...(deps.shoppingCountry && { country: deps.shoppingCountry }) }),
 };
 
 /** Capacidades do preset que não entram por falta da porta. */

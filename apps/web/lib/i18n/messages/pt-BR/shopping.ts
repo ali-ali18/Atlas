@@ -12,6 +12,7 @@ export const shopping = {
 	"shopping.product.priceMissing": "Preço não informado",
 	"shopping.product.shippingFree": "Frete grátis",
 	"shopping.product.shippingPaid": "Frete {amount}",
+	"shopping.product.shippingUnavailable": "Não entrega",
 	"shopping.product.shippingUnknown": "Frete não informado",
 	"shopping.product.total": "Total {amount}",
 	"shopping.product.totalUnknown": "Total indisponível",

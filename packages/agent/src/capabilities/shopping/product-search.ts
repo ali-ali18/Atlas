@@ -19,7 +19,7 @@ const productUrl = z
 		if (!check.ok) ctx.addIssue({ code: "custom", message: `${check.reason}; give a public http(s) product page URL` });
 	});
 
-export function createProductSearchTool(deps: { search: SearchPort; pages: ProductPages; cards: ProductCards }) {
+export function createProductSearchTool(deps: { search: SearchPort; pages: ProductPages; cards: ProductCards; /** País do dono (ISO alfa-2) para escolher o frete certo; sem ele, frete por destino fica desconhecido. */ country?: string }) {
 	return defineTool({
 		name: "product_search",
 		description:
@@ -49,7 +49,7 @@ export function createProductSearchTool(deps: { search: SearchPort; pages: Produ
 				wanted.map(async (url) => {
 					try {
 						const page = await deps.pages.fetchHtml(ctx.ownerId, url, ctx.signal);
-						const offer = parseProductPage(page.html, page.url);
+						const offer = parseProductPage(page.html, page.url, deps.country ? { country: deps.country } : {});
 						return offer ? { ok: true as const, offer } : { ok: false as const, url, reason: "no structured product data on the page" };
 					} catch (error) {
 						if (ctx.signal?.aborted) throw error;

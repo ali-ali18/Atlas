@@ -8,8 +8,8 @@ import { decodeEntities } from "./web/html-text.js";
 export const PRODUCT_AVAILABILITIES = ["in_stock", "out_of_stock", "preorder", "limited", "unknown"] as const;
 export type ProductAvailability = (typeof PRODUCT_AVAILABILITIES)[number];
 
-/** Frete explícito: `unknown` = a página não informa ("frete não informado"); nunca vira zero. */
-export type ProductShipping = { kind: "free" } | { kind: "paid"; amount: number } | { kind: "unknown" };
+/** Frete explícito: `unknown` = a página não informa ("frete não informado"); nunca vira zero. `unavailable` = a loja declara que não entrega no país do dono. */
+export type ProductShipping = { kind: "free" } | { kind: "paid"; amount: number } | { kind: "unknown" } | { kind: "unavailable" };
 
 export type ProductRating = { value: number; best: number; count?: number };
 
@@ -235,11 +235,63 @@ function availabilityOf(v: Json): ProductAvailability {
 	}
 }
 
-function shippingOf(offer: Record<string, Json>, currency: string | null): ProductShipping {
+/** País (ISO 3166-1 alfa-2, maiúsculo) a partir de um idioma com região ("pt-BR" -> "BR"). Sem região, `undefined`. */
+export function countryFromLocale(locale: string | undefined | null): string | undefined {
+	const region = locale?.split(/[-_]/)[1];
+	return region && /^[A-Za-z]{2}$/.test(region) ? region.toUpperCase() : undefined;
+}
+
+const COUNTRY_NAME_LOCALES = ["en", "pt", "es"];
+
+/** Nomes pelos quais a página pode citar o país ("BR", "Brazil", "Brasil"), em minúsculo. */
+function countryNames(country: string): Set<string> {
+	const names = new Set([country.toLowerCase()]);
+	for (const locale of COUNTRY_NAME_LOCALES) {
+		try {
+			const name = new Intl.DisplayNames([locale], { type: "region" }).of(country);
+			if (name) names.add(name.toLowerCase());
+		} catch {
+			// região desconhecida: fica só o código
+		}
+	}
+	return names;
+}
+
+function destinationCountries(destination: Json): string[] {
+	const list = Array.isArray(destination) ? destination : destination === undefined || destination === null ? [] : [destination];
+	const out: string[] = [];
+	for (const place of list) {
+		if (!isRecord(place)) continue;
+		const country = place.addressCountry;
+		const names = Array.isArray(country) ? country : [country];
+		for (const n of names) {
+			const text = isRecord(n) ? str(n.name) : str(n);
+			if (text) out.push(text.toLowerCase());
+		}
+	}
+	return out;
+}
+
+const isTrue = (v: Json): boolean => v === true || (typeof v === "string" && v.trim().toLowerCase().replace(/^.*\//, "") === "true");
+
+/**
+ * Frete da oferta para o PAÍS do dono. Sem `shippingDestination` na página, vale o primeiro valor informado. Com destinos,
+ * só o detalhe cujo país bate com `country` serve; sem `country` para provar, ou sem nenhum destino que bata, é `unknown`
+ * (nunca o frete de outro país). `doesNotShip` no destino do dono vira `unavailable`.
+ */
+function shippingOf(offer: Record<string, Json>, currency: string | null, country?: string): ProductShipping {
 	const details = offer.shippingDetails;
-	const list = Array.isArray(details) ? details : details ? [details] : [];
-	for (const d of list) {
-		if (!isRecord(d)) continue;
+	const list = (Array.isArray(details) ? details : details ? [details] : []).filter(isRecord);
+	const withDestination = list.filter((d) => destinationCountries(d.shippingDestination).length > 0);
+	let candidates = list;
+	if (withDestination.length > 0) {
+		if (!country) return { kind: "unknown" };
+		const wanted = countryNames(country);
+		candidates = withDestination.filter((d) => destinationCountries(d.shippingDestination).some((c) => wanted.has(c)));
+		if (candidates.length === 0) return { kind: "unknown" };
+	}
+	for (const d of candidates) if (isTrue(d.doesNotShip)) return { kind: "unavailable" };
+	for (const d of candidates) {
 		const rate = d.shippingRate;
 		if (!isRecord(rate)) continue;
 		const rateCurrency = currencyOf(rate.currency);
@@ -265,7 +317,7 @@ function offerCandidates(raw: Json): Record<string, Json>[] {
 	return out;
 }
 
-function pickOffer(raw: Json): Picked | null {
+function pickOffer(raw: Json, country?: string): Picked | null {
 	const cands = offerCandidates(raw).map((o): Picked & { raw: Record<string, Json> } => {
 		const spec = Array.isArray(o.priceSpecification) ? o.priceSpecification.find(isRecord) : isRecord(o.priceSpecification) ? o.priceSpecification : undefined;
 		const currency = currencyOf(o.priceCurrency ?? spec?.priceCurrency);
@@ -273,7 +325,7 @@ function pickOffer(raw: Json): Picked | null {
 		const listPrice = isRecord(o.priceSpecification) && str(o.priceSpecification.priceType)?.toLowerCase().includes("listprice") ? parseMoneyNumber(o.priceSpecification.price, { currency }) : null;
 		const highPrice = parseMoneyNumber(o.highPrice, { currency });
 		const old = listPrice ?? (o["@type"] === "AggregateOffer" ? null : highPrice);
-		return { raw: o, price, currency, availability: availabilityOf(o.availability), shipping: shippingOf(o, currency), ...(price !== null && old !== null && old > price && { oldPrice: old }) };
+		return { raw: o, price, currency, availability: availabilityOf(o.availability), shipping: shippingOf(o, currency, country), ...(price !== null && old !== null && old > price && { oldPrice: old }) };
 	});
 	if (cands.length === 0) return null;
 	// Prefere oferta com preço e em estoque; dentro disso, a mais barata.
@@ -313,11 +365,11 @@ function hostLabel(url: string): string {
  * Lê UMA página de produto. `null` quando não há dado estruturado de produto (nem `Product` em JSON-LD, nem preço em
  * OpenGraph): a tool então diz isso ao modelo em vez de chutar. Campos ausentes na página ficam ausentes.
  */
-export function parseProductPage(html: string, pageUrl: string): ProductOffer | null {
+export function parseProductPage(html: string, pageUrl: string, options: { country?: string } = {}): ProductOffer | null {
 	const meta = metaMap(html);
 	const products = jsonLdBlocks(html).flatMap((b) => findNodes(b, "Product"));
 	const product = products.find((p) => p.offers !== undefined) ?? products[0];
-	const offer = product ? pickOffer(product.offers) : null;
+	const offer = product ? pickOffer(product.offers, options.country) : null;
 
 	const ogCurrency = currencyOf(meta.get("product:price:currency") ?? meta.get("og:price:currency"));
 	const ogPrice = parseMoneyNumber(meta.get("product:price:amount") ?? meta.get("og:price:amount"), { currency: ogCurrency });
@@ -366,9 +418,10 @@ export type OfferComparison = {
 export function compareOffers(offers: readonly ProductOffer[]): OfferComparison {
 	const known = offers.filter((o) => o.total !== null && o.currency !== null);
 	const mixedCurrency = new Set(known.map((o) => o.currency)).size > 1;
-	const incomplete = offers.some((o) => o.total === null);
+	// "Não entrega" é definitivo (fora do ranking), não um dado que falta.
+	const incomplete = offers.some((o) => o.total === null && o.shipping.kind !== "unavailable");
 	if (mixedCurrency) return { incomplete, mixedCurrency };
-	const buyable = known.filter((o) => o.availability !== "out_of_stock");
+	const buyable = known.filter((o) => o.availability !== "out_of_stock" && o.shipping.kind !== "unavailable");
 	const cheapest = buyable.reduce<ProductOffer | undefined>((best, o) => (best === undefined || o.total! < best.total! ? o : best), undefined);
 	return { ...(cheapest && { cheapestUrl: cheapest.url }), incomplete, mixedCurrency };
 }
@@ -380,8 +433,8 @@ export function formatMoney(amount: number, currency: string | null): string {
 /** Linha para o MODELO (inglês): o total é explícito e o frete desconhecido é dito, nunca zero. */
 export function describeOffer(o: ProductOffer): string {
 	const price = o.price === null ? "price not found" : `price ${formatMoney(o.price, o.currency)}${o.oldPrice !== undefined ? ` (was ${formatMoney(o.oldPrice, o.currency)})` : ""}`;
-	const ship = o.shipping.kind === "free" ? "shipping free" : o.shipping.kind === "paid" ? `shipping ${formatMoney(o.shipping.amount, o.currency)}` : "shipping not informed";
-	const total = o.total === null ? (o.price === null ? "total unknown" : "total unknown (shipping not informed, do not assume zero)") : `TOTAL ${formatMoney(o.total, o.currency)}`;
+	const ship = o.shipping.kind === "unavailable" ? "DOES NOT SHIP to the owner's country" : o.shipping.kind === "free" ? "shipping free" : o.shipping.kind === "paid" ? `shipping ${formatMoney(o.shipping.amount, o.currency)}` : "shipping not informed";
+	const total = o.shipping.kind === "unavailable" ? "no total (does not ship here; leave it out of the ranking)" : o.total === null ? (o.price === null ? "total unknown" : "total unknown (shipping not informed, do not assume zero)") : `TOTAL ${formatMoney(o.total, o.currency)}`;
 	const extra = [o.availability !== "unknown" && o.availability.replace("_", " "), o.rating && `rating ${o.rating.value}/${o.rating.best}${o.rating.count ? ` (${o.rating.count})` : ""}`].filter(Boolean).join(", ");
 	return `${o.name} @ ${o.merchant}: ${price}; ${ship}; ${total}${extra ? `; ${extra}` : ""}\n${o.url}`;
 }
@@ -416,7 +469,7 @@ export function productCardId(runId: string, urls: readonly string[]): string {
 
 function parseShipping(v: Json): ProductShipping | null {
 	if (!isRecord(v)) return null;
-	if (v.kind === "free" || v.kind === "unknown") return { kind: v.kind };
+	if (v.kind === "free" || v.kind === "unknown" || v.kind === "unavailable") return { kind: v.kind };
 	if (v.kind === "paid" && typeof v.amount === "number" && Number.isFinite(v.amount) && v.amount > 0) return { kind: "paid", amount: round2(v.amount) };
 	return null;
 }

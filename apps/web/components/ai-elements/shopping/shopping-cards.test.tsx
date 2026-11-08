@@ -100,3 +100,10 @@ test("idiomas: o mesmo card em en-US e es-ES, sem cair em pt-BR", async () => {
 	assert.match(es, /Compra registrada/);
 	assert.doesNotMatch(es, /Total pago/);
 });
+
+test("loja que não entrega no país do dono diz 'Não entrega' e fica sem total", async () => {
+	const a = offer({ merchant: "Loja A", url: "https://a.test/p", price: 50, shipping: { kind: "unavailable" } });
+	const html = await render(<ProductCard items={[a]} />);
+	assert.match(html, /Não entrega/);
+	assert.match(html, /Total indisponível/);
+});

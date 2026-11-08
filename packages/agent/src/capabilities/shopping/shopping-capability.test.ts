@@ -154,6 +154,21 @@ describe("product_search", () => {
 		expect(await tool("product_search").run({ urls: ["https://a.test/"], extra: 1 }, ctx())).toMatchObject({ ok: false, error: expect.stringContaining("Unknown field") });
 		expect(shop.fetched).toHaveLength(0);
 	});
+	it("frete por destino: usa o país do dono; loja que não entrega lá fica fora do ranking", async () => {
+		const { shop, search } = setup();
+		const page = (shippingDetails: unknown, price: number) => `<html><head><title>Fone</title><script type="application/ld+json">${JSON.stringify({ "@type": "Product", name: "Fone", offers: { "@type": "Offer", price, priceCurrency: "BRL", shippingDetails } })}</script></head></html>`;
+		shop.html.set("https://na.test/p", page([{ doesNotShip: true, shippingDestination: { addressCountry: "BR" } }, { shippingRate: { value: 5, currency: "BRL" }, shippingDestination: { addressCountry: "US" } }], 10));
+		shop.html.set("https://br.test/p", page([{ shippingRate: { value: 0, currency: "BRL" }, shippingDestination: { addressCountry: "BR" } }], 200));
+		const withCountry = createShoppingCapability({ ...shop.ports, search, country: "BR" }).tools.find((t) => t.name === "product_search")!;
+		const out = await withCountry.run({ urls: ["https://na.test/p", "https://br.test/p"] }, ctx());
+		expect(out.ok && out.summary).toContain("DOES NOT SHIP");
+		expect(out.ok && out.summary).toContain("Lowest TOTAL among stores with a known total: https://br.test/p.");
+		expect(shop.productCards.at(-1)!.card).toMatchObject({ cheapestUrl: "https://br.test/p" });
+		expect(shop.productCards.at(-1)!.card.incomplete).toBeUndefined();
+		const noCountry = createShoppingCapability({ ...shop.ports, search }).tools.find((t) => t.name === "product_search")!;
+		const unknown = await noCountry.run({ urls: ["https://na.test/p", "https://br.test/p"] }, ctx({ runId: "run-2" }));
+		expect(unknown.ok && unknown.summary).not.toContain("DOES NOT SHIP");
+	});
 	it("resultado de busca com URL interna é ignorado, nunca lido", async () => {
 		const { shop, tool } = setup();
 		const cap = createShoppingCapability({ ...shop.ports, search: new FakeSearch([{ title: "x", url: "http://127.0.0.1/admin", snippet: "" }, { title: "ok", url: "https://loja-a.test/p/fone", snippet: "" }]) });
