@@ -48,7 +48,7 @@ export function createPurchaseUpdateTool(deps: { purchases: Purchases; agenda?: 
 			return {
 				ok: true,
 				summary: `Updated purchase ${updated.id} (${changed.join(", ")}): ${updated.merchant}, ${formatMoney(updated.total, updated.currency)}. A card was shown.`,
-				receipt: { what: `Compra atualizada: ${updated.merchant}`, where: "Compras", externalId: updated.id },
+				receipt: { what: `Purchase updated: ${updated.merchant}`, where: "Purchases", externalId: updated.id },
 			};
 		},
 	});
@@ -77,7 +77,7 @@ export function createPurchaseDeleteTool(deps: { purchases: Purchases; agenda?: 
 			return {
 				ok: true,
 				summary: `Deleted purchase ${purchaseId} (${current.merchant}, ${formatMoney(current.total, current.currency)}). ${follow}`,
-				receipt: { what: `Compra apagada: ${current.merchant}`, where: "Compras", externalId: purchaseId },
+				receipt: { what: `Purchase deleted: ${current.merchant}`, where: "Purchases", externalId: purchaseId },
 			};
 		},
 	});

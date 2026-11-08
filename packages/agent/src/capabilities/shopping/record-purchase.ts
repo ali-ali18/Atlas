@@ -76,7 +76,7 @@ export function createRecordPurchaseTool(deps: { purchases: Purchases; agenda?: 
 			return {
 				ok: true,
 				summary: `${recorded.duplicate ? "Already saved" : "Saved"} purchase ${purchase.id}: ${purchase.merchant}, ${formatMoney(purchase.total, purchase.currency)}${purchase.orderNumber ? `, order ${purchase.orderNumber}` : ""}. A card was shown. ${follow}`,
-				receipt: { what: `${recorded.duplicate ? "Compra já registrada" : "Compra registrada"}: ${purchase.merchant}`, where: "Compras", externalId: purchase.id },
+				receipt: { what: `${recorded.duplicate ? "Purchase already saved" : "Purchase saved"}: ${purchase.merchant}`, where: "Purchases", externalId: purchase.id },
 			};
 		},
 	});

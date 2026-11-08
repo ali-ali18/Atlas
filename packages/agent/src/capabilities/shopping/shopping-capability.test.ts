@@ -183,7 +183,7 @@ describe("record_purchase e o vigia de entrega", () => {
 	it("grava, mostra o card e cria sozinho um vigia de ~30 dias a cada 12h, ligado à compra", async () => {
 		const { tool, shop, agenda } = setup();
 		const out = await tool("record_purchase").run(buy, ctx());
-		expect(out).toMatchObject({ ok: true, receipt: { where: "Compras", externalId: "pur-1" } });
+		expect(out).toMatchObject({ ok: true, receipt: { what: "Purchase saved: Loja B", where: "Purchases", externalId: "pur-1" } });
 		expect(out.ok && out.summary).toContain("Do not announce it");
 		expect(shop.purchaseCards).toHaveLength(1);
 		const [item] = [...agenda.items.values()];
