@@ -32,7 +32,8 @@ test("cartão sem apelido não repete a linha de bandeira e final", () => {
 test("vazio e cofre indisponível", () => {
 	assert.match(wrap(<CardsListView cards={[]} configured onAdd={noop} onDelete={noop} />), /Nenhum cartão salvo/);
 	const off = wrap(<CardsListView cards={[]} configured={false} onAdd={noop} onDelete={noop} />);
-	assert.match(off, /CONNECTOR_ENCRYPTION_KEY/);
+	assert.match(off, /Os cartões ainda não estão disponíveis neste servidor/);
+	assert.doesNotMatch(off, /CONNECTOR_ENCRYPTION_KEY|criptografia/);
 	assert.match(off, /disabled/);
 });
 

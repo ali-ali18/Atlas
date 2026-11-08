@@ -4,7 +4,7 @@ import type { NamespaceMessages } from "../../translator";
 export const payments: NamespaceMessages<typeof ptBR> = {
 	"payments.cards.title": "Payment cards",
 	"payments.cards.intro": "Save a card so the bot can buy for you. The security code (CVV) is never stored: you type it for every purchase.",
-	"payments.cards.unavailable": "Cards need the server encryption key (CONNECTOR_ENCRYPTION_KEY).",
+	"payments.cards.unavailable": "Cards are not available on this server yet.",
 	"payments.cards.empty": "No saved cards",
 	"payments.cards.add": "Add card",
 	"payments.cards.loadError": "Could not load the cards.",

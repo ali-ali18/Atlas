@@ -2,7 +2,7 @@
 export const payments = {
 	"payments.cards.title": "Cartões de compra",
 	"payments.cards.intro": "Guarde um cartão para o bot comprar por você. O código de segurança (CVV) nunca é guardado: você o digita a cada compra.",
-	"payments.cards.unavailable": "Os cartões precisam da chave de criptografia do servidor (CONNECTOR_ENCRYPTION_KEY).",
+	"payments.cards.unavailable": "Os cartões ainda não estão disponíveis neste servidor.",
 	"payments.cards.empty": "Nenhum cartão salvo",
 	"payments.cards.add": "Adicionar cartão",
 	"payments.cards.loadError": "Não consegui carregar os cartões.",
