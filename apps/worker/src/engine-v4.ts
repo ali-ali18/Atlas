@@ -48,6 +48,7 @@ import {
 	type Search,
 	type StoreBackend,
 	type VaultBackend,
+	type BriefEmailSource,
 } from "@workspace/agent";
 import type { ProviderStreamChat } from "@workspace/llm";
 import {
@@ -69,7 +70,7 @@ import {
 } from "@workspace/db";
 import { buildV4Registry, type V4AdapterDeps } from "./v4-adapters/index.js";
 import { createV4Payment, type V4PaymentDeps } from "./v4-adapters/payment.js";
-import { MODEL_ROLES, formatModelRef, isMaintenanceModel, parseModelRef, type BotLanguage, type ComputerUseEvent, type ModelChainEntry, type RoleChains, type RunStop, type RunUsage } from "@workspace/shared";
+import { MODEL_ROLES, formatModelRef, isMaintenanceModel, parseModelRef, type AgendaKind, type BotLanguage, type ComputerUseEvent, type ModelChainEntry, type RoleChains, type RunStop, type RunUsage } from "@workspace/shared";
 
 /** As funções de persistência do v4 (as de `@workspace/db`); injetáveis para o teste. */
 export type V4Db = {
@@ -372,6 +373,10 @@ export type RunEngineV4Input = {
 	onHelpers?: (helpers: Helpers) => void;
 	/** Run acordado pela agenda (F4.3): `agenda_result` no núcleo, sem a capacidade `agenda`. A política deve ser `agendaRunPolicy`. */
 	agendaRun?: boolean;
+	/** Tipo do item que acordou o run de agenda: `brief` monta o registro do plano do dia (F7.2). */
+	agendaKind?: AgendaKind;
+	/** Fonte de e-mail do plano do dia (frente de e-mail). Sem ela o brief segue sem a seção. */
+	briefEmail?: BriefEmailSource;
 	/** Prompt estável do preset (sem ele, o kernel monta o completo com o contrato de trabalho). */
 	stableSystem?: string;
 	policy?: PolicyContext;
@@ -473,6 +478,8 @@ export async function runEngineV4(input: RunEngineV4Input): Promise<V4EngineResu
 				makeHelpers,
 				policy: basePolicy,
 				...(input.agendaRun && { agendaRun: true }),
+				...(input.agendaKind && { agendaKind: input.agendaKind }),
+				...(input.briefEmail && { briefEmail: input.briefEmail }),
 				...(payment?.checkout && { checkout: payment.checkout }),
 			});
 	const registry = input.registry ?? built!.registry;
