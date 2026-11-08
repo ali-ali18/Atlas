@@ -67,7 +67,7 @@ describe("preset full: memory, tasks e settings (F2.4)", () => {
 		const h = kernelHarness([reply({ text: "Bom dia!" })], { capabilities: [...setup.registry.capabilities] });
 		await h.run({ input: { stableSystem: setup.stableSystem, contextSections: [], history: [{ kind: "owner", text: "Bom dia" }] } });
 		const names = h.llm.requests[0]?.tools?.map((t) => t.name) ?? [];
-		for (const lazy of ["memory_list", "memory_add", "update_task_list", "settings_get", "set_role_model", "update_bot_profile", "remind_me", "watch", "on_event", "agenda_result", "product_search", "record_purchase", "purchase_list", "purchase_update", "purchase_delete", "checkout", "calendar_list", "calendar_get", "calendar_create", "calendar_update", "calendar_delete"]) expect(names).not.toContain(lazy);
+		for (const lazy of ["memory_list", "memory_add", "update_task_list", "settings_get", "set_role_model", "update_bot_profile", "remind_me", "watch", "on_event", "agenda_result", "product_search", "record_purchase", "purchase_list", "purchase_update", "purchase_delete", "checkout", "calendar_list", "calendar_get", "calendar_create", "calendar_update", "calendar_delete", "brief_set"]) expect(names).not.toContain(lazy);
 	});
 
 	it("o modelo carrega memory e usa a tool no passo seguinte", async () => {

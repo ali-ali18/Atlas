@@ -182,19 +182,24 @@ function validateInterval(request: AgendaRequest): { ok: true; minutes: number |
 	return { ok: true, minutes };
 }
 
+/** Primeiro instante DEPOIS de `after` em que o relógio do dono marca `minutesOfDay` (minutos desde 00:00). */
+export function nextLocalTimeAfter(minutesOfDay: number, after: Date, timeZone: string): Date {
+	const today = localParts(after, timeZone);
+	for (let offset = 0; offset <= 2; offset += 1) {
+		const day = new Date(Date.UTC(today.year, today.month - 1, today.day + offset));
+		const at = zonedWallTimeToUtc({ year: day.getUTCFullYear(), month: day.getUTCMonth() + 1, day: day.getUTCDate(), hour: Math.floor(minutesOfDay / 60), minute: minutesOfDay % 60, second: 0 }, timeZone);
+		if (at.getTime() > after.getTime()) return at;
+	}
+	return new Date(after.getTime() + AGENDA_BRIEF_INTERVAL_MINUTES * MINUTE_MS);
+}
+
 /**
  * Próxima vez, DEPOIS de `after`, em que o relógio do dono marca a mesma hora do `anchor` (o horário que ele pediu).
  * Âncora no relógio local (não "+24h"), então o plano de 7h30 continua às 7h30 quando o horário de verão muda.
  */
 export function nextBriefOccurrence(anchor: Date, after: Date, timeZone: string): Date {
 	const wanted = localParts(anchor, timeZone);
-	const today = localParts(after, timeZone);
-	for (let offset = 0; offset <= 2; offset += 1) {
-		const day = new Date(Date.UTC(today.year, today.month - 1, today.day + offset));
-		const at = zonedWallTimeToUtc({ year: day.getUTCFullYear(), month: day.getUTCMonth() + 1, day: day.getUTCDate(), hour: wanted.hour, minute: wanted.minute, second: 0 }, timeZone);
-		if (at.getTime() > after.getTime()) return at;
-	}
-	return new Date(after.getTime() + AGENDA_BRIEF_INTERVAL_MINUTES * MINUTE_MS);
+	return nextLocalTimeAfter(wanted.hour * 60 + wanted.minute, after, timeZone);
 }
 
 /** Plano do dia: todo dia no horário pedido (`when` obrigatório), um por bot (o db atualiza em vez de duplicar). */

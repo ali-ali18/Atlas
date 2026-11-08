@@ -1,4 +1,5 @@
 export * from "./agenda/index.js";
+export * from "./brief/index.js";
 export * from "./calendar/index.js";
 export * from "./define-capability.js";
 export * from "./hooks.js";

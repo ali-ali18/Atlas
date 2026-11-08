@@ -250,6 +250,12 @@ export class FakeAgenda implements Agenda {
 	}
 	async create(userId: string, plan: AgendaPlan, context?: { sourceRunId: string; untrustedRead?: boolean; exactIdentity?: boolean }): Promise<AgendaCreateResult> {
 		const active = [...this.items.values()].filter((i) => i.userId === userId && (i.status === "pending" || i.status === "paused"));
+		// Plano do dia: um por dono (o db: um por bot); criar de novo ATUALIZA o existente.
+		const brief = plan.kind === "brief" ? active.find((i) => i.kind === "brief") : undefined;
+		if (brief) {
+			Object.assign(brief, { note: plan.note, nextRunAt: plan.dueAt.toISOString(), everyMinutes: plan.intervalMinutes, untilAt: plan.untilAt?.toISOString() ?? null, maxRuns: plan.maxRuns, status: "pending" as const, endReason: null, noteUntrusted: context?.untrustedRead === true });
+			return { ok: true, item: this.view(brief), duplicate: false, updated: true };
+		}
 		const found = context?.exactIdentity ? undefined : findDuplicateAgendaItem(active.map((i) => ({ ...i, dueAt: new Date(i.nextRunAt), intervalMinutes: i.everyMinutes })), plan);
 		const same = found ? this.items.get(found.id) : undefined;
 		if (same) return { ok: true, item: this.view(same), duplicate: true };
