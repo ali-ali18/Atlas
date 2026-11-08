@@ -2,6 +2,7 @@
 
 import { readProviderRunUsage } from "@/lib/provider-run-usage";
 import { canUseLegacyChat } from "@/lib/provider-model-picker";
+import { parseLiveProductEvent } from "@/lib/product-event";
 import type { OutgoingAttachment } from "@/hooks/use-file-attachments";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
@@ -1015,9 +1016,12 @@ export function createComputerHandlers(params: {
 		},
 		onProduct: (event) => {
 			params.onActivity?.();
+			// Mesmo parser do cartão gravado: total recalculado, foto insegura fora, item inválido descartado.
+			const card = parseLiveProductEvent(event);
+			if (!card) return;
 			params.setMessages((previous) => {
-				if (previous.some((m) => m.kind === "product" && m.cardId === event.cardId)) return previous;
-				const message: Message = { id: `product-${event.cardId}`, kind: "product", cardId: event.cardId, items: event.items, ...(event.cheapestUrl ? { cheapestUrl: event.cheapestUrl } : {}), ...(event.incomplete ? { incomplete: true } : {}) };
+				if (previous.some((m) => m.kind === "product" && m.cardId === card.cardId)) return previous;
+				const message: Message = { id: `product-${card.cardId}`, kind: "product", cardId: card.cardId, items: card.items, ...(card.cheapestUrl ? { cheapestUrl: card.cheapestUrl } : {}), ...(card.incomplete ? { incomplete: true } : {}) };
 				return dedupeCards(insertCardAfterCurrentTurn(previous, message));
 			});
 		},

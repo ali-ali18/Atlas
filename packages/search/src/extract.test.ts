@@ -5,6 +5,7 @@ import {
   clearExtractRateLimits,
   clearExtractRobotsCache,
   extractWebPage,
+  decodeHtmlBytes,
   fetchPageHtml,
   htmlToMarkdown,
   type ExtractFetchFn,
@@ -185,6 +186,26 @@ describe("fetchPageHtml (F6.1)", () => {
     const page = await fetchPageHtml("https://a.com/p/fone", { fetchFn, lookupFn: publicLookup });
     expect(page.url).toBe("https://a.com/p/fone");
     expect(page.html).toContain('"@type":"Product"');
+  });
+
+  it("decodifica pelo charset do Content-Type ou do <meta>, com UTF-8 de padrão e fallback seguro", async () => {
+    // "Fone sem fio – promoção" em Latin-1: ç = 0xE7, ã = 0xE3, en dash não existe (usa hífen)
+    const latin1 = (s: string) => Uint8Array.from(Array.from(s).map((c) => c.charCodeAt(0)));
+    expect(decodeHtmlBytes(latin1("<html>promoção</html>"), "text/html; charset=ISO-8859-1")).toContain("promoção");
+    expect(decodeHtmlBytes(latin1('<html><head><meta charset="windows-1252"></head>promoção</html>'), "text/html")).toContain("promoção");
+    expect(decodeHtmlBytes(latin1('<meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1">ação'), "")).toContain("ação");
+    const utf8 = new TextEncoder().encode("<html>promoção</html>");
+    expect(decodeHtmlBytes(utf8, "text/html")).toContain("promoção");
+    // rótulo inventado: cai em UTF-8, sem lançar
+    expect(decodeHtmlBytes(utf8, "text/html; charset=x-inventado")).toContain("promoção");
+  });
+
+  it("fetchPageHtml entrega o texto certo de uma página Latin-1", async () => {
+    const body = Uint8Array.from(Array.from(`<html><head>${ld}</head><body>Promoção</body></html>`).map((c) => c.charCodeAt(0)));
+    const fetchFn: ExtractFetchFn = async (url: string) =>
+      url.endsWith("/robots.txt") ? new Response("", { status: 404 }) : new Response(body, { status: 200, headers: { "content-type": "text/html; charset=iso-8859-1" } });
+    const page = await fetchPageHtml("https://a.com/p/latin", { fetchFn, lookupFn: publicLookup });
+    expect(page.html).toContain("Promoção");
   });
 
   it("barra SSRF: IP interno, DNS que resolve para privado e redirecionamento para metadata", async () => {

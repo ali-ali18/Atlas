@@ -700,6 +700,26 @@ export async function extractWebPage(
   };
 }
 
+/** Rótulo de charset de uma lista de parâmetros (`text/html; charset=ISO-8859-1`) ou de uma tag `<meta>`. */
+function charsetLabel(text: string): string | undefined {
+  return /charset\s*=\s*["']?\s*([A-Za-z0-9_.:-]+)/i.exec(text)?.[1];
+}
+
+/**
+ * Decodifica o HTML pelo charset do `Content-Type`, senão do `<meta charset>` / `http-equiv` dos primeiros bytes, com UTF-8
+ * como padrão. Rótulo desconhecido ou que o `TextDecoder` não suporta cai em UTF-8 (nunca lança).
+ */
+export function decodeHtmlBytes(bytes: Uint8Array, contentType: string): string {
+  const head = new TextDecoder("latin1").decode(bytes.subarray(0, 2048));
+  const metaTag = /<meta\b[^>]*charset[^>]*>/i.exec(head)?.[0];
+  const label = charsetLabel(contentType) ?? (metaTag ? charsetLabel(metaTag) : undefined) ?? "utf-8";
+  try {
+    return new TextDecoder(label).decode(bytes);
+  } catch {
+    return new TextDecoder("utf-8").decode(bytes);
+  }
+}
+
 /**
  * HTML bruto de uma página (F6.1, `product_search`): o JSON-LD/OpenGraph só existem na marcação, não no Markdown que o
  * `extractWebPage` devolve. Mesmas proteções da extração: SSRF por salto (DNS e redirecionamentos), robots.txt, limite
@@ -737,5 +757,5 @@ export async function fetchPageHtml(
   const type = (response.headers.get("content-type") ?? "").toLowerCase();
   if (type && !/html|xml/.test(type)) throw new ExtractError("blocked", `conteúdo não é uma página (${type.split(";")[0]})`, `${BROWSER_HINT}, motivo: não é HTML`);
   const bytes = await readCappedBytes(response, EXTRACT_MAX_BYTES);
-  return { url: finalUrl, html: new TextDecoder("utf-8").decode(bytes) };
+  return { url: finalUrl, html: decodeHtmlBytes(bytes, type) };
 }
