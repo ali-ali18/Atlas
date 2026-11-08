@@ -1,7 +1,7 @@
 // Tool `checkout` (F6.3): paga um carrinho já montado com o cartão salvo do dono. Efeito `money`: SEMPRE cartão de
 // aprovação (com mandato, o cartão vira "só o campo do CVV"). A tool NUNCA vê o número do cartão nem o CVV: ela entrega
 // o pedido à porta `CardFill`, que junta cofre + CVV do canal efêmero e preenche o formulário da loja na VM.
-import { cardDisplayName } from "@workspace/shared";
+import { cardDisplayName, normalizeMerchant } from "@workspace/shared";
 import { z } from "zod";
 import type { CardFill, CardInfo } from "../../ports/payment.js";
 import { defineTool } from "../../tools/define-tool.js";
@@ -23,16 +23,17 @@ export const checkoutInputSchema = z.object({
 });
 export type CheckoutArgs = z.output<typeof checkoutInputSchema>;
 
-/** Loja pelo domínio da URL de pagamento (é o que o mandato compara; o modelo não escolhe). `null` se não é https válido. */
+/**
+ * Loja pelo domínio da URL de pagamento (é o que o mandato compara; o modelo não escolhe). `null` se não é https válido.
+ * Usa a MESMA normalização que grava a loja do mandato (`normalizeMerchant`, em shared).
+ */
 export function merchantOf(checkoutUrl: string): string | null {
 	try {
-		const url = new URL(checkoutUrl);
-		if (url.protocol !== "https:" || url.username || url.password) return null;
-		const host = url.hostname.toLowerCase();
-		return host.startsWith("www.") ? host.slice(4) : host;
+		if (new URL(checkoutUrl).protocol !== "https:") return null;
 	} catch {
 		return null;
 	}
+	return normalizeMerchant(checkoutUrl);
 }
 
 const cents = (value: number): number => Math.round(value * 100);

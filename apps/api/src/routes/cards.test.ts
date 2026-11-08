@@ -125,6 +125,17 @@ test("mandato: cria, lê, substitui e apaga; prazo no passado ou longo demais e 
 	assert.equal((await send(a, "PUT", "/v1/purchase-mandate", { ...ok, until: "2026-01-01T00:00:00Z" })).status, 400);
 	assert.equal((await send(a, "PUT", "/v1/purchase-mandate", { ...ok, until: "2030-01-01T00:00:00Z" })).status, 400);
 	assert.equal((await send(a, "PUT", "/v1/purchase-mandate", { ...ok, userId: B })).status, 400);
+	// loja é normalizada como o checkout compara (domínio, minúsculo, sem www, punycode) e lixo é 400 com mensagem clara
+	const urlForm = await send(a, "PUT", "/v1/purchase-mandate", { ...ok, merchants: ["https://www.Loja.Test/checkout", "loja.test", "Lojá.com.br"] });
+	assert.equal(urlForm.status, 200);
+	assert.deepEqual(((await urlForm.json()) as { mandate: { merchants: string[] } }).mandate.merchants, ["loja.test", "xn--loj-gla.com.br"]);
+	for (const bad of ["loja", "127.0.0.1", "minha loja", "ftp://loja.test"]) {
+		const res = await send(a, "PUT", "/v1/purchase-mandate", { ...ok, merchants: ["loja.test", bad] });
+		assert.equal(res.status, 400, bad);
+		const body = (await res.json()) as { error: string; message: string };
+		assert.equal(body.error, "invalid_merchant");
+		assert.match(body.message, /domínio válido/);
+	}
 	assert.equal((await send(b, "DELETE", "/v1/purchase-mandate")).status, 404);
 	assert.equal((await send(a, "DELETE", "/v1/purchase-mandate")).status, 200);
 });

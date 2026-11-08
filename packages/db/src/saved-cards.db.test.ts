@@ -65,6 +65,15 @@ describe("saved-cards (Postgres real)", { skip: dbSkip }, () => {
 		assert.equal(await deletePurchaseMandate(a), true);
 	});
 
+	test("mandato: a loja é gravada normalizada (como o checkout compara) e entrada inválida é recusada", async () => {
+		const until = new Date("2099-12-01T00:00:00Z");
+		const m = await upsertPurchaseMandate(a, { maxAmount: 10, currency: "BRL", merchants: ["https://www.Loja.Test/x", "loja.test", "lojá.com.br"], until, uses: 1 });
+		assert.deepEqual(m.merchants, ["loja.test", "xn--loj-gla.com.br"]);
+		await assert.rejects(() => upsertPurchaseMandate(a, { maxAmount: 10, currency: "BRL", merchants: ["loja.test", "lixo"], until, uses: 1 }), RangeError);
+		assert.deepEqual((await getPurchaseMandate(a))?.merchants, ["loja.test", "xn--loj-gla.com.br"], "recusa não altera o mandato");
+		await deletePurchaseMandate(a);
+	});
+
 	test("mandato: gasto de uso atômico, duas chamadas concorrentes com 1 uso passam só uma", async () => {
 		const until = new Date("2099-12-01T00:00:00Z");
 		await upsertPurchaseMandate(a, { maxAmount: 300, currency: "BRL", merchants: ["loja.test"], until, uses: 1 });

@@ -5,6 +5,7 @@
  * Toda função recebe o `userId` da SESSÃO ou do RUN e filtra por ele na própria consulta (40-seguranca): cartão de
  * outro dono é "não encontrado" (404 na API).
  */
+import { normalizeMerchant } from "@workspace/shared";
 import { prisma } from "./client.js";
 import { ownerIds } from "./mcp-connections.js";
 
@@ -63,7 +64,10 @@ const MANDATE_SELECT = { id: true, maxAmount: true, currency: true, merchants: t
 /** Um mandato por dono: criar um novo substitui o anterior. */
 export async function upsertPurchaseMandate(userId: string, input: { maxAmount: number; currency: string; merchants: readonly string[]; until: Date; uses: number }): Promise<PurchaseMandateRow> {
 	if (!owned(userId)) throw new RangeError("dono inválido");
-	const data = { maxAmount: input.maxAmount, currency: input.currency.toUpperCase(), merchants: input.merchants.map((m) => m.trim().toLowerCase()), until: input.until, usesLeft: input.uses };
+	// Mesma forma canônica que o checkout compara (`merchantOf`): loja que não é domínio válido nunca é gravada.
+	const merchants = [...new Set(input.merchants.map((m) => normalizeMerchant(m)))];
+	if (merchants.length === 0 || merchants.some((m) => m === null)) throw new RangeError("loja inválida");
+	const data = { maxAmount: input.maxAmount, currency: input.currency.toUpperCase(), merchants: merchants as string[], until: input.until, usesLeft: input.uses };
 	return prisma.purchaseMandate.upsert({ where: { userId }, create: { userId, ...data }, update: data, select: MANDATE_SELECT });
 }
 

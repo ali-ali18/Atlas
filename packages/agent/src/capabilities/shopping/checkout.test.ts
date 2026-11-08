@@ -55,6 +55,8 @@ describe("checkout: cartão de aprovação", () => {
 		const { tool } = rig();
 		expect(tool.riskFactsFor({ ...ARGS, store: "mercado" })?.merchant).toBe("loja.test");
 		expect(tool.riskFactsFor({ ...ARGS, checkoutUrl: "http://loja.test/x" })?.merchant).toBeUndefined();
+		expect(tool.riskFactsFor({ ...ARGS, checkoutUrl: "https://WWW.Loja.Test./pay" })?.merchant).toBe("loja.test");
+		expect(tool.riskFactsFor({ ...ARGS, checkoutUrl: "https://localhost/pay" })?.merchant).toBeUndefined();
 	});
 });
 

@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { purchaseMandateInputSchema, validateSavedCardInput, type SavedCardSecrets, type SavedCardView, type CardBrand, CARD_BRANDS } from "@workspace/shared";
+import { purchaseMandateInputSchema, validateSavedCardInput, type SavedCardSecrets, type SavedCardView, type CardBrand, CARD_BRANDS, normalizeMerchant } from "@workspace/shared";
 import { SavedCardLimitError, createSavedCard, deletePurchaseMandate, deleteSavedCard, getPurchaseMandate, listSavedCards, upsertPurchaseMandate, type PurchaseMandateRow, type SavedCardRow } from "@workspace/db";
 import { isCardVaultConfigured, sealCardSecrets } from "@workspace/agent-runtime";
 import { scopeFor, type AuthEnv } from "../middleware/auth.js";
@@ -102,7 +102,11 @@ export function createCardRoutes(overrides: Partial<CardRouteDeps> = {}) {
 		const until = new Date(parsed.data.until);
 		// Prazo no passado ou ilegível não cria mandato (e um prazo longo demais não é "delimitado").
 		if (!Number.isFinite(until.getTime()) || until.getTime() <= deps.now().getTime() || until.getTime() > deps.now().getTime() + 366 * 24 * 60 * 60 * 1000) return c.json({ error: "invalid_mandate" }, 400);
-		const row = await deps.putMandate(userId, { maxAmount: parsed.data.maxAmount, currency: parsed.data.currency, merchants: parsed.data.merchants, until, uses: parsed.data.uses });
+		// A loja é gravada no mesmo formato que o checkout compara (domínio, minúsculo, sem www). Entrada que não é domínio
+		// válido seria um mandato que nunca casa (ou casa errado): recusa com mensagem clara.
+		const merchants = parsed.data.merchants.map((m) => normalizeMerchant(m));
+		if (merchants.some((m) => m === null)) return c.json({ error: "invalid_merchant", message: "Informe cada loja como um domínio válido, por exemplo loja.com.br." }, 400);
+		const row = await deps.putMandate(userId, { maxAmount: parsed.data.maxAmount, currency: parsed.data.currency, merchants: [...new Set(merchants as string[])], until, uses: parsed.data.uses });
 		return c.json({ mandate: toMandateView(row) });
 	});
 
