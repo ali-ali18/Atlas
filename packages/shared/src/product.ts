@@ -2,6 +2,7 @@
 // reserva, `<title>` e a meta description) e comparação de lojas pelo TOTAL = preço + frete. Tudo puro (sem rede, sem
 // relógio). O que a página não traz simplesmente não existe no resultado: nada é inventado, e frete desconhecido nunca é
 // somado como zero. Regex só para ler FORMATO de marcação (tags e atributos); nenhuma decisão de comportamento lê texto.
+import { isStoreHost } from "./merchant.js";
 import { decodeEntities } from "./web/html-text.js";
 
 export const PRODUCT_AVAILABILITIES = ["in_stock", "out_of_stock", "preorder", "limited", "unknown"] as const;
@@ -28,7 +29,7 @@ export type ProductOffer = {
 	/** Preço + frete. `null` quando o preço ou o frete não são conhecidos (nunca soma zero em silêncio). */
 	total: number | null;
 	availability: ProductAvailability;
-	/** Só http(s). A primeira é a principal. */
+	/** Só https público (ver `safeImageUrl`). A primeira é a principal. */
 	images: string[];
 	description?: string;
 	rating?: ProductRating;
@@ -179,11 +180,32 @@ function httpUrl(raw: Json, base: string): string | undefined {
 	}
 }
 
+/** Sufixos de rede interna: a foto de um host assim nunca é de uma loja pública. */
+const INTERNAL_SUFFIXES = [".local", ".localhost", ".internal", ".lan", ".home", ".corp", ".intranet"];
+
+/**
+ * URL de imagem de loja que o navegador do dono pode pedir: só `https`, com nome de domínio público. Descarta localhost,
+ * host sem ponto, IP literal (v4 e v6) e `.local`/`.internal`: uma página de loja não pode fazer o navegador do dono
+ * bater na rede dele. Função pura, a mesma no servidor (ao extrair) e no web (`SafeImage`).
+ */
+export function safeImageUrl(value: string | undefined | null, base?: string): string | undefined {
+	if (!value) return undefined;
+	try {
+		const url = base ? new URL(value, base) : new URL(value);
+		if (url.protocol !== "https:" || url.username || url.password) return undefined;
+		const host = url.hostname.toLowerCase().replace(/\.$/, "");
+		if (!isStoreHost(host) || INTERNAL_SUFFIXES.some((suffix) => host.endsWith(suffix))) return undefined;
+		return url.toString();
+	} catch {
+		return undefined;
+	}
+}
+
 function imageList(v: Json, base: string, out: string[] = []): string[] {
 	if (Array.isArray(v)) for (const item of v) imageList(item, base, out);
 	else if (isRecord(v)) imageList(v.url ?? v.contentUrl, base, out);
 	else {
-		const u = httpUrl(v, base);
+		const u = safeImageUrl(str(v), base);
 		if (u && !out.includes(u)) out.push(u);
 	}
 	return out;
@@ -401,7 +423,7 @@ function parseShipping(v: Json): ProductShipping | null {
 
 const finite = (v: Json): v is number => typeof v === "number" && Number.isFinite(v);
 
-/** Revalida um item gravado: sempre recomputa o total (o gravado nunca é confiado) e descarta imagem que não seja http(s). */
+/** Revalida um item gravado: sempre recomputa o total (o gravado nunca é confiado) e descarta imagem que não seja https público. */
 export function parseProductOffer(v: Json): ProductOffer | null {
 	if (!isRecord(v)) return null;
 	const name = str(v.name);
@@ -412,7 +434,7 @@ export function parseProductOffer(v: Json): ProductOffer | null {
 	const price = v.price === null ? null : finite(v.price) && v.price >= 0 ? round2(v.price) : undefined;
 	if (price === undefined) return null;
 	const availability = (PRODUCT_AVAILABILITIES as readonly string[]).includes(v.availability as string) ? (v.availability as ProductAvailability) : "unknown";
-	const images = (Array.isArray(v.images) ? v.images : []).map((i) => httpUrl(i, "https://invalid.local")).filter((i): i is string => !!i).slice(0, PRODUCT_MAX_IMAGES);
+	const images = (Array.isArray(v.images) ? v.images : []).map((i) => safeImageUrl(str(i))).filter((i): i is string => !!i).slice(0, PRODUCT_MAX_IMAGES);
 	const rating = isRecord(v.rating) && finite(v.rating.value) && finite(v.rating.best) && v.rating.best > 0 && v.rating.value <= v.rating.best ? { value: v.rating.value, best: v.rating.best, ...(finite(v.rating.count) && v.rating.count > 0 && { count: Math.round(v.rating.count) }) } : undefined;
 	const description = cleanDescription(str(v.description));
 	return {

@@ -3,6 +3,7 @@
 import { ImageOffIcon } from "lucide-react";
 import * as React from "react";
 
+import { safeImageUrl } from "@workspace/shared";
 import { cn } from "@workspace/ui/lib/utils";
 
 /** Só http(s): qualquer outro esquema (javascript:, data:, file:) nunca vira `src` nem `href`. */
@@ -18,11 +19,11 @@ export function safeHttpUrl(value: string | undefined | null): string | undefine
 
 /**
  * Imagem de fora (foto de loja). O servidor nunca a baixa: o navegador do dono a pede direto, sem enviar o `Referer`
- * (`no-referrer`) e sem cookie. Se falhar ou a URL não for http(s), mostra um espaço neutro do MESMO tamanho: o layout não
+ * (`no-referrer`) e sem cookie. Se falhar ou a URL não for https público (`safeImageUrl`, a mesma checagem do servidor), mostra um espaço neutro do MESMO tamanho: o layout não
  * quebra e o `alt` continua acessível.
  */
 export function SafeImage({ src, alt, fallbackLabel, className }: { src: string | undefined; alt: string; fallbackLabel: string; className?: string }) {
-	const safe = safeHttpUrl(src);
+	const safe = safeImageUrl(src);
 	const [failed, setFailed] = React.useState(false);
 	React.useEffect(() => setFailed(false), [safe]);
 	if (!safe || failed) {

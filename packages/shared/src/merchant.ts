@@ -10,7 +10,7 @@ const HOST_MAX = 253;
 const isDomainLabel = (label: string): boolean => label.length > 0 && label.length <= LABEL_MAX && /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(label);
 
 /** Domínio de loja válido: pelo menos dois rótulos, TLD com letra (nada de IP nem `localhost`). */
-function isStoreHost(host: string): boolean {
+export function isStoreHost(host: string): boolean {
 	if (host.length === 0 || host.length > HOST_MAX) return false;
 	const labels = host.split(".");
 	if (labels.length < 2 || !labels.every(isDomainLabel)) return false;

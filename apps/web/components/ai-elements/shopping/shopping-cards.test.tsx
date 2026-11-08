@@ -57,6 +57,11 @@ test("produto: foto de esquema perigoso nunca vira src/href; cai no espaço neut
 	assert.equal(safeHttpUrl("https://ok.test/a.png"), "https://ok.test/a.png");
 	const direct = await render(<SafeImage alt="x" fallbackLabel="sem foto" src="data:text/html,<script>" />);
 	assert.doesNotMatch(direct, /<img/);
+	// mesma checagem do servidor: rede interna, IP e http não viram <img>
+	for (const bad of ["http://cdn.loja.test/a.png", "https://localhost/a.png", "https://192.168.0.10/a.png", "https://[::1]/a.png", "https://nas.local/a.png"]) {
+		assert.doesNotMatch(await render(<SafeImage alt="x" fallbackLabel="sem foto" src={bad} />), /<img/, bad);
+	}
+	assert.match(await render(<SafeImage alt="x" fallbackLabel="sem foto" src="https://cdn.loja.test/a.png" />), /<img/);
 });
 
 test("comparação: destaca o menor TOTAL, avisa do frete não informado e nunca ranqueia frete zero em silêncio", async () => {

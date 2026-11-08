@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compareOffers, discountPercent, offerTotal, parseConversationCard, parseMoneyNumber, parseProductPage, productCardId, serializeConversationCard, type ProductOffer } from "./index.js";
+import { compareOffers, discountPercent, offerTotal, parseConversationCard, parseMoneyNumber, safeImageUrl, parseProductPage, productCardId, serializeConversationCard, type ProductOffer } from "./index.js";
 
 const ld = (obj: unknown) => `<script type="application/ld+json">${JSON.stringify(obj)}</script>`;
 const page = (head: string) => `<!doctype html><html><head>${head}</head><body></body></html>`;
@@ -58,6 +58,20 @@ describe("parseProductPage: JSON-LD", () => {
 		const o = parseProductPage(page(ld({ "@type": "Product", name: "A", aggregateRating: { ratingValue: 9, bestRating: 5 }, offers: { price: 10, priceCurrency: "BRL" } })), URL1)!;
 		expect(o.rating).toBeUndefined();
 		expect(o.merchant).toBe("loja-a.test");
+	});
+});
+
+describe("imagens de loja (auditoria F6)", () => {
+	it("safeImageUrl: só https com domínio público; descarta http, localhost, host sem ponto, IP e rede interna", () => {
+		expect(safeImageUrl("https://cdn.loja.test/a.jpg")).toBe("https://cdn.loja.test/a.jpg");
+		expect(safeImageUrl("/img/a.jpg", "https://www.loja.test/p")).toBe("https://www.loja.test/img/a.jpg");
+		for (const bad of ["http://cdn.loja.test/a.jpg", "https://localhost/a.jpg", "https://intranet/a.jpg", "https://127.0.0.1/a.jpg", "https://10.0.0.5/a.jpg", "https://[::1]/a.jpg", "https://[fd00::1]/a.jpg", "https://nas.local/a.jpg", "https://api.internal/a.jpg", "https://x.localhost/a.jpg", "javascript:alert(1)", "data:image/png;base64,AA", "https://u:p@cdn.loja.test/a.jpg", "", "lixo"]) {
+			expect(safeImageUrl(bad), bad).toBeUndefined();
+		}
+	});
+	it("a extração e o cartão gravado aplicam a mesma checagem", () => {
+		const html = `<html><head><title>X</title><script type="application/ld+json">${JSON.stringify({ "@type": "Product", name: "Fone", image: ["http://cdn.a.test/1.jpg", "https://127.0.0.1/x.jpg", "https://cdn.a.test/2.jpg"], offers: { "@type": "Offer", price: 10, priceCurrency: "BRL" } })}</script><meta property="og:image" content="https://router.local/p.png"></head></html>`;
+		expect(parseProductPage(html, "https://a.test/p")?.images).toEqual(["https://cdn.a.test/2.jpg"]);
 	});
 });
 
