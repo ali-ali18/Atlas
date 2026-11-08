@@ -1,7 +1,7 @@
 import type { ComputerUseEvent, SessionMessage } from "@workspace/shared";
 import { describe, expect, it, vi } from "vitest";
 import { ChatApiError } from "./chat-api";
-import { ChatController, deriveView, type ChatApi, type ChatDeps } from "./chat-controller";
+import { ChatController, deriveView, requestErrorText, type ChatApi, type ChatDeps } from "./chat-controller";
 import type { FollowOptions, FollowResult } from "./chat-stream";
 import type { ChatItem } from "./chat-types";
 
@@ -713,13 +713,22 @@ describe("cards do motor v4", () => {
 		controller.respondToRequest(approvalItem(), "approve", "456");
 		await flush();
 		expect(sent).toEqual(["123", "456"]);
-		expect(controller.getSnapshot().error).toBe("Não deu para enviar o código agora. Nada foi cobrado. Digite o código de novo.");
+		// Falha de rede: o servidor pode ter aceitado, então o texto não promete que nada foi cobrado.
+		expect(controller.getSnapshot().error).toBe("Não consegui confirmar o envio. Confira a conversa antes de tentar de novo.");
 		expect(JSON.stringify(controller.getSnapshot())).not.toMatch(/123|456/);
 		// Na terceira, o dono digita de novo e vai.
 		controller.respondToRequest(approvalItem(), "approve", "789");
 		await flush();
 		expect(sent).toEqual(["123", "456", "789"]);
 		expect(controller.getSnapshot().error).toBeNull();
+	});
+
+	it("texto da falha do CVV: 'nada foi cobrado' só quando o servidor garante; timeout, rede e 5xx são neutros", () => {
+		const neutral = "Não consegui confirmar o envio. Confira a conversa antes de tentar de novo.";
+		expect(requestErrorText(new ChatApiError("run_not_paused", 409), true)).toContain("Nada foi cobrado");
+		expect(requestErrorText(new ChatApiError("cvv_required", 400), true)).toBe("Digite os 3 ou 4 números do código.");
+		for (const reason of [new TypeError("Network request failed"), new ChatApiError("boom", 500), new ChatApiError("bad gateway", 502)]) expect(requestErrorText(reason, true)).toBe(neutral);
+		expect(requestErrorText(new ChatApiError("payment_unavailable", 503), true)).toContain("Nada foi aprovado nem cobrado");
 	});
 
 	it("run que ainda não estacionou (409 run_not_paused) repete o mesmo pedido (sem CVV)", async () => {

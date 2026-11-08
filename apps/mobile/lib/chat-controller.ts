@@ -73,8 +73,11 @@ const DEFAULT_RETRY = [400, 1_000, 2_000] as const;
 export function requestErrorText(reason: unknown, withCode = false): string {
 	// O código do cartão nunca é reenviado sozinho: falha passageira (rede, run ainda não parado, 5xx) = o dono digita de novo.
 	if (withCode) {
-		const transient = reason instanceof ChatApiError ? (reason.status === 409 && reason.message === "run_not_paused") || (reason.status >= 500 && reason.status !== 503) : true;
-		if (transient) return "Não deu para enviar o código agora. Nada foi cobrado. Digite o código de novo.";
+		// 409 run_not_paused vem antes do depósito do código: aí SIM nada foi enviado nem cobrado. Rede, timeout e 5xx não garantem isso
+		// (a resposta pode ter se perdido depois de o servidor aceitar): texto neutro, sem prometer.
+		if (reason instanceof ChatApiError && reason.status === 409 && reason.message === "run_not_paused") return "Não deu para enviar o código agora. Nada foi cobrado. Digite o código de novo.";
+		const unconfirmed = !(reason instanceof ChatApiError) || (reason.status >= 500 && reason.status !== 503);
+		if (unconfirmed) return "Não consegui confirmar o envio. Confira a conversa antes de tentar de novo.";
 	}
 	if (reason instanceof ChatApiError) {
 		if (reason.status === 400 && reason.message === "cvv_required") return "Digite os 3 ou 4 números do código.";
