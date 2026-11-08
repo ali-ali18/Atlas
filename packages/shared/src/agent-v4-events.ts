@@ -121,3 +121,28 @@ export function parseAgentV4Event(value: unknown): AgentV4Event | null {
 		}
 	}
 }
+
+/** Identidade do card dentro do run: o pedido, a chamada ou o cartão a que o evento se refere. */
+export function agentCardIdentity(event: AgentV4Event): string {
+	switch (event.type) {
+		case "approval_request":
+			return event.requestId;
+		case "handoff_request":
+			return event.callId;
+		case "ask_owner":
+			return event.cardId;
+		case "receipt":
+			return event.id;
+	}
+}
+
+/** Chave estável do card (ao vivo = gravado = restaurado): web e celular a usam para o dedupe e para o estado da decisão. */
+export function agentCardKey(event: AgentV4Event): string {
+	return `${event.type}|${event.runId ?? ""}|${agentCardIdentity(event)}`;
+}
+
+/** Chamada do modelo que o card estaciona: o `tool_result` dela diz que o pedido já foi resolvido. */
+export function agentCardCallId(event: AgentV4Event): string | null {
+	if (event.type === "approval_request" || event.type === "handoff_request") return event.callId;
+	return null;
+}

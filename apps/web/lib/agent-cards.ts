@@ -1,4 +1,4 @@
-import { type AgentV4Event, type ComputerUseEvent, isAgentV4EventType, parseAgentV4Event } from "@workspace/shared";
+import { type AgentV4Event, type ComputerUseEvent, agentCardCallId, agentCardIdentity, agentCardKey, isAgentV4EventType, parseAgentV4Event } from "@workspace/shared";
 import type { Message } from "@/components/ui/templates/template-4/data";
 import { formatCurrency, formatList } from "@/lib/format";
 import { defaultTranslator, type Translator } from "@/lib/i18n/translator";
@@ -12,33 +12,10 @@ import { defaultTranslator, type Translator } from "@/lib/i18n/translator";
 export type AgentCardMessage = Extract<Message, { kind: "agent-card" }>;
 export type AgentCardType = AgentV4Event["type"];
 
-/** Identidade do card dentro do run: o pedido, a chamada ou o cartão a que o evento se refere. */
-export function agentCardIdentity(event: AgentV4Event): string {
-	switch (event.type) {
-		case "approval_request":
-			return event.requestId;
-		case "handoff_request":
-			return event.callId;
-		case "ask_owner":
-			return event.cardId;
-		case "receipt":
-			return event.id;
-	}
-}
-
-/** Chave estável (ao vivo = gravado = restaurado): é a chave do dedupe e do estado da decisão. */
-export function agentCardKey(event: AgentV4Event): string {
-	return `${event.type}|${event.runId ?? ""}|${agentCardIdentity(event)}`;
-}
+export { agentCardIdentity, agentCardKey };
 
 /** Prefixo do id do card ao vivo: o gravado (id do banco) vence quando os dois coexistem. */
 export const LIVE_AGENT_CARD_PREFIX = "agent-card-";
-
-/** Chamada do modelo que o card estaciona: o `tool_result` dela diz que o pedido já foi resolvido. */
-export function agentCardCallId(event: AgentV4Event): string | null {
-	if (event.type === "approval_request" || event.type === "handoff_request") return event.callId;
-	return null;
-}
 
 /** Evento do stream → mensagem da thread. `runId` de reserva quando o evento não traz o dele. */
 export function agentCardMessage(event: AgentV4Event, options: { id?: string; runId?: string } = {}): AgentCardMessage {

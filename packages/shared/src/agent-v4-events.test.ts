@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AGENT_V4_EVENT_TYPES, AGENT_V4_TEXT_MAX, isAgentV4EventType, parseAgentV4Event } from "./agent-v4-events.js";
+import { type AgentV4Event, AGENT_V4_EVENT_TYPES, AGENT_V4_TEXT_MAX, isAgentV4EventType, parseAgentV4Event, agentCardCallId, agentCardIdentity, agentCardKey } from "./agent-v4-events.js";
 import { applyComputerUseEventsToTranscript, type TranscriptBubble } from "./run-transcript.js";
 import type { ComputerUseEvent } from "./computer.js";
 
@@ -53,5 +53,21 @@ describe("eventos do motor v4 no contrato SSE", () => {
 		const before: TranscriptBubble[] = [{ id: "cu-a", kind: "assistant", text: "oi" }];
 		const events = [approval, { type: "handoff_request", callId: "c", message: "m" }, { type: "ask_owner", cardId: "k", question: "q" }, { type: "receipt", id: "c", name: "n", what: "w" }] as ComputerUseEvent[];
 		expect(applyComputerUseEventsToTranscript(before, events)).toEqual(before);
+	});
+});
+
+describe("identidade do card (web e celular)", () => {
+	const approval: AgentV4Event = { type: "approval_request", requestId: "req-1", callId: "c1", toolName: "send_email", effect: "send", args: {}, riskFacts: {}, runId: "run-1" };
+	it("chave estável por tipo, run e pedido/chamada/cartão/recibo", () => {
+		expect(agentCardKey(approval)).toBe("approval_request|run-1|req-1");
+		expect(agentCardKey({ type: "handoff_request", callId: "c2", message: "x", runId: "run-1" })).toBe("handoff_request|run-1|c2");
+		expect(agentCardKey({ type: "ask_owner", cardId: "k1", question: "?" })).toBe("ask_owner||k1");
+		expect(agentCardIdentity({ type: "receipt", id: "r1", name: "n", what: "w" })).toBe("r1");
+	});
+	it("só aprovação e handoff estacionam uma chamada", () => {
+		expect(agentCardCallId(approval)).toBe("c1");
+		expect(agentCardCallId({ type: "handoff_request", callId: "c2", message: "x" })).toBe("c2");
+		expect(agentCardCallId({ type: "ask_owner", cardId: "k1", question: "?" })).toBeNull();
+		expect(agentCardCallId({ type: "receipt", id: "r1", name: "n", what: "w" })).toBeNull();
 	});
 });
