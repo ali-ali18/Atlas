@@ -1,6 +1,8 @@
 import { parseChartSpec, type ChartSpec } from "./chart-spec.js";
 import { parseProductCard, type PersistedProductCard } from "./product.js";
 import { parsePurchaseCard, type PersistedPurchaseCard } from "./purchase.js";
+import { parseCalendarCard, type PersistedCalendarCard } from "./calendar.js";
+import { parseDayPlanCard, type PersistedDayPlanCard } from "./day-plan.js";
 import { parsePageSpec, type PageSpec } from "./page-spec.js";
 import { parseDevApprovalInfo, type DevApprovalCardInfo } from "./dev-command-approval.js";
 import { parseEmailKeyRequestInfo, type EmailKeyRequestInfo } from "./email.js";
@@ -42,6 +44,8 @@ export type ConversationCardRole =
 	| "chart"
 	| "product"
 	| "purchase"
+	| "calendar"
+	| "day-plan"
 	| "page"
 	| "task-list"
 	| "compaction"
@@ -341,6 +345,8 @@ export type PersistedConversationCard =
 	| PersistedChartCard
 	| PersistedProductCard
 	| PersistedPurchaseCard
+	| PersistedCalendarCard
+	| PersistedDayPlanCard
 	| PersistedPageCard
 	| PersistedTaskListCard
 	| PersistedSkillCard
@@ -387,6 +393,8 @@ export function isConversationCardRole(role: string): role is ConversationCardRo
 		role === "images" ||
 		role === "product" ||
 		role === "purchase" ||
+		role === "calendar" ||
+		role === "day-plan" ||
 		role === "task-list" ||
 		role === "compaction" ||
 		role === "revised-draft"
@@ -728,6 +736,8 @@ export function parseConversationCard(content: string): PersistedConversationCar
 	}
 	if (row.kind === "product") return parseProductCard(row);
 	if (row.kind === "purchase") return parsePurchaseCard(row);
+	if (row.kind === "calendar") return parseCalendarCard(row);
+	if (row.kind === "day-plan") return parseDayPlanCard(row);
 	if (row.kind === "chart") {
 		const chartId = asOptionalString(row.chartId);
 		const parsed = parseChartSpec(row.spec);
@@ -915,6 +925,8 @@ export function insertCardAfterCurrentTurn<T extends { kind: string }>(
 			messages[insertAt]?.kind === "chart" ||
 			messages[insertAt]?.kind === "product" ||
 			messages[insertAt]?.kind === "purchase" ||
+			messages[insertAt]?.kind === "calendar" ||
+			messages[insertAt]?.kind === "day-plan" ||
 			messages[insertAt]?.kind === "page" ||
 			messages[insertAt]?.kind === "task-list" ||
 			messages[insertAt]?.kind === "compaction" ||
