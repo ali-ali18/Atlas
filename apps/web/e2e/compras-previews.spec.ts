@@ -29,6 +29,8 @@ const COMPARE = [
   offer({ merchant: "Loja A", url: "https://loja-a.test/p/fone", price: 100, shipping: { kind: "paid", amount: 40 }, total: 140, images: [IMG(1)], rating: { value: 4.5, best: 5, count: 80 } }),
   offer({ merchant: "Loja B", url: "https://loja-b.test/p/fone", price: 120, shipping: { kind: "free" }, total: 120, images: [IMG(2)], rating: { value: 4.2, best: 5, count: 12 } }),
   offer({ merchant: "Loja C", url: "https://loja-c.test/p/fone", price: 90, shipping: { kind: "unknown" }, total: null, images: [IMG(404)] }),
+  offer({ merchant: "Loja D", url: "https://loja-d.test/p/fone", price: 95, oldPrice: 119, shipping: { kind: "free" }, total: 95, availability: "out_of_stock", images: [IMG(3)] }),
+  offer({ merchant: "Loja E", url: "https://loja-e.test/p/fone", price: 80, priceFrom: true, shipping: { kind: "unavailable" }, total: null, images: [IMG(2)] }),
 ]
 
 const SEEDS: Seed[] = [

@@ -31,6 +31,32 @@ function shippingText(o: ProductOffer, t: Translator, f: Format): string {
 	return t.t("shopping.product.shippingUnknown");
 }
 
+/** Domínio da página, ao lado do nome da loja que ela declara: o dono vê para onde o link vai. */
+function hostOf(url: string): string | null {
+	try {
+		return new URL(url).hostname.replace(/^www\./i, "");
+	} catch {
+		return null;
+	}
+}
+
+function StoreName({ offer, className }: { offer: ProductOffer; className?: string }) {
+	const host = hostOf(offer.url);
+	return (
+		<span className={cn("min-w-0", className)}>
+			{offer.merchant}
+			{host ? <span className="text-caption text-muted-foreground" data-testid="product-host"> · {host}</span> : null}
+		</span>
+	);
+}
+
+/** Selo de situação da oferta: esgotado ou "não entrega" (o que tira a loja do ranking). */
+function StockBadge({ offer, t }: { offer: ProductOffer; t: Translator }) {
+	if (offer.shipping.kind === "unavailable") return <Badge variant="destructive">{t.t("shopping.product.shippingUnavailable")}</Badge>;
+	if (offer.availability === "out_of_stock") return <Badge variant="destructive">{t.t("shopping.product.outOfStock")}</Badge>;
+	return null;
+}
+
 function totalText(o: ProductOffer, t: Translator, f: Format): string {
 	return o.total === null ? t.t("shopping.product.totalUnknown") : t.t("shopping.product.total", { amount: money(f, o.total, o.currency) });
 }
@@ -60,6 +86,27 @@ function PriceBlock({ offer, t, f }: { offer: ProductOffer; t: Translator; f: Fo
 			)}
 			{offer.oldPrice !== undefined ? <s className="text-caption text-muted-foreground tabular-nums" data-testid="product-old-price">{t.t("shopping.product.wasPrice", { price: money(f, offer.oldPrice, offer.currency) })}</s> : null}
 			{discount !== null ? <Badge variant="success">{t.t("shopping.product.discount", { percent: discount })}</Badge> : null}
+		</div>
+	);
+}
+
+/** Preço antigo e desconto (só quando a página traz), no formato compacto da comparação. */
+function PriceDiscount({ offer, t, f }: { offer: ProductOffer; t: Translator; f: Format }) {
+	const discount = discountPercent(offer);
+	if (offer.oldPrice === undefined && discount === null) return null;
+	return (
+		<>
+			{offer.oldPrice !== undefined ? <s className="text-caption text-muted-foreground tabular-nums" data-testid="product-old-price">{t.t("shopping.product.wasPrice", { price: money(f, offer.oldPrice, offer.currency) })}</s> : null}
+			{discount !== null ? <Badge variant="success">{t.t("shopping.product.discount", { percent: discount })}</Badge> : null}
+		</>
+	);
+}
+
+function PriceDiscountLine({ offer, t, f }: { offer: ProductOffer; t: Translator; f: Format }) {
+	if (offer.oldPrice === undefined) return null;
+	return (
+		<div className="flex flex-wrap items-center gap-x-2">
+			<PriceDiscount f={f} offer={offer} t={t} />
 		</div>
 	);
 }
@@ -112,7 +159,7 @@ function SingleProduct({ offer }: { offer: ProductOffer }) {
 			{offer.images.length > 0 ? <Gallery offer={offer} t={t} /> : null}
 			<PriceBlock f={f} offer={offer} t={t} />
 			<div className="flex flex-col gap-1 text-body">
-				<span className="flex items-center gap-1.5 text-muted-foreground" title={t.t("shopping.product.store", { store: offer.merchant })}><StoreIcon aria-hidden className="size-3.5" />{offer.merchant}</span>
+				<span className="flex items-center gap-1.5 text-muted-foreground" title={t.t("shopping.product.store", { store: offer.merchant })}><StoreIcon aria-hidden className="size-3.5" /><StoreName offer={offer} /></span>
 				<div className="flex flex-wrap items-center justify-between gap-x-3" data-testid="product-shipping">
 					<span className={cn(offer.shipping.kind === "unknown" && "text-warning", offer.shipping.kind === "unavailable" && "text-destructive")}>{shippingText(offer, t, f)}</span>
 					<span className={cn("font-medium tabular-nums", offer.total === null && "text-muted-foreground")} data-testid="product-total">{totalText(offer, t, f)}</span>
@@ -135,10 +182,12 @@ function CompareRow({ offer, best }: { offer: ProductOffer; best: boolean }) {
 			<SafeImage alt={t.t("shopping.product.photoOf", { name: offer.name })} className="size-14 shrink-0 rounded-lg" fallbackLabel={t.t("shopping.product.photoUnavailable")} src={offer.images[0]} />
 			<div className="flex min-w-0 flex-1 flex-col gap-0.5">
 				<div className="flex min-w-0 items-center gap-2">
-					<span className="min-w-0 flex-1 truncate text-body font-medium">{offer.merchant}</span>
+					<StoreName className="flex-1 truncate text-body font-medium" offer={offer} />
+					<StockBadge offer={offer} t={t} />
 					{best ? <Badge variant="success">{t.t("shopping.product.cheapest")}</Badge> : null}
 				</div>
 				<span className="truncate text-caption text-muted-foreground">{offer.name}</span>
+				<PriceDiscountLine f={f} offer={offer} t={t} />
 				<div className="flex flex-wrap items-baseline justify-between gap-x-3 text-body">
 					<span className="tabular-nums">{priceText(offer, t, f)} · <span className={cn(offer.shipping.kind === "unknown" && "text-warning", offer.shipping.kind === "unavailable" && "text-destructive")}>{shippingText(offer, t, f)}</span></span>
 					<span className={cn("font-medium tabular-nums", offer.total === null && "text-muted-foreground")} data-testid="product-total">{totalText(offer, t, f)}</span>

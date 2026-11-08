@@ -115,3 +115,22 @@ test("preço de faixa (AggregateOffer) aparece como 'a partir de' nos dois cards
 	const html = await render(<ProductCard items={[a, b]} />);
 	assert.equal((html.match(/a partir de/g) ?? []).length, 1);
 });
+
+test("comparação: cada linha mostra o domínio da página, o selo de esgotado/não entrega e o desconto", async () => {
+	const a = offer({ merchant: "Loja A", url: "https://www.loja-a.test/p", price: 80, oldPrice: 100, shipping: { kind: "free" } });
+	const b = offer({ merchant: "Loja B", url: "https://b.test/p", price: 50, shipping: { kind: "free" }, availability: "out_of_stock" });
+	const c = offer({ merchant: "Loja C", url: "https://c.test/p", price: 50, shipping: { kind: "unavailable" } });
+	const html = await render(<ProductCard cheapestUrl={a.url} items={[a, b, c]} />);
+	assert.match(html, /loja-a\.test/);
+	assert.match(html, /b\.test/);
+	assert.equal((html.match(/data-testid="product-host"/g) ?? []).length, 3);
+	assert.match(html, /20% de desconto/);
+	assert.match(html, /Esgotado/);
+	assert.match(html, /Não entrega/);
+});
+
+test("card de um produto também mostra o domínio ao lado do nome da loja", async () => {
+	const html = await render(<ProductCard items={[offer({ merchant: "Loja Z", url: "https://www.z-loja.test/p", price: 10, shipping: { kind: "free" } })]} />);
+	assert.match(html, /Loja Z/);
+	assert.match(html, /z-loja\.test/);
+});
