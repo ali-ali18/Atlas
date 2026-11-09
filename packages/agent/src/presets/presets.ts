@@ -13,6 +13,8 @@ import { createMemoryCapability } from "../capabilities/memory/index.js";
 import { createEmailCapability } from "../capabilities/email/index.js";
 import { createBrowserCapability } from "../capabilities/browser/index.js";
 import { createVaultCapability, type VaultDeps } from "../capabilities/vault/index.js";
+import { createGithubCapability } from "../capabilities/github/index.js";
+import type { GithubPorts } from "../ports/github.js";
 import { createShoppingCapability } from "../capabilities/shopping/index.js";
 import { createImagesCapability } from "../capabilities/images/index.js";
 import type { Images } from "../ports/images.js";
@@ -36,7 +38,7 @@ import { createWebCapability } from "./web.js";
 export const PRESET_IDS = ["minimal", "full"] as const;
 export type PresetId = (typeof PRESET_IDS)[number];
 
-export type CapabilityId = "web" | "deliverables-lite" | "memory" | "tasks" | "settings" | "research" | "agenda" | "shopping" | "email" | "calendar" | "code" | "browser" | "images" | "vault";
+export type CapabilityId = "web" | "deliverables-lite" | "memory" | "tasks" | "settings" | "research" | "agenda" | "shopping" | "email" | "calendar" | "code" | "browser" | "images" | "vault" | "github";
 
 export type AgentPreset = {
 	id: PresetId;
@@ -48,7 +50,7 @@ export type AgentPreset = {
 
 export const PRESETS: Readonly<Record<PresetId, AgentPreset>> = Object.freeze({
 	minimal: Object.freeze({ id: "minimal", capabilities: Object.freeze(["web", "deliverables-lite"] as const), workContract: false }),
-	full: Object.freeze({ id: "full", capabilities: Object.freeze(["web", "deliverables-lite", "memory", "tasks", "settings", "research", "agenda", "shopping", "email", "calendar", "browser", "images", "vault"] as const), workContract: true }),
+	full: Object.freeze({ id: "full", capabilities: Object.freeze(["web", "deliverables-lite", "memory", "tasks", "settings", "research", "agenda", "shopping", "email", "calendar", "browser", "images", "vault", "github"] as const), workContract: true }),
 });
 
 /**
@@ -87,6 +89,8 @@ export type PresetDeps = {
 	images?: Images;
 	/** Cofre (F9): nomes e metadados dos segredos do dono, o cartão "cadastre este segredo" e o `login_fill` (pela porta `Sandbox`). Lazy; sem a porta a capacidade não entra. `readOnly` = sem dono: só `secret_list`. */
 	vault?: VaultDeps;
+	/** GitHub (F9, leitura): listar repositórios e comparar dois pontos, com o token do dono. Lazy; sem a porta a capacidade fica em `unavailable`. Escrita segue pelos conectores. */
+	github?: GithubPorts;
 };
 
 export function isPresetId(value: unknown): value is PresetId {
@@ -119,6 +123,8 @@ const FACTORIES: Readonly<Record<CapabilityId, CapabilityFactory>> = {
 	images: (deps) => deps.images && createImagesCapability(deps.images),
 	// F9: cofre; lazy. O valor nunca chega ao modelo (`{{secret:NOME}}` no executor, `login_fill` na VM).
 	vault: (deps) => deps.vault && createVaultCapability(deps.vault),
+	// F9: leitura do GitHub; lazy. Só lê, então o mesmo conjunto vale em run sem dono (o conteúdo vem de fora e é `untrusted`).
+	github: (deps) => deps.github && createGithubCapability(deps.github),
 };
 
 /**

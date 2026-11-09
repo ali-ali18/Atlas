@@ -1,4 +1,5 @@
 import { paymentRig } from "../testing/payment-fakes.js";
+import { FakeGithub } from "../testing/github-fakes.js";
 import { FakeSecretRequests, FakeVault } from "../testing/vault-fakes.js";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
@@ -58,7 +59,7 @@ const checkoutDeps = () => {
 	const r = paymentRig();
 	return { cards: [r.info], fill: r.fill };
 };
-const fullDeps = () => ({ ...deps(), memory: new FakeMemory(), settings: new FakeSettings(), taskLists: new FakeTaskListStore(), helpers: new FakeHelpers(), agenda: new FakeAgenda(), shopping: new FakeShopping().ports, checkout: checkoutDeps(), email: new FakeEmail().ports, calendar: new FakeCalendar().ports, code: {}, browser: true, images: new FakeImages().port, vault: { vault: new FakeVault(), requests: new FakeSecretRequests() } });
+const fullDeps = () => ({ ...deps(), memory: new FakeMemory(), settings: new FakeSettings(), taskLists: new FakeTaskListStore(), helpers: new FakeHelpers(), agenda: new FakeAgenda(), shopping: new FakeShopping().ports, checkout: checkoutDeps(), email: new FakeEmail().ports, calendar: new FakeCalendar().ports, code: {}, browser: true, images: new FakeImages().port, vault: { vault: new FakeVault(), requests: new FakeSecretRequests() }, github: new FakeGithub().ports });
 
 describe("preset full: memory, tasks e settings (F2.4)", () => {
 	it("entram como capacidades lazy: só o índice vai no prompt, as tools ficam de fora do primeiro passo", async () => {
@@ -86,7 +87,7 @@ describe("preset full: memory, tasks e settings (F2.4)", () => {
 
 	it("porta ausente: a capacidade não entra e `unavailable` diz qual (nada some em silêncio)", () => {
 		const setup = setupPreset("full", deps());
-		expect(setup.unavailable).toEqual(["memory", "tasks", "settings", "research", "agenda", "shopping", "email", "calendar", "browser", "images", "vault"]);
+		expect(setup.unavailable).toEqual(["memory", "tasks", "settings", "research", "agenda", "shopping", "email", "calendar", "browser", "images", "vault", "github"]);
 		expect(setup.registry.ids()).toEqual(expect.not.arrayContaining(["memory"]));
 		expect(setupPreset("minimal", deps()).unavailable).toEqual([]);
 	});
@@ -312,5 +313,19 @@ describe("preset full: browser (F8.1)", () => {
 		const without = setupPreset("full", noVault);
 		expect(without.registry.ids()).not.toContain("vault");
 		expect(without.unavailable).toEqual(["vault"]);
+	});
+
+	it("github (F9, leitura): entra lazy com a porta, só com as duas tools de leitura; sem ela `unavailable` diz que falta", () => {
+		const withGithub = setupPreset("full", fullDeps());
+		expect(withGithub.registry.ids()).toContain("github");
+		expect(withGithub.registry.core().map((c) => c.id)).not.toContain("github");
+		const names = withGithub.registry.capabilities.find((c) => c.id === "github")!.tools.map((t) => t.name);
+		expect(names).toEqual(["github_list_repos", "github_compare"]);
+		// Lazy: nenhuma das duas está no conjunto de tools de "Bom dia" (só o índice da capacidade).
+		expect(withGithub.registry.core().flatMap((c) => c.tools.map((t) => t.name))).not.toEqual(expect.arrayContaining(names));
+		const { github: _github, ...noGithub } = fullDeps();
+		const without = setupPreset("full", noGithub);
+		expect(without.registry.ids()).not.toContain("github");
+		expect(without.unavailable).toEqual(["github"]);
 	});
 });

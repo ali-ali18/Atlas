@@ -5,6 +5,7 @@ export * from "./calendar/index.js";
 export * from "./code/index.js";
 export * from "./define-capability.js";
 export * from "./email/index.js";
+export * from "./github/index.js";
 export * from "./hooks.js";
 export * from "./images/index.js";
 export * from "./loaded-set.js";

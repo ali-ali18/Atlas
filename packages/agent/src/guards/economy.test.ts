@@ -5,7 +5,9 @@ import { FakeMcp } from "../connectors/fake-mcp.js";
 import { createDeliverablesCapability } from "../capabilities-builtin/deliverables/index.js";
 import { createBrowserCapability } from "../capabilities/browser/index.js";
 import { createShoppingCapability } from "../capabilities/shopping/index.js";
+import { createGithubCapability } from "../capabilities/github/index.js";
 import { createVaultCapability } from "../capabilities/vault/index.js";
+import { FakeGithub } from "../testing/github-fakes.js";
 import { FakeSecretRequests, FakeVault } from "../testing/vault-fakes.js";
 import { createEmailCapability } from "../capabilities/email/index.js";
 import { FakeEmail } from "../presets/fake-email.js";
@@ -196,6 +198,27 @@ describe("economia: Bom dia", () => {
 		expect(withVault.tokens - base.tokens).toBeLessThan(60);
 		expect(JSON.stringify(withVault.result)).not.toContain("Vault rules");
 		expect(withVault.tokens).toBeLessThanOrEqual(GOOD_MORNING_INPUT_TOKENS_CEILING + 60);
+	});
+
+	it("a capacidade github é lazy: 'Bom dia' não ganha github_list_repos nem github_compare, só uma linha do índice", async () => {
+		const base = await measureGoodMorning();
+		const withGithub = await measureGoodMorning([createGithubCapability(new FakeGithub().ports)]);
+		expect(withGithub.toolNames).toEqual(base.toolNames);
+		for (const name of ["github_list_repos", "github_compare"]) expect(withGithub.toolNames).not.toContain(name);
+		expect(withGithub.tokens - base.tokens).toBeLessThan(60);
+		expect(JSON.stringify(withGithub.result)).not.toContain("GitHub rules");
+		expect(withGithub.tokens).toBeLessThanOrEqual(GOOD_MORNING_INPUT_TOKENS_CEILING + 60);
+	});
+
+	it("'compara a branch main com a feature do meu repositório' carrega a capacidade no passo 1; as tools e as regras só no passo seguinte", async () => {
+		const core = defineCapability({ id: "core", title: "Core", summary: "core tools", core: true, tools: [] });
+		const h = kernelHarness([reply({ calls: [call("c1", "use_capability", { id: "github" })] }), reply({ text: "Pronto." })], { capabilities: [core, createGithubCapability(new FakeGithub().ports)] });
+		await h.run({ input: { contextSections: [], history: [{ kind: "owner", text: "Compara a main com a feature no meu repositório do GitHub" }] } });
+		const [first, second] = h.llm.requests;
+		expect(JSON.stringify(first?.messages)).not.toContain("GitHub rules");
+		expect((first?.tools ?? []).map((t) => t.name)).not.toContain("github_compare");
+		expect((second?.tools ?? []).map((t) => t.name)).toEqual(expect.arrayContaining(["github_list_repos", "github_compare"]));
+		expect(JSON.stringify(second?.messages)).toContain("GitHub rules");
 	});
 
 	it("'entra no meu banco com o login salvo' carrega a capacidade no passo 1; as tools e as regras só no passo seguinte", async () => {
