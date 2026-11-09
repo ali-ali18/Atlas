@@ -237,3 +237,24 @@ test("helpers puros: host, valores, desafio, resultado e referência", () => {
 	assert.equal(extractOrderRef("Seu pedido nº ABC-12345 foi recebido"), "ABC-12345");
 	assert.equal(extractOrderRef("Pedido confirmado"), undefined);
 });
+
+test("http: nunca recebe o cartão: pedido em http é recusado e a página que cai em http também", async () => {
+	const driver = fakeDriver();
+	const insecureRequest = await make(driver).fill({ ...PARAMS, url: "http://loja.exemplo.com/checkout" });
+	assert.equal(insecureRequest.state, "failed");
+	assert.deepEqual(driver.calls, []);
+
+	const downgraded = fakeDriver({ url: "http://www.loja.exemplo.com/checkout" });
+	const result = await make(downgraded).fill(PARAMS);
+	assert.equal(result.state, "failed");
+	assert.deepEqual(downgraded.calls, ["goto"], "nada digitado");
+});
+
+test("mais de um quadro candidato a receber o número: failed e nada é pago", async () => {
+	const driver = fakeDriver({ fields: { number: false, exp: false, cvv: false, ambiguous: true } });
+	const result = await make(driver).fill(PARAMS);
+	assert.equal(result.state, "failed");
+	assert.match(result.reason, /more than one place/);
+	assert.equal(payCalls(driver), 0);
+	assert.ok(driver.calls.includes("clear"));
+});

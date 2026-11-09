@@ -17,7 +17,7 @@ function field({ placeholder = "", mask = false, failFill = false } = {}) {
 	f.first = () => f;
 	return f;
 }
-const frameWith = (map, url = "https://js.gateway.exemplo/frame") => ({ url: () => url, locator: (selector) => map[selector] ?? { first: () => ({ count: async () => 0 }) } });
+const frameWith = (map, url = "https://js.stripe.com/v3/frame") => ({ url: () => url, locator: (selector) => map[selector] ?? { first: () => ({ count: async () => 0 }) } });
 
 function pageWith(frames, extra = {}) {
 	const main = frames[0];
@@ -78,4 +78,53 @@ test("goto/pageText/chargeTexts não propagam erro do Playwright", async () => {
 	const driver = createPlaywrightDriver(pageWith([frameWith({})], { evaluate: async () => { throw new Error("x"); } }));
 	assert.equal(await driver.pageText(), "");
 	assert.deepEqual(await driver.chargeTexts(), []);
+});
+
+test("o cartão só é digitado na página da loja, em iframe da mesma origem registrável ou de gateway conhecido", async () => {
+	const own = field();
+	const ad = field();
+	const main = frameWith({}, "https://loja.exemplo.com/checkout");
+	const sameSite = frameWith({ 'input[autocomplete="cc-number"]': own }, "https://pay.loja.exemplo.com/f");
+	const stranger = frameWith({ 'input[autocomplete="cc-number"]': ad, 'input[autocomplete="cc-csc"]': field() }, "https://widget.terceiro.example/f");
+	const result = await createPlaywrightDriver(pageWith([main, sameSite, stranger])).fillCard(CARD);
+	assert.equal(result.number, true);
+	assert.deepEqual(own.filled, [CARD.number]);
+	assert.deepEqual(ad.filled, [], "iframe de terceiro desconhecido nunca recebe o cartão");
+	assert.deepEqual(ad.typed, []);
+});
+
+test("iframe em http: ou about:blank nunca recebe o cartão", async () => {
+	const insecure = field();
+	const blank = field();
+	const main = frameWith({}, "https://loja.exemplo.com/checkout");
+	const a = frameWith({ 'input[autocomplete="cc-number"]': insecure }, "http://js.stripe.com/f");
+	const b = frameWith({ 'input[autocomplete="cc-number"]': blank }, "about:blank");
+	const result = await createPlaywrightDriver(pageWith([main, a, b])).fillCard(CARD);
+	assert.equal(result.number, false);
+	assert.deepEqual([insecure.filled, blank.filled], [[], []]);
+});
+
+test("mais de um quadro com campo de número: nada é digitado e o resultado é ambíguo", async () => {
+	const one = field();
+	const two = field();
+	const main = frameWith({}, "https://loja.exemplo.com/checkout");
+	const a = frameWith({ 'input[autocomplete="cc-number"]': one }, "https://js.stripe.com/a");
+	const b = frameWith({ 'input[autocomplete="cc-number"]': two }, "https://checkout.adyen.com/b");
+	const result = await createPlaywrightDriver(pageWith([main, a, b])).fillCard(CARD);
+	assert.deepEqual(result, { number: false, exp: false, cvv: false, ambiguous: true });
+	assert.deepEqual([one.filled, two.filled, one.typed, two.typed], [[], [], [], []]);
+});
+
+test("campos em iframes separados do mesmo gateway (número, validade, código) são aceitos", async () => {
+	const number = field();
+	const exp = field({ placeholder: "MM / YY" });
+	const cvv = field();
+	const main = frameWith({}, "https://loja.exemplo.com/checkout");
+	const frames = [
+		frameWith({ 'input[autocomplete="cc-number"]': number }, "https://js.stripe.com/n"),
+		frameWith({ 'input[autocomplete="cc-exp"]': exp }, "https://js.stripe.com/e"),
+		frameWith({ 'input[autocomplete="cc-csc"]': cvv }, "https://js.stripe.com/c"),
+	];
+	const result = await createPlaywrightDriver(pageWith([main, ...frames])).fillCard(CARD);
+	assert.deepEqual(result, { number: true, exp: true, cvv: true });
 });

@@ -2,22 +2,9 @@
 // gateway). REGRAS: nenhum método faz screenshot ou lê a árvore de acessibilidade; nenhum erro do Playwright sai daqui (o call
 // log dele inclui o valor digitado): todo catch descarta a mensagem.
 
-const NUMBER = [
-	'input[autocomplete="cc-number"]', 'input[name="cardnumber" i]', 'input[name="card-number" i]', 'input[name="card_number" i]', 'input[name="cardNumber"]',
-	'input[data-elements-stable-field-name="cardNumber"]', 'input[id*="card" i][id*="num" i]', 'input[name*="card" i][name*="num" i]',
-	'input[placeholder*="card number" i]', 'input[placeholder*="número do cartão" i]', 'input[placeholder*="numero do cartao" i]',
-];
-const EXP = [
-	'input[autocomplete="cc-exp"]', 'input[name="exp-date" i]', 'input[name="expiry" i]', 'input[name="expdate" i]', 'input[name*="exp" i][name*="date" i]',
-	'input[data-elements-stable-field-name="cardExpiry"]', 'input[placeholder*="MM" i][placeholder*="YY" i]', 'input[placeholder*="MM" i][placeholder*="AA" i]', 'input[placeholder*="validade" i]',
-];
-const EXP_MONTH = ['input[autocomplete="cc-exp-month"]', 'select[autocomplete="cc-exp-month"]', 'input[name*="exp" i][name*="month" i]', 'select[name*="exp" i][name*="month" i]'];
-const EXP_YEAR = ['input[autocomplete="cc-exp-year"]', 'select[autocomplete="cc-exp-year"]', 'input[name*="exp" i][name*="year" i]', 'select[name*="exp" i][name*="year" i]'];
-const CVV = [
-	'input[autocomplete="cc-csc"]', 'input[name="cvc" i]', 'input[name="cvv" i]', 'input[name="cvc2" i]', 'input[name*="security" i][name*="code" i]',
-	'input[data-elements-stable-field-name="cardCvc"]', 'input[id*="cvv" i]', 'input[id*="cvc" i]', 'input[placeholder*="CVV" i]', 'input[placeholder*="CVC" i]', 'input[placeholder*="código de segurança" i]',
-];
-const HOLDER = ['input[autocomplete="cc-name"]', 'input[name*="holder" i]', 'input[name="ccname" i]', 'input[name*="name" i][name*="card" i]', 'input[placeholder*="name on card" i]', 'input[placeholder*="nome no cartão" i]', 'input[placeholder*="nome impresso" i]'];
+import { CVV, EXP, EXP_MONTH, EXP_YEAR, HOLDER, NUMBER } from "./card-fields.mjs";
+import { isTrustedCardFrame } from "./card-frame-policy.mjs";
+
 const BILLING = {
 	line1: ['input[autocomplete="address-line1"]', 'input[autocomplete="street-address"]'],
 	city: ['input[autocomplete="address-level2"]'],
@@ -31,10 +18,12 @@ const digits = (value) => String(value ?? "").replace(/\D/g, "");
 
 export function createPlaywrightDriver(page) {
 	const allFrames = () => page.frames();
+	/** Onde o cartão pode ser digitado: a página principal e os iframes da própria loja ou de gateway conhecido (card-frame-policy). */
+	const cardFrames = () => allFrames().filter((frame) => frame === page.mainFrame() || isTrustedCardFrame(frame.url(), page.url()));
 
-	/** Primeiro campo visível que bate com algum seletor, procurando em todos os quadros (a página e os iframes de gateway). */
+	/** Primeiro campo visível que bate com algum seletor, procurando só nos quadros que podem receber o cartão. */
 	async function find(selectors, { editableOnly = true } = {}) {
-		for (const frame of allFrames()) {
+		for (const frame of cardFrames()) {
 			for (const selector of selectors) {
 				try {
 					const locator = frame.locator(selector).first();
@@ -134,9 +123,24 @@ export function createPlaywrightDriver(page) {
 			}
 		},
 
-		/** Devolve só QUAIS campos foram preenchidos. Billing e titular são melhor esforço. */
+		/** Devolve só QUAIS campos foram preenchidos. Billing e titular são melhor esforço. Mais de um quadro com campo de número = `ambiguous`, nada digitado. */
 		async fillCard(card) {
 			const result = { number: false, exp: false, cvv: false };
+			let numberFrames = 0;
+			for (const frame of cardFrames()) {
+				for (const selector of NUMBER) {
+					try {
+						const locator = frame.locator(selector).first();
+						if ((await locator.count()) > 0 && (await locator.isVisible({ timeout: 300 }).catch(() => false))) {
+							numberFrames += 1;
+							break;
+						}
+					} catch {
+						// seletor sem efeito neste quadro
+					}
+				}
+			}
+			if (numberFrames > 1) return { ...result, ambiguous: true };
 			const number = await find(NUMBER);
 			if (number) result.number = await put(number, card.number);
 			const month = twoDigits(card.expMonth);

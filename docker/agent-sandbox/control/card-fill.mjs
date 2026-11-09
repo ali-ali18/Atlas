@@ -8,6 +8,7 @@
 //     erro do Playwright é repassada (o call log dele inclui o valor digitado): só as frases fixas deste arquivo. Também
 //     não há screenshot nem árvore de acessibilidade em nenhum momento do preenchimento.
 import { createHash } from "node:crypto";
+import { isHttps } from "./card-frame-policy.mjs";
 
 export const SUBMIT_GUARD_TTL_MS = 30 * 60_000;
 const POLL_EVERY_MS = 1000;
@@ -144,6 +145,8 @@ const REASON = {
 	otherHost: "Nothing was paid: the page that would charge the card is not on the store the owner approved.",
 	amount: "Nothing was paid: the total on the store's payment page is not the amount the owner approved.",
 	unreadable: "Nothing was paid: the total could not be read on the store's payment page, so it could not be checked.",
+	ambiguous: "Nothing was paid: more than one place on the page could take the card number, so it was not clear where the card belongs. The owner may need to pay on the store's site.",
+	insecure: "Nothing was paid: the checkout page is not served over https.",
 	fields: "Nothing was paid: the card form was not found on the page (or only part of it), so the owner may need to pay on the store's site.",
 	button: "Nothing was paid: the pay button was not found on the page.",
 	declined: "The store or bank declined the payment.",
@@ -165,7 +168,7 @@ function validate(params) {
 	} catch {
 		return null;
 	}
-	if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return null;
+	if (parsed.protocol !== "https:") return null; // cartão só em https
 	const ok =
 		typeof p.merchant === "string" && p.merchant.length > 0 && normalizeHost(p.merchant) &&
 		typeof p.currency === "string" && /^[A-Za-z]{3}$/.test(p.currency) &&
@@ -210,6 +213,7 @@ export function createCardFill({ driver, now = Date.now, sleep = (ms) => new Pro
 		} catch {
 			return { state: "failed", reason: REASON.open };
 		}
+		if (!isHttps(driver.url())) return { state: "failed", reason: REASON.insecure };
 		if (!hostMatchesMerchant(driver.url(), req.merchant)) return { state: "declined", reason: REASON.otherHost };
 		const early = classifyChallenge(await pageState(), { afterPay: false });
 		if (early) return { state: "challenge", kind: early };
@@ -217,11 +221,11 @@ export function createCardFill({ driver, now = Date.now, sleep = (ms) => new Pro
 		const filled = await driver.fillCard({ number: req.card.number, holder: cleanSecret(req.card.holder), expMonth: req.card.expMonth, expYear: req.card.expYear, cvv: req.cvv, billing: req.card.billing });
 		if (!filled.number || !filled.exp || !filled.cvv) {
 			await driver.clearCard().catch(() => undefined);
-			return { state: "failed", reason: REASON.fields };
+			return { state: "failed", reason: filled.ambiguous ? REASON.ambiguous : REASON.fields };
 		}
 
 		// Página final: o host e o total que vão cobrar, lidos DEPOIS de preencher (o formulário pode ter mudado o resumo).
-		if (!hostMatchesMerchant(driver.url(), req.merchant)) {
+		if (!isHttps(driver.url()) || !hostMatchesMerchant(driver.url(), req.merchant)) {
 			await driver.clearCard().catch(() => undefined);
 			return { state: "declined", reason: REASON.otherHost };
 		}
