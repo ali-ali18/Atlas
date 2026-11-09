@@ -365,3 +365,22 @@ export type ControlTabsResult =
 	| { action: "list"; tabs: ControlTabInfo[] }
 	| { action: "switch"; active: { index: number; title: string; url: string } }
 	| { action: "close"; closed: { index: number; title: string; url: string }; active?: string };
+
+/** Pedido de `card_fill` ao control server (F8.0). Leva número, CVV e titular: NUNCA logar, serializar em erro nem guardar. */
+export type ControlCardFillParams = {
+	url: string;
+	card: { number: string; holder: string; expMonth: number; expYear: number; billing?: { line1: string; line2?: string; city: string; state: string; postalCode: string; country: string } };
+	cvv: string;
+	merchant: string;
+	/** Em unidades da moeda (123.45). */
+	amount: number;
+	currency: string;
+};
+
+/** Resposta do control server: só estado e frases fixas, nunca dado de cartão. */
+export type ControlCardFillResult = {
+	state: "paid" | "challenge" | "declined" | "failed";
+	kind?: "3ds" | "bank_app" | "captcha" | "other";
+	orderRef?: string;
+	reason?: string;
+};

@@ -19,6 +19,7 @@ import {
 	type BrowserTypeGuard,
 	controlBrowserText,
 	controlBrowserFind,
+	controlCardFill,
 	controlBrowserRead,
 	controlBrowserSnapshot,
 	controlBrowserAct,
@@ -53,6 +54,8 @@ import type {
 	ControlActResult,
 	ControlFindOptions,
 	ControlFindResult,
+	ControlCardFillParams,
+	ControlCardFillResult,
 	ControlReadOptions,
 	ControlReadResult,
 	ControlSnapshotOptions,
@@ -519,6 +522,8 @@ export type SandboxManager = {
 	execBrowserWait: (sessionId: string, params: ControlWaitParams) => Promise<ControlWaitResult>;
 	execBrowserRead: (sessionId: string, options?: ControlReadOptions) => Promise<ControlReadResult>;
 	execBrowserFind: (sessionId: string, options: ControlFindOptions) => Promise<ControlFindResult>;
+	/** Paga o formulário da loja na VM (F8.0). Os parâmetros levam o cartão: nunca logar. */
+	execCardFill: (sessionId: string, params: ControlCardFillParams) => Promise<ControlCardFillResult>;
 	/** V8: abre uma aba própria (mesmo perfil/login) e devolve o id; use `withExecutionContext({ tabId })` para agir nela. */
 	execTabOpen: (sessionId: string, url?: string) => Promise<{ tabId: string }>;
 	execTabClose: (sessionId: string, tabId: string) => Promise<{ closed: boolean }>;
@@ -796,6 +801,11 @@ export function createSandboxManager(
 		async execBrowserFind(sessionId, options) {
 			const record = getRecord(sessionId);
 			return controlBrowserFind(record.host ?? config.controlHost, record.controlPort, options, context);
+		},
+
+		async execCardFill(sessionId, params) {
+			const record = getRecord(sessionId);
+			return controlCardFill(record.host ?? config.controlHost, record.controlPort, params, context);
 		},
 
 		async execBrowserWait(sessionId, params) {
