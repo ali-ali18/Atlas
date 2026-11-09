@@ -13,6 +13,7 @@ import { createMemoryCapability } from "../capabilities/memory/index.js";
 import { createEmailCapability } from "../capabilities/email/index.js";
 import { createBrowserCapability } from "../capabilities/browser/index.js";
 import { createRoutinesCapability, type RoutinesDeps } from "../capabilities/routines/index.js";
+import { createSkillsCapability, type SkillsDeps } from "../capabilities/skills/index.js";
 import { createVaultCapability, type VaultDeps } from "../capabilities/vault/index.js";
 import { createGithubCapability } from "../capabilities/github/index.js";
 import type { GithubPorts } from "../ports/github.js";
@@ -42,7 +43,7 @@ import { createWebCapability } from "./web.js";
 export const PRESET_IDS = ["minimal", "full"] as const;
 export type PresetId = (typeof PRESET_IDS)[number];
 
-export type CapabilityId = "web" | "deliverables-lite" | "memory" | "tasks" | "settings" | "research" | "agenda" | "shopping" | "email" | "calendar" | "code" | "browser" | "images" | "vault" | "github" | "bots" | "routines" | "video" | "attachments";
+export type CapabilityId = "web" | "deliverables-lite" | "memory" | "tasks" | "settings" | "research" | "agenda" | "shopping" | "email" | "calendar" | "code" | "browser" | "images" | "vault" | "github" | "bots" | "routines" | "video" | "attachments" | "skills";
 
 export type AgentPreset = {
 	id: PresetId;
@@ -54,7 +55,7 @@ export type AgentPreset = {
 
 export const PRESETS: Readonly<Record<PresetId, AgentPreset>> = Object.freeze({
 	minimal: Object.freeze({ id: "minimal", capabilities: Object.freeze(["web", "deliverables-lite"] as const), workContract: false }),
-	full: Object.freeze({ id: "full", capabilities: Object.freeze(["web", "deliverables-lite", "memory", "tasks", "settings", "research", "agenda", "shopping", "email", "calendar", "browser", "images", "vault", "github", "bots", "routines", "video"] as const), workContract: true }),
+	full: Object.freeze({ id: "full", capabilities: Object.freeze(["web", "deliverables-lite", "memory", "tasks", "settings", "research", "agenda", "shopping", "email", "calendar", "browser", "images", "vault", "github", "bots", "routines", "video", "skills"] as const), workContract: true }),
 });
 
 /**
@@ -99,6 +100,8 @@ export type PresetDeps = {
 	bots?: BotsDeps;
 	/** Rotinas (F9 parte 1): ler e controlar as rotinas do produto (as da Biblioteca) do bot do run. Lazy; sem a porta a capacidade não entra. `readOnly` = sem dono: só `routine_list`. */
 	routines?: RoutinesDeps;
+	/** Habilidades (F9): os procedimentos salvos do dono (listar, ler para seguir, salvar, apagar). Lazy; só o índice de nomes vai curto no resumo. `readOnly` = sem dono: só `skill_list` e `skill_read`. */
+	skills?: SkillsDeps;
 	/** Vídeo (F9): a VM do dono existe neste run (a transcrição roda nela pela porta `Sandbox`, kind `video.transcript`). Lazy; sem isso a capacidade fica em `unavailable`. */
 	video?: boolean;
 	/** Anexos (F9): os arquivos da conversa, lidos em partes. A cópia para o computador liga com `browser` (a VM do run). Opt-in: sem a porta não entra. */
@@ -141,6 +144,8 @@ const FACTORIES: Readonly<Record<CapabilityId, CapabilityFactory>> = {
 	bots: (deps) => deps.bots && createBotsCapability(deps.bots),
 	// F9: rotinas do produto (não é a `agenda` do v4); lazy. Sem dono só `routine_list`.
 	routines: (deps) => deps.routines && createRoutinesCapability(deps.routines),
+	// F9: habilidades do dono; lazy. O corpo só entra com `skill_read`. Sem dono só lê.
+	skills: (deps) => deps.skills && createSkillsCapability(deps.skills),
 	// F9: transcrição de vídeo pela VM do dono; lazy. Só lê (vale também sem dono). Sem a VM a capacidade fica em `unavailable`.
 	video: (deps) => (deps.video === true ? createVideoCapability() : undefined),
 	// F9: anexos da conversa; opt-in (só entra com a porta). `computer` vem do navegador do run (a VM).

@@ -13,6 +13,8 @@ import { FakeBots } from "../testing/bots-fakes.js";
 import { createRoutinesCapability } from "../capabilities/routines/index.js";
 import { createVideoCapability } from "../capabilities/video/index.js";
 import { FakeRoutines } from "../testing/routines-fakes.js";
+import { FakeSkills } from "../testing/skills-fakes.js";
+import { createSkillsCapability } from "../capabilities/skills/index.js";
 import { FakeSecretRequests, FakeVault } from "../testing/vault-fakes.js";
 import { createEmailCapability } from "../capabilities/email/index.js";
 import { FakeEmail } from "../presets/fake-email.js";
@@ -278,6 +280,36 @@ describe("economia: Bom dia", () => {
 		expect((first?.tools ?? []).map((t) => t.name)).not.toContain("routine_list");
 		expect((second?.tools ?? []).map((t) => t.name)).toEqual(expect.arrayContaining(["routine_list", "routine_control", "routine_group"]));
 		expect(JSON.stringify(second?.messages)).toContain("Routine rules");
+	});
+
+	it("a capacidade skills é lazy: 'Bom dia' não ganha skill_*, só uma linha do índice com os NOMES (nunca o corpo)", async () => {
+		const base = await measureGoodMorning();
+		const skills = new FakeSkills();
+		skills.row("o1", "relatorio-semanal", { body: "PASSO-SECRETO-DO-CORPO ".repeat(200) });
+		const withSkills = await measureGoodMorning([createSkillsCapability({ skills, names: ["relatorio-semanal", "ata-de-reuniao"] })]);
+		expect(withSkills.toolNames).toEqual(base.toolNames);
+		for (const name of ["skill_list", "skill_read", "skill_save", "skill_delete"]) expect(withSkills.toolNames).not.toContain(name);
+		expect(withSkills.tokens - base.tokens).toBeLessThan(60);
+		const sent = JSON.stringify(withSkills.result);
+		expect(sent).not.toContain("Skill rules");
+		expect(sent).not.toContain("PASSO-SECRETO-DO-CORPO");
+		expect(withSkills.tokens).toBeLessThanOrEqual(GOOD_MORNING_INPUT_TOKENS_CEILING + 60);
+	});
+
+	it("'faz o relatório semanal' carrega a capacidade no passo 1 e lê a habilidade no passo 2; o corpo só entra com skill_read", async () => {
+		const core = defineCapability({ id: "core", title: "Core", summary: "core tools", core: true, tools: [] });
+		const skills = new FakeSkills();
+		skills.row("owner-1", "relatorio-semanal", { body: "1. PASSO-DA-HABILIDADE." });
+		const h = kernelHarness([reply({ calls: [call("c1", "use_capability", { id: "skills" })] }), reply({ calls: [call("c2", "skill_read", { name: "relatorio-semanal" })] }), reply({ text: "Pronto." })], { capabilities: [core, createSkillsCapability({ skills, names: ["relatorio-semanal"] })] });
+		await h.run({ input: { contextSections: [], history: [{ kind: "owner", text: "Faz o relatório semanal" }] } });
+		const [first, second, third] = h.llm.requests;
+		expect(JSON.stringify(first?.messages)).not.toContain("Skill rules");
+		expect(JSON.stringify(first?.messages)).not.toContain("PASSO-DA-HABILIDADE");
+		expect((first?.tools ?? []).map((t) => t.name)).not.toContain("skill_read");
+		expect((second?.tools ?? []).map((t) => t.name)).toEqual(expect.arrayContaining(["skill_list", "skill_read", "skill_save", "skill_delete"]));
+		expect(JSON.stringify(second?.messages)).toContain("Skill rules");
+		expect(JSON.stringify(second?.messages)).not.toContain("PASSO-DA-HABILIDADE");
+		expect(JSON.stringify(third?.messages)).toContain("PASSO-DA-HABILIDADE");
 	});
 
 	it("a capacidade video é lazy: 'Bom dia' não ganha video_transcript, só uma linha do índice", async () => {
