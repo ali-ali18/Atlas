@@ -22,6 +22,7 @@ function fakeDriver(overrides = {}) {
 		async chargeTexts() { calls.push("read-total"); return state.charges; },
 		async fillCard(secrets) { calls.push("fill"); state.filledWith = secrets; return state.fields; },
 		async clearCard() { calls.push("clear"); },
+		async findPayControl() { calls.push("find-pay"); return state.payable ? { label: state.payLabel ?? "Pagar" } : null; },
 		async clickPay() { calls.push("pay"); if (!state.payable) return false; state.paid = true; if (state.afterPay.url) state.url = state.afterPay.url; return true; },
 	};
 	return driver;
@@ -33,7 +34,7 @@ test("caminho feliz: lê o total, paga uma vez e devolve só estado e referênci
 	const driver = fakeDriver();
 	const result = await make(driver).fill(PARAMS);
 	assert.deepEqual(result, { state: "paid", orderRef: "AB12345" });
-	assert.deepEqual(driver.calls, ["goto", "fill", "read-total", "pay"]);
+	assert.deepEqual(driver.calls, ["goto", "fill", "read-total", "find-pay", "pay"]);
 });
 
 test("host trocado na abertura: declined e NADA é digitado nem pago", async () => {
@@ -272,4 +273,27 @@ test("sem confirmação no prazo: o cartão é apagado antes de devolver failed"
 	const result = await make(driver, { now: () => (t += 20_000), pollForMs: 45_000 }).fill(PARAMS);
 	assert.equal(result.state, "failed");
 	assert.equal(driver.calls.at(-1), "clear");
+});
+
+test("rótulo do botão com valor diferente do aprovado: declined sem clicar; sem valor legível, ignora", async () => {
+	const wrong = fakeDriver({ payLabel: "Pagar R$ 999,00" });
+	const refused = await make(wrong).fill(PARAMS);
+	assert.equal(refused.state, "declined");
+	assert.equal(payCalls(wrong), 0);
+	assert.ok(wrong.calls.includes("clear"));
+
+	const same = fakeDriver({ payLabel: "Pagar R$ 129,90" });
+	assert.equal((await make(same).fill(PARAMS)).state, "paid");
+
+	const plain = fakeDriver({ payLabel: "Finalizar" });
+	assert.equal((await make(plain).fill(PARAMS)).state, "paid");
+});
+
+test("sem controle de envio estrutural: failed, o cartão é apagado e nada é clicado", async () => {
+	const driver = fakeDriver({ payable: false });
+	const result = await make(driver).fill(PARAMS);
+	assert.equal(result.state, "failed");
+	assert.match(result.reason, /pay button/);
+	assert.equal(payCalls(driver), 0);
+	assert.ok(driver.calls.includes("clear"));
 });

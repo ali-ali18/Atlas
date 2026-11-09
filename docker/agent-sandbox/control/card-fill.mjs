@@ -181,7 +181,7 @@ function validate(params) {
 
 /**
  * `driver` (ver card-fill-driver.mjs): goto(url), url(), visibleFrameUrls(), pageText(), chargeTexts(), fillCard(secrets) ->
- * { number, exp, cvv }, clearCard(), clickPay() -> boolean. Nenhum método devolve ou aceita nada que não seja o necessário.
+ * { number, exp, cvv }, clearCard(), findPayControl() -> { label } | null, clickPay() -> boolean. Nenhum método devolve ou aceita nada que não seja o necessário.
  */
 export function createCardFill({ driver, now = Date.now, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), submitted = new Map(), pollForMs = POLL_FOR_MS, pollEveryMs = POLL_EVERY_MS }) {
 	const pageState = async () => ({ url: driver.url(), frameUrls: await driver.visibleFrameUrls(), text: await driver.pageText() });
@@ -233,6 +233,18 @@ export function createCardFill({ driver, now = Date.now, sleep = (ms) => new Pro
 		if (!charge.ok) {
 			await driver.clearCard().catch(() => undefined);
 			return { state: charge.why === "mismatch" ? "declined" : "failed", reason: charge.why === "mismatch" ? REASON.amount : REASON.unreadable };
+		}
+
+		// O botão é o envio do formulário dos campos do cartão (estrutura). Sem ele não há como pagar com segurança.
+		const control = await driver.findPayControl();
+		if (!control) {
+			await driver.clearCard().catch(() => undefined);
+			return { state: "failed", reason: REASON.button };
+		}
+		// Valor no rótulo do botão ("Pagar R$ 129,90"): tem de bater com o aprovado. Rótulo sem valor legível não conta.
+		if (parseMoneyTokens(control.label).length > 0 && !checkCharge([control.label], req.amount, req.currency).ok) {
+			await driver.clearCard().catch(() => undefined);
+			return { state: "declined", reason: REASON.amount };
 		}
 
 		// Marca ANTES de clicar: se o processo cair ou o clique demorar, uma nova tentativa nunca paga duas vezes.

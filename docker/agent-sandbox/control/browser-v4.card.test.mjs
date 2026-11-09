@@ -22,7 +22,8 @@ const CHECKOUT = `<!doctype html><html><head><title>Checkout</title></head><body
 <span class="e"><label>Cupom <input name="coupon" type="text" value="DESCONTO10"></label></span>
 <button type="submit">Pagar</button></form></main></body></html>`;
 
-const fixtures = await launchFixtureBrowser({ "/checkout": CHECKOUT });
+const SPA = `<!doctype html><html><body><div><input autocomplete="cc-number" type="text"><button onclick="document.title='clicked'">Pagar</button></div></body></html>`;
+const fixtures = await launchFixtureBrowser({ "/checkout": CHECKOUT, "/spa": SPA });
 after(async () => {
 	await fixtures?.close();
 });
@@ -114,4 +115,18 @@ test("tentar digitar num campo de cartão pela ação devolve needsOwner card", 
 	const out = await handle("browser.act", { ref: numberItem.refs[0].ref, action: "type", text: "4111" });
 	assert.equal(out.ok, true);
 	assert.equal(out.data.needsOwner, "card");
+});
+
+test("botão de pagar real: o envio do formulário do cartão; página sem formulário não tem envio estrutural", { skip }, async () => {
+	const page = await fixtures.newPage();
+	await page.goto(`${fixtures.base}/checkout`);
+	const driver = createPlaywrightDriver(page);
+	await driver.goto(`${fixtures.base}/checkout`);
+	assert.deepEqual(await driver.findPayControl(), { label: "Pagar" });
+	const spa = await fixtures.newPage();
+	const spaDriver = createPlaywrightDriver(spa);
+	await spaDriver.goto(`${fixtures.base}/spa`);
+	assert.equal(await spaDriver.findPayControl(), null);
+	assert.equal(await spaDriver.clickPay(), false);
+	assert.notEqual(await spa.title(), "clicked");
 });

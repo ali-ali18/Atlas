@@ -11,7 +11,8 @@ const BILLING = {
 	state: ['input[autocomplete="address-level1"]'],
 	postalCode: ['input[autocomplete="postal-code"]'],
 };
-const PAY_BUTTON = /^(?:pay|pagar|pay now|pagar agora|place order|finalizar (?:a )?(?:compra|pedido)|fazer pedido|concluir (?:a )?compra|confirmar (?:o )?(?:pedido|pagamento|compra)|complete (?:order|purchase)|comprar agora|submit order)\b/i;
+// O botão de pagar é o controle de ENVIO do formulário que contém os campos do cartão (estrutura, nunca o texto do rótulo).
+const SUBMIT_CONTROL = 'button:not([type]):not([disabled]), button[type="submit"]:not([disabled]), input[type="submit"]:not([disabled]), input[type="image"]:not([disabled])';
 const TOTAL_LABEL = /\b(?:total(?: (?:a pagar|geral|do pedido|da compra|final|due))?|valor total|order total|grand total|amount due|you pay|a pagar)\b/i;
 
 const digits = (value) => String(value ?? "").replace(/\D/g, "");
@@ -21,13 +22,18 @@ export function createPlaywrightDriver(page) {
 	/** Onde o cartão pode ser digitado: a página principal e os iframes da própria loja ou de gateway conhecido (card-frame-policy). */
 	// A referência é a URL aberta por `goto` (a loja): se a página saiu para o banco, a principal deixa de valer como "da loja".
 	let storeUrl = null;
+	let payControl = null;
 	const cardFrames = () => {
 		const ref = storeUrl ?? page.url();
 		return allFrames().filter((frame) => (frame === page.mainFrame() ? isSameSite(page.url(), ref) : isTrustedCardFrame(frame.url(), ref)));
 	};
 
 	/** Primeiro campo visível que bate com algum seletor, procurando só nos quadros que podem receber o cartão. */
-	async function find(selectors, { editableOnly = true } = {}) {
+	async function find(selectors, options) {
+		return (await findIn(selectors, options))?.locator ?? null;
+	}
+
+	async function findIn(selectors, { editableOnly = true } = {}) {
 		for (const frame of cardFrames()) {
 			for (const selector of selectors) {
 				try {
@@ -35,7 +41,7 @@ export function createPlaywrightDriver(page) {
 					if ((await locator.count()) === 0) continue;
 					if (!(await locator.isVisible({ timeout: 300 }).catch(() => false))) continue;
 					if (editableOnly && !(await locator.isEditable({ timeout: 300 }).catch(() => false))) continue;
-					return locator;
+					return { locator, frame };
 				} catch {
 					// seletor sem efeito neste quadro
 				}
@@ -184,16 +190,31 @@ export function createPlaywrightDriver(page) {
 			}
 		},
 
-		async clickPay() {
-			let button;
+		/**
+		 * O controle de envio do formulário que contém o campo do número (no quadro principal, ou o formulário que contém o
+		 * iframe do gateway). `null` se não há formulário com envio visível e habilitado. O rótulo só serve para conferir o valor.
+		 */
+		async findPayControl() {
 			try {
-				button = page.getByRole("button", { name: PAY_BUTTON }).first();
-				if ((await button.count()) === 0 || !(await button.isVisible({ timeout: 500 }).catch(() => false)) || !(await button.isEnabled({ timeout: 500 }).catch(() => false))) return false;
+				const hit = await findIn(NUMBER, { editableOnly: false });
+				if (!hit) return null;
+				const anchor = hit.frame === page.mainFrame() ? await hit.locator.elementHandle() : await hit.frame.frameElement();
+				const form = (await anchor.evaluateHandle((el) => el.form || el.closest("form"))).asElement();
+				if (!form) return null;
+				const control = await form.$(SUBMIT_CONTROL);
+				if (!control || !(await control.isVisible().catch(() => false)) || !(await control.isEnabled().catch(() => false))) return null;
+				payControl = control;
+				const label = await control.evaluate((el) => String(el.tagName === "INPUT" ? el.value || el.getAttribute("alt") || "" : el.innerText || el.textContent || el.getAttribute("aria-label") || "").replace(/\s+/g, " ").trim().slice(0, 120));
+				return { label };
 			} catch {
-				return false;
+				return null;
 			}
+		},
+
+		async clickPay() {
+			if (!payControl) return false;
 			// Daqui em diante o clique pode ter saído mesmo se o Playwright reclamar: conta como apertado (nunca paga de novo).
-			await button.click({ timeout: 5000 }).catch(() => undefined);
+			await payControl.click({ timeout: 5000 }).catch(() => undefined);
 			return true;
 		},
 	};

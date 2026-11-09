@@ -65,13 +65,44 @@ test("visibleFrameUrls ignora o quadro escondido (bframe do reCAPTCHA) e a pági
 	assert.deepEqual(urls, ["https://acs.banco.exemplo/3ds"]);
 });
 
-test("clickPay: sem botão devolve false; com botão clica; erro no clique conta como apertado", async () => {
-	const button = (over = {}) => ({ first() { return this; }, count: async () => 1, isVisible: async () => true, isEnabled: async () => true, click: async () => undefined, ...over });
-	const page = (b) => pageWith([frameWith({})], { getByRole: () => b });
-	assert.equal(await createPlaywrightDriver(page(button({ count: async () => 0 }))).clickPay(), false);
-	assert.equal(await createPlaywrightDriver(page(button({ isEnabled: async () => false }))).clickPay(), false);
-	assert.equal(await createPlaywrightDriver(page(button())).clickPay(), true);
-	assert.equal(await createPlaywrightDriver(page(button({ click: async () => { throw new Error("timeout"); } }))).clickPay(), true);
+/** Página falsa com o formulário do cartão: o campo do número tem `elementHandle`, o formulário devolve o controle de envio. */
+function checkoutPage({ submit, inIframe = false, form = true } = {}) {
+	const control = submit === null ? null : { isVisible: async () => true, isEnabled: async () => true, click: async () => undefined, evaluate: async () => "Pagar R$ 129,90", ...submit };
+	const formHandle = { $: async () => control };
+	const anchor = { evaluateHandle: async () => ({ asElement: () => (form ? formHandle : null) }) };
+	const number = field();
+	number.elementHandle = async () => anchor;
+	const main = frameWith({}, "https://loja.exemplo.com/checkout");
+	const frame = inIframe ? { ...frameWith({ 'input[autocomplete="cc-number"]': number }, "https://js.stripe.com/n"), frameElement: async () => anchor } : null;
+	if (!inIframe) main.locator = (selector) => (selector === 'input[autocomplete="cc-number"]' ? number : { first: () => ({ count: async () => 0 }) });
+	return pageWith(frame ? [main, frame] : [main]);
+}
+
+test("pagar = controle de envio do formulário do cartão (lê o rótulo só para conferir o valor)", async () => {
+	let clicks = 0;
+	const driver = createPlaywrightDriver(checkoutPage({ submit: { click: async () => { clicks += 1; } } }));
+	assert.equal(await driver.clickPay(), false, "sem localizar o controle não clica");
+	assert.deepEqual(await driver.findPayControl(), { label: "Pagar R$ 129,90" });
+	assert.equal(await driver.clickPay(), true);
+	assert.equal(clicks, 1);
+});
+
+test("pagar com o cartão em iframe de gateway usa o formulário que contém o iframe", async () => {
+	const driver = createPlaywrightDriver(checkoutPage({ inIframe: true, submit: {} }));
+	assert.deepEqual(await driver.findPayControl(), { label: "Pagar R$ 129,90" });
+});
+
+test("sem formulário, sem envio visível ou desabilitado: findPayControl devolve null (nunca procura botão por texto)", async () => {
+	assert.equal(await createPlaywrightDriver(checkoutPage({ form: false, submit: {} })).findPayControl(), null);
+	assert.equal(await createPlaywrightDriver(checkoutPage({ submit: null })).findPayControl(), null);
+	assert.equal(await createPlaywrightDriver(checkoutPage({ submit: { isEnabled: async () => false } })).findPayControl(), null);
+	assert.equal(await createPlaywrightDriver(checkoutPage({ submit: { isVisible: async () => false } })).findPayControl(), null);
+});
+
+test("erro no clique conta como apertado", async () => {
+	const driver = createPlaywrightDriver(checkoutPage({ submit: { click: async () => { throw new Error("timeout"); } } }));
+	await driver.findPayControl();
+	assert.equal(await driver.clickPay(), true);
 });
 
 test("goto/pageText/chargeTexts não propagam erro do Playwright", async () => {
