@@ -375,6 +375,8 @@ export type ControlCardFillParams = {
 	/** Em unidades da moeda (123.45). */
 	amount: number;
 	currency: string;
+	/** Pedido de aprovação que liberou a compra: parte da chave de "pagar uma vez só" na VM (sem a URL). */
+	approvalId: string;
 };
 
 /** Resposta do control server: só estado e frases fixas, nunca dado de cartão. */

@@ -7,7 +7,7 @@
 //   único) → ação `card_fill` na VM → descartado. Não passa por banco, journal, checkpoint, log, evento nem tool.
 import { createHash } from "node:crypto";
 import { redactSecrets, type SavedCardSecrets } from "@workspace/shared";
-import type { CardFill, CardFillInput, CardFillResult, CardFillSandboxAction, CardInfo, CardVault, CvvEscrow, CvvScope } from "../ports/payment.js";
+import type { CardFill, CardFillInput, CardFillResult, CardFillSandboxAction, CardInfo, CardVault, CvvEscrow, CvvScope, PaymentLedger } from "../ports/payment.js";
 import type { Sandbox } from "../ports/sandbox.js";
 import type { SecretValue } from "../ports/vault.js";
 import { sealSecretValue } from "./vault.js";
@@ -87,7 +87,7 @@ export function createCvvEscrow(backend: EscrowBackend, sealer: EscrowSealer): C
 
 // -------------------------------------------------------------- card_fill
 
-export type CardFillDeps = { vault: CardVault; escrow: CvvEscrow; sandbox: Sandbox };
+export type CardFillDeps = { vault: CardVault; escrow: CvvEscrow; sandbox: Sandbox; /** Idempotência durável por pedido de aprovação (o worker liga ao journal do db). */ ledger?: PaymentLedger };
 
 const CHALLENGE_KINDS = ["3ds", "bank_app", "captcha", "other"] as const;
 type ChallengeKind = (typeof CHALLENGE_KINDS)[number];
@@ -125,11 +125,27 @@ export function createCardFill(deps: CardFillDeps): CardFill {
 			const cvv = cvvSecret.reveal();
 			const known = [...numberForms(card.number), cvv, card.holder];
 			const safe = (text: string) => redactSecrets(text, known).slice(0, REASON_MAX);
-			const action: CardFillSandboxAction = { kind: "card_fill", params: { url: input.checkoutUrl, card, cvv, merchant: input.merchant, amount: input.amount, currency: input.currency } };
+			const action: CardFillSandboxAction = { kind: "card_fill", params: { url: input.checkoutUrl, card, cvv, merchant: input.merchant, amount: input.amount, currency: input.currency, approvalId: input.approvalId } };
+			const ledgerScope = { userId: input.userId, runId: input.runId, approvalId: input.approvalId };
+			if (deps.ledger) {
+				// Grava "pagamento iniciado" ANTES de chamar a VM: uma retomada com o mesmo pedido nunca clica de novo.
+				let claimed: boolean;
+				try {
+					claimed = await deps.ledger.start(ledgerScope);
+				} catch {
+					return { status: "unavailable", reason: "The payment could not be recorded, so nothing was paid." };
+				}
+				if (!claimed) return { status: "failed", reason: "A payment for this confirmation was already started, so it was not repeated. Check the store's order page before trying again." };
+			}
 			try {
 				const result = await deps.sandbox.run(input.userId, action, signal);
-				if (!result.ok) return { status: "unavailable", reason: safe(result.error ?? "The computer is not available.") };
-				return interpret(result.data, safe);
+				if (!result.ok) {
+					await deps.ledger?.release(ledgerScope).catch(() => undefined); // a VM nem recebeu o pedido
+					return { status: "unavailable", reason: safe(result.error ?? "The computer is not available.") };
+				}
+				const interpreted = interpret(result.data, safe);
+				if (interpreted.status === "paid" || interpreted.status === "challenge") await deps.ledger?.settle(ledgerScope).catch(() => undefined);
+				return interpreted;
 			} catch (error) {
 				return { status: "failed", reason: safe(error instanceof Error ? error.message : String(error)) };
 			}

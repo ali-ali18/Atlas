@@ -1,8 +1,9 @@
 // Pagamento do v4 no worker (F6.2, F6.3, F6.4): cofre de cartões do dono, `card_fill` sobre a porta `Sandbox` e o mandato.
 // Tudo escopado pelo `userId` do RUN (40-seguranca). Número e CVV só existem dentro do `card_fill`; as tools e o modelo
 // veem bandeira e final.
-import { createCardFill, createCardVaultAdapter, type CheckoutDeps, type CvvEscrow, type Sandbox } from "@workspace/agent";
-import { getPurchaseMandate, getSavedCardMeta, getSavedCardSealed, listSavedCards, consumePurchaseMandateUse, restorePurchaseMandateUse, type MandateToken } from "@workspace/db";
+import { createHash } from "node:crypto";
+import { createCardFill, createCardVaultAdapter, type CheckoutDeps, type CvvEscrow, type PaymentLedger, type Sandbox } from "@workspace/agent";
+import { appendAgentJournalEntry, getPurchaseMandate, getSavedCardMeta, getSavedCardSealed, listSavedCards, consumePurchaseMandateUse, restorePurchaseMandateUse, type MandateToken } from "@workspace/db";
 import { openCardSecretsJson } from "@workspace/agent-runtime";
 import type { Mandate } from "@workspace/shared";
 
@@ -14,9 +15,27 @@ export type V4PaymentDeps = {
 	getMandate: typeof getPurchaseMandate;
 	consumeUse: typeof consumePurchaseMandateUse;
 	restoreUse: typeof restorePurchaseMandateUse;
+	/** Journal durável do v4: guarda "pagamento iniciado" por pedido de aprovação (idempotência entre retomadas e processos). */
+	appendJournal: typeof appendAgentJournalEntry;
 };
 
-export const realV4PaymentDeps: V4PaymentDeps = { listCards: listSavedCards, getMeta: getSavedCardMeta, getSealed: getSavedCardSealed, openJson: (sealed) => openCardSecretsJson(sealed), getMandate: getPurchaseMandate, consumeUse: consumePurchaseMandateUse, restoreUse: restorePurchaseMandateUse };
+/** Chave do pagamento no journal: um pedido de aprovação = um pagamento. */
+export const paymentJournalKey = (approvalId: string): string => `pay:${approvalId}`;
+
+/** Livro de pagamentos sobre o journal do db (dono e run vêm do run, nunca do modelo). `started` é o claim; só `failed` reabre. */
+export function paymentLedgerFromJournal(append: typeof appendAgentJournalEntry): PaymentLedger {
+	const entry = (scope: { userId: string; runId: string; approvalId: string }, outcome: "started" | "succeeded" | "failed") => {
+		const idempotencyKey = paymentJournalKey(scope.approvalId);
+		return { runId: scope.runId, userId: scope.userId, step: 0, idempotencyKey, toolName: "card_fill", argsHash: createHash("sha256").update(idempotencyKey).digest("hex"), outcome };
+	};
+	return {
+		start: async (scope) => (await append(entry(scope, "started"))).claimed,
+		release: async (scope) => void (await append(entry(scope, "failed"))),
+		settle: async (scope) => void (await append(entry(scope, "succeeded"))),
+	};
+}
+
+export const realV4PaymentDeps: V4PaymentDeps = { listCards: listSavedCards, getMeta: getSavedCardMeta, getSealed: getSavedCardSealed, openJson: (sealed) => openCardSecretsJson(sealed), getMandate: getPurchaseMandate, consumeUse: consumePurchaseMandateUse, restoreUse: restorePurchaseMandateUse, appendJournal: appendAgentJournalEntry };
 
 export type V4Payment = {
 	/** Ausente quando o dono não tem cartão salvo ou o canal do CVV não existe: a capacidade de pagamento nem é oferecida. */
@@ -53,7 +72,7 @@ export async function createV4Payment(input: { userId: string; escrow: CvvEscrow
 			sealed: async (userId, cardId) => (await deps.getSealed(userId, cardId))?.secretsEnc ?? null,
 			open: (sealed) => deps.openJson(sealed),
 		});
-		const fill = createCardFill({ vault, escrow: input.escrow, sandbox: input.sandbox });
+		const fill = createCardFill({ vault, escrow: input.escrow, sandbox: input.sandbox, ledger: paymentLedgerFromJournal(deps.appendJournal) });
 		return { checkout: { cards: cards.map((c) => ({ id: c.id, brand: c.brand, last4: c.last4, label: c.label })), fill }, ...(mandate && { mandate }), mandateUses };
 	} catch {
 		// Falha ao ler o cofre não derruba o run: segue sem pagamento (e o log não leva dado de cartão).

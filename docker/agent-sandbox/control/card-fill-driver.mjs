@@ -2,7 +2,7 @@
 // gateway). REGRAS: nenhum método faz screenshot ou lê a árvore de acessibilidade; nenhum erro do Playwright sai daqui (o call
 // log dele inclui o valor digitado): todo catch descarta a mensagem.
 
-import { CVV, EXP, EXP_MONTH, EXP_YEAR, HOLDER, NUMBER } from "./card-fields.mjs";
+import { CARD_SECRET_SELECTOR, CVV, EXP, EXP_MONTH, EXP_YEAR, HOLDER, NUMBER } from "./card-fields.mjs";
 import { isSameSite, isTrustedCardFrame } from "./card-frame-policy.mjs";
 
 const BILLING = {
@@ -23,6 +23,8 @@ export function createPlaywrightDriver(page) {
 	// A referência é a URL aberta por `goto` (a loja): se a página saiu para o banco, a principal deixa de valer como "da loja".
 	let storeUrl = null;
 	let payControl = null;
+	let declinedByNetwork = false;
+	let invalidBeforePay = false;
 	const cardFrames = () => {
 		const ref = storeUrl ?? page.url();
 		return allFrames().filter((frame) => (frame === page.mainFrame() ? isSameSite(page.url(), ref) : isTrustedCardFrame(frame.url(), ref)));
@@ -74,6 +76,18 @@ export function createPlaywrightDriver(page) {
 		} catch {
 			return false;
 		}
+	}
+
+	/** Algum campo do cartão da loja está marcado como inválido (`aria-invalid`)? Só estrutura; nada é lido do valor. */
+	async function anyCardFieldInvalid() {
+		for (const frame of cardFrames()) {
+			try {
+				if (await frame.evaluate((selector) => Array.from(document.querySelectorAll(selector)).some((el) => el.getAttribute("aria-invalid") === "true"), CARD_SECRET_SELECTOR)) return true;
+			} catch {
+				// quadro navegando
+			}
+		}
+		return false;
 	}
 
 	const twoDigits = (n) => String(n).padStart(2, "0");
@@ -211,8 +225,28 @@ export function createPlaywrightDriver(page) {
 			}
 		},
 
+		/**
+		 * Recusa por SINAL ESTRUTURAL (nunca por texto): resposta HTTP 402 a um POST/PUT/PATCH depois do clique, ou um campo do
+		 * cartão que passou a `aria-invalid="true"` desde o clique. Sem sinal, `false`: o core trata como "não confirmado".
+		 */
+		async declineSignal() {
+			if (declinedByNetwork) return true;
+			if (invalidBeforePay) return false;
+			return anyCardFieldInvalid();
+		},
+
 		async clickPay() {
 			if (!payControl) return false;
+			invalidBeforePay = await anyCardFieldInvalid();
+			if (typeof page.on === "function") {
+				page.on("response", (response) => {
+					try {
+						if (response.status() === 402 && ["POST", "PUT", "PATCH"].includes(response.request().method())) declinedByNetwork = true;
+					} catch {
+						// resposta sem requisição associada
+					}
+				});
+			}
 			// Daqui em diante o clique pode ter saído mesmo se o Playwright reclamar: conta como apertado (nunca paga de novo).
 			await payControl.click({ timeout: 5000 }).catch(() => undefined);
 			return true;

@@ -3,7 +3,11 @@
 //  1. ANTES de pagar, lê na página o host que cobra e o total cobrado. Host != loja aprovada ou total != valor aprovado
 //     (em centavos, mesma moeda) => `declined` SEM pagar. Total que não dá para ler => `failed` SEM pagar.
 //  2. 3DS, app do banco e captcha => `challenge`: o run estaciona e o dono conclui no viewer da VM. O pagamento NUNCA é
-//     repetido: cada compra (url + loja + valor + moeda) só clica em "pagar" uma vez por 30 min.
+//     repetido: cada compra (loja + valor + moeda + id do pedido de aprovação, sem a URL) só clica em "pagar" uma vez por
+//     30 min. A chave é marcada de forma SÍNCRONA ao começar (duas chamadas em corrida: só uma segue) e só é liberada se a
+//     falha veio ANTES do clique. A idempotência durável entre processos e retomadas é do worker (livro por approvalId).
+//  2b. "Recusado" só por SINAL ESTRUTURAL (resposta HTTP 402 de POST, `aria-invalid` num campo do cartão), nunca por texto da
+//     página. Sem sinal e sem confirmação no prazo => `failed` "pode ter sido cobrado" e a trava continua.
 //  3. Número, CVV, titular e endereço (`params`) nunca saem daqui: nem log, nem erro, nem resultado. Nenhuma mensagem de
 //     erro do Playwright é repassada (o call log dele inclui o valor digitado): só as frases fixas deste arquivo. Também
 //     não há screenshot nem árvore de acessibilidade em nenhum momento do preenchimento.
@@ -120,10 +124,9 @@ export function classifyChallenge({ url = "", frameUrls = [], text = "" }, { aft
 
 const PAID_URL = /thank-?you|obrigad[oa]|order-?(?:confirmation|confirmed|received|complete|success)|checkout\/success|\/success\b|sucesso|confirmacao|pedido-?confirmado/i;
 const PAID_TEXT = /(?:pedido|compra|pagamento) (?:foi )?(?:confirmad[oa]|realizad[oa]|aprovad[oa]|recebid[oa])|obrigad[oa] pel[ao] (?:sua )?compra|thank you for your (?:order|purchase)|order (?:confirmed|received|placed|complete)|payment (?:successful|approved|received|confirmed)|your order (?:is|has been) (?:confirmed|placed)/i;
-const DECLINED_TEXT = /(?:pagamento|cart[aã]o|transa[cç][aã]o) (?:foi )?(?:recusad[oa]|negad[oa]|n[aã]o autorizad[oa])|(?:card|payment|transaction) (?:was |has been )?(?:declined|refused|not authorized)|insufficient funds|saldo insuficiente|your card (?:was|has been) declined/i;
 
+/** Só "pago" sai do texto/URL da página. "Recusado" NUNCA sai de texto: vem de sinal estrutural do driver (`declineSignal`). */
 export function classifyOutcome({ url = "", text = "" }) {
-	if (DECLINED_TEXT.test(text)) return "declined";
 	if (PAID_TEXT.test(text) || PAID_URL.test(url)) return "paid";
 	return null;
 }
@@ -170,18 +173,19 @@ function validate(params) {
 	}
 	if (parsed.protocol !== "https:") return null; // cartão só em https
 	const ok =
+		typeof p.approvalId === "string" && p.approvalId.length > 0 && p.approvalId.length <= 200 &&
 		typeof p.merchant === "string" && p.merchant.length > 0 && normalizeHost(p.merchant) &&
 		typeof p.currency === "string" && /^[A-Za-z]{3}$/.test(p.currency) &&
 		typeof p.amount === "number" && Number.isFinite(p.amount) && p.amount > 0 &&
 		cleanSecret(card.number).replace(/\D/g, "").length >= 12 && /^\d{3,4}$/.test(cleanSecret(p.cvv)) &&
 		Number.isInteger(card.expMonth) && Number.isInteger(card.expYear);
 	if (!ok) return null;
-	return { url, merchant: p.merchant, currency: p.currency.toUpperCase(), amount: p.amount, card, cvv: p.cvv };
+	return { url, merchant: p.merchant, currency: p.currency.toUpperCase(), amount: p.amount, card, cvv: p.cvv, approvalId: p.approvalId };
 }
 
 /**
  * `driver` (ver card-fill-driver.mjs): goto(url), url(), visibleFrameUrls(), pageText(), chargeTexts(), fillCard(secrets) ->
- * { number, exp, cvv }, clearCard(), findPayControl() -> { label } | null, clickPay() -> boolean. Nenhum método devolve ou aceita nada que não seja o necessário.
+ * { number, exp, cvv }, clearCard(), findPayControl() -> { label } | null, clickPay() -> boolean, declineSignal() -> boolean (opcional). Nenhum método devolve ou aceita nada que não seja o necessário.
  */
 export function createCardFill({ driver, now = Date.now, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), submitted = new Map(), pollForMs = POLL_FOR_MS, pollEveryMs = POLL_EVERY_MS }) {
 	const pageState = async () => ({ url: driver.url(), frameUrls: await driver.visibleFrameUrls(), text: await driver.pageText() });
@@ -205,9 +209,21 @@ export function createCardFill({ driver, now = Date.now, sleep = (ms) => new Pro
 		const req = validate(params);
 		if (!req) return { state: "failed", reason: REASON.invalid };
 		sweep();
-		const key = createHash("sha256").update(`${req.url}\u0000${normalizeHost(req.merchant)}\u0000${req.amount}\u0000${req.currency}`).digest("hex");
+		// A chave NÃO leva a URL (a loja pode mudar de caminho no meio do checkout) e leva o pedido de aprovação.
+		const key = createHash("sha256").update(`${normalizeHost(req.merchant)}\u0000${req.amount}\u0000${req.currency}\u0000${req.approvalId}`).digest("hex");
 		if (submitted.has(key)) return observeOnly();
+		// Marca de forma síncrona (nenhum await entre o `has` e o `set`): uma segunda chamada em corrida cai no `observeOnly`.
+		submitted.set(key, now());
+		const state = { clicked: false };
+		try {
+			return await attempt(req, state);
+		} finally {
+			// Só falha ANTES do clique libera a chave; depois do clique ela vale até expirar.
+			if (!state.clicked) submitted.delete(key);
+		}
+	}
 
+	async function attempt(req, state) {
 		try {
 			await driver.goto(req.url);
 		} catch {
@@ -247,10 +263,10 @@ export function createCardFill({ driver, now = Date.now, sleep = (ms) => new Pro
 			return { state: "declined", reason: REASON.amount };
 		}
 
-		// Marca ANTES de clicar: se o processo cair ou o clique demorar, uma nova tentativa nunca paga duas vezes.
-		submitted.set(key, now());
+		// Antes de clicar: se o processo cair ou o clique demorar, uma nova tentativa nunca paga duas vezes.
+		state.clicked = true;
 		if (!(await driver.clickPay())) {
-			submitted.delete(key);
+			state.clicked = false;
 			await driver.clearCard().catch(() => undefined);
 			return { state: "failed", reason: REASON.button };
 		}
@@ -258,20 +274,17 @@ export function createCardFill({ driver, now = Date.now, sleep = (ms) => new Pro
 		const deadline = now() + pollForMs;
 		for (;;) {
 			await sleep(pollEveryMs);
-			const state = await pageState();
-			const kind = challengeOf(state);
+			const page = await pageState();
+			const kind = challengeOf(page);
 			if (kind) {
 				await driver.clearCard().catch(() => undefined); // o dado do cartão não fica no campo da loja enquanto o dono conclui
 				return { state: "challenge", kind };
 			}
-			const outcome = classifyOutcome(state);
-			if (outcome === "declined") {
-				submitted.delete(key); // recusado: o dono pode tentar com outro cartão
-				return { state: "declined", reason: REASON.declined };
-			}
-			if (outcome === "paid") return { state: "paid", ...(extractOrderRef(state.text) && { orderRef: extractOrderRef(state.text) }) };
+			if (classifyOutcome(page) === "paid") return { state: "paid", ...(extractOrderRef(page.text) && { orderRef: extractOrderRef(page.text) }) };
+			// Recusa só por sinal estrutural; a trava continua (outro cartão é outro pedido de aprovação).
+			if (await driver.declineSignal?.()) return { state: "declined", reason: REASON.declined };
 			// Foi para outro site depois do clique (banco, gateway hospedado): só o dono conclui.
-			if (!hostMatchesMerchant(state.url, req.merchant) && normalizeHost(state.url)) return { state: "challenge", kind: "other" };
+			if (!hostMatchesMerchant(page.url, req.merchant) && normalizeHost(page.url)) return { state: "challenge", kind: "other" };
 			if (now() >= deadline) {
 				await driver.clearCard().catch(() => undefined);
 				return { state: "failed", reason: REASON.unconfirmed };

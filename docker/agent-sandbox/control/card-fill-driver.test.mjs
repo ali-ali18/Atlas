@@ -181,3 +181,36 @@ test("clearCard apaga só nos quadros da loja e nunca no iframe do banco nem dep
 	await gone.clearCard();
 	assert.equal(away.value, "keep");
 });
+
+test("declineSignal: HTTP 402 num POST depois do clique ou campo do cartão que virou aria-invalid; texto nunca", async () => {
+	const handlers = [];
+	const page = checkoutPage({ submit: {} });
+	page.on = (event, fn) => handlers.push([event, fn]);
+	const driver = createPlaywrightDriver(page);
+	await driver.findPayControl();
+	assert.equal(await driver.declineSignal(), false);
+	await driver.clickPay();
+	const respond = (status, method) => handlers.filter(([e]) => e === "response").forEach(([, fn]) => fn({ status: () => status, request: () => ({ method: () => method }) }));
+	respond(500, "POST");
+	respond(402, "GET");
+	assert.equal(await driver.declineSignal(), false, "só 402 de escrita");
+	respond(402, "POST");
+	assert.equal(await driver.declineSignal(), true);
+
+	const invalid = checkoutPage({ submit: {} });
+	let flagged = false;
+	invalid.frames()[0].evaluate = async () => flagged;
+	const second = createPlaywrightDriver(invalid);
+	await second.findPayControl();
+	await second.clickPay();
+	assert.equal(await second.declineSignal(), false);
+	flagged = true;
+	assert.equal(await second.declineSignal(), true);
+
+	const already = checkoutPage({ submit: {} });
+	already.frames()[0].evaluate = async () => true;
+	const third = createPlaywrightDriver(already);
+	await third.findPayControl();
+	await third.clickPay();
+	assert.equal(await third.declineSignal(), false, "já inválido antes do clique não prova recusa");
+});

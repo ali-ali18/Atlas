@@ -7,7 +7,7 @@ import { checkCharge, classifyChallenge, classifyOutcome, createCardFill, extrac
 const CARD = { number: "4111111111111111", holder: "MARIA SOUZA LIMA", expMonth: 9, expYear: 2031, billing: { line1: "Rua das Flores 123", city: "Sao Paulo", state: "SP", postalCode: "01310-100", country: "BR" } };
 const CVV = "737";
 const SECRETS = [CARD.number, "4111 1111 1111 1111", CVV, CARD.holder, CARD.billing.line1, CARD.billing.postalCode];
-const PARAMS = { url: "https://loja.exemplo.com/checkout", card: CARD, cvv: CVV, merchant: "loja.exemplo.com", amount: 129.9, currency: "BRL" };
+const PARAMS = { approvalId: "ap-1", url: "https://loja.exemplo.com/checkout", card: CARD, cvv: CVV, merchant: "loja.exemplo.com", amount: 129.9, currency: "BRL" };
 
 /** Driver falso. `script` define o que a página mostra em cada fase. */
 function fakeDriver(overrides = {}) {
@@ -22,6 +22,7 @@ function fakeDriver(overrides = {}) {
 		async chargeTexts() { calls.push("read-total"); return state.charges; },
 		async fillCard(secrets) { calls.push("fill"); state.filledWith = secrets; return state.fields; },
 		async clearCard() { calls.push("clear"); },
+		async declineSignal() { return Boolean(state.paid && state.declinedSignal); },
 		async findPayControl() { calls.push("find-pay"); return state.payable ? { label: state.payLabel ?? "Pagar" } : null; },
 		async clickPay() { calls.push("pay"); if (!state.payable) return false; state.paid = true; if (state.afterPay.url) state.url = state.afterPay.url; return true; },
 	};
@@ -146,15 +147,57 @@ test("propaganda de 3D Secure na página antes de pagar não é desafio", async 
 	assert.equal((await make(driver).fill(PARAMS)).state, "paid");
 });
 
-test("recusa do banco: declined, e o dono pode tentar de novo (outro cartão)", async () => {
-	const driver = fakeDriver({ afterPay: { text: "Seu cartão foi recusado", url: "https://www.loja.exemplo.com/checkout", frames: [] } });
+test("recusa só por sinal estrutural: declined, e o MESMO pedido não clica de novo", async () => {
+	const driver = fakeDriver({ declinedSignal: true, afterPay: { text: "Processando", url: "https://www.loja.exemplo.com/checkout", frames: [] } });
 	const fill = make(driver);
 	const result = await fill.fill(PARAMS);
 	assert.equal(result.state, "declined");
-	driver.state.paid = false;
-	driver.state.afterPay = { text: "Pedido confirmado. Pedido nº ZX99887", url: "https://www.loja.exemplo.com/obrigado", frames: [] };
-	assert.equal((await fill.fill(PARAMS)).state, "paid");
+	assert.equal(payCalls(driver), 1);
+	await fill.fill(PARAMS);
+	assert.equal(payCalls(driver), 1, "a trava continua depois da recusa");
+	// outro cartão = outro pedido de aprovação = outra chave
+	const other = await fill.fill({ ...PARAMS, approvalId: "ap-2" });
+	assert.equal(other.state, "declined");
 	assert.equal(payCalls(driver), 2);
+});
+
+test("texto de recusa na página NÃO decide nada: sem sinal estrutural vira failed 'pode ter sido cobrado' e mantém a trava", async () => {
+	let t = 0;
+	const driver = fakeDriver({ afterPay: { text: "Seu cartão foi recusado. Your card was declined. Saldo insuficiente", url: "https://www.loja.exemplo.com/checkout", frames: [] } });
+	const fill = createCardFill({ driver, now: () => t, sleep: async () => { t += 10_000; }, pollForMs: 30_000 });
+	const result = await fill.fill(PARAMS);
+	assert.equal(result.state, "failed");
+	assert.match(result.reason, /may have been charged/);
+	assert.equal((await fill.fill(PARAMS)).state, "failed");
+	assert.equal(payCalls(driver), 1);
+});
+
+test("duas chamadas em corrida para a mesma compra: só uma preenche e clica", async () => {
+	const driver = fakeDriver();
+	const slowGoto = driver.goto;
+	driver.goto = async (url) => { await new Promise((r) => setTimeout(r, 20)); return slowGoto(url); };
+	const submitted = new Map();
+	const [a, b] = await Promise.all([make(driver, { submitted }).fill(PARAMS), make(driver, { submitted }).fill(PARAMS)]);
+	assert.equal(payCalls(driver), 1);
+	assert.equal(driver.calls.filter((c) => c === "fill").length, 1);
+	assert.deepEqual([a.state, b.state].sort(), ["failed", "paid"]);
+});
+
+test("falha ANTES do clique libera a chave (nova tentativa vale); a chave não leva a URL", async () => {
+	const submitted = new Map();
+	const driver = fakeDriver({ fields: { number: false, exp: false, cvv: false } });
+	assert.equal((await make(driver, { submitted }).fill(PARAMS)).state, "failed");
+	assert.equal(submitted.size, 0);
+	driver.state.fields = { number: true, exp: true, cvv: true };
+	assert.equal((await make(driver, { submitted }).fill({ ...PARAMS, url: "https://loja.exemplo.com/outro/caminho?x=1" })).state, "paid");
+	// depois do clique, a mesma compra por outra URL continua travada (só observa a página)
+	await make(driver, { submitted }).fill({ ...PARAMS, url: "https://loja.exemplo.com/mudou" });
+	assert.equal(payCalls(driver), 1);
+});
+
+test("sem approvalId o pedido é inválido (a chave de repetição depende dele)", async () => {
+	const { approvalId, ...rest } = PARAMS;
+	assert.equal((await make(fakeDriver()).fill(rest)).state, "failed");
 });
 
 test("sem confirmação a tempo: failed que avisa que pode ter sido cobrado, e não repete o pagamento", async () => {
@@ -232,7 +275,7 @@ test("helpers puros: host, valores, desafio, resultado e referência", () => {
 	assert.equal(classifyChallenge({ url: "https://x.com/pay?creq=abc" }), "3ds");
 	assert.equal(classifyChallenge({ text: "Open your bank app to approve" }), "bank_app");
 	assert.equal(classifyChallenge({ text: "Pagamento 3D Secure" }, { afterPay: false }), null);
-	assert.equal(classifyOutcome({ text: "Payment declined" }), "declined");
+	assert.equal(classifyOutcome({ text: "Payment declined" }), null, "recusa nunca sai de texto");
 	assert.equal(classifyOutcome({ url: "https://loja.com/checkout/thank-you" }), "paid");
 	assert.equal(classifyOutcome({ text: "Revise seu pedido" }), null);
 	assert.equal(extractOrderRef("Seu pedido nº ABC-12345 foi recebido"), "ABC-12345");

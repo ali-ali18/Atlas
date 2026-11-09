@@ -40,6 +40,18 @@ export type CardFillInput = {
 	currency: string;
 };
 
+/**
+ * Livro durável de "pagamento iniciado", por pedido de aprovação. `start` grava ANTES de chamar a VM e devolve `false` se este
+ * pedido já foi iniciado (uma retomada, uma segunda chamada ou outro processo): nesse caso a VM nunca é chamada de novo e o
+ * resultado manda conferir a página do pedido. `release` só vale quando a VM sabidamente não chegou a agir; `settle` fecha o
+ * pedido (pago ou à espera do dono). Falha ao gravar o livro = não paga (fail-closed).
+ */
+export interface PaymentLedger {
+	start(scope: { userId: string; runId: string; approvalId: string }): Promise<boolean>;
+	release(scope: { userId: string; runId: string; approvalId: string }): Promise<void>;
+	settle(scope: { userId: string; runId: string; approvalId: string }): Promise<void>;
+}
+
 /** Resultado sem segredo. `challenge` = a loja abriu 3DS, app do banco ou captcha: o dono conclui na VM. */
 export type CardFillResult =
 	| { status: "paid"; orderRef?: string }
@@ -63,5 +75,5 @@ export interface CardFill {
 /** Ação enviada à porta `Sandbox` (formato da camada de execução; o adaptador da VM a interpreta). */
 export type CardFillSandboxAction = {
 	kind: "card_fill";
-	params: { url: string; card: SavedCardSecrets; cvv: string; merchant: string; amount: number; currency: string };
+	params: { url: string; card: SavedCardSecrets; cvv: string; merchant: string; amount: number; currency: string; /** Pedido de aprovação: entra na chave de repetição da VM (a URL não entra). */ approvalId: string };
 };

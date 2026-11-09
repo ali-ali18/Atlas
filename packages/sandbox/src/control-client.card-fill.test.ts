@@ -10,6 +10,7 @@ const params = {
 	merchant: "loja.exemplo.com",
 	amount: 129.9,
 	currency: "BRL",
+	approvalId: "ap-1",
 };
 
 it("card-fill: POST /card-fill com o pedido e devolve só o estado", async () => {

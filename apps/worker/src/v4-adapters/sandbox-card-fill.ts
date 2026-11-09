@@ -13,10 +13,11 @@ export function parseCardFillParams(raw: unknown): ControlCardFillParams | null 
 	const card = (typeof p?.card === "object" && p.card !== null ? p.card : null) as Record<string, unknown> | null;
 	if (!p || !card) return null;
 	const billing = (typeof card.billing === "object" && card.billing !== null ? card.billing : null) as Record<string, unknown> | null;
-	if (!str(p.url, 2000) || !str(p.merchant, 255) || !str(p.currency, 3) || !str(p.cvv, 4) || typeof p.amount !== "number" || !Number.isFinite(p.amount) || p.amount <= 0 || p.amount > 10_000_000) return null;
+	if (!str(p.url, 2000) || !str(p.merchant, 255) || !str(p.currency, 3) || !str(p.approvalId, 200) || !str(p.cvv, 4) || typeof p.amount !== "number" || !Number.isFinite(p.amount) || p.amount <= 0 || p.amount > 10_000_000) return null;
 	if (!str(card.number, 30) || !str(card.holder, 100) || !Number.isInteger(card.expMonth) || !Number.isInteger(card.expYear)) return null;
 	return {
 		url: p.url,
+		approvalId: p.approvalId,
 		merchant: p.merchant,
 		currency: p.currency,
 		cvv: p.cvv,

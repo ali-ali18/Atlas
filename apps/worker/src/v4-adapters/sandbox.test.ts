@@ -53,7 +53,7 @@ function world(control: World["control"] = async () => ({ state: "paid", orderRe
 }
 
 const scope = (userId = "user-a", conversationId: string | null = "conv-1", runId = "run-1") => ({ userId, runId, conversationId });
-const action = (overrides: Record<string, unknown> = {}) => ({ kind: "card_fill", params: { url: "https://loja.exemplo.com/checkout", card: CARD, cvv: CVV, merchant: "loja.exemplo.com", amount: 129.9, currency: "BRL", ...overrides } });
+const action = (overrides: Record<string, unknown> = {}) => ({ kind: "card_fill", params: { url: "https://loja.exemplo.com/checkout", card: CARD, cvv: CVV, merchant: "loja.exemplo.com", amount: 129.9, currency: "BRL", approvalId: "ap-1", ...overrides } });
 
 function fillPort(sandbox: ReturnType<typeof createV4Sandbox>, userId = "user-a") {
 	const vault: CardVault = { describe: async () => null, open: async (u, id) => (u === userId && id === "card-1" ? { info: { id, brand: "visa", last4: "1111", label: "Visa" }, secrets: sealSecretValue(JSON.stringify(CARD)) } : null) };
@@ -148,7 +148,7 @@ test("card_fill de ponta a ponta pela porta CardFill: paid, declined e failed ch
 		assert.equal(result.status, expected.status);
 		if ("orderRef" in expected) assert.equal((result as { orderRef?: string }).orderRef, expected.orderRef);
 		assert.equal(w.fills.length, 1);
-		assert.deepEqual({ ...w.fills[0]!.params, cvv: "x", card: "x" }, { url: "https://loja.exemplo.com/checkout", merchant: "loja.exemplo.com", amount: 129.9, currency: "BRL", cvv: "x", card: "x" });
+		assert.deepEqual({ ...w.fills[0]!.params, cvv: "x", card: "x" }, { url: "https://loja.exemplo.com/checkout", approvalId: "ap-1", merchant: "loja.exemplo.com", amount: 129.9, currency: "BRL", cvv: "x", card: "x" });
 		for (const secret of SECRETS) assert.equal(JSON.stringify(result).includes(secret), false);
 	}
 });
