@@ -2,7 +2,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { ARMS, AGENT_BROWSER_SUFFIX, assertRealAllowed, estimateCost, parseBenchArgs, pickWinner, runBench, type ArmRow } from "./browser-bench.js";
+import { ARMS, AGENT_BROWSER_SUFFIX, assertRealAllowed, estimateCost, parseBenchArgs, pickWinner, renderBenchMarkdown, runBench, type ArmRow } from "./browser-bench.js";
 
 const row = (arm: ArmRow["arm"], successes: number, over: Partial<ArmRow> = {}): ArmRow => ({ arm, task: "T11", model: "m", runs: 3, successes, score: successes / 3, decisions: 10, promptTokens: 1000, peakPromptTokens: 2000, costUsd: 1, ...over });
 
@@ -32,11 +32,16 @@ describe("browser-bench: argumentos e custo", () => {
 });
 
 describe("browser-bench: fica o que acerta mais", () => {
-	it("mais acertos ganha, mesmo custando mais; custo só desempata", () => {
+	it("mais acertos ganha, mesmo custando mais", () => {
 		expect(pickWinner([row("current", 3, { costUsd: 5 }), row("agent-browser", 2, { costUsd: 0.1 })]).winner).toBe("current");
 		expect(pickWinner([row("current", 2), row("agent-browser", 3, { costUsd: 9 })]).winner).toBe("agent-browser");
-		expect(pickWinner([row("current", 3, { costUsd: 2 }), row("agent-browser", 3, { costUsd: 1 })]).winner).toBe("agent-browser");
-		expect(pickWinner([row("current", 3), row("agent-browser", 3)]).winner).toBe("tie");
+	});
+	it("empate no acerto é tie e o navegador atual fica: custo e nota não desempatam (regra do dono)", () => {
+		expect(pickWinner([row("current", 3, { costUsd: 2 }), row("agent-browser", 3, { costUsd: 1 })]).winner).toBe("tie");
+		expect(pickWinner([row("current", 3, { costUsd: 1 }), row("agent-browser", 3, { costUsd: 9 })]).winner).toBe("tie");
+		expect(pickWinner([row("current", 2, { score: 0.2 }), row("agent-browser", 2, { score: 0.9 })]).winner).toBe("tie");
+		const md = renderBenchMarkdown([row("current", 3, { costUsd: 2 }), row("agent-browser", 3, { costUsd: 1 })], { dry: false, startedAt: "x", spentUsd: 1 });
+		expect(md).toContain("**Fica:** current (empate no acerto");
 	});
 });
 

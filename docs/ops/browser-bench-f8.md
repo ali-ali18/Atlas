@@ -22,9 +22,9 @@ Rodada real aprovada pelo dono (teto US$ 2,00; orçamento total US$ 10, ~US$ 3,2
 Custo real total gasto: **US$ 0,0462** (US$ 0,0056 num teste de fumaça de 1 run do `agent-browser` + US$ 0,0406 na rodada de 6 runs). Sem falhas de modelo nem de infraestrutura na rodada final. Custo calculado pela tabela do Haiku 5.5 (US$ 0,10/M entrada, 0,50/M saída, cache lido 0,1x, gravado 1,25x); o adaptador direto só devolve tokens.
 
 ## Decisão
-Regra do dono: fica o braço que **acerta mais**; custo só desempata. Os dois acertaram 3/3 em T11: **empate no acerto, então mantém-se o atual (ADR 0005)**. O `agent-browser` saiu mais barato e com metade dos passos, mas uma única tarefa, de leitura em página longa, não separa os dois no que importa (acerto). Para decidir de fato, uma rodada extra com **T7 (iframe e shadow DOM) e T10 (canvas)**, onde o acerto pode divergir, custaria ~US$ 4 pela estimativa antiga e bem menos pelo preço real (T11 custou US$ 0,05); **só rodar com novo ok do dono**.
+Regra do dono: fica o braço que **acerta mais**; custo não desempata. Os dois acertaram 3/3 em T11: **empate no acerto, então mantém-se o atual (ADR 0005)**. O `agent-browser` saiu mais barato e com metade dos passos, mas uma única tarefa, de leitura em página longa, não separa os dois no que importa (acerto). Para decidir de fato, uma rodada extra com **T7 (iframe e shadow DOM) e T10 (canvas)**, onde o acerto pode divergir, custaria ~US$ 4 pela estimativa antiga e bem menos pelo preço real (T11 custou US$ 0,05); **só rodar com novo ok do dono**.
 
-Observação: o `pickWinner` do bench desempata por custo e imprime "Fica: agent-browser"; pela regra acima, empate no acerto mantém o atual. Vale ajustar o `pickWinner` para devolver `tie` nesse caso se o dono confirmar a regra.
+Observação: o `pickWinner` foi corrigido na auditoria da F8: empate no acerto devolve `tie` e o relatório imprime "Fica: current"; nem custo nem nota desempatam.
 
 ## O que foi corrigido no caminho
 1. O bench só falava com o OpenRouter: criado `evals/web/direct-provider.ts` (Anthropic direta + custo por tabela, com teste).

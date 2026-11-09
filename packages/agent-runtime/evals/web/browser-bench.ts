@@ -123,7 +123,10 @@ export function summarizeArms(results: Array<{ arm: Arm; metrics: RunMetrics }>)
 	});
 }
 
-/** Quem fica: o que ACERTA mais (acertos, depois nota); custo só desempata. Poda que derruba o acerto perde sempre. */
+/**
+ * Quem fica: o que ACERTA mais. Empate no acerto = `tie`, e quem fica é o navegador atual (regra do dono): nem a nota nem o
+ * custo desempatam. Poda que derruba o acerto perde sempre.
+ */
 export function pickWinner(rows: ArmRow[]): { winner: Arm | "tie"; reason: string } {
 	const total = (arm: Arm) => {
 		const mine = rows.filter((row) => row.arm === arm);
@@ -132,9 +135,7 @@ export function pickWinner(rows: ArmRow[]): { winner: Arm | "tie"; reason: strin
 	const [a, b] = [total("current"), total("agent-browser")];
 	if (a.runs === 0 || b.runs === 0) return { winner: "tie", reason: "falta um dos braços" };
 	if (a.successes !== b.successes) return { winner: a.successes > b.successes ? "current" : "agent-browser", reason: `acertou mais (${Math.max(a.successes, b.successes)} de ${a.runs} contra ${Math.min(a.successes, b.successes)})` };
-	if (Math.abs(a.score - b.score) > 1e-9) return { winner: a.score > b.score ? "current" : "agent-browser", reason: "mesmos acertos, nota média maior" };
-	if (a.cost !== b.cost) return { winner: a.cost < b.cost ? "current" : "agent-browser", reason: "empate no acerto; o mais barato desempata" };
-	return { winner: "tie", reason: "empate total" };
+	return { winner: "tie", reason: `empate no acerto (${a.successes} de ${a.runs} nos dois); o custo não desempata e o navegador atual fica` };
 }
 
 export function renderBenchMarkdown(rows: ArmRow[], meta: { dry: boolean; startedAt: string; spentUsd: number }): string {
@@ -146,7 +147,7 @@ export function renderBenchMarkdown(rows: ArmRow[], meta: { dry: boolean; starte
 		"|---|---|---|---|---|---|---|---|",
 		...rows.map((r) => `| ${r.arm} | ${r.task} | ${r.model} | ${r.successes}/${r.runs} | ${r.score} | ${r.decisions} | ${r.promptTokens} | ${r.costUsd} |`),
 		"",
-		meta.dry ? "Modo DRY: valida o harness (fixture, checagem, relatório). Os dois braços usam o mesmo roteiro; os números não comparam nada." : `**Fica:** ${verdict.winner} (${verdict.reason}). Gasto total US$ ${meta.spentUsd.toFixed(4)}.`,
+		meta.dry ? "Modo DRY: valida o harness (fixture, checagem, relatório). Os dois braços usam o mesmo roteiro; os números não comparam nada." : `**Fica:** ${verdict.winner === "tie" ? "current" : verdict.winner} (${verdict.reason}). Gasto total US$ ${meta.spentUsd.toFixed(4)}.`,
 	];
 	return lines.join("\n");
 }
