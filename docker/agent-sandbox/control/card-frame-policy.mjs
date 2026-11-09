@@ -69,3 +69,19 @@ export function isTrustedCardFrame(frameUrl, storeUrl) {
 	if (store && own && store === own) return true;
 	return isKnownGateway(host);
 }
+
+const anyHost = (url) => {
+	try {
+		return new URL(url).hostname.toLowerCase() || null;
+	} catch {
+		return null;
+	}
+};
+
+/** A página principal ainda é a da loja (mesmo host ou mesmo domínio registrável)? O https é conferido por `isHttps` no core. */
+export function isSameSite(pageUrl, storeUrl) {
+	const a = anyHost(pageUrl);
+	const b = anyHost(storeUrl);
+	if (!a || !b) return false;
+	return a === b || (registrableDomain(a) !== null && registrableDomain(a) === registrableDomain(b));
+}

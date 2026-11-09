@@ -5,12 +5,20 @@
 export const SUBMIT_INTENT_REQUIRED = "SUBMIT_INTENT_REQUIRED";
 
 /** Roda DENTRO da página, no elemento da ref. Só fatos estruturais. */
-export function probeActTarget(el) {
+export function probeActTarget(el, cardSelector) {
+	const matchesCard = (node, selector) => {
+		try {
+			return node.matches(selector || 'input[autocomplete^="cc-" i],select[autocomplete^="cc-" i]');
+		} catch {
+			return true;
+		}
+	};
 	const tag = el.tagName.toLowerCase();
 	const type = (el.getAttribute("type") || "").toLowerCase();
 	const hint = `${el.getAttribute("name") || ""} ${el.id || ""} ${el.getAttribute("aria-label") || ""} ${el.getAttribute("placeholder") || ""}`.toLowerCase();
 	let secret = "";
 	if (type === "password") secret = "password";
+	else if (matchesCard(el, cardSelector)) secret = "card";
 	else if ((el.getAttribute("autocomplete") || "").toLowerCase().includes("one-time-code")) secret = "code";
 	else if (/(^|[^a-z])(otp|totp|2fa|mfa|one.?time|verification.?code|sms.?code)([^a-z]|$)/.test(hint)) secret = "code";
 	const form = el.form || el.closest("form");

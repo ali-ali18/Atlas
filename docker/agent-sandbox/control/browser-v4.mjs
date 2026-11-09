@@ -4,6 +4,7 @@
 import { judgeAct, probeActTarget, SUBMIT_INTENT_REQUIRED } from "./browser-act-guard.mjs";
 import { ITEM_MAX_CHARS, parseReadArgs, planPart } from "./browser-chunks.mjs";
 import { atlasInPage } from "./browser-inpage.mjs";
+import { CARD_SECRET_SELECTOR } from "./card-fields.mjs";
 import { buildMap } from "./browser-map.mjs";
 import { FIND_DEFAULT_LIMIT, FIND_MAX_LIMIT, searchItems } from "./browser-search.mjs";
 
@@ -37,7 +38,7 @@ export function createBrowserV4({ withPageRetry, collect, noteDomRefs = () => {}
 
 	const missing = (id) => new BrowserV4Error(`Section ${id} is no longer on the page (it changed or was never mapped). Hint: call browser_map again.`, "section_missing");
 	async function inPage(page, op, arg) {
-		const out = await page.evaluate(atlasInPage, { op, arg });
+		const out = await page.evaluate(atlasInPage, { op, arg, cardSelector: CARD_SECRET_SELECTOR });
 		if (out?.missing) throw missing(arg.id);
 		if (out?.error) throw new Error(out.error);
 		return out;
@@ -61,7 +62,7 @@ export function createBrowserV4({ withPageRetry, collect, noteDomRefs = () => {}
 		return withPageRetry(async (page) => {
 			await collect(page, { mode: "all", area: "page", maxScan: MAP_MAX_REFS });
 			noteDomRefs();
-			const raw = await page.evaluate(atlasInPage, { op: "map", arg: {} });
+			const raw = await page.evaluate(atlasInPage, { op: "map", arg: {}, cardSelector: CARD_SECRET_SELECTOR });
 			const built = buildMap(raw);
 			mapped.set(page, new Map(built.sections.map((s) => [s.id, { declaredTotal: s.declaredTotal, label: s.label }])));
 			return built;
@@ -126,7 +127,7 @@ export function createBrowserV4({ withPageRetry, collect, noteDomRefs = () => {}
 	async function describeTarget(page, ref) {
 		const locator = /^(?:f\d{1,3})?a\d/.test(ref) ? (await resolveAxLocator?.(page, ref)) ?? null : await locateRef(page, ref);
 		if (!locator) throw new Error(`Ref ${ref} not found: the page changed or the ref is old. Hint: call browser_map or browser_read again.`);
-		return locator.evaluate(probeActTarget);
+		return locator.evaluate(probeActTarget, CARD_SECRET_SELECTOR);
 	}
 
 	async function act(body) {
@@ -229,8 +230,23 @@ export function createBrowserV4({ withPageRetry, collect, noteDomRefs = () => {}
 		return { tabs: (await listTabs()).map((t) => ({ id: String(t.index), url: t.url, title: t.title, active: Boolean(t.active) })) };
 	}
 
+	/** Algum campo de cartão (qualquer quadro) com valor? Só lê se há texto, nunca o devolve. */
+	async function cardFieldFilled(page) {
+		if (typeof page.frames !== "function") return false;
+		for (const frame of page.frames()) {
+			try {
+				const filled = await frame.evaluate((selector) => Array.from(document.querySelectorAll(selector)).some((el) => typeof el.value === "string" && el.value.length > 0), CARD_SECRET_SELECTOR);
+				if (filled) return true;
+			} catch {
+				// quadro navegando: sem leitura
+			}
+		}
+		return false;
+	}
+
 	async function screenshot(body) {
 		return withPageRetry(async (page) => {
+			if (await cardFieldFilled(page)) throw new BrowserV4Error("Screenshot refused: a card field on this page has data in it and the picture would show it. Hint: finish or leave the payment step (the card is cleared when it ends), then take the screenshot.", "card_on_page");
 			let buffer;
 			if (typeof body?.ref === "string" && body.ref) {
 				if (!REF_RE.test(body.ref)) throw new Error(`Invalid ref "${body.ref}".`);

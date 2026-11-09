@@ -15,6 +15,7 @@ import { buildRefTable } from "./ax-refs.mjs";
 import { toAriaRef } from "./ax-ref-names.mjs";
 import { diffAxTrees, flattenForDiff } from "./ax-diff.mjs";
 import { formatElementLine } from "./snapshot.mjs";
+import { CARD_SECRET_SELECTOR } from "./card-fields.mjs";
 
 export const PROBE_CAP = 80;
 export const PROBE_TIMEOUT_MS = 800;
@@ -22,7 +23,7 @@ const PROBE_CONCURRENCY = 12;
 const LINES_MAX = 80;
 
 /** Roda DENTRO do elemento (serializado pelo Playwright): sem closure externa. */
-export function probeElement(el) {
+export function probeElement(el, cardSelector) {
 	const out = { hidden: "", ariaHidden: false, secret: "" };
 	try {
 		if (typeof el.checkVisibility === "function" && !el.checkVisibility({ checkVisibilityCSS: true, contentVisibilityAuto: true })) out.hidden = "css";
@@ -45,9 +46,10 @@ export function probeElement(el) {
 			}
 			node = node.parentElement || (node.getRootNode && node.getRootNode().host) || null;
 		}
-		if (el.tagName === "INPUT") {
+		if (el.tagName === "INPUT" || el.tagName === "SELECT") {
 			const auto = String(el.getAttribute("autocomplete") || "").toLowerCase();
 			if (el.type === "password" || /password/.test(auto)) out.secret = "secret";
+			else if (el.matches(cardSelector || 'input[autocomplete^="cc-" i]')) out.secret = "secret";
 			else if (/one-time-code/.test(auto)) out.secret = "otp";
 		}
 	} catch {
@@ -63,7 +65,7 @@ export async function probeRefs(page, refs, { timeoutMs = PROBE_TIMEOUT_MS } = {
 	const worker = async () => {
 		for (let ref = queue.shift(); ref; ref = queue.shift()) {
 			try {
-				const out = await page.locator(`aria-ref=${toAriaRef(ref)}`).first().evaluate(probeElement, undefined, { timeout: timeoutMs });
+				const out = await page.locator(`aria-ref=${toAriaRef(ref)}`).first().evaluate(probeElement, CARD_SECRET_SELECTOR, { timeout: timeoutMs });
 				if (!out.failed) results.set(ref, out);
 			} catch {
 				// elemento sumiu ou frame navegando: sem sonda, o nó segue como está (campo de valor perde o valor, ver abaixo)

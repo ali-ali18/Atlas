@@ -371,7 +371,9 @@ export function renderAx(nodes, { values = new Map(), hidden = new Set(), ariaHi
 		else if (state === "otp") parts.push("(campo de código de uso único: nunca preencha)");
 		else if (state === "ok" && node.value !== undefined && node.value !== "") tail = `: ${q(clip(squash(node.value), 120))}`;
 		lines.push(`${pad}${parts.join(" ")}${tail}`);
-		if (node.children?.length) renderAx(node.children, { values, hidden, ariaHidden, showRefs, depth: depth + 1, lines });
+		// O Chromium põe o valor digitado como texto FILHO do campo: em campo secreto (ou sem sonda) a subárvore não sai.
+		const valueLeaks = state === "secret" || state === "otp" || (isValueRole(node.role) && state !== "ok");
+		if (node.children?.length && !valueLeaks) renderAx(node.children, { values, hidden, ariaHidden, showRefs, depth: depth + 1, lines });
 	}
 	return lines;
 }

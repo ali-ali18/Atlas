@@ -128,3 +128,25 @@ test("campos em iframes separados do mesmo gateway (número, validade, código) 
 	const result = await createPlaywrightDriver(pageWith([main, ...frames])).fillCard(CARD);
 	assert.deepEqual(result, { number: true, exp: true, cvv: true });
 });
+
+test("clearCard apaga só nos quadros da loja e nunca no iframe do banco nem depois de sair da loja", async () => {
+	const store = field();
+	store.value = "4111";
+	const bank = field();
+	bank.value = "x";
+	const main = frameWith({ 'input[autocomplete="cc-number"]': store }, "https://loja.exemplo.com/checkout");
+	const acs = frameWith({ 'input[autocomplete="cc-number"]': bank }, "https://acs.banco.example/3ds");
+	const driver = createPlaywrightDriver(pageWith([main, acs]));
+	await driver.goto("https://loja.exemplo.com/checkout").catch(() => undefined);
+	await driver.clearCard();
+	assert.deepEqual([store.value, bank.value], ["", "x"]);
+
+	const away = field();
+	away.value = "keep";
+	const bankMain = frameWith({ 'input[autocomplete="cc-number"]': away }, "https://acs.banco.example/3ds");
+	const page = pageWith([bankMain], { url: () => "https://acs.banco.example/3ds", goto: async () => undefined, waitForLoadState: async () => undefined });
+	const gone = createPlaywrightDriver(page);
+	await gone.goto("https://loja.exemplo.com/checkout");
+	await gone.clearCard();
+	assert.equal(away.value, "keep");
+});

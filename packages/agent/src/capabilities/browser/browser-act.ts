@@ -39,7 +39,7 @@ export function createBrowserActTool() {
 				throw error;
 			}
 			if (result.needsOwner) {
-				const what = result.needsOwner === "captcha" ? "a captcha" : result.needsOwner === "password" ? "a password field" : "a one-time code field";
+				const what = result.needsOwner === "captcha" ? "a captcha" : result.needsOwner === "password" ? "a password field" : result.needsOwner === "card" ? "a card data field (card data is entered only by the payment step, never by hand)" : "a one-time code field";
 				return { ok: true, summary: `Nothing was typed: this is ${what}. Only the owner can fill it, in the browser view. Ask the owner to do it and say when they are done, then call browser_map again.` };
 			}
 			return { ok: true, summary: `Done: ${action} on ${ref}. Now at ${result.url} (title: ${result.title || "none"}).${result.changes ? ` What changed: ${result.changes}` : ""}` };

@@ -113,7 +113,7 @@ export const actDataSchema = z.object({
 	/** O que mudou na página depois da ação (texto curto da VM). */
 	changes: z.string().optional(),
 	/** A página quer a pessoa: senha, código, captcha. */
-	needsOwner: z.enum(["password", "code", "captcha"]).optional(),
+	needsOwner: z.enum(["password", "code", "captcha", "card"]).optional(),
 });
 
 export const loadMoreDataSchema = z.object({

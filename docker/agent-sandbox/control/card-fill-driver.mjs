@@ -3,7 +3,7 @@
 // log dele inclui o valor digitado): todo catch descarta a mensagem.
 
 import { CVV, EXP, EXP_MONTH, EXP_YEAR, HOLDER, NUMBER } from "./card-fields.mjs";
-import { isTrustedCardFrame } from "./card-frame-policy.mjs";
+import { isSameSite, isTrustedCardFrame } from "./card-frame-policy.mjs";
 
 const BILLING = {
 	line1: ['input[autocomplete="address-line1"]', 'input[autocomplete="street-address"]'],
@@ -19,7 +19,12 @@ const digits = (value) => String(value ?? "").replace(/\D/g, "");
 export function createPlaywrightDriver(page) {
 	const allFrames = () => page.frames();
 	/** Onde o cartão pode ser digitado: a página principal e os iframes da própria loja ou de gateway conhecido (card-frame-policy). */
-	const cardFrames = () => allFrames().filter((frame) => frame === page.mainFrame() || isTrustedCardFrame(frame.url(), page.url()));
+	// A referência é a URL aberta por `goto` (a loja): se a página saiu para o banco, a principal deixa de valer como "da loja".
+	let storeUrl = null;
+	const cardFrames = () => {
+		const ref = storeUrl ?? page.url();
+		return allFrames().filter((frame) => (frame === page.mainFrame() ? isSameSite(page.url(), ref) : isTrustedCardFrame(frame.url(), ref)));
+	};
 
 	/** Primeiro campo visível que bate com algum seletor, procurando só nos quadros que podem receber o cartão. */
 	async function find(selectors, { editableOnly = true } = {}) {
@@ -69,6 +74,7 @@ export function createPlaywrightDriver(page) {
 
 	return {
 		async goto(url) {
+			storeUrl = url;
 			await page.goto(url, { waitUntil: "domcontentloaded", timeout: 45_000 });
 			await page.waitForLoadState("load", { timeout: 10_000 }).catch(() => undefined);
 		},
@@ -170,7 +176,7 @@ export function createPlaywrightDriver(page) {
 			return result;
 		},
 
-		/** Apaga o que foi digitado (sem ler). Melhor esforço quando a compra não vai adiante. */
+		/** Apaga o que foi digitado (sem ler), só nos quadros da loja (nunca no iframe do banco). Melhor esforço. */
 		async clearCard() {
 			for (const selectors of [NUMBER, EXP, CVV, HOLDER]) {
 				const input = await find(selectors);

@@ -248,7 +248,10 @@ export function createCardFill({ driver, now = Date.now, sleep = (ms) => new Pro
 			await sleep(pollEveryMs);
 			const state = await pageState();
 			const kind = challengeOf(state);
-			if (kind) return { state: "challenge", kind };
+			if (kind) {
+				await driver.clearCard().catch(() => undefined); // o dado do cartão não fica no campo da loja enquanto o dono conclui
+				return { state: "challenge", kind };
+			}
 			const outcome = classifyOutcome(state);
 			if (outcome === "declined") {
 				submitted.delete(key); // recusado: o dono pode tentar com outro cartão
@@ -257,7 +260,10 @@ export function createCardFill({ driver, now = Date.now, sleep = (ms) => new Pro
 			if (outcome === "paid") return { state: "paid", ...(extractOrderRef(state.text) && { orderRef: extractOrderRef(state.text) }) };
 			// Foi para outro site depois do clique (banco, gateway hospedado): só o dono conclui.
 			if (!hostMatchesMerchant(state.url, req.merchant) && normalizeHost(state.url)) return { state: "challenge", kind: "other" };
-			if (now() >= deadline) return { state: "failed", reason: REASON.unconfirmed };
+			if (now() >= deadline) {
+				await driver.clearCard().catch(() => undefined);
+				return { state: "failed", reason: REASON.unconfirmed };
+			}
 		}
 	}
 

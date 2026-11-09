@@ -5,8 +5,8 @@
 //   - seção "controls": links e botões soltos (têm ref para agir);
 //   - seção "text": o texto visível que sobra fora das outras seções, uma linha por item (qualquer marcação).
 // Cada seção ganha o atributo `data-atlas-sec="sN"` no elemento; os itens são numerados de 1 em diante na ordem do DOM.
-// Campo de senha e de código de uso único NUNCA entram com valor. A interpretação (total declarado, janela) é de browser-map/chunks.
-export function atlasInPage({ op, arg }) {
+// Campo de senha, de código de uso único e de CARTÃO (card-fields.mjs) NUNCA entram com valor. A interpretação (total declarado, janela) é de browser-map/chunks.
+export function atlasInPage({ op, arg, cardSelector }) {
 	const SEC = "data-atlas-sec";
 	const SIG = "data-atlas-sig";
 	const MORE = "data-atlas-more";
@@ -24,16 +24,26 @@ export function atlasInPage({ op, arg }) {
 	const MORE_RE = /\b(load|show|see|view|read|get)\s+(more|all|older|next)\b|\bmore\s+(comments|replies|results|posts|items|reviews)\b|\b(ver|mostrar|carregar|exibir|cargar|voir|charger|mehr)\s+(mais|más|plus|laden|todos|todas|comentários|comentarios|resultados)\b|\bnext page\b|\bpróxima página\b|\bolder (posts|comments)\b/i;
 	const sectionEls = () => Array.from(document.querySelectorAll(`[${SEC}]`));
 	const secEl = (id) => document.querySelector(`[${SEC}="${id}"]`);
+	// Campo de cartão = o mesmo critério do driver do `card_fill` (seletor vindo de card-fields.mjs, passado por quem chama).
+	const CARD = cardSelector || 'input[autocomplete^="cc-" i],select[autocomplete^="cc-" i]';
+	const isCardField = (el) => {
+		try {
+			return el.matches(CARD);
+		} catch {
+			return true;
+		}
+	};
 	const nameOfControl = (el) => {
 		const labelled = (el.getAttribute("aria-labelledby") || "").split(/\s+/).map((id) => (id ? document.getElementById(id)?.textContent || "" : "")).join(" ");
 		const labels = el.labels && el.labels.length ? Array.from(el.labels).map((l) => l.textContent).join(" ") : "";
-		return clean(el.getAttribute("aria-label") || labelled || labels || el.innerText || el.textContent || el.getAttribute("title") || el.getAttribute("alt") || el.getAttribute("placeholder") || el.value || "");
+		return clean(el.getAttribute("aria-label") || labelled || labels || el.innerText || el.textContent || el.getAttribute("title") || el.getAttribute("alt") || el.getAttribute("placeholder") || (isSecret(el) ? "" : el.value) || "");
 	};
 	const sigOf = (c) => `${c.tagName}.${Array.from(c.classList).filter((t) => !/\d/.test(t)).sort().join(".")}.${c.getAttribute("role") || ""}`;
 	const isSecret = (el) => {
 		const type = (el.getAttribute("type") || "").toLowerCase();
 		const hint = `${el.getAttribute("name") || ""} ${el.id || ""} ${el.getAttribute("aria-label") || ""} ${el.getAttribute("placeholder") || ""}`.toLowerCase();
 		if (type === "password") return "password";
+		if (isCardField(el)) return "card";
 		if ((el.getAttribute("autocomplete") || "").toLowerCase().includes("one-time-code")) return "code";
 		if (/(^|[^a-z])(otp|totp|2fa|mfa|one.?time|verification.?code|sms.?code)([^a-z]|$)/.test(hint)) return "code";
 		return "";
@@ -56,7 +66,7 @@ export function atlasInPage({ op, arg }) {
 				if (secret) value = "(hidden: only the owner fills this)";
 				else if (tag === "select") value = clean(f.selectedOptions?.[0]?.textContent);
 				else if (tag === "input" || tag === "textarea") value = clean(f.value);
-				const kindName = secret ? (secret === "code" ? "one-time code" : "password") : tag === "input" ? type || "text" : tag;
+				const kindName = secret ? (secret === "code" ? "one-time code" : secret === "card" ? "card field" : "password") : tag === "input" ? type || "text" : tag;
 				const label = nameOfControl(f) || clean(f.getAttribute("name") || f.id);
 				return { el: f, text: `${kindName}: ${clip(label, 80)}${value && !secret ? ` = "${clip(value, 120)}"` : secret ? ` ${value}` : ""}` };
 			});

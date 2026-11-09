@@ -258,3 +258,18 @@ test("mais de um quadro candidato a receber o número: failed e nada é pago", a
 	assert.equal(payCalls(driver), 0);
 	assert.ok(driver.calls.includes("clear"));
 });
+
+test("desafio depois do clique: o cartão é apagado do campo da loja antes de devolver challenge", async () => {
+	const driver = fakeDriver({ afterPay: { text: "Autentique no 3D Secure", url: "https://www.loja.exemplo.com/checkout", frames: ["https://acs.banco.exemplo/3ds/challenge"] } });
+	const result = await make(driver).fill(PARAMS);
+	assert.equal(result.state, "challenge");
+	assert.deepEqual(driver.calls.slice(-2), ["pay", "clear"]);
+});
+
+test("sem confirmação no prazo: o cartão é apagado antes de devolver failed", async () => {
+	const driver = fakeDriver({ afterPay: { text: "Processando", url: "https://www.loja.exemplo.com/checkout", frames: [] } });
+	let t = 0;
+	const result = await make(driver, { now: () => (t += 20_000), pollForMs: 45_000 }).fill(PARAMS);
+	assert.equal(result.state, "failed");
+	assert.equal(driver.calls.at(-1), "clear");
+});
