@@ -168,10 +168,13 @@ export async function buildV4Registry(input: V4RegistryInput): Promise<V4Registr
 				? [...capabilities.filter((capability) => capability.id !== "agenda" && capability.id !== "shopping" && capability.id !== "calendar" && capability.id !== "email" && capability.id !== "browser"), createAgendaRunCapability(agenda), createShoppingCapability({ ...shoppingPorts, search, readOnly: true, ...(country && { country }) }), createEmailCapability({ ...emailPorts, readOnly: true }), createCalendarCapability({ calendar: calendarPorts.calendar, readOnly: true }), createBrowserCapability({ readOnly: true })]
 				: capabilities;
 	const registry = !asAgendaRun && !connectors.capability ? base.registry : createCapabilityRegistry(forRun);
-	if (base.unavailable.length > 0) log(`[engine-v4] run=${input.runId} capacidades sem porta: ${base.unavailable.join(", ")}`);
+	// `browser` (F8.1) depende da VM real, que é o adaptador `Sandbox` da frente A (ela passa `browser: true` ao preset). Até lá a
+	// capacidade só não é oferecida: não é porta que falhou, então não entra em `unavailable` nem no log.
+	const unavailable = base.unavailable.filter((id) => id !== "browser");
+	if (unavailable.length > 0) log(`[engine-v4] run=${input.runId} capacidades sem porta: ${unavailable.join(", ")}`);
 	return {
 		registry,
 		stableSystem: registry === base.registry ? base.stableSystem : presetStablePrompt(PRESETS.full, registry),
-		unavailable: base.unavailable,
+		unavailable,
 	};
 }
