@@ -6,6 +6,7 @@ export * from "./code/index.js";
 export * from "./define-capability.js";
 export * from "./email/index.js";
 export * from "./hooks.js";
+export * from "./images/index.js";
 export * from "./loaded-set.js";
 export * from "./registry.js";
 export * from "./memory/index.js";

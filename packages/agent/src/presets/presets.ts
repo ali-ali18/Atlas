@@ -13,6 +13,8 @@ import { createMemoryCapability } from "../capabilities/memory/index.js";
 import { createEmailCapability } from "../capabilities/email/index.js";
 import { createBrowserCapability } from "../capabilities/browser/index.js";
 import { createShoppingCapability } from "../capabilities/shopping/index.js";
+import { createImagesCapability } from "../capabilities/images/index.js";
+import type { Images } from "../ports/images.js";
 import type { EmailPorts } from "../ports/email.js";
 import type { ShoppingPorts } from "../ports/shopping.js";
 import { createSettingsCapability } from "../capabilities/settings/index.js";
@@ -33,7 +35,7 @@ import { createWebCapability } from "./web.js";
 export const PRESET_IDS = ["minimal", "full"] as const;
 export type PresetId = (typeof PRESET_IDS)[number];
 
-export type CapabilityId = "web" | "deliverables-lite" | "memory" | "tasks" | "settings" | "research" | "agenda" | "shopping" | "email" | "calendar" | "code" | "browser";
+export type CapabilityId = "web" | "deliverables-lite" | "memory" | "tasks" | "settings" | "research" | "agenda" | "shopping" | "email" | "calendar" | "code" | "browser" | "images";
 
 export type AgentPreset = {
 	id: PresetId;
@@ -45,7 +47,7 @@ export type AgentPreset = {
 
 export const PRESETS: Readonly<Record<PresetId, AgentPreset>> = Object.freeze({
 	minimal: Object.freeze({ id: "minimal", capabilities: Object.freeze(["web", "deliverables-lite"] as const), workContract: false }),
-	full: Object.freeze({ id: "full", capabilities: Object.freeze(["web", "deliverables-lite", "memory", "tasks", "settings", "research", "agenda", "shopping", "email", "calendar", "browser"] as const), workContract: true }),
+	full: Object.freeze({ id: "full", capabilities: Object.freeze(["web", "deliverables-lite", "memory", "tasks", "settings", "research", "agenda", "shopping", "email", "calendar", "browser", "images"] as const), workContract: true }),
 });
 
 /**
@@ -80,6 +82,8 @@ export type PresetDeps = {
 	code?: CodeDeps;
 	/** Navegador (F8.1): a VM do dono existe neste run (adaptador `Sandbox` real). Sem isso a capacidade não entra. */
 	browser?: boolean;
+	/** Imagens (F9): gerar imagens novas com o modelo de imagem do dono. Lazy; sem a porta a capacidade fica em `unavailable`. O worker não a passa em run sem dono. */
+	images?: Images;
 };
 
 export function isPresetId(value: unknown): value is PresetId {
@@ -108,6 +112,8 @@ const FACTORIES: Readonly<Record<CapabilityId, CapabilityFactory>> = {
 	code: (deps) => deps.code && createCodeCapability(deps.code),
 	// F8.1: navegador da VM; lazy. Fala com a porta `Sandbox` do run (sem VM, as tools falham com o motivo real). `helpers` liga o `browser_digest`.
 	browser: (deps) => deps.browser === true ? createBrowserCapability({ ...(deps.helpers && { helpers: deps.helpers }) }) : undefined,
+	// F9: imagens novas; lazy. Efeito `write_external` (a autonomia decide) e sem dono a tool não é oferecida.
+	images: (deps) => deps.images && createImagesCapability(deps.images),
 };
 
 /**

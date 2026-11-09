@@ -7,6 +7,7 @@ export * from "./email.js";
 export * from "./file-store.js";
 export * from "./events.js";
 export * from "./helpers.js";
+export * from "./images.js";
 export * from "./llm.js";
 export * from "./mcp.js";
 export * from "./memory.js";

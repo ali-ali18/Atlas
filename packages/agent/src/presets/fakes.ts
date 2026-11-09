@@ -3,6 +3,7 @@ import { AGENDA_MAX_ACTIVE_PER_OWNER, DEFAULT_PROACTIVE_SETTINGS, findDuplicateA
 import type { Agenda, AgendaAction, AgendaCreateResult, AgendaItemView, AgendaRunResult } from "../ports/agenda.js";
 import type { ChartStore, DeliverablePorts, DeliverableFiles, FileInspection, InspectPage, PageStore } from "../ports/deliverables.js";
 import type { Helpers, HelperResult, HelperTask } from "../ports/helpers.js";
+import type { Images } from "../ports/images.js";
 import type { FileStore, StoredFile } from "../ports/file-store.js";
 import type { Memory, MemoryAddInput, MemoryItem, MemoryLayer } from "../ports/memory.js";
 import type { Notebook, NotebookAddInput, NotebookNote, NotebookPatch } from "../ports/notebook.js";
@@ -506,6 +507,24 @@ export class FakeCalendar {
 			show: async (userId, runId, card) => {
 				if (!this.cards.some((c) => c.card.cardId === card.cardId)) this.cards.push({ userId, runId, card });
 			},
+		},
+	};
+}
+
+/** Imagens (F9): grava cada pedido e devolve imagens com id previsível. `fail` faz a porta lançar o motivo dado. */
+export class FakeImages {
+	readonly calls: Array<{ userId: string; runId: string; prompt: string; count: number; aspectRatio?: string }> = [];
+	/** Motivo de falha: a próxima chamada lança com esta mensagem. */
+	fail: string | null = null;
+	/** Custo que a porta informa (undefined = o provedor não informou). */
+	costUsd: number | undefined = 0.04;
+
+	readonly port: Images = {
+		generate: async (userId, runId, input) => {
+			this.calls.push({ userId, runId, prompt: input.prompt, count: input.count, ...(input.aspectRatio !== undefined && { aspectRatio: input.aspectRatio }) });
+			if (this.fail) throw new Error(this.fail);
+			const images = Array.from({ length: input.count }, (_, index) => ({ artifactId: `img-${this.calls.length}-${index + 1}`, mime: "image/png", width: 1024, height: 1024 }));
+			return { images, ...(this.costUsd !== undefined && { costUsd: this.costUsd }) };
 		},
 	};
 }
