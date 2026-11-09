@@ -419,13 +419,14 @@ function expandSegment(segment: CommandSegment, depth: number): CommandSegment[]
 // ---------------------------------------------------------------------------
 
 const READ_ONLY_COMMANDS = new Set([
-	"ls", "cat", "head", "tail", "wc", "pwd", "echo", "printf", "tree", "stat", "file", "du", "df", "which", "whoami", "date",
-	"uname", "id", "hostname", "uniq", "cut", "tr", "basename", "dirname", "realpath", "readlink", "nl", "tac", "rev", "seq",
+	"ls", "cat", "head", "tail", "wc", "pwd", "echo", "printf", "stat", "file", "du", "df", "which", "whoami",
+	"uname", "id", "cut", "tr", "basename", "dirname", "realpath", "readlink", "nl", "tac", "rev", "seq",
 	"diff", "cmp", "md5sum", "sha256sum", "sha1sum", "cd", "true", "false", "test", "[", "jq", "sleep", "grep", "egrep", "fgrep",
 	"pushd", "popd", ":",
 ]);
 const FIND_UNSAFE = new Set(["-exec", "-execdir", "-ok", "-okdir", "-delete", "-fprint", "-fprint0", "-fprintf", "-fls"]);
 const GIT_READ_SUBCOMMANDS = new Set(["status", "diff", "log", "show", "rev-parse", "ls-files", "blame", "describe", "shortlog", "rev-list", "ls-tree", "cat-file", "grep"]);
+const HOSTNAME_READ_FLAGS = new Set(["-s", "-f", "-i", "-I", "-d", "-A", "-a", "-y", "--short", "--fqdn", "--long", "--domain", "--ip-address", "--all-ip-addresses", "--all-fqdns", "--alias", "--yp", "--nis"]);
 const GIT_BRANCH_FLAGS = new Set(["-a", "-r", "-v", "-vv", "--list", "--show-current", "--all", "--remotes"]);
 const VERSION_FLAGS = new Set(["-v", "-V", "--version", "version"]);
 const VERSIONED = new Set(["node", "pnpm", "npm", "yarn", "python", "python3", "git", "go", "cargo", "rustc", "ruby", "java", "deno", "bun"]);
@@ -483,6 +484,32 @@ function isHarmlessShellBuiltin(cmd: string, args: string[]): boolean {
 	return false;
 }
 
+/** `uniq ENTRADA SAÍDA`: o segundo posicional é arquivo de saída (escreve). Opções com valor (-f -s -w) não contam como posicional. */
+function uniqWritesFile(args: string[]): boolean {
+	let positional = 0;
+	let afterDashes = false;
+	for (let i = 0; i < args.length; i++) {
+		const a = args[i]!;
+		if (!afterDashes && a === "--") afterDashes = true;
+		else if (!afterDashes && (a === "-f" || a === "-s" || a === "-w" || a === "--skip-fields" || a === "--skip-chars" || a === "--check-chars")) i += 1;
+		else if (!afterDashes && a.startsWith("-") && a !== "-") continue;
+		else positional += 1;
+	}
+	return positional >= 2;
+}
+
+/** `date -s`/`--set` ou `date MMDDhhmm…` (posicional numérico sem `+`) mudam o relógio do sistema. */
+function dateSetsClock(args: string[]): boolean {
+	return args.some((a) => (a.startsWith("--") ? a.startsWith("--s") : a.startsWith("-") && a.includes("s")) || /^[0-9]+(\.[0-9]+)?$/.test(a));
+}
+
+/** Opção longa do git, inclusive abreviada (`--ext`, `--open`): o git aceita prefixo único. Mínimo de 4 letras (`--ex`). */
+function isGitLongOption(arg: string, full: string): boolean {
+	if (!arg.startsWith("--")) return false;
+	const name = arg.split("=")[0]!;
+	return name.length >= 4 && full.startsWith(name);
+}
+
 /** Comando que só lê (sem escrever arquivo nem executar código arbitrário). */
 export function isReadOnlySegment(segment: CommandSegment): boolean {
 	if (segment.writesFile) return false;
@@ -490,8 +517,12 @@ export function isReadOnlySegment(segment: CommandSegment): boolean {
 	if (!cmd) return true;
 	if (VERSIONED.has(cmd) && args.length === 1 && VERSION_FLAGS.has(args[0]!)) return true;
 	if (READ_ONLY_COMMANDS.has(cmd)) return true;
+	if (cmd === "uniq") return !uniqWritesFile(args);
+	if (cmd === "tree") return !args.some((a) => (a.startsWith("--") ? a.startsWith("--o") : a.startsWith("-") && a.includes("o")));
+	if (cmd === "date") return !dateSetsClock(args);
+	if (cmd === "hostname") return args.every((a) => HOSTNAME_READ_FLAGS.has(a));
 	if (cmd === "rg") return !args.some((a) => a === "--pre" || a.startsWith("--pre=") || a === "--pre-glob" || a.startsWith("--pre-glob="));
-	if (cmd === "sort") return !args.some((a) => a === "-o" || a.startsWith("--output") || (a.startsWith("-") && !a.startsWith("--") && a.includes("o")));
+	if (cmd === "sort") return !args.some((a) => a === "-o" || a.startsWith("--compress-program") || a.startsWith("--output") || (a.startsWith("-") && !a.startsWith("--") && a.includes("o")));
 	if (cmd === "find") return !args.some((a) => FIND_UNSAFE.has(a));
 	if (cmd === "sed") return isReadOnlySed(args);
 	if (isHarmlessShellBuiltin(cmd, args)) return true;
@@ -509,7 +540,9 @@ function isReadOnlyGit(argsIn: string[]): boolean {
 	const sub = args[0];
 	if (!sub) return false;
 	const rest = args.slice(1);
-	if (rest.some((a) => a === "--output" || a.startsWith("--output=") || a === "--ext-diff")) return false;
+	if (rest.some((a) => isGitLongOption(a, "--output") || isGitLongOption(a, "--ext-diff"))) return false;
+	// `git grep -O<cmd>` / `--open-files-in-pager=<cmd>` EXECUTA o comando. `-O` pode vir agrupado (`-nOcmd`).
+	if (sub === "grep" && rest.some((a) => isGitLongOption(a, "--open-files-in-pager") || /^-[^-]*O/.test(a))) return false;
 	if (GIT_READ_SUBCOMMANDS.has(sub)) return true;
 	if (sub === "branch") return rest.every((a) => GIT_BRANCH_FLAGS.has(a));
 	if (sub === "tag") return rest.length === 0 || rest.every((a) => a === "-l" || a === "--list");

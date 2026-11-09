@@ -4,6 +4,7 @@ import {
 	alwaysAllowDetail,
 	alwaysAllowLabel,
 	decideCommand,
+	isReadOnlySegment,
 	isSensitiveEnvFile,
 	sensitiveReadReason,
 	DEFAULT_COMMAND_ALLOWLIST,
@@ -227,5 +228,33 @@ describe("proteção de leitura de .env", () => {
 		expect(decide("cat .env", "auto", ["cat"])).toMatchObject({ action: "ask", reason: "sensitive-read", prefixes: [] });
 		expect(decide("cat .env", "allowlist")).toMatchObject({ action: "ask", reason: "sensitive-read", prefixes: [] });
 		expect(decide("cat .env.example", "auto")).toEqual({ action: "run" });
+	});
+});
+
+describe("somente leitura: flags que escrevem ou executam", () => {
+	const readOnly = (cmd: string) => {
+		const parsed = parseCommand(cmd);
+		return parsed.ok && parsed.segments.every(isReadOnlySegment);
+	};
+	it("saem de somente leitura", () => {
+		for (const cmd of [
+			"git grep -O'sh -c id' x", "git grep -Oid x", "git grep -O x", "git grep --open-files-in-pager=cmd x", "git grep --open-files-in-pager cmd x", "git grep --open=cmd x", "git grep -nOid x", "git grep --no-index -Oid x",
+			"git diff --ext-diff", "git diff --ext=cmd", "git log --output=x", "git show --out=x HEAD",
+			"uniq a b", "uniq -c a b", "uniq -f 1 a b", "tree -o x", "tree -ao x", "tree -ox", "tree --output=x", "tree --output x", "date -s '2020-01-01'", "date --set=x", "date -us x", "date 010112002026",
+			"sort -o x y", "sort --compress-program=id a", "hostname newname", "hostname -F file", "find . -exec id ;", "find . -execdir id ;", "find . -ok id ;", "find . -delete", "find . -fprint x", "find . -fprintf x y", "find . -fls x", "rg --pre id x",
+		]) {
+			expect(readOnly(cmd), cmd).toBe(false);
+		}
+	});
+	it("leituras legítimas continuam somente leitura", () => {
+		for (const cmd of ["git grep foo", "git grep -n -i foo -- src", "git grep -e Other x", "git log -p", "git diff --stat", "cat README.md", "ls -la", "uniq a", "uniq -c a", "uniq -f 1 a", "uniq", "tree", "tree -L 2 -a", "date", "date +%s", "date -u", "date -d 'next monday' +%F", "hostname", "hostname -f", "sort a", "sort -u a", "find . -name x", "grep -r foo src", "rg --hidden foo", "cat src/env.ts", "cat .env.example"]) {
+			expect(readOnly(cmd), cmd).toBe(true);
+		}
+	});
+	it("git log -p, grep -r e rg --hidden sem caminho sensível explícito são aceitos (o conteúdo do repositório é do dono)", () => {
+		for (const cmd of ["git log -p", "git log -p --all", "grep -r foo .", "grep -r SECRET src", "rg --hidden SECRET", "rg --hidden --no-ignore KEY ."]) {
+			expect(sensitiveReadReason(cmd), cmd).toBeNull();
+			expect(decide(cmd, "allowlist"), cmd).toEqual({ action: "run" });
+		}
 	});
 });
