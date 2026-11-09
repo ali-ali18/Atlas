@@ -363,6 +363,7 @@ export {
 	getRoutineTemplateForAgentRun,
 	getRoutineContextForAgentRun,
 	recordRoutineAlertState,
+	getRoutineLoginPermissionForAgentRun,
 	getRoutinePageIdForAgentRun,
 	findRecentRoutineRunByIdempotency,
 	createRoutineRun,

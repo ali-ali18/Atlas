@@ -2,6 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import type {
 	RoutineAlert,
+	RoutineLoginPermission,
 	RoutineNotifyMode,
 	CreateRoutineInput,
 	EmailTriggerJson,
@@ -26,6 +27,7 @@ import {
 	applyAlertConfig,
 	parseRoutineAlert,
 	parseRoutineAlertInput,
+	parseRoutineLoginPermission,
 	parseRoutineNotifyMode,
 	parseEmailTriggerInput,
 	emailTriggerToView,
@@ -319,6 +321,7 @@ function toRoutine(
 		once: onceInfoFromTriggerJson(row.triggerJson),
 		interval: intervalInfoFromTriggerJson(row.triggerJson),
 		alert: parseRoutineAlert(row.alertJson) ?? undefined,
+		loginPermission: parseRoutineLoginPermission(row.loginPermissionJson),
 	};
 }
 
@@ -730,6 +733,11 @@ async function withAlertSlot<T>(userId: string, needsSlot: boolean, write: (db: 
 	});
 }
 
+/** Permissão de login aprovada pelo dono (login + site já normalizado); o carimbo é de agora. */
+function loginPermissionJson(permission: { login: string; site: string }): Prisma.InputJsonValue {
+	return { login: permission.login, site: permission.site, approvedAt: new Date().toISOString() };
+}
+
 const ALERT_TRIGGER_ERROR = "Alerta só funciona em rotina por horário ou por intervalo (a cada N minutos)";
 
 function alertJsonForCreate(raw: unknown, triggerType: RoutineTriggerType): Prisma.InputJsonValue {
@@ -877,6 +885,7 @@ export async function createRoutine(
 			createdBy: input.createdBy === "bot" ? "bot" : "user",
 			triggerJson: jsonValue(triggerJson) ?? undefined,
 			...(alertJson ? { alertJson } : {}),
+			...(input.loginPermission ? { loginPermissionJson: loginPermissionJson(input.loginPermission) } : {}),
 		},
 		include: { group: { select: { id: true, name: true } } },
 	}));
@@ -921,6 +930,8 @@ export async function updateRoutine(
 
 	const data: Prisma.RoutineUpdateInput = {
 		...(alertPatch !== undefined ? { alertJson: alertPatch } : {}),
+		...(input.loginPermission === null ? { loginPermissionJson: Prisma.DbNull } : {}),
+		...(input.loginPermission ? { loginPermissionJson: loginPermissionJson(input.loginPermission) } : {}),
 		...(input.name !== undefined ? { name: input.name.trim() } : {}),
 		...(input.groupId === null ? { group: { disconnect: true } } : {}),
 		...(input.groupId ? { group: { connect: { id: await assertGroupUsable(userId, botId, input.groupId) } } } : {}),
@@ -1322,6 +1333,18 @@ export async function getRoutinePageIdForAgentRun(agentRunId: string, userId: st
 		select: { routine: { select: { pageId: true } } },
 	});
 	return row?.routine?.pageId ?? null;
+}
+
+/** Permissão de login da rotina que originou este run (só se a rotina é do usuário; null = nenhuma). */
+export async function getRoutineLoginPermissionForAgentRun(agentRunId: string, userId: string | undefined): Promise<RoutineLoginPermission | null> {
+	const owners = ownerIds(userId);
+	if (owners.length === 0) return null;
+	const row = await prisma.routineRun.findFirst({
+		where: { agentRunId, routine: { userId: { in: owners } } },
+		orderBy: { createdAt: "desc" },
+		select: { routine: { select: { loginPermissionJson: true } } },
+	});
+	return parseRoutineLoginPermission(row?.routine?.loginPermissionJson);
 }
 
 /** Alerta da rotina que originou este run (só se a rotina é do usuário; null = não é rotina de alerta). */
