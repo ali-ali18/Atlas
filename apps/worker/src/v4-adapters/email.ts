@@ -12,11 +12,13 @@
 import type { EmailAccount, EmailAccountInfo, EmailAccounts, EmailCards, EmailDraftInput, EmailListQuery, EmailMessageContent, EmailMessageSummary, EmailPorts } from "@workspace/agent";
 import { getMailboxForBot, listConnectedMcpConnections, persistConversationCardFromEvent, type BotMailboxRecord } from "@workspace/db";
 import { redactSecrets, replySubject, type ComputerUseEvent, type EmailSourceId } from "@workspace/shared";
-import type { GoogleApiContext, GoogleFetchFn } from "@workspace/agent-runtime";
+import { emailService } from "@workspace/bot-mail";
+import { openSecrets } from "@workspace/db/vault-crypto";
+import { builtinAccessTokenFor, googleJson, type GoogleApiContext, type GoogleFetchFn } from "@workspace/google";
 
 type McpRecord = Awaited<ReturnType<typeof listConnectedMcpConnections>>[number];
 
-/** O que o adaptador usa do serviço de e-mail do bot (`emailService` do agent-runtime). */
+/** O que o adaptador usa do serviço de e-mail do bot (`emailService` de `@workspace/bot-mail`). */
 export type V4BotMailService = {
 	prepareSend(request: { mailbox: BotMailboxRecord; threadId?: string; to?: string; subject?: string; body: string }): Promise<{ to: string; subject: string; body: string; threadId?: string; newRecipient: boolean }>;
 	deliver(input: { mailbox: BotMailboxRecord; prepared: Awaited<ReturnType<V4BotMailService["prepareSend"]>>; idempotencyKey?: string }): Promise<{ threadId: string; messageId: string; to: string; subject: string }>;
@@ -35,20 +37,18 @@ export type V4EmailDeps = {
 	persistCard: (conversationId: string, event: ComputerUseEvent) => Promise<void>;
 };
 
-// O pacote do v2 é pesado: só carrega na primeira chamada que precisa (e os testes unitários nem o tocam).
 export const realV4EmailDeps: V4EmailDeps = {
 	listConnected: listConnectedMcpConnections,
 	accessToken: async (record) => {
-		const runtime = await import("@workspace/agent-runtime");
 		if (!record.secretsEnc) throw new Error("The Gmail connection has no login. Hint: ask the owner to reconnect Gmail in Apps.");
-		const config = runtime.buildMcpClientConfig(record, runtime.openSecrets(record.secretsEnc));
-		if (!config.builtin) throw new Error("The Gmail connection has no login. Hint: ask the owner to reconnect Gmail in Apps.");
-		return config.builtin.getAccessToken();
+		const builtin = builtinAccessTokenFor(record, openSecrets(record.secretsEnc));
+		if (!builtin) throw new Error("The Gmail connection has no login. Hint: ask the owner to reconnect Gmail in Apps.");
+		return builtin.getAccessToken();
 	},
 	googleFetch: (url, init) => fetch(url, init),
-	googleJson: async (ctx, url, init) => (await import("@workspace/agent-runtime")).googleJson(ctx, url, init),
+	googleJson: (ctx, url, init) => googleJson(ctx, url, init),
 	getMailbox: getMailboxForBot,
-	botMail: async () => (await import("@workspace/agent-runtime")).emailService as unknown as V4BotMailService,
+	botMail: async () => emailService as unknown as V4BotMailService,
 	persistCard: (conversationId, event) => persistConversationCardFromEvent(conversationId, event),
 };
 

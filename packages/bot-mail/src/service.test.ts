@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import type { BotMailboxRecord, EmailMessageRecord, ProviderConnectionRecord } from "@workspace/db";
-import { openSecrets } from "../mcp/secret-box.js";
+import { openSecrets } from "@workspace/db/vault-crypto";
 import { EmailServiceError, createEmailService, type EmailStore } from "./service.js";
 import { EmailProviderError, type EmailProvider } from "./provider.js";
 

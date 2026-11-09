@@ -18,6 +18,7 @@
     "@workspace/agent-runtime": "workspace:*",
     "@workspace/db": "workspace:*",
     "@workspace/files": "workspace:*",
+    "@workspace/bot-mail": "workspace:*",
     "@workspace/github": "workspace:*",
     "@workspace/google": "workspace:*",
     "@workspace/llm": "workspace:*",
