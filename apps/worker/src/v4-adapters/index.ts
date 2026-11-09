@@ -27,6 +27,7 @@ import {
 	type Search,
 } from "@workspace/agent";
 import { countryFromLocale, type AgendaKind, type ComputerUseEvent } from "@workspace/shared";
+import { createV4Bots, isBotDecideEnabled, realV4BotsDeps, type V4BotsDeps } from "./bots.js";
 import { createV4Agenda, realV4AgendaDeps, type V4AgendaDeps } from "./agenda.js";
 import { createV4Email, realV4EmailDeps, type V4EmailDeps } from "./email.js";
 import { createV4Github, realV4GithubDeps, type V4GithubDeps } from "./github.js";
@@ -57,9 +58,10 @@ export type V4AdapterDeps = {
 	images: V4ImagesDeps;
 	vault: V4VaultDeps;
 	github: V4GithubDeps;
+	bots: V4BotsDeps;
 };
 
-export const realV4AdapterDeps = (): V4AdapterDeps => ({ web: realV4WebDeps(), deliverables: realV4DeliverablesDeps, memory: realV4MemoryDeps, notebook: realV4NotebookDeps, settings: realV4SettingsDeps, mcp: realV4McpDeps, agenda: realV4AgendaDeps, shopping: realV4ShoppingDeps, email: realV4EmailDeps, calendar: realV4CalendarDeps, brief: realV4BriefDeps, images: realV4ImagesDeps, vault: realV4VaultDeps, github: realV4GithubDeps });
+export const realV4AdapterDeps = (): V4AdapterDeps => ({ web: realV4WebDeps(), deliverables: realV4DeliverablesDeps, memory: realV4MemoryDeps, notebook: realV4NotebookDeps, settings: realV4SettingsDeps, mcp: realV4McpDeps, agenda: realV4AgendaDeps, shopping: realV4ShoppingDeps, email: realV4EmailDeps, calendar: realV4CalendarDeps, brief: realV4BriefDeps, images: realV4ImagesDeps, vault: realV4VaultDeps, github: realV4GithubDeps, bots: realV4BotsDeps });
 
 export type V4RegistryInput = {
 	runId: string;
@@ -140,6 +142,9 @@ export async function buildV4Registry(input: V4RegistryInput): Promise<V4Registr
 	const calendarPorts = createV4Calendar({ scope: { botId: botId ?? null, conversationId: input.conversationId ?? null, emit: input.emit, log }, deps: deps.calendar });
 	// Imagens (F9): sem dono presente o gasto de provedor não tem quem aprove, então a porta nem entra (a capacidade fica fora).
 	const images = input.unattended ? undefined : createV4Images({ scope: { conversationId: input.conversationId ?? null, emit: input.emit, log }, ...(input.imageGeneration && { config: input.imageGeneration }), deps: deps.images });
+	// Bots (F9): só com dono presente e bot no run. Sem dono (rotina, agenda, bot a bot) a capacidade nem entra: não há quem
+	// confirme, e mensagem a outro bot a partir de conteúdo de fora não pode partir de um run sem humano.
+	const bots = botId && !input.unattended ? createV4Bots({ scope: { botId, conversationId: input.conversationId ?? null, emit: input.emit, log, decideEnabled: await isBotDecideEnabled(botId, input.userId, deps.bots) }, deps: deps.bots }) : undefined;
 	const presetDeps: PresetDeps = {
 		search,
 		...(input.makeHelpers && { helpers: input.makeHelpers({ search }) }),
@@ -162,6 +167,7 @@ export async function buildV4Registry(input: V4RegistryInput): Promise<V4Registr
 		vault: { vault: createVaultAdapter(vaultPorts.backend), ...(vaultPorts.requests && { requests: vaultPorts.requests }), ...(input.unattended && { readOnly: true }) },
 		// GitHub (F9, leitura): o token é o do dono do run, resolvido na chamada (nada é lido ao montar). O conector GitHub continua no run: é por ele que se escreve.
 		github: { github: createV4Github(deps.github) },
+		...(bots && { bots: { bots } }),
 		...(input.code && { code: input.code }),
 		...(images && { images }),
 		...(country && { shoppingCountry: country }),

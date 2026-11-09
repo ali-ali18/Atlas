@@ -302,6 +302,7 @@ function fakeAdapters(searched: string[]): NonNullable<Parameters<typeof runEngi
 		images: { generate: never, process: never, persistArtifact: never, persistCard: never } as never,
 		vault: { listMeta: async () => [], getByName: never, getKey: never, touch: never, audit: never, unwrap: never, open: never, saveIntent: never, persistCard: never } as never,
 		github: { resolveReadOps: never, markAuthFailed: never } as never,
+		bots: { roster: never, send: never, setPrimary: never, decidesForOthers: async () => false, findPending: never, attended: never, autoCount: never, queueAuto: never, escalate: never, botName: never, listSkills: never, persistCard: never } as never,
 	};
 }
 
