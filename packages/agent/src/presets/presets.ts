@@ -15,6 +15,7 @@ import { createBrowserCapability } from "../capabilities/browser/index.js";
 import { createVaultCapability, type VaultDeps } from "../capabilities/vault/index.js";
 import { createGithubCapability } from "../capabilities/github/index.js";
 import type { GithubPorts } from "../ports/github.js";
+import { createBotsCapability, type BotsDeps } from "../capabilities/bots/index.js";
 import { createShoppingCapability } from "../capabilities/shopping/index.js";
 import { createImagesCapability } from "../capabilities/images/index.js";
 import type { Images } from "../ports/images.js";
@@ -38,7 +39,7 @@ import { createWebCapability } from "./web.js";
 export const PRESET_IDS = ["minimal", "full"] as const;
 export type PresetId = (typeof PRESET_IDS)[number];
 
-export type CapabilityId = "web" | "deliverables-lite" | "memory" | "tasks" | "settings" | "research" | "agenda" | "shopping" | "email" | "calendar" | "code" | "browser" | "images" | "vault" | "github";
+export type CapabilityId = "web" | "deliverables-lite" | "memory" | "tasks" | "settings" | "research" | "agenda" | "shopping" | "email" | "calendar" | "code" | "browser" | "images" | "vault" | "github" | "bots";
 
 export type AgentPreset = {
 	id: PresetId;
@@ -50,7 +51,7 @@ export type AgentPreset = {
 
 export const PRESETS: Readonly<Record<PresetId, AgentPreset>> = Object.freeze({
 	minimal: Object.freeze({ id: "minimal", capabilities: Object.freeze(["web", "deliverables-lite"] as const), workContract: false }),
-	full: Object.freeze({ id: "full", capabilities: Object.freeze(["web", "deliverables-lite", "memory", "tasks", "settings", "research", "agenda", "shopping", "email", "calendar", "browser", "images", "vault", "github"] as const), workContract: true }),
+	full: Object.freeze({ id: "full", capabilities: Object.freeze(["web", "deliverables-lite", "memory", "tasks", "settings", "research", "agenda", "shopping", "email", "calendar", "browser", "images", "vault", "github", "bots"] as const), workContract: true }),
 });
 
 /**
@@ -91,6 +92,8 @@ export type PresetDeps = {
 	vault?: VaultDeps;
 	/** GitHub (F9, leitura): listar repositórios e comparar dois pontos, com o token do dono. Lazy; sem a porta a capacidade fica em `unavailable`. Escrita segue pelos conectores. */
 	github?: GithubPorts;
+	/** Bots (F9): falar com os outros bots do dono, bot principal, pendências e proposta de bot novo. Lazy; só com dono presente (o worker não passa a chave em run sem dono). Sem a porta a capacidade fica em `unavailable`. */
+	bots?: BotsDeps;
 };
 
 export function isPresetId(value: unknown): value is PresetId {
@@ -125,6 +128,8 @@ const FACTORIES: Readonly<Record<CapabilityId, CapabilityFactory>> = {
 	vault: (deps) => deps.vault && createVaultCapability(deps.vault),
 	// F9: leitura do GitHub; lazy. Só lê, então o mesmo conjunto vale em run sem dono (o conteúdo vem de fora e é `untrusted`).
 	github: (deps) => deps.github && createGithubCapability(deps.github),
+	// F9: outros bots do dono; lazy. Mensagem de outro bot volta como dado não confiável.
+	bots: (deps) => deps.bots && createBotsCapability(deps.bots),
 };
 
 /**

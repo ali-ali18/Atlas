@@ -8,6 +8,8 @@ import { createShoppingCapability } from "../capabilities/shopping/index.js";
 import { createGithubCapability } from "../capabilities/github/index.js";
 import { createVaultCapability } from "../capabilities/vault/index.js";
 import { FakeGithub } from "../testing/github-fakes.js";
+import { createBotsCapability } from "../capabilities/bots/index.js";
+import { FakeBots } from "../testing/bots-fakes.js";
 import { FakeSecretRequests, FakeVault } from "../testing/vault-fakes.js";
 import { createEmailCapability } from "../capabilities/email/index.js";
 import { FakeEmail } from "../presets/fake-email.js";
@@ -230,6 +232,28 @@ describe("economia: Bom dia", () => {
 		expect((first?.tools ?? []).map((t) => t.name)).not.toContain("login_fill");
 		expect((second?.tools ?? []).map((t) => t.name)).toEqual(expect.arrayContaining(["secret_list", "secret_request", "login_fill"]));
 		expect(JSON.stringify(second?.messages)).toContain("Vault rules");
+	});
+
+	it("a capacidade bots é lazy: 'Bom dia' não ganha as tools de bots, só uma linha do índice", async () => {
+		const bots = () => createBotsCapability({ bots: new FakeBots([], "bot-a").port });
+		const base = await measureGoodMorning();
+		const withBots = await measureGoodMorning([bots()]);
+		expect(withBots.toolNames).toEqual(base.toolNames);
+		for (const name of ["list_bots", "send_to_bot", "set_primary_bot", "decide_bot_pending", "propose_bot"]) expect(withBots.toolNames).not.toContain(name);
+		expect(withBots.tokens - base.tokens).toBeLessThan(60);
+		expect(JSON.stringify(withBots.result)).not.toContain("Bots rules");
+		expect(withBots.tokens).toBeLessThanOrEqual(GOOD_MORNING_INPUT_TOKENS_CEILING + 60);
+	});
+
+	it("'pergunta pro bot financeiro' carrega a capacidade no passo 1; as tools e as regras só no passo seguinte", async () => {
+		const core = defineCapability({ id: "core", title: "Core", summary: "core tools", core: true, tools: [] });
+		const h = kernelHarness([reply({ calls: [call("c1", "use_capability", { id: "bots" })] }), reply({ text: "Pronto." })], { capabilities: [core, createBotsCapability({ bots: new FakeBots([], "bot-a").port })] });
+		await h.run({ input: { contextSections: [], history: [{ kind: "owner", text: "Pergunta pro bot financeiro quanto gastei" }] } });
+		const [first, second] = h.llm.requests;
+		expect(JSON.stringify(first?.messages)).not.toContain("Bots rules");
+		expect((first?.tools ?? []).map((t) => t.name)).not.toContain("send_to_bot");
+		expect((second?.tools ?? []).map((t) => t.name)).toEqual(expect.arrayContaining(["list_bots", "send_to_bot", "set_primary_bot"]));
+		expect(JSON.stringify(second?.messages)).toContain("Bots rules");
 	});
 
 	it("o caderno é lazy: 'Bom dia' não ganha as tools note_*, só uma linha do índice", async () => {
