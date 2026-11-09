@@ -14,6 +14,12 @@ function harness(options: { preview?: Awaited<ReturnType<V4DeliverablesDeps["pre
 	const cards: Array<{ conversationId: string; event: ComputerUseEvent }> = [];
 	const emitted: ComputerUseEvent[] = [];
 	const pages: Array<{ userId: string; input: { botId: string; conversationId?: string | null } }> = [];
+	// Banco falso de painéis: como o db real, só devolve o que é do dono; o link público guarda só um flag.
+	const store = new Map<string, { userId: string; botId: string; spec: PageSpec; revision: number; shared: boolean }>();
+	const record = (id: string) => {
+		const row = store.get(id);
+		return row ? { id, botId: row.botId, conversationId: null, groupId: null, title: row.spec.title, spec: row.spec, sources: [], revision: row.revision, refreshedAt: null, createdAt: "", updatedAt: "2026-11-09T12:00:00.000Z" } : null;
+	};
 	const deps: V4DeliverablesDeps = {
 		persistArtifact: (async (input: Omit<Stored, "id">) => {
 			const id = `art-${artifacts.size + 1}`;
@@ -29,8 +35,35 @@ function harness(options: { preview?: Awaited<ReturnType<V4DeliverablesDeps["pre
 		},
 		createPage: (async (userId: string, input: { botId: string; conversationId?: string | null; spec: PageSpec }) => {
 			pages.push({ userId, input });
-			return { id: "page-1", botId: input.botId, conversationId: null, groupId: null, title: input.spec.title, spec: input.spec, sources: [], revision: 1, refreshedAt: null, createdAt: "", updatedAt: "" };
+			const id = `page-${store.size + 1}`;
+			store.set(id, { userId, botId: input.botId, spec: input.spec, revision: 1, shared: false });
+			return record(id);
 		}) as unknown as V4DeliverablesDeps["createPage"],
+		getPage: (async (id: string, userId: string) => (store.get(id)?.userId === userId ? record(id) : null)) as unknown as V4DeliverablesDeps["getPage"],
+		listPages: (async (userId: string, botId: string) => [...store.entries()].filter(([, r]) => r.userId === userId && r.botId === botId).map(([id, r]) => ({ id, title: r.spec.title, revision: r.revision, updatedAt: "2026-11-09T12:00:00.000Z", groupName: null }))) as unknown as V4DeliverablesDeps["listPages"],
+		updatePage: (async (id: string, userId: string, input: { spec: PageSpec; expectedRevision?: number }) => {
+			const row = store.get(id);
+			if (!row || row.userId !== userId) return { ok: false, error: "not_found" };
+			if (input.expectedRevision !== undefined && input.expectedRevision !== row.revision) return { ok: false, error: "conflict" };
+			row.spec = input.spec;
+			row.revision += 1;
+			return { ok: true, page: record(id) };
+		}) as unknown as V4DeliverablesDeps["updatePage"],
+		shareStatus: (async (id: string, userId: string) => (store.get(id)?.userId === userId ? { active: store.get(id)?.shared === true, createdAt: null } : null)) as unknown as V4DeliverablesDeps["shareStatus"],
+		createShare: (async (id: string, userId: string) => {
+			const row = store.get(id);
+			if (!row || row.userId !== userId) return null;
+			row.shared = true;
+			return { token: "tok123", createdAt: "" };
+		}) as unknown as V4DeliverablesDeps["createShare"],
+		revokeShare: (async (id: string, userId: string) => {
+			const row = store.get(id);
+			if (!row || row.userId !== userId) return null;
+			const was = row.shared;
+			row.shared = false;
+			return was;
+		}) as unknown as V4DeliverablesDeps["revokeShare"],
+		publicWebUrl: () => "https://web.test",
 		render: async (input: CreateFileInput) => ({ bytes: new TextEncoder().encode(input.content ?? ""), mime: "text/markdown", ext: input.ext }),
 		preview: async () => options.preview ?? { kind: "text", text: "conteúdo", language: "text", truncated: false },
 		persistCard: async (conversationId, event) => void cards.push({ conversationId, event }),
@@ -185,4 +218,62 @@ test("inspect em partes: planilha por aba e faixa de linhas; aba inexistente lis
 	assert.deepEqual(covered, rows);
 	await assert.rejects(h.ports.files.inspect("user-a", id, { sheet: "Nada" }), /Sheets: Dados, Outra/);
 	await assert.rejects(h.ports.files.inspect("user-a", id, { offset: 3 }), /text files only/);
+});
+
+test("painel: update mantém o pageId, sobe a revisão e mostra o cartão 'updated' (persistido e ao vivo)", async () => {
+	const h = harness();
+	const spec = { v: 2, title: "Vendas", root: { type: "section" } } as unknown as PageSpec;
+	const created = await h.ports.pages.save("user-a", "run-1", spec);
+	const next = { ...spec, title: "Vendas v2" } as PageSpec;
+	const result = await h.ports.pages.update("user-a", "run-2", created.id, next, 1);
+	assert.deepEqual(result, { ok: true, id: created.id, title: "Vendas v2", revision: 2 });
+	const [, updated] = h.cards;
+	assert.equal(updated?.conversationId, "conv-1");
+	assert.deepEqual(updated?.event.type === "page" && [updated.event.action, updated.event.pageId, updated.event.revision, updated.event.runId], ["updated", created.id, 2, "run-2"]);
+	assert.equal(h.emitted.length, 2);
+	// Revisão velha = conflito, sem cartão novo.
+	assert.deepEqual(await h.ports.pages.update("user-a", "run-2", created.id, next, 1), { ok: false, error: "conflict" });
+	assert.equal(h.cards.length, 2);
+});
+
+test("painel: usuário B não lê, lista, altera nem compartilha o painel do A (not found, sem cartão)", async () => {
+	const h = harness();
+	const spec = { v: 2, title: "Do A", root: { type: "section" } } as unknown as PageSpec;
+	const { id } = await h.ports.pages.save("user-a", "run-1", spec);
+	const cardsBefore = h.cards.length;
+	assert.equal(await h.ports.pages.read("user-b", id), null);
+	assert.deepEqual(await h.ports.pages.list("user-b"), []);
+	assert.deepEqual(await h.ports.pages.update("user-b", "run-9", id, spec, 1), { ok: false, error: "not_found" });
+	assert.equal(await h.ports.pages.share("user-b", id), null);
+	assert.equal(await h.ports.pages.unshare("user-b", id), null);
+	assert.equal(h.cards.length, cardsBefore);
+	assert.equal((await h.ports.pages.read("user-a", id))?.shared, false);
+});
+
+test("painel: outro bot do mesmo dono também é not found", async () => {
+	const h = harness();
+	const spec = { v: 2, title: "Do bot 1", root: { type: "section" } } as unknown as PageSpec;
+	const { id } = await h.ports.pages.save("user-a", "run-1", spec);
+	const otherBot = createV4Deliverables({ runId: "run-3", scope: { conversationId: "conv-1", botId: "bot-2", emit: () => undefined }, deps: h.deps });
+	assert.equal(await otherBot.ports.pages.read("user-a", id), null);
+	assert.deepEqual(await otherBot.ports.pages.list("user-a"), []);
+	assert.equal(await otherBot.ports.pages.share("user-a", id), null);
+});
+
+test("painel: link público monta a URL com a base do web, status entra na leitura e revogar desliga", async () => {
+	const h = harness();
+	const spec = { v: 2, title: "Vendas", root: { type: "section" } } as unknown as PageSpec;
+	const { id } = await h.ports.pages.save("user-a", "run-1", spec);
+	assert.deepEqual(await h.ports.pages.share("user-a", id), { url: "https://web.test/p/tok123" });
+	assert.equal((await h.ports.pages.read("user-a", id))?.shared, true);
+	assert.equal(await h.ports.pages.unshare("user-a", id), true);
+	assert.equal(await h.ports.pages.unshare("user-a", id), false);
+	const noBase = createV4Deliverables({ runId: "run-1", scope: { conversationId: "conv-1", botId: "bot-1", emit: () => undefined }, deps: { ...h.deps, publicWebUrl: () => "" } });
+	await assert.rejects(noBase.ports.pages.share("user-a", id), /not configured/);
+});
+
+test("painel: sem bot no run, listar e ler falham com o motivo", async () => {
+	const h = harness({ botId: null });
+	await assert.rejects(h.ports.pages.list("user-a"), /belong to a bot/);
+	await assert.rejects(h.ports.pages.read("user-a", "page-1"), /belong to a bot/);
 });

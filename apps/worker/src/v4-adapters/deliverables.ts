@@ -9,7 +9,7 @@ import type { ChartStore, DeliverableFile, DeliverablePorts, DeliverableFiles, F
 import { renderFile, type RenderedFile } from "@workspace/files/render";
 import { printPdfWithChromium } from "@workspace/files/pdf-chromium";
 import { INSPECT_LIMITS, buildFilePreview } from "@workspace/files/preview";
-import { countRunFileArtifacts, createPage, loadArtifactForUser, nextFileVersion, persistConversationCardFromEvent, persistUserArtifact } from "@workspace/db";
+import { countRunFileArtifacts, createOrRotatePageShare, createPage, getPageForUser, getPageShareStatus, listBotPagesForUser, loadArtifactForUser, nextFileVersion, persistConversationCardFromEvent, persistUserArtifact, revokePageShare, updatePage } from "@workspace/db";
 import { FILES_PER_RUN_MAX, decodeEntities, deckImageIds, type ChartSpec, type ComputerUseEvent, type CreateFileInput, type FileArtifactMeta, type PageSpec } from "@workspace/shared";
 
 /** Funções do db e do renderizador usadas aqui; injetáveis para o teste (sem banco, sem Chromium). */
@@ -19,6 +19,14 @@ export type V4DeliverablesDeps = {
 	countRunFiles: typeof countRunFileArtifacts;
 	loadArtifact: (artifactId: string, userId: string) => Promise<{ id: string; kind: string; meta: Record<string, unknown>; bytes: Uint8Array } | null>;
 	createPage: typeof createPage;
+	getPage: typeof getPageForUser;
+	listPages: typeof listBotPagesForUser;
+	updatePage: typeof updatePage;
+	shareStatus: typeof getPageShareStatus;
+	createShare: typeof createOrRotatePageShare;
+	revokeShare: typeof revokePageShare;
+	/** Base pública do web (onde mora `/p/:token`); vazio = não configurada (compartilhar falha com o motivo). */
+	publicWebUrl: () => string;
 	render: (input: CreateFileInput) => Promise<RenderedFile>;
 	preview: typeof buildFilePreview;
 	/** Grava o cartão na conversa (mesmo caminho do v2: `persistConversationCardFromEvent`). */
@@ -31,6 +39,13 @@ export const realV4DeliverablesDeps: V4DeliverablesDeps = {
 	countRunFiles: countRunFileArtifacts,
 	loadArtifact: loadArtifactForUser,
 	createPage,
+	getPage: getPageForUser,
+	listPages: listBotPagesForUser,
+	updatePage,
+	shareStatus: getPageShareStatus,
+	createShare: createOrRotatePageShare,
+	revokeShare: revokePageShare,
+	publicWebUrl: () => (process.env.ATLAS_URL ?? "").trim().replace(/\/$/, ""),
 	render: (input) => renderFile(input, { printPdf: printPdfWithChromium }),
 	preview: buildFilePreview,
 	persistCard: (conversationId, event) => persistConversationCardFromEvent(conversationId, event),
@@ -148,13 +163,53 @@ async function showCard(scope: V4DeliverablesScope, deps: V4DeliverablesDeps, ev
 }
 
 function createPages(scope: V4DeliverablesScope, deps: V4DeliverablesDeps): PageStore {
+	const requireBot = (): string => {
+		if (!scope.botId) throw new Error("Panels belong to a bot, and this run has none. Tell the owner plainly.");
+		return scope.botId;
+	};
+	// Painel só do dono E deste bot: o db filtra por dono; o bot confere aqui (outro bot do mesmo dono = not found, como no legado).
+	const own = async (userId: string, pageId: string) => {
+		const botId = requireBot();
+		const page = await deps.getPage(pageId, userId);
+		return page && page.botId === botId ? page : null;
+	};
 	return {
 		async save(userId, runId, spec: PageSpec) {
-			if (!scope.botId) throw new Error("Panels belong to a bot, and this run has none. Tell the owner plainly.");
-			const page = await deps.createPage(userId, { botId: scope.botId, conversationId: scope.conversationId ?? null, spec });
+			const botId = requireBot();
+			const page = await deps.createPage(userId, { botId, conversationId: scope.conversationId ?? null, spec });
 			if (!page) throw new Error("Could not create the panel for this bot. Tell the owner it failed; do not retry in a loop.");
 			await showCard(scope, deps, { type: "page", action: "created", pageId: page.id, revision: page.revision, title: page.title, spec: page.spec, sourceCount: page.sources.length, runId });
 			return { id: page.id, title: page.title };
+		},
+		async list(userId) {
+			const items = await deps.listPages(userId, requireBot());
+			return (items ?? []).map((item) => ({ id: item.id, title: item.title, revision: item.revision, updatedAt: item.updatedAt, groupName: item.groupName ?? null, ...(item.summary ? { summary: item.summary } : {}) }));
+		},
+		async read(userId, pageId) {
+			const page = await own(userId, pageId);
+			if (!page) return null;
+			const status = await deps.shareStatus(pageId, userId);
+			return { id: page.id, title: page.title, revision: page.revision, spec: page.spec, sourceCount: page.sources.length, shared: status?.active === true };
+		},
+		async update(userId, runId, pageId, spec, expectedRevision) {
+			if (!(await own(userId, pageId))) return { ok: false, error: "not_found" };
+			const result = await deps.updatePage(pageId, userId, { spec, expectedRevision });
+			if (!result.ok) return result;
+			const page = result.page;
+			// Mesmo `pageId` do cartão criado: o merge da conversa troca a revisão no lugar, sem cartão novo.
+			await showCard(scope, deps, { type: "page", action: "updated", pageId: page.id, revision: page.revision, title: page.title, spec: page.spec, sourceCount: page.sources.length, runId });
+			return { ok: true, id: page.id, title: page.title, revision: page.revision };
+		},
+		async share(userId, pageId) {
+			if (!(await own(userId, pageId))) return null;
+			const base = deps.publicWebUrl();
+			if (!base) throw new Error("The public web address is not configured on the server. Tell the owner the link cannot be created from chat; they can use Compartilhar > Link público in the panel.");
+			const created = await deps.createShare(pageId, userId);
+			return created ? { url: `${base}/p/${created.token}` } : null;
+		},
+		async unshare(userId, pageId) {
+			if (!(await own(userId, pageId))) return null;
+			return deps.revokeShare(pageId, userId);
 		},
 	};
 }
