@@ -166,7 +166,7 @@ export function describeApproval(event: ApprovalEvent, translator: Translator = 
 		case "destructive":
 			return facts.target ? t("agentCards.approval.deleteTarget", { target: facts.target }) : t("agentCards.approval.deleteGeneric");
 		case "credential":
-			return t("agentCards.approval.credential");
+			return facts.target ? t("agentCards.approval.credentialTarget", { target: facts.target }) : t("agentCards.approval.credential");
 		case "write_external":
 			return facts.target ? t("agentCards.approval.changeTarget", { target: facts.target }) : t("agentCards.approval.changeExternal");
 		case "write_internal":

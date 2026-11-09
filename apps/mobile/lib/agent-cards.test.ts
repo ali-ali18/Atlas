@@ -48,6 +48,10 @@ describe("frases", () => {
 		expect(describeApproval({ ...approval, effect: "destructive", riskFacts: { target: "pasta Fotos" } })).toBe("Apagar pasta Fotos");
 		expect(describeApproval({ ...approval, effect: "read", riskFacts: {} })).toBe("Consultar uma informação");
 	});
+	it("credencial com alvo diz qual login e onde (rotina), sem alvo segue a frase genérica", () => {
+		expect(describeApproval({ ...approval, effect: "credential", riskFacts: { target: "o login banco para entrar em banco.example nesta rotina" } })).toBe("Usar o login banco para entrar em banco.example nesta rotina");
+		expect(describeApproval({ ...approval, effect: "credential", riskFacts: {} })).toBe("Usar uma senha ou chave salva");
+	});
 	it("detalhes: só valores simples; credencial não mostra nada", () => {
 		expect(approvalDetails(approval)).toEqual(["ana@exemplo.com", "Orçamento de novembro"]);
 		expect(approvalDetails({ ...approval, effect: "credential" })).toEqual([]);

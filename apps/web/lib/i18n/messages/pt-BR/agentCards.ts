@@ -15,6 +15,7 @@ export const agentCards = {
 	"agentCards.approval.deleteTarget": "Apagar {target}",
 	"agentCards.approval.deleteGeneric": "Apagar um item",
 	"agentCards.approval.credential": "Usar uma senha ou chave salva",
+	"agentCards.approval.credentialTarget": "Usar {target}",
 	"agentCards.approval.changeTarget": "Alterar {target}",
 	"agentCards.approval.changeExternal": "Fazer uma alteração fora do Atlas",
 	"agentCards.approval.saveTarget": "Salvar {target}",

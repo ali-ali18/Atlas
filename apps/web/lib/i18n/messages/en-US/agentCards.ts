@@ -17,6 +17,7 @@ export const agentCards: NamespaceMessages<typeof ptBR> = {
 	"agentCards.approval.deleteTarget": "Delete {target}",
 	"agentCards.approval.deleteGeneric": "Delete an item",
 	"agentCards.approval.credential": "Use a saved password or key",
+	"agentCards.approval.credentialTarget": "Use {target}",
 	"agentCards.approval.changeTarget": "Change {target}",
 	"agentCards.approval.changeExternal": "Make a change outside Atlas",
 	"agentCards.approval.saveTarget": "Save {target}",

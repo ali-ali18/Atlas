@@ -112,7 +112,7 @@ export function describeApproval(event: ApprovalEvent): string {
 		case "destructive":
 			return target ? `Apagar ${target}` : "Apagar um item";
 		case "credential":
-			return "Usar uma senha ou chave salva";
+			return target ? `Usar ${target}` : "Usar uma senha ou chave salva";
 		case "write_external":
 			return target ? `Alterar ${target}` : "Fazer uma alteração fora do Atlas";
 		case "write_internal":

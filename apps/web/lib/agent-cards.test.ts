@@ -48,6 +48,8 @@ test("frase da aprovação sai do efeito e dos fatos, nunca do nome da ferrament
 	assert.equal(describeApproval(approval({ effect: "money", riskFacts: { amount: 120, currency: "brl", merchant: "Loja X" } })).replace(/\s/g, " "), "Pagar R$ 120,00 em Loja X");
 	assert.equal(describeApproval(approval({ effect: "money", riskFacts: {} })), "Fazer um pagamento");
 	assert.equal(describeApproval(approval({ effect: "destructive", riskFacts: { target: "planilha.xlsx" } })), "Apagar planilha.xlsx");
+	assert.equal(describeApproval(approval({ effect: "credential", riskFacts: { target: "o login banco para entrar em banco.example nesta rotina" } })), "Usar o login banco para entrar em banco.example nesta rotina");
+	assert.equal(describeApproval(approval({ effect: "credential", riskFacts: {} })), "Usar uma senha ou chave salva");
 	assert.equal(describeApproval(approval({ effect: "public_link", riskFacts: {} })), "Criar um link público");
 	// Fato com tipo errado é ignorado (o tipo em shared é aberto): sem quebrar, cai na frase genérica.
 	assert.equal(describeApproval(approval({ riskFacts: { recipients: "não é lista" } })), "Enviar uma mensagem");
