@@ -11,6 +11,7 @@ import {
 	appendUserSecretAudit,
 	getUserSecretByName,
 	getUserVaultKey,
+	listUserSecretRows,
 	listUserSecrets,
 	persistConversationCardFromEvent,
 	saveSkillPendingIntent,
@@ -18,13 +19,15 @@ import {
 	type UserSecretRow,
 } from "@workspace/db";
 import { itemAad, openItem, unwrapDataKey } from "@workspace/db/vault-crypto";
-import { VAULT_ENVIRONMENT_ID, type ComputerUseEvent } from "@workspace/shared";
+import { loginFieldDecls, loginFieldsView, readStoredLoginFields, VAULT_ENVIRONMENT_ID, type ComputerUseEvent, type LoginFieldValue } from "@workspace/shared";
 
 /** Conteúdo selado de um item (mesmo formato do `VaultService` legado: os dois leem as mesmas linhas). */
-type SealedPayload = { value?: string; password?: string; totp?: string };
+type SealedPayload = { value?: string; password?: string; totp?: string; /** Login com campos declarados pela IA (F9); login antigo não tem. */ fields?: unknown };
 
 export type V4VaultDeps = {
 	listMeta: typeof listUserSecrets;
+	/** Linhas com o valor selado: só para ler a DECLARAÇÃO dos campos de login (chave, rótulo, secreto), nunca o valor. */
+	listRows: typeof listUserSecretRows;
 	getByName: typeof getUserSecretByName;
 	getKey: typeof getUserVaultKey;
 	touch: typeof touchUserSecret;
@@ -37,6 +40,7 @@ export type V4VaultDeps = {
 
 export const realV4VaultDeps: V4VaultDeps = {
 	listMeta: listUserSecrets,
+	listRows: listUserSecretRows,
 	getByName: getUserSecretByName,
 	getKey: getUserVaultKey,
 	touch: touchUserSecret,
@@ -65,11 +69,35 @@ async function openRow(deps: V4VaultDeps, userId: string, row: UserSecretRow): P
 	}
 }
 
+/** Campos (com valor, só dentro do worker) de cada login do dono, por id de item. Cofre que não abre: sem o mapa (a lista cai no usuário). */
+async function loginFieldsByItem(deps: V4VaultDeps, userId: string): Promise<Map<string, LoginFieldValue[]>> {
+	const out = new Map<string, LoginFieldValue[]>();
+	try {
+		const wrapped = await deps.getKey(userId);
+		if (!wrapped) return out;
+		const key = deps.unwrap(wrapped);
+		for (const row of await deps.listRows(userId)) {
+			if (row.kind !== "login") continue;
+			try {
+				const payload = deps.open(key, userId, row);
+				out.set(row.id, loginFieldsView({ username: row.username, password: payload.password, fields: readStoredLoginFields(payload.fields) }));
+			} catch {
+				// item que não abre: cai no que está em claro
+			}
+		}
+	} catch {
+		// sem chave do servidor: a lista mostra só o que está em claro
+	}
+	return out;
+}
+
 /** Backend da porta `Vault` do motor: `listHandles` (metadados) e `resolveSecret` (só segredo simples). */
 export function createV4VaultBackend(deps: V4VaultDeps = realV4VaultDeps, scope?: Pick<V4VaultScope, "botId" | "botName" | "conversationId">): VaultBackend {
 	return {
 		async listHandles(userId) {
 			const metas = await deps.listMeta(userId);
+			// Campos de login: a declaração (chave, rótulo, secreto) vem do selado; o valor nunca sai daqui.
+			const fields = metas.some((meta) => meta.kind === "login") ? await loginFieldsByItem(deps, userId) : new Map<string, LoginFieldValue[]>();
 			return metas.map(
 				(meta): SecretHandle => ({
 					id: meta.name,
@@ -78,6 +106,7 @@ export function createV4VaultBackend(deps: V4VaultDeps = realV4VaultDeps, scope?
 					...(meta.description && { description: meta.description }),
 					...(meta.kind === "login" && meta.domain && { site: meta.domain }),
 					...(meta.kind === "login" && meta.username && { username: meta.username }),
+					...(meta.kind === "login" && { fields: loginFieldDecls(fields.get(meta.id) ?? loginFieldsView({ username: meta.username })) }),
 				}),
 			);
 		},
@@ -102,19 +131,28 @@ export function createV4VaultBackend(deps: V4VaultDeps = realV4VaultDeps, scope?
 	};
 }
 
-export type LoginFields = { username?: string; password?: string };
 export type LoginRecord = { id: string; name: string; siteUrl: string | null; domain: string | null };
+
+/** Campos do login que o modelo pediu (valores só aqui, no worker) e as chaves que o login tem (só nomes, para o erro). */
+export type LoginUse = { saved: string[]; fields: Array<{ key: string; secret: boolean; value: string }> };
 
 /** O que o tratador `vault.login_fill` precisa do cofre. Os valores só existem aqui dentro, no worker. */
 export type LoginSource = {
 	getLogin(userId: string, name: string): Promise<LoginRecord | null>;
 	/** Todos os logins do dono (só nome e site, nunca valor): o `login_fill` sem nome acha o do site da página atual. */
 	listLogins(userId: string): Promise<LoginRecord[]>;
-	/** Lê usuário e/ou senha do login do dono e audita "usado". */
-	useLogin(userId: string, login: LoginRecord, fields: ReadonlyArray<"username" | "password">): Promise<LoginFields>;
+	/** Lê os campos pedidos (por chave) do login do dono e audita "usado". Chave que o login não tem não vem em `fields`. */
+	useLogin(userId: string, login: LoginRecord, keys: readonly string[]): Promise<LoginUse>;
 };
 
 export function createV4LoginSource(deps: V4VaultDeps = realV4VaultDeps): LoginSource {
+	/** Reconfere o dono e o tipo na leitura (o `LoginRecord` veio de `getLogin`, mas o valor nunca sai sem este filtro). */
+	async function openLogin(userId: string, login: LoginRecord) {
+		const row = await deps.getByName(userId, login.name);
+		if (!row || row.kind !== "login" || row.id !== login.id) throw new Error("That login is not in this owner's vault.");
+		const payload = await openRow(deps, userId, row);
+		return { row, fields: loginFieldsView({ username: row.username, password: payload.password, fields: readStoredLoginFields(payload.fields) }) };
+	}
 	return {
 		async getLogin(userId, name) {
 			const row = await deps.getByName(userId, name);
@@ -124,17 +162,18 @@ export function createV4LoginSource(deps: V4VaultDeps = realV4VaultDeps): LoginS
 			const metas = await deps.listMeta(userId);
 			return metas.filter((meta) => meta.kind === "login").map((meta) => ({ id: meta.id, name: meta.name, siteUrl: meta.siteUrl, domain: meta.domain }));
 		},
-		async useLogin(userId, login, fields) {
-			// Reconfere o dono e o tipo na leitura (o `LoginRecord` veio de `getLogin`, mas o valor nunca sai sem este filtro).
-			const row = await deps.getByName(userId, login.name);
-			if (!row || row.kind !== "login" || row.id !== login.id) throw new Error("That login is not in this owner's vault.");
-			const payload = await openRow(deps, userId, row);
-			await deps.touch(userId, row.id).catch(() => undefined);
-			await deps.audit(userId, row.id, { action: "used", actor: "bot", detail: `login_fill: ${fields.join(", ")}` }).catch(() => undefined);
-			return {
-				...(fields.includes("username") && row.username ? { username: row.username } : {}),
-				...(fields.includes("password") && payload.password ? { password: payload.password } : {}),
-			};
+		async useLogin(userId, login, keys) {
+			const { row, fields } = await openLogin(userId, login);
+			const picked = keys.flatMap((key) => {
+				const found = fields.find((f) => f.key === key);
+				return found ? [{ key: found.key, secret: found.secret, value: found.value }] : [];
+			});
+			// Só audita quando há o que digitar (chave inexistente não usa o login).
+			if (picked.length > 0) {
+				await deps.touch(userId, row.id).catch(() => undefined);
+				await deps.audit(userId, row.id, { action: "used", actor: "bot", detail: `login_fill: ${picked.map((f) => f.key).join(", ")}` }).catch(() => undefined);
+			}
+			return { saved: fields.map((f) => f.key), fields: picked };
 		},
 	};
 }
@@ -166,22 +205,24 @@ export function createV4SecretRequests(input: { scope: V4VaultScope; deps?: V4Va
 			if (!conversationId) throw new Error("There is no conversation to show the card in, so the owner cannot be asked here.");
 			const confirmId = `confirm-${runId}`;
 			const names = [...request.names];
+			// Login: um campo de digitar por item declarado (chave, rótulo, secreto); o valor nunca entra no cartão.
+			const login = request.login ? { site: request.login.site, ...(request.login.name && { name: request.login.name }), fields: request.login.fields.map(({ key, label, secret }) => ({ key, label, secret })) } : undefined;
 			if (shown.has(confirmId)) throw new Error("A card asking for secrets was already shown in this run; wait for the owner's answer.");
 			shown.add(confirmId);
 			await deps.saveIntent({
 				userId,
 				conversationId,
-				payload: { kind: "confirm", action: "request-secrets", confirmId, ...(scope.botId && { botId: scope.botId }), secretsRequest: { environmentId: VAULT_ENVIRONMENT_ID, repo: "", names } },
+				payload: { kind: "confirm", action: "request-secrets", confirmId, ...(scope.botId && { botId: scope.botId }), secretsRequest: { environmentId: VAULT_ENVIRONMENT_ID, repo: "", names, ...(login && { login }) } },
 				ttlMs: REQUEST_TTL_MS,
 			});
 			const card: ComputerUseEvent = {
 				type: "confirm",
 				confirmId,
-				title: names.length === 1 ? `O bot precisa da chave ${names[0]}` : `O bot precisa de: ${names.join(", ")}`,
+				title: login ? `O bot precisa do seu login de ${login.site}` : names.length === 1 ? `O bot precisa da chave ${names[0]}` : `O bot precisa de: ${names.join(", ")}`,
 				description: request.reason,
 				confirmLabel: "Salvar no cofre",
 				cancelLabel: "Agora não",
-				secretsRequest: { environmentId: VAULT_ENVIRONMENT_ID, repo: "", names, reason: request.reason },
+				secretsRequest: { environmentId: VAULT_ENVIRONMENT_ID, repo: "", names, reason: request.reason, ...(login && { login }) },
 			};
 			await deps.persistCard(conversationId, card).catch((error: unknown) => {
 				scope.log?.(`[engine-v4] run=${runId} não consegui gravar o cartão do cofre: ${error instanceof Error ? error.name : "erro"}`);

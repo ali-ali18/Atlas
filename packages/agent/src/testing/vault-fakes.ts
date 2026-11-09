@@ -8,7 +8,7 @@ export const TEST_LOGIN_PASSWORD = "Senha!Teste#Forte-4821";
 
 export type FakeVaultItem = { owner: string; id: string; label?: string; description?: string } & (
 	| { kind: "secret"; value: string }
-	| { kind: "login"; password: string; site?: string; username?: string }
+	| { kind: "login"; password: string; site?: string; username?: string; fields?: Array<{ key: string; label: string; secret: boolean; value: string }> }
 );
 
 export class FakeVault implements Vault {
@@ -24,6 +24,12 @@ export class FakeVault implements Vault {
 				...(item.description && { description: item.description }),
 				...(item.kind === "login" && item.site && { site: item.site }),
 				...(item.kind === "login" && item.username && { username: item.username }),
+				// Login antigo (usuário + senha) aparece como os campos `username` e `password`, como no adaptador do worker.
+				...(item.kind === "login" && {
+					fields: item.fields
+						? item.fields.map((f) => ({ key: f.key, label: f.label, secret: f.secret }))
+						: [...(item.username ? [{ key: "username", label: "Usuário", secret: false }] : []), { key: "password", label: "Senha", secret: true }],
+				}),
 			}));
 	}
 	async resolve(userId: string, handleId: string): Promise<SecretValue | null> {

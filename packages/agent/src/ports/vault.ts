@@ -16,8 +16,10 @@ export type SecretHandle = {
 	description?: string;
 	/** Login: domínio do site salvo. Ausente = o item não tem site (o `login_fill` recusa). */
 	site?: string;
-	/** Login: usuário. */
+	/** Login antigo: usuário (claro). Login novo não tem: os campos ficam em `fields`. */
 	username?: string;
+	/** Login: os campos salvos (só chave, rótulo e se é secreto; nunca valor). Login antigo aparece como `username` + `password`. */
+	fields?: ReadonlyArray<{ key: string; label: string; secret: boolean }>;
 };
 
 /** Valor resolvido: usar só dentro do executor e descartar. */
@@ -34,7 +36,13 @@ export interface Vault {
  * Pedido ao dono para cadastrar segredos que faltam. O dono digita o valor num campo de senha do cartão e ele vai direto ao
  * cofre (API), nunca pela conversa nem pelo modelo. A resposta chega depois como uma mensagem comum do dono.
  */
-export type SecretRequest = { names: readonly string[]; reason: string };
+export type SecretRequest = {
+	/** Segredo simples: os nomes. Login: as chaves dos campos pedidos (um campo de digitar por chave). */
+	names: readonly string[];
+	reason: string;
+	/** Pedido de LOGIN (F9): o site e os campos desta etapa, declarados pelo modelo. Tudo vai para um item só daquele site. */
+	login?: { site: string; name?: string; fields: ReadonlyArray<{ key: string; label: string; secret: boolean }> };
+};
 
 export interface SecretRequests {
 	/** Mostra o cartão ao dono (e o grava na conversa). Lança com o motivo real se não houver como pedir (ex.: sem conversa). */

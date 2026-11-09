@@ -1,8 +1,8 @@
 // Capacidade lazy `vault` (F9): o cofre de segredos do dono. O modelo só vê NOMES; o valor entra pela camada de execução
 // (`{{secret:NOME}}` no executor, `login_fill` na VM) e nunca volta. Uma tool por arquivo.
 //  - `secret_list`    leitura privada dos nomes (sempre);
-//  - `secret_request` pede ao dono que cadastre o que falta (cartão com campo de senha; precisa do dono);
-//  - `login_fill`     digita o login de um site na VM (efeito `credential`, aprovação a cada uso; precisa do dono).
+//  - `secret_request` pede ao dono que cadastre o que falta (segredo simples, ou os CAMPOS de um login que o modelo declarou; precisa do dono);
+//  - `login_fill`     digita campos do login de um site na VM, pelo mapeamento chave -> ref (efeito `credential`, aprovação a cada uso; precisa do dono).
 // Sem dono (rotina, agenda, subagente) só entra `secret_list` (`readOnly`).
 import type { SecretRequests, Vault } from "../../ports/vault.js";
 import type { Tool } from "../../tools/define-tool.js";
@@ -29,6 +29,7 @@ export type VaultDeps = {
 export const VAULT_INSTRUCTIONS =
 	"Vault rules: you only ever see names, never values. A plain secret goes into a connector or code_shell call as {{secret:<name>}}; the real value is put in at the last moment and hidden from the result. " +
 	"A site login is typed by login_fill, which the owner approves each time and which only works on the login's saved site; the 2FA code is always the owner's. " +
+	"The fields of a login are yours to declare: look at the sign-in page, then ask with secret_request (kind login) one field per input of the screen; steps of the same sign-in end up in one login. login_fill then maps each saved field key to a page input ref. " +
 	"If a key is missing, ask with secret_request and stop: the owner saves it in the card. Never ask the owner to paste a password or key in the chat, and never repeat a value you were shown. " +
 	"Say \"vault\", \"login\" and \"key\" to the owner, never tool names.";
 

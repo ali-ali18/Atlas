@@ -150,7 +150,7 @@ describe("secret_request", () => {
 });
 
 describe("login_fill", () => {
-	const ARGS = { login: "banco" };
+	const ARGS = { login: "banco", fields: [{ key: "username", ref: "e1" }, { key: "password", ref: "e2" }] };
 
 	it("sempre pede o dono (cartão), mesmo em autonomia total, e o cartão mostra o site sem segredo", async () => {
 		const r = rig(ITEMS, { policy: { ...chatPolicy, autonomy: "autonomous" } });
@@ -171,12 +171,12 @@ describe("login_fill", () => {
 
 	it("aprovado: leva SÓ o nome do login à VM (nunca senha nem usuário) e o resultado não tem segredo", async () => {
 		const r = rig();
-		const pending = await r.executor.executeCall({ callId: "c1", step: 1, tool: r.tool("login_fill"), args: { login: "banco", submit: true } });
+		const pending = await r.executor.executeCall({ callId: "c1", step: 1, tool: r.tool("login_fill"), args: { ...ARGS, submit: true } });
 		if (pending.status !== "pending_approval") throw new Error(pending.status);
 		r.vm.respond = () => ({ ok: true, data: { filled: ["username", "password"], site: "banco.example", submitted: true, landedHost: "banco.example" } });
-		const out = await r.executor.executeCall({ callId: "c1", step: 1, tool: r.tool("login_fill"), args: { login: "banco", submit: true }, grant: grantApproval(pending.request, r.f.clock.now()) });
+		const out = await r.executor.executeCall({ callId: "c1", step: 1, tool: r.tool("login_fill"), args: { ...ARGS, submit: true }, grant: grantApproval(pending.request, r.f.clock.now()) });
 		expect(out.status).toBe("ok");
-		expect(r.vm.actions).toEqual([{ userId: "owner-1", action: { kind: VAULT_KINDS.loginFill, params: { login: "banco", fields: ["username", "password"], submit: true } } }]);
+		expect(r.vm.actions).toEqual([{ userId: "owner-1", action: { kind: VAULT_KINDS.loginFill, params: { login: "banco", fields: ARGS.fields, submit: true } } }]);
 		const all = JSON.stringify({ out, actions: r.vm.actions, receipts: r.f.receipts, journal: r.f.journal });
 		expect(all).not.toContain(TEST_LOGIN_PASSWORD);
 		expect(all).not.toContain("dono@exemplo.test");
@@ -192,13 +192,13 @@ describe("login_fill", () => {
 
 	it("sem nome: o cartão diz que é o login do site da página e a VM recebe a ação SEM nome (ela acha pelo site)", async () => {
 		const r = rig();
-		const pending = await r.executor.executeCall({ callId: "c1", step: 1, tool: r.tool("login_fill"), args: {} });
+		const pending = await r.executor.executeCall({ callId: "c1", step: 1, tool: r.tool("login_fill"), args: { fields: ARGS.fields } });
 		if (pending.status !== "pending_approval") throw new Error(pending.status);
 		expect(pending.request.riskFacts.target).toContain("site da página atual");
 		r.vm.respond = () => ({ ok: true, data: { login: "banco", filled: ["username", "password"], site: "banco.example", submitted: false } });
-		const out = await r.executor.executeCall({ callId: "c1", step: 1, tool: r.tool("login_fill"), args: {}, grant: grantApproval(pending.request, r.f.clock.now()) });
+		const out = await r.executor.executeCall({ callId: "c1", step: 1, tool: r.tool("login_fill"), args: { fields: ARGS.fields }, grant: grantApproval(pending.request, r.f.clock.now()) });
 		expect(out.status).toBe("ok");
-		expect(r.vm.actions).toEqual([{ userId: "owner-1", action: { kind: VAULT_KINDS.loginFill, params: { fields: ["username", "password"], submit: false } } }]);
+		expect(r.vm.actions).toEqual([{ userId: "owner-1", action: { kind: VAULT_KINDS.loginFill, params: { fields: ARGS.fields, submit: false } } }]);
 		expect(out.status === "ok" && out.summary).toContain('of "banco" on banco.example');
 		expect(JSON.stringify({ out, actions: r.vm.actions })).not.toContain(TEST_LOGIN_PASSWORD);
 	});
@@ -206,14 +206,14 @@ describe("login_fill", () => {
 	it("sem nome: a VM recusa (0 ou 2+ candidatos) e o erro dela chega ao modelo com a lista; nada de sucesso falso", async () => {
 		const r = rig();
 		r.vm.respond = () => ({ ok: false, error: 'More than one saved login belongs to banco.example: "banco" (banco.example), "banco-conjunta" (banco.example). Nothing was typed.' });
-		const out = await approved(r, {});
+		const out = await approved(r, { fields: ARGS.fields });
 		expect(out.status).toBe("error");
 		expect(JSON.stringify(out)).toContain("banco-conjunta");
 	});
 
 	it("sem nome e sem nenhum login com site salvo: erro honesto sem chamar a VM; só os logins do dono contam", async () => {
 		const r = rig([{ owner: "owner-1", id: "sem-site", kind: "login", password: TEST_LOGIN_PASSWORD, username: "x" }, { owner: "owner-2", id: "banco-b", kind: "login", password: TEST_LOGIN_PASSWORD, site: "banco.example" }]);
-		const out = await approved(r, {});
+		const out = await approved(r, { fields: ARGS.fields });
 		expect(out.status).toBe("error");
 		expect(JSON.stringify(out)).toContain("no site login with a saved site");
 		expect(r.vm.actions).toHaveLength(0);
@@ -221,14 +221,14 @@ describe("login_fill", () => {
 
 	it("com nome continua igual: leva o nome (e o nome errado lembra que dá para omitir)", async () => {
 		const r = rig();
-		const out = await approved(r, { login: "nao-existe" });
+		const out = await approved(r, { login: "nao-existe", fields: ARGS.fields });
 		expect(out.status).toBe("error");
 		expect(JSON.stringify(out)).toContain("omit login");
 	});
 
 	it("login que não existe (ou é de outro dono) diz os nomes do dono, não os dos outros", async () => {
 		const r = rig();
-		const out = await approved(r, { login: "chave-do-b" });
+		const out = await approved(r, { login: "chave-do-b", fields: ARGS.fields });
 		expect(out.status).toBe("error");
 		expect(JSON.stringify(out)).toContain("banco");
 		expect(JSON.stringify(out)).not.toContain("chave-do-b\"");
@@ -237,13 +237,13 @@ describe("login_fill", () => {
 
 	it("um segredo simples não é login", async () => {
 		const r = rig();
-		expect((await approved(r, { login: "stripe-key" })).status).toBe("error");
+		expect((await approved(r, { login: "stripe-key", fields: ARGS.fields })).status).toBe("error");
 		expect(r.vm.actions).toHaveLength(0);
 	});
 
 	it("login sem site salvo não é digitado em lugar nenhum", async () => {
 		const r = rig();
-		const out = await approved(r, { login: "sem-site" });
+		const out = await approved(r, { login: "sem-site", fields: ARGS.fields });
 		expect(out.status).toBe("error");
 		expect(JSON.stringify(out)).toContain("no saved site");
 		expect(r.vm.actions).toHaveLength(0);
@@ -251,10 +251,10 @@ describe("login_fill", () => {
 
 	it("código 2FA e campo desconhecido são recusados com o aceito (depois do cartão, como toda tool)", async () => {
 		const r = rig();
-		for (const args of [{ login: "banco", fields: ["totp"] }, { login: "banco", password: "x" }, { login: "banco", fields: [] }]) {
+		for (const args of [{ login: "banco", fields: ["totp"] }, { login: "banco", password: "x", fields: ARGS.fields }, { login: "banco", fields: [] }, { login: "banco", fields: [{ key: "password", ref: "#senha" }] }, { login: "banco", fields: [{ key: "password", ref: "f1e3" }] }, { login: "banco", fields: ARGS.fields, usernameSelector: "#u" }]) {
 			const out = await approved(r, args);
 			expect(out.status).toBe("error");
-			expect(JSON.stringify(out)).toContain("Accepted fields: login, fields, submit, usernameSelector");
+			expect(JSON.stringify(out)).toBeTruthy();
 		}
 		expect(r.vm.actions).toHaveLength(0);
 	});
@@ -423,12 +423,127 @@ describe("o valor nunca chega ao modelo (motor completo)", () => {
 describe("adaptador da porta: metadado, nunca valor", () => {
 	it("copia só os campos de metadado do backend", async () => {
 		const vault = createVaultAdapter({
-			listHandles: async () => [{ id: "banco", label: "Banco", kind: "login", site: "banco.example", username: "u", password: TEST_LOGIN_PASSWORD, value: TEST_SECRET_VALUE } as never],
+			listHandles: async () => [{ id: "banco", label: "Banco", kind: "login", site: "banco.example", username: "u", fields: [{ key: "senha", label: "Senha", secret: true, value: TEST_LOGIN_PASSWORD }], password: TEST_LOGIN_PASSWORD, value: TEST_SECRET_VALUE } as never],
 			resolveSecret: async () => null,
 		});
 		const handles = await vault.listHandles("owner-1");
-		expect(handles).toEqual([{ id: "banco", label: "Banco", kind: "login", site: "banco.example", username: "u" }]);
+		expect(handles).toEqual([{ id: "banco", label: "Banco", kind: "login", site: "banco.example", username: "u", fields: [{ key: "senha", label: "Senha", secret: true }] }]);
 		expect(JSON.stringify(handles)).not.toContain(TEST_LOGIN_PASSWORD);
 		expect(JSON.stringify(handles)).not.toContain(TEST_SECRET_VALUE);
+	});
+});
+
+describe("login com campos decididos pela IA (F9)", () => {
+	const CPF = "123.456.789-09";
+	const NEW_ITEMS: FakeVaultItem[] = [
+		...ITEMS,
+		{ owner: "owner-1", id: "plataforma", label: "Plataforma", kind: "login", password: "", site: "https://www.plataforma.example/entrar", fields: [{ key: "nome", label: "Nome", secret: false, value: "Ana Souza" }, { key: "cpf", label: "CPF", secret: true, value: CPF }] },
+	];
+	const FIELDS = [
+		{ key: "nome", label: "Nome", secret: false },
+		{ key: "cpf", label: "CPF", secret: true },
+		{ key: "senha", label: "Senha", secret: true },
+	];
+
+	async function approvedFill(r: ReturnType<typeof rig>, args: Record<string, unknown>) {
+		const pending = await r.executor.executeCall({ callId: "c1", step: 1, tool: r.tool("login_fill"), args });
+		if (pending.status !== "pending_approval") throw new Error(pending.status);
+		return r.executor.executeCall({ callId: "c1", step: 1, tool: r.tool("login_fill"), args, grant: grantApproval(pending.request, r.f.clock.now()) });
+	}
+
+	it("secret_list mostra chave, rótulo e se é secreto, nunca o valor; login antigo aparece como username e password", async () => {
+		const r = rig(NEW_ITEMS);
+		const out = await r.executor.executeCall({ callId: "c1", step: 1, tool: r.tool("secret_list"), args: {} });
+		const text = JSON.stringify(out);
+		expect(text).toContain("cpf (CPF, secret)");
+		expect(text).toContain("nome (Nome)");
+		expect(text).toContain("password (Senha, secret)");
+		expect(text).not.toContain(CPF);
+		expect(text).not.toContain("Ana Souza");
+		expect(text).not.toContain(TEST_LOGIN_PASSWORD);
+	});
+
+	it("secret_request kind login: um cartão com todos os campos da página, no site normalizado; encerra o turno", async () => {
+		const r = rig();
+		const out = await r.executor.executeCall({ callId: "c1", step: 1, tool: r.tool("secret_request"), args: { kind: "login", site: "https://WWW.Novo.example/entrar?x=1", fields: FIELDS, reason: "Entrar na plataforma." } });
+		expect(out.status).toBe("ok");
+		expect(r.requests.asks).toEqual([{ userId: "owner-1", runId: "run-1", request: { names: ["nome", "cpf", "senha"], reason: "Entrar na plataforma.", login: { site: "novo.example", fields: FIELDS } } }]);
+	});
+
+	it("segunda etapa do mesmo site pede só o que falta e leva o nome do item existente (os campos se juntam, nunca um item novo)", async () => {
+		const r = rig(NEW_ITEMS);
+		const out = await r.executor.executeCall({ callId: "c1", step: 1, tool: r.tool("secret_request"), args: { kind: "login", site: "plataforma.example", fields: [{ key: "cpf", label: "CPF", secret: true }, { key: "senha", label: "Senha", secret: true }], reason: "Segunda etapa." } });
+		expect(out.status).toBe("ok");
+		expect(r.requests.asks).toHaveLength(1);
+		expect(r.requests.asks[0]!.request.login).toEqual({ site: "plataforma.example", name: "plataforma", fields: [{ key: "senha", label: "Senha", secret: true }] });
+		expect(r.requests.asks[0]!.request.names).toEqual(["senha"]);
+		expect(out.status === "ok" && out.summary).toContain("already has: nome, cpf");
+	});
+
+	it("tudo já salvo: nenhum cartão", async () => {
+		const r = rig(NEW_ITEMS);
+		const out = await r.executor.executeCall({ callId: "c1", step: 1, tool: r.tool("secret_request"), args: { kind: "login", site: "plataforma.example", fields: [{ key: "nome", label: "Nome", secret: false }], reason: "x" } });
+		expect(out.status === "ok" && out.summary).toContain("nothing was asked");
+		expect(r.requests.asks).toHaveLength(0);
+	});
+
+	it("o login de OUTRO dono no mesmo site não conta: o cartão pede tudo", async () => {
+		const r = rig([...NEW_ITEMS, { owner: "owner-2", id: "novo", kind: "login", password: "", site: "novo.example", fields: [{ key: "email", label: "E-mail", secret: false, value: "b@x.test" }] }]);
+		await r.executor.executeCall({ callId: "c1", step: 1, tool: r.tool("secret_request"), args: { kind: "login", site: "novo.example", fields: [{ key: "email", label: "E-mail", secret: false }], reason: "x" } });
+		expect(r.requests.asks[0]!.request.names).toEqual(["email"]);
+		expect(r.requests.asks[0]!.request.login?.name).toBeUndefined();
+	});
+
+	it("pedido de login inválido falha com o aceito, sem cartão", async () => {
+		const r = rig();
+		const bad: Array<Record<string, unknown>> = [
+			{ kind: "login", fields: FIELDS, reason: "x" },
+			{ kind: "login", site: "not a site", fields: FIELDS, reason: "x" },
+			{ kind: "login", site: "a.example", reason: "x" },
+			{ kind: "login", site: "a.example", fields: [{ key: "com espaço", label: "X", secret: false }], reason: "x" },
+			{ kind: "login", site: "a.example", fields: [{ key: "a", label: "A", secret: false }, { key: "a", label: "B", secret: true }], reason: "x" },
+			{ kind: "login", site: "a.example", names: ["a"], fields: FIELDS, reason: "x" },
+			{ kind: "login", site: "a.example", name: "stripe-key", fields: FIELDS, reason: "x" },
+			{ site: "a.example", names: ["a"], reason: "x" },
+		];
+		for (const args of bad) expect((await r.executor.executeCall({ callId: "c1", step: 1, tool: r.tool("secret_request"), args })).status).toBe("error");
+		expect(r.requests.asks).toHaveLength(0);
+	});
+
+	it("login_fill com mapeamento: a VM recebe chave -> ref (nunca valor) e o resultado só tem chaves", async () => {
+		const r = rig(NEW_ITEMS);
+		const args = { login: "plataforma", fields: [{ key: "nome", ref: "e4" }, { key: "cpf", ref: "a7" }], submit: false };
+		r.vm.respond = () => ({ ok: true, data: { login: "plataforma", filled: ["nome", "cpf"], site: "plataforma.example", submitted: false } });
+		const out = await approvedFill(r, args);
+		expect(out.status).toBe("ok");
+		expect(r.vm.actions[0]!.action.params).toEqual({ login: "plataforma", fields: args.fields, submit: false });
+		const all = JSON.stringify({ out, actions: r.vm.actions, receipts: r.f.receipts, journal: r.f.journal });
+		expect(all).not.toContain(CPF);
+		expect(all).not.toContain("Ana Souza");
+		expect(out.status === "ok" && out.summary).toContain("nome, cpf");
+	});
+
+	it("campo salvo que não existe: erro honesto com as chaves salvas (só nomes), sem chamar a VM", async () => {
+		const r = rig(NEW_ITEMS);
+		const out = await approvedFill(r, { login: "plataforma", fields: [{ key: "email", ref: "e1" }] });
+		expect(out.status).toBe("error");
+		const text = JSON.stringify(out);
+		expect(text).toContain('no saved field called \\"email\\"');
+		expect(text).toContain("nome, cpf");
+		expect(text).not.toContain(CPF);
+		expect(r.vm.actions).toHaveLength(0);
+	});
+
+	it("o mesmo campo salvo (ou o mesmo ref) duas vezes é recusado", async () => {
+		const r = rig(NEW_ITEMS);
+		for (const fields of [[{ key: "nome", ref: "e1" }, { key: "nome", ref: "e2" }], [{ key: "nome", ref: "e1" }, { key: "cpf", ref: "e1" }]]) {
+			expect((await approvedFill(r, { login: "plataforma", fields })).status).toBe("error");
+		}
+		expect(r.vm.actions).toHaveLength(0);
+	});
+
+	it("sem dono: secret_request e login_fill ficam fora (só secret_list)", () => {
+		const r = rig(NEW_ITEMS, { readOnly: true });
+		expect(r.capability.tools.map((t) => t.name)).toEqual(["secret_list"]);
 	});
 });

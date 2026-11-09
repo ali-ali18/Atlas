@@ -7,7 +7,6 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { VAULT_KINDS } from "@workspace/agent";
 import type { SandboxManager } from "@workspace/sandbox";
-import { LOGIN_FIELD_SELECTORS } from "@workspace/shared";
 import { createV4Sandbox, type V4SandboxDeps } from "./sandbox.js";
 import { createLoginFillHandler } from "./sandbox-vault-login.js";
 import type { LoginRecord, LoginSource } from "./vault.js";
@@ -16,9 +15,17 @@ const PASSWORD = "Senha!Teste#Forte-4821";
 const USERNAME = "dono@exemplo.test";
 const BANK: LoginRecord = { id: "vs_2", name: "banco", siteUrl: "https://banco.example/login", domain: "banco.example" };
 
-type Typed = { sessionId: string; selector?: string; text: string; submit?: boolean; guard?: { kind: string; origin?: string } };
+type Typed = { sessionId: string; ref?: string; text: string; submit?: boolean; guard?: { kind: string; origin?: string } };
 
-function world(opts: { urls?: string[]; login?: LoginRecord | null; logins?: LoginRecord[]; typeFails?: (typed: Typed) => Error | { ok: false } | null } = {}) {
+const CPF = "123.456.789-09";
+const NOME = "Ana Souza";
+type SavedField = { key: string; secret: boolean; value: string };
+/** Login antigo (usuário + senha) lido como os campos `username` e `password`. */
+const LEGACY: SavedField[] = [{ key: "username", secret: false, value: USERNAME }, { key: "password", secret: true, value: PASSWORD }];
+/** Login novo, de campos declarados pela IA. */
+const DECLARED: SavedField[] = [{ key: "nome", secret: false, value: NOME }, { key: "cpf", secret: true, value: CPF }, { key: "senha", secret: true, value: PASSWORD }];
+
+function world(opts: { urls?: string[]; login?: LoginRecord | null; logins?: LoginRecord[]; saved?: SavedField[]; typeFails?: (typed: Typed) => Error | { ok: false } | null } = {}) {
 	const urls = [...(opts.urls ?? ["https://banco.example/login"])];
 	const typed: Typed[] = [];
 	const used: Array<{ userId: string; name: string; fields: string[] }> = [];
@@ -26,9 +33,11 @@ function world(opts: { urls?: string[]; login?: LoginRecord | null; logins?: Log
 	const source: LoginSource = {
 		getLogin: async (userId, name) => (userId === "a" && name === "banco" ? (opts.login === undefined ? BANK : opts.login) : null),
 		listLogins: async (userId) => (userId === "a" ? (opts.logins ?? [BANK]) : []),
-		useLogin: async (userId, login, fields) => {
-			used.push({ userId, name: login.name, fields: [...fields] });
-			return { ...(fields.includes("username") && { username: USERNAME }), ...(fields.includes("password") && { password: PASSWORD }) };
+		useLogin: async (userId, login, keys) => {
+			const saved = opts.saved ?? LEGACY;
+			const fields = saved.filter((f) => keys.includes(f.key));
+			if (fields.length > 0) used.push({ userId, name: login.name, fields: fields.map((f) => f.key) });
+			return { saved: saved.map((f) => f.key), fields };
 		},
 	};
 	const manager = {
@@ -50,15 +59,16 @@ function world(opts: { urls?: string[]; login?: LoginRecord | null; logins?: Log
 	return { run, typed, used };
 }
 
-const PARAMS = { login: "banco", fields: ["username", "password"], submit: false };
+const MAP = [{ key: "username", ref: "e1" }, { key: "password", ref: "e2" }];
+const PARAMS = { login: "banco", fields: MAP, submit: false };
 
-test("página do site salvo: digita usuário e senha com o guarda da VM (origem e tipo do campo) e devolve só nomes de campo", async () => {
+test("login antigo (usuário + senha) continua preenchendo, agora como campos username e password mapeados por ref; devolve só chaves", async () => {
 	const w = world();
 	const out = await w.run(PARAMS);
 	assert.deepEqual(out, { ok: true, data: { login: "banco", filled: ["username", "password"], site: "banco.example", submitted: false } });
 	assert.deepEqual(w.typed, [
-		{ sessionId: "s-1", selector: LOGIN_FIELD_SELECTORS.username, text: USERNAME, submit: false, guard: { kind: "username", origin: "https://banco.example" } },
-		{ sessionId: "s-1", selector: LOGIN_FIELD_SELECTORS.password, text: PASSWORD, submit: false, guard: { kind: "password", origin: "https://banco.example" } },
+		{ sessionId: "s-1", ref: "e1", text: USERNAME, submit: false, guard: { kind: "field", origin: "https://banco.example" } },
+		{ sessionId: "s-1", ref: "e2", text: PASSWORD, submit: false, guard: { kind: "password", origin: "https://banco.example" } },
 	]);
 	assert.ok(!JSON.stringify(out).includes(PASSWORD) && !JSON.stringify(out).includes(USERNAME));
 });
@@ -70,13 +80,32 @@ test("submit: só o último campo envia, e o resultado diz o domínio de chegada
 	assert.deepEqual(w.typed.map((t) => t.submit), [false, true]);
 });
 
-test("só a senha (login em duas telas) e seletor do usuário informado pelo modelo", async () => {
+test("só um campo (login em etapas) e a ordem de digitação é a do mapeamento", async () => {
 	const w = world();
-	assert.equal((await w.run({ login: "banco", fields: ["password"], submit: false })).ok, true);
+	assert.equal((await w.run({ login: "banco", fields: [{ key: "password", ref: "e9" }], submit: false })).ok, true);
 	assert.deepEqual(w.used.at(-1)?.fields, ["password"]);
 	const w2 = world();
-	await w2.run({ login: "banco", fields: ["username"], submit: false, usernameSelector: "#cpf" });
-	assert.equal(w2.typed[0]?.selector, "#cpf");
+	await w2.run({ login: "banco", fields: [{ key: "password", ref: "a3" }, { key: "username", ref: "e4" }], submit: false });
+	assert.deepEqual(w2.typed.map((t) => t.ref), ["a3", "e4"]);
+});
+
+test("login novo de campos declarados (nome, cpf, senha): cada campo vai no ref mapeado; secreto e texto passam pela trava de campo, valores nunca voltam", async () => {
+	const w = world({ saved: DECLARED, login: { ...BANK, name: "plataforma" } });
+	const out = await w.run({ login: "banco", fields: [{ key: "nome", ref: "e1" }, { key: "cpf", ref: "e2" }, { key: "senha", ref: "e3" }], submit: true });
+	assert.equal(out.ok, true);
+	assert.deepEqual(w.typed.map((t) => [t.ref, t.text, t.guard?.kind, t.submit]), [["e1", NOME, "field", false], ["e2", CPF, "field", false], ["e3", PASSWORD, "field", true]]);
+	assert.ok(!JSON.stringify(out).includes(CPF) && !JSON.stringify(out).includes(NOME) && !JSON.stringify(out).includes(PASSWORD));
+	assert.deepEqual((out as { data: { filled: string[] } }).data.filled, ["nome", "cpf", "senha"]);
+});
+
+test("campo salvo inexistente: erro honesto com só os nomes salvos, ANTES de digitar qualquer campo", async () => {
+	const w = world({ saved: DECLARED });
+	const out = (await w.run({ login: "banco", fields: [{ key: "nome", ref: "e1" }, { key: "email", ref: "e2" }], submit: false })) as { ok: false; error: string };
+	assert.equal(out.ok, false);
+	assert.match(out.error, /no saved field called "email"/);
+	assert.match(out.error, /Saved fields: nome, cpf, senha/);
+	assert.ok(!out.error.includes(CPF) && !out.error.includes(NOME) && !out.error.includes(PASSWORD));
+	assert.deepEqual(w.typed, []);
 });
 
 test("página de outro site (phishing), http ou subdomínio alheio: recusa ANTES de ler o cofre, nada digitado", async () => {
@@ -94,9 +123,9 @@ test("a aba muda de site entre o usuário e a senha: para, a senha não é digit
 	const w = world({ urls: ["https://banco.example/login", "https://banco.example/login", "https://evil.test/"] });
 	const out = (await w.run(PARAMS)) as { ok: false; error: string };
 	assert.equal(out.ok, false);
-	assert.match(out.error, /moved to another site \(evil\.test\) before the password/);
+	assert.match(out.error, /moved to another site \(evil\.test\) before the field "password"/);
 	assert.match(out.error, /Already filled: username/);
-	assert.deepEqual(w.typed.map((t) => t.guard?.kind), ["username"]);
+	assert.deepEqual(w.typed.map((t) => t.guard?.kind), ["field"]);
 	assert.ok(!out.error.includes(PASSWORD));
 });
 
@@ -113,7 +142,7 @@ test("login sem site salvo, inexistente ou de outro dono: nada é lido nem digit
 
 test("parâmetros inválidos (totp, campo extra, nome vazio) são recusados sem tocar no cofre", async () => {
 	const w = world();
-	for (const params of [{ ...PARAMS, fields: ["totp"] }, { ...PARAMS, password: "x" }, { ...PARAMS, login: "" }, null, "texto"]) {
+	for (const params of [{ ...PARAMS, fields: ["totp"] }, { ...PARAMS, password: "x" }, { ...PARAMS, login: "" }, { ...PARAMS, fields: [{ key: "password", ref: "#senha" }] }, { ...PARAMS, fields: [{ key: "password", ref: "f1e2" }] }, { ...PARAMS, fields: [] }, null, "texto"]) {
 		const out = await w.run(params);
 		assert.equal(out.ok, false);
 	}
@@ -124,11 +153,11 @@ test("a VM recusa o campo (formulário para outro site) ou diz que não achou: e
 	const refused = world({ typeFails: (t) => (t.guard?.kind === "password" ? new Error(`Recusado: o formulário envia a senha ${PASSWORD} para outro site.`) : null) });
 	const out = (await refused.run(PARAMS)) as { ok: false; error: string };
 	assert.equal(out.ok, false);
-	assert.match(out.error, /did not type the password/);
+	assert.match(out.error, /did not type the field "password"/);
 	assert.ok(!out.error.includes(PASSWORD));
 	assert.match(out.error, /Already filled: username/);
-	const missing = world({ typeFails: (t) => (t.guard?.kind === "username" ? { ok: false } : null) });
-	assert.match(((await missing.run(PARAMS)) as { error: string }).error, /username field was not found/);
+	const missing = world({ typeFails: (t) => (t.ref === "e1" ? { ok: false } : null) });
+	assert.match(((await missing.run(PARAMS)) as { error: string }).error, /page input e1 for "username" was not found/);
 });
 
 test("navegador fora do ar ao ler a página: erro, nada lido do cofre", async () => {
@@ -140,7 +169,7 @@ test("navegador fora do ar ao ler a página: erro, nada lido do cofre", async ()
 
 test("pela porta Sandbox real do worker: o kind vault.login_fill chega ao tratador do dono do run e a VM de outro dono é recusada", async () => {
 	const w = world();
-	const handler = createLoginFillHandler({ getLogin: async (userId, name) => (userId === "a" && name === "banco" ? BANK : null), listLogins: async () => [BANK], useLogin: async () => ({ username: USERNAME, password: PASSWORD }) });
+	const handler = createLoginFillHandler({ getLogin: async (userId, name) => (userId === "a" && name === "banco" ? BANK : null), listLogins: async () => [BANK], useLogin: async () => ({ saved: ["username", "password"], fields: LEGACY }) });
 	const typed: string[] = [];
 	const deps: V4SandboxDeps = {
 		createManager: () =>
@@ -172,7 +201,7 @@ test("o kind vault.login_fill está registrado por padrão na porta Sandbox do w
 
 // ---- sem nome: o login é achado pelo site da página atual ----
 
-const NO_NAME = { fields: ["username", "password"], submit: false };
+const NO_NAME = { fields: MAP, submit: false };
 const lojaLogin: LoginRecord = { id: "vs_3", name: "loja", siteUrl: "https://loja.example", domain: "loja.example" };
 const painel: LoginRecord = { id: "vs_4", name: "banco-painel", siteUrl: "https://painel.banco.example/entrar", domain: "painel.banco.example" };
 const bankTwo: LoginRecord = { id: "vs_5", name: "banco-conjunta", siteUrl: "banco.example", domain: "banco.example" };
@@ -237,7 +266,7 @@ test("sem nome, a aba muda de site entre os campos: para e a senha não é digit
 	const out = (await w.run(NO_NAME)) as { ok: false; error: string };
 	assert.equal(out.ok, false);
 	assert.match(out.error, /moved to another site/);
-	assert.deepEqual(w.typed.map((t) => t.guard?.kind), ["username"]);
+	assert.deepEqual(w.typed.map((t) => t.guard?.kind), ["field"]);
 });
 
 test("sem nome: só enxerga os logins do dono do run (dono B não acha o de A) e a página ilegível não digita", async () => {

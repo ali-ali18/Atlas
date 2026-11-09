@@ -14,6 +14,7 @@ import { createV4LoginSource, createV4SecretRequests, createV4Vault, createV4Vau
 const SECRET = "sk_live_TESTE_nao_vaze_9f3a";
 const PASSWORD = "Senha!Teste#Forte-4821";
 const TOTP = "JBSWY3DPEHPK3PXP";
+const CPF = "123.456.789-09";
 const MASTER = randomBytes(32);
 
 function world() {
@@ -50,12 +51,23 @@ function world() {
 	add("a", { id: "vs_1", name: "stripe-key", kind: "secret", description: "Stripe", payload: { value: SECRET } });
 	add("a", { id: "vs_2", name: "banco", kind: "login", label: "Banco", siteUrl: "https://banco.example/login", domain: "banco.example", username: "dono@exemplo.test", payload: { password: PASSWORD, totp: TOTP } });
 	add("b", { id: "vs_3", name: "stripe-key", kind: "secret", payload: { value: "valor-do-b" } });
+	// Login novo (F9): campos declarados pela IA dentro do selado; sem `username` em claro.
+	add("a", {
+		id: "vs_4",
+		name: "plataforma",
+		kind: "login",
+		label: "plataforma.example",
+		siteUrl: "https://plataforma.example",
+		domain: "plataforma.example",
+		payload: { fields: [{ key: "nome", label: "Nome", secret: false, value: "Ana Souza" }, { key: "cpf", label: "CPF", secret: true, value: CPF }, { key: "senha", label: "Senha", secret: true, value: PASSWORD }] },
+	});
 
 	const deps: V4VaultDeps = {
 		listMeta: async (userId) => {
 			calls.push(`listMeta:${userId}`);
 			return rows.filter((r) => r.userId === userId).map(({ valueEnc: _enc, userId: _u, ...meta }) => meta as UserSecretMeta);
 		},
+		listRows: async (userId) => rows.filter((r) => r.userId === userId),
 		getByName: async (userId, name) => rows.find((r) => r.userId === userId && r.name === name) ?? null,
 		getKey: async (userId) => wrappedKeys.get(userId) ?? null,
 		touch: async (userId, id) => void calls.push(`touch:${userId}:${id}`),
@@ -74,10 +86,13 @@ test("listHandles: nomes, tipo, site e usuário do dono; nunca valor, senha nem 
 	const handles = await backend.listHandles("a");
 	assert.deepEqual(handles, [
 		{ id: "stripe-key", label: "stripe-key", kind: "secret", description: "Stripe" },
-		{ id: "banco", label: "Banco", kind: "login", site: "banco.example", username: "dono@exemplo.test" },
+		// Login antigo: usuário (claro) e senha lidos como os campos `username` e `password`.
+		{ id: "banco", label: "Banco", kind: "login", site: "banco.example", username: "dono@exemplo.test", fields: [{ key: "username", label: "Usuário", secret: false }, { key: "password", label: "Senha", secret: true }] },
+		// Login novo: só chave, rótulo e se é secreto.
+		{ id: "plataforma", label: "plataforma.example", kind: "login", site: "plataforma.example", fields: [{ key: "nome", label: "Nome", secret: false }, { key: "cpf", label: "CPF", secret: true }, { key: "senha", label: "Senha", secret: true }] },
 	]);
 	const text = JSON.stringify(handles);
-	for (const secret of [SECRET, PASSWORD, TOTP, "valor-do-b"]) assert.ok(!text.includes(secret));
+	for (const secret of [SECRET, PASSWORD, TOTP, "valor-do-b", CPF, "Ana Souza"]) assert.ok(!text.includes(secret));
 	assert.deepEqual(await backend.listHandles("ninguem"), []);
 	assert.deepEqual(w.audits, []);
 });
@@ -127,17 +142,34 @@ test("cofre que não abre (chave do servidor trocada): erro fixo, sem nenhum dad
 	});
 });
 
-test("useLogin: usuário e senha só do login do dono, só os campos pedidos, com uso auditado (sem o valor no registro)", async () => {
+test("useLogin (login antigo): username e password só do login do dono, só as chaves pedidas, com uso auditado (sem o valor no registro)", async () => {
 	const w = world();
 	const source = createV4LoginSource(w.deps);
 	const login = await source.getLogin("a", "banco");
 	assert.ok(login);
 	assert.equal(login.siteUrl, "https://banco.example/login");
-	assert.deepEqual(await source.useLogin("a", login, ["username", "password"]), { username: "dono@exemplo.test", password: PASSWORD });
-	assert.deepEqual(await source.useLogin("a", login, ["password"]), { password: PASSWORD });
+	assert.deepEqual(await source.useLogin("a", login, ["username", "password"]), {
+		saved: ["username", "password"],
+		fields: [{ key: "username", secret: false, value: "dono@exemplo.test" }, { key: "password", secret: true, value: PASSWORD }],
+	});
+	assert.deepEqual((await source.useLogin("a", login, ["password"])).fields, [{ key: "password", secret: true, value: PASSWORD }]);
 	assert.equal(w.audits.length, 2);
 	assert.match(w.audits[0]!.detail ?? "", /^login_fill: username, password$/);
 	assert.ok(!JSON.stringify(w.audits).includes(PASSWORD));
+});
+
+test("useLogin (login novo): os campos declarados por chave; chave que não existe não vem nem gera uso; só nomes no registro", async () => {
+	const w = world();
+	const source = createV4LoginSource(w.deps);
+	const login = (await source.getLogin("a", "plataforma"))!;
+	const use = await source.useLogin("a", login, ["cpf", "nome", "email"]);
+	assert.deepEqual(use.saved, ["nome", "cpf", "senha"]);
+	assert.deepEqual(use.fields, [{ key: "cpf", secret: true, value: CPF }, { key: "nome", secret: false, value: "Ana Souza" }]);
+	assert.match(w.audits[0]!.detail ?? "", /^login_fill: cpf, nome$/);
+	assert.ok(!JSON.stringify(w.audits).includes(CPF));
+	const nothing = await source.useLogin("a", login, ["email"]);
+	assert.deepEqual(nothing.fields, []);
+	assert.equal(w.audits.length, 1);
 });
 
 test("getLogin: login de outro dono e segredo simples são 'não achei'; useLogin com registro forjado de outro dono recusa", async () => {
@@ -147,6 +179,7 @@ test("getLogin: login de outro dono e segredo simples são 'não achei'; useLogi
 	assert.equal(await source.getLogin("a", "stripe-key"), null);
 	const real = (await source.getLogin("a", "banco"))!;
 	await assert.rejects(source.useLogin("b", real, ["password"]), /not in this owner's vault/);
+	assert.equal(await source.getLogin("b", "plataforma"), null);
 	await assert.rejects(source.useLogin("a", { ...real, id: "vs_outro" }, ["password"]), /not in this owner's vault/);
 	assert.deepEqual(w.audits, []);
 });
@@ -190,4 +223,18 @@ test("falha ao gravar o cartão na conversa não impede o aviso ao vivo e o log 
 	await requests.ask("a", "run-1", { names: ["x"], reason: "y" });
 	assert.equal(emitted.length, 1);
 	assert.ok(!logs.join("\n").includes(SECRET));
+});
+
+test("cartão de pedido de LOGIN: site, campos declarados (chave, rótulo, secreto) no evento e na intenção; nenhum valor", async () => {
+	const w = world();
+	const emitted: ComputerUseEvent[] = [];
+	const requests = createV4SecretRequests({ scope: { conversationId: "conv-1", botId: "bot-1", emit: (e) => void emitted.push(e) }, deps: w.deps });
+	const fields = [{ key: "nome", label: "Nome", secret: false }, { key: "cpf", label: "CPF", secret: true }, { key: "senha", label: "Senha", secret: true }];
+	await requests.ask("a", "run-9", { names: ["nome", "cpf", "senha"], reason: "Entrar na plataforma.", login: { site: "plataforma.example", name: "plataforma", fields } });
+	const card = emitted[0] as Extract<ComputerUseEvent, { type: "confirm" }>;
+	assert.match(card.title, /login de plataforma\.example/);
+	assert.deepEqual(card.secretsRequest, { environmentId: "vault", repo: "", names: ["nome", "cpf", "senha"], reason: "Entrar na plataforma.", login: { site: "plataforma.example", name: "plataforma", fields } });
+	assert.deepEqual((w.intents[0] as { payload: { secretsRequest: unknown } }).payload.secretsRequest, { environmentId: "vault", repo: "", names: ["nome", "cpf", "senha"], login: { site: "plataforma.example", name: "plataforma", fields } });
+	assert.deepEqual(w.cards, [{ conversationId: "conv-1", event: card }]);
+	assert.ok(!JSON.stringify({ emitted, intents: w.intents }).includes(CPF));
 });
