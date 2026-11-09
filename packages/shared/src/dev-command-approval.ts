@@ -89,6 +89,8 @@ export type CommandSegment = {
 	writesFile: boolean;
 	/** Vem de um pipe (`a | b`). */
 	pipeBefore: boolean;
+	/** Alvos de redirecionamento de entrada (`< arquivo`, `$(<arquivo)`): leitura de arquivo mesmo sem programa leitor. */
+	reads?: string[];
 };
 
 export type ParsedCommand = { ok: true; segments: CommandSegment[] } | { ok: false; reason: string };
@@ -147,10 +149,12 @@ function parseInto(src: string, depth: number, out: CommandSegment[]): string | 
 	let buf = "";
 	let hasWord = false;
 	let redirect: null | "out" | "in" | "dup" = null;
+	let reads: string[] = [];
 
 	const endSegment = (pipeNext: boolean) => {
-		if (words.length > 0 || writes) out.push({ words, writesFile: writes, pipeBefore });
+		if (words.length > 0 || writes || reads.length > 0) out.push({ words, writesFile: writes, pipeBefore, ...(reads.length > 0 && { reads }) });
 		words = [];
+		reads = [];
 		writes = false;
 		pipeBefore = pipeNext;
 	};
@@ -161,6 +165,7 @@ function parseInto(src: string, depth: number, out: CommandSegment[]): string | 
 		hasWord = false;
 		if (redirect) {
 			if (redirect === "out" && word !== "/dev/null") writes = true;
+			if (redirect === "in") reads.push(word);
 			redirect = null;
 			return null;
 		}
@@ -403,7 +408,7 @@ function expandSegment(segment: CommandSegment, depth: number): CommandSegment[]
 			break;
 		}
 	}
-	if (words.length === 0) return [];
+	if (words.length === 0) return segment.reads?.length ? [{ ...segment, words }] : [];
 	const head = words[0]!;
 	if (SHELLS.has(head) && words.length >= 3 && words[1] === "-c") {
 		if (depth >= MAX_DEPTH) return null;
@@ -1039,12 +1044,73 @@ const ENV_EXAMPLE_SUFFIXES = new Set(["example", "sample", "template"]);
 /** Programas que mostram ou repassam o conteúdo de um arquivo dado como argumento. */
 const ENV_READERS = new Set(["cat", "head", "tail", "less", "more", "grep", "egrep", "fgrep", "rg", "ag", "sed", "awk", "gawk", "bat", "nl", "tac", "strings", "xxd", "od", "hexdump", "sort", "uniq", "cut", "diff", "base64", "jq", "yq", "tee", "paste", "column", "fold", "rev", "view", "vi", "vim", "nano"]);
 
-/** .env ou .env.* (exceto .example, .sample e .template), em qualquer pasta. */
+/** Arquivos de credencial pelo nome (além de .env): `.npmrc`, `.netrc`, `.envrc`, `.dev.vars`, `*.env`, `.git-credentials`, chaves SSH. */
+const SENSITIVE_FILE_NAMES = new Set([".env", ".npmrc", ".netrc", ".envrc", ".dev.vars", ".git-credentials"]);
+/** Nomes concretos que um glob pode expandir para; o glob é casado contra eles (determinístico, sem tocar no disco). */
+const SENSITIVE_GLOB_CANDIDATES = [
+	".env", ".env.local", ".env.production", ".env.development", ".env.test", ".env.staging", ".npmrc", ".netrc", ".envrc", ".dev.vars", ".git-credentials",
+	"app.env", "prod.env", "production.env", "local.env", "id_rsa", "id_ed25519", "id_ecdsa", "id_dsa", ".aws/credentials",
+];
+
+/** .env, .env.* (exceto .example, .sample e .template), `.npmrc`, `.netrc`, `.envrc`, `.dev.vars`, `*.env`, `.git-credentials`, `id_rsa*` e `.aws/credentials`, em qualquer pasta. */
 export function isSensitiveEnvFile(path: string): boolean {
-	const name = (path.split("/").pop() ?? "").toLowerCase();
-	if (name === ".env") return true;
+	const lower = path.toLowerCase();
+	const name = lower.split("/").pop() ?? "";
+	if (SENSITIVE_FILE_NAMES.has(name)) return true;
+	if (name.endsWith(".env") && name.length > 4) return true;
+	if (/^id_(rsa|ed25519|ecdsa|dsa)/.test(name)) return !name.endsWith(".pub");
+	if (lower.endsWith("/.aws/credentials") || lower === ".aws/credentials") return true;
 	if (!name.startsWith(".env.")) return false;
 	return !ENV_EXAMPLE_SUFFIXES.has(name.split(".").pop() ?? "");
+}
+
+/** Glob (`*`, `?`, `[...]`) do último segmento do caminho vira regex; sem glob devolve `null`. Como no shell, `*`/`?` não casam ponto inicial. */
+function globToRegExp(pattern: string): RegExp | null {
+	if (!/[*?[]/.test(pattern)) return null;
+	let source = "";
+	for (let i = 0; i < pattern.length; i++) {
+		const ch = pattern[i]!;
+		if (ch === "*") source += "[^/]*";
+		else if (ch === "?") source += "[^/]";
+		else if (ch === "[") {
+			const close = pattern.indexOf("]", i + 2);
+			if (close < 0) source += "\\[";
+			else {
+				const body = pattern.slice(i + 1, close).replace(/^[!^]/, "^").replace(/\\/g, "\\\\");
+				source += `[${body}]`;
+				i = close;
+			}
+		} else source += ch.replace(/[.+^${}()|\\\]]/g, "\\$&");
+	}
+	try {
+		return new RegExp(`^${source}$`, "i");
+	} catch {
+		return null;
+	}
+}
+
+/** O glob (ou `--flag=glob`) pode expandir para um arquivo de credencial conhecido? Compara o nome (ou `.aws/credentials`) com a lista de candidatos. */
+function globMayMatchSecret(token: string): boolean {
+	let value = token;
+	if (value.startsWith("-")) {
+		const eq = value.indexOf("=");
+		if (eq < 0) return false;
+		value = value.slice(eq + 1);
+	}
+	const parts = value.split("/").filter(Boolean);
+	const name = parts[parts.length - 1] ?? "";
+	const tail = parts.length >= 2 ? `${parts[parts.length - 2]}/${name}` : name;
+	// `cat *` / `ls ?`: só curinga, sem nenhuma pista do nome, casaria com qualquer arquivo e perguntaria sempre.
+	const nameRegex = name.replace(/[*?[\]]/g, "") === "" ? null : globToRegExp(name);
+	const tailRegex = parts.length >= 2 ? globToRegExp(tail) : null;
+	if (!nameRegex && !tailRegex) return false;
+	for (const candidate of SENSITIVE_GLOB_CANDIDATES) {
+		const base = candidate.split("/").pop()!;
+		// `*` não casa ponto inicial (`cat *` não lista .env), mas `.e*` casa.
+		if (nameRegex && !candidate.includes("/") && (!base.startsWith(".") || name.startsWith(".")) && nameRegex.test(base)) return true;
+		if (tailRegex && candidate.includes("/") && tailRegex.test(candidate)) return true;
+	}
+	return false;
 }
 
 /** Argumento que aponta para um .env (inclui glob como .env*, que expande para ele, e --flag=.env). */
@@ -1057,7 +1123,8 @@ function isEnvArgument(token: string): boolean {
 	}
 	if (isSensitiveEnvFile(value)) return true;
 	const name = (value.split("/").pop() ?? "").toLowerCase();
-	return name.startsWith(".env") && (name.includes("*") || name.includes("?")) && !ENV_EXAMPLE_SUFFIXES.has(name.split(".").pop() ?? "");
+	if (name.startsWith(".env") && (name.includes("*") || name.includes("?")) && !ENV_EXAMPLE_SUFFIXES.has(name.split(".").pop() ?? "")) return true;
+	return globMayMatchSecret(value);
 }
 
 /** Quebra o comando em trechos (por ; | & parênteses crase e quebra de linha) e palavras (espaço, tab, < e >), respeitando aspas. */
@@ -1117,11 +1184,20 @@ function isProcEnviron(token: string): boolean {
 
 /** Estrutura do comando (argv de cada trecho): `null` se nenhum trecho lê segredo. */
 function structuralSecretRead(segments: readonly CommandSegment[]): string | null {
+	// Substituição de comando num caminho (`cat "$(echo .env)"`): o nome real só existe em tempo de execução. Se QUALQUER palavra do
+	// comando já aponta para um segredo, o leitor com `$()` no argumento pergunta.
+	const mentionsSecret = segments.some((s) => s.words.slice(1).some(isEnvArgument) || (s.reads ?? []).some(isEnvArgument));
 	for (const segment of segments) {
 		const words = segment.words;
 		const program = (words[0] ?? "").split("/").pop() ?? "";
 		const args = words.slice(1);
+		// `$(<.env)`, `tr a b < .env`: redirecionamento de entrada lê o arquivo mesmo sem programa leitor.
+		const redirected = (segment.reads ?? []).find((r) => isEnvArgument(r) || isProcEnviron(r));
+		if (redirected) return `lê o arquivo ${redirected}, que costuma guardar segredos`;
 		if (ENV_READERS.has(program)) {
+			const hit = args.find(isEnvArgument);
+			if (hit) return `lê o arquivo ${hit}, que costuma guardar segredos`;
+			if (mentionsSecret && args.some((a) => a.includes("$()"))) return "lê um arquivo montado por substituição de comando, e o comando também cita um arquivo de segredos";
 			const proc = args.find(isProcEnviron);
 			if (proc) return `lê ${proc}, que guarda as variáveis de ambiente de um processo`;
 			const outside = args.find(leavesWorkspace);
