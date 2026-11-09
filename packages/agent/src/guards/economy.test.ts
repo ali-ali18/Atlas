@@ -10,6 +10,8 @@ import { createVaultCapability } from "../capabilities/vault/index.js";
 import { FakeGithub } from "../testing/github-fakes.js";
 import { createBotsCapability } from "../capabilities/bots/index.js";
 import { FakeBots } from "../testing/bots-fakes.js";
+import { createRoutinesCapability } from "../capabilities/routines/index.js";
+import { FakeRoutines } from "../testing/routines-fakes.js";
 import { FakeSecretRequests, FakeVault } from "../testing/vault-fakes.js";
 import { createEmailCapability } from "../capabilities/email/index.js";
 import { FakeEmail } from "../presets/fake-email.js";
@@ -254,6 +256,27 @@ describe("economia: Bom dia", () => {
 		expect((first?.tools ?? []).map((t) => t.name)).not.toContain("send_to_bot");
 		expect((second?.tools ?? []).map((t) => t.name)).toEqual(expect.arrayContaining(["list_bots", "send_to_bot", "set_primary_bot"]));
 		expect(JSON.stringify(second?.messages)).toContain("Bots rules");
+	});
+
+	it("a capacidade routines é lazy: 'Bom dia' não ganha routine_list, routine_control nem routine_group, só uma linha do índice", async () => {
+		const base = await measureGoodMorning();
+		const withRoutines = await measureGoodMorning([createRoutinesCapability({ routines: new FakeRoutines() })]);
+		expect(withRoutines.toolNames).toEqual(base.toolNames);
+		for (const name of ["routine_list", "routine_control", "routine_group"]) expect(withRoutines.toolNames).not.toContain(name);
+		expect(withRoutines.tokens - base.tokens).toBeLessThan(60);
+		expect(JSON.stringify(withRoutines.result)).not.toContain("Routine rules");
+		expect(withRoutines.tokens).toBeLessThanOrEqual(GOOD_MORNING_INPUT_TOKENS_CEILING + 60);
+	});
+
+	it("'quais rotinas eu tenho?' carrega a capacidade no passo 1; as tools e as regras só no passo seguinte", async () => {
+		const core = defineCapability({ id: "core", title: "Core", summary: "core tools", core: true, tools: [] });
+		const h = kernelHarness([reply({ calls: [call("c1", "use_capability", { id: "routines" })] }), reply({ text: "Pronto." })], { capabilities: [core, createRoutinesCapability({ routines: new FakeRoutines() })] });
+		await h.run({ input: { contextSections: [], history: [{ kind: "owner", text: "Quais rotinas eu tenho?" }] } });
+		const [first, second] = h.llm.requests;
+		expect(JSON.stringify(first?.messages)).not.toContain("Routine rules");
+		expect((first?.tools ?? []).map((t) => t.name)).not.toContain("routine_list");
+		expect((second?.tools ?? []).map((t) => t.name)).toEqual(expect.arrayContaining(["routine_list", "routine_control", "routine_group"]));
+		expect(JSON.stringify(second?.messages)).toContain("Routine rules");
 	});
 
 	it("o caderno é lazy: 'Bom dia' não ganha as tools note_*, só uma linha do índice", async () => {

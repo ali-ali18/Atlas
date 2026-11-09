@@ -16,6 +16,7 @@ export * from "./memory.js";
 export * from "./notebook.js";
 export * from "./queue.js";
 export * from "./random.js";
+export * from "./routines.js";
 export * from "./payment.js";
 export * from "./sandbox.js";
 export * from "./search.js";
