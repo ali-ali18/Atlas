@@ -6,6 +6,7 @@ import { createDeliverablesCapability } from "../capabilities-builtin/deliverabl
 import { createResearchCapability } from "../capabilities-builtin/research/index.js";
 import type { DeliverablePorts } from "../ports/deliverables.js";
 import { createAgendaCapability } from "../capabilities/agenda/index.js";
+import { type CodeDeps, createCodeCapability } from "../capabilities/code/index.js";
 import { createCalendarCapability } from "../capabilities/calendar/index.js";
 import type { CalendarPorts } from "../ports/calendar.js";
 import { createMemoryCapability } from "../capabilities/memory/index.js";
@@ -31,7 +32,7 @@ import { createWebCapability } from "./web.js";
 export const PRESET_IDS = ["minimal", "full"] as const;
 export type PresetId = (typeof PRESET_IDS)[number];
 
-export type CapabilityId = "web" | "deliverables-lite" | "memory" | "tasks" | "settings" | "research" | "agenda" | "shopping" | "email" | "calendar";
+export type CapabilityId = "web" | "deliverables-lite" | "memory" | "tasks" | "settings" | "research" | "agenda" | "shopping" | "email" | "calendar" | "code";
 
 export type AgentPreset = {
 	id: PresetId;
@@ -43,7 +44,7 @@ export type AgentPreset = {
 
 export const PRESETS: Readonly<Record<PresetId, AgentPreset>> = Object.freeze({
 	minimal: Object.freeze({ id: "minimal", capabilities: Object.freeze(["web", "deliverables-lite"] as const), workContract: false }),
-	full: Object.freeze({ id: "full", capabilities: Object.freeze(["web", "deliverables-lite", "memory", "tasks", "settings", "research", "agenda", "shopping", "email", "calendar"] as const), workContract: true }),
+	full: Object.freeze({ id: "full", capabilities: Object.freeze(["web", "deliverables-lite", "memory", "tasks", "settings", "research", "agenda", "shopping", "email", "calendar", "code"] as const), workContract: true }),
 });
 
 /**
@@ -74,6 +75,8 @@ export type PresetDeps = {
 	email?: EmailPorts;
 	/** Google Agenda do dono (F7.1). Lazy; sem a porta a capacidade não entra. */
 	calendar?: CalendarPorts;
+	/** Código (F8.2): sessão de código na VM, pela porta `Sandbox` do run. Lazy; sem esta chave a capacidade não entra (o worker liga quando o adaptador `code.*` existe). `readOnly` = modo plano. */
+	code?: CodeDeps;
 };
 
 export function isPresetId(value: unknown): value is PresetId {
@@ -98,6 +101,8 @@ const FACTORIES: Readonly<Record<CapabilityId, CapabilityFactory>> = {
 	shopping: (deps) => deps.shopping && createShoppingCapability({ ...deps.shopping, search: deps.search, ...(deps.agenda && { agenda: deps.agenda }), ...(deps.checkout && { checkout: deps.checkout }), ...(deps.shoppingCountry && { country: deps.shoppingCountry }) }),
 	// F7.1: lazy; ler, triar e rascunhar livres, enviar sempre com a aprovação do dono.
 	email: (deps) => deps.email && createEmailCapability(deps.email),
+	// F8.2: lazy; "Bom dia" não carrega o schema. As tools falam com a porta `Sandbox` (kinds `code.*`).
+	code: (deps) => deps.code && createCodeCapability(deps.code),
 };
 
 /** Capacidades do preset que não entram por falta da porta. */
