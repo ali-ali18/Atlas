@@ -23,7 +23,9 @@ function fakeDriver(overrides = {}) {
 		async fillCard(secrets) { calls.push("fill"); state.filledWith = secrets; return state.fields; },
 		async clearCard() { calls.push("clear"); },
 		async declineSignal() { return Boolean(state.paid && state.declinedSignal); },
-		async findPayControl() { calls.push("find-pay"); return state.payable ? { label: state.payLabel ?? "Pagar" } : null; },
+		async cardFieldGone() { return Boolean(state.paid && state.cardGone); },
+		dispose() { state.disposed = (state.disposed ?? 0) + 1; },
+		async findPayControl() { calls.push("find-pay"); if (state.ambiguousPay) return { ambiguous: true }; return state.payable ? { label: state.payLabel ?? "Pagar" } : null; },
 		async clickPay() { calls.push("pay"); if (!state.payable) return false; state.paid = true; if (state.afterPay.url) state.url = state.afterPay.url; return true; },
 	};
 	return driver;
@@ -35,7 +37,7 @@ test("caminho feliz: lê o total, paga uma vez e devolve só estado e referênci
 	const driver = fakeDriver();
 	const result = await make(driver).fill(PARAMS);
 	assert.deepEqual(result, { state: "paid", orderRef: "AB12345" });
-	assert.deepEqual(driver.calls, ["goto", "fill", "read-total", "find-pay", "pay"]);
+	assert.deepEqual(driver.calls, ["goto", "fill", "read-total", "find-pay", "pay", "clear"]);
 });
 
 test("host trocado na abertura: declined e NADA é digitado nem pago", async () => {
@@ -116,6 +118,7 @@ test("3DS depois do clique vira challenge e a mesma compra NÃO clica em pagar d
 	assert.deepEqual(driver.calls.slice(callsBefore), []);
 	// o dono concluiu no viewer: a página mostra o pedido
 	driver.state.afterPay = { text: "Obrigado pela sua compra. Pedido #998877", url: "https://www.loja.exemplo.com/obrigado", frames: [] };
+	driver.state.url = driver.state.afterPay.url;
 	assert.deepEqual(await fill.fill(PARAMS), { state: "paid", orderRef: "998877" });
 	assert.equal(payCalls(driver), 1);
 });
@@ -339,4 +342,71 @@ test("sem controle de envio estrutural: failed, o cartão é apagado e nada é c
 	assert.match(result.reason, /pay button/);
 	assert.equal(payCalls(driver), 0);
 	assert.ok(driver.calls.includes("clear"));
+});
+
+const clears = (driver) => driver.calls.filter((c) => c === "clear").length;
+
+test("checkout cuja URL já é /pagamento/sucesso e nada muda depois do clique NÃO dá pago (vira não confirmado)", async () => {
+	let t = 0;
+	const url = "https://www.loja.exemplo.com/pagamento/sucesso";
+	const driver = fakeDriver({ url, afterPay: { text: "Pedido confirmado. Pedido nº AB12345", url, frames: [] } });
+	const fill = createCardFill({ driver, now: () => t, sleep: async () => { t += 10_000; }, pollForMs: 30_000 });
+	const result = await fill.fill({ ...PARAMS, url: "https://www.loja.exemplo.com/pagamento/sucesso" });
+	assert.equal(result.state, "failed");
+	assert.match(result.reason, /may have been charged/);
+	assert.equal(payCalls(driver), 1);
+	assert.ok(clears(driver) >= 1);
+});
+
+test("pago com o campo do cartão sumido (mesma URL) e corroboração da página; sem corroboração não", async () => {
+	const url = "https://www.loja.exemplo.com/checkout";
+	const gone = fakeDriver({ cardGone: true, afterPay: { text: "Pedido confirmado. Pedido nº AB12345", url, frames: [] } });
+	assert.deepEqual(await make(gone).fill(PARAMS), { state: "paid", orderRef: "AB12345" });
+	let t = 0;
+	const bare = fakeDriver({ cardGone: true, afterPay: { text: "Carregando", url, frames: [] } });
+	const r = await createCardFill({ driver: bare, now: () => t, sleep: async () => { t += 10_000; }, pollForMs: 30_000 }).fill(PARAMS);
+	assert.equal(r.state, "failed");
+});
+
+test("retomada depois do clique: mesma URL e página com texto de sucesso não vira pago sem sinal estrutural", async () => {
+	let t = 0;
+	const url = "https://www.loja.exemplo.com/checkout";
+	const driver = fakeDriver({ afterPay: { text: "Autentique no 3D Secure", url, frames: ["https://acs.banco.exemplo/3ds/challenge"] } });
+	const fill = createCardFill({ driver, now: () => t, sleep: async () => { t += 1; } });
+	assert.equal((await fill.fill(PARAMS)).state, "challenge");
+	driver.state.afterPay = { text: "Pedido confirmado. Pedido nº AB12345", url, frames: [] };
+	assert.equal((await fill.fill(PARAMS)).state, "failed", "nada mudou: continua não confirmado");
+	driver.state.cardGone = true;
+	assert.deepEqual(await fill.fill(PARAMS), { state: "paid", orderRef: "AB12345" });
+});
+
+test("o cartão é apagado dos campos da loja em TODO retorno depois do clique (pago, recusado, desafio, não confirmado) e o ouvinte é solto", async () => {
+	const paid = fakeDriver();
+	assert.equal((await make(paid).fill(PARAMS)).state, "paid");
+	assert.equal(clears(paid), 1);
+	assert.equal(paid.state.disposed, 1);
+
+	const declined = fakeDriver({ declinedSignal: true, afterPay: { text: "Processando", url: "https://www.loja.exemplo.com/checkout", frames: [] } });
+	assert.equal((await make(declined).fill(PARAMS)).state, "declined");
+	assert.equal(clears(declined), 1);
+
+	const challenge = fakeDriver({ afterPay: { text: "Autentique no 3D Secure", url: "https://www.loja.exemplo.com/checkout", frames: ["https://acs.banco.exemplo/3ds/challenge"] } });
+	assert.equal((await make(challenge).fill(PARAMS)).state, "challenge");
+	assert.equal(clears(challenge), 1);
+
+	const other = fakeDriver({ afterPay: { text: "Redirecionando", url: "https://banco.exemplo/pagar", frames: [] } });
+	assert.deepEqual(await make(other).fill(PARAMS), { state: "challenge", kind: "other" });
+	assert.equal(clears(other), 1);
+});
+
+test("formulário com dois controles de envio sem desambiguação: failed antes de clicar, cartão apagado", async () => {
+	const driver = fakeDriver({ ambiguousPay: true });
+	const fill = make(driver);
+	const result = await fill.fill(PARAMS);
+	assert.equal(result.state, "failed");
+	assert.match(result.reason, /more than one button/);
+	assert.equal(payCalls(driver), 0);
+	assert.equal(clears(driver), 1);
+	driver.state.ambiguousPay = false;
+	assert.equal((await fill.fill(PARAMS)).state, "paid", "falha antes do clique libera a chave");
 });

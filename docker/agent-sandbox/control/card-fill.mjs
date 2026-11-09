@@ -8,6 +8,9 @@
 //     falha veio ANTES do clique. A idempotência durável entre processos e retomadas é do worker (livro por approvalId).
 //  2b. "Recusado" só por SINAL ESTRUTURAL (resposta HTTP 402 de POST, `aria-invalid` num campo do cartão), nunca por texto da
 //     página. Sem sinal e sem confirmação no prazo => `failed` "pode ter sido cobrado" e a trava continua.
+//  2c. "Pago" também só por sinal estrutural: depois do clique a URL do documento principal mudou OU o campo do número sumiu de
+//     todos os quadros da loja/gateway, E a página corrobora (texto/URL de pedido confirmado). Texto ou URL sozinhos nunca valem:
+//     um checkout cuja URL já é "/sucesso" não vira pago no primeiro poll sem que nada tenha mudado.
 //  3. Número, CVV, titular e endereço (`params`) nunca saem daqui: nem log, nem erro, nem resultado. Nenhuma mensagem de
 //     erro do Playwright é repassada (o call log dele inclui o valor digitado): só as frases fixas deste arquivo. Também
 //     não há screenshot nem árvore de acessibilidade em nenhum momento do preenchimento.
@@ -154,6 +157,7 @@ const REASON = {
 	button: "Nothing was paid: the pay button was not found on the page.",
 	declined: "The store or bank declined the payment.",
 	unconfirmed: "The pay button was pressed but the store did not confirm in time. It may have been charged: check the order page before trying again.",
+	submitButton: "Nothing was paid: the card form has more than one button that sends it, and it was not clear which one pays, so none was pressed. The owner may need to pay on the store's site.",
 	again: "A payment for this checkout was already submitted from this computer, so it was not repeated. Check the order page or finish any verification in the computer's browser.",
 	error: "The browser step failed unexpectedly before the store confirmed anything. If the pay button was already pressed it may have been charged: check the order page before trying again.",
 };
@@ -185,23 +189,31 @@ function validate(params) {
 
 /**
  * `driver` (ver card-fill-driver.mjs): goto(url), url(), visibleFrameUrls(), pageText(), chargeTexts(), fillCard(secrets) ->
- * { number, exp, cvv }, clearCard(), findPayControl() -> { label } | null, clickPay() -> boolean, declineSignal() -> boolean (opcional). Nenhum método devolve ou aceita nada que não seja o necessário.
+ * { number, exp, cvv }, clearCard(), findPayControl() -> { label } | null, clickPay() -> boolean, declineSignal() -> boolean, cardFieldGone() -> boolean e dispose() (opcionais). `findPayControl(isPriced)` devolve { label } | { ambiguous: true } | null. Nenhum método devolve ou aceita nada que não seja o necessário.
  */
-export function createCardFill({ driver, now = Date.now, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), submitted = new Map(), pollForMs = POLL_FOR_MS, pollEveryMs = POLL_EVERY_MS }) {
+export function createCardFill({ driver, now = Date.now, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), submitted = new Map(), pollForMs = POLL_FOR_MS, pollEveryMs = POLL_EVERY_MS, baselines = new Map() }) {
 	const pageState = async () => ({ url: driver.url(), frameUrls: await driver.visibleFrameUrls(), text: await driver.pageText() });
 	const challengeOf = (state) => classifyChallenge(state);
 
 	const sweep = () => {
 		for (const [key, at] of submitted) if (now() - at > SUBMIT_GUARD_TTL_MS) submitted.delete(key);
+		for (const key of baselines.keys()) if (!submitted.has(key)) baselines.delete(key);
 	};
 
+	const withoutHash = (url) => String(url ?? "").split("#")[0];
+	/** Sinal estrutural de que o envio aconteceu: a URL do documento principal mudou, ou o campo do cartão sumiu dos quadros da loja. */
+	async function submitHappened(baselineUrl, url) {
+		if (baselineUrl !== undefined && withoutHash(url) !== withoutHash(baselineUrl)) return true;
+		return Boolean(await driver.cardFieldGone?.());
+	}
+	const paidResult = (page) => ({ state: "paid", ...(extractOrderRef(page.text) && { orderRef: extractOrderRef(page.text) }) });
+
 	/** A compra já teve o "pagar" clicado: só olha o estado da página, nunca clica de novo. */
-	async function observeOnly() {
+	async function observeOnly(key) {
 		const state = await pageState();
 		const kind = challengeOf(state);
 		if (kind) return { state: "challenge", kind };
-		const outcome = classifyOutcome(state);
-		if (outcome === "paid") return { state: "paid", ...(extractOrderRef(state.text) && { orderRef: extractOrderRef(state.text) }) };
+		if (classifyOutcome(state) === "paid" && (await submitHappened(baselines.get(key), state.url))) return paidResult(state);
 		return { state: "failed", reason: REASON.again };
 	}
 
@@ -211,19 +223,20 @@ export function createCardFill({ driver, now = Date.now, sleep = (ms) => new Pro
 		sweep();
 		// A chave NÃO leva a URL (a loja pode mudar de caminho no meio do checkout) e leva o pedido de aprovação.
 		const key = createHash("sha256").update(`${normalizeHost(req.merchant)}\u0000${req.amount}\u0000${req.currency}\u0000${req.approvalId}`).digest("hex");
-		if (submitted.has(key)) return observeOnly();
+		if (submitted.has(key)) return observeOnly(key);
 		// Marca de forma síncrona (nenhum await entre o `has` e o `set`): uma segunda chamada em corrida cai no `observeOnly`.
 		submitted.set(key, now());
 		const state = { clicked: false };
 		try {
-			return await attempt(req, state);
+			return await attempt(req, state, key);
 		} finally {
+			await driver.dispose?.();
 			// Só falha ANTES do clique libera a chave; depois do clique ela vale até expirar.
 			if (!state.clicked) submitted.delete(key);
 		}
 	}
 
-	async function attempt(req, state) {
+	async function attempt(req, state, key) {
 		try {
 			await driver.goto(req.url);
 		} catch {
@@ -252,10 +265,15 @@ export function createCardFill({ driver, now = Date.now, sleep = (ms) => new Pro
 		}
 
 		// O botão é o envio do formulário dos campos do cartão (estrutura). Sem ele não há como pagar com segurança.
-		const control = await driver.findPayControl();
+		// Com mais de um envio no formulário (ex.: "Aplicar cupom"), o driver só escolhe se o rótulo com o valor aprovado aponta para um.
+		const control = await driver.findPayControl((label) => parseMoneyTokens(label).length > 0 && checkCharge([label], req.amount, req.currency).ok);
 		if (!control) {
 			await driver.clearCard().catch(() => undefined);
 			return { state: "failed", reason: REASON.button };
+		}
+		if (control.ambiguous) {
+			await driver.clearCard().catch(() => undefined);
+			return { state: "failed", reason: REASON.submitButton };
 		}
 		// Valor no rótulo do botão ("Pagar R$ 129,90"): tem de bater com o aprovado. Rótulo sem valor legível não conta.
 		if (parseMoneyTokens(control.label).length > 0 && !checkCharge([control.label], req.amount, req.currency).ok) {
@@ -265,30 +283,32 @@ export function createCardFill({ driver, now = Date.now, sleep = (ms) => new Pro
 
 		// Antes de clicar: se o processo cair ou o clique demorar, uma nova tentativa nunca paga duas vezes.
 		state.clicked = true;
+		const baselineUrl = driver.url();
+		baselines.set(key, baselineUrl);
 		if (!(await driver.clickPay())) {
 			state.clicked = false;
+			baselines.delete(key);
 			await driver.clearCard().catch(() => undefined);
 			return { state: "failed", reason: REASON.button };
 		}
 
+		// Depois do clique, TODO retorno apaga o cartão dos campos da loja (o dono pode concluir o 3DS no viewer e a página fica aberta).
+		const done = async (result) => {
+			await driver.clearCard().catch(() => undefined);
+			return result;
+		};
 		const deadline = now() + pollForMs;
 		for (;;) {
 			await sleep(pollEveryMs);
 			const page = await pageState();
 			const kind = challengeOf(page);
-			if (kind) {
-				await driver.clearCard().catch(() => undefined); // o dado do cartão não fica no campo da loja enquanto o dono conclui
-				return { state: "challenge", kind };
-			}
-			if (classifyOutcome(page) === "paid") return { state: "paid", ...(extractOrderRef(page.text) && { orderRef: extractOrderRef(page.text) }) };
+			if (kind) return done({ state: "challenge", kind });
+			if (classifyOutcome(page) === "paid" && (await submitHappened(baselineUrl, page.url))) return done(paidResult(page));
 			// Recusa só por sinal estrutural; a trava continua (outro cartão é outro pedido de aprovação).
-			if (await driver.declineSignal?.()) return { state: "declined", reason: REASON.declined };
+			if (await driver.declineSignal?.()) return done({ state: "declined", reason: REASON.declined });
 			// Foi para outro site depois do clique (banco, gateway hospedado): só o dono conclui.
-			if (!hostMatchesMerchant(page.url, req.merchant) && normalizeHost(page.url)) return { state: "challenge", kind: "other" };
-			if (now() >= deadline) {
-				await driver.clearCard().catch(() => undefined);
-				return { state: "failed", reason: REASON.unconfirmed };
-			}
+			if (!hostMatchesMerchant(page.url, req.merchant) && normalizeHost(page.url)) return done({ state: "challenge", kind: "other" });
+			if (now() >= deadline) return done({ state: "failed", reason: REASON.unconfirmed });
 		}
 	}
 

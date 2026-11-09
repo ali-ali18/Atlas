@@ -300,6 +300,7 @@ const handleRequest = async (req, res) => {
 
 // Compras cujo "pagar" já foi clicado (trava de repetição do card_fill; vive enquanto o control server vive).
 const cardFillSubmitted = new Map();
+const cardFillBaselines = new Map();
 
 const READ_ONLY_POSTS = new Set(["/browser/read", "/browser/find", "/browser/snapshot"]);
 
@@ -495,7 +496,7 @@ const handleControlRequest = async (req, res) => {
 				sendJson(res, 200, { state: "failed", reason: "Nothing was paid: the browser is not available." });
 				return;
 			}
-			sendJson(res, 200, await createCardFill({ driver: createPlaywrightDriver(page), submitted: cardFillSubmitted }).fill(body));
+			sendJson(res, 200, await createCardFill({ driver: createPlaywrightDriver(page), submitted: cardFillSubmitted, baselines: cardFillBaselines }).fill(body));
 			return;
 		}
 
