@@ -14,6 +14,45 @@ export const LOAD_SETTLE_MS = 3000;
 export const EXPORT_MAX_ROUNDS = 300;
 export const EXPORT_MAX_MS = 120_000;
 const EXPORT_ITEM_CHARS = 200_000;
+/** Arquivos de export velhos saem: por idade (TTL) e por tamanho/quantidade por conversa (a pasta é do workspace dela). */
+export const EXPORT_TTL_MS = 24 * 60 * 60_000;
+export const EXPORT_MAX_FILES = 30;
+export const EXPORT_MAX_BYTES = 200 * 1024 * 1024;
+
+/** Apaga exports vencidos e, passando dos tetos, os mais antigos. Melhor esforço: nunca derruba o export que está sendo feito. */
+export async function pruneExports(fs, dir, now) {
+	let names;
+	try {
+		names = (await fs.readdir(dir)).filter((n) => /^x[a-z0-9]+\.json$/.test(n));
+	} catch {
+		return 0;
+	}
+	const files = [];
+	for (const name of names) {
+		try {
+			const st = await fs.stat(`${dir}/${name}`);
+			files.push({ name, size: st.size, at: st.mtimeMs });
+		} catch {
+			// sumiu no meio
+		}
+	}
+	files.sort((a, b) => a.at - b.at);
+	let total = files.reduce((n, f) => n + f.size, 0);
+	let removed = 0;
+	for (let i = 0; i < files.length; i += 1) {
+		const f = files[i];
+		const left = files.length - removed;
+		if (now - f.at <= EXPORT_TTL_MS && left <= EXPORT_MAX_FILES && total <= EXPORT_MAX_BYTES) break;
+		try {
+			await fs.unlink(`${dir}/${f.name}`);
+			removed += 1;
+			total -= f.size;
+		} catch {
+			// segue
+		}
+	}
+	return removed;
+}
 const SECTION_RE = /^s\d{1,4}$/;
 const REF_RE = /^(?:f\d{1,3})?[ae]\d{1,5}$/;
 
@@ -215,6 +254,7 @@ export function createBrowserV4({ withPageRetry, collect, noteDomRefs = () => {}
 			const exportId = newId();
 			const texts = items.map((i) => i.text);
 			await fs.mkdir(`${workspaceDir}/exports`, { recursive: true });
+			await pruneExports(fs, `${workspaceDir}/exports`, now());
 			await fs.writeFile(`${workspaceDir}/exports/${exportId}.json`, JSON.stringify({ section: id, label: labelOf(page, id), declaredTotal: declaredOf(page, id), items: texts }));
 			return { exportId, path: `${workspaceDir}/exports/${exportId}.json`, section: id, items: texts.length, chars: texts.reduce((n, t) => n + t.length, 0), declaredTotal: declaredOf(page, id), stoppedBy };
 		});

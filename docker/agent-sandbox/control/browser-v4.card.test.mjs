@@ -180,3 +180,25 @@ test("carregar mais nunca clica num botão de formulário, mesmo com o texto de 
 	await handle("browser.load_more", { section: list.id, times: 1 });
 	assert.equal(await page.title(), "", "o botão do formulário não foi clicado");
 });
+
+test("exports antigos são limpos: vencidos por idade e, passando do teto, os mais antigos", async () => {
+	const { pruneExports, EXPORT_TTL_MS, EXPORT_MAX_FILES } = await import("./browser-v4.mjs");
+	const now = 10 * EXPORT_TTL_MS;
+	const files = new Map();
+	const fs = {
+		readdir: async () => [...files.keys()],
+		stat: async (path) => files.get(path.split("/").pop()),
+		unlink: async (path) => void files.delete(path.split("/").pop()),
+	};
+	files.set("xold1.json", { size: 10, mtimeMs: now - EXPORT_TTL_MS - 1 });
+	files.set("xnew1.json", { size: 10, mtimeMs: now - 1000 });
+	files.set("leia.txt", { size: 10, mtimeMs: 0 });
+	assert.equal(await pruneExports(fs, "/w/exports", now), 1);
+	assert.deepEqual([...files.keys()].sort(), ["leia.txt", "xnew1.json"], "só apaga export vencido; outro arquivo fica");
+	for (let i = 0; i < EXPORT_MAX_FILES + 5; i += 1) files.set(`xf${i}.json`, { size: 1, mtimeMs: now - 5000 + i });
+	const removed = await pruneExports(fs, "/w/exports", now);
+	assert.equal([...files.keys()].filter((n) => n.startsWith("x")).length, EXPORT_MAX_FILES);
+	assert.ok(removed >= 6);
+	assert.ok(files.has(`xf${EXPORT_MAX_FILES + 4}.json`), "o mais novo fica");
+	assert.equal(await pruneExports({ readdir: async () => { throw new Error("sem pasta"); } }, "/w/exports", now), 0);
+});
