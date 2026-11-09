@@ -41,6 +41,7 @@ O login deixou de ser só usuário + senha: quem olha a página declara os campo
 - **Adaptador** (`apps/worker/src/v4-adapters/vault.ts`): porta `Vault` sobre `@workspace/db` + `@workspace/db/vault-crypto`. `resolve` só entrega segredo simples do dono (senha de login nunca por aqui) e audita o uso; item de outro dono é igual a inexistente.
 - **`{{secret:NOME}}` no executor**: tool que declara `acceptsSecretRefs` (hoje `code_shell` e as tools `mcp_*` dos conectores PRIVADOS do dono) recebe o valor na hora de executar. Os nomes são conferidos antes do cartão (sem ler valor); o valor só é lido depois da aprovação; cartão, hash do journal e eventos ficam com o marcador; o cofre rastreado do run (`trackVault`) faz toda saída sair com `[redacted]`. `{{login:...}}` e `{{secret:rotina:...}}` são recusados com a dica do `login_fill`.
 - Sem dono (`unattended`, agenda): a capacidade entra só com `secret_list`.
+- **Rotina com permissão de login (F9 parte 2, decisão do dono 09/11):** o dono aprova no cartão da criação ou edição da rotina "usar o login X para entrar em Y nesta rotina" (`routine_create`/`routine_update` com `loginAccess`, efeito `credential`); a rotina guarda `{ login, site normalizado }`. No run da rotina (sem dono) o registro ganha um `login_fill` só para aquele login e aquele site (`routine-login-fill.ts`; efeito `write_internal`, a aprovação foi a da criação). A ação leva `onlySite` e o tratador só digita se a página bater com o site aprovado, reconferindo antes de CADA campo, além das checagens de sempre. Sem permissão, a rotina só tem `secret_list` e a instrução manda dizer no resultado que não entrou. Ver `rotinas-v4.md`.
 
 ## Riscos
 - Trava `field` da VM (campos de login por ref): vale para qualquer entrada de texto visível do documento principal, não só input de senha. O modelo escolhe o ref; quem protege é o conjunto site exato + https + origem + formulário na própria origem + aprovação do dono a cada uso. Um modelo induzido por injeção poderia apontar um campo de busca do MESMO site; o valor não sai do site salvo.
@@ -57,7 +58,7 @@ Só uma linha do índice no prompt (teste de economia: "Bom dia" não ganha tool
 ## Pendências (fora desta frente)
 - Tela Configurações > Cofre ainda não lista nem edita os campos declarados pela IA (mostra o login como usuário/senha); o dono vê e apaga o item, e pode refazer os campos pelo bot.
 - Cartão do celular: segue como "ver no web" (como os demais cartões de cofre).
-- `routine_webhook_info` e `{{secret:rotina:...}}`: dependem das rotinas, que vêm em outra frente.
+- `routine_webhook_info` entrou com as rotinas (só o endereço, nunca o segredo). O marcador `{{secret:rotina:...}}` (ligar outro sistema por conector sem colar o segredo) continua recusado pelo executor: fica para uma frente do cofre.
 - Vínculo de login sem site por cartão, login automático do navegador (`tryAutoVaultLogin`) e aprovação "sempre para este bot".
 - `{{secret:...}}` em outras tools de saída (ex.: `code_write`/`code_edit`) e em conector público: não habilitado de propósito.
 
