@@ -1,7 +1,10 @@
-// Bloqueio de SSRF/egress do Chromium da VM (F8.0). Toda requisição do navegador (navegação, subrecurso, redirecionamento,
-// WebSocket) passa por aqui antes de sair: destino em rede interna é abortado, o DNS é resolvido a cada salto e TODOS os
-// endereços devolvidos precisam ser públicos. Bloqueia metadata de nuvem (169.254.169.254), loopback, RFC1918, link-local,
-// CGNAT, IPv6 que não é unicast global e a rede Docker (172.16/12). Nada de nome específico de loja ou provedor.
+// Regras de SSRF/egress do Chromium da VM (F8.0): quais endereços e nomes são internos. Bloqueia metadata de nuvem
+// (169.254.169.254), loopback, RFC1918, link-local, CGNAT, IPv6 que não é unicast global e a rede Docker (172.16/12). Nada de
+// nome específico de loja ou provedor.
+// ONDE É IMPOSTO: a barreira de verdade é o PROXY LOCAL (`egress-proxy.mjs`): o Chromium sai só por ele, que valida o IP já
+// resolvido e conecta nesse IP (HTTP, HTTPS, WebSocket e Service Worker). O `installEgressGuard` abaixo (context.route) é só
+// DEFESA EXTRA: ele julga a URL antes de o Chromium resolver o DNS, então sozinho NÃO barra DNS rebinding (o nome responde
+// público aqui e privado na conexão real). Não confie nele como única camada.
 import { lookup as dnsLookup } from "node:dns/promises";
 import { isIP } from "node:net";
 
@@ -78,8 +81,9 @@ export function isBlockedHostname(host) {
 	return name === "localhost" || /\.(localhost|local|internal|localdomain|lan|home\.arpa)$/.test(name) || name === "host.docker.internal";
 }
 
-const NON_NETWORK = new Set(["about:", "data:", "blob:", "file:", "chrome-extension:"]);
-const NETWORK = new Set(["http:", "https:", "ws:", "wss:", "ftp:"]);
+// Sem `file:` (leria arquivos da VM) e sem `ftp:` (protocolo sem proxy HTTP). Só o que não toca a rede passa sem checagem.
+const NON_NETWORK = new Set(["about:", "data:", "blob:", "chrome-extension:"]);
+const NETWORK = new Set(["http:", "https:", "ws:", "wss:"]);
 
 /**
  * `lookup(host)` devolve todos os endereços do nome (injetável em teste). Cache curto por nome só para não resolver a
@@ -124,7 +128,7 @@ export function createEgressGuard({ lookup = (host) => dnsLookup(host, { all: tr
 }
 
 /**
- * Liga o guarda a um contexto do Playwright: cada requisição (inclusive redirecionamento, que chega como requisição nova)
+ * DEFESA EXTRA (a barreira é o proxy local): liga o guarda a um contexto do Playwright: cada requisição (inclusive redirecionamento, que chega como requisição nova)
  * é conferida e abortada se o destino é interno. Falhou em conferir = aborta (fail-closed).
  */
 export async function installEgressGuard(context, guard = createEgressGuard(), onBlock = () => undefined) {

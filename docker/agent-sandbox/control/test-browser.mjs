@@ -65,10 +65,17 @@ export async function launchFixtureBrowser(pages) {
 	const context = await browser.newContext({ viewport: { width: 900, height: 700 } });
 	return {
 		base,
+		executablePath,
+		chromium,
 		newPage: () => context.newPage(),
 		close: async () => {
 			await browser.close();
 			await new Promise((resolve) => server.close(resolve));
 		},
 	};
+}
+
+/** O `chromium` do playwright-core (ou null), para testes que precisam lançar o navegador com opções próprias. */
+export async function chromiumForTests() {
+	return { chromium: await loadChromium() };
 }

@@ -23,6 +23,7 @@ import { HttpError, readJsonBody } from "./request-body.mjs";
 import { createCardFill } from "./card-fill.mjs";
 import { createPlaywrightDriver } from "./card-fill-driver.mjs";
 import { createEgressGuard, installEgressGuard } from "./egress-guard.mjs";
+import { createGuardedProxy, DEFAULT_PROXY_PORT } from "./egress-proxy.mjs";
 import { countUserProcesses, countViewerClients, createActivityTracker } from "./activity.mjs";
 
 const PORT = Number.parseInt(process.env.SANDBOX_CONTROL_PORT ?? "3080", 10);
@@ -137,7 +138,12 @@ async function scrollBy(deltaX, deltaY) {
 // --- Browser (Playwright/CDP) para navegação confiável ---
 // Egress: o Chromium da VM nunca alcança metadata, loopback, rede privada nem a rede Docker (SSRF), nem por redirecionamento.
 // SANDBOX_EGRESS_GUARD=0 desliga (só para depurar a imagem); o padrão é ligado.
+// A barreira de verdade é o proxy local (o Chromium sai por ele: ver bin/atlas-chrome); o `context.route` abaixo é defesa extra.
 const egressGuard = createEgressGuard();
+if (process.env.SANDBOX_EGRESS_GUARD !== "0") {
+	const proxy = createGuardedProxy({ onBlock: (reason, host) => console.warn(`[sandbox-control] egress bloqueado (proxy): ${reason}: ${host}`) });
+	proxy.listen(Number.parseInt(process.env.SANDBOX_EGRESS_PROXY_PORT ?? String(DEFAULT_PROXY_PORT), 10)).catch((error) => console.error(`[sandbox-control] proxy de saída não subiu (o Chrome fica sem rede, por segurança): ${error?.code ?? "erro"}`));
+}
 const browserSession = createBrowserSession({
 	chromium,
 	cdpUrl: CDP_URL,

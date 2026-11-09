@@ -75,3 +75,9 @@ test("installEgressGuard aborta o bloqueado, deixa passar o público e falha fec
 	await installEgressGuard(context, { check: async () => { throw new Error("boom"); } });
 	assert.deepEqual(await run("https://example.com/"), { aborted: "blockedbyclient" });
 });
+
+test("file: e ftp: não passam (leitura de arquivo da VM e protocolo sem proxy)", async () => {
+	const guard = createEgressGuard({ lookup: async () => ["93.184.216.34"] });
+	for (const url of ["file:///etc/passwd", "ftp://example.com/x", "ftp://93.184.216.34/x"]) assert.equal((await guard.check(url)).ok, false, url);
+	for (const url of ["about:blank", "data:text/html,x", "blob:https://example.com/abc"]) assert.equal((await guard.check(url)).ok, true, url);
+});
