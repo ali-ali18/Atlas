@@ -919,6 +919,7 @@ export * from "./env-check.js";
 export * from "./diagnostics.js";
 export * from "./sentry-lite.js";
 export * from "./vault.js";
+export * from "./vault-login.js";
 
 export {
 	CATALOG_DEFAULT_URL,

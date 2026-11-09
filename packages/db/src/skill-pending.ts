@@ -49,7 +49,7 @@ export type SkillPendingPayload = {
 	devCommand?: { callKey: string; sessionId: string; repo: string | null; tool: "shell" | "write_file" | "edit_file" | "read_file" | "repeat_call"; label: string; prefixes: string[] };
 	devPrCreate?: { callKey: string; sessionId: string; title: string; base: string; head: string };
 	/** Pedido de segredos do projeto: só nomes e o ambiente; os valores vão do cartão direto para a API. */
-	secretsRequest?: { environmentId: string; repo: string; names: string[] };
+	secretsRequest?: { environmentId: string; repo: string; names: string[]; /** Login do cofre: site e campos declarados (chave, rótulo, secreto); sem valor. */ login?: { site: string; name?: string; fields: Array<{ key: string; label: string; secret: boolean }> } };
 	/** Escrita de infraestrutura da prévia completa (DNS) aguardando o "confirmado"; o agente repete a chamada depois. Nenhum segredo aqui. */
 	infraSetup?: { callKey: string; label: string };
 	/** Plano proposto (`propose_plan`) aguardando "Aprovar plano"; aprovar não aprova escritas. */
