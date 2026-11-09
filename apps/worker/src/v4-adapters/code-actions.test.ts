@@ -151,6 +151,54 @@ test("saída longa vai para um arquivo do workspace e o resultado aponta o camin
 	assert.match(data.output, /more characters in/);
 });
 
+test("saída de comando muito longa: o worker guarda só a cauda (teto por stream) e o resultado diz quantos bytes iniciais saíram", async () => {
+	// VM falsa que devolve 64 KB por consulta durante 40 consultas (2,6 MB). Antes do teto, a memória crescia com a saída inteira.
+	const CHUNK = "y".repeat(64 * 1024);
+	const POLLS = 40;
+	const sessions = new Map<string, CodeSession>();
+	const spilled = new Map<string, string>();
+	let polls = 0;
+	let total = 0;
+	const client = {
+		execStart: async () => ({ id: "jobBig" }),
+		execPoll: async (): Promise<DevExecSnapshot> => {
+			polls += 1;
+			const done = polls >= POLLS;
+			const stdout = `[${polls}]${CHUNK}`;
+			total += Buffer.byteLength(stdout);
+			return { id: "jobBig", status: done ? "done" : "running", running: !done, exitCode: done ? 0 : null, signal: null, timedOut: false, stdout, stderr: "", nextOut: polls, nextErr: 0, truncated: false, omittedBytes: 0, durationMs: 1, cwd: "/workspace" };
+		},
+		execKill: async () => ({ ok: true }),
+		writeFile: async (input: { path: string; content: string }) => (spilled.set(input.path, input.content), { path: input.path, created: true, bytes: input.content.length, diff: "", added: 0, removed: 0 }),
+	} as unknown as DevClient;
+	const handler = createCodeActionHandler({
+		sessions: {
+			get: async (id, userId) => (sessions.get(id)?.userId === userId ? sessions.get(id)! : null),
+			create: async (userId, input) => {
+				const s: CodeSession = { id: `s${sessions.size + 1}`, userId, repo: input.repo ?? null, branch: input.branch ?? null, status: "RUNNING" };
+				sessions.set(s.id, s);
+				return s;
+			},
+		},
+		connect: async () => client,
+		pollMs: 1,
+	});
+	const opened = await handler.run("A", { kind: CODE_KINDS.session, params: { repo: "acme/loja" } } as SandboxAction);
+	const sessionId = (opened.data as { sessionId: string }).sessionId;
+	const res = await handler.run("A", { kind: CODE_KINDS.shell, params: { sessionId, cmd: "pnpm exec vitest run src/a.test.ts" } } as SandboxAction);
+	assert.equal(res.ok, true);
+	assert.equal(polls, POLLS);
+	const data = res.data as { output: string; spillPath: string };
+	assert.match(data.output, /bytes iniciais omitidos/, "o resultado avisa que o início saiu");
+	const file = spilled.get(data.spillPath)!;
+	const note = /^\((\d+) bytes iniciais omitidos\)\n/.exec(file);
+	assert.ok(note, "o arquivo começa com a contagem de bytes omitidos");
+	const tail = file.slice(note[0].length);
+	assert.ok(tail.length <= 1_000_000, `cauda de ${tail.length} caracteres passou do teto`);
+	assert.equal(Number(note[1]) + tail.length, total, "bytes omitidos + cauda = tudo que a VM produziu");
+	assert.ok(tail.endsWith(CHUNK), "o fim da saída fica");
+});
+
 test("git status: converte a saída porcelain", () => {
 	assert.deepEqual(parseStatus("## main...origin/main\n M src/a.js\n?? novo.txt\n"), { branch: "main", files: [{ status: "M", path: "src/a.js" }, { status: "??", path: "novo.txt" }], clean: false });
 	assert.deepEqual(parseStatus("## main\n"), { branch: "main", files: [], clean: true });

@@ -58,6 +58,35 @@ const SPILL_DIR = "/workspace/.atlas";
 
 const shq = (value: string): string => `'${value.replaceAll("'", "'\\''")}'`;
 
+/**
+ * Teto, em caracteres, da saída de cada stream (stdout e stderr) guardada na memória do worker enquanto o job roda. Um comando
+ * que imprime sem parar (até 600 s) não pode estourar a memória: passou disso, fica só a cauda, e o início sai contado.
+ */
+const STREAM_TAIL_CHARS = 1_000_000;
+
+/** Cauda de um stream: guarda os últimos `limit` caracteres e conta em bytes o que saiu do início. */
+class StreamTail {
+	private text = "";
+	private omittedBytes = 0;
+	private readonly limit: number;
+
+	constructor(limit: number) {
+		this.limit = limit;
+	}
+
+	push(chunk: string): void {
+		this.text += chunk;
+		const excess = this.text.length - this.limit;
+		if (excess <= 0) return;
+		this.omittedBytes += Buffer.byteLength(this.text.slice(0, excess));
+		this.text = this.text.slice(excess);
+	}
+
+	render(): string {
+		return this.omittedBytes > 0 ? `(${this.omittedBytes} bytes iniciais omitidos)\n${this.text}` : this.text;
+	}
+}
+
 class Refused extends Error {}
 
 /** Redige cada texto do resultado (não o JSON serializado: `\\nBearer` não tem fronteira de palavra e escaparia). */
@@ -96,26 +125,26 @@ export function createCodeActionHandler(deps: CodeActionDeps): CodeActionHandler
 		let snapshot: DevExecSnapshot;
 		let out = 0;
 		let err = 0;
-		let stdout = "";
-		let stderr = "";
+		const stdout = new StreamTail(STREAM_TAIL_CHARS);
+		const stderr = new StreamTail(STREAM_TAIL_CHARS);
 		for (;;) {
 			if (signal?.aborted) {
 				await client.execKill(started.id, "SIGTERM").catch(() => undefined);
 				throw new Refused("Cancelled.");
 			}
 			snapshot = await client.execPoll(started.id, { out, err, waitMs: deps.pollMs ?? 1_000 });
-			stdout += snapshot.stdout;
-			stderr += snapshot.stderr;
+			stdout.push(snapshot.stdout);
+			stderr.push(snapshot.stderr);
 			out = snapshot.nextOut;
 			err = snapshot.nextErr;
 			if (!snapshot.running) break;
 			if (Date.now() > deadline) {
 				await client.execKill(started.id, "SIGKILL").catch(() => undefined);
-				return { snapshot, output: `${stdout}${stderr}`, timedOut: true };
+				return { snapshot, output: `${stdout.render()}${stderr.render()}`, timedOut: true };
 			}
 		}
 		void session;
-		return { snapshot, output: `${stdout}${stderr}`, timedOut: snapshot.timedOut };
+		return { snapshot, output: `${stdout.render()}${stderr.render()}`, timedOut: snapshot.timedOut };
 	}
 
 	/**
