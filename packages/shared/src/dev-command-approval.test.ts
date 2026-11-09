@@ -211,6 +211,18 @@ describe("proteção de leitura de .env", () => {
 			expect(sensitiveReadReason(cmd), cmd).toBeNull();
 		}
 	});
+	it("leituras de segredo por estrutura do comando: git show rev:.env, git log -p, diff --no-index, env, /proc/*/environ e caminho fora do /workspace", () => {
+		for (const cmd of [
+			"git show HEAD:.env", "git show main~2:apps/api/.env.local", "git -C repo show HEAD:.env", "git log -p -- .env", "git log --patch .env.production", "git diff .env", "git diff HEAD -- .env.local", "git blame .env", "git cat-file -p HEAD:.env",
+			"git diff --no-index /etc/passwd x", "git diff --no-index ../a b", "env", "printenv", "env -0", "ls && printenv", "cat /proc/self/environ", "cat /proc/1/environ", "tr '\\0' '\\n' < /proc/self/environ", "head -c 100 /proc/12/environ",
+			"cat /etc/passwd", "cat ~/.ssh/id_rsa", "cat ../../.git-credentials", "grep -r token /home/atlas", "rg --file=/root/.npmrc x",
+		]) {
+			expect(sensitiveReadReason(cmd), cmd).not.toBeNull();
+		}
+		for (const cmd of ["git show HEAD:README.md", "git log -p -- src/a.ts", "git log --oneline .env", "git diff", "git diff .env.example", "env FOO=1 pnpm test", "printenv PATH_UNUSED_NOT_CHECKED_BUT_ARGS", "cat /workspace/app/a.ts", "cat src/a.ts", "ls /usr/lib", "git status"]) {
+			expect(sensitiveReadReason(cmd), cmd).toBeNull();
+		}
+	});
 	it("decideCommand: pergunta em Automático e Lista liberada (mesmo com leitura simples), nunca oferece Sempre", () => {
 		expect(decide("cat .env", "auto", ["cat"])).toMatchObject({ action: "ask", reason: "sensitive-read", prefixes: [] });
 		expect(decide("cat .env", "allowlist")).toMatchObject({ action: "ask", reason: "sensitive-read", prefixes: [] });

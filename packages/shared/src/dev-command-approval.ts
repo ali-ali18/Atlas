@@ -1057,12 +1057,81 @@ function tokenizePieces(cmd: string): string[][] {
 	return pieces;
 }
 
-/** Motivo de o comando ler um .env (cat .env, grep KEY .env.local, head < .env...); `null` se não lê. */
+const WORKSPACE_ROOT = "/workspace";
+const GIT_PATCH_FLAGS = new Set(["-p", "--patch", "-u", "--cc", "-c", "--full-diff"]);
+/** Subcomandos do git que mostram CONTEÚDO de arquivo; `log` só com patch (sem patch mostra mensagens, não conteúdo). */
+const GIT_CONTENT_SUBCOMMANDS = new Set(["show", "diff", "log", "blame", "cat-file", "grep", "annotate", "whatchanged"]);
+
+/** Caminho que sai do /workspace: absoluto fora dele, `~` ou com segmento `..`. Olha os segmentos, não o texto livre. */
+function leavesWorkspace(token: string): boolean {
+	let value = token;
+	if (value.startsWith("-")) {
+		const eq = value.indexOf("=");
+		if (eq < 0) return false;
+		value = value.slice(eq + 1);
+	}
+	if (value.startsWith("~")) return true;
+	const parts = value.split("/");
+	if (parts.includes("..")) return true;
+	return value.startsWith("/") && value !== WORKSPACE_ROOT && !value.startsWith(`${WORKSPACE_ROOT}/`);
+}
+
+/** `/proc/<pid|self>/environ` (as variáveis de ambiente de um processo, com tokens). */
+function isProcEnviron(token: string): boolean {
+	const parts = token.split("/");
+	return parts[0] === "" && parts[1] === "proc" && parts.length >= 4 && parts[parts.length - 1] === "environ";
+}
+
+/** Estrutura do comando (argv de cada trecho): `null` se nenhum trecho lê segredo. */
+function structuralSecretRead(segments: readonly CommandSegment[]): string | null {
+	for (const segment of segments) {
+		const words = segment.words;
+		const program = (words[0] ?? "").split("/").pop() ?? "";
+		const args = words.slice(1);
+		if (ENV_READERS.has(program)) {
+			const proc = args.find(isProcEnviron);
+			if (proc) return `lê ${proc}, que guarda as variáveis de ambiente de um processo`;
+			const outside = args.find(leavesWorkspace);
+			if (outside) return `lê ${outside}, fora do /workspace`;
+		}
+		if (program === "git") {
+			let i = 0;
+			while (i < args.length && args[i]!.startsWith("-")) i += args[i] === "-C" || args[i] === "-c" || args[i] === "--git-dir" || args[i] === "--work-tree" ? 2 : 1;
+			const sub = args[i];
+			if (!sub || !GIT_CONTENT_SUBCOMMANDS.has(sub)) continue;
+			const rest = args.slice(i + 1);
+			if (sub === "log" && !rest.some((a) => GIT_PATCH_FLAGS.has(a))) continue;
+			for (const arg of rest) {
+				const candidates = arg.startsWith("-") ? [] : [arg, arg.includes(":") ? arg.slice(arg.indexOf(":") + 1) : ""];
+				const hit = candidates.find((c) => c && (isSensitiveEnvFile(c) || isProcEnviron(c)));
+				if (hit) return `mostra o conteúdo de ${hit} pelo git, e esse arquivo costuma guardar segredos`;
+			}
+			if (sub === "diff" && rest.includes("--no-index")) {
+				const outside = rest.find((a) => !a.startsWith("-") && leavesWorkspace(a));
+				if (outside) return `compara ${outside}, fora do /workspace`;
+			}
+		}
+	}
+	return null;
+}
+
+/** Motivo de o comando ler um .env (cat .env, grep KEY .env.local, head < .env...) ou outro segredo; `null` se não lê. */
 export function sensitiveReadReason(cmd: string): string | null {
+	const parsed = parseCommand(cmd);
+	if (parsed.ok) {
+		const structural = structuralSecretRead(parsed.segments);
+		if (structural) return structural;
+	}
 	for (const tokens of tokenizePieces(cmd)) {
 		// Atribuições antes do programa (FOO=1 cat .env) não contam como o programa.
 		const rest = tokens.filter((t, i) => !(i === 0 && t.includes("=") && !t.startsWith("-")));
 		const program = (rest[0] ?? "").split("/").pop() ?? "";
+		// `env`/`printenv` sem argumento (só opções) despejam o ambiente, tokens incluídos. `env A=b cmd` roda cmd: não é isto.
+		// (O parser tira o `env` puro dos trechos, por isso a checagem mora aqui, nas palavras de cada trecho.)
+		if ((program === "env" || program === "printenv") && rest.slice(1).every((a) => a.startsWith("-"))) return "mostra todas as variáveis de ambiente, que costumam guardar tokens";
+		// Qualquer programa ou redirecionamento (`tr … < /proc/self/environ`) que aponte para o ambiente de um processo.
+		const proc = rest.slice(1).find(isProcEnviron);
+		if (proc) return `lê ${proc}, que guarda as variáveis de ambiente de um processo`;
 		if (!ENV_READERS.has(program)) continue;
 		const hit = rest.slice(1).find(isEnvArgument);
 		if (hit) return `lê o arquivo ${hit}, que costuma guardar segredos`;

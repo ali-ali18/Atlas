@@ -83,6 +83,20 @@ describe("efeitos por argumento", () => {
 		expect(eff("cat .env")).toBe("credential");
 	});
 
+	it("leituras de segredo por estrutura viram credential: git show rev:.env, env, /proc/*/environ, caminho fora do /workspace; em plan a negação vem do preset", () => {
+		const { tool } = setup();
+		const eff = (cmd: string) => tool("code_shell").effectFor({ sessionId: "s", cmd });
+		for (const cmd of ["git show HEAD:.env", "git log -p -- .env", "env", "printenv", "cat /proc/self/environ", "cat /etc/passwd", "cat ~/.ssh/id_rsa", "git diff --no-index /etc/hosts x"]) expect(eff(cmd), cmd).toBe("credential");
+		expect(eff("git show HEAD:README.md")).toBe("read");
+		expect(eff("cat /workspace/app/a.ts")).toBe("read");
+		expect(tool("code_diff").effectFor({ sessionId: "s", path: ".env" })).toBe("credential");
+		expect(tool("code_diff").effectFor({ sessionId: "s", path: "apps/api/.env.local" })).toBe("credential");
+		expect(tool("code_diff").effectFor({ sessionId: "s", path: "src/a.ts" })).toBe("read");
+		expect(tool("code_diff").effectFor({ sessionId: "s" })).toBe("read");
+		expect(verdict(tool("code_shell"), { sessionId: "s", cmd: "env" }, { autonomy: "autonomous" })).toBe("approve");
+		expect(verdict(tool("code_diff"), { sessionId: "s", path: ".env" }, { ownerPresent: false, surface: "agenda" })).toBe("hidden");
+	});
+
 	it("veredito: .env pede o dono até na autonomia total; sem dono a tool some; leitura roda", () => {
 		const { tool } = setup();
 		const envEdit = { sessionId: "s", path: ".env", old: "a", new: "b" };

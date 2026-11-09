@@ -1,4 +1,5 @@
 // `code_diff` (F8.2): diff do workspace contra o último commit (ou de um arquivo). Leitura pura.
+import { isSensitiveEnvFile } from "@workspace/shared";
 import { z } from "zod";
 import { defineTool } from "../../tools/define-tool.js";
 import { assertWorkspacePath, callCode, redact } from "./call.js";
@@ -10,6 +11,9 @@ export function createCodeDiffTool() {
 		description: "Show the git diff of the coding workspace (all changes, or one file with path; staged: true for staged changes). Use it to review your own work before reporting it. Do not use it to read a whole file (code_read).",
 		inputSchema: z.object({ sessionId: z.string().min(1).max(100), path: z.string().max(500).optional(), staged: z.boolean().optional() }),
 		effect: "read",
+		// Diff de .env mostra o segredo: o dono aprova (e sem dono a tool some), como em code_read.
+		effectForArgs: ({ path }) => (path && isSensitiveEnvFile(path) ? "credential" : "read"),
+		riskFacts: ({ path }) => ({ target: path ?? "workspace diff" }),
 		trust: "untrusted",
 		source: "file",
 		async execute(args, ctx) {
