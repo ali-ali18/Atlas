@@ -37,7 +37,7 @@ Capacidade lazy `code` (`packages/agent/src/capabilities/code/`), nove tools, um
   - `plan`: lê, lista, vê o diff e roda comando só de leitura. NÃO edita, não escreve, **não roda teste** (teste executa código do repositório) e esconde todo efeito que sai do Atlas. Anotar (lista de tarefas, memória) segue livre.
   - `build`: com dono, edita e roda comandos permitidos; `.env`, comando fora da lista e ler segredo pedem o dono. Sem dono (agenda, rotina, subagente, bot a bot) vira leitura.
   - Filho nunca excede a mãe: `childPolicy` de uma mãe `plan`/`build` continua só leitura.
-- **Selecionar por run ou bot:** `engine-v4.ts` já aceita `policy`; o integrador faz `applyPolicyPreset(bot.codeMode, basePolicy)` e liga a capacidade com `code: {}` nas dependências do preset (e `code: { readOnly: true }` no `plan`). Sem `code` nas dependências a capacidade não entra e aparece em `unavailable`.
+- **Selecionar por run ou bot:** `engine-v4.ts` já aceita `policy`; o integrador faz `applyPolicyPreset(bot.codeMode, basePolicy)` e liga a capacidade com `code: {}` nas dependências do preset (e `code: { readOnly: true }` no `plan`). A capacidade é opt-in: não está em nenhum preset e só entra quando a chave `code` vem nas dependências (por isso `full` não ganha uma capacidade "indisponível" em quem não usa código).
 
 ## Riscos
 - **Fake x VM:** o porte do casamento de edição pode divergir. Coberto por teste de paridade contra o `.mjs` da imagem.

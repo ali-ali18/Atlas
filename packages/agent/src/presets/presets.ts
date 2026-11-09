@@ -44,7 +44,7 @@ export type AgentPreset = {
 
 export const PRESETS: Readonly<Record<PresetId, AgentPreset>> = Object.freeze({
 	minimal: Object.freeze({ id: "minimal", capabilities: Object.freeze(["web", "deliverables-lite"] as const), workContract: false }),
-	full: Object.freeze({ id: "full", capabilities: Object.freeze(["web", "deliverables-lite", "memory", "tasks", "settings", "research", "agenda", "shopping", "email", "calendar", "code"] as const), workContract: true }),
+	full: Object.freeze({ id: "full", capabilities: Object.freeze(["web", "deliverables-lite", "memory", "tasks", "settings", "research", "agenda", "shopping", "email", "calendar"] as const), workContract: true }),
 });
 
 /**
@@ -105,13 +105,25 @@ const FACTORIES: Readonly<Record<CapabilityId, CapabilityFactory>> = {
 	code: (deps) => deps.code && createCodeCapability(deps.code),
 };
 
+/**
+ * Capacidades opt-in: não fazem parte de nenhum preset, entram quando a dependência vem nas `deps`. O código (F8.2) liga por
+ * run ou bot (`code: {}`; `code: { readOnly: true }` no modo plano): o worker só passa a chave quando o adaptador `code.*` existe.
+ * Assim `full` não ganha uma capacidade "indisponível" em quem não usa código, e nada some em silêncio.
+ */
+const OPT_IN: readonly CapabilityId[] = ["code"];
+
+function capabilitiesOf(preset: AgentPreset, deps: PresetDeps): readonly CapabilityId[] {
+	const extra = OPT_IN.filter((id) => !preset.capabilities.includes(id) && FACTORIES[id](deps) !== undefined);
+	return [...preset.capabilities, ...extra];
+}
+
 /** Capacidades do preset que não entram por falta da porta. */
 export function unavailableCapabilities(preset: AgentPreset, deps: PresetDeps): CapabilityId[] {
 	return preset.capabilities.filter((id) => FACTORIES[id](deps) === undefined);
 }
 
 export function buildPresetRegistry(preset: AgentPreset, deps: PresetDeps): CapabilityRegistry {
-	const built = preset.capabilities.map((id) => FACTORIES[id](deps)).filter((capability): capability is NonNullable<typeof capability> => capability !== undefined);
+	const built = capabilitiesOf(preset, deps).map((id) => FACTORIES[id](deps)).filter((capability): capability is NonNullable<typeof capability> => capability !== undefined);
 	return createCapabilityRegistry(built);
 }
 
