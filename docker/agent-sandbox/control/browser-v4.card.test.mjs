@@ -23,7 +23,11 @@ const CHECKOUT = `<!doctype html><html><head><title>Checkout</title></head><body
 <button type="submit">Pagar</button></form></main></body></html>`;
 
 const SPA = `<!doctype html><html><body><div><input autocomplete="cc-number" type="text"><button onclick="document.title='clicked'">Pagar</button></div></body></html>`;
-const fixtures = await launchFixtureBrowser({ "/checkout": CHECKOUT, "/spa": SPA });
+const SPA_FORM = `<!doctype html><html><head><title>Spa</title></head><body><main><h1>Newsletter</h1>
+<form id="f"><label>Email <input name="email" type="text"></label><button id="go">Enviar</button><button type="button" id="plain" onclick="document.title='plain'">Cancelar</button></form>
+<div role="button" tabindex="0" id="div" onclick="document.title='div'">Salvar</div>
+</main><script>document.getElementById("f").addEventListener("submit", (e) => { e.preventDefault(); document.title = "sent"; });</script></body></html>`;
+const fixtures = await launchFixtureBrowser({ "/checkout": CHECKOUT, "/spa": SPA, "/spaform": SPA_FORM });
 after(async () => {
 	await fixtures?.close();
 });
@@ -129,4 +133,32 @@ test("botão de pagar real: o envio do formulário do cartão; página sem formu
 	assert.equal(await spaDriver.findPayControl(), null);
 	assert.equal(await spaDriver.clickPay(), false);
 	assert.notEqual(await spa.title(), "clicked");
+});
+
+test("form de SPA sem action: clique no envio e Enter no campo exigem intent submit; botão type=button e div seguem pelo intent", { skip }, async () => {
+	const page = await fixtures.newPage();
+	await page.goto(`${fixtures.base}/spaform`);
+	const actions = createBrowserActions({ getPage: async () => page });
+	const refs = createRefActions({ withPageRetry: actions.withPageRetry, clickElement: actions.clickElement });
+	actions.setObserver(refs.observeAction);
+	const handle = createBrowserV4({ withPageRetry: actions.withPageRetry, collect: refs.collect, noteDomRefs: () => refs.axStore.setDom(page), browserAct: refs.browserAct, browserWait: refs.browserWait, navigate: actions.navigate, listTabs: async () => [], switchTab: async () => {}, closeTab: async () => {}, clickElement: actions.clickElement, locateRef: refs.locateRef, workspaceDir: await mkdtemp(join(tmpdir(), "atlas-v4-spa-")), fs: fsp });
+	const map = await handle("browser.map", {});
+	const refsByLabel = {};
+	for (const section of map.data.sections) {
+		const read = await handle("browser.read", { section: section.id, from: 1, count: 20 });
+		for (const item of read.data?.items ?? []) for (const r of item.refs ?? []) refsByLabel[r.name] = r.ref;
+	}
+	const { Enviar, Email, Cancelar } = refsByLabel;
+	assert.ok(Enviar && Email && Cancelar, JSON.stringify(refsByLabel));
+	const click = await handle("browser.act", { ref: Enviar, action: "click", intent: "browse" });
+	assert.equal(click.code, "SUBMIT_INTENT_REQUIRED");
+	for (const key of ["Enter", "NumpadEnter", "Control+Enter"]) {
+		const press = await handle("browser.act", { ref: Email, action: "press", text: key, intent: "browse" });
+		assert.equal(press.code, "SUBMIT_INTENT_REQUIRED", key);
+	}
+	assert.equal(await page.title(), "Spa", "nada foi enviado");
+	const plain = await handle("browser.act", { ref: Cancelar, action: "click", intent: "browse" });
+	assert.equal(plain.ok, true, "type=button não é envio estrutural");
+	const sent = await handle("browser.act", { ref: Enviar, action: "click", intent: "submit" });
+	assert.equal(sent.ok, true);
 });
