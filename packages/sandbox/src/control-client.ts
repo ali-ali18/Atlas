@@ -571,3 +571,16 @@ export async function controlCardFill(
 ): Promise<ControlCardFillResult> {
 	return controlPostJson<ControlCardFillResult>(host, port, "/card-fill", params, 150_000, context);
 }
+
+/**
+ * Ações `browser.*` do motor v4 (F8.1): uma rota só no control server. O corpo é `{ kind, params }`; a resposta é
+ * `{ ok, data }` ou `{ ok: false, error, code? }` e quem chama traduz (a validação do formato é do adaptador do worker).
+ */
+export async function controlBrowserV4(
+	host: string,
+	port: number,
+	body: { kind: string; params: unknown },
+	context: SandboxExecutionContext = {},
+): Promise<unknown> {
+	return controlPostJson<unknown>(host, port, "/browser/v4", body, 90_000, context);
+}
