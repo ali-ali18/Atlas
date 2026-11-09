@@ -18,13 +18,14 @@ const BANK: LoginRecord = { id: "vs_2", name: "banco", siteUrl: "https://banco.e
 
 type Typed = { sessionId: string; selector?: string; text: string; submit?: boolean; guard?: { kind: string; origin?: string } };
 
-function world(opts: { urls?: string[]; login?: LoginRecord | null; typeFails?: (typed: Typed) => Error | { ok: false } | null } = {}) {
+function world(opts: { urls?: string[]; login?: LoginRecord | null; logins?: LoginRecord[]; typeFails?: (typed: Typed) => Error | { ok: false } | null } = {}) {
 	const urls = [...(opts.urls ?? ["https://banco.example/login"])];
 	const typed: Typed[] = [];
 	const used: Array<{ userId: string; name: string; fields: string[] }> = [];
 	let urlCalls = 0;
 	const source: LoginSource = {
 		getLogin: async (userId, name) => (userId === "a" && name === "banco" ? (opts.login === undefined ? BANK : opts.login) : null),
+		listLogins: async (userId) => (userId === "a" ? (opts.logins ?? [BANK]) : []),
 		useLogin: async (userId, login, fields) => {
 			used.push({ userId, name: login.name, fields: [...fields] });
 			return { ...(fields.includes("username") && { username: USERNAME }), ...(fields.includes("password") && { password: PASSWORD }) };
@@ -54,7 +55,7 @@ const PARAMS = { login: "banco", fields: ["username", "password"], submit: false
 test("página do site salvo: digita usuário e senha com o guarda da VM (origem e tipo do campo) e devolve só nomes de campo", async () => {
 	const w = world();
 	const out = await w.run(PARAMS);
-	assert.deepEqual(out, { ok: true, data: { filled: ["username", "password"], site: "banco.example", submitted: false } });
+	assert.deepEqual(out, { ok: true, data: { login: "banco", filled: ["username", "password"], site: "banco.example", submitted: false } });
 	assert.deepEqual(w.typed, [
 		{ sessionId: "s-1", selector: LOGIN_FIELD_SELECTORS.username, text: USERNAME, submit: false, guard: { kind: "username", origin: "https://banco.example" } },
 		{ sessionId: "s-1", selector: LOGIN_FIELD_SELECTORS.password, text: PASSWORD, submit: false, guard: { kind: "password", origin: "https://banco.example" } },
@@ -65,7 +66,7 @@ test("página do site salvo: digita usuário e senha com o guarda da VM (origem 
 test("submit: só o último campo envia, e o resultado diz o domínio de chegada (nunca título nem texto da página)", async () => {
 	const w = world({ urls: ["https://banco.example/login", "https://banco.example/login", "https://banco.example/login", "https://banco.example/conta"] });
 	const out = await w.run({ ...PARAMS, submit: true });
-	assert.deepEqual(out, { ok: true, data: { filled: ["username", "password"], site: "banco.example", submitted: true, landedHost: "banco.example" } });
+	assert.deepEqual(out, { ok: true, data: { login: "banco", filled: ["username", "password"], site: "banco.example", submitted: true, landedHost: "banco.example" } });
 	assert.deepEqual(w.typed.map((t) => t.submit), [false, true]);
 });
 
@@ -131,7 +132,7 @@ test("a VM recusa o campo (formulário para outro site) ou diz que não achou: e
 });
 
 test("navegador fora do ar ao ler a página: erro, nada lido do cofre", async () => {
-	const handler = createLoginFillHandler({ getLogin: async () => BANK, useLogin: async () => assert.fail("não deveria ler o cofre") });
+	const handler = createLoginFillHandler({ getLogin: async () => BANK, listLogins: async () => [BANK], useLogin: async () => assert.fail("não deveria ler o cofre") });
 	const manager = { execBrowserText: async () => { throw new Error("connection reset"); } } as unknown as SandboxManager;
 	const out = await handler({ userId: "a", runId: "r", sessionId: "s", manager }, PARAMS);
 	assert.deepEqual(out, { ok: false, error: "The browser page could not be read, so nothing was typed." });
@@ -139,7 +140,7 @@ test("navegador fora do ar ao ler a página: erro, nada lido do cofre", async ()
 
 test("pela porta Sandbox real do worker: o kind vault.login_fill chega ao tratador do dono do run e a VM de outro dono é recusada", async () => {
 	const w = world();
-	const handler = createLoginFillHandler({ getLogin: async (userId, name) => (userId === "a" && name === "banco" ? BANK : null), useLogin: async () => ({ username: USERNAME, password: PASSWORD }) });
+	const handler = createLoginFillHandler({ getLogin: async (userId, name) => (userId === "a" && name === "banco" ? BANK : null), listLogins: async () => [BANK], useLogin: async () => ({ username: USERNAME, password: PASSWORD }) });
 	const typed: string[] = [];
 	const deps: V4SandboxDeps = {
 		createManager: () =>
@@ -167,4 +168,86 @@ test("pela porta Sandbox real do worker: o kind vault.login_fill chega ao tratad
 test("o kind vault.login_fill está registrado por padrão na porta Sandbox do worker", async () => {
 	const { defaultSandboxHandlers } = await import("./sandbox.js");
 	assert.equal(typeof defaultSandboxHandlers[VAULT_KINDS.loginFill], "function");
+});
+
+// ---- sem nome: o login é achado pelo site da página atual ----
+
+const NO_NAME = { fields: ["username", "password"], submit: false };
+const lojaLogin: LoginRecord = { id: "vs_3", name: "loja", siteUrl: "https://loja.example", domain: "loja.example" };
+const painel: LoginRecord = { id: "vs_4", name: "banco-painel", siteUrl: "https://painel.banco.example/entrar", domain: "painel.banco.example" };
+const bankTwo: LoginRecord = { id: "vs_5", name: "banco-conjunta", siteUrl: "banco.example", domain: "banco.example" };
+
+test("sem nome: um login do site da página (www, caminho, query e barra final não importam) é usado e digitado", async () => {
+	for (const url of ["https://banco.example/login", "https://www.banco.example/entrar?next=/conta", "https://BANCO.example/a/b/"]) {
+		const w = world({ urls: [url], logins: [lojaLogin, BANK, painel] });
+		const out = await w.run(NO_NAME);
+		assert.equal(out.ok, true, url);
+		assert.deepEqual(w.used, [{ userId: "a", name: "banco", fields: ["username", "password"] }], url);
+		assert.equal((out as { data: { login: string } }).data.login, "banco");
+		assert.deepEqual(w.typed.map((t) => t.text), [USERNAME, PASSWORD]);
+	}
+});
+
+test("sem nome: site salvo com www ou sem esquema casa com a página sem www", async () => {
+	const saved: LoginRecord = { id: "vs_6", name: "banco-www", siteUrl: "www.banco.example/", domain: null };
+	const w = world({ urls: ["https://banco.example/login"], logins: [saved], login: saved });
+	assert.equal((await w.run(NO_NAME)).ok, true);
+	assert.equal(w.used[0]?.name, "banco-www");
+});
+
+test("sem nome, nenhum candidato: erro honesto com só nome e site dos parecidos; nada lido do cofre nem digitado", async () => {
+	const w = world({ urls: ["https://banco.example/login"], logins: [lojaLogin, painel] });
+	const out = (await w.run(NO_NAME)) as { ok: false; error: string };
+	assert.equal(out.ok, false);
+	assert.match(out.error, /No saved login belongs to banco\.example/);
+	assert.match(out.error, /"banco-painel" \(painel\.banco\.example\)/);
+	assert.ok(!out.error.includes("loja"));
+	assert.deepEqual(w.used, []);
+	assert.deepEqual(w.typed, []);
+	const none = world({ urls: ["https://banco.example/login"], logins: [lojaLogin] });
+	assert.match(((await none.run(NO_NAME)) as { error: string }).error, /No saved login has a similar site/);
+});
+
+test("sem nome, dois candidatos no mesmo site: pede para escolher pelo nome e lista os dois; nada digitado", async () => {
+	const w = world({ urls: ["https://www.banco.example/login"], logins: [BANK, bankTwo, lojaLogin] });
+	const out = (await w.run(NO_NAME)) as { ok: false; error: string };
+	assert.equal(out.ok, false);
+	assert.match(out.error, /More than one saved login belongs to banco\.example/);
+	assert.match(out.error, /"banco"/);
+	assert.match(out.error, /"banco-conjunta"/);
+	assert.match(out.error, /login set to the name/);
+	assert.ok(!out.error.includes("loja"));
+	assert.deepEqual(w.used, []);
+	assert.deepEqual(w.typed, []);
+});
+
+test("sem nome, a checagem de segurança continua: página http ou de outro site não digita", async () => {
+	const http = world({ urls: ["http://banco.example/login"] });
+	const out = (await http.run(NO_NAME)) as { ok: false; error: string };
+	assert.equal(out.ok, false);
+	assert.match(out.error, /Refused: the current page/);
+	assert.deepEqual(http.used, []);
+	const evil = world({ urls: ["https://banco.example.evil.test/login"] });
+	assert.equal((await evil.run(NO_NAME)).ok, false);
+	assert.deepEqual(evil.typed, []);
+});
+
+test("sem nome, a aba muda de site entre os campos: para e a senha não é digitada", async () => {
+	const w = world({ urls: ["https://banco.example/login", "https://banco.example/login", "https://banco.example/login", "https://evil.test/"] });
+	const out = (await w.run(NO_NAME)) as { ok: false; error: string };
+	assert.equal(out.ok, false);
+	assert.match(out.error, /moved to another site/);
+	assert.deepEqual(w.typed.map((t) => t.guard?.kind), ["username"]);
+});
+
+test("sem nome: só enxerga os logins do dono do run (dono B não acha o de A) e a página ilegível não digita", async () => {
+	const w = world({ urls: ["https://banco.example/login"] });
+	const other = (await w.run(NO_NAME, "b")) as { ok: false; error: string };
+	assert.equal(other.ok, false);
+	assert.match(other.error, /No saved login belongs to/);
+	assert.deepEqual(w.used, []);
+	const handler = createLoginFillHandler({ getLogin: async () => null, listLogins: async () => assert.fail("não deveria listar"), useLogin: async () => assert.fail("não deveria ler") });
+	const manager = { execBrowserText: async () => { throw new Error("down"); } } as unknown as SandboxManager;
+	const out = await handler({ userId: "a", runId: "r", sessionId: "s", manager }, NO_NAME);
+	assert.equal(out.ok, false);
 });

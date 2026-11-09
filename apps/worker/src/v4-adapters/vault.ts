@@ -100,6 +100,8 @@ export type LoginRecord = { id: string; name: string; siteUrl: string | null; do
 /** O que o tratador `vault.login_fill` precisa do cofre. Os valores só existem aqui dentro, no worker. */
 export type LoginSource = {
 	getLogin(userId: string, name: string): Promise<LoginRecord | null>;
+	/** Todos os logins do dono (só nome e site, nunca valor): o `login_fill` sem nome acha o do site da página atual. */
+	listLogins(userId: string): Promise<LoginRecord[]>;
 	/** Lê usuário e/ou senha do login do dono e audita "usado". */
 	useLogin(userId: string, login: LoginRecord, fields: ReadonlyArray<"username" | "password">): Promise<LoginFields>;
 };
@@ -109,6 +111,10 @@ export function createV4LoginSource(deps: V4VaultDeps = realV4VaultDeps): LoginS
 		async getLogin(userId, name) {
 			const row = await deps.getByName(userId, name);
 			return row && row.kind === "login" ? { id: row.id, name: row.name, siteUrl: row.siteUrl, domain: row.domain } : null;
+		},
+		async listLogins(userId) {
+			const metas = await deps.listMeta(userId);
+			return metas.filter((meta) => meta.kind === "login").map((meta) => ({ id: meta.id, name: meta.name, siteUrl: meta.siteUrl, domain: meta.domain }));
 		},
 		async useLogin(userId, login, fields) {
 			// Reconfere o dono e o tipo na leitura (o `LoginRecord` veio de `getLogin`, mas o valor nunca sai sem este filtro).

@@ -190,6 +190,42 @@ describe("login_fill", () => {
 		return r.executor.executeCall({ callId: "c1", step: 1, tool: r.tool("login_fill"), args, grant: grantApproval(pending.request, r.f.clock.now()) });
 	}
 
+	it("sem nome: o cartão diz que é o login do site da página e a VM recebe a ação SEM nome (ela acha pelo site)", async () => {
+		const r = rig();
+		const pending = await r.executor.executeCall({ callId: "c1", step: 1, tool: r.tool("login_fill"), args: {} });
+		if (pending.status !== "pending_approval") throw new Error(pending.status);
+		expect(pending.request.riskFacts.target).toContain("site da página atual");
+		r.vm.respond = () => ({ ok: true, data: { login: "banco", filled: ["username", "password"], site: "banco.example", submitted: false } });
+		const out = await r.executor.executeCall({ callId: "c1", step: 1, tool: r.tool("login_fill"), args: {}, grant: grantApproval(pending.request, r.f.clock.now()) });
+		expect(out.status).toBe("ok");
+		expect(r.vm.actions).toEqual([{ userId: "owner-1", action: { kind: VAULT_KINDS.loginFill, params: { fields: ["username", "password"], submit: false } } }]);
+		expect(out.status === "ok" && out.summary).toContain('of "banco" on banco.example');
+		expect(JSON.stringify({ out, actions: r.vm.actions })).not.toContain(TEST_LOGIN_PASSWORD);
+	});
+
+	it("sem nome: a VM recusa (0 ou 2+ candidatos) e o erro dela chega ao modelo com a lista; nada de sucesso falso", async () => {
+		const r = rig();
+		r.vm.respond = () => ({ ok: false, error: 'More than one saved login belongs to banco.example: "banco" (banco.example), "banco-conjunta" (banco.example). Nothing was typed.' });
+		const out = await approved(r, {});
+		expect(out.status).toBe("error");
+		expect(JSON.stringify(out)).toContain("banco-conjunta");
+	});
+
+	it("sem nome e sem nenhum login com site salvo: erro honesto sem chamar a VM; só os logins do dono contam", async () => {
+		const r = rig([{ owner: "owner-1", id: "sem-site", kind: "login", password: TEST_LOGIN_PASSWORD, username: "x" }, { owner: "owner-2", id: "banco-b", kind: "login", password: TEST_LOGIN_PASSWORD, site: "banco.example" }]);
+		const out = await approved(r, {});
+		expect(out.status).toBe("error");
+		expect(JSON.stringify(out)).toContain("no site login with a saved site");
+		expect(r.vm.actions).toHaveLength(0);
+	});
+
+	it("com nome continua igual: leva o nome (e o nome errado lembra que dá para omitir)", async () => {
+		const r = rig();
+		const out = await approved(r, { login: "nao-existe" });
+		expect(out.status).toBe("error");
+		expect(JSON.stringify(out)).toContain("omit login");
+	});
+
 	it("login que não existe (ou é de outro dono) diz os nomes do dono, não os dos outros", async () => {
 		const r = rig();
 		const out = await approved(r, { login: "chave-do-b" });

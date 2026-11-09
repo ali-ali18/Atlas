@@ -17,8 +17,8 @@ export const LOGIN_FILL_FIELDS = ["username", "password"] as const;
 export type LoginFillField = (typeof LOGIN_FILL_FIELDS)[number];
 
 export const loginFillParamsSchema = z.strictObject({
-	/** Nome do item do cofre (o `id` do handle). */
-	login: z.string().min(1).max(64),
+	/** Nome do item do cofre (o `id` do handle). Ausente = o tratador acha o login pelo SITE da página atual. */
+	login: z.string().min(1).max(64).optional(),
 	fields: z.array(z.enum(LOGIN_FILL_FIELDS)).min(1).max(2),
 	submit: z.boolean(),
 	/** Seletor CSS do campo de usuário quando a detecção padrão falha. A senha é sempre achada sozinha. */
@@ -27,6 +27,8 @@ export const loginFillParamsSchema = z.strictObject({
 export type LoginFillParams = z.infer<typeof loginFillParamsSchema>;
 
 export const loginFillDataSchema = z.object({
+	/** Nome do login usado (só o nome, nunca valor). Ausente em tratador antigo. */
+	login: z.string().min(1).optional(),
 	filled: z.array(z.enum(LOGIN_FILL_FIELDS)).min(1),
 	/** Domínio do site do login. */
 	site: z.string().min(1),
