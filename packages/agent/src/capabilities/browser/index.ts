@@ -27,6 +27,7 @@ export * from "./browser-read.js";
 export * from "./browser-screenshot.js";
 export * from "./browser-tabs.js";
 export * from "./browser-wait.js";
+export * from "./fake-browser.js";
 export * from "./protocol.js";
 export * from "./render.js";
 
