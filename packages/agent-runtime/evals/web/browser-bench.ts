@@ -1,6 +1,9 @@
+// Primeiro: o runtime puxa o db, que exige ATLAS_HOOK_PEPPER (ver env.ts).
+import "./env.js";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { SandboxManager } from "@workspace/sandbox";
+import { DIRECT_PREFIX, createDirectStreamChat, directApiKey } from "./direct-provider.js";
 import { createDryManager, oracleScript, scriptedStreamChat } from "./dry.js";
 import type { RunMetrics } from "./metrics.js";
 import { taskById } from "./tasks.js";
@@ -72,12 +75,12 @@ export function parseBenchArgs(argv: string[]): BenchOptions {
 		real: flags.has("real"),
 		arms: arms as Arm[],
 		tasks: list("tasks", DEFAULT_BENCH_TASKS.join(",")),
-		models: list("models", dry ? "dry/scripted" : "anthropic/claude-haiku-5.5"),
+		models: list("models", dry ? "dry/scripted" : "anthropic-direct/claude-haiku-5-5"),
 		reps: num("reps", 3),
 		maxSteps: num("max-steps", 40),
 		maxCostUsd: num("max-cost", 0),
-		// Haiku de hoje (US$/M): entrada 1,00, saída 5,00. Passos e tamanho vêm do harness atual (T3 ~ 25 passos de ~12 mil tokens de entrada).
-		assume: { steps: num("est-steps", 25), promptTokensPerStep: num("est-prompt-tokens", 12_000), completionTokensPerStep: num("est-completion-tokens", 300), priceInPerM: num("price-in", 1), priceOutPerM: num("price-out", 5) },
+		// Haiku 5.5 de hoje (US$/M): entrada 0,10, saída 0,50 (tabela de packages/evals; acima de 100 mil tokens por chamada sobe, daí o teto). Passos e tamanho vêm do harness atual (T3 ~ 25 passos de ~12 mil tokens de entrada).
+		assume: { steps: num("est-steps", 25), promptTokensPerStep: num("est-prompt-tokens", 12_000), completionTokensPerStep: num("est-completion-tokens", 300), priceInPerM: num("price-in", 0.1), priceOutPerM: num("price-out", 0.5) },
 		outDir: flags.get("out") ?? join(import.meta.dirname, "results"),
 		fixtureHost: flags.get("fixture-host") ?? "host.docker.internal",
 	};
@@ -201,7 +204,11 @@ export async function runBench(options: BenchOptions, log: (line: string) => voi
 								maxSteps: options.maxSteps,
 								...(arm === "agent-browser" ? { goalSuffix: AGENT_BROWSER_SUFFIX } : {}),
 								maxCostUsd: options.dry ? undefined : Math.max(0.01, options.maxCostUsd - spent),
-								...(options.dry ? { streamChat: scriptedStreamChat(oracleScript(task, truth, base)) } : {}),
+								...(options.dry
+									? { streamChat: scriptedStreamChat(oracleScript(task, truth, base)) }
+									: model.startsWith(DIRECT_PREFIX)
+										? { streamChat: createDirectStreamChat(() => directApiKey()) }
+										: {}),
 								log: (line) => log(`[browser-bench] ${line}`),
 							});
 							results.push({ arm, metrics: result.metrics });
