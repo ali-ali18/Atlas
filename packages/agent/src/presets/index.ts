@@ -3,4 +3,5 @@ export * from "./fakes.js";
 export * from "./presets.js";
 export * from "./web.js";
 export * from "./fake-email.js";
+export * from "./policy-presets.js";
 export * from "./fake-code.js";
