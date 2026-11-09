@@ -17,6 +17,11 @@ function collect(value: unknown, into: SecretRef[] = []): SecretRef[] {
 	return into;
 }
 
+/** Nomes (sem repetir) dos segredos citados nos argumentos. Nunca o valor. */
+export function secretRefNames(args: unknown): string[] {
+	return [...new Set(collect(args).flatMap((ref) => (ref.kind === "secret" ? [ref.name] : [])))];
+}
+
 /** Há algum marcador nos argumentos? (barato: serve para não tocar no cofre à toa) */
 export function hasSecretRefs(args: unknown): boolean {
 	return collect(args).length > 0;
@@ -27,6 +32,17 @@ function mapStrings(value: unknown, fn: (piece: string) => string): unknown {
 	if (Array.isArray(value)) return value.map((item) => mapStrings(item, fn));
 	if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, mapStrings(item, fn)]));
 	return value;
+}
+
+function isJsonText(piece: string): boolean {
+	const lead = piece.trimStart();
+	if (!lead.startsWith("{") && !lead.startsWith("[")) return false;
+	try {
+		JSON.parse(piece);
+		return true;
+	} catch {
+		return false;
+	}
 }
 
 const SECRET_REQUEST_HINT = "If the secret is not in the vault, ask the owner with secret_request (the value goes straight to the vault, never through the chat).";
@@ -66,8 +82,9 @@ export async function injectSecretRefs(ownerId: string, vault: Pick<Vault, "reso
 	}
 	if (missing.length > 0) return { ok: false, error: `Secret not found in the vault: ${[...new Set(missing)].join(", ")}. Nothing was run.`, hint: SECRET_REQUEST_HINT };
 	const swap = (piece: string): string => {
-		const lead = piece.trimStart();
-		const jsonLike = lead.startsWith("{") || lead.startsWith("[");
+		// JSON de verdade (o texto inteiro lê como JSON): o valor entra escapado. Marcador nu ("{{secret:k}}") começa com "{"
+		// mas não é JSON, e o valor tem de entrar cru.
+		const jsonLike = isJsonText(piece);
 		return replaceSecretRefs(piece, (ref) => {
 			const value = resolved.get(ref.raw);
 			if (value === undefined) return undefined;

@@ -289,6 +289,13 @@ describe("login_fill", () => {
 });
 
 describe("marcador {{secret:NOME}} no executor", () => {
+	/** Usar o cofre é `credential`: cartão sempre. Esta ajuda pede, aprova e roda a chamada. */
+	async function runApproved(r: ReturnType<typeof rig>, tool: ReturnType<typeof defineTool>, args: Record<string, unknown>) {
+		const pending = await r.executor.executeCall({ callId: "c1", step: 1, tool, args });
+		if (pending.status !== "pending_approval") return pending;
+		return r.executor.executeCall({ callId: "c1", step: 1, tool, args, grant: grantApproval(pending.request, r.f.clock.now()) });
+	}
+
 	function echoTool(opts: { accepts: boolean; effect?: "read" | "write_external"; seen?: unknown[] }) {
 		return defineTool({
 			name: "call_service",
@@ -308,7 +315,7 @@ describe("marcador {{secret:NOME}} no executor", () => {
 	it("a tool recebe o valor, e a saída do executor sai redigida", async () => {
 		const r = rig();
 		const seen: unknown[] = [];
-		const out = await r.executor.executeCall({ callId: "c1", step: 1, tool: echoTool({ accepts: true, seen }), args: { header: "Bearer {{secret:stripe-key}}", nested: { k: "{{secret:stripe-key}}" } } });
+		const out = await runApproved(r, echoTool({ accepts: true, seen }), { header: "Bearer {{secret:stripe-key}}", nested: { k: "{{secret:stripe-key}}" } });
 		expect(seen).toEqual([{ header: `Bearer ${TEST_SECRET_VALUE}`, nested: { k: TEST_SECRET_VALUE } }]);
 		expect(out.status).toBe("ok");
 		expect(JSON.stringify(out)).not.toContain(TEST_SECRET_VALUE);
@@ -319,7 +326,7 @@ describe("marcador {{secret:NOME}} no executor", () => {
 	it("valor em texto JSON vai escapado (aspas e barras não quebram o corpo)", async () => {
 		const r = rig([{ owner: "owner-1", id: "k", kind: "secret", value: 'a"b\\c' }]);
 		const seen: Array<{ header: string; body: string }> = [];
-		await r.executor.executeCall({ callId: "c1", step: 1, tool: echoTool({ accepts: true, seen }), args: { header: "x", body: '{"token":"{{secret:k}}"}' } });
+		await runApproved(r, echoTool({ accepts: true, seen }), { header: "x", body: '{"token":"{{secret:k}}"}' });
 		expect(JSON.parse(seen[0]!.body)).toEqual({ token: 'a"b\\c' });
 	});
 
@@ -350,7 +357,7 @@ describe("marcador {{secret:NOME}} no executor", () => {
 	it("segredo de OUTRO dono com o mesmo nome nunca é lido", async () => {
 		const r = rig(ITEMS, { ownerId: "owner-2" });
 		const seen: Array<{ header: string }> = [];
-		await r.executor.executeCall({ callId: "c1", step: 1, tool: echoTool({ accepts: true, seen }), args: { header: "{{secret:stripe-key}}" } });
+		await runApproved(r, echoTool({ accepts: true, seen }), { header: "{{secret:stripe-key}}" });
 		expect(seen[0]!.header).toBe("outra-chave-do-b-456");
 		expect(r.backing.resolved).toEqual([{ userId: "owner-2", handleId: "stripe-key" }]);
 		const own = rig(ITEMS, { ownerId: "owner-2" });
@@ -402,12 +409,13 @@ describe("o valor nunca chega ao modelo (motor completo)", () => {
 		);
 		(h.ports as { vault: unknown }).vault = backing;
 		const result = await h.run({ policy: { ...chatPolicy, autonomy: "autonomous" } });
-		expect(result.status).toBe("done");
-		expect(sent).toEqual([`Bearer ${TEST_SECRET_VALUE}`]);
+		// Mesmo em autonomia total, usar o cofre pede o cartão: o run estaciona e nada foi enviado nem lido.
+		expect(result.status).toBe("parked");
+		expect(sent).toEqual([]);
+		expect(backing.resolved).toEqual([]);
 		const everything = JSON.stringify({ events: h.log.events, requests: h.llm.requests, journal: h.journal, receipts: h.receipts, checkpoints: [...h.runs.checkpoints.values()] });
 		expect(everything).not.toContain(TEST_SECRET_VALUE);
 		expect(everything).not.toContain(TEST_LOGIN_PASSWORD);
-		expect(everything).toContain("[redacted]");
 		expect(everything).toContain("{{secret:stripe-key}}");
 	});
 });
