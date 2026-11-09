@@ -243,6 +243,17 @@ type InspectNetworking = {
 	};
 };
 
+/**
+ * Endurecimento do container da VM (F8.0), conservador para não quebrar a imagem:
+ * - `CapDrop`: tira `NET_RAW` (sem pacote bruto/ARP na rede Docker) e `MKNOD` (sem criar device). O resto do conjunto padrão
+ *   fica: o entrypoint usa chown/su e o `sudo atlas-install` precisa de SETUID/SETGID/AUDIT_WRITE.
+ * - `no-new-privileges` NÃO entra: ele quebraria o `sudo atlas-install` (docs/features/vm-instalacoes.md).
+ * - `PidsLimit`: contém fork bomb (conta threads; Chrome e builds usam centenas, por isso o padrão é folgado).
+ */
+export function sandboxHardening(config: Pick<SandboxRuntimeConfig, "pidsLimit">): { CapDrop: string[]; PidsLimit?: number } {
+	return { CapDrop: ["NET_RAW", "MKNOD"], ...(config.pidsLimit > 0 ? { PidsLimit: config.pidsLimit } : {}) };
+}
+
 /** Limites atuais do container diferem da config (env mudou depois de criado)? */
 export function resourceLimitsOutdated(
 	config: Pick<SandboxRuntimeConfig, "memoryBytes" | "nanoCpus">,
@@ -912,6 +923,7 @@ export function createSandboxManager(
 					// tini como PID 1: repassa SIGTERM ao entrypoint (que fecha o Chrome
 					// direito) e colhe processos zumbis.
 					Init: true,
+					...sandboxHardening(config),
 					Memory: config.memoryBytes,
 					NanoCpus: config.nanoCpus,
 					NetworkMode: config.networkMode,
