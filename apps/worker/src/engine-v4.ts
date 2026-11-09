@@ -372,6 +372,8 @@ export type RunEngineV4Input = {
 	briefEmail?: BriefEmailSource;
 	/** Rotinas (F9): sincroniza o agendador depois que o bot pausa, retoma ou apaga uma rotina (o `syncRoutineScheduler` do worker). */
 	onRoutineMutated?: V4RegistryInput["onRoutineMutated"];
+	/** Rotinas (F9 parte 2): o painel, a permissão de login e o veredito de alerta da rotina deste run. Só em run de rotina. */
+	routineRun?: V4RegistryInput["routineRun"];
 	/** Anexos da conversa (F9): a fonte do processador (lista e cache de extração). Sem ela a capacidade `attachments` não entra. */
 	attachments?: V4AttachmentsSource;
 	/** Rotinas (F9): reconcilia o webhook do GitHub depois de pausar, retomar ou apagar uma rotina de GitHub. */
@@ -485,6 +487,7 @@ export async function runEngineV4(input: RunEngineV4Input): Promise<V4EngineResu
 				...(input.agendaKind && { agendaKind: input.agendaKind }),
 				...(input.briefEmail && { briefEmail: input.briefEmail }),
 				...(input.onRoutineMutated && { onRoutineMutated: input.onRoutineMutated }),
+				...(input.routineRun && { routineRun: input.routineRun }),
 				...(input.ensureGithubHook && { ensureGithubHook: input.ensureGithubHook }),
 				...(payment?.checkout && { checkout: payment.checkout }),
 				...(input.browser && { browser: true }),

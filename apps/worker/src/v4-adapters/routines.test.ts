@@ -47,7 +47,8 @@ function world() {
 	const live: ComputerUseEvent[] = [];
 	const synced: Array<{ id: string; enabled: boolean }> = [];
 	const mine = (userId: string, botId: string) => routines.filter((r) => r.userId === userId && r.botId === botId);
-	const deps: V4RoutinesDeps = {
+	// As funções de criar, editar e sugerir (parte 2) têm o teste próprio em `routines-save.test.ts`.
+	const deps = {
 		list: (async (userId: string, botId: string) => {
 			calls.push(`list:${userId}`);
 			// Cópias, como o db: o que foi lido antes de escrever não muda junto.
@@ -103,7 +104,7 @@ function world() {
 			cards.push({ conversationId, event });
 		},
 		now: () => NOW,
-	};
+	} as V4RoutinesDeps;
 	const hooks: Array<{ userId: string; repo: string }> = [];
 	const port = (opts: { conversationId?: string | null; syncFails?: boolean; withHook?: boolean; hookFails?: boolean } = {}) =>
 		createV4Routines({

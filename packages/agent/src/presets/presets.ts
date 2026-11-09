@@ -99,7 +99,7 @@ export type PresetDeps = {
 	github?: GithubPorts & { readOnly?: boolean; confirmWrites?: boolean };
 	/** Bots (F9): falar com os outros bots do dono, bot principal, pendências e proposta de bot novo. Lazy; só com dono presente (o worker não passa a chave em run sem dono). Sem a porta a capacidade fica em `unavailable`. */
 	bots?: BotsDeps;
-	/** Rotinas (F9 parte 1): ler e controlar as rotinas do produto (as da Biblioteca) do bot do run. Lazy; sem a porta a capacidade não entra. `readOnly` = sem dono: só `routine_list`. */
+	/** Rotinas (F9): ler, criar, editar e controlar as rotinas do produto (as da Biblioteca) do bot do run. Lazy; sem a porta a capacidade não entra. `readOnly` = sem dono: só `routine_list`. `vault` confere a permissão de login declarada. */
 	routines?: RoutinesDeps;
 	/** Habilidades (F9): os procedimentos salvos do dono (listar, ler para seguir, salvar, apagar). Lazy; só o índice de nomes vai curto no resumo. `readOnly` = sem dono: só `skill_list` e `skill_read`. */
 	skills?: SkillsDeps;

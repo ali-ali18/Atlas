@@ -277,11 +277,11 @@ describe("economia: Bom dia", () => {
 		expect(JSON.stringify(second?.messages)).toContain("Bots rules");
 	});
 
-	it("a capacidade routines é lazy: 'Bom dia' não ganha routine_list, routine_control nem routine_group, só uma linha do índice", async () => {
+	it("a capacidade routines é lazy: 'Bom dia' não ganha routine_list, routine_control, routine_group, routine_create, routine_update nem suggest_routine, só uma linha do índice", async () => {
 		const base = await measureGoodMorning();
 		const withRoutines = await measureGoodMorning([createRoutinesCapability({ routines: new FakeRoutines() })]);
 		expect(withRoutines.toolNames).toEqual(base.toolNames);
-		for (const name of ["routine_list", "routine_control", "routine_group"]) expect(withRoutines.toolNames).not.toContain(name);
+		for (const name of ["routine_list", "routine_control", "routine_group", "routine_create", "routine_update", "routine_webhook_info", "suggest_routine"]) expect(withRoutines.toolNames).not.toContain(name);
 		expect(withRoutines.tokens - base.tokens).toBeLessThan(60);
 		expect(JSON.stringify(withRoutines.result)).not.toContain("Routine rules");
 		expect(withRoutines.tokens).toBeLessThanOrEqual(GOOD_MORNING_INPUT_TOKENS_CEILING + 60);
@@ -296,6 +296,16 @@ describe("economia: Bom dia", () => {
 		expect((first?.tools ?? []).map((t) => t.name)).not.toContain("routine_list");
 		expect((second?.tools ?? []).map((t) => t.name)).toEqual(expect.arrayContaining(["routine_list", "routine_control", "routine_group"]));
 		expect(JSON.stringify(second?.messages)).toContain("Routine rules");
+	});
+
+	it("'cria uma rotina' carrega a capacidade no passo 1 e só no passo seguinte aparecem routine_create e routine_update", async () => {
+		const core = defineCapability({ id: "core", title: "Core", summary: "core tools", core: true, tools: [] });
+		const h = kernelHarness([reply({ calls: [call("c1", "use_capability", { id: "routines" })] }), reply({ text: "Pronto." })], { capabilities: [core, createRoutinesCapability({ routines: new FakeRoutines() })] });
+		await h.run({ input: { contextSections: [], history: [{ kind: "owner", text: "Cria uma rotina que confere o estoque todo dia às 9h." }] } });
+		const [first, second] = h.llm.requests;
+		expect((first?.tools ?? []).map((t) => t.name)).not.toContain("routine_create");
+		expect((second?.tools ?? []).map((t) => t.name)).toEqual(expect.arrayContaining(["routine_create", "routine_update", "suggest_routine"]));
+		expect(JSON.stringify(second?.messages)).toContain("declare loginAccess");
 	});
 
 	it("a capacidade skills é lazy: 'Bom dia' não ganha skill_*, só uma linha do índice com os NOMES (nunca o corpo)", async () => {

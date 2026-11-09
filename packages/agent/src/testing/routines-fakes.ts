@@ -1,8 +1,11 @@
 // Fake da porta `Routines` para teste: linhas por DONO (outro dono não lista, não muda e não apaga), com a mesma semântica do
 // adaptador do worker (`null` = não existe ou é de outro dono) e o registro do que foi mudado.
-import type { RoutineGroupView, RoutineView, Routines } from "../ports/routines.js";
+import type { RoutineCreateSpec, RoutineGroupView, RoutineSaved, RoutineSuggestOutcome, RoutineSuggestSpec, RoutineTriggerSpec, RoutineUpdateSpec, RoutineView, RoutineWebhookView, Routines } from "../ports/routines.js";
 
-export type FakeRoutineRow = RoutineView & { owner: string; groupId?: string };
+export type FakeRoutineRow = RoutineView & { owner: string; groupId?: string; webhookUrl?: string };
+
+const KIND_OF: Record<RoutineTriggerSpec["kind"], RoutineView["kind"]> = { cron: "cron", once: "once", interval: "interval", email: "event", github: "event", webhook: "event" };
+const PHRASE_OF = (t: RoutineTriggerSpec): string => (t.kind === "cron" ? `cron ${t.schedule}` : t.kind === "once" ? `uma vez ${t.runAt}` : t.kind === "interval" ? `a cada ${t.everyMinutes} min` : t.kind === "github" ? `github ${t.repo}` : t.kind);
 export type FakeGroupRow = { owner: string; id: string; name: string };
 
 export class FakeRoutines implements Routines {
@@ -19,7 +22,7 @@ export class FakeRoutines implements Routines {
 		return this.rows.filter((r) => r.owner === userId);
 	}
 	private view(row: FakeRoutineRow): RoutineView {
-		const { owner: _owner, groupId: _groupId, ...view } = row;
+		const { owner: _owner, groupId: _groupId, webhookUrl: _webhookUrl, ...view } = row;
 		const group = this.groupRows.find((g) => g.id === row.groupId);
 		return { ...view, ...(group && { group: group.name }) };
 	}
@@ -82,6 +85,57 @@ export class FakeRoutines implements Routines {
 		const changing = inside.filter((r) => r.enabled !== enabled);
 		for (const r of changing) r.enabled = enabled;
 		return { name: group.name, total: inside.length, changed: changing.length };
+	}
+	/** Resultado da próxima `suggest` (o teste escolhe); `null` = o adaptador lança como o real quando o modo proativo está desligado. */
+	suggestOutcome: RoutineSuggestOutcome | null = { status: "proposed" };
+	async create(userId: string, spec: RoutineCreateSpec): Promise<RoutineSaved> {
+		this.log("create", userId, spec);
+		const webhookUrl = spec.trigger.kind === "webhook" ? `https://atlas.test/hooks/hk-${this.rows.length + 1}` : undefined;
+		const row: FakeRoutineRow = {
+			owner: userId,
+			id: `new-${this.rows.length + 1}`,
+			name: spec.name,
+			trigger: PHRASE_OF(spec.trigger),
+			kind: KIND_OF[spec.trigger.kind],
+			enabled: spec.enabled,
+			task: spec.task,
+			...(spec.alert && { alert: `Alerta · avisa se ${spec.alert.condition}` }),
+			...(spec.panelId && { panelId: spec.panelId }),
+			...(spec.loginAccess && { loginAccess: spec.loginAccess }),
+			...(webhookUrl && { webhookUrl }),
+		};
+		this.rows.push(row);
+		return { routine: this.view(row), ...(webhookUrl && { webhook: { url: webhookUrl } }) };
+	}
+	async update(userId: string, routineId: string, spec: RoutineUpdateSpec): Promise<RoutineSaved | null> {
+		this.log("update", userId, routineId, spec);
+		const row = this.mine(userId).find((r) => r.id === routineId);
+		if (!row) return null;
+		if (spec.name !== undefined) row.name = spec.name;
+		if (spec.task !== undefined) row.task = spec.task;
+		if (spec.enabled !== undefined) row.enabled = spec.enabled;
+		if (spec.trigger) {
+			row.trigger = PHRASE_OF(spec.trigger);
+			row.kind = KIND_OF[spec.trigger.kind];
+		}
+		if (spec.alert === null) delete row.alert;
+		else if (spec.alert) row.alert = `Alerta · avisa se ${spec.alert.condition}`;
+		if (spec.loginAccess === null) delete row.loginAccess;
+		else if (spec.loginAccess) row.loginAccess = spec.loginAccess;
+		if (spec.panelId !== undefined) {
+			if (spec.panelId === "") delete row.panelId;
+			else row.panelId = spec.panelId;
+		}
+		return { routine: this.view(row) };
+	}
+	async webhooks(userId: string): Promise<RoutineWebhookView[]> {
+		this.log("webhooks", userId);
+		return this.mine(userId).flatMap((r) => (r.webhookUrl ? [{ routineId: r.id, name: r.name, enabled: r.enabled, url: r.webhookUrl }] : []));
+	}
+	async suggest(userId: string, spec: RoutineSuggestSpec, context: { runId: string }): Promise<RoutineSuggestOutcome> {
+		this.log("suggest", userId, spec, context);
+		if (!this.suggestOutcome) throw new Error("Proactive mode is off for this bot, so suggestions are not available. If the owner asked for this routine, use routine_create.");
+		return this.suggestOutcome;
 	}
 	async moveToGroup(userId: string, routineId: string, groupId: string | null) {
 		this.log("moveToGroup", userId, routineId, groupId);

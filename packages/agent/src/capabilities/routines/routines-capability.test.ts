@@ -31,10 +31,10 @@ function rig(opts: { ownerId?: string; readOnly?: boolean; policy?: ExecutorDeps
 const summaryOf = (out: { status: string }) => (out.status === "ok" ? (out as unknown as { summary: string }).summary : JSON.stringify(out));
 
 describe("capacidade routines: forma", () => {
-	it("é lazy e com dono tem routine_list, routine_control e routine_group; sem dono (readOnly) só routine_list", () => {
+	it("é lazy e com dono tem listar, controlar, grupo, criar, editar, webhook e sugerir; sem dono (readOnly) só routine_list", () => {
 		const cap = rig().capability;
 		expect(cap.core).toBe(false);
-		expect(cap.tools.map((t) => t.name)).toEqual(["routine_list", "routine_control", "routine_group"]);
+		expect(cap.tools.map((t) => t.name)).toEqual(["routine_list", "routine_control", "routine_group", "routine_create", "routine_update", "routine_webhook_info", "suggest_routine"]);
 		expect(rig({ readOnly: true }).capability.tools.map((t) => t.name)).toEqual(["routine_list"]);
 		expect(rig({ readOnly: true }).capability.instructions).toContain("no owner present");
 	});
@@ -48,12 +48,14 @@ describe("capacidade routines: forma", () => {
 		expect(r.tool("routine_group").effect).toBe("write_internal");
 	});
 
-	it("o texto para o modelo explica quando usar e quando não usar, e não promete criar nem editar rotina", () => {
+	it("o texto para o modelo explica quando usar e quando não usar, e manda declarar o login que a rotina vai usar", () => {
 		const r = rig();
 		expect(r.tool("routine_list").description).toMatch(/Not for reminders/);
 		expect(r.tool("routine_control").description).toMatch(/Not for/);
 		expect(r.tool("routine_group").description).toMatch(/Not for/);
-		expect(r.capability.instructions).toContain("not available here yet");
+		expect(r.tool("routine_create").description).toMatch(/Do not use it for/);
+		expect(r.tool("routine_update").description).toMatch(/Do not use it to/);
+		expect(r.capability.instructions).toContain("declare loginAccess");
 	});
 });
 

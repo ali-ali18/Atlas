@@ -232,12 +232,12 @@ test("browser só lê quando não há dono presente (rotina, subagente, bot a bo
 	assert.match(unattended.stableSystem, /- browser:/);
 });
 
-test("rotinas (F9): lazy no chat com as três tools; sem dono (rotina, agenda) só routine_list; sem bot a capacidade fica indisponível", async () => {
+test("rotinas (F9): lazy no chat com as sete tools; sem dono (rotina, agenda) só routine_list; sem bot a capacidade fica indisponível", async () => {
 	const toolsOf = (setup: Awaited<ReturnType<typeof buildV4Registry>>) => setup.registry.capabilities.find((c) => c.id === "routines")?.tools.map((t) => t.name) ?? [];
 	const attended = await buildV4Registry({ ...base, botId: "bot-1", deps: fakeAdapterDeps() });
 	assert.ok(!attended.registry.core().some((c) => c.id === "routines"));
 	assert.match(attended.stableSystem, /- routines:/);
-	assert.deepEqual(toolsOf(attended), ["routine_list", "routine_control", "routine_group"]);
+	assert.deepEqual(toolsOf(attended), ["routine_list", "routine_control", "routine_group", "routine_create", "routine_update", "routine_webhook_info", "suggest_routine"]);
 	const unattended = await buildV4Registry({ ...base, unattended: true, botId: "bot-1", deps: fakeAdapterDeps() });
 	assert.deepEqual(toolsOf(unattended), ["routine_list"]);
 	const agenda = await buildV4Registry({ ...base, unattended: true, agendaRun: true, botId: "bot-1", deps: fakeAdapterDeps() });
@@ -245,6 +245,38 @@ test("rotinas (F9): lazy no chat com as três tools; sem dono (rotina, agenda) s
 	const noBot = await buildV4Registry({ ...base, deps: fakeAdapterDeps() });
 	assert.deepEqual(toolsOf(noBot), []);
 	assert.ok(noBot.unavailable.includes("routines"));
+});
+
+test("rotinas (F9 parte 2): rotina com permissão de login só ganha login_fill com ela; sem ela só secret_list; criar e editar não existem sem dono", async () => {
+	const vaultTools = (setup: Awaited<ReturnType<typeof buildV4Registry>>) => setup.registry.capabilities.find((c) => c.id === "vault")?.tools.map((t) => t.name) ?? [];
+	const routineTools = (setup: Awaited<ReturnType<typeof buildV4Registry>>) => setup.registry.capabilities.find((c) => c.id === "routines")?.tools.map((t) => t.name) ?? [];
+	const withPermission = await buildV4Registry({ ...base, unattended: true, botId: "bot-1", deps: fakeAdapterDeps(), routineRun: { loginPermission: { login: "banco", site: "banco.example" } } });
+	assert.deepEqual(vaultTools(withPermission), ["secret_list", "login_fill"]);
+	assert.match(withPermission.registry.toolByName("login_fill")!.description, /banco\.example/);
+	assert.equal(withPermission.registry.toolByName("login_fill")!.effect, "write_internal");
+	assert.deepEqual(routineTools(withPermission), ["routine_list"]);
+	const without = await buildV4Registry({ ...base, unattended: true, botId: "bot-1", deps: fakeAdapterDeps(), routineRun: { pageId: "p1" } });
+	assert.deepEqual(vaultTools(without), ["secret_list"]);
+	const noRun = await buildV4Registry({ ...base, unattended: true, botId: "bot-1", deps: fakeAdapterDeps() });
+	assert.deepEqual(vaultTools(noRun), ["secret_list"]);
+	// Com dono presente a permissão da rotina não vale (o login_fill é o de sempre, com cartão por uso).
+	const attended = await buildV4Registry({ ...base, botId: "bot-1", deps: fakeAdapterDeps(), routineRun: { loginPermission: { login: "banco", site: "banco.example" } } });
+	assert.equal(attended.registry.toolByName("login_fill")!.effect, "credential");
+});
+
+test("rotinas (F9 parte 2): run de alerta ganha report_alert (núcleo) e a rotina 'só importante' ganha notify_user; rotina comum e chat não ganham nada", async () => {
+	const alert = await buildV4Registry({ ...base, unattended: true, botId: "bot-1", deps: fakeAdapterDeps(), routineRun: { alert: { record: () => "recorded" } } });
+	assert.ok(alert.registry.core().some((c) => c.id === "routine-run"));
+	assert.ok(alert.registry.toolByName("report_alert"));
+	assert.ok(!alert.registry.toolByName("notify_user"));
+	const important = await buildV4Registry({ ...base, unattended: true, botId: "bot-1", deps: fakeAdapterDeps(), routineRun: { push: { send: async () => ({ sent: true }) } } });
+	assert.ok(important.registry.toolByName("notify_user"));
+	assert.ok(!important.registry.toolByName("report_alert"));
+	const common = await buildV4Registry({ ...base, unattended: true, botId: "bot-1", deps: fakeAdapterDeps(), routineRun: { pageId: "p1" } });
+	assert.ok(!common.registry.ids().includes("routine-run"));
+	const chat = await buildV4Registry({ ...base, botId: "bot-1", deps: fakeAdapterDeps() });
+	assert.ok(!chat.registry.ids().includes("routine-run"));
+	assert.ok(!chat.registry.toolByName("report_alert"));
 });
 
 test("rotinas (F9): pausar pela tool chega ao banco do dono do run, sincroniza o agendador do run e mostra o cartão", async () => {

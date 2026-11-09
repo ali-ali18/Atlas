@@ -113,6 +113,7 @@ import {
 	getRoutine,
 	getRoutineAlertForAgentRun,
 	getRoutineContextForAgentRun,
+	getRoutineLoginPermissionForAgentRun,
 	getRoutineNotifyModeForAgentRun,
 	getRoutinePageIdForAgentRun,
 	findRoutineRunByAgentRunId,
@@ -152,8 +153,9 @@ import { cheapModelFromEnv, createV4Llm, dropProcessorOwnedEvents, ownerStepsLim
 const AGENDA_NOT_RUN_RETRY_MS = 30 * 60_000;
 import { earlyWallMs, engineDefaultFromEnv, engineV4GateFromEnv, pickRunEngine, resolveRunLimits, runSelectedEngine } from "../engine-choice.js";
 import { type RunComputerUseResult } from "@workspace/agent-runtime";
+import { createAlertRunPort, createRoutinePush } from "../v4-adapters/routines.js";
 import { createV4VaultBackend } from "../v4-adapters/vault.js";
-import { createSseMapper, type BullLikeQueue, type CvvEscrow } from "@workspace/agent";
+import { alertRunNote, createSseMapper, type BullLikeQueue, type CvvEscrow } from "@workspace/agent";
 import { ensureGithubRepoHook, isReadOnlyConnectorOrigin, budgetStopFallbackText, isBotConfigEventObjective, createReviewerClient, resolveMaintenanceCandidates } from "@workspace/agent-runtime";
 import { runToolFilter } from "../run-tool-filter.js";
 import { briefDeliveryDeps, deliverBriefFailure, deliverDailyBrief, findRoutineRunIdWithRetry, isDetachedBriefRun } from "../daily-brief.js";
@@ -664,6 +666,8 @@ async function executeLeasedRun(ctx: {
 	// Rotina ligada a uma página: o run só pode atualizar essa página (o runtime trava as outras).
 	// O brief "Seu dia" nunca usa painel: sem pageId, o runtime não registra as tools de painel nem pré-carrega páginas.
 	const routinePageIdPromise = run.origin === "routine" && !isDetachedBriefRun(run) ? getRoutinePageIdForAgentRun(runId, runUserId).catch(() => null) : Promise.resolve(null);
+	// Permissão de login que o dono aprovou ao criar a rotina (F9 parte 2, v4): o run da rotina só digita login naquele site. Falha ao ler = sem permissão.
+	const routineLoginPromise = run.origin === "routine" && !isDetachedBriefRun(run) ? getRoutineLoginPermissionForAgentRun(runId, runUserId).catch(() => null) : Promise.resolve(null);
 	// Modelo da rotina ("Seu dia"): trava de leitura no run e entrega fora da conversa. Falha ao ler = rotina comum.
 	// Rotina de alerta: o run só verifica a condição; o aviso (com debounce) é decidido depois do veredito.
 	const alertCtxPromise = run.origin === "routine" ? getRoutineAlertForAgentRun(runId, runUserId).catch(() => null) : Promise.resolve(null);
@@ -1025,6 +1029,7 @@ async function executeLeasedRun(ctx: {
 	});
 	const routineNotify = await routineNotifyPromise;
 	const routinePageId = await routinePageIdPromise;
+	const routineLogin = await routineLoginPromise;
 	const userPushZone = (run.origin === "routine" && routineNotify === "important") || run.origin === "chat"
 		? (proactiveBot?.isPrimary === true ? accountTimezone : (await loadAccountConfig())?.general?.timezone)
 		: undefined;
@@ -1265,7 +1270,10 @@ async function executeLeasedRun(ctx: {
 					botId: run.botId ?? null,
 					botName: v4Bot?.name ?? null,
 					objective: run.objective ?? "",
-					...(notebookContext ? { contextSections: [notebookContext] } : {}),
+					// A conferência do alerta (a condição é do dono: dado) entra como contexto do run, ao lado do caderno.
+					...(notebookContext || alertRun ? { contextSections: [...(notebookContext ? [notebookContext] : []), ...(alertRun ? [alertRunNote(alertRun)] : [])] } : {}),
+					// Rotina (v4): o painel que ela atualiza, o login+site que o dono aprovou e o veredito do alerta (lido depois do loop, como no motor antigo).
+					...(run.origin === "routine" && !agendaRun ? { routineRun: { ...(routinePageId ? { pageId: routinePageId } : {}), ...(routineLogin ? { loginPermission: { login: routineLogin.login, site: routineLogin.site } } : {}), ...(alertRun ? { alert: createAlertRunPort(alertRun.report) } : {}), ...(!alertRun && userPushForRun?.mode === "routine" ? { push: createRoutinePush({ send: userPushForRun.send, ...(userPushForRun.quiet ? { quiet: userPushForRun.quiet } : {}) }) } : {}) } } : {}),
 					// Run de agenda: o que o modelo lê ao acordar, a política sem dono (permissão da criação) e `agenda_result` no núcleo.
 					// As regras atuais do dono (`policyJson.rules`) entram por último sobre as da criação: uma `deny` nova vale no próximo wake.
 					...(agendaRun

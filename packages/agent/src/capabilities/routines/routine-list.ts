@@ -29,6 +29,8 @@ export function createRoutineListTool(routines: Routines) {
 				const parts = [`${i + 1}. "${r.name}" [id ${r.id}] · ${r.trigger} · ${r.enabled ? "active" : "paused"}`];
 				if (r.group) parts.push(`group "${r.group}"`);
 				if (r.alert) parts.push(r.alert);
+				if (r.panelId) parts.push(`refreshes panel ${r.panelId}`);
+				if (r.loginAccess) parts.push(`may sign in to ${r.loginAccess.site} with login "${r.loginAccess.login}"`);
 				if (r.nextRunAt) parts.push(`next run ${r.nextRunAt}`);
 				if (r.lastRunAt) parts.push(`last run ${r.lastRunAt}${r.lastStatus ? ` (${r.lastStatus})` : ""}`);
 				return `${parts.join(" · ")}\n   does: ${r.task}`;
