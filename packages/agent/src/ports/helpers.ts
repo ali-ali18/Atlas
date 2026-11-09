@@ -8,6 +8,8 @@ export type HelperTask = {
 	capabilities: readonly string[];
 	/** Contexto que a mãe passa (ex.: a pergunta do plano e o que já se sabe). Vai no canal de runtime do filho. */
 	context?: string;
+	/** Teto de passos DESTE ajudante (rede de segurança contra laço; o teto do dono, se menor, vale). Sem ele, vale o da mãe. */
+	maxSteps?: number;
 };
 
 /** Fonte citada pelo ajudante: URL lida de verdade no run filho. */
@@ -27,9 +29,23 @@ export type HelperResult = {
 	error?: string;
 	/** `done` com resposta parcial: terminou com texto, mas a última chamada de tool falhou (nem tudo foi confirmado). */
 	partial?: boolean;
+	/** Nomes das tools que o run filho executou (resultado ok ou erro), na ordem da primeira chamada. Sinal estrutural, não texto do modelo. */
+	toolsUsed?: readonly string[];
+	/** Quantas chamadas de tool do run filho terminaram ok e quantas em erro. */
+	toolCalls?: { ok: number; failed: number };
+};
+
+/** Acompanha cada ajudante de um `runAll` (cartão de progresso). Só observa: nada daqui muda o resultado. */
+export type HelperObserver = {
+	/** O ajudante `index` começou. `childRunId` é "" quando falhou antes de abrir o run filho. */
+	started?(index: number, childRunId: string): void | Promise<void>;
+	/** O ajudante executou uma tool (ok ou erro). */
+	tool?(index: number, childRunId: string, name: string, ok: boolean): void | Promise<void>;
+	/** O ajudante terminou (com o mesmo resultado que `runAll` devolve). */
+	done?(index: number, childRunId: string, result: HelperResult): void | Promise<void>;
 };
 
 export interface Helpers {
 	/** Roda vários ajudantes em paralelo (a ordem do resultado é a das tarefas). */
-	runAll(tasks: readonly HelperTask[], signal?: AbortSignal): Promise<HelperResult[]>;
+	runAll(tasks: readonly HelperTask[], signal?: AbortSignal, observer?: HelperObserver): Promise<HelperResult[]>;
 }

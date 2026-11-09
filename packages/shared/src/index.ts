@@ -185,6 +185,8 @@ export {
 	parseDelegateTaskArgs,
 	subagentLabel,
 	DELEGATE_TITLE_MAX_CHARS,
+	DELEGATE_GOAL_MAX_CHARS,
+	DELEGATE_CONTEXT_MAX_CHARS,
 	planChildBudget,
 	DELEGATE_MODEL_MAX_CHARS,
 	readSubagentModel,

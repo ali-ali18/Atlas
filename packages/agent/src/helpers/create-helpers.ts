@@ -24,7 +24,7 @@ import { runAgent } from "../kernel/run.js";
 import type { PriorProvenance, RunLimits, RunResult } from "../kernel/types.js";
 import type { Clock } from "../ports/clock.js";
 import type { Events, RunEvent } from "../ports/events.js";
-import type { HelperResult, HelperTask, Helpers } from "../ports/helpers.js";
+import type { HelperObserver, HelperResult, HelperTask, Helpers } from "../ports/helpers.js";
 import type { Llm } from "../ports/llm.js";
 import type { Ports } from "../ports/index.js";
 import type { Queue } from "../ports/queue.js";
@@ -135,39 +135,74 @@ export function helperHistory(task: Pick<HelperTask, "objective" | "context">, m
 	return [...context, objective];
 }
 
+/** O observador é só leitura: erro dele (cartão que não gravou, SSE caído) nunca derruba nem muda o resultado do ajudante. */
+function guardObserver(observer: HelperObserver | undefined): HelperObserver | undefined {
+	if (!observer) return undefined;
+	const swallow = async (fn: (() => void | Promise<void>) | undefined) => {
+		try {
+			await fn?.();
+		} catch {
+			// melhor esforço
+		}
+	};
+	return {
+		started: (index, childRunId) => swallow(() => observer.started?.(index, childRunId)),
+		tool: (index, childRunId, name, ok) => swallow(() => observer.tool?.(index, childRunId, name, ok)),
+		done: (index, childRunId, result) => swallow(() => observer.done?.(index, childRunId, result)),
+	};
+}
+
 export function createHelpers(deps: CreateHelpersDeps): Helpers {
 	const concurrency = Math.max(1, Math.floor(deps.concurrency ?? HELPER_CONCURRENCY));
 	const forbidden = deps.forbiddenCapabilities ?? HELPER_FORBIDDEN_CAPABILITIES;
 	let counter = 0;
 
-	async function runOne(task: HelperTask, signal: AbortSignal | undefined, cache: ExtractCache): Promise<HelperResult> {
+	async function runOne(task: HelperTask, signal: AbortSignal | undefined, cache: ExtractCache, taskIndex: number, observer?: HelperObserver): Promise<HelperResult> {
 		if (signal?.aborted) return stopped("cancelled");
+		// Falha antes de abrir o run filho: o observador ainda vê começo e fim (sem id de run), para o cartão não ficar sem a tarefa.
+		const early = async (result: HelperResult): Promise<HelperResult> => {
+			await observer?.started?.(taskIndex, "");
+			await observer?.done?.(taskIndex, "", result);
+			return result;
+		};
 		const recorder = deps.search ? recordSources(deps.search, cache) : undefined;
 		const built = buildChildRegistry({ requested: task.capabilities, mother: deps.motherRegistry(), forbidden, ...(recorder && { web: recorder.search }) });
-		if (!built.ok) return failed(built.error);
+		if (!built.ok) return early(failed(built.error));
 		const { registry } = built;
 
 		const cap = deps.motherLimits.ownerMaxUsd;
-		if (cap !== undefined && cap > 0 && deps.ledger.totalUsd() >= cap) return stopped(`the spending limit the owner set (US$ ${cap.toFixed(2)}) was already reached before this helper started`);
+		if (cap !== undefined && cap > 0 && deps.ledger.totalUsd() >= cap) return early(stopped(`the spending limit the owner set (US$ ${cap.toFixed(2)}) was already reached before this helper started`));
 
 		const index = ++counter;
 		const key = `h${index}`;
+		const childRunId = `${deps.runId}:helper:${index}`;
 		let untrustedRead = false;
+		const toolsUsed = new Set<string>();
+		const toolCalls = { ok: 0, failed: 0 };
 		const events: Events = {
-			emit(event: RunEvent) {
+			async emit(event: RunEvent) {
 				// O filho só é observado: o taint do que ele leu sai daqui; nada vai ao SSE da mãe.
 				if (event.type !== "tool_result") return;
 				const data = event.data as { name?: unknown; status?: unknown } | undefined;
-				if ((data?.status === "ok" || data?.status === "error") && typeof data.name === "string" && registry.toolByName(data.name)?.trust === "untrusted") untrustedRead = true;
+				if ((data?.status === "ok" || data?.status === "error") && typeof data.name === "string") {
+					if (registry.toolByName(data.name)?.trust === "untrusted") untrustedRead = true;
+					toolsUsed.add(data.name);
+					toolCalls[data.status === "ok" ? "ok" : "failed"] += 1;
+					await observer?.tool?.(taskIndex, childRunId, data.name, data.status === "ok");
+				}
 			},
 		};
+		await observer?.started?.(taskIndex, childRunId);
 		const ports: Ports = { llm: deps.llm, store: createMemoryStore(), queue: noQueue, sandbox: noSandbox, vault: noVault, clock: deps.clock, random: deps.random, events };
 		const prior = inheritedProvenance(deps.motherProvenance?.());
 		const policy = childPolicy(deps.motherPolicy);
 		const { ownerMaxUsd, ownerMaxSteps, unattended, unattendedMaxSteps, safetyMaxSteps } = deps.motherLimits;
 		// O filho herda o teto de passos da MÃE (o do dono; sem ele, a rede de segurança dela). Só entra no teto de run sem
 		// dono quando a própria mãe está nele: o filho não tem dono presente (política), mas isso não corta pesquisa de chat.
-		const limits: RunLimits = { ...(unattended && { unattended: true }), ...(ownerMaxUsd !== undefined && { ownerMaxUsd }), ...(ownerMaxSteps !== undefined && { ownerMaxSteps }), ...(unattendedMaxSteps !== undefined && { unattendedMaxSteps }), ...(safetyMaxSteps !== undefined && { safetyMaxSteps }) };
+		// `task.maxSteps` só ESTREITA a rede de segurança (nunca a afrouxa) e não mexe no teto do dono.
+		const ownCap = task.maxSteps !== undefined && Number.isFinite(task.maxSteps) && task.maxSteps >= 1 ? Math.floor(task.maxSteps) : undefined;
+		const childSafety = ownCap !== undefined ? Math.min(ownCap, safetyMaxSteps ?? Number.POSITIVE_INFINITY) : safetyMaxSteps;
+		const limits: RunLimits = { ...(unattended && { unattended: true }), ...(ownerMaxUsd !== undefined && { ownerMaxUsd }), ...(ownerMaxSteps !== undefined && { ownerMaxSteps }), ...(unattendedMaxSteps !== undefined && { unattendedMaxSteps }), ...(childSafety !== undefined && { safetyMaxSteps: childSafety }) };
 
 		try {
 			const result = await runAgent({
@@ -190,21 +225,26 @@ export function createHelpers(deps: CreateHelpersDeps): Helpers {
 				...(signal && { signal }),
 				...(deps.language && { language: deps.language }),
 			});
-			return { ...helperStatusOf(result), text: result.text, sources: recorder?.sources() ?? [], spentUsd: result.spentUsd, untrustedRead };
+			const out: HelperResult = { ...helperStatusOf(result), text: result.text, sources: recorder?.sources() ?? [], spentUsd: result.spentUsd, untrustedRead, toolsUsed: [...toolsUsed], toolCalls };
+			await observer?.done?.(taskIndex, childRunId, out);
+			return out;
 		} catch (error) {
-			return failed(redactDeep(error instanceof Error ? error.message : String(error)));
+			const out: HelperResult = { ...failed(redactDeep(error instanceof Error ? error.message : String(error))), toolsUsed: [...toolsUsed], toolCalls };
+			await observer?.done?.(taskIndex, childRunId, out);
+			return out;
 		}
 	}
 
 	return {
-		async runAll(tasks, signal) {
+		async runAll(tasks, signal, rawObserver) {
+			const observer = guardObserver(rawObserver);
 			const results = new Array<HelperResult>(tasks.length);
 			// Uma leitura por URL neste lote (C3): os ajudantes do mesmo `runAll` dividem as páginas já extraídas.
 			const cache: ExtractCache = new Map();
 			let next = 0;
 			// Fila com N trabalhadores: a ordem do resultado é a das tarefas, não a de término.
 			const worker = async () => {
-				for (let i = next++; i < tasks.length; i = next++) results[i] = await runOne(tasks[i] as HelperTask, signal, cache);
+				for (let i = next++; i < tasks.length; i = next++) results[i] = await runOne(tasks[i] as HelperTask, signal, cache, i, observer);
 			};
 			await Promise.all(Array.from({ length: Math.min(concurrency, tasks.length) }, worker));
 			return results;

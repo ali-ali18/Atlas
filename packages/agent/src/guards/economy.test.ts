@@ -15,6 +15,7 @@ import { createVideoCapability } from "../capabilities/video/index.js";
 import { FakeRoutines } from "../testing/routines-fakes.js";
 import { FakeSkills } from "../testing/skills-fakes.js";
 import { createSkillsCapability } from "../capabilities/skills/index.js";
+import { createDelegateCapability } from "../capabilities/delegate/index.js";
 import { FakeSecretRequests, FakeVault } from "../testing/vault-fakes.js";
 import { createEmailCapability } from "../capabilities/email/index.js";
 import { FakeEmail } from "../presets/fake-email.js";
@@ -430,5 +431,28 @@ describe("economia: navegador (F8.1)", () => {
 		expect((first?.tools ?? []).map((t) => t.name)).not.toContain("browser_open");
 		expect((second?.tools ?? []).map((t) => t.name)).toEqual(expect.arrayContaining(["browser_open", "browser_map", "browser_read", "browser_find", "browser_load_more", "browser_act", "browser_digest"]));
 		expect(JSON.stringify(second?.messages)).toContain("Browser rules");
+	});
+});
+
+describe("economia: subagentes (F9)", () => {
+	it("a capacidade delegate é lazy: 'Bom dia' não ganha delegate_task nem as regras, só uma linha do índice", async () => {
+		const base = await measureGoodMorning();
+		const withDelegate = await measureGoodMorning([createDelegateCapability({ helpers: new FakeHelpers() })]);
+		expect(withDelegate.toolNames).toEqual(base.toolNames);
+		expect(withDelegate.toolNames).not.toContain("delegate_task");
+		expect(withDelegate.tokens - base.tokens).toBeLessThan(60);
+		expect(JSON.stringify(withDelegate.result)).not.toContain("Delegation rules");
+		expect(withDelegate.tokens).toBeLessThanOrEqual(GOOD_MORNING_INPUT_TOKENS_CEILING + 60);
+	});
+
+	it("'compare 3 lojas em paralelo' carrega a capacidade no passo 1; a tool e as regras só no passo seguinte", async () => {
+		const core = defineCapability({ id: "core", title: "Core", summary: "core tools", core: true, tools: [] });
+		const h = kernelHarness([reply({ calls: [call("c1", "use_capability", { id: "delegate" })] }), reply({ text: "Pronto." })], { capabilities: [core, createDelegateCapability({ helpers: new FakeHelpers() })] });
+		await h.run({ input: { contextSections: [], history: [{ kind: "owner", text: "Compare o preço desse tênis em 3 lojas diferentes" }] } });
+		const [first, second] = h.llm.requests;
+		expect(JSON.stringify(first?.messages)).not.toContain("Delegation rules");
+		expect((first?.tools ?? []).map((t) => t.name)).not.toContain("delegate_task");
+		expect((second?.tools ?? []).map((t) => t.name)).toContain("delegate_task");
+		expect(JSON.stringify(second?.messages)).toContain("Delegation rules");
 	});
 });

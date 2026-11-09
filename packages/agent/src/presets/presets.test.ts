@@ -62,7 +62,7 @@ const checkoutDeps = () => {
 	const r = paymentRig();
 	return { cards: [r.info], fill: r.fill };
 };
-const fullDeps = () => ({ ...deps(), memory: new FakeMemory(), settings: new FakeSettings(), taskLists: new FakeTaskListStore(), helpers: new FakeHelpers(), agenda: new FakeAgenda(), shopping: new FakeShopping().ports, checkout: checkoutDeps(), email: new FakeEmail().ports, calendar: new FakeCalendar().ports, code: {}, browser: true, images: new FakeImages().port, vault: { vault: new FakeVault(), requests: new FakeSecretRequests() }, github: new FakeGithub().ports, bots: { bots: new FakeBots([], "bot-a").port }, routines: { routines: new FakeRoutines() }, skills: { skills: new FakeSkills() }, video: true });
+const fullDeps = () => ({ ...deps(), memory: new FakeMemory(), settings: new FakeSettings(), taskLists: new FakeTaskListStore(), helpers: new FakeHelpers(), agenda: new FakeAgenda(), shopping: new FakeShopping().ports, checkout: checkoutDeps(), email: new FakeEmail().ports, calendar: new FakeCalendar().ports, code: {}, browser: true, images: new FakeImages().port, vault: { vault: new FakeVault(), requests: new FakeSecretRequests() }, github: new FakeGithub().ports, bots: { bots: new FakeBots([], "bot-a").port }, routines: { routines: new FakeRoutines() }, skills: { skills: new FakeSkills() }, delegate: { helpers: new FakeHelpers() }, video: true });
 
 describe("preset full: memory, tasks e settings (F2.4)", () => {
 	it("entram como capacidades lazy: só o índice vai no prompt, as tools ficam de fora do primeiro passo", async () => {
@@ -90,7 +90,7 @@ describe("preset full: memory, tasks e settings (F2.4)", () => {
 
 	it("porta ausente: a capacidade não entra e `unavailable` diz qual (nada some em silêncio)", () => {
 		const setup = setupPreset("full", deps());
-		expect(setup.unavailable).toEqual(["memory", "tasks", "settings", "research", "agenda", "shopping", "email", "calendar", "browser", "images", "vault", "github", "bots", "routines", "video", "skills"]);
+		expect(setup.unavailable).toEqual(["memory", "tasks", "settings", "research", "agenda", "shopping", "email", "calendar", "browser", "images", "vault", "github", "bots", "routines", "video", "skills", "delegate"]);
 		expect(setup.registry.ids()).toEqual(expect.not.arrayContaining(["memory"]));
 		expect(setupPreset("minimal", deps()).unavailable).toEqual([]);
 	});
@@ -367,5 +367,24 @@ describe("preset full: browser (F8.1)", () => {
 		expect(without.unavailable).toEqual(["skills"]);
 		const readOnly = setupPreset("full", { ...fullDeps(), skills: { skills: new FakeSkills(), readOnly: true } });
 		expect(readOnly.registry.capabilities.find((c) => c.id === "skills")?.tools.map((t) => t.name)).toEqual(["skill_list", "skill_read"]);
+	});
+});
+
+describe("preset full: delegate (F9, subagentes)", () => {
+	it("entra lazy com a porta dos ajudantes; sem ela `unavailable` diz que falta; delegate_task só aparece depois de use_capability", () => {
+		const withDelegate = setupPreset("full", fullDeps());
+		expect(withDelegate.registry.ids()).toContain("delegate");
+		expect(withDelegate.registry.core().map((c) => c.id)).not.toContain("delegate");
+		expect(withDelegate.registry.toolByName("delegate_task")).toBeDefined();
+		const { delegate: _delegate, ...noDelegate } = fullDeps();
+		const without = setupPreset("full", noDelegate);
+		expect(without.registry.ids()).not.toContain("delegate");
+		expect(without.unavailable).toEqual(["delegate"]);
+	});
+
+	it("o índice do prompt tem a linha da capacidade, sem o schema da tool", () => {
+		const setup = setupPreset("full", fullDeps());
+		expect(setup.stableSystem).toContain("delegate");
+		expect(setup.stableSystem).not.toContain("Run 1 to 3 independent sub-tasks");
 	});
 });

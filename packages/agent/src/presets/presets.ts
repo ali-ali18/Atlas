@@ -14,6 +14,7 @@ import { createEmailCapability } from "../capabilities/email/index.js";
 import { createBrowserCapability } from "../capabilities/browser/index.js";
 import { createRoutinesCapability, type RoutinesDeps } from "../capabilities/routines/index.js";
 import { createSkillsCapability, type SkillsDeps } from "../capabilities/skills/index.js";
+import { createDelegateCapability, type DelegateDeps } from "../capabilities/delegate/index.js";
 import { createVaultCapability, type VaultDeps } from "../capabilities/vault/index.js";
 import { createGithubCapability } from "../capabilities/github/index.js";
 import type { GithubPorts } from "../ports/github.js";
@@ -43,7 +44,7 @@ import { createWebCapability } from "./web.js";
 export const PRESET_IDS = ["minimal", "full"] as const;
 export type PresetId = (typeof PRESET_IDS)[number];
 
-export type CapabilityId = "web" | "deliverables-lite" | "memory" | "tasks" | "settings" | "research" | "agenda" | "shopping" | "email" | "calendar" | "code" | "browser" | "images" | "vault" | "github" | "bots" | "routines" | "video" | "attachments" | "skills";
+export type CapabilityId = "web" | "deliverables-lite" | "memory" | "tasks" | "settings" | "research" | "agenda" | "shopping" | "email" | "calendar" | "code" | "browser" | "images" | "vault" | "github" | "bots" | "routines" | "video" | "attachments" | "skills" | "delegate";
 
 export type AgentPreset = {
 	id: PresetId;
@@ -55,7 +56,7 @@ export type AgentPreset = {
 
 export const PRESETS: Readonly<Record<PresetId, AgentPreset>> = Object.freeze({
 	minimal: Object.freeze({ id: "minimal", capabilities: Object.freeze(["web", "deliverables-lite"] as const), workContract: false }),
-	full: Object.freeze({ id: "full", capabilities: Object.freeze(["web", "deliverables-lite", "memory", "tasks", "settings", "research", "agenda", "shopping", "email", "calendar", "browser", "images", "vault", "github", "bots", "routines", "video", "skills"] as const), workContract: true }),
+	full: Object.freeze({ id: "full", capabilities: Object.freeze(["web", "deliverables-lite", "memory", "tasks", "settings", "research", "agenda", "shopping", "email", "calendar", "browser", "images", "vault", "github", "bots", "routines", "video", "skills", "delegate"] as const), workContract: true }),
 });
 
 /**
@@ -106,6 +107,8 @@ export type PresetDeps = {
 	video?: boolean;
 	/** Anexos (F9): os arquivos da conversa, lidos em partes. A cópia para o computador liga com `browser` (a VM do run). Opt-in: sem a porta não entra. */
 	attachments?: AttachmentsDeps;
+	/** Subagentes (F9): `delegate_task`, de 1 a 3 ajudantes em paralelo (a mesma porta `helpers`) e o cartão de progresso do chat. Lazy; sem os ajudantes a capacidade fica em `unavailable`. Só com dono presente (o worker não passa a chave em run sem dono). */
+	delegate?: DelegateDeps;
 };
 
 export function isPresetId(value: unknown): value is PresetId {
@@ -150,6 +153,8 @@ const FACTORIES: Readonly<Record<CapabilityId, CapabilityFactory>> = {
 	// F9: transcrição de vídeo pela VM do dono; lazy. Só lê (vale também sem dono). Sem a VM a capacidade fica em `unavailable`.
 	video: (deps) => (deps.video === true ? createVideoCapability() : undefined),
 	// F9: anexos da conversa; opt-in (só entra com a porta). `computer` vem do navegador do run (a VM).
+	// F9: subagentes (`delegate_task`); lazy. O worker só passa a chave com dono presente (como no motor antigo).
+	delegate: (deps) => deps.delegate && createDelegateCapability(deps.delegate),
 	attachments: (deps) => deps.attachments && createAttachmentsCapability({ files: deps.attachments.files, computer: deps.browser === true }),
 };
 
