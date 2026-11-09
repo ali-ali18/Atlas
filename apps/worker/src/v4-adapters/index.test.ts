@@ -34,6 +34,7 @@ export function fakeAdapterDeps(options: { connections?: Connected; listFails?: 
 		brief: { listPurchases: never, listAgendaItems: never, conversationTasks: never, persistCard: never } as unknown as V4AdapterDeps["brief"],
 		images: { generate: never, process: never, persistArtifact: never, persistCard: never } as unknown as V4AdapterDeps["images"],
 		vault: { listMeta: async () => [], getByName: never, getKey: never, touch: never, audit: never, unwrap: never, open: never, saveIntent: never, persistCard: never } as unknown as V4AdapterDeps["vault"],
+		github: { resolveReadOps: never, markAuthFailed: never } as unknown as V4AdapterDeps["github"],
 	};
 }
 
@@ -46,7 +47,7 @@ test("com bot e portas reais montadas, o preset full não tem capacidade indispo
 	const setup = await buildV4Registry({ ...base, botId: "bot-1", deps: fakeAdapterDeps(), log: (m) => void logs.push(m) });
 	assert.deepEqual(setup.unavailable, []);
 	assert.deepEqual(logs, []);
-	assert.deepEqual(setup.registry.ids(), ["agenda", "browser", "calendar", "connectors", "deliverables", "email", "images", "memory", "research", "settings", "shopping", "tasks", "vault", "web"]);
+	assert.deepEqual(setup.registry.ids(), ["agenda", "browser", "calendar", "connectors", "deliverables", "email", "github", "images", "memory", "research", "settings", "shopping", "tasks", "vault", "web"]);
 	assert.match(setup.stableSystem, /Work contract/);
 	assert.match(setup.stableSystem, /connectors/);
 	// confirmWrites do conector vira `confirm: "always"` na tool genérica de escrita
@@ -241,4 +242,21 @@ test("cofre (F9): lazy no chat com as três tools; sem dono (rotina, agenda) só
 	const agenda = await buildV4Registry({ ...base, unattended: true, agendaRun: true, botId: "bot-1", deps: fakeAdapterDeps() });
 	assert.deepEqual(toolsOf(agenda), ["secret_list"]);
 	assert.equal(attended.unavailable.includes("vault" as never), false);
+});
+
+test("github (F9, leitura): lazy com as duas tools, também sem dono; o conector GitHub fica (é por ele que se escreve) e nada é lido ao montar", async () => {
+	const toolsOf = (setup: Awaited<ReturnType<typeof buildV4Registry>>) => setup.registry.capabilities.find((c) => c.id === "github")?.tools.map((t) => t.name) ?? [];
+	const attended = await buildV4Registry({ ...base, botId: "bot-1", deps: fakeAdapterDeps() });
+	assert.ok(!attended.registry.core().some((c) => c.id === "github"));
+	assert.match(attended.stableSystem, /- github:/);
+	assert.deepEqual(toolsOf(attended), ["github_list_repos", "github_compare"]);
+	const unattended = await buildV4Registry({ ...base, unattended: true, botId: "bot-1", deps: fakeAdapterDeps() });
+	assert.deepEqual(toolsOf(unattended), ["github_list_repos", "github_compare"]);
+	const agenda = await buildV4Registry({ ...base, unattended: true, agendaRun: true, botId: "bot-1", deps: fakeAdapterDeps() });
+	assert.deepEqual(toolsOf(agenda), ["github_list_repos", "github_compare"]);
+	const embedded = ({ id: "gh1", slug: "github", name: "GitHub", catalogId: "github", status: "connected", confirmWrites: true, tools: [{ name: "create_issue", inputSchema: { type: "object", properties: {} } }], disabledTools: [], toolMarks: {} }) as unknown as Connected[number];
+	const withConnector = await buildV4Registry({ ...base, botId: "bot-1", deps: fakeAdapterDeps({ connections: [embedded] }) });
+	assert.ok(withConnector.registry.toolByName("mcp_github_write"), "a escrita no GitHub continua pelo conector");
+	assert.deepEqual(toolsOf(withConnector), ["github_list_repos", "github_compare"]);
+	assert.equal(attended.unavailable.includes("github" as never), false);
 });

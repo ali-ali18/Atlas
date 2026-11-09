@@ -301,6 +301,7 @@ function fakeAdapters(searched: string[]): NonNullable<Parameters<typeof runEngi
 		brief: { listPurchases: never, listAgendaItems: never, conversationTasks: never, persistCard: never } as never,
 		images: { generate: never, process: never, persistArtifact: never, persistCard: never } as never,
 		vault: { listMeta: async () => [], getByName: never, getKey: never, touch: never, audit: never, unwrap: never, open: never, saveIntent: never, persistCard: never } as never,
+		github: { resolveReadOps: never, markAuthFailed: never } as never,
 	};
 }
 

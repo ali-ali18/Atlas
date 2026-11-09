@@ -29,6 +29,7 @@ import {
 import { countryFromLocale, type AgendaKind, type ComputerUseEvent } from "@workspace/shared";
 import { createV4Agenda, realV4AgendaDeps, type V4AgendaDeps } from "./agenda.js";
 import { createV4Email, realV4EmailDeps, type V4EmailDeps } from "./email.js";
+import { createV4Github, realV4GithubDeps, type V4GithubDeps } from "./github.js";
 import { createV4Images, realV4ImagesDeps, type V4ImagesConfig, type V4ImagesDeps } from "./images.js";
 import { createV4Brief, realV4BriefDeps, type V4BriefDeps } from "./brief.js";
 import { createV4Calendar, realV4CalendarDeps, type V4CalendarDeps } from "./calendar.js";
@@ -55,9 +56,10 @@ export type V4AdapterDeps = {
 	brief: V4BriefDeps;
 	images: V4ImagesDeps;
 	vault: V4VaultDeps;
+	github: V4GithubDeps;
 };
 
-export const realV4AdapterDeps = (): V4AdapterDeps => ({ web: realV4WebDeps(), deliverables: realV4DeliverablesDeps, memory: realV4MemoryDeps, notebook: realV4NotebookDeps, settings: realV4SettingsDeps, mcp: realV4McpDeps, agenda: realV4AgendaDeps, shopping: realV4ShoppingDeps, email: realV4EmailDeps, calendar: realV4CalendarDeps, brief: realV4BriefDeps, images: realV4ImagesDeps, vault: realV4VaultDeps });
+export const realV4AdapterDeps = (): V4AdapterDeps => ({ web: realV4WebDeps(), deliverables: realV4DeliverablesDeps, memory: realV4MemoryDeps, notebook: realV4NotebookDeps, settings: realV4SettingsDeps, mcp: realV4McpDeps, agenda: realV4AgendaDeps, shopping: realV4ShoppingDeps, email: realV4EmailDeps, calendar: realV4CalendarDeps, brief: realV4BriefDeps, images: realV4ImagesDeps, vault: realV4VaultDeps, github: realV4GithubDeps });
 
 export type V4RegistryInput = {
 	runId: string;
@@ -158,6 +160,8 @@ export async function buildV4Registry(input: V4RegistryInput): Promise<V4Registr
 		...(input.checkout && { checkout: input.checkout }),
 		...(input.browser && { browser: true }),
 		vault: { vault: createVaultAdapter(vaultPorts.backend), ...(vaultPorts.requests && { requests: vaultPorts.requests }), ...(input.unattended && { readOnly: true }) },
+		// GitHub (F9, leitura): o token é o do dono do run, resolvido na chamada (nada é lido ao montar). O conector GitHub continua no run: é por ele que se escreve.
+		github: { github: createV4Github(deps.github) },
 		...(input.code && { code: input.code }),
 		...(images && { images }),
 		...(country && { shoppingCountry: country }),

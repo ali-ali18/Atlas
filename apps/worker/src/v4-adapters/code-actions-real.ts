@@ -2,7 +2,7 @@
 // ambiente pelo provedor Docker de `@workspace/sandbox` e clone com o token do GitHub do dono. Separado de `code-actions.ts` para o
 // tratador por kind ser testado sem banco. O integrador chama `realCodeActionDeps({ provider, getGithubToken, conversationId })`.
 import { createDevSession, getDevSession, updateDevSession, type DevSessionRecord } from "@workspace/db";
-import { getGithubToken } from "@workspace/agent-runtime";
+import { getGithubToken } from "@workspace/github";
 import { createDevClient, createDockerDevProvider, DevSandboxError, loadDevSandboxConfig, type DevClient, type DevSandboxProvider } from "@workspace/sandbox";
 import { createCodeActionHandler, type CodeActionDeps, type CodeActionHandler, type CodeSession } from "./code-actions.js";
 
