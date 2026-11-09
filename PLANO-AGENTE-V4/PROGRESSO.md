@@ -150,7 +150,7 @@
 - [x] F8.A Auditoria (09/11): auditoria com 15 achados corrigidos; reauditoria independente (2 leituras Sonnet com a skill de segurança da Cloudflare, 36 itens incluindo dúvidas) validada por uma leitura Opus; 14 correções novas com teste (token do control server, proxy, portão de comando, envio de formulário, digitação como saída, `card_fill` pós-clique, teto de saída, cartões em pt-BR); adiados e aceitos em `auditorias/F8.md`.
 
 ### F9: Ponte → zero
-- [ ] F9.1 Inventário das pontes, com a contagem inicial anotada aqui.
+- [x] F9.1 Inventário das pontes (09/11). **Catraca = 0**: a pasta `packages/agent/src/legacy-bridge/` não existe, e `boundary.test.ts` proíbe `@workspace/agent-runtime` dentro de `packages/agent`, então nenhuma tool do legado passa ao v4 por ponte. O que resta do legado no caminho do v4 são **5 adaptadores do worker** que importam helpers de `@workspace/agent-runtime`: `v4-adapters/calendar.ts` (`googleFetch`, OAuth, `openSecrets`), `email.ts` (`googleJson`, `emailService`, `buildMcpClientConfig`), `mcp.ts` (`loadMcpRuntime`: o cliente MCP inteiro), `code-actions-real.ts` (`getGithubToken`) e `payment.ts` (`openCardSecretsJson`). Fora do v4, o worker ainda importa o legado em 29 arquivos (motores v1/v2, `engine-choice.ts`), que é assunto da F10. **Capacidades que o v2 tem e o v4 não** (não são ponte, são ausência): falar com outros bots, rotinas, imagens, vídeo, GitHub e cofre (testes `computer-use.{bot-messaging,image-generation,github,vault,video-transcript,routine-page}.test.ts`). Decisão do escopo da F9 com o dono.
 - [ ] F9.2 Cada ponte nativa: um item por tool, adicionado quando o inventário existir.
 - [ ] F9.A Auditoria: 5 lentes, verificação, correções com teste, reauditoria e `auditorias/F9.md` fechado.
 
