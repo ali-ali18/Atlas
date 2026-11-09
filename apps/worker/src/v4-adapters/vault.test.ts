@@ -21,7 +21,7 @@ function world() {
 	const wrappedKeys = new Map<string, string>();
 	const rows: UserSecretRow[] = [];
 	const calls: string[] = [];
-	const audits: Array<{ userId: string; secretId: string; action: string; detail?: string }> = [];
+	const audits: Array<{ userId: string; secretId: string; action: string; detail?: string; botId?: string; botName?: string; conversationId?: string }> = [];
 	const intents: unknown[] = [];
 	const cards: Array<{ conversationId: string; event: ComputerUseEvent }> = [];
 	const add = (userId: string, input: { id: string; name: string; kind: "secret" | "login"; label?: string; siteUrl?: string; domain?: string; username?: string; payload: object; description?: string }) => {
@@ -59,7 +59,7 @@ function world() {
 		getByName: async (userId, name) => rows.find((r) => r.userId === userId && r.name === name) ?? null,
 		getKey: async (userId) => wrappedKeys.get(userId) ?? null,
 		touch: async (userId, id) => void calls.push(`touch:${userId}:${id}`),
-		audit: async (userId, secretId, entry) => void audits.push({ userId, secretId, action: entry.action, ...(entry.detail && { detail: entry.detail }) }),
+		audit: async (userId, secretId, entry) => void audits.push({ userId, secretId, action: entry.action, ...(entry.detail && { detail: entry.detail }), ...(entry.botId && { botId: entry.botId }), ...(entry.botName && { botName: entry.botName }), ...(entry.conversationId && { conversationId: entry.conversationId }) }),
 		unwrap: (wrapped) => unwrapDataKey(wrapped, MASTER),
 		open: (key, userId, row) => openItem(key, itemAad(userId, row.id), row.valueEnc),
 		saveIntent: async (input) => void intents.push(input),
@@ -95,6 +95,17 @@ test("resolveSecret: o valor do segredo simples do dono, com uso auditado; outro
 		["a", "vs_1", "used", "agent_v4"],
 		["b", "vs_3", "used", "agent_v4"],
 	]);
+});
+
+test("resolveSecret: a auditoria de uso grava o bot, o nome e a conversa do run (sem o valor)", async () => {
+	const w = world();
+	const backend = createV4VaultBackend(w.deps, { botId: "bot_1", botName: "Ana", conversationId: "conv_1" });
+	assert.equal(await backend.resolveSecret("a", "stripe-key"), SECRET);
+	assert.equal(w.audits.length, 1);
+	assert.equal(w.audits[0]!.botId, "bot_1");
+	assert.equal(w.audits[0]!.botName, "Ana");
+	assert.equal(w.audits[0]!.conversationId, "conv_1");
+	assert.ok(!JSON.stringify(w.audits).includes(SECRET));
 });
 
 test("item copiado para a linha de outro dono não abre (o AAD amarra dono e id)", async () => {

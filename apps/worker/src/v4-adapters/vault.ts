@@ -66,7 +66,7 @@ async function openRow(deps: V4VaultDeps, userId: string, row: UserSecretRow): P
 }
 
 /** Backend da porta `Vault` do motor: `listHandles` (metadados) e `resolveSecret` (só segredo simples). */
-export function createV4VaultBackend(deps: V4VaultDeps = realV4VaultDeps): VaultBackend {
+export function createV4VaultBackend(deps: V4VaultDeps = realV4VaultDeps, scope?: Pick<V4VaultScope, "botId" | "botName" | "conversationId">): VaultBackend {
 	return {
 		async listHandles(userId) {
 			const metas = await deps.listMeta(userId);
@@ -88,7 +88,15 @@ export function createV4VaultBackend(deps: V4VaultDeps = realV4VaultDeps): Vault
 			const value = (await openRow(deps, userId, row)).value;
 			if (!value) return null;
 			await deps.touch(userId, row.id).catch(() => undefined);
-			await deps.audit(userId, row.id, { action: "used", actor: "bot", detail: "agent_v4" }).catch(() => undefined);
+			await deps.audit(userId, row.id, {
+				action: "used",
+				actor: "bot",
+				detail: "agent_v4",
+				// Quem usou: o histórico do segredo mostra qual bot, em qual conversa (só ids e o nome do bot; nunca o valor).
+				...(scope?.botId && { botId: scope.botId }),
+				...(scope?.botName && { botName: scope.botName }),
+				...(scope?.conversationId && { conversationId: scope.conversationId }),
+			}).catch(() => undefined);
 			return value;
 		},
 	};
@@ -136,6 +144,7 @@ export const realV4LoginSource: LoginSource = createV4LoginSource();
 export type V4VaultScope = {
 	conversationId?: string | null;
 	botId?: string | null;
+	botName?: string | null;
 	emit: (event: ComputerUseEvent) => void | Promise<void>;
 	log?: (message: string) => void;
 };
@@ -185,7 +194,7 @@ export function createV4SecretRequests(input: { scope: V4VaultScope; deps?: V4Va
 /** Portas do cofre de um run para a capacidade `vault` (a porta `Vault` do kernel é montada pelo motor com o mesmo backend). */
 export function createV4Vault(input: { scope: V4VaultScope; deps?: V4VaultDeps }): { backend: VaultBackend; requests?: SecretRequests } {
 	return {
-		backend: createV4VaultBackend(input.deps),
+		backend: createV4VaultBackend(input.deps, input.scope),
 		// Sem conversa (rotina sem chat) não há onde mostrar o cartão: a tool nem é oferecida.
 		...(input.scope.conversationId && { requests: createV4SecretRequests(input) }),
 	};
