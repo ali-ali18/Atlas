@@ -17,7 +17,7 @@ Reaproveitar o que já funciona (portão de comando e casamento de edição do v
 - **Uma tool `code` com `action`:** esconde o efeito de cada ação. Uma tool por arquivo e por efeito deixa o `decide()` e o cartão de aprovação exatos.
 - **Reimplementar o casamento de edição na capacidade:** a VM já o aplica (`docker/dev-sandbox/server/edit-match.mjs`) e devolve o diff. A capacidade só repassa e traduz a recusa. O fake de teste tem um porte, preso à VM por teste de paridade (`code-edit-match.parity.test.ts`).
 - **Perguntar ao dono no bloqueio fixo (como o v2):** no v4 o que o v2 chama de "bloqueio fixo" (sair do ambiente, apagar fora do workspace, push) é recusado sem cartão; o cartão seria um atalho para o que a política quer impedir.
-- **Abrir PR nesta frente:** o v2 abre PR com `gh` e o token do GitHub App dentro da VM. No v4 isso entra pelo conector GitHub, com `write_external` e aprovação, na frente de conectores. Fica de fora e anotado.
+- **Abrir PR com `gh` e o token dentro da VM (v2):** no v4 o PR sai pela escrita nativa do GitHub (`githubWrite`, o app do dono), a mesma de `github_pr_create`; a VM só faz o push. Ver "Entrega: commit, push, PR e CI (F9)".
 
 ## Como funciona
 Capacidade lazy `code` (`packages/agent/src/capabilities/code/`), nove tools, um `kind` da porta `Sandbox` cada (contrato em `kinds.ts`):
@@ -38,6 +38,24 @@ Capacidade lazy `code` (`packages/agent/src/capabilities/code/`), nove tools, um
   - `build`: com dono, edita e roda comandos permitidos; `.env`, comando fora da lista e ler segredo pedem o dono. Sem dono (agenda, rotina, subagente, bot a bot) vira leitura.
   - Filho nunca excede a mãe: `childPolicy` de uma mãe `plan`/`build` continua só leitura.
 - **Selecionar por run ou bot:** `engine-v4.ts` já aceita `policy`; o integrador faz `applyPolicyPreset(bot.codeMode, basePolicy)` e liga a capacidade com `code: {}` nas dependências do preset (e `code: { readOnly: true }` no `plan`). A capacidade é opt-in: não está em nenhum preset e só entra quando a chave `code` vem nas dependências (por isso `full` não ganha uma capacidade "indisponível" em quem não usa código).
+
+## Entrega: commit, push, PR e CI (F9)
+Quatro tools a mais na capacidade `code`, sobre kinds novos da porta `Sandbox` (`code.commit`, `code.push`, `code.pr_prepare`, `code.ci`, `code.ci_log`):
+
+| Tool | Efeito | O que faz |
+|---|---|---|
+| `code_commit` | `write_internal` (`credential` se o modelo pedir `paths` de segredo) | Comita as mudanças da sessão; `branch` cria uma branch nova antes (obrigatório na branch padrão). Mensagem do modelo redigida (`redactSecrets`); arquivo de segredo (`.env`, chaves) no stage é recusado e o stage é desfeito. |
+| `code_push` | `write_external`; com `confirmWrites` pede o dono em toda chamada | Envia a branch ATUAL. Sem argumento de branch (o modelo não escolhe o destino). Nunca força (refspec explícito sem `+`, sem `--force`) e nunca a branch padrão (a lida de `origin/HEAD`, mais `main` e `master`). Repositório = o da sessão do dono. |
+| `code_open_pr` | `write_external`, mesma regra de confirmação | Abre o PR pela escrita nativa `githubWrite` (o app do dono, mesmo portão de `github_pr_create`). Repo, branch e base vêm da sessão (`code.pr_prepare`), não do modelo. Recusa se está na base, tem mudança solta, não tem commit novo ou a branch não foi enviada; se já há PR aberto da branch, devolve o link sem escrever. Só entra se a escrita nativa existe. |
+| `code_ci_status` | `read`, saída não confiável (`file`) | Checks do PR da branch (ou de `number`, do mesmo repositório) com o resumo (passando, falhando, rodando). Com `jobId` lê o log do job EM PARTES: o fim primeiro, com `offset` para as outras partes e as linhas `##[error]` à parte. |
+
+- **Credencial:** o token do GitHub do dono (instalação do app ou pessoal) entra só como `GH_TOKEN` no ambiente do job que fala com o GitHub (push, fetch, ls-remote); o helper de credencial da imagem o lê. Fica fora dos outros jobs, do resultado, dos eventos e do comando. Saída e erro passam por `redactSecrets` com o token da sessão.
+- **Escopo:** tudo por `{ id, userId }` da sessão; o dono B recebe "Coding session not found." e nada chega à VM nem ao GitHub. A leitura de CI usa o token e o repositório da sessão do dono.
+- **Política:** `plan` nega commit, push e PR (só o CI fica); `build` com dono libera o commit e segue a regra do GitHub para push e PR; sem dono (agenda, rotina, subagente) commit, push e PR ficam ocultos e só o CI lê.
+- **Cartão:** o v4 não tem cartão de PR/CI do legado (os eventos `dev_pr`/`dev_ci` e o painel só existem para as sessões do motor antigo). Nesta frente o resultado é texto honesto com o link do PR e a lista de checks; cartão no chat do v4 fica para uma frente de UI.
+- **Movido para `@workspace/github`:** `pull-ci.ts` inteiro (leitura de PR e checks, log de job e a criação de PR do legado), com reexport em `agent-runtime`; mais `cleanJobLog` e `jobLogErrors`, extraídos de `tailJobLog` (que segue igual).
+- **Riscos novos:** push de uma branch que já existe no origin com avanço simples (corrigir o CI) é permitido; divergência é rejeitada pelo git e a tool diz para não forçar. O PR é aberto pelo app do dono (precisa estar instalado no repositório) e o push usa o token do dono: sem o app, a escrita nativa responde com a dica de instalar.
+- **Fora desta frente:** esperar o CI terminar (a tool lê o estado agora e manda avisar o dono, sem polling), `dev_pr_checkout` do v2 e o cartão no chat.
 
 ## Riscos
 - **Fake x VM:** o porte do casamento de edição pode divergir. Coberto por teste de paridade contra o `.mjs` da imagem.
