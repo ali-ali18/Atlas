@@ -16,7 +16,8 @@
 import { CODE_KIND_LIST, CODE_KINDS, type CodeKind, classifyShell, codeParams, codeResults, isCodeKind, type SandboxAction, type SandboxResult } from "@workspace/agent";
 import type { DevClient, DevExecSnapshot } from "@workspace/sandbox";
 import { DevSandboxError } from "@workspace/sandbox";
-import { fullSuiteAdvice, isFullSuiteTestCommand, redactSecrets } from "@workspace/shared";
+import { cleanJobLog, jobLogErrors } from "@workspace/github";
+import { type DevCiCheck, type DevCiSummary, type DevPrInfo, fullSuiteAdvice, isFullSuiteTestCommand, isSafeGitRef, isSensitiveEnvFile, redactSecrets } from "@workspace/shared";
 import type { z } from "zod";
 
 export type CodeActionHandler = {
@@ -41,6 +42,20 @@ export type CodeActionDeps = {
 	 * `track(secret)` registra o segredo NA HORA (antes do clone): se o clone falhar, a mensagem de erro já sai redigida.
 	 */
 	prepare?(session: CodeSession, client: DevClient, input: { repo?: string; branch?: string }, signal?: AbortSignal, track?: (secret: string) => void): Promise<{ repo?: string; branch?: string; testCommand?: string; note?: string; secrets?: string[] }>;
+	/**
+	 * Ambiente SÓ do job de git que fala com o GitHub (push, fetch, ls-remote): `GH_TOKEN`/`GITHUB_TOKEN` do dono, que o helper de
+	 * credencial da imagem lê. Nunca vai a resultado, evento, log ou ao ambiente de um comando do modelo.
+	 */
+	gitEnv?(session: CodeSession): Promise<Record<string, string>>;
+	/** Leitura do GitHub para PR e CI com o token do dono. Falha = `throw` com a mensagem real (já amigável, sem segredo). */
+	github?: {
+		/** PR aberto cuja branch de origem é `head`, ou `null`. */
+		findOpenPull(session: CodeSession, repo: string, head: string): Promise<DevPrInfo | null>;
+		/** PR + checks por número ou pela branch (PR aberto dela); `null` = não há PR da branch. */
+		pull(session: CodeSession, repo: string, ref: { number: number } | { head: string }): Promise<{ pr: DevPrInfo; checks: DevCiCheck[]; summary: DevCiSummary } | null>;
+		/** Log inteiro de um job do Actions (a fatia é feita aqui). */
+		jobLog(session: CodeSession, repo: string, jobId: number): Promise<string>;
+	};
 	/** Segredos conhecidos da sessão (token do GitHub, variáveis do ambiente) para redigir saída e erro. */
 	secrets?(session: CodeSession): Promise<readonly string[]> | readonly string[];
 	/** Teto de espera de um comando (ms). Padrão 120 s; o pedido do modelo pode baixar, nunca passar de 600 s. */
@@ -118,9 +133,9 @@ export function createCodeActionHandler(deps: CodeActionDeps): CodeActionHandler
 		return session;
 	}
 
-	async function runJob(client: DevClient, session: CodeSession, input: { cmd: string; cwd?: string; timeoutMs?: number }, signal?: AbortSignal) {
+	async function runJob(client: DevClient, session: CodeSession, input: { cmd: string; cwd?: string; timeoutMs?: number; env?: Record<string, string> }, signal?: AbortSignal) {
 		const timeoutMs = Math.min(input.timeoutMs ?? deps.defaultTimeoutMs ?? DEFAULT_TIMEOUT_MS, 600_000);
-		const started = await client.execStart({ cmd: input.cmd, ...(input.cwd && { cwd: input.cwd }), timeoutMs });
+		const started = await client.execStart({ cmd: input.cmd, ...(input.cwd && { cwd: input.cwd }), ...(input.env && { env: input.env }), timeoutMs });
 		const deadline = Date.now() + timeoutMs + 5_000;
 		let snapshot: DevExecSnapshot;
 		let out = 0;
@@ -250,8 +265,137 @@ export function createCodeActionHandler(deps: CodeActionDeps): CodeActionHandler
 				const spilled = await inlineOrSpill(client, output, snapshot.id, secrets);
 				return { data: { diff: spilled.output, empty: output.trim() === "", ...(spilled.spillPath && { spillPath: spilled.spillPath }) }, secrets };
 			}
+			case CODE_KINDS.commit:
+				return { data: await commit(client, session, p as z.output<typeof codeParams.commit>, secrets, signal), secrets };
+			case CODE_KINDS.push:
+				return { data: await push(client, session, signal), secrets };
+			case CODE_KINDS.prPrepare:
+				return { data: await prPrepare(client, session, p as z.output<typeof codeParams.prPrepare>, signal), secrets };
+			case CODE_KINDS.ci:
+				return { data: await ci(client, session, p as z.output<typeof codeParams.ci>, signal), secrets };
+			case CODE_KINDS.ciLog:
+				return { data: await ciLog(session, p as z.output<typeof codeParams.ciLog>), secrets };
 		}
 		throw new Refused(`Unhandled ${kind}`);
+	}
+
+	// ----- entrega: commit, push, PR e CI (F9) -----
+
+	/** Git local no repositório da sessão. `env` só entra se o job falar com o GitHub. */
+	async function git(client: DevClient, session: CodeSession, script: string, env: Record<string, string>, timeoutMs: number, signal?: AbortSignal) {
+		const { snapshot, output } = await runJob(client, session, { cmd: script, env: { DEV_REPO_DIR: repoDir(session), ...env }, timeoutMs }, signal);
+		return { exitCode: snapshot.exitCode, output };
+	}
+
+	async function inspect(client: DevClient, session: CodeSession, signal?: AbortSignal): Promise<{ head: string; defaultBranch: string; dirty: number; sha: string }> {
+		const r = await git(client, session, INSPECT_SCRIPT, {}, 30_000, signal);
+		if (r.exitCode !== 0) throw new Refused(`Could not read the repository in the workspace: ${r.output.trim().slice(0, 300)}`);
+		const v = parseKeyValues(r.output);
+		return { head: v.head ?? "", defaultBranch: v.default ?? "", dirty: Number(v.dirty) || 0, sha: v.sha ?? "" };
+	}
+
+	function repoOf(session: CodeSession): string {
+		if (!session.repo || !REPO_SLUG.test(session.repo)) throw new Refused("This session has no GitHub repository (owner/name). Open a session with a repo first.");
+		return session.repo;
+	}
+
+	async function commit(client: DevClient, session: CodeSession, p: z.output<typeof codeParams.commit>, secrets: readonly string[], signal?: AbortSignal) {
+		const state = await inspect(client, session, signal);
+		if (p.branch) {
+			if (!isSafeGitRef(p.branch)) throw new Refused("Refused: unsupported branch name.");
+			if (isProtectedBranch(p.branch, state.defaultBranch)) throw new Refused(`Refused: ${p.branch} is the default branch. Pick a new branch name for the change.`);
+		} else if (!state.head || isProtectedBranch(state.head, state.defaultBranch)) {
+			throw new Refused(`Refused: the workspace is ${state.head ? `on the default branch (${state.head})` : "not on a branch"}. Pass \`branch\` with a new branch name to commit the change there.`);
+		}
+		const staged = await git(client, session, STAGE_SCRIPT, { DEV_BRANCH: p.branch ?? "", DEV_PATHS: (p.paths ?? []).join("\n") }, 60_000, signal);
+		if (staged.exitCode === 13) throw new Refused(`Could not create the branch ${p.branch} (it may already exist). Pick another name.`);
+		if (staged.exitCode !== 0) throw new Refused(`Could not stage the changes: ${staged.output.trim().slice(0, 400)}`);
+		const names = staged.output.split("\n").map((line) => line.trim()).filter(Boolean);
+		if (names.length === 0) throw new Refused("Nothing to commit: there are no changes in the workspace.");
+		const secretFiles = names.filter((name) => isSensitiveEnvFile(name));
+		if (secretFiles.length > 0) {
+			await git(client, session, 'cd "$DEV_REPO_DIR" && git reset -q', {}, 30_000, signal);
+			throw new Refused(`Refused: secret files would be committed (${secretFiles.slice(0, 5).join(", ")}). Nothing was committed and the stage was undone. Add them to .gitignore or commit only the right files with paths.`);
+		}
+		const message = redactSecrets(p.message, [...secrets]);
+		const done = await git(client, session, COMMIT_SCRIPT, { DEV_MSG: message }, 120_000, signal);
+		if (done.exitCode !== 0) throw new Refused(`git commit failed: ${done.output.trim().slice(0, 600)}`);
+		const v = parseKeyValues(done.output);
+		return { sha: v.sha ?? "", branch: v.branch ?? p.branch ?? state.head, subject: v.subject ?? message.split("\n")[0] ?? "", files: names.length, ...(p.branch && { createdBranch: true }) };
+	}
+
+	async function push(client: DevClient, session: CodeSession, signal?: AbortSignal) {
+		const repo = repoOf(session);
+		const state = await inspect(client, session, signal);
+		const refusal = pushRefusal(state.head, state.defaultBranch);
+		if (refusal) throw new Refused(refusal);
+		const env = (await deps.gitEnv?.(session)) ?? {};
+		// Refspec explícito sem `+`: nunca força, e só a branch atual vai (o modelo não escolhe o destino).
+		const r = await git(client, session, PUSH_SCRIPT, { ...env, DEV_HEAD: state.head }, 300_000, signal);
+		if (r.exitCode !== 0) {
+			const tail = r.output.trim().slice(-800);
+			const hint = ["rejected", "non-fast-forward", "fetch first"].some((word) => r.output.includes(word)) ? " The remote branch has commits the workspace does not have; do not force. Tell the owner and pick a new branch name." : ["Authentication", "denied", "403", "could not read Username"].some((word) => r.output.includes(word)) ? " GitHub refused the credentials: tell the owner to check the GitHub connection (Connections) and the repository access." : "";
+			throw new Refused(`git push failed (exit ${r.exitCode}): ${tail}${hint}`);
+		}
+		return { branch: state.head, repo, ...(state.sha && { sha: state.sha }), newBranch: r.output.includes("[new branch]"), url: `https://github.com/${repo}/tree/${state.head}` };
+	}
+
+	async function prPrepare(client: DevClient, session: CodeSession, p: z.output<typeof codeParams.prPrepare>, signal?: AbortSignal) {
+		const repo = repoOf(session);
+		if (p.base && !isSafeGitRef(p.base)) throw new Refused("Refused: unsupported base branch name.");
+		const env = (await deps.gitEnv?.(session)) ?? {};
+		const r = await git(client, session, PR_SCRIPT, { ...env, DEV_BASE: p.base ?? "" }, 120_000, signal);
+		if (r.exitCode !== 0) throw new Refused(`Could not read the repository in the workspace: ${r.output.trim().slice(0, 300)}`);
+		const v = parseKeyValues(r.output);
+		const head = v.head ?? "";
+		if (!head) throw new Refused("The workspace is not on a branch (detached HEAD). Create one with code_commit (branch) first.");
+		const base = v.base || "main";
+		const sha = v.sha ?? "";
+		let existingPr: { number: number; url: string; state: string; title: string } | undefined;
+		if (deps.github && head !== base) {
+			const found = await deps.github.findOpenPull(session, repo, head).catch(() => null);
+			if (found) existingPr = { number: found.number, url: found.url, state: found.state, title: found.title };
+		}
+		return { repo, head, base, ahead: Number(v.ahead) || 0, files: Number(v.files) || 0, dirty: Number(v.dirty) || 0, pushed: Boolean(v.remote) && v.remote === sha, ...(existingPr && { existingPr }) };
+	}
+
+	async function ci(client: DevClient, session: CodeSession, p: z.output<typeof codeParams.ci>, signal?: AbortSignal) {
+		const repo = repoOf(session);
+		if (!deps.github) throw new Refused("Reading the CI is not available here.");
+		let ref: { number: number } | { head: string };
+		if (p.number !== undefined) ref = { number: p.number };
+		else {
+			const state = await inspect(client, session, signal);
+			if (!state.head) throw new Refused("The workspace is not on a branch; pass the pull request number.");
+			ref = { head: state.head };
+		}
+		const found = await deps.github.pull(session, repo, ref);
+		if (!found) return { repo, pr: null, summary: "none" as const, checks: [], note: "Push the branch (code_push) and open one first." };
+		const { pr, checks, summary } = found;
+		return {
+			repo,
+			pr: { number: pr.number, url: pr.url, state: pr.state, title: pr.title, base: pr.base, head: pr.head },
+			summary,
+			checks: checks.map((c) => ({ name: c.name, status: c.status, conclusion: c.conclusion, ...(c.url && { url: c.url }), ...(c.durationMs !== undefined && { durationMs: c.durationMs }), ...(c.jobId && { jobId: c.jobId }) })),
+		};
+	}
+
+	/** Log de um job em PARTES: sem `offset` devolve o fim (onde a falha costuma estar) e diz onde está a parte anterior. */
+	async function ciLog(session: CodeSession, p: z.output<typeof codeParams.ciLog>) {
+		const repo = repoOf(session);
+		if (!deps.github) throw new Refused("Reading the CI is not available here.");
+		const text = cleanJobLog(await deps.github.jobLog(session, repo, p.jobId));
+		const limit = p.limit ?? 6_000;
+		const total = text.length;
+		let start = p.offset ?? Math.max(0, total - limit);
+		if (p.offset === undefined && start > 0) {
+			const nl = text.indexOf("\n", start);
+			if (nl !== -1 && nl < total - 1) start = nl + 1;
+		}
+		start = Math.min(start, total);
+		const end = Math.min(total, start + limit);
+		const errors = p.offset === undefined ? jobLogErrors(text) : [];
+		return { jobId: p.jobId, text: text.slice(start, end), startOffset: start, endOffset: end, totalChars: total, previousOffset: start > 0 ? Math.max(0, start - limit) : null, nextOffset: end < total ? end : null, ...(errors.length > 0 && { errors }) };
 	}
 
 	async function secretsOf(session: CodeSession): Promise<readonly string[]> {
@@ -289,12 +433,81 @@ const KEY_OF = new Map<CodeKind, ParamKey>([
 	[CODE_KINDS.test, "test"],
 	[CODE_KINDS.gitStatus, "gitStatus"],
 	[CODE_KINDS.diff, "diff"],
+	[CODE_KINDS.commit, "commit"],
+	[CODE_KINDS.push, "push"],
+	[CODE_KINDS.prPrepare, "prPrepare"],
+	[CODE_KINDS.ci, "ci"],
+	[CODE_KINDS.ciLog, "ciLog"],
 ]);
 function kindKey(kind: CodeKind): ParamKey {
 	const key = KEY_OF.get(kind);
 	if (!key) throw new Refused(`Unknown code action ${kind}.`);
 	return key;
 }
+
+const REPO_SLUG = /^[A-Za-z0-9][A-Za-z0-9-]{0,38}\/[A-Za-z0-9._-]{1,100}$/;
+
+/** Branches em que o agente nunca comita nem envia: a padrão do repositório (lida do `origin/HEAD`) e as duas convenções. */
+const PROTECTED_BRANCHES: readonly string[] = ["main", "master"];
+export const isProtectedBranch = (branch: string, defaultBranch: string): boolean => branch === defaultBranch || PROTECTED_BRANCHES.includes(branch);
+
+/** Motivo de recusar o push da branch atual, ou `null`. Puro: o mesmo teste vale para qualquer VM. */
+export function pushRefusal(head: string, defaultBranch: string): string | null {
+	if (!head) return "Refused: the workspace is not on a branch (detached HEAD). Create one with code_commit (branch) first.";
+	if (!isSafeGitRef(head)) return "Refused: unsupported branch name.";
+	if (isProtectedBranch(head, defaultBranch)) return `Refused: ${head} is the default branch and is never pushed from here. Commit on a new branch (code_commit with branch) and push that one.`;
+	return null;
+}
+
+function parseKeyValues(output: string): Record<string, string> {
+	const values: Record<string, string> = {};
+	for (const line of output.split("\n")) {
+		const match = /^([a-z]+)=(.*)$/.exec(line.trim());
+		if (match) values[match[1]!] = match[2]!;
+	}
+	return values;
+}
+
+// Scripts do git (rodam no ambiente da sessão; dado variável entra por `env`, nunca colado no texto do comando).
+const INSPECT_SCRIPT = [
+	'cd "$DEV_REPO_DIR" || exit 11',
+	'echo "head=$(git symbolic-ref --short -q HEAD)"',
+	`echo "default=$(git symbolic-ref --short -q refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||')"`,
+	'echo "dirty=$(git status --porcelain | wc -l)"',
+	'echo "sha=$(git rev-parse HEAD 2>/dev/null)"',
+].join("\n");
+const STAGE_SCRIPT = [
+	'cd "$DEV_REPO_DIR" || exit 11',
+	'if [ -n "$DEV_BRANCH" ]; then git switch -c "$DEV_BRANCH" >/dev/null 2>&1 || exit 13; fi',
+	'if [ -n "$DEV_PATHS" ]; then',
+	"\tset -f; IFS='",
+	"'; for p in $DEV_PATHS; do git add -A -- \"$p\" || exit 14; done",
+	"else git add -A || exit 14; fi",
+	"git diff --cached --name-only",
+].join("\n");
+const COMMIT_SCRIPT = [
+	'cd "$DEV_REPO_DIR" || exit 11',
+	'git commit -q -m "$DEV_MSG" || exit 15',
+	'echo "sha=$(git rev-parse HEAD)"',
+	'echo "branch=$(git symbolic-ref --short -q HEAD)"',
+	'echo "subject=$(git log -1 --format=%s)"',
+].join("\n");
+const PUSH_SCRIPT = ['cd "$DEV_REPO_DIR" || exit 11', 'git push -u origin "refs/heads/$DEV_HEAD:refs/heads/$DEV_HEAD" 2>&1'].join("\n");
+const PR_SCRIPT = [
+	'cd "$DEV_REPO_DIR" || exit 11',
+	'head=$(git symbolic-ref --short -q HEAD)',
+	'echo "head=$head"',
+	'base="$DEV_BASE"',
+	`if [ -z "$base" ]; then base=$(git symbolic-ref --short -q refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||'); fi`,
+	'[ -z "$base" ] && base=main',
+	'echo "base=$base"',
+	'git fetch origin "$base" >/dev/null 2>&1 || echo "fetch=failed"',
+	'echo "dirty=$(git status --porcelain | wc -l)"',
+	'echo "ahead=$(git rev-list --count "origin/$base..HEAD" 2>/dev/null || echo -1)"',
+	'echo "files=$(git diff --name-only "origin/$base...HEAD" 2>/dev/null | wc -l)"',
+	'echo "sha=$(git rev-parse HEAD 2>/dev/null)"',
+	'[ -n "$head" ] && echo "remote=$(git ls-remote --heads origin "$head" 2>/dev/null | cut -f1)"',
+].join("\n");
 
 /** Pasta do repositório da sessão: `/workspace/<nome>` quando há repo, senão a raiz. */
 function repoDir(session: CodeSession): string {
