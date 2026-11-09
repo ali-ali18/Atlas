@@ -26,3 +26,29 @@ test("pedido ao cofre decidido mostra só os nomes", () => {
 	assert.match(done, /Salvo no cofre/);
 	assert.match(done, /Ver nomes/);
 });
+
+const loginInfo = {
+	environmentId: "vault",
+	repo: "",
+	names: ["nome", "cpf", "senha"],
+	reason: "Entrar na plataforma",
+	login: { site: "plataforma.example", fields: [{ key: "nome", label: "Nome", secret: false }, { key: "cpf", label: "CPF", secret: true }, { key: "senha", label: "Senha", secret: true }] },
+};
+
+test("pedido de login: um campo por item declarado, com o rótulo; secreto em campo de senha, o resto em texto; sem valor nem textarea", () => {
+	const html = renderToStaticMarkup(<VaultRequestCard description="Entrar na plataforma" info={loginInfo} title="O bot precisa do seu login de plataforma.example" />);
+	assert.match(html, /data-vault-request/);
+	assert.equal((html.match(/<input/g) ?? []).length, 3);
+	assert.equal((html.match(/type="password"/g) ?? []).length, 2);
+	assert.equal((html.match(/type="text"/g) ?? []).length, 1);
+	for (const label of ["Nome", "CPF", "Senha"]) assert.match(html, new RegExp(`>${label}<`));
+	assert.doesNotMatch(html, /<textarea/);
+	assert.match(html, /mesmo login deste site/);
+	assert.match(html, /Salvar no cofre/);
+});
+
+test("pedido de login decidido não mostra campo nenhum (os rótulos ficam recolhidos)", () => {
+	const done = renderToStaticMarkup(<VaultRequestCard info={loginInfo} status="approved" title="t" />);
+	assert.doesNotMatch(done, /<input/);
+	assert.match(done, /Ver nomes/);
+});

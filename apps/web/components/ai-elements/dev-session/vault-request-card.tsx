@@ -6,7 +6,7 @@ import type { SecretsRequestInfo } from "@workspace/shared";
 import { Button } from "@workspace/ui/components/button";
 import { Input } from "@workspace/ui/components/input";
 import { REQUEST_PRIMARY_CLASS, RequestCard } from "@workspace/ui/components/request-card";
-import { saveVaultSecrets } from "@/lib/atlas-api";
+import { saveVaultLogin, saveVaultSecrets } from "@/lib/atlas-api";
 import { useTranslations } from "@/lib/i18n/provider";
 
 type Status = "pending" | "approved" | "rejected" | "failed";
@@ -31,14 +31,17 @@ export type VaultRequestCardProps = {
 	onSkip?: () => void;
 	/** Injetável em testes e na pré-visualização. */
 	save?: (entries: { name: string; value: string }[]) => Promise<unknown>;
+	/** Pedido de login (`info.login`): grava os campos num item de login do site. Injetável em testes. */
+	saveLogin?: (input: { site: string; name?: string; fields: { key: string; label: string; secret: boolean; value: string }[] }) => Promise<unknown>;
 	initialErrors?: string[];
 };
 
 /**
- * Pedido de segredo do bot para o Cofre: um campo de senha por nome. O valor vai direto
- * do campo para a API do cofre; o texto da conversa nunca o contém.
+ * Pedido do bot para o Cofre. Segredo simples: um campo de senha por nome. Login (`info.login`): um campo por item que a IA
+ * declarou (rótulo legível; de senha quando é secreto, de texto quando não é), todos obrigatórios. O valor vai direto do campo
+ * para a API do cofre; o texto da conversa, o evento e o log nunca o contêm.
  */
-export function VaultRequestCard({ info, title, description, status = "pending", confirmLabel, cancelLabel, onSaved, onSkip, save = (entries) => saveVaultSecrets(entries), initialErrors }: VaultRequestCardProps) {
+export function VaultRequestCard({ info, title, description, status = "pending", confirmLabel, cancelLabel, onSaved, onSkip, save = (entries) => saveVaultSecrets(entries), saveLogin = (input) => saveVaultLogin(input), initialErrors }: VaultRequestCardProps) {
 	const { t } = useTranslations();
 	const [values, setValues] = useState<Record<string, string>>({});
 	const [errors, setErrors] = useState<string[]>(initialErrors ?? []);
@@ -47,6 +50,25 @@ export function VaultRequestCard({ info, title, description, status = "pending",
 	const resolved = status !== "pending";
 
 	async function submit() {
+		if (info.login) {
+			const login = info.login;
+			if (login.fields.some((field) => !values[field.key])) {
+				setErrors([t("devSession.vault.fillAll")]);
+				return;
+			}
+			setBusy(true);
+			setErrors([]);
+			try {
+				await saveLogin({ site: login.site, ...(login.name && { name: login.name }), fields: login.fields.map((field) => ({ ...field, value: values[field.key]! })) });
+				setValues({});
+				onSaved?.();
+			} catch (cause) {
+				setErrors([cause instanceof Error && cause.message ? cause.message : t("devSession.secrets.saveError")]);
+			} finally {
+				setBusy(false);
+			}
+			return;
+		}
 		const entries = info.names.flatMap((name) => (values[name] ? [{ name, value: values[name]! }] : []));
 		if (entries.length === 0) {
 			setErrors([t("devSession.vault.fillOne")]);
@@ -64,6 +86,9 @@ export function VaultRequestCard({ info, title, description, status = "pending",
 			setBusy(false);
 		}
 	}
+
+	// Login: um campo por item declarado (rótulo na tela, chave só como nome do campo); segredo simples: um por nome.
+	const inputs = info.login ? info.login.fields.map((field) => ({ key: field.key, label: field.label, secret: field.secret })) : info.names.map((name) => ({ key: name, label: name, secret: true }));
 
 	return (
 		<RequestCard
@@ -86,7 +111,7 @@ export function VaultRequestCard({ info, title, description, status = "pending",
 			title={title}
 		>
 			{resolved ? (
-				<p className="m-0 font-mono text-xs text-muted-foreground [overflow-wrap:anywhere]">{info.names.join(", ")}</p>
+				<p className={info.login ? "m-0 text-xs text-muted-foreground [overflow-wrap:anywhere]" : "m-0 font-mono text-xs text-muted-foreground [overflow-wrap:anywhere]"}>{info.login ? info.login.fields.map((field) => field.label).join(", ") : info.names.join(", ")}</p>
 			) : (
 				<form
 					className="flex min-w-0 flex-col gap-2"
@@ -95,25 +120,25 @@ export function VaultRequestCard({ info, title, description, status = "pending",
 						void submit();
 					}}
 				>
-					{info.names.map((name) => (
-						<div className="flex min-w-0 flex-col gap-1" key={name}>
-							<label className="font-mono text-xs text-muted-foreground" htmlFor={`${id}-${name}`}>
-								{name}
+					{inputs.map(({ key, label, secret }) => (
+						<div className="flex min-w-0 flex-col gap-1" key={key}>
+							<label className={info.login ? "text-xs text-muted-foreground" : "font-mono text-xs text-muted-foreground"} htmlFor={`${id}-${key}`}>
+								{label}
 							</label>
 							<Input
 								aria-invalid={errors.length > 0 ? true : undefined}
-								autoComplete="new-password"
+								autoComplete={secret ? "new-password" : "off"}
 								autoCorrect="off"
-								id={`${id}-${name}`}
-								name={name}
+								id={`${id}-${key}`}
+								name={key}
 								onChange={(event) => {
-									setValues((current) => ({ ...current, [name]: event.target.value }));
+									setValues((current) => ({ ...current, [key]: event.target.value }));
 									setErrors([]);
 								}}
-								placeholder={t("devSession.vault.paste")}
+								placeholder={secret ? t("devSession.vault.paste") : t("devSession.vault.type")}
 								spellCheck={false}
-								type="password"
-								value={values[name] ?? ""}
+								type={secret ? "password" : "text"}
+								value={values[key] ?? ""}
 							/>
 						</div>
 					))}
@@ -126,7 +151,7 @@ export function VaultRequestCard({ info, title, description, status = "pending",
 							))}
 						</div>
 					) : (
-						<p className="m-0 text-muted-foreground text-xs">{t("devSession.vault.note")}</p>
+						<p className="m-0 text-muted-foreground text-xs">{t(info.login ? "devSession.vault.loginNote" : "devSession.vault.note")}</p>
 					)}
 				</form>
 			)}
