@@ -49,7 +49,7 @@ test("com bot e portas reais montadas, o preset full não tem capacidade indispo
 	const setup = await buildV4Registry({ ...base, botId: "bot-1", deps: fakeAdapterDeps(), log: (m) => void logs.push(m) });
 	assert.deepEqual(setup.unavailable, []);
 	assert.deepEqual(logs, []);
-	assert.deepEqual(setup.registry.ids(), ["agenda", "bots", "browser", "calendar", "connectors", "deliverables", "email", "github", "images", "memory", "research", "routines", "settings", "shopping", "tasks", "vault", "web"]);
+	assert.deepEqual(setup.registry.ids(), ["agenda", "bots", "browser", "calendar", "connectors", "deliverables", "email", "github", "images", "memory", "research", "routines", "settings", "shopping", "tasks", "vault", "video", "web"]);
 	assert.match(setup.stableSystem, /Work contract/);
 	assert.match(setup.stableSystem, /connectors/);
 	// confirmWrites do conector vira `confirm: "always"` na tool genérica de escrita
@@ -198,9 +198,9 @@ test("navegador (F8.1): com a VM entra lazy; sem VM aparece em 'unavailable' e n
 	const logs: string[] = [];
 	const { browser: _vm, ...noVm } = base;
 	const without = await buildV4Registry({ ...noVm, botId: "bot-1", deps: fakeAdapterDeps(), log: (m) => void logs.push(m) });
-	assert.deepEqual(without.unavailable, ["browser"]);
+	assert.deepEqual(without.unavailable, ["browser", "video"]);
 	assert.ok(!without.registry.ids().includes("browser"));
-	assert.match(logs.join("\n"), /capacidades sem porta: browser/);
+	assert.match(logs.join("\n"), /capacidades sem porta: browser, video/);
 });
 
 test("código (F8.2) é opt-in: sem a chave não entra nem vira 'unavailable'; plano só lê; ligado sem ambiente fica indisponível e dito", async () => {

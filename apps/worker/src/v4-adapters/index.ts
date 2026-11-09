@@ -170,6 +170,8 @@ export async function buildV4Registry(input: V4RegistryInput): Promise<V4Registr
 		calendar: calendarPorts,
 		...(input.checkout && { checkout: input.checkout }),
 		...(input.browser && { browser: true }),
+		// Vídeo (F9): a transcrição roda na mesma VM do navegador; sem ela a capacidade fica em `unavailable`.
+		...(input.browser && { video: true }),
 		vault: { vault: createVaultAdapter(vaultPorts.backend), ...(vaultPorts.requests && { requests: vaultPorts.requests }), ...(input.unattended && { readOnly: true }) },
 		// GitHub (F9, leitura): o token é o do dono do run, resolvido na chamada (nada é lido ao montar). O conector GitHub continua no run: é por ele que se escreve.
 		github: { github: createV4Github(deps.github) },

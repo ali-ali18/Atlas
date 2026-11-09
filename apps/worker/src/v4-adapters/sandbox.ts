@@ -11,6 +11,7 @@ import { createSandboxManager, loadSandboxConfig, type SandboxManager, type Sand
 import { browserKindHandlers } from "./sandbox-browser.js";
 import { cardFillHandler } from "./sandbox-card-fill.js";
 import { loginFillHandler } from "./sandbox-vault-login.js";
+import { videoKindHandlers } from "./sandbox-video.js";
 import type { CodeActionHandler } from "./code-actions.js";
 import { realCodeActionHandler } from "./code-actions-real.js";
 
@@ -33,6 +34,7 @@ export const defaultSandboxHandlers: Readonly<Record<string, SandboxKindHandler>
 	card_fill: cardFillHandler,
 	[VAULT_KINDS.loginFill]: loginFillHandler,
 	...browserKindHandlers,
+	...videoKindHandlers,
 };
 
 export type V4SandboxDeps = {

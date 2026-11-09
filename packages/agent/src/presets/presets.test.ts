@@ -61,7 +61,7 @@ const checkoutDeps = () => {
 	const r = paymentRig();
 	return { cards: [r.info], fill: r.fill };
 };
-const fullDeps = () => ({ ...deps(), memory: new FakeMemory(), settings: new FakeSettings(), taskLists: new FakeTaskListStore(), helpers: new FakeHelpers(), agenda: new FakeAgenda(), shopping: new FakeShopping().ports, checkout: checkoutDeps(), email: new FakeEmail().ports, calendar: new FakeCalendar().ports, code: {}, browser: true, images: new FakeImages().port, vault: { vault: new FakeVault(), requests: new FakeSecretRequests() }, github: new FakeGithub().ports, bots: { bots: new FakeBots([], "bot-a").port }, routines: { routines: new FakeRoutines() } });
+const fullDeps = () => ({ ...deps(), memory: new FakeMemory(), settings: new FakeSettings(), taskLists: new FakeTaskListStore(), helpers: new FakeHelpers(), agenda: new FakeAgenda(), shopping: new FakeShopping().ports, checkout: checkoutDeps(), email: new FakeEmail().ports, calendar: new FakeCalendar().ports, code: {}, browser: true, images: new FakeImages().port, vault: { vault: new FakeVault(), requests: new FakeSecretRequests() }, github: new FakeGithub().ports, bots: { bots: new FakeBots([], "bot-a").port }, routines: { routines: new FakeRoutines() }, video: true });
 
 describe("preset full: memory, tasks e settings (F2.4)", () => {
 	it("entram como capacidades lazy: só o índice vai no prompt, as tools ficam de fora do primeiro passo", async () => {
@@ -89,7 +89,7 @@ describe("preset full: memory, tasks e settings (F2.4)", () => {
 
 	it("porta ausente: a capacidade não entra e `unavailable` diz qual (nada some em silêncio)", () => {
 		const setup = setupPreset("full", deps());
-		expect(setup.unavailable).toEqual(["memory", "tasks", "settings", "research", "agenda", "shopping", "email", "calendar", "browser", "images", "vault", "github", "bots", "routines"]);
+		expect(setup.unavailable).toEqual(["memory", "tasks", "settings", "research", "agenda", "shopping", "email", "calendar", "browser", "images", "vault", "github", "bots", "routines", "video"]);
 		expect(setup.registry.ids()).toEqual(expect.not.arrayContaining(["memory"]));
 		expect(setupPreset("minimal", deps()).unavailable).toEqual([]);
 	});

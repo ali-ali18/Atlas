@@ -17,3 +17,4 @@ export * from "./settings/index.js";
 export * from "./shopping/index.js";
 export * from "./tasks/index.js";
 export * from "./vault/index.js";
+export * from "./video/index.js";

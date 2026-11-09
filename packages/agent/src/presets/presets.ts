@@ -19,6 +19,7 @@ import type { GithubPorts } from "../ports/github.js";
 import { createBotsCapability, type BotsDeps } from "../capabilities/bots/index.js";
 import { createShoppingCapability } from "../capabilities/shopping/index.js";
 import { createImagesCapability } from "../capabilities/images/index.js";
+import { createVideoCapability } from "../capabilities/video/index.js";
 import type { Images } from "../ports/images.js";
 import type { EmailPorts } from "../ports/email.js";
 import type { ShoppingPorts } from "../ports/shopping.js";
@@ -40,7 +41,7 @@ import { createWebCapability } from "./web.js";
 export const PRESET_IDS = ["minimal", "full"] as const;
 export type PresetId = (typeof PRESET_IDS)[number];
 
-export type CapabilityId = "web" | "deliverables-lite" | "memory" | "tasks" | "settings" | "research" | "agenda" | "shopping" | "email" | "calendar" | "code" | "browser" | "images" | "vault" | "github" | "bots" | "routines";
+export type CapabilityId = "web" | "deliverables-lite" | "memory" | "tasks" | "settings" | "research" | "agenda" | "shopping" | "email" | "calendar" | "code" | "browser" | "images" | "vault" | "github" | "bots" | "routines" | "video";
 
 export type AgentPreset = {
 	id: PresetId;
@@ -52,7 +53,7 @@ export type AgentPreset = {
 
 export const PRESETS: Readonly<Record<PresetId, AgentPreset>> = Object.freeze({
 	minimal: Object.freeze({ id: "minimal", capabilities: Object.freeze(["web", "deliverables-lite"] as const), workContract: false }),
-	full: Object.freeze({ id: "full", capabilities: Object.freeze(["web", "deliverables-lite", "memory", "tasks", "settings", "research", "agenda", "shopping", "email", "calendar", "browser", "images", "vault", "github", "bots", "routines"] as const), workContract: true }),
+	full: Object.freeze({ id: "full", capabilities: Object.freeze(["web", "deliverables-lite", "memory", "tasks", "settings", "research", "agenda", "shopping", "email", "calendar", "browser", "images", "vault", "github", "bots", "routines", "video"] as const), workContract: true }),
 });
 
 /**
@@ -97,6 +98,8 @@ export type PresetDeps = {
 	bots?: BotsDeps;
 	/** Rotinas (F9 parte 1): ler e controlar as rotinas do produto (as da Biblioteca) do bot do run. Lazy; sem a porta a capacidade não entra. `readOnly` = sem dono: só `routine_list`. */
 	routines?: RoutinesDeps;
+	/** Vídeo (F9): a VM do dono existe neste run (a transcrição roda nela pela porta `Sandbox`, kind `video.transcript`). Lazy; sem isso a capacidade fica em `unavailable`. */
+	video?: boolean;
 };
 
 export function isPresetId(value: unknown): value is PresetId {
@@ -135,6 +138,8 @@ const FACTORIES: Readonly<Record<CapabilityId, CapabilityFactory>> = {
 	bots: (deps) => deps.bots && createBotsCapability(deps.bots),
 	// F9: rotinas do produto (não é a `agenda` do v4); lazy. Sem dono só `routine_list`.
 	routines: (deps) => deps.routines && createRoutinesCapability(deps.routines),
+	// F9: transcrição de vídeo pela VM do dono; lazy. Só lê (vale também sem dono). Sem a VM a capacidade fica em `unavailable`.
+	video: (deps) => (deps.video === true ? createVideoCapability() : undefined),
 };
 
 /**

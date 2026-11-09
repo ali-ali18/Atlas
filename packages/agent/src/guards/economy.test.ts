@@ -11,6 +11,7 @@ import { FakeGithub } from "../testing/github-fakes.js";
 import { createBotsCapability } from "../capabilities/bots/index.js";
 import { FakeBots } from "../testing/bots-fakes.js";
 import { createRoutinesCapability } from "../capabilities/routines/index.js";
+import { createVideoCapability } from "../capabilities/video/index.js";
 import { FakeRoutines } from "../testing/routines-fakes.js";
 import { FakeSecretRequests, FakeVault } from "../testing/vault-fakes.js";
 import { createEmailCapability } from "../capabilities/email/index.js";
@@ -277,6 +278,27 @@ describe("economia: Bom dia", () => {
 		expect((first?.tools ?? []).map((t) => t.name)).not.toContain("routine_list");
 		expect((second?.tools ?? []).map((t) => t.name)).toEqual(expect.arrayContaining(["routine_list", "routine_control", "routine_group"]));
 		expect(JSON.stringify(second?.messages)).toContain("Routine rules");
+	});
+
+	it("a capacidade video é lazy: 'Bom dia' não ganha video_transcript, só uma linha do índice", async () => {
+		const base = await measureGoodMorning();
+		const withVideo = await measureGoodMorning([createVideoCapability()]);
+		expect(withVideo.toolNames).toEqual(base.toolNames);
+		expect(withVideo.toolNames).not.toContain("video_transcript");
+		expect(withVideo.tokens - base.tokens).toBeLessThan(60);
+		expect(JSON.stringify(withVideo.result)).not.toContain("Video rules");
+		expect(withVideo.tokens).toBeLessThanOrEqual(GOOD_MORNING_INPUT_TOKENS_CEILING + 60);
+	});
+
+	it("'resume esse vídeo' carrega a capacidade no passo 1; a tool e as regras só no passo seguinte", async () => {
+		const core = defineCapability({ id: "core", title: "Core", summary: "core tools", core: true, tools: [] });
+		const h = kernelHarness([reply({ calls: [call("c1", "use_capability", { id: "video" })] }), reply({ text: "Pronto." })], { capabilities: [core, createVideoCapability()] });
+		await h.run({ input: { contextSections: [], history: [{ kind: "owner", text: "Resume esse vídeo https://youtu.be/abc" }] } });
+		const [first, second] = h.llm.requests;
+		expect(JSON.stringify(first?.messages)).not.toContain("Video rules");
+		expect((first?.tools ?? []).map((t) => t.name)).not.toContain("video_transcript");
+		expect((second?.tools ?? []).map((t) => t.name)).toContain("video_transcript");
+		expect(JSON.stringify(second?.messages)).toContain("Video rules");
 	});
 
 	it("o caderno é lazy: 'Bom dia' não ganha as tools note_*, só uma linha do índice", async () => {
