@@ -3,6 +3,7 @@
 // adaptador do v4 no worker. Escrita, hooks e identidade do app para escrita continuam no agent-runtime.
 export * from "./client.js";
 export * from "./connection-token.js";
+export * from "./pull-ci.js";
 export * from "./read-ops.js";
 export * from "./app/api.js";
 export * from "./app/compare.js";
