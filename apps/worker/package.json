@@ -19,6 +19,7 @@
     "@workspace/db": "workspace:*",
     "@workspace/files": "workspace:*",
     "@workspace/github": "workspace:*",
+    "@workspace/google": "workspace:*",
     "@workspace/llm": "workspace:*",
     "@workspace/mail": "workspace:*",
     "@workspace/observability": "workspace:*",

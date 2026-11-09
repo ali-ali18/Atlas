@@ -1,11 +1,12 @@
 // Porta `Calendar` do v4 no worker (F7.1) sobre o Google Agenda do dono: o token vem do cofre da conexão `google_calendar`
-// DO DONO DO RUN (renovado por `getFreshAccessToken`), e a chamada usa `googleFetch/googleJson` do conector embutido do v2.
+// DO DONO DO RUN (renovado por `getFreshAccessToken`), e a chamada usa `googleFetch/googleJson` de `@workspace/google`.
 // Escopo: `listConnected(userId)` filtra por dono no db; nunca se usa a conexão de outro dono nem um id vindo do modelo.
 // Segredo: o access token nunca é logado nem volta ao modelo; mensagem de erro passa por `sanitizeErrorMessage`.
 // Escopo OAuth do catálogo: `calendar.readonly` + `calendar.events`; `events` cobre inserir, alterar e apagar evento.
 import { createHash } from "node:crypto";
 import { CalendarNotConnectedError, type Calendar, type CalendarCards, type CalendarEventPatch, type CalendarPorts } from "@workspace/agent";
-import { GoogleApiError, getFreshAccessToken, googleFetch, googleJson, mapGoogleApiError, mcpOAuthClientFor, openSecrets, persistTo, type GoogleApiContext, type GoogleFetchFn } from "@workspace/agent-runtime";
+import { GoogleApiError, getFreshAccessToken, googleFetch, googleJson, mapGoogleApiError, mcpOAuthClientFor, persistTo, type GoogleApiContext, type GoogleFetchFn } from "@workspace/google";
+import { openSecrets } from "@workspace/db/vault-crypto";
 import { listConnectedMcpConnections, loadAgendaSettings, persistConversationCardFromEvent } from "@workspace/db";
 import { sanitizeErrorMessage, type CalendarEventDraft, type CalendarEventView, type ComputerUseEvent } from "@workspace/shared";
 

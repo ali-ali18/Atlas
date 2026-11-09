@@ -25,6 +25,7 @@
     "@workspace/db": "workspace:*",
     "@workspace/files": "workspace:*",
     "@workspace/github": "workspace:*",
+    "@workspace/google": "workspace:*",
     "@workspace/llm": "workspace:*",
     "@workspace/sandbox": "workspace:*",
     "@workspace/search": "workspace:*",
