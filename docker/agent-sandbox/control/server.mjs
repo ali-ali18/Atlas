@@ -1,13 +1,16 @@
 import http from "node:http";
 import { execFile, execFileSync, spawn } from "node:child_process";
 import { promisify } from "node:util";
+import * as fsp from "node:fs/promises";
 import { readFile, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright-core";
 import { createBrowserSession } from "./browser-session.mjs";
 import { attachTabNotice, createTabScope, parseTabHeader, parseTabsRequest, runTabsAction } from "./browser-tabs.mjs";
-import { assertNavigableUrl, createBrowserActions } from "./browser-actions.mjs";
+import { assertNavigableUrl, createBrowserActions, WORKSPACE_DIR } from "./browser-actions.mjs";
+import { resolveAxRef } from "./ax-refs.mjs";
+import { createBrowserV4 } from "./browser-v4.mjs";
 import { collectPageText, normalizeText, paginateText } from "./text-page.mjs";
 import { settleAfterAction } from "./stability.mjs";
 import { compactPlaywrightError } from "./target.mjs";
@@ -155,6 +158,30 @@ const { readPage, findText } = createPageReader({
 	locateRef: refActions.locateRef,
 	observeAction,
 	clickElement: actions.clickElement,
+});
+
+// F8.1 — ações `browser.*` do motor v4 (mapa, partes, busca, carregar mais, arquivo): uma rota só, `POST /browser/v4`.
+const browserV4 = createBrowserV4({
+	withPageRetry,
+	collect: refActions.collect,
+	noteDomRefs: () => noteDomRefs(),
+	browserAct,
+	browserWait,
+	navigate,
+	listTabs: () => browserSession.listTabs(),
+	switchTab: (index) => browserSession.switchTab(index),
+	closeTab: (index) => browserSession.closeMainTab(index),
+	clickElement: actions.clickElement,
+	locateRef: refActions.locateRef,
+	resolveAxLocator: async (page, ref) => {
+		try {
+			return (await resolveAxRef(page, refActions.axStore.tableFor(page), ref)).locator ?? null;
+		} catch {
+			return null;
+		}
+	},
+	workspaceDir: WORKSPACE_DIR,
+	fs: fsp,
 });
 
 function noteDomRefs() {
@@ -416,6 +443,16 @@ const handleControlRequest = async (req, res) => {
 
 		if (req.method === "POST" && req.url === "/browser/wait") {
 			sendJson(res, 200, await browserWait((await readJsonBody(req)) ?? {}));
+			return;
+		}
+
+		if (req.method === "POST" && req.url === "/browser/v4") {
+			const body = (await readJsonBody(req)) ?? {};
+			if (typeof body.kind !== "string") {
+				sendJson(res, 400, { error: "kind required" });
+				return;
+			}
+			sendJson(res, 200, await browserV4(body.kind, body.params));
 			return;
 		}
 
