@@ -238,3 +238,8 @@
 - **08/11/2026 · sessão F7 · reauditoria fechada**
   - **Feito:** N1 a N6 corrigidos, um commit cada (`dca3a881` a `e0f9bff3`); N7 e N8 aceitos. `auditorias/F7.md` fechado.
   - **Próximo passo:** abrir o PR `feat/harness-v4-f7-email-dia` contra `harness/v4` e juntar com a verificação verde.
+
+- **09/11/2026 · sessão F8 · integração das frentes A, B e C**
+  - **Feito:** merges de `wip/f8-a`, `wip/f8-c` e `wip/f8-b` em `feat/harness-v4-f8-navegador-codigo`; adaptador `Sandbox` despacha `card_fill`, `browser.*` e `code.*`; `browser: true` quando a VM existe; `code` opt-in por `policyJson.codeMode` com `applyPolicyPreset`; `rootIsWorkspace` informado pelo adaptador. Verificação: typecheck 18/18, shared 3036, agent 901, agent-runtime 4054, sandbox 214, evals 327, queue 17, ui 123, web 1790, mobile 469, control server 346, worker 838, api 971, db 728 e `*.db.test` da api 5 (Postgres real).
+  - **Próximo passo:** previews, auditoria independente (`auditorias/F8.md`), PR contra `harness/v4`. Faltam a tool/tela para o bot ligar o modo de código, o ok do dono para o `browser-bench` real e a prova ponta a ponta com Docker.
+  - **Dúvidas para o dono:** nenhuma.
