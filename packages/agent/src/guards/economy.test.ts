@@ -3,6 +3,7 @@ import { createCapabilityRegistry, defineCapability } from "../capabilities/inde
 import { createConnectorsCapability } from "../connectors/capability.js";
 import { FakeMcp } from "../connectors/fake-mcp.js";
 import { createDeliverablesCapability } from "../capabilities-builtin/deliverables/index.js";
+import { createBrowserCapability } from "../capabilities/browser/index.js";
 import { createShoppingCapability } from "../capabilities/shopping/index.js";
 import { createEmailCapability } from "../capabilities/email/index.js";
 import { FakeEmail } from "../presets/fake-email.js";
@@ -244,5 +245,28 @@ describe("economia: Bom dia", () => {
 
 	it("o teto é o medido + 15% (o teto só desce: se o núcleo encolher, baixe o medido e o teto no mesmo commit)", () => {
 		expect(GOOD_MORNING_INPUT_TOKENS_CEILING).toBe(Math.ceil(GOOD_MORNING_INPUT_TOKENS_MEASURED * 1.15));
+	});
+});
+
+describe("economia: navegador (F8.1)", () => {
+	it("a capacidade browser é lazy: 'Bom dia' não ganha nenhuma tool browser_*, só uma linha do índice", async () => {
+		const base = await measureGoodMorning();
+		const withBrowser = await measureGoodMorning([createBrowserCapability({ helpers: new FakeHelpers() })]);
+		expect(withBrowser.toolNames).toEqual(base.toolNames);
+		expect(withBrowser.toolNames.some((name) => name.startsWith("browser_"))).toBe(false);
+		expect(withBrowser.tokens - base.tokens).toBeLessThan(60);
+		expect(JSON.stringify(withBrowser.result)).not.toContain("Browser rules");
+		expect(withBrowser.tokens).toBeLessThanOrEqual(GOOD_MORNING_INPUT_TOKENS_CEILING + 60);
+	});
+
+	it("'abre o site X e me diz Y' carrega a capacidade no passo 1 e as regras só então", async () => {
+		const core = defineCapability({ id: "core", title: "Core", summary: "core tools", core: true, tools: [] });
+		const h = kernelHarness([reply({ calls: [call("c1", "use_capability", { id: "browser" })] }), reply({ text: "Pronto." })], { capabilities: [core, createBrowserCapability({ helpers: new FakeHelpers() })] });
+		await h.run({ input: { contextSections: [], history: [{ kind: "owner", text: "Abre o site da loja X e me diz quantas avaliações o produto tem" }] } });
+		const [first, second] = h.llm.requests;
+		expect(JSON.stringify(first?.messages)).not.toContain("Browser rules");
+		expect((first?.tools ?? []).map((t) => t.name)).not.toContain("browser_open");
+		expect((second?.tools ?? []).map((t) => t.name)).toEqual(expect.arrayContaining(["browser_open", "browser_map", "browser_read", "browser_find", "browser_load_more", "browser_act", "browser_digest"]));
+		expect(JSON.stringify(second?.messages)).toContain("Browser rules");
 	});
 });

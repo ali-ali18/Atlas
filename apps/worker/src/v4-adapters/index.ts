@@ -5,6 +5,7 @@ import {
 	PRESETS,
 	createAgendaRunCapability,
 	createBriefCapability,
+	createBrowserCapability,
 	createCalendarCapability,
 	createCapabilityRegistry,
 	createConnectorsCapability,
@@ -164,7 +165,7 @@ export async function buildV4Registry(input: V4RegistryInput): Promise<V4Registr
 		asBrief && agenda && briefPorts
 			? [createAgendaRunCapability(agenda), createBriefCapability({ agenda, calendar: calendarPorts.calendar, notebook: createV4Notebook({ botId, runId: input.runId, deps: deps.notebook }), deliveries: briefPorts.deliveries, ...(briefPorts.tasks && { tasks: briefPorts.tasks }), ...(input.briefEmail && { email: input.briefEmail }), cards: briefPorts.cards })]
 			: asAgendaRun && agenda
-				? [...capabilities.filter((capability) => capability.id !== "agenda" && capability.id !== "shopping" && capability.id !== "calendar" && capability.id !== "email"), createAgendaRunCapability(agenda), createShoppingCapability({ ...shoppingPorts, search, readOnly: true, ...(country && { country }) }), createEmailCapability({ ...emailPorts, readOnly: true }), createCalendarCapability({ calendar: calendarPorts.calendar, readOnly: true })]
+				? [...capabilities.filter((capability) => capability.id !== "agenda" && capability.id !== "shopping" && capability.id !== "calendar" && capability.id !== "email" && capability.id !== "browser"), createAgendaRunCapability(agenda), createShoppingCapability({ ...shoppingPorts, search, readOnly: true, ...(country && { country }) }), createEmailCapability({ ...emailPorts, readOnly: true }), createCalendarCapability({ calendar: calendarPorts.calendar, readOnly: true }), createBrowserCapability({ readOnly: true })]
 				: capabilities;
 	const registry = !asAgendaRun && !connectors.capability ? base.registry : createCapabilityRegistry(forRun);
 	if (base.unavailable.length > 0) log(`[engine-v4] run=${input.runId} capacidades sem porta: ${base.unavailable.join(", ")}`);
