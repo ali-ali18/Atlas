@@ -8,7 +8,10 @@
 // já resolvida e o `manager` para falar com o control server; o adaptador cuida de escopo, sessão, cancelamento e `release`.
 import type { Sandbox, SandboxAction, SandboxResult } from "@workspace/agent";
 import { createSandboxManager, loadSandboxConfig, type SandboxManager, type SandboxRuntimeConfig } from "@workspace/sandbox";
+import { browserKindHandlers } from "./sandbox-browser.js";
 import { cardFillHandler } from "./sandbox-card-fill.js";
+import type { CodeActionHandler } from "./code-actions.js";
+import { realCodeActionHandler } from "./code-actions-real.js";
 
 export type SandboxKindContext = {
 	/** Dono do run (a sessão): o escopo de tudo. */
@@ -21,9 +24,13 @@ export type SandboxKindContext = {
 };
 export type SandboxKindHandler = (ctx: SandboxKindContext, params: unknown) => Promise<SandboxResult>;
 
-/** Um `kind` por linha. `card_fill` é desta frente; `browser_*` e `code_*` entram nas frentes B e C. */
+/**
+ * Um `kind` por linha. `card_fill` (F8.0) e `browser.*` (F8.1) usam a VM da conversa. `code.*` (F8.2) NÃO passa por aqui: a
+ * sessão de código é de outro ambiente (dev sandbox, escopo usuário + sessão), então tem o seu tratador (`input.code`).
+ */
 export const defaultSandboxHandlers: Readonly<Record<string, SandboxKindHandler>> = {
 	card_fill: cardFillHandler,
+	...browserKindHandlers,
 };
 
 export type V4SandboxDeps = {
@@ -35,7 +42,7 @@ export type V4SandboxScope = { userId: string; runId: string; conversationId: st
 
 const UNAVAILABLE = "The computer (virtual machine and browser) could not be started right now. Tell the owner plainly, and offer an alternative that does not need it.";
 
-export function createV4Sandbox(input: { scope: V4SandboxScope; deps: V4SandboxDeps; handlers?: Record<string, SandboxKindHandler>; log?: (message: string) => void }): Sandbox & { /** Teste e telemetria. */ readonly activeSessionId: () => string | null } {
+export function createV4Sandbox(input: { scope: V4SandboxScope; /** `null` = sem VM de navegador (só `code.*`, se houver). */ deps: V4SandboxDeps | null; /** Tratador de `code.*` (dev sandbox). Sem ele, `code.*` não é suportado. */ code?: CodeActionHandler; handlers?: Record<string, SandboxKindHandler>; log?: (message: string) => void }): Sandbox & { /** Teste e telemetria. */ readonly activeSessionId: () => string | null } {
 	const { scope } = input;
 	const handlers = { ...defaultSandboxHandlers, ...input.handlers };
 	const log = input.log ?? (() => undefined);
@@ -44,6 +51,7 @@ export function createV4Sandbox(input: { scope: V4SandboxScope; deps: V4SandboxD
 	let resolved: string | null = null;
 
 	const resolveSession = (signal?: AbortSignal) => {
+		if (!input.deps) return Promise.reject(new Error("browser VM disabled"));
 		session ??= input.deps
 			.createManager(scope.userId, signal)
 			.resolveSession(scope.conversationId ?? undefined)
@@ -63,6 +71,8 @@ export function createV4Sandbox(input: { scope: V4SandboxScope; deps: V4SandboxD
 		activeSessionId: () => resolved,
 		async run(userId: string, action: SandboxAction, signal?: AbortSignal): Promise<SandboxResult> {
 			if (userId !== scope.userId) return { ok: false, error: "That computer belongs to another owner, so nothing was done." };
+			// `code.*` vai para a sessão de código do dono (nunca sobe a VM do navegador à toa).
+			if (input.code?.handles(action.kind)) return input.code.run(userId, action, signal);
 			const handler = handlers[action.kind];
 			if (!handler) return { ok: false, error: `The computer does not support the action "${String(action.kind).slice(0, 40)}" in this version. Tell the owner plainly and offer an alternative.` };
 			let ready: { sessionId: string };
@@ -73,7 +83,7 @@ export function createV4Sandbox(input: { scope: V4SandboxScope; deps: V4SandboxD
 				log(`[engine-v4] run=${scope.runId} sandbox indisponível: ${error instanceof Error ? error.name : "erro"}`);
 				return { ok: false, error: UNAVAILABLE };
 			}
-			return handler({ userId: scope.userId, runId: scope.runId, sessionId: ready.sessionId, manager: input.deps.createManager(scope.userId, signal), ...(signal && { signal }) }, action.params);
+			return handler({ userId: scope.userId, runId: scope.runId, sessionId: ready.sessionId, manager: input.deps!.createManager(scope.userId, signal), ...(signal && { signal }) }, action.params);
 		},
 		async release(userId: string, runId: string): Promise<void> {
 			if (userId !== scope.userId || runId !== scope.runId || !session) return;
@@ -84,7 +94,7 @@ export function createV4Sandbox(input: { scope: V4SandboxScope; deps: V4SandboxD
 				const { sessionId, ephemeral } = await pending;
 				// A VM da conversa fica ligada (o reaper e o guarda de memória cuidam dela; o dono pode estar no viewer concluindo
 				// um 3DS). Só a VM sem conversa, criada para este run, é destruída.
-				if (ephemeral) await input.deps.createManager(scope.userId).destroySession(sessionId);
+				if (ephemeral) await input.deps?.createManager(scope.userId).destroySession(sessionId);
 			} catch {
 				// liberar é melhor esforço
 			}
@@ -99,8 +109,18 @@ export function realV4SandboxDeps(env: NodeJS.ProcessEnv = process.env): V4Sandb
 	return { createManager: (userId, signal) => createSandboxManager(config, userId, signal ? { signal } : {}) };
 }
 
-/** Porta `Sandbox` do run, ou `undefined` com a VM desligada (o motor então usa `unavailableSandbox`, com o erro honesto). Não sobe a VM: ela só nasce na primeira ação. */
-export function createRunSandbox(input: { scope: V4SandboxScope; env?: NodeJS.ProcessEnv; log?: (message: string) => void }): ReturnType<typeof createV4Sandbox> | undefined {
+/** O que o run tem de verdade: a VM do navegador e/ou o ambiente de código. Decide `browser`/`code` no preset. */
+export type RunSandboxAvailability = { vm: boolean; code: boolean };
+
+/**
+ * Porta `Sandbox` do run, ou `undefined` sem nenhuma das duas (o motor então usa `unavailableSandbox`, com o erro honesto).
+ * Não sobe nada: a VM só nasce na primeira ação. `code` só é montado quando o chamador pede (o bot ligou o modo de código) E o
+ * ambiente de código está configurado (`DEV_SANDBOX_ENABLED`).
+ */
+export function createRunSandbox(input: { scope: V4SandboxScope; env?: NodeJS.ProcessEnv; wantCode?: boolean; log?: (message: string) => void }): (ReturnType<typeof createV4Sandbox> & { readonly availability: RunSandboxAvailability }) | undefined {
 	const deps = realV4SandboxDeps(input.env);
-	return deps ? createV4Sandbox({ scope: input.scope, deps, ...(input.log && { log: input.log }) }) : undefined;
+	const code = input.wantCode ? realCodeActionHandler({ conversationId: input.scope.conversationId, ...(input.env && { env: input.env }) }) : null;
+	if (!deps && !code) return undefined;
+	const sandbox = createV4Sandbox({ scope: input.scope, deps, ...(code && { code }), ...(input.log && { log: input.log }) });
+	return Object.assign(sandbox, { availability: { vm: deps !== null, code: code !== null } });
 }

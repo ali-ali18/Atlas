@@ -2,8 +2,9 @@
 // ambiente pelo provedor Docker de `@workspace/sandbox` e clone com o token do GitHub do dono. Separado de `code-actions.ts` para o
 // tratador por kind ser testado sem banco. O integrador chama `realCodeActionDeps({ provider, getGithubToken, conversationId })`.
 import { createDevSession, getDevSession, updateDevSession, type DevSessionRecord } from "@workspace/db";
-import { createDevClient, DevSandboxError, type DevClient, type DevSandboxProvider } from "@workspace/sandbox";
-import type { CodeActionDeps, CodeSession } from "./code-actions.js";
+import { getGithubToken } from "@workspace/agent-runtime";
+import { createDevClient, createDockerDevProvider, DevSandboxError, loadDevSandboxConfig, type DevClient, type DevSandboxProvider } from "@workspace/sandbox";
+import { createCodeActionHandler, type CodeActionDeps, type CodeActionHandler, type CodeSession } from "./code-actions.js";
 
 export type GithubTokenResult = { token: string } | { error: string };
 
@@ -80,4 +81,33 @@ async function detectTestCommand(client: DevClient, dir: string): Promise<string
 		if (error instanceof DevSandboxError || error instanceof SyntaxError) return undefined;
 		throw error;
 	}
+}
+
+let cachedProvider: { key: string; provider: DevSandboxProvider | null } | undefined;
+
+/** Provedor Docker do ambiente de código, ou `null` com `DEV_SANDBOX_ENABLED` desligado. Um por processo (o config vem do ambiente). */
+function devProvider(env: NodeJS.ProcessEnv): DevSandboxProvider | null {
+	const config = loadDevSandboxConfig(env);
+	const key = JSON.stringify([config.enabled, config.connectMode]);
+	if (cachedProvider?.key !== key) cachedProvider = { key, provider: config.enabled ? createDockerDevProvider(config) : null };
+	return cachedProvider.provider;
+}
+
+/**
+ * Tratador de `code.*` de produção para a conversa do run, ou `null` com o ambiente de código desligado. A sessão de código é do
+ * dono (`{ id, userId }`) e nasce amarrada à conversa; o token do GitHub é o da instalação que cobre o repo, ou o pessoal.
+ */
+export function realCodeActionHandler(input: { conversationId: string | null; env?: NodeJS.ProcessEnv; provider?: DevSandboxProvider | null }): CodeActionHandler | null {
+	const provider = input.provider !== undefined ? input.provider : devProvider(input.env ?? process.env);
+	if (!provider) return null;
+	return createCodeActionHandler(
+		realCodeActionDeps({
+			provider,
+			conversationId: input.conversationId,
+			getGithubToken: async (userId, repo) => {
+				const result = await getGithubToken(userId, repo ? { repo } : {});
+				return "token" in result ? { token: result.token } : { error: result.error };
+			},
+		}),
+	);
 }
