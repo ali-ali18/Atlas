@@ -29,6 +29,12 @@ const CODE_MODE_MEANING: Readonly<Record<CodeMode, string>> = {
 	plan: "plan (the bot can look at a repository and plan, but changes nothing)",
 	build: "build (the bot can edit files and run permitted commands)",
 };
+/** Texto que o dono vê no cartão de aprovação antes de ligar o modo (pt-BR, sem o nome interno do modo). */
+const CODE_MODE_RISK_TARGET: Readonly<Record<CodeMode, string>> = {
+	off: "Desligar o modo de código",
+	plan: "Modo de código: só ler e planejar (não altera arquivos)",
+	build: "Modo de código: editar arquivos e rodar comandos permitidos num repositório",
+};
 /** Texto que o dono vê no cartão de resultado (pt-BR). */
 const CODE_MODE_RECEIPT: Readonly<Record<CodeMode, string>> = {
 	off: "Modo de código desligado",
@@ -116,7 +122,7 @@ export function createSettingsCapability(settings: Settings) {
 		effect: "write_internal",
 		// Liga poder de editar e rodar comando: o dono confirma, e rodada sem dono presente não consegue aprovar (fica negada).
 		confirm: "always",
-		riskFacts: ({ mode }) => ({ target: `code mode: ${mode}` }),
+		riskFacts: ({ mode }) => ({ target: CODE_MODE_RISK_TARGET[mode] }),
 		async execute({ mode }, ctx) {
 			const current = await codeMode.get(ctx.ownerId);
 			if (current === mode) return { ok: true, summary: `Code mode was already ${CODE_MODE_MEANING[mode]}. Nothing changed.` };

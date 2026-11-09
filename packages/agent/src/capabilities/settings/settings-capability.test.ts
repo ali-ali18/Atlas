@@ -138,6 +138,14 @@ describe("update_bot_profile + confirm always", () => {
 			expect(cap.summary).toContain("code mode");
 		});
 
+		it("o cartão de aprovação do modo de código fala pt-BR simples, sem nome interno do modo", () => {
+			const tool = createSettingsCapability(withCode()).tools.find((x) => x.name === "settings_set_code_mode")!;
+			expect(tool.riskFactsFor({ mode: "off" })).toEqual({ target: "Desligar o modo de código" });
+			expect(tool.riskFactsFor({ mode: "plan" })).toEqual({ target: "Modo de código: só ler e planejar (não altera arquivos)" });
+			expect(tool.riskFactsFor({ mode: "build" })).toEqual({ target: "Modo de código: editar arquivos e rodar comandos permitidos num repositório" });
+			for (const mode of ["off", "plan", "build"]) expect(JSON.stringify(tool.riskFactsFor({ mode }))).not.toMatch(/code mode|\bbuild\b|\bplan\b/);
+		});
+
 		it("o dono liga: passa pela aprovação, grava só depois e mostra o resultado em pt-BR", async () => {
 			const settings = withCode();
 			const t = toolsOf(settings);
