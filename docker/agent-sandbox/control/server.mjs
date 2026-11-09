@@ -17,6 +17,8 @@ import { createPageReader } from "./reader.mjs";
 import { parseScreenshotOptions, scrotPlan } from "./screenshot-options.mjs";
 import { withMarks } from "./marks.mjs";
 import { HttpError, readJsonBody } from "./request-body.mjs";
+import { createCardFill } from "./card-fill.mjs";
+import { createPlaywrightDriver } from "./card-fill-driver.mjs";
 import { createEgressGuard, installEgressGuard } from "./egress-guard.mjs";
 import { countUserProcesses, countViewerClients, createActivityTracker } from "./activity.mjs";
 
@@ -258,6 +260,9 @@ const handleRequest = async (req, res) => {
 	}
 };
 
+// Compras cujo "pagar" já foi clicado (trava de repetição do card_fill; vive enquanto o control server vive).
+const cardFillSubmitted = new Map();
+
 const READ_ONLY_POSTS = new Set(["/browser/read", "/browser/find", "/browser/snapshot"]);
 
 const handleControlRequest = async (req, res) => {
@@ -429,6 +434,20 @@ const handleControlRequest = async (req, res) => {
 
 		if (req.method === "GET" && req.url === "/browser/links") {
 			sendJson(res, 200, await browserLinks());
+			return;
+		}
+
+		// Pagamento (F8.0): o corpo leva número, CVV e titular. Nada dele é logado nem devolvido; `fill` nunca lança.
+		if (req.method === "POST" && req.url === "/card-fill") {
+			const body = await readJsonBody(req);
+			let page;
+			try {
+				page = await getPage();
+			} catch {
+				sendJson(res, 200, { state: "failed", reason: "Nothing was paid: the browser is not available." });
+				return;
+			}
+			sendJson(res, 200, await createCardFill({ driver: createPlaywrightDriver(page), submitted: cardFillSubmitted }).fill(body));
 			return;
 		}
 
