@@ -19,7 +19,7 @@ export function fakeAdapterDeps(options: { connections?: Connected; listFails?: 
 		deliverables: { persistArtifact: never, nextVersion: never, countRunFiles: never, loadArtifact: never, createPage: never, render: never, preview: never, persistCard: never } as unknown as V4AdapterDeps["deliverables"],
 		memory: { snapshot: never, add: never, getById: never, replaceById: never, removeById: never } as unknown as V4AdapterDeps["memory"],
 		notebook: { create: never, get: never, search: never, update: never, remove: never, listPinned: never } as unknown as V4AdapterDeps["notebook"],
-		settings: { getBot: never, update: never } as unknown as V4AdapterDeps["settings"],
+		settings: { getBot: never, update: never, getPolicy: never, setCodeMode: never } as unknown as V4AdapterDeps["settings"],
 		mcp: {
 			listConnected: async () => {
 				if (options.listFails) throw new Error("db fora do ar com token ghp_abcdefghijklmnopqrstuvwxyz0123456789");

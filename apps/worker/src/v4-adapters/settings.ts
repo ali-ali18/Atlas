@@ -5,26 +5,43 @@
 // etapa não cria migration. Ler devolve `{}` (todo papel no padrão) e pedir uma troca falha com mensagem clara, em vez de
 // aceitar e não guardar (tool honesta, `60-agente.md`). Quando houver o campo, só este arquivo muda.
 import type { BotSettingsPatch, BotSettingsView, Settings } from "@workspace/agent";
-import { getAgentV4BotSettings, updateBot } from "@workspace/db";
-import { isBotLanguageSetting, type UpdateBotInput } from "@workspace/shared";
+import { getAgentV4BotSettings, getBotPolicy, setBotCodeMode, updateBot } from "@workspace/db";
+import { isBotLanguageSetting, readCodeMode, type CodeMode, type UpdateBotInput } from "@workspace/shared";
 
 export type V4SettingsDeps = {
 	getBot: typeof getAgentV4BotSettings;
 	update: (botId: string, patch: UpdateBotInput, ownerId: string) => Promise<unknown>;
+	/** Política bruta do bot do dono (`null` se não é dele ou não tem). */
+	getPolicy: typeof getBotPolicy;
+	/** Grava só a chave do modo de código, preservando o resto da política. `false` = o bot não é do dono. */
+	setCodeMode: typeof setBotCodeMode;
 };
 
-export const realV4SettingsDeps: V4SettingsDeps = { getBot: getAgentV4BotSettings, update: (botId, patch, ownerId) => updateBot(botId, patch, ownerId) };
+export const realV4SettingsDeps: V4SettingsDeps = { getBot: getAgentV4BotSettings, update: (botId, patch, ownerId) => updateBot(botId, patch, ownerId), getPolicy: getBotPolicy, setCodeMode: setBotCodeMode };
 
 export const ROLE_MODELS_UNAVAILABLE = "Choosing a model per role is not available yet. Tell the owner plainly; the bot keeps using its current models.";
 
-export function createV4Settings(input: { botId: string; deps?: V4SettingsDeps }): Settings {
+export function createV4Settings(input: { botId: string; deps?: V4SettingsDeps; codeEnvironment?: boolean }): Settings {
 	const deps = input.deps ?? realV4SettingsDeps;
 	const view = async (userId: string): Promise<BotSettingsView> => {
 		const bot = await deps.getBot(userId, input.botId);
 		if (!bot) throw new Error("Bot not found for this owner.");
 		return { name: bot.name, snippet: bot.snippet, description: bot.description ?? "", language: isBotLanguageSetting(bot.language) ? bot.language : "pt-BR", notify: bot.notify, roleModels: {} };
 	};
+	const codeMode = {
+		environmentAvailable: input.codeEnvironment === true,
+		async get(userId: string): Promise<CodeMode> {
+			await view(userId); // bot de outro dono = mesmo erro de inexistente
+			return readCodeMode(await deps.getPolicy(input.botId, userId));
+		},
+		async set(userId: string, mode: CodeMode): Promise<CodeMode> {
+			await view(userId);
+			if (!(await deps.setCodeMode(input.botId, userId, mode))) throw new Error("Bot not found for this owner.");
+			return readCodeMode(await deps.getPolicy(input.botId, userId));
+		},
+	};
 	return {
+		codeMode,
 		// Sem onde guardar: a capacidade não registra `set_role_model` e `settings_get` não lista papéis.
 		supportsRoleModels: false,
 		get: view,

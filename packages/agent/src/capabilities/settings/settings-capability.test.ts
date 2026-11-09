@@ -3,6 +3,7 @@ import { RunProvenance } from "../../contract/provenance.js";
 import { createExecutor } from "../../contract/executor.js";
 import { FakeSettings } from "../../presets/fakes.js";
 import { fakePorts, sha256 } from "../../testing/fake-ports.js";
+import { call, kernelHarness, reply } from "../../testing/kernel-fakes.js";
 import type { Tool } from "../../tools/define-tool.js";
 import type { ToolContext } from "../../tools/types.js";
 import { createSettingsCapability } from "./settings-capability.js";
@@ -121,5 +122,77 @@ describe("update_bot_profile + confirm always", () => {
 		expect(tool.confirm).toBe("always");
 		const out = await executor.executeCall({ callId: "a", step: 0, tool, args: { reason: "owner_asked", name: "Zé" } });
 		expect(out.status).toBe("pending_approval");
+	});
+
+	describe("modo de código (agent-first)", () => {
+		const withCode = (available = true) => new FakeSettings(undefined, { codeMode: { environmentAvailable: available } });
+
+		it("a tool só existe quando o adaptador guarda o modo; é write_internal com confirmação sempre", () => {
+			expect(createSettingsCapability(new FakeSettings()).tools.map((x) => x.name)).not.toContain("settings_set_code_mode");
+			const cap = createSettingsCapability(withCode());
+			const tool = cap.tools.find((x) => x.name === "settings_set_code_mode")!;
+			expect(tool).toMatchObject({ effect: "write_internal", confirm: "always" });
+			expect(tool.description.length).toBeLessThan(700);
+			expect(tool.description).toContain("only when the owner asks");
+			expect(tool.description).toContain("Do not use it to work on code");
+			expect(cap.summary).toContain("code mode");
+		});
+
+		it("o dono liga: passa pela aprovação, grava só depois e mostra o resultado em pt-BR", async () => {
+			const settings = withCode();
+			const t = toolsOf(settings);
+			const { ports } = fakePorts();
+			const executor = createExecutor({ runId: "run-1", ownerId: "o1", ports, hash: sha256, policy: { surface: "chat", ownerPresent: true, autonomy: "autonomous", rules: [] }, provenance: new RunProvenance() });
+			const pending = await executor.executeCall({ callId: "c1", step: 1, tool: t.settings_set_code_mode!, args: { mode: "build" } });
+			expect(pending.status).toBe("pending_approval");
+			expect(settings.codeModes.get("o1")).toBeUndefined();
+			const run = await t.settings_set_code_mode!.run({ mode: "build" }, ctx());
+			expect(run.ok && run.receipt?.what).toBe("Modo de código: construir (edita arquivos e roda comandos permitidos)");
+			expect(run.ok && run.summary).toContain("applies from the next message");
+			expect(settings.codeModes.get("o1")).toBe("build");
+			const off = await t.settings_set_code_mode!.run({ mode: "off" }, ctx());
+			expect(off.ok && off.receipt?.what).toBe("Modo de código desligado");
+			expect(settings.codeModes.get("o1")).toBe("off");
+		});
+
+		it("já no modo pedido: não grava nem mostra recibo; ambiente de código ausente é dito de forma honesta", async () => {
+			const settings = withCode(false);
+			const t = toolsOf(settings);
+			const same = await t.settings_set_code_mode!.run({ mode: "off" }, ctx());
+			expect(same.ok && same.summary).toContain("already");
+			expect(same.ok && same.receipt).toBeUndefined();
+			const on = await t.settings_set_code_mode!.run({ mode: "plan" }, ctx());
+			expect(on.ok && on.summary).toContain("code environment is not available");
+		});
+
+		it("valor fora de off|plan|build é recusado pelo esquema; o dono vem do run, nunca dos argumentos", async () => {
+			const settings = withCode();
+			const t = toolsOf(settings);
+			expect((await t.settings_set_code_mode!.run({ mode: "root" }, ctx())).ok).toBe(false);
+			expect((await t.settings_set_code_mode!.run({ mode: "plan", ownerId: "o2" }, ctx("o1"))).ok).toBe(false);
+			expect(settings.codeModes.size).toBe(0);
+			await t.settings_set_code_mode!.run({ mode: "plan" }, ctx("o1"));
+			expect([...settings.codeModes.keys()]).toEqual(["o1"]);
+		});
+
+		it("economia: 'Bom dia' não carrega a tool; 'liga o modo de código' carrega no passo 1 (use_capability settings)", async () => {
+			const cap = createSettingsCapability(withCode());
+			const bomDia = kernelHarness([reply({ text: "Bom dia!" })], { capabilities: [cap] });
+			await bomDia.run({ input: { contextSections: [], history: [{ kind: "owner", text: "Bom dia" }] } });
+			const first = (bomDia.llm.requests[0]!.tools ?? []).map((x) => x.name);
+			expect(first).not.toContain("settings_set_code_mode");
+			expect(JSON.stringify(bomDia.llm.requests[0]!.messages)).toContain("code mode");
+			const liga = kernelHarness([reply({ calls: [call("u", "use_capability", { id: "settings" })] }), reply({ text: "ok" })], { capabilities: [cap] });
+			await liga.run({ input: { contextSections: [], history: [{ kind: "owner", text: "liga o modo de código" }] } });
+			expect((liga.llm.requests[0]!.tools ?? []).map((x) => x.name)).toContain("use_capability");
+			expect((liga.llm.requests[1]!.tools ?? []).map((x) => x.name)).toContain("settings_set_code_mode");
+		});
+
+		it("settings_get mostra o modo", async () => {
+			const settings = withCode();
+			await settings.codeMode!.set("o1", "plan");
+			const out = await toolsOf(settings).settings_get!.run({}, ctx());
+			expect(out.ok && out.summary).toContain("Code mode: plan (");
+		});
 	});
 });

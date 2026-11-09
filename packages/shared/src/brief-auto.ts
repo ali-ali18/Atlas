@@ -7,6 +7,7 @@
 import { formatClockMinutes, isValidTimeZone, localParts, parseClockMinutes, DEFAULT_PROACTIVE_TIMEZONE } from "./proactive.js";
 import { SOURCE_CATEGORY_LABELS, type SourceCategory } from "./source-category.js";
 import type { BriefSource } from "./daily-brief.js";
+import { CODE_MODE_POLICY_KEY } from "./code-mode.js";
 import { LEARNED_RULES_KEY } from "./learned-rules.js";
 import { SLEEP_POLICY_KEY } from "./sleep.js";
 
@@ -32,7 +33,7 @@ export const BRIEF_SERVER_POLICY_KEYS = [BRIEF_OPT_OUT_KEY, BRIEF_NOTICE_SHOWN_K
 export function mergeServerPolicyKeys(incoming: unknown, current: unknown): Record<string, unknown> | null {
 	const isObject = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
 	const result: Record<string, unknown> = isObject(incoming) ? { ...incoming } : {};
-	const kept = [...BRIEF_SERVER_POLICY_KEYS, LEARNED_RULES_KEY];
+	const kept = [...BRIEF_SERVER_POLICY_KEYS, LEARNED_RULES_KEY, CODE_MODE_POLICY_KEY];
 	for (const key of kept) delete result[key];
 	if (typeof result[SLEEP_POLICY_KEY] !== "boolean") delete result[SLEEP_POLICY_KEY];
 	if (isObject(current)) {

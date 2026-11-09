@@ -97,6 +97,8 @@ export type V4RegistryInput = {
 	code?: CodeDeps;
 	/** O bot ligou o modo de código (`policyJson.codeMode`). Se ligou e `code` não veio, o ambiente de código está desligado: entra em `unavailable`. */
 	codeRequested?: boolean;
+	/** O ambiente de código existe neste servidor (dev sandbox). Serve para `settings_set_code_mode` ser honesta ao ligar sem ele. */
+	codeEnvironment?: boolean;
 };
 
 export type V4RegistrySetup = {
@@ -134,7 +136,7 @@ export async function buildV4Registry(input: V4RegistryInput): Promise<V4Registr
 		notebook: createV4Notebook({ botId, runId: input.runId, deps: deps.notebook }),
 		taskLists: createNoteTaskListStore(input.notes),
 		// Configurações são do bot do run: sem bot não há o que configurar.
-		...(botId && { settings: createV4Settings({ botId, deps: deps.settings }) }),
+		...(botId && { settings: createV4Settings({ botId, deps: deps.settings, codeEnvironment: input.codeEnvironment === true }) }),
 		// Compras (F6): a compra gravada cria o vigia de entrega pela agenda do preset (por isso só entra com bot).
 		shopping: shoppingPorts,
 		// E-mail (F7.1): Gmail do dono e caixa do bot; as contas são resolvidas na chamada (nenhuma leitura ao montar).

@@ -496,6 +496,7 @@ export async function runEngineV4(input: RunEngineV4Input): Promise<V4EngineResu
 				...(input.browser && { browser: true }),
 				...(codeOn && { code: codeMode === "plan" ? { readOnly: true } : {} }),
 				...(codeMode !== "off" && { codeRequested: true }),
+				...(input.codeAvailable === true && { codeEnvironment: true }),
 			});
 	const registry = input.registry ?? built!.registry;
 	motherRegistry = registry;
