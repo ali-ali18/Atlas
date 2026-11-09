@@ -213,3 +213,15 @@ test("código (F8.2) é opt-in: sem a chave não entra nem vira 'unavailable'; p
 	assert.deepEqual(noEnv.unavailable, ["code"]);
 	assert.match(logs.join("\n"), /capacidades sem porta: code/);
 });
+
+test("browser só lê quando não há dono presente (rotina, subagente, bot a bot), não só na agenda", async () => {
+	const toolsOf = (setup: Awaited<ReturnType<typeof buildV4Registry>>) => setup.registry.capabilities.find((c) => c.id === "browser")?.tools.map((t) => t.name) ?? [];
+	const attended = await buildV4Registry({ ...base, botId: "bot-1", deps: fakeAdapterDeps() });
+	assert.ok(toolsOf(attended).includes("browser_act"));
+	const unattended = await buildV4Registry({ ...base, unattended: true, botId: "bot-1", deps: fakeAdapterDeps() });
+	const names = toolsOf(unattended);
+	assert.ok(names.includes("browser_open") && names.includes("browser_load_more") && names.includes("browser_digest"));
+	assert.equal(names.includes("browser_act"), false);
+	assert.equal(names.includes("browser_tabs"), false);
+	assert.match(unattended.stableSystem, /- browser:/);
+});

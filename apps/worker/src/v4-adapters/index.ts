@@ -178,7 +178,11 @@ export async function buildV4Registry(input: V4RegistryInput): Promise<V4Registr
 			: asAgendaRun && agenda
 				? [...capabilities.filter((capability) => capability.id !== "agenda" && capability.id !== "shopping" && capability.id !== "calendar" && capability.id !== "email" && capability.id !== "browser"), createAgendaRunCapability(agenda), createShoppingCapability({ ...shoppingPorts, search, readOnly: true, ...(country && { country }) }), createEmailCapability({ ...emailPorts, readOnly: true }), createCalendarCapability({ calendar: calendarPorts.calendar, readOnly: true }), createBrowserCapability({ readOnly: true })]
 				: capabilities;
-	const registry = !asAgendaRun && !connectors.capability ? base.registry : createCapabilityRegistry(forRun);
+	// Sem dono presente (rotina, subagente, bot a bot, agenda) o navegador só lê: nada a enviar e ninguém para confirmar. O run de
+	// agenda já trocou o `browser` acima; os demais sem dono trocam aqui (mantém o `browser_digest` quando há ajudantes).
+	const readOnlyBrowser = input.unattended && !asAgendaRun && forRun.some((capability) => capability.id === "browser");
+	const finalCaps = readOnlyBrowser ? forRun.map((capability) => (capability.id === "browser" ? createBrowserCapability({ readOnly: true, ...(input.makeHelpers && { helpers: input.makeHelpers({ search }) }) }) : capability)) : forRun;
+	const registry = !asAgendaRun && !connectors.capability && !readOnlyBrowser ? base.registry : createCapabilityRegistry(finalCaps);
 	// `browser` fica em `unavailable` sem a VM (SANDBOX_ENABLED desligado); `code` é opt-in e só aparece aqui se o bot ligou e o ambiente não existe.
 	const unavailable: CapabilityId[] = [...base.unavailable, ...(input.codeRequested && !input.code ? (['code'] as const) : [])];
 	if (unavailable.length > 0) log(`[engine-v4] run=${input.runId} capacidades sem porta: ${unavailable.join(", ")}`);

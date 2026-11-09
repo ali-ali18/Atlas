@@ -27,7 +27,10 @@ const SPA_FORM = `<!doctype html><html><head><title>Spa</title></head><body><mai
 <form id="f"><label>Email <input name="email" type="text"></label><button id="go">Enviar</button><button type="button" id="plain" onclick="document.title='plain'">Cancelar</button></form>
 <div role="button" tabindex="0" id="div" onclick="document.title='div'">Salvar</div>
 </main><script>document.getElementById("f").addEventListener("submit", (e) => { e.preventDefault(); document.title = "sent"; });</script></body></html>`;
-const fixtures = await launchFixtureBrowser({ "/checkout": CHECKOUT, "/spa": SPA, "/spaform": SPA_FORM });
+const MORE_FORM = `<!doctype html><html><body><main><h1>Lista</h1>
+<ul id="l">${Array.from({ length: 6 }, (_, i) => `<li class="c"><span>Item numero ${i + 1} com texto suficiente para contar</span></li>`).join("")}</ul>
+<form action="/post" method="post"><button type="submit" id="m" onclick="document.title='enviado'">Show more comments</button></form></main></body></html>`;
+const fixtures = await launchFixtureBrowser({ "/checkout": CHECKOUT, "/spa": SPA, "/spaform": SPA_FORM, "/moreform": MORE_FORM });
 after(async () => {
 	await fixtures?.close();
 });
@@ -161,4 +164,19 @@ test("form de SPA sem action: clique no envio e Enter no campo exigem intent sub
 	assert.equal(plain.ok, true, "type=button não é envio estrutural");
 	const sent = await handle("browser.act", { ref: Enviar, action: "click", intent: "submit" });
 	assert.equal(sent.ok, true);
+});
+
+test("carregar mais nunca clica num botão de formulário, mesmo com o texto de 'mostrar mais'", { skip }, async () => {
+	const page = await fixtures.newPage();
+	await page.goto(`${fixtures.base}/moreform`);
+	const actions = createBrowserActions({ getPage: async () => page });
+	const refs = createRefActions({ withPageRetry: actions.withPageRetry, clickElement: actions.clickElement });
+	actions.setObserver(refs.observeAction);
+	const handle = createBrowserV4({ withPageRetry: actions.withPageRetry, collect: refs.collect, noteDomRefs: () => refs.axStore.setDom(page), browserAct: refs.browserAct, browserWait: refs.browserWait, navigate: actions.navigate, listTabs: async () => [], switchTab: async () => {}, closeTab: async () => {}, clickElement: actions.clickElement, locateRef: refs.locateRef, workspaceDir: await mkdtemp(join(tmpdir(), "atlas-v4-more-")), fs: fsp });
+	const map = await handle("browser.map", {});
+	const list = map.data.sections.find((s) => s.kind === "list");
+	assert.ok(list);
+	assert.equal(list.canLoadMore, false, "o botão de formulário não vira 'carregar mais'");
+	await handle("browser.load_more", { section: list.id, times: 1 });
+	assert.equal(await page.title(), "", "o botão do formulário não foi clicado");
 });

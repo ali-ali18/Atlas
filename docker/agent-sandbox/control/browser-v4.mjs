@@ -149,7 +149,9 @@ export function createBrowserV4({ withPageRetry, collect, noteDomRefs = () => {}
 		const before = (await inPage(page, "count", { id })).total;
 		const more = page.locator(`[data-atlas-more="${id}"]`).first();
 		let method = "scroll";
-		if ((await more.count()) > 0 && (await more.isVisible().catch(() => false))) {
+		// Só clica no controle que é navegação de leitura (fora de <form>, sem envio): defesa extra ao filtro do mapa.
+		const readOnlyControl = (await more.count()) > 0 && (await more.evaluate((el) => !el.closest("form") && el.type !== "submit" && !el.hasAttribute("formaction")).catch(() => false));
+		if (readOnlyControl && (await more.isVisible().catch(() => false))) {
 			method = "button";
 			await more.scrollIntoViewIfNeeded({ timeout: 3000 }).catch(() => {});
 			if (clickElement) await clickElement(page, more, { label: "load more" });

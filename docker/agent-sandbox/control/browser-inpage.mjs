@@ -222,6 +222,8 @@ export function atlasInPage({ op, arg, cardSelector }) {
 					if (!isVisible(b)) continue;
 					const inItem = items.some((i) => i.el && i.el.contains(b));
 					if (inItem) continue;
+					// "Carregar mais" é navegação de LEITURA: controle de formulário (envio) nunca conta, mesmo com o texto certo.
+					if (b.closest("form") || b.type === "submit" || b.hasAttribute("formaction")) continue;
 					const name = nameOfControl(b);
 					if (name.length <= 48 && MORE_RE.test(name)) {
 						b.setAttribute(MORE, s.id);
