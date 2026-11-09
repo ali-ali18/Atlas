@@ -1,9 +1,16 @@
 import { ComposioApiError, type ComposioClient } from "../mcp/composio/client.js";
 import { listGithubInstallationsForUser, type GithubInstallationRecord } from "@workspace/db";
+import {
+	createAppGithubReadOps,
+	GITHUB_NOT_CONNECTED_ERROR,
+	GITHUB_REAUTH_ERROR_APP,
+	GITHUB_REAUTH_ERROR_COMPOSIO,
+	GITHUB_REAUTH_ERROR_NATIVE,
+	githubReauthMessage,
+	type GithubCompareOptions, type GithubReadOps } from "@workspace/github";
 import { getGithubConnectionToken } from "../mcp/github-token.js";
-import { listInstallationRepositories } from "./app/api.js";
-import { fetchCompare, type CompareData, type FetchCompareInput } from "./app/compare.js";
-import { getGithubToken, getInstallationToken } from "./app/token.js";
+import { fetchCompare } from "./app/compare.js";
+import { getGithubToken } from "./app/token.js";
 import { redactSecrets } from "../mcp/sanitize.js";
 import {
 	asRecord,
@@ -28,18 +35,8 @@ import {
  * credenciais: token nativo do Marketplace OU conta GitHub via Composio.
  * Nativo vence quando existe (mesmo padrão do hook-ops).
  */
-export type GithubCompareOptions = Pick<FetchCompareInput, "includePatch" | "commitDetails" | "maxCommitDetails">;
-
-export type GithubReadOps = {
-	/** `app` = token de instalação do GitHub App; `native` = OAuth/PAT do Marketplace. */
-	source: "native" | "composio" | "app";
-	getLogin: () => Promise<GithubApiResult<{ login?: string }>>;
-	listRepos: () => Promise<GithubApiResult<GithubRepo[]>>;
-	listPulls: (repo: string) => Promise<GithubApiResult<GithubPull[]>>;
-	listBranches: (repo: string) => Promise<GithubApiResult<GithubBranch[]>>;
-	/** Lista completa (paginada) de commits base...head + estatística de arquivos. */
-	compare: (repo: string, base: string, head: string, options?: GithubCompareOptions) => Promise<GithubApiResult<CompareData>>;
-};
+export type { GithubCompareOptions, GithubReadOps };
+export { createAppGithubReadOps };
 
 /** Slugs e argumentos conferidos em https://docs.composio.dev/toolkits/github.md. */
 export const COMPOSIO_GITHUB_READ_ACTIONS = {
@@ -49,15 +46,7 @@ export const COMPOSIO_GITHUB_READ_ACTIONS = {
 	branches: "GITHUB_LIST_BRANCHES",
 } as const;
 
-export const GITHUB_NOT_CONNECTED_ERROR = "Conecte o GitHub no Marketplace ou pelo Composio";
-export const GITHUB_REAUTH_ERROR_NATIVE = "Reconecte o GitHub no Marketplace";
-export const GITHUB_REAUTH_ERROR_COMPOSIO = "Reconecte o GitHub no Composio";
-export const GITHUB_REAUTH_ERROR_APP = "Reinstale o app do GitHub em Conexões";
-
-export function githubReauthMessage(source: GithubReadOps["source"]): string {
-	if (source === "app") return GITHUB_REAUTH_ERROR_APP;
-	return source === "composio" ? GITHUB_REAUTH_ERROR_COMPOSIO : GITHUB_REAUTH_ERROR_NATIVE;
-}
+export { GITHUB_NOT_CONNECTED_ERROR, GITHUB_REAUTH_ERROR_APP, GITHUB_REAUTH_ERROR_COMPOSIO, GITHUB_REAUTH_ERROR_NATIVE, githubReauthMessage };
 
 const unexpected = (what: string): { error: { status: number; message: string } } => ({
 	error: { status: 502, message: `O Composio devolveu ${what} num formato inesperado` },
@@ -220,61 +209,6 @@ export function createNativeGithubReadOps(token: string, login?: string, source:
 		listPulls: (repo) => listOpenPulls(token, repo),
 		listBranches: (repo) => listBranches(token, repo),
 		compare: async (repo, base, head, options) => fetchCompare({ token, repo, base, head, ...options }),
-	};
-}
-
-export type AppReadOpsDeps = {
-	getInstallationToken?: typeof getInstallationToken;
-	listInstallationRepos?: typeof listInstallationRepositories;
-};
-
-/**
- * Leituras só com o GitHub App (sem OAuth nem Composio): repos da(s) instalação(ões) do
- * usuário e token de instalação escopado ao repo em cada chamada.
- */
-export function createAppGithubReadOps(installations: GithubInstallationRecord[], deps: AppReadOpsDeps = {}): GithubReadOps {
-	const tokenFor = deps.getInstallationToken ?? getInstallationToken;
-	const active = installations.filter((i) => !i.suspendedAt);
-	const covering = (repo: string): GithubInstallationRecord | undefined =>
-		active.find((i) => {
-			const key = repo.toLowerCase();
-			return i.repositorySelection === "all"
-				? i.accountLogin.toLowerCase() === key.split("/")[0]
-				: (i.repositories ?? []).some((r) => r.fullName.toLowerCase() === key);
-		});
-	const noAccess = (repo: string): { error: { status: number; message: string } } => ({
-		error: { status: 404, message: `O app do GitHub não está instalado em ${repo}` },
-	});
-	async function withToken<T>(repo: string, fn: (token: string) => Promise<GithubApiResult<T>>): Promise<GithubApiResult<T>> {
-		const inst = covering(repo);
-		if (!inst) return noAccess(repo);
-		const t = await tokenFor(inst.installationId, { repo });
-		if ("error" in t) return { error: { status: t.status === 404 || t.status === 401 ? 401 : t.status, message: t.error } };
-		return fn(t.token);
-	}
-	return {
-		source: "app",
-		getLogin: async () => ({ data: { login: active[0]?.accountLogin } }),
-		async listRepos() {
-			const repos: GithubRepo[] = [];
-			for (const inst of active) {
-				let list = inst.repositories;
-				if (!list || inst.repositorySelection === "all") {
-					const t = await tokenFor(inst.installationId);
-					if ("error" in t) continue;
-					const res = await (deps.listInstallationRepos ?? listInstallationRepositories)(t.token);
-					if (!res.error) list = res.data;
-				}
-				for (const r of list ?? []) {
-					repos.push({ fullName: r.fullName, private: r.private, defaultBranch: "main", pushedAt: null });
-				}
-			}
-			return { data: repos };
-		},
-		listPulls: (repo) => withToken(repo, (token) => listOpenPulls(token, repo)),
-		listBranches: (repo) => withToken(repo, (token) => listBranches(token, repo)),
-		compare: (repo, base, head, options) =>
-			withToken(repo, (token) => fetchCompare({ token, repo, base, head, ...options })),
 	};
 }
 

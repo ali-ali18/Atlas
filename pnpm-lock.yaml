@@ -373,6 +373,9 @@ importers:
       '@workspace/files':
         specifier: workspace:*
         version: link:../../packages/files
+      '@workspace/github':
+        specifier: workspace:*
+        version: link:../../packages/github
       '@workspace/llm':
         specifier: workspace:*
         version: link:../../packages/llm
@@ -453,6 +456,9 @@ importers:
       '@workspace/files':
         specifier: workspace:*
         version: link:../files
+      '@workspace/github':
+        specifier: workspace:*
+        version: link:../github
       '@workspace/llm':
         specifier: workspace:*
         version: link:../llm
@@ -673,6 +679,31 @@ importers:
       '@types/sanitize-html':
         specifier: ^2.16.2
         version: 2.16.2
+      '@workspace/typescript-config':
+        specifier: workspace:*
+        version: link:../typescript-config
+      typescript:
+        specifier: ^5
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.12
+        version: 4.1.12(@opentelemetry/api@1.9.1)(@types/node@20.19.41)(vite@7.3.7(@types/node@20.19.41)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.51.2)(tsx@4.23.13)(yaml@2.6.0))
+
+  packages/github:
+    dependencies:
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.32.0
+        version: 1.32.1(zod@4.6.5)
+      '@workspace/db':
+        specifier: workspace:*
+        version: link:../db
+      '@workspace/shared':
+        specifier: workspace:*
+        version: link:../shared
+    devDependencies:
+      '@types/node':
+        specifier: ^20.19.41
+        version: 20.19.41
       '@workspace/typescript-config':
         specifier: workspace:*
         version: link:../typescript-config

@@ -1,8 +1,9 @@
 import { randomBytes } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { McpConnectionRecord } from "@workspace/db";
-import { getGithubConnectionToken, markGithubConnectionAuthFailed } from "./github-token.js";
-import { sealSecrets, type McpConnectorSecrets } from "./secret-box.js";
+import { getGithubConnectionToken, markGithubConnectionAuthFailed } from "./connection-token.js";
+import { sealSecrets } from "@workspace/db/vault-crypto";
+import type { GithubConnectorSecrets as McpConnectorSecrets } from "./connection-token.js";
 
 /**
  * `getMcpConnectionByCatalogId`/`updateMcpConnection` são as únicas pontes
