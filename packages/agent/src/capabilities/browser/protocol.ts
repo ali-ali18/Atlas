@@ -70,6 +70,8 @@ export const mapDataSchema = z.object({
 	title: z.string(),
 	totalChars: z.number().int().min(0),
 	sections: z.array(mapSectionSchema),
+	/** Seções pequenas que ficaram fora do mapa por passar do limite (dito, nunca em silêncio). */
+	omittedSections: z.number().int().min(1).optional(),
 	/** A árvore de acessibilidade quase não tem nome nos controles (ícones, canvas): vale uma captura de tela. */
 	poorTree: z.boolean().optional(),
 	wall: z.enum(["captcha", "blocked"]).optional(),
@@ -125,6 +127,7 @@ export const loadMoreDataSchema = z.object({
 });
 
 export const waitDataSchema = z.object({ url: z.string(), met: z.boolean(), waitedMs: z.number().int().min(0) });
+/** `id` é o número da aba na lista (1, 2, ...), o mesmo que `switch` e `close` pedem. */
 export const tabsDataSchema = z.object({ tabs: z.array(z.object({ id: z.string(), url: z.string(), title: z.string(), active: z.boolean() })) });
 export const screenshotDataSchema = z.object({ mediaType: z.string(), data: z.string(), width: z.number().int(), height: z.number().int() });
 export const exportDataSchema = z.object({

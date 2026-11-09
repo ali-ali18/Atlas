@@ -16,8 +16,9 @@ export function renderMap(map: MapData): string {
 	const wall = map.wall ? `\nThis page is a ${map.wall === "captcha" ? "captcha" : "block"} wall, not the real content. Do not retry the same URL: try another source, or ask the owner to solve it in the browser view.` : "";
 	const rows = map.sections.map((s) => `- ${s.id} [${s.kind}] ${s.label || "(no label)"}: ${s.kind === "form" ? `${s.items} field(s)` : sizeOf(s)}, ${num(s.chars)} chars${s.preview ? `. Starts: "${s.preview}"` : ""}`);
 	const tree = map.poorTree ? "\nThe page has few labels (icons, canvas?): if reading does not answer the question, use browser_screenshot." : "";
+	const omitted = map.omittedSections ? `\n${map.omittedSections} more small section(s) are not listed (the map keeps the first 60).` : "";
 	const how = map.sections.some((s) => s.items > 0) ? "\nRead a section in parts with browser_read (section, from, count), search it with browser_find, grow it with browser_load_more." : "";
-	return `${head}${wall}\nSections:\n${rows.join("\n") || "(no readable sections)"}${tree}${how}`;
+	return `${head}${wall}\nSections:\n${rows.join("\n") || "(no readable sections)"}${omitted}${tree}${how}`;
 }
 
 export function renderRead(data: ReadData): string {

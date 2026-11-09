@@ -176,6 +176,22 @@ describe("browser_act: efeito declarado, senha nunca", () => {
 	});
 });
 
+describe("abas e mapa grande", () => {
+	it("abas: lista, troca por número e exige o número", async () => {
+		const { run } = setup();
+		await run("browser_open", { url: URL });
+		expect(await run("browser_tabs", { action: "list" })).toMatchObject({ ok: true, summary: expect.stringContaining("1 tab(s)") });
+		expect(await run("browser_tabs", { action: "switch" })).toMatchObject({ ok: false });
+		expect(await run("browser_tabs", { action: "open", url: "https://x.test" })).toMatchObject({ ok: false });
+	});
+	it("seções que ficaram fora do mapa são ditas", async () => {
+		const { tool } = setup();
+		const fake = { run: async () => ({ ok: true, data: { url: URL, title: "T", totalChars: 10, sections: [], omittedSections: 7 } }), release: async () => {} };
+		const out = await tool("browser_map").run({}, { runId: "r", ownerId: "o1", ports: { sandbox: fake } as unknown as Ports });
+		expect(out).toMatchObject({ ok: true, summary: expect.stringContaining("7 more small section(s) are not listed") });
+	});
+});
+
 describe("falhas honestas", () => {
 	it("erro da VM vira ok:false com o motivo real", async () => {
 		const { run, browser } = setup();
