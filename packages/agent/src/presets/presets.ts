@@ -18,6 +18,7 @@ import { createGithubCapability } from "../capabilities/github/index.js";
 import type { GithubPorts } from "../ports/github.js";
 import { createBotsCapability, type BotsDeps } from "../capabilities/bots/index.js";
 import { createShoppingCapability } from "../capabilities/shopping/index.js";
+import { type AttachmentsDeps, createAttachmentsCapability } from "../capabilities/attachments/index.js";
 import { createImagesCapability } from "../capabilities/images/index.js";
 import { createVideoCapability } from "../capabilities/video/index.js";
 import type { Images } from "../ports/images.js";
@@ -41,7 +42,7 @@ import { createWebCapability } from "./web.js";
 export const PRESET_IDS = ["minimal", "full"] as const;
 export type PresetId = (typeof PRESET_IDS)[number];
 
-export type CapabilityId = "web" | "deliverables-lite" | "memory" | "tasks" | "settings" | "research" | "agenda" | "shopping" | "email" | "calendar" | "code" | "browser" | "images" | "vault" | "github" | "bots" | "routines" | "video";
+export type CapabilityId = "web" | "deliverables-lite" | "memory" | "tasks" | "settings" | "research" | "agenda" | "shopping" | "email" | "calendar" | "code" | "browser" | "images" | "vault" | "github" | "bots" | "routines" | "video" | "attachments";
 
 export type AgentPreset = {
 	id: PresetId;
@@ -100,6 +101,8 @@ export type PresetDeps = {
 	routines?: RoutinesDeps;
 	/** Vídeo (F9): a VM do dono existe neste run (a transcrição roda nela pela porta `Sandbox`, kind `video.transcript`). Lazy; sem isso a capacidade fica em `unavailable`. */
 	video?: boolean;
+	/** Anexos (F9): os arquivos da conversa, lidos em partes. A cópia para o computador liga com `browser` (a VM do run). Opt-in: sem a porta não entra. */
+	attachments?: AttachmentsDeps;
 };
 
 export function isPresetId(value: unknown): value is PresetId {
@@ -140,6 +143,8 @@ const FACTORIES: Readonly<Record<CapabilityId, CapabilityFactory>> = {
 	routines: (deps) => deps.routines && createRoutinesCapability(deps.routines),
 	// F9: transcrição de vídeo pela VM do dono; lazy. Só lê (vale também sem dono). Sem a VM a capacidade fica em `unavailable`.
 	video: (deps) => (deps.video === true ? createVideoCapability() : undefined),
+	// F9: anexos da conversa; opt-in (só entra com a porta). `computer` vem do navegador do run (a VM).
+	attachments: (deps) => deps.attachments && createAttachmentsCapability({ files: deps.attachments.files, computer: deps.browser === true }),
 };
 
 /**
@@ -147,7 +152,7 @@ const FACTORIES: Readonly<Record<CapabilityId, CapabilityFactory>> = {
  * run ou bot (`code: {}`; `code: { readOnly: true }` no modo plano): o worker só passa a chave quando o adaptador `code.*` existe.
  * Assim `full` não ganha uma capacidade "indisponível" em quem não usa código, e nada some em silêncio.
  */
-const OPT_IN: readonly CapabilityId[] = ["code"];
+const OPT_IN: readonly CapabilityId[] = ["code", "attachments"];
 
 function capabilitiesOf(preset: AgentPreset, deps: PresetDeps): readonly CapabilityId[] {
 	const extra = OPT_IN.filter((id) => !preset.capabilities.includes(id) && FACTORIES[id](deps) !== undefined);

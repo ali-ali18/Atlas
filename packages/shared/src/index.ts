@@ -312,6 +312,7 @@ export * from "./read-state.js";
 export * from "./files.js";
 export * from "./deck.js";
 export * from "./attachments.js";
+export * from "./attachment-text.js";
 export {
 	parseSkillRecipe,
 	evaluateSkillRecipe,

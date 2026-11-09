@@ -1,4 +1,5 @@
 export * from "./agenda.js";
+export * from "./attachments.js";
 export * from "./bots.js";
 export * from "./brief.js";
 export * from "./calendar.js";
