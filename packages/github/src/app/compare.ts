@@ -1,3 +1,4 @@
+import { isSafeGithubRepo, isSafeGitRef } from "@workspace/shared";
 import type { FetchFn } from "./api.js";
 import { githubAppCall } from "./api.js";
 
@@ -140,6 +141,10 @@ export type FetchCompareInput = {
 };
 
 export async function fetchCompare(input: FetchCompareInput): Promise<CompareResult> {
+	// Defesa em profundidade: ref e repo viram caminho de URL com o token da instalação; `..` trocaria o endpoint.
+	if (!isSafeGithubRepo(input.repo) || !isSafeGitRef(input.base) || !isSafeGitRef(input.head)) {
+		return { error: { status: 400, message: "Invalid repository or ref (use owner/name and plain branch, tag or commit names)." } };
+	}
 	const fetchFn = input.fetchFn ?? fetch;
 	const maxPages = input.maxPages ?? COMPARE_MAX_PAGES;
 	const url = (page: number) =>

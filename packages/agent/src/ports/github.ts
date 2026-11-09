@@ -17,7 +17,8 @@ export type GithubRepoView = {
 	/** `owner/name`. */
 	fullName: string;
 	private: boolean;
-	defaultBranch: string;
+	/** `null` quando a fonte não informa: a tool não afirma branch. */
+	defaultBranch: string | null;
 	/** ISO 8601 do último push, ou `null` quando a fonte não informa. */
 	pushedAt: string | null;
 };

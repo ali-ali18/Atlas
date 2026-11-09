@@ -904,6 +904,7 @@ export * from "./dev-env-secrets-paste.js";
 export * from "./dev-env-detect.js";
 export * from "./dev-env-auto.js";
 export * from "./github-identity.js";
+export * from "./git-ref.js";
 export * from "./dev-command-approval.js";
 export * from "./test-pr.js";
 export * from "./coding-model.js";

@@ -2014,7 +2014,7 @@ export async function getGithubStatus(): Promise<GithubStatus> {
 export type GithubRepoOption = {
 	fullName: string;
 	private: boolean;
-	defaultBranch: string;
+	defaultBranch: string | null;
 	pushedAt: string;
 };
 

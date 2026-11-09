@@ -13,7 +13,7 @@ type Record_ = Awaited<ReturnType<V4McpDeps["listConnected"]>>[number];
 const record = (id: string, slug: string, over: Partial<Record_> = {}): Record_ =>
 	({ id, slug, name: slug, catalogId: null, status: "connected", confirmWrites: true, tools: [{ name: "list_events", inputSchema: { type: "object", properties: {} }, annotations: { readOnlyHint: true } }], disabledTools: [], toolMarks: {}, ...over }) as unknown as Record_;
 
-function harness(options: { callResult?: { ok: boolean; text: string }; throwOnCall?: Error; loaded?: boolean } = {}) {
+function harness(options: { callResult?: { ok: boolean; text: string; githubIdentity?: unknown }; throwOnCall?: Error; loaded?: boolean } = {}) {
 	const owners: Record<string, Record_[]> = { "user-a": [record("c1", "agenda")], "user-b": [record("c2", "outra")] };
 	const loadOptions: McpRuntimeOptions[] = [];
 	const calls: Array<{ name: string; args: Record<string, unknown> }> = [];
@@ -98,4 +98,16 @@ test("sem cofre/runtime: falha honesta, sem lançar", async () => {
 	const result = await mcp.call("user-a", "c1", "list_events", {});
 	assert.equal(result.ok, false);
 	assert.match((result as { error: string }).error, /not available right now/);
+});
+
+test("S13: bloqueio de identidade do GitHub vira erro honesto em inglês, sem prometer cartão", async () => {
+	const legacy = "Nada foi enviado. Um cartão pede ao usuário para instalar; quando ele tocar em Pronto a ação é refeita sozinha.";
+	const mcp = createV4Mcp({ scope: { ownerId: "user-a", unattended: false }, deps: harness({ callResult: { ok: false, text: legacy, githubIdentity: { reason: "not_installed", repo: "acme/site", installUrl: null, appName: null, message: legacy } } }).deps });
+	const result = await mcp.call("user-a", "c1", "list_events", {});
+	assert.equal(result.ok, false);
+	const error = (result as { error: string }).error;
+	assert.match(error, /Nothing was sent/);
+	assert.match(error, /acme\/site/);
+	assert.match(error, /Settings → Connections → GitHub/);
+	assert.ok(!/Pronto|cartão/.test(error));
 });

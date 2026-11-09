@@ -35,6 +35,13 @@ describe("github_list_repos", () => {
 		expect(out.ok && out.summary).toContain("1. acme/novo (private, default branch develop)");
 		expect(out.ok && out.summary).toContain("2. acme/velho (public, default branch main)");
 	});
+	it("S12: sem branch padrão informada a tool não afirma branch", async () => {
+		const { fake, tool } = rig();
+		fake.seed("o1", { fullName: "acme/sem-branch", defaultBranch: null });
+		const out = await tool("github_list_repos").run({}, ctx());
+		expect(out.ok && out.summary).toContain("1. acme/sem-branch (public)");
+		expect(out.ok && out.summary).not.toContain("default branch");
+	});
 	it("filtra por trecho do nome sem diferenciar maiúsculas; sem resultado diz isso", async () => {
 		const { fake, tool } = rig();
 		fake.seed("o1", { fullName: "acme/Meu-App" });
@@ -94,6 +101,12 @@ describe("github_compare", () => {
 		expect(await tool("github_compare").run({ ...args, repo: "a/b/c" }, ctx())).toMatchObject({ ok: false });
 		expect(await tool("github_compare").run({ ...args, base: "duas palavras" }, ctx())).toMatchObject({ ok: false, error: expect.stringContaining("no spaces") });
 		expect(await tool("github_compare").run({ ...args, head: "" }, ctx())).toMatchObject({ ok: false });
+		// S11: ref e repo viram caminho de URL com o token do dono; `..` trocaria o endpoint.
+		for (const head of ["/../../user/emails", "a..b", "/x", "x/", "a~1", "a^", "a:b", "a?b", "a*", "a[0]", "a\\b", "a#b"]) {
+			expect(await tool("github_compare").run({ ...args, head }, ctx())).toMatchObject({ ok: false, error: expect.stringContaining("git ref format") });
+		}
+		expect(await tool("github_compare").run({ ...args, repo: "../user" }, ctx())).toMatchObject({ ok: false });
+		expect(await tool("github_compare").run({ ...args, repo: "acme/.." }, ctx())).toMatchObject({ ok: false });
 		expect(await tool("github_compare").run({ ...args, head: "x".repeat(201) }, ctx())).toMatchObject({ ok: false });
 		expect(await tool("github_compare").run({ repo: "acme/site", base: "main" }, ctx())).toMatchObject({ ok: false });
 		expect(await tool("github_compare").run({ ...args, token: "ghp_x" }, ctx())).toMatchObject({ ok: false, error: expect.stringContaining("Unknown field") });

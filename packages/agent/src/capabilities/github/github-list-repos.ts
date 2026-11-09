@@ -31,7 +31,7 @@ export function createGithubListReposTool(ports: GithubPorts) {
 				return { ok: true, summary: needle ? `No repository matches "${query}". Try a shorter part of the name, or list without a filter.` : "No repositories found in the owner's GitHub connection." };
 			}
 			const shown = [...matches].sort((a, b) => (b.pushedAt ?? "").localeCompare(a.pushedAt ?? "")).slice(0, GITHUB_LIST_REPOS_SHOWN);
-			const lines = shown.map((repo, index) => `${index + 1}. ${repo.fullName} (${repo.private ? "private" : "public"}, default branch ${repo.defaultBranch})`);
+			const lines = shown.map((repo, index) => `${index + 1}. ${repo.fullName} (${repo.private ? "private" : "public"}${repo.defaultBranch ? `, default branch ${repo.defaultBranch}` : ""})`);
 			const more = matches.length > shown.length ? `\n${matches.length - shown.length} more not shown: narrow it with query.` : "";
 			return { ok: true, summary: `Repositories (${shown.length}${matches.length > shown.length ? ` of ${matches.length}` : ""}):\n${lines.join("\n")}${more}` };
 		},

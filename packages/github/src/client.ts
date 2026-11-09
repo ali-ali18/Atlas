@@ -28,7 +28,8 @@ export type GithubClientOptions = {
 export type GithubRepo = {
 	fullName: string;
 	private: boolean;
-	defaultBranch: string;
+	/** `null` quando a fonte não informa (nunca inventamos "main"). */
+	defaultBranch: string | null;
 	pushedAt: string | null;
 };
 
@@ -119,7 +120,7 @@ function mapRepo(row: unknown): GithubRepo {
 	return {
 		fullName: typeof repo.full_name === "string" ? repo.full_name : "",
 		private: repo.private === true,
-		defaultBranch: typeof repo.default_branch === "string" ? repo.default_branch : "main",
+		defaultBranch: typeof repo.default_branch === "string" ? repo.default_branch : null,
 		pushedAt: typeof repo.pushed_at === "string" ? repo.pushed_at : null,
 	};
 }

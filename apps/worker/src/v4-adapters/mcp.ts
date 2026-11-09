@@ -33,6 +33,11 @@ export type V4McpScope = {
 	conversationId?: string | null;
 };
 
+/** Nada foi enviado ao GitHub: o app não está instalado (ou sem permissão) no repositório. Sem promessa de cartão. */
+export function githubIdentityError(repo: string | null): string {
+	return `Nothing was sent: the GitHub app is not installed on ${repo ?? "this repository"} or lacks permission there. Tell the owner to install it in Settings → Connections → GitHub, then ask again. Do not retry another way and never ask for a token.`;
+}
+
 const OTHER_OWNER = "This app belongs to another owner.";
 
 export function snapshotOf(record: ConnectedRecord, ownerId: string): McpConnectionSnapshot {
@@ -85,6 +90,8 @@ export function createV4Mcp(input: { scope: V4McpScope; deps?: V4McpDeps }): Mcp
 					return { ok: false, error: scope.unattended ? `"${toolName}" is not available in a run without the owner: only reading is allowed.` : `"${toolName}" is not available for this app (unknown, turned off or blocked by the owner's settings).` };
 				}
 				const result = await loaded.call(exposed, args, signal);
+				// Bloqueio de identidade do GitHub: o texto legado (pt-BR) promete um cartão que o v4 não mostra. Erro honesto em inglês.
+				if (result.githubIdentity) return { ok: false, error: githubIdentityError(result.githubIdentity.repo) };
 				// O texto do runtime já vem redigido; passa de novo (defesa em profundidade) antes de ir ao modelo.
 				return result.ok ? { ok: true, text: sanitizeErrorMessage(result.text, [], Number.MAX_SAFE_INTEGER) } : { ok: false, error: sanitizeErrorMessage(result.text) };
 			} catch (error) {

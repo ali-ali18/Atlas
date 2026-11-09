@@ -87,7 +87,7 @@ export function createAppGithubReadOps(installations: GithubInstallationRecord[]
 					if (!res.error) list = res.data;
 				}
 				for (const r of list ?? []) {
-					repos.push({ fullName: r.fullName, private: r.private, defaultBranch: "main", pushedAt: null });
+					repos.push({ fullName: r.fullName, private: r.private, defaultBranch: null, pushedAt: null });
 				}
 			}
 			return { data: repos };
