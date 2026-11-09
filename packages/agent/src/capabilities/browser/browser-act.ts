@@ -25,6 +25,8 @@ export function createBrowserActTool() {
 		inputSchema,
 		effect: "read",
 		effectForArgs: (args) => (args.intent === "submit" ? "write_external" : "read"),
+		// Digitar, escolher ou apertar tecla com texto escreve dado do run numa página de terceiro (como abrir uma URL montada): conta como saída.
+		egressForArgs: (args) => args.intent === "submit" || (args.text !== undefined && args.text.length > 0 && ["type", "select", "press"].includes(args.action)),
 		riskFacts: (args) => (args.intent === "submit" ? { target: args.what ?? `${args.action} on the page`, irreversible: false } : {}),
 		trust: "untrusted",
 		source: "web",
