@@ -80,7 +80,19 @@ export function createGuardedProxy({ lookup, connect = netConnect, onBlock = () 
 		headers.host = target.host;
 		// A conexão vai para o IP VALIDADO; o nome só segue no cabeçalho Host.
 		const upstream = httpRequest({ host: verdict.address, port, method: req.method, path: `${target.pathname}${target.search}`, headers, createConnection: () => connect({ host: verdict.address, port }) }, (response) => {
-			res.writeHead(response.statusCode ?? 502, response.headers);
+			// Status fora de 100..599 (ex.: "HTTP/1.1 099") faz writeHead lançar e derrubar a VM: recusa com 502 em vez disso.
+			const status = response.statusCode;
+			if (!Number.isInteger(status) || status < 100 || status > 599) {
+				response.destroy();
+				return refuse(502, "upstream returned an invalid status");
+			}
+			response.on("error", () => res.destroy());
+			try {
+				res.writeHead(status, response.headers);
+			} catch {
+				response.destroy();
+				return refuse(502, "upstream returned an invalid response");
+			}
 			response.pipe(res);
 		});
 		upstream.setTimeout(IDLE_TIMEOUT_MS, () => upstream.destroy());

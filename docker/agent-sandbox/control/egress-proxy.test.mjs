@@ -106,6 +106,36 @@ test("http:// absoluto: encaminha ao IP validado com o Host original; para IP in
 	await site.close();
 });
 
+test("upstream com status HTTP inválido (099, 000) não derruba o proxy: responde 502 e segue atendendo", async () => {
+	// Upstream TCP cru: responde uma linha de status que o Node não aceita como status válido (writeHead lançaria).
+	const rawUpstream = (statusLine) =>
+		new Promise((resolve) => {
+			const server = createTcpServer((socket) => {
+				socket.on("error", () => undefined);
+				socket.once("data", () => socket.end(`${statusLine}\r\n\r\n`));
+			});
+			server.listen(0, "127.0.0.1", () => resolve({ port: server.address().port, close: () => new Promise((done) => server.close(done)) }));
+		});
+	const bad099 = await rawUpstream("HTTP/1.1 099 X");
+	const bad000 = await rawUpstream("HTTP/1.1 000 X");
+	const site = await origin((_req, res) => res.end("pagina"));
+	const proxy = await startProxy({ lookup: async () => [rec(PUBLIC)], origins: { 8081: bad099.port, 8082: bad000.port, default: site.port } });
+	try {
+		const first = await fetchViaProxy(proxy.port, "http://loja.example:8081/");
+		assert.equal(first.status, 502, "status 099 vira 502");
+		const second = await fetchViaProxy(proxy.port, "http://loja.example:8082/");
+		assert.equal(second.status, 502, "status 000 vira 502");
+		const ok = await fetchViaProxy(proxy.port, "http://loja.example/");
+		assert.equal(ok.status, 200, "o processo continua vivo e atende a requisição seguinte");
+		assert.equal(ok.body, "pagina");
+	} finally {
+		await proxy.close();
+		await site.close();
+		await bad099.close();
+		await bad000.close();
+	}
+});
+
 function fetchViaProxy(proxyPort, url) {
 	return new Promise((resolve, reject) => {
 		const socket = netConnect(proxyPort, "127.0.0.1", () => socket.write(`GET ${url} HTTP/1.1\r\nHost: ${new URL(url).host}\r\nConnection: close\r\n\r\n`));
