@@ -172,6 +172,8 @@ export async function createConnectorsCapability(mcp: Mcp, ownerId: string, sign
 				privateData,
 				...(!privateData && { egress: true }),
 				...(privateData && { ownerData: "connector" as const }),
+				// `{{secret:NOME}}` só em conector privado do dono: num público (busca) o valor sairia para terceiros.
+				acceptsSecretRefs: privateData,
 				execute: ({ tool, args }, ctx) => run("read", tool, args, ctx),
 			}),
 			defineTool({
@@ -189,6 +191,7 @@ export async function createConnectorsCapability(mcp: Mcp, ownerId: string, sign
 				privateData,
 				...(!privateData && { egress: true }),
 				...(snapshot.confirmWrites && { confirm: "always" as const }),
+				acceptsSecretRefs: privateData,
 				execute: ({ tool, args }, ctx) => run("write", tool, args, ctx),
 			}),
 		);

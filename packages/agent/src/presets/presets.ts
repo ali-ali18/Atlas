@@ -12,6 +12,7 @@ import type { CalendarPorts } from "../ports/calendar.js";
 import { createMemoryCapability } from "../capabilities/memory/index.js";
 import { createEmailCapability } from "../capabilities/email/index.js";
 import { createBrowserCapability } from "../capabilities/browser/index.js";
+import { createVaultCapability, type VaultDeps } from "../capabilities/vault/index.js";
 import { createShoppingCapability } from "../capabilities/shopping/index.js";
 import { createImagesCapability } from "../capabilities/images/index.js";
 import type { Images } from "../ports/images.js";
@@ -35,7 +36,7 @@ import { createWebCapability } from "./web.js";
 export const PRESET_IDS = ["minimal", "full"] as const;
 export type PresetId = (typeof PRESET_IDS)[number];
 
-export type CapabilityId = "web" | "deliverables-lite" | "memory" | "tasks" | "settings" | "research" | "agenda" | "shopping" | "email" | "calendar" | "code" | "browser" | "images";
+export type CapabilityId = "web" | "deliverables-lite" | "memory" | "tasks" | "settings" | "research" | "agenda" | "shopping" | "email" | "calendar" | "code" | "browser" | "images" | "vault";
 
 export type AgentPreset = {
 	id: PresetId;
@@ -47,7 +48,7 @@ export type AgentPreset = {
 
 export const PRESETS: Readonly<Record<PresetId, AgentPreset>> = Object.freeze({
 	minimal: Object.freeze({ id: "minimal", capabilities: Object.freeze(["web", "deliverables-lite"] as const), workContract: false }),
-	full: Object.freeze({ id: "full", capabilities: Object.freeze(["web", "deliverables-lite", "memory", "tasks", "settings", "research", "agenda", "shopping", "email", "calendar", "browser", "images"] as const), workContract: true }),
+	full: Object.freeze({ id: "full", capabilities: Object.freeze(["web", "deliverables-lite", "memory", "tasks", "settings", "research", "agenda", "shopping", "email", "calendar", "browser", "images", "vault"] as const), workContract: true }),
 });
 
 /**
@@ -84,6 +85,8 @@ export type PresetDeps = {
 	browser?: boolean;
 	/** Imagens (F9): gerar imagens novas com o modelo de imagem do dono. Lazy; sem a porta a capacidade fica em `unavailable`. O worker não a passa em run sem dono. */
 	images?: Images;
+	/** Cofre (F9): nomes e metadados dos segredos do dono, o cartão "cadastre este segredo" e o `login_fill` (pela porta `Sandbox`). Lazy; sem a porta a capacidade não entra. `readOnly` = sem dono: só `secret_list`. */
+	vault?: VaultDeps;
 };
 
 export function isPresetId(value: unknown): value is PresetId {
@@ -114,6 +117,8 @@ const FACTORIES: Readonly<Record<CapabilityId, CapabilityFactory>> = {
 	browser: (deps) => deps.browser === true ? createBrowserCapability({ ...(deps.helpers && { helpers: deps.helpers }) }) : undefined,
 	// F9: imagens novas; lazy. Efeito `write_external` (a autonomia decide) e sem dono a tool não é oferecida.
 	images: (deps) => deps.images && createImagesCapability(deps.images),
+	// F9: cofre; lazy. O valor nunca chega ao modelo (`{{secret:NOME}}` no executor, `login_fill` na VM).
+	vault: (deps) => deps.vault && createVaultCapability(deps.vault),
 };
 
 /**

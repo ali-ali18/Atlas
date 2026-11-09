@@ -5,6 +5,8 @@ import { FakeMcp } from "../connectors/fake-mcp.js";
 import { createDeliverablesCapability } from "../capabilities-builtin/deliverables/index.js";
 import { createBrowserCapability } from "../capabilities/browser/index.js";
 import { createShoppingCapability } from "../capabilities/shopping/index.js";
+import { createVaultCapability } from "../capabilities/vault/index.js";
+import { FakeSecretRequests, FakeVault } from "../testing/vault-fakes.js";
 import { createEmailCapability } from "../capabilities/email/index.js";
 import { FakeEmail } from "../presets/fake-email.js";
 import { createAgendaCapability } from "../capabilities/agenda/index.js";
@@ -184,6 +186,27 @@ describe("economia: Bom dia", () => {
 		expect((first?.tools ?? []).map((t) => t.name)).not.toContain("product_search");
 		expect((second?.tools ?? []).map((t) => t.name)).toEqual(expect.arrayContaining(["product_search", "record_purchase", "purchase_list"]));
 		expect(JSON.stringify(second?.messages)).toContain("Shopping rules");
+	});
+
+	it("a capacidade vault é lazy: 'Bom dia' não ganha secret_list, secret_request nem login_fill, só uma linha do índice", async () => {
+		const base = await measureGoodMorning();
+		const withVault = await measureGoodMorning([createVaultCapability({ vault: new FakeVault(), requests: new FakeSecretRequests() })]);
+		expect(withVault.toolNames).toEqual(base.toolNames);
+		for (const name of ["secret_list", "secret_request", "login_fill"]) expect(withVault.toolNames).not.toContain(name);
+		expect(withVault.tokens - base.tokens).toBeLessThan(60);
+		expect(JSON.stringify(withVault.result)).not.toContain("Vault rules");
+		expect(withVault.tokens).toBeLessThanOrEqual(GOOD_MORNING_INPUT_TOKENS_CEILING + 60);
+	});
+
+	it("'entra no meu banco com o login salvo' carrega a capacidade no passo 1; as tools e as regras só no passo seguinte", async () => {
+		const core = defineCapability({ id: "core", title: "Core", summary: "core tools", core: true, tools: [] });
+		const h = kernelHarness([reply({ calls: [call("c1", "use_capability", { id: "vault" })] }), reply({ text: "Pronto." })], { capabilities: [core, createVaultCapability({ vault: new FakeVault(), requests: new FakeSecretRequests() })] });
+		await h.run({ input: { contextSections: [], history: [{ kind: "owner", text: "Entra no meu banco com o login salvo" }] } });
+		const [first, second] = h.llm.requests;
+		expect(JSON.stringify(first?.messages)).not.toContain("Vault rules");
+		expect((first?.tools ?? []).map((t) => t.name)).not.toContain("login_fill");
+		expect((second?.tools ?? []).map((t) => t.name)).toEqual(expect.arrayContaining(["secret_list", "secret_request", "login_fill"]));
+		expect(JSON.stringify(second?.messages)).toContain("Vault rules");
 	});
 
 	it("o caderno é lazy: 'Bom dia' não ganha as tools note_*, só uma linha do índice", async () => {

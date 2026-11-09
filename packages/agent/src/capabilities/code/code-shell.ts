@@ -25,6 +25,8 @@ export function createCodeShellTool(options: { readOnly?: boolean } = {}) {
 		riskFacts: ({ cmd }) => ({ target: commandPreview(cmd) }),
 		trust: "untrusted",
 		source: "file",
+		// `{{secret:NOME}}` no comando: o valor entra na hora de rodar (o portão e o cartão leem o comando com o marcador).
+		acceptsSecretRefs: true,
 		async execute(args, ctx) {
 			const cls = classifyShell(args.cmd);
 			if (cls.kind === "deny") throw new Error(`Refused: ${cls.reason}. This command is never run here. Use another way, or tell the owner what is needed.`);

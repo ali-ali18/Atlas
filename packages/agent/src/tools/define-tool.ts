@@ -41,6 +41,12 @@ export type ToolDefinition<S extends z.ZodObject> = {
 	confirm?: "always" | "when_untrusted";
 	/** A tool precisa de um dado que SÓ o dono digita no cartão de aprovação (hoje: o CVV do cartão). Com isso, nem o mandato dispensa o cartão: ele vira "só o campo". */
 	ownerInput?: "card_cvv";
+	/**
+	 * Os argumentos aceitam `{{secret:NOME}}`: o executor troca pelo valor do cofre na hora de executar (depois da aprovação) e
+	 * redige a saída. Só para tool que leva o dado ao serviço do próprio dono (conector, shell de código). Padrão: não, e o
+	 * marcador segue literal.
+	 */
+	acceptsSecretRefs?: boolean;
 	/** A chamada encerra o turno (ex.: pergunta ao dono). */
 	endsTurn?: boolean;
 	/** A chamada encerra o RUN sem outra chamada ao modelo e sem cartão (ex.: `agenda_result`, que fecha o run de agenda). */
@@ -68,6 +74,8 @@ export interface Tool {
 	readonly confirm?: "always" | "when_untrusted";
 	/** Ver `ToolDefinition.ownerInput`. */
 	readonly ownerInput?: "card_cvv";
+	/** Ver `ToolDefinition.acceptsSecretRefs`. */
+	readonly acceptsSecretRefs: boolean;
 	readonly trust: "trusted" | "untrusted";
 	/** Origem do dado quando `trust` é `untrusted`. */
 	readonly source?: TrustSource;
@@ -149,6 +157,7 @@ export function defineTool<S extends z.ZodObject>(def: ToolDefinition<S>): Tool 
 		egress: def.egress === true,
 		...(def.confirm && { confirm: def.confirm }),
 		...(def.ownerInput && { ownerInput: def.ownerInput }),
+		acceptsSecretRefs: def.acceptsSecretRefs === true,
 		trust: def.trust ?? "trusted",
 		...(def.source && { source: def.source }),
 		jsonSchema,

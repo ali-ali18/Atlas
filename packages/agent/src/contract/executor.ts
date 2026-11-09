@@ -11,6 +11,7 @@ import { type PolicyContext, authorize } from "./authorize.js";
 import { RunProvenance } from "./provenance.js";
 import type { CallOutcome } from "./outcome.js";
 import { redactDeep, sanitizeText as redact } from "./sanitize.js";
+import { checkSecretRefs, hasSecretRefs, injectSecretRefs } from "./secret-refs.js";
 import { storageSafe } from "./storage-text.js";
 
 export type ExecutorDeps = {
@@ -88,6 +89,12 @@ export function createExecutor(deps: ExecutorDeps) {
 		if (verdict.kind === "handoff") return { status: "handoff", reason: verdict.reason, message: HANDOFF_MESSAGE, userMessage: copyFor(deps.language, "handoff") };
 		if (verdict.kind === "hidden") return { status: "not_available", reason: verdict.reason, message: HIDDEN_MESSAGE, userMessage: copyFor(deps.language, "not_available") };
 
+		// `{{secret:NOME}}` nos argumentos: confere os nomes (sem ler valor) antes de qualquer cartão ou journal.
+		if (tool.acceptsSecretRefs && hasSecretRefs(args)) {
+			const issue = await checkSecretRefs(deps.ownerId, deps.ports.vault, args);
+			if (issue) return { status: "error", error: sanitizeText(issue.error, secrets()), hint: issue.hint };
+		}
+
 		// Efeito (tudo que não é `read`) passa pelo journal: a retomada nunca repete escrita às cegas (cláusula 6).
 		const effectful = effect !== "read";
 		// Id de chamada com namespace do passo: provedor que repete `call_0` a cada passo não colide no journal nem nos pedidos de aprovação.
@@ -119,6 +126,14 @@ export function createExecutor(deps: ExecutorDeps) {
 			consumed.add(request.id);
 		}
 
+		// Aprovado (ou livre): só agora o valor sai do cofre, e só para a tool. `args` (cartão, hash, journal) fica com o marcador.
+		let runArgs: unknown = args;
+		if (tool.acceptsSecretRefs && hasSecretRefs(args)) {
+			const injected = await injectSecretRefs(deps.ownerId, deps.ports.vault, args);
+			if (!injected.ok) return { status: "error", error: sanitizeText(injected.error, secrets()), hint: injected.hint };
+			runArgs = injected.args;
+		}
+
 		let spentUse = false;
 		if (effectful) {
 			// Worker zumbi: sem lease vigente não há efeito. Depois, o claim atômico do journal (S5).
@@ -139,7 +154,7 @@ export function createExecutor(deps: ExecutorDeps) {
 			}
 		}
 		const ctx: ToolContext = { runId: deps.runId, ownerId: deps.ownerId, ports: deps.ports, signal: deps.signal, callId: scopedCallId, untrustedReadInRun: provenance.untrustedReadInRun, ...(approvalId && { approvalId }) };
-		const result = await tool.run(args, ctx);
+		const result = await tool.run(runArgs, ctx);
 		// Dado de fonte não confiável marca o run ANTES de voltar ao modelo (vale também para o texto de erro).
 		// Redigido ANTES de registrar: a proveniência vai no checkpoint e não pode guardar segredo que a tool deixou escapar.
 		if (tool.privateData && result.ok) provenance.markPrivateRead();
