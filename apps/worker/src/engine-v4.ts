@@ -155,7 +155,7 @@ export function vaultBackendFromService(service: VaultServiceLike): VaultBackend
 	};
 }
 
-/** Sem adaptador de VM no v4 ainda: a tool que pedir recebe o motivo real (resultado honesto), o run segue. */
+/** VM desligada (SANDBOX_ENABLED=0; o adaptador real é `v4-adapters/sandbox.ts`): a tool que pedir recebe o motivo real (resultado honesto), o run segue. */
 export const unavailableSandbox: Sandbox = {
 	async run() {
 		return { ok: false, error: "The computer (virtual machine and browser) is not available in this version. Tell the owner plainly, and offer an alternative that does not need it." };

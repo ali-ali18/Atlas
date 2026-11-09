@@ -146,6 +146,7 @@ import { prepareV4Run } from "../v4-run-context.js";
 import { runV4Turn } from "../v4-turn.js";
 import { createBriefEmailForRun } from "../v4-adapters/brief-email.js";
 import { loadNotebookContext } from "../v4-adapters/notebook.js";
+import { createRunSandbox } from "../v4-adapters/sandbox.js";
 import { cheapModelFromEnv, createV4Llm, dropProcessorOwnedEvents, ownerStepsLimit, runEngineV4, vaultBackendFromService } from "../engine-v4.js";
 /** Run de agenda que não chegou a executar (motor ou contexto): o item volta à fila neste prazo. */
 const AGENDA_NOT_RUN_RETRY_MS = 30 * 60_000;
@@ -1253,7 +1254,9 @@ async function executeLeasedRun(ctx: {
 				const v4Bot = run.botId ? await getBotProfile(run.botId, runUserId).catch(() => null) : null;
 				// Títulos das notas fixadas do caderno (F5.1): só id e título, no [context]; sem nota fixada, nenhuma seção.
 				const notebookContext = await loadNotebookContext({ userId: runUserId, botId: run.botId ?? null });
-				return runEngineV4({
+				// VM do navegador (F8.0): a da conversa do dono, só quando a sandbox está ligada; solta no fim do run.
+				const v4Sandbox = createRunSandbox({ scope: { userId: runUserId, runId, conversationId: run.conversationId ?? null } });
+				const engineRun = runEngineV4({
 					runId,
 					userId: runUserId,
 					conversationId: run.conversationId,
@@ -1284,7 +1287,9 @@ async function executeLeasedRun(ctx: {
 					vault: vaultBackendFromService(getVaultService()),
 					...(deps.v4Queue ? { queue: deps.v4Queue } : {}),
 					...(deps.cvvEscrow ? { cvvEscrow: deps.cvvEscrow } : {}),
+					...(v4Sandbox ? { sandbox: v4Sandbox } : {}),
 				});
+				return engineRun.finally(() => v4Sandbox?.release(runUserId, runId).catch(() => undefined));
 			},
 		});
 	try {
