@@ -49,3 +49,6 @@ A capacidade é lazy (só o índice curto vai ao prompt) e reaproveita o que já
 - `apps/worker/src/v4-adapters/attachments.test.ts`: porta escopada, zip real (montado no teste), limite de entrada, tratador do kind, e o caminho completo pelo `Sandbox` do run.
 - `apps/worker/src/v4-adapters/index.test.ts`: a capacidade entra só com dono presente e fonte; sai em rotina e em agenda.
 - Guardas: `contract-invariants` (a tool de cópia não declara `privateData`, porque o resultado é só o caminho), `no-behavior-regex` (a busca de texto ficou em `@workspace/shared`, função pura fora da varredura da guarda; ver o relatório).
+
+## Decisão do dono (09/11): sem trecho do anexo no contexto do turno
+Diferente do legado, o v4 não injeta o texto do anexo junto com a mensagem do dono. O bot vê que há anexos e abre com `attachment_list`/`attachment_read` só quando precisar (liberdade do agente, contexto lazy).
