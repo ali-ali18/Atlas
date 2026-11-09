@@ -22,7 +22,11 @@ export function createSecretRequestTool(requests: SecretRequests) {
 		endsTurn: true,
 		async execute({ names, reason }, ctx) {
 			const unique = [...new Set(names)];
-			const existing = new Set((await ctx.ports.vault.listHandles(ctx.ownerId)).map((h) => h.id));
+			const handles = await ctx.ports.vault.listHandles(ctx.ownerId);
+			// Login (usuário e senha de um site) não é segredo simples: `{{secret:x}}` não o alcança, quem o usa é `login_fill`.
+			const logins = unique.filter((name) => handles.some((h) => h.id === name && h.kind === "login"));
+			if (logins.length > 0) return { ok: false, error: `"${logins.join(", ")}" is a saved site login, not a simple secret.`, hint: "Sign in with login_fill (the owner approves it); {{secret:<name>}} does not work for logins. Pick another name if you need a separate API key or token." };
+			const existing = new Set(handles.filter((h) => h.kind !== "login").map((h) => h.id));
 			const missing = unique.filter((name) => !existing.has(name));
 			if (missing.length === 0) return { ok: true, summary: `Already in the vault: ${unique.join(", ")}. Use ${unique.map((name) => `{{secret:${name}}}`).join(", ")}; nothing was asked of the owner.` };
 			await requests.ask(ctx.ownerId, ctx.runId, { names: missing, reason });
