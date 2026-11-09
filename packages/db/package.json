@@ -23,6 +23,11 @@
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
+    "./vault-crypto": {
+      "types": "./src/vault-crypto/index.ts",
+      "import": "./dist/vault-crypto/index.js",
+      "default": "./dist/vault-crypto/index.js"
+    },
     "./testing": {
       "types": "./src/testing/fake-tables.ts",
       "import": "./dist/testing/fake-tables.js",

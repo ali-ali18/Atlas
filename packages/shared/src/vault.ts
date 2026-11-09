@@ -96,6 +96,14 @@ function parseUrl(value: string): URL | null {
 	}
 }
 
+/** Seletores padrão dos campos do login do Cofre (usuário, senha, código). O control server ainda confere o campo e a origem antes de digitar. */
+export const LOGIN_FIELD_SELECTORS = {
+	username:
+		'input[autocomplete="username"], input[type="email"], input[name*="user" i], input[name*="email" i], input[name*="login" i], input[id*="user" i], input[id*="email" i], input[id*="login" i], input[type="text"]',
+	password: 'input[type="password"]',
+	totp: 'input[autocomplete="one-time-code"], input[name*="otp" i], input[name*="code" i], input[name*="token" i], input[id*="otp" i], input[id*="code" i], input[inputmode="numeric"]',
+} as const;
+
 export function hostOf(url: string): string | null {
 	const parsed = parseUrl(url);
 	return parsed ? parsed.hostname.toLowerCase().replace(/\.$/, "") || null : null;
