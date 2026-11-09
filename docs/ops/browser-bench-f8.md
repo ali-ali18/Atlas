@@ -1,5 +1,7 @@
 # browser-bench F8.1b: navegador atual x `agent-browser` (09/11/2026)
 
+**Decisão final (T11 + T7 + T10): fica o navegador atual (ADR 0005). Acertou 9/9 contra 6/9 do `agent-browser`.** A rodada 1 (T11) empatou; a rodada 2 (T7 e T10) está no fim deste arquivo.
+
 Rodada real aprovada pelo dono (teto US$ 2,00; orçamento total US$ 10, ~US$ 3,26 já usados antes). Issues #167 e #165.
 
 ## Como foi rodada
@@ -29,3 +31,25 @@ Observação: o `pickWinner` do bench desempata por custo e imprime "Fica: agent
 2. Estimativa padrão assumia US$ 1/5 por milhão (10x o preço real do Haiku 5.5): agora 0,10/0,50.
 3. O bench não carregava `env.ts` (faltava `ATLAS_HOOK_PEPPER` fora do vitest).
 4. Build da imagem da VM neste container exigiu confiar na CA do proxy de saída (só na imagem de teste, fora do repositório).
+
+## Rodada 2 (T7 iframe e shadow DOM, T10 canvas), com novo ok do dono e teto de US$ 1
+
+Mesmo setup (Haiku 5.5 direto, 3 repetições por braço, `agent-browser` 0.41.2, imagem de teste reconstruída; o daemon Docker do container reiniciou no meio e a imagem foi refeita).
+
+| tarefa | braço | acertos | passos (média) | tokens de entrada acumulados (média/run) | custo (3 runs) |
+|---|---|---|---|---|---|
+| T11 | current | 3/3 | 14,3 | 452.400 | US$ 0,0313 |
+| T11 | agent-browser | 3/3 | 7 | 156.212 | US$ 0,0093 |
+| T7 | current | 3/3 | 5 | 88.653 | US$ 0,0084 |
+| T7 | agent-browser | 3/3 | 8,7 | 188.766 | US$ 0,0123 |
+| T10 | current | 3/3 | 3 | 59.719 | US$ 0,0051 |
+| T10 | agent-browser | **0/3** | 6 | 138.748 | US$ 0,0097 |
+| **total** | current | **9/9** | | | US$ 0,0448 |
+| **total** | agent-browser | **6/9** | | | US$ 0,0313 |
+
+Custo real da rodada 2: **US$ 0,0355**. Custo real acumulado das duas rodadas (com o teste de fumaça): **US$ 0,0817**.
+
+Sobre a T10: o valor do gráfico só existe no canvas e a checagem exige ler um screenshot. O braço `agent-browser` trabalha só por texto no shell e não vê a imagem, então os 0/3 refletem uma limitação desse meio (sem visão), não falha de infraestrutura. Não foi investigado run a run.
+
+### Decisão final
+Regra do dono: fica o braço que acerta mais no total das 3 tarefas; custo não desempata. **Navegador atual: 9/9; `agent-browser`: 6/9. Fica o atual (ADR 0005).** Ressalva: o `agent-browser` foi mais barato e com menos passos na T11 (página longa); vale reavaliar só esse caso se o custo de páginas longas virar problema.

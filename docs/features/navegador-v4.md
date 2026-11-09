@@ -81,7 +81,7 @@ Números medidos no teste dos 1.000 comentários (estimativa de tokens = caracte
 
 No Chromium real (control server), mapa de 1.000 comentários: menos de 2.500 caracteres. O gasto dos ajudantes do `browser_digest` entra no teto do dono.
 
-### `browser-bench` (F8.1b: rodada real feita em 09/11, ver `docs/ops/browser-bench-f8.md`; empate 3/3, fica o atual)
+### `browser-bench` (F8.1b: rodada real feita em 09/11, ver `docs/ops/browser-bench-f8.md`; atual 9/9 contra agent-browser 6/9 em T11, T7 e T10; fica o atual)
 Compara o navegador atual (ADR 0005) com o `agent-browser` (Vercel Labs, Apache-2.0) usado pelo shell da VM, nas mesmas tarefas do `eval:web` (fixture LMS, tarefa nova **T11**: código no comentário nº 870 de 1.000, fora do `--tasks all`). Fica o que **acerta mais**; custo só desempata.
 
 ```bash
