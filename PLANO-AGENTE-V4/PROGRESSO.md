@@ -160,7 +160,12 @@
   - [ ] Vídeo: transcrição por `kind` novo no `Sandbox` (1; média; depende de yt-dlp na imagem da VM).
   - [ ] Bots: `send_to_bot`, `decide_bot_pending`, `set_primary_bot` (1; média).
   - [ ] GitHub escrita com identidade do App e gatilhos (1; pode ficar depois).
-  - Fora do total (~5 a 6 frentes, decidir com o dono): subagentes (`delegate_task`), skills, PR/CI das sessões de código, anexos, `suggest_routine`/`notify_user`.
+  - [ ] Anexos: `attachment_read`, `attachment_list`, `attachment_to_computer` (1).
+  - [ ] Proativo: `suggest_routine`, `notify_user` e alerta com veredito (`report_alert`) (1; junto das rotinas).
+  - [ ] Habilidades (skills): propor, listar, mostrar e usar (1).
+  - [ ] Subagentes: `delegate_task` além do `research` (2).
+  - [ ] PR e CI das sessões de código (2 a 3; depende do GitHub escrita).
+  - **Decisão do dono (09/11): todas entram na F9** ("quero que entre todas que já existem"). Ordem por ondas de até 3 agentes; auditoria Sonnet (com dúvidas) + validação Opus a cada duas ondas.
 - [ ] F9.3 Desacoplar os 5 adaptadores do worker do `@workspace/agent-runtime` (calendar, email, mcp, code-actions-real, payment).
 - [ ] F9.A Auditoria: 5 lentes, verificação, correções com teste, reauditoria e `auditorias/F9.md` fechado.
 
