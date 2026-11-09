@@ -1038,6 +1038,7 @@ export * from "./engine-policy-v4.js";
 export * from "./reasoning-effort.js";
 export * from "./engine-helpers.js";
 export * from "./engine-settings.js";
+export * from "./code-mode.js";
 export * from "./notebook.js";
 export { bubbleRadius, groupPositionAt, type GroupPosition } from "./bubble-radius.js";
 export * from "./agent-activity.js";
