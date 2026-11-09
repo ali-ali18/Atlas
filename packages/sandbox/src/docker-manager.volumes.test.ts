@@ -231,6 +231,39 @@ describe("sandbox volumes e shell via manager", () => {
 		expect((await createSandboxManager(config, "u2").clearBrowserProfile("conv-x")).removedContainers).toBe(0);
 	});
 
+	it("cada VM nasce com um token próprio no Env, e o manager o usa no /health e nas ações", async () => {
+		const seen: Array<{ url: string; auth?: string }> = [];
+		vi.stubGlobal("fetch", async (url: string, init?: { headers?: Record<string, string> }) => {
+			seen.push({ url, auth: init?.headers?.Authorization });
+			return { ok: true, json: async () => ({}), headers: new Headers(), text: async () => "" };
+		});
+		const manager = createSandboxManager(config, "u1");
+		const first = await manager.createSession("conv-t1");
+		const env = (state.created[0] as unknown as { Env: string[] }).Env;
+		const entry = env.find((item) => item.startsWith("SANDBOX_CONTROL_TOKEN="))!;
+		const token = entry.slice("SANDBOX_CONTROL_TOKEN=".length);
+		expect(token).toMatch(/^[A-Za-z0-9_-]{43}$/);
+		expect(env).toContain("SANDBOX_TLS=false");
+		const health = seen.find((call) => call.url.endsWith("/health"));
+		expect(health?.auth).toBe(`Bearer ${token}`);
+		await manager.execScreen(first.sessionId);
+		expect(seen.find((call) => call.url.endsWith("/screen"))?.auth).toBe(`Bearer ${token}`);
+
+		await createSandboxManager(config, "u1").createSession("conv-t2");
+		const other = (state.created[1] as unknown as { Env: string[] }).Env.find((item) => item.startsWith("SANDBOX_CONTROL_TOKEN="));
+		expect(other).toBeDefined();
+		expect(other).not.toBe(entry);
+	});
+
+	it("docker exec do usuário esvazia SANDBOX_CONTROL_TOKEN (exec herda o Env do container)", async () => {
+		const owner = createSandboxManager(config, "u1");
+		const session = await owner.createSession("conv-t3");
+		await owner.execShell(session.sessionId, { command: "env" });
+		const env = (state.execs.at(-1) as { Env: string[] }).Env;
+		expect(env).toContain("SANDBOX_CONTROL_TOKEN=");
+		expect(env.some((item) => /^SANDBOX_CONTROL_TOKEN=.+/.test(item))).toBe(false);
+	});
+
 	it("execShell roda docker exec como atlas dentro do container da sessão e nega sessão alheia", async () => {
 		const owner = createSandboxManager(config, "u1");
 		const session = await owner.createSession("conv-x");

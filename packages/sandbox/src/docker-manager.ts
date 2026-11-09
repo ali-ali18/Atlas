@@ -5,6 +5,7 @@ import { Writable } from "node:stream";
 import Docker from "dockerode";
 import type { SandboxSessionResponse } from "@workspace/shared";
 import type { SandboxRuntimeConfig } from "./config.js";
+import { CONTROL_TOKEN_ENV, controlAuthHeader, controlTokenFromInspect, generateControlToken, setControlToken } from "./control-token.js";
 import {
 	controlNavigate,
 	controlScreenshot,
@@ -200,7 +201,8 @@ async function dockerExec(container: Docker.Container, modem: Docker["modem"], o
 		AttachStderr: true,
 		...(options.user ? { User: options.user } : {}),
 		...(options.workingDir ? { WorkingDir: options.workingDir } : {}),
-		Env: [`HOME=${options.user === "root" ? "/root" : "/home/atlas"}`, ...(options.env ?? [])],
+		// docker exec herda o Env do container: esvazia o token do control server para o código do usuário não o ver.
+		Env: [`HOME=${options.user === "root" ? "/root" : "/home/atlas"}`, `${CONTROL_TOKEN_ENV}=`, ...(options.env ?? [])],
 	});
 	const stream = await exec.start({ hijack: true, stdin: Boolean(options.stdin) });
 	if (options.stdin) stream.end(Buffer.from(options.stdin));
@@ -289,6 +291,19 @@ export function resourceLimitsUpdate(config: Pick<SandboxRuntimeConfig, "memoryB
 		NanoCpus: config.nanoCpus,
 		...((config.pidsLimit ?? 0) > 0 ? { PidsLimit: config.pidsLimit } : {}),
 	};
+}
+
+/**
+ * Guarda o token do control server desta VM para o cliente (por host:porta). O token vem do
+ * `Config.Env` do container, então sobrevive a reinício do worker e vale para VM criada por outro processo.
+ */
+function rememberControlToken(
+	endpoint: { host: string; controlPort: number },
+	inspect: Parameters<typeof controlTokenFromInspect>[0],
+	fallbackToken?: string,
+): void {
+	const token = controlTokenFromInspect(inspect) ?? fallbackToken;
+	if (token) setControlToken(endpoint.host, endpoint.controlPort, token);
 }
 
 /** Onde a API alcança a VM: IP na rede compartilhada (`network`) ou porta publicada no host. */
@@ -407,7 +422,7 @@ async function waitForControlReady(
 		attempts += 1;
 		assertSandboxExecution(context);
 		try {
-			const response = await runSandboxOperation(context, 3_000, (signal) => fetch(`http://${host}:${port}/health`, { signal }));
+			const response = await runSandboxOperation(context, 3_000, (signal) => fetch(`http://${host}:${port}/health`, { headers: controlAuthHeader(host, port), signal }));
 			if (response.ok) return;
 		} catch (error) {
 			if (error instanceof SandboxExecutionAbortedError && error.reason === "cancel") throw error;
@@ -739,6 +754,7 @@ export function createSandboxManager(
 				}
 				const endpoint = resolveSandboxEndpoint(config, inspect);
 				if (!endpoint || endpoint.viewerPort === 0) return null;
+				rememberControlToken(endpoint, inspect);
 				return { host: endpoint.host ?? config.controlHost, port: endpoint.viewerPort, tls: config.viewerTls };
 			} catch {
 				return null;
@@ -936,12 +952,14 @@ export function createSandboxManager(
 		// Id do container que ESTA chamada criou. A limpeza no catch só mexe nele: o nome é fixo por
 		// perfil e pode ser de outro processo (api/worker), então limpar por nome derrubaria a VM alheia.
 		let createdId: string | null = null;
+		const controlToken = generateControlToken();
 		try {
 			if (conversationId) await removeLeftovers(client, conversationId, { includeRunning: opts.replaceExisting });
 			const container = await client.createContainer({
 				Image: config.image,
 				name,
-				Env: [`SANDBOX_TLS=${config.viewerTls ? "true" : "false"}`],
+				// Token do control server: um por container; o manager o relê do inspect (Config.Env).
+				Env: [`SANDBOX_TLS=${config.viewerTls ? "true" : "false"}`, `${CONTROL_TOKEN_ENV}=${controlToken}`],
 				Labels: {
 					"atlas.sandbox": "true",
 					"atlas.sandbox.userId": userId,
@@ -1001,6 +1019,7 @@ export function createSandboxManager(
 					);
 				}
 				const { host, viewerPort, controlPort } = endpoint;
+				rememberControlToken(endpoint, inspect, controlToken);
 	
 				await waitForControlReady(host, controlPort, context);
 				await waitForViewerReady(host, viewerPort, context);
@@ -1259,6 +1278,7 @@ export function createSandboxManager(
 			const endpoint = resolveSandboxEndpoint(config, inspect);
 			if (!endpoint) throw new Error("sandbox sem endpoint (IP/porta) apos start");
 			const { host, viewerPort, controlPort } = endpoint;
+			rememberControlToken(endpoint, inspect);
 			await waitForControlReady(host, controlPort, context);
 			await waitForViewerReady(host, viewerPort, context);
 			const running: SandboxSessionRecord = {
@@ -1436,6 +1456,7 @@ export function createSandboxManager(
 				status: inspect.State.Running ? "running" : "stopped",
 				...(() => {
 					const endpoint = resolveSandboxEndpoint(config, inspect);
+					if (endpoint) rememberControlToken(endpoint, inspect);
 					return endpoint ?? { viewerPort: 0, controlPort: 0 };
 				})(),
 				createdAt: new Date(), lastUsedAt: new Date(),

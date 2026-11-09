@@ -1,3 +1,4 @@
+import { controlAuthHeader } from "./control-token.js";
 import {
 	runSandboxOperation,
 	type SandboxExecutionContext,
@@ -49,10 +50,13 @@ function unwrapControlError(text: string): string {
 
 /** Cabeçalhos das chamadas de browser: a aba do subagente (se houver) vai em `x-atlas-tab`. */
 function controlHeaders(
+	host: string,
+	port: number,
 	context: SandboxExecutionContext,
 	base: Record<string, string> = {},
 ): Record<string, string> {
-	return context.tabId ? { ...base, "x-atlas-tab": context.tabId } : base;
+	const headers = { ...base, ...controlAuthHeader(host, port) };
+	return context.tabId ? { ...headers, "x-atlas-tab": context.tabId } : headers;
 }
 
 function controlBaseUrl(host: string, port: number): string {
@@ -107,7 +111,7 @@ async function controlPost(
 	return runSandboxOperation(context, timeoutMs, async (signal) => {
 		const response = await fetch(`${controlBaseUrl(host, port)}${path}`, {
 			method: "POST",
-			headers: controlHeaders(context, { "Content-Type": "application/json" }),
+			headers: controlHeaders(host, port, context, { "Content-Type": "application/json" }),
 			body: JSON.stringify(body),
 			signal: signal,
 		});
@@ -133,7 +137,7 @@ async function controlPostJson<T>(
 	return runSandboxOperation(context, timeoutMs, async (signal) => {
 		const response = await fetch(`${controlBaseUrl(host, port)}${path}`, {
 			method: "POST",
-			headers: controlHeaders(context, { "Content-Type": "application/json" }),
+			headers: controlHeaders(host, port, context, { "Content-Type": "application/json" }),
 			body: JSON.stringify(body),
 			signal: signal,
 		});
@@ -159,7 +163,7 @@ async function controlGetJson<T>(
 	return runSandboxOperation(context, timeoutMs, async (signal) => {
 		const response = await fetch(`${controlBaseUrl(host, port)}${path}`, {
 			method: "GET",
-			headers: controlHeaders(context),
+			headers: controlHeaders(host, port, context),
 			signal: signal,
 		});
 		captureTabNotice(host, port, context, response);
@@ -183,7 +187,7 @@ export async function controlNavigate(
 	return runSandboxOperation(context, 120_000, async (signal) => {
 		const response = await fetch(`${controlBaseUrl(host, port)}/navigate`, {
 			method: "POST",
-			headers: controlHeaders(context, { "Content-Type": "application/json" }),
+			headers: controlHeaders(host, port, context, { "Content-Type": "application/json" }),
 			body: JSON.stringify({ url }),
 			signal: signal,
 		});
@@ -236,6 +240,7 @@ export async function controlScreenshot(
 			`${controlBaseUrl(host, port)}/screenshot${suffix}`,
 			{
 				method: "GET",
+				headers: controlHeaders(host, port, context),
 				signal: signal,
 			},
 		);
@@ -260,6 +265,7 @@ export async function controlScreen(
 	return runSandboxOperation(context, 15_000, async (signal) => {
 		const response = await fetch(`${controlBaseUrl(host, port)}/screen`, {
 			method: "GET",
+			headers: controlHeaders(host, port, context),
 			signal: signal,
 		});
 		captureTabNotice(host, port, context, response);

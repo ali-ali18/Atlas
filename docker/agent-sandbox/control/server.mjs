@@ -26,6 +26,11 @@ import { createEgressGuard, installEgressGuard } from "./egress-guard.mjs";
 import { createGuardedProxy, DEFAULT_PROXY_PORT } from "./egress-proxy.mjs";
 import { countUserProcesses, countViewerClients, createActivityTracker } from "./activity.mjs";
 
+import { createAuthGate, takeControlToken } from "./control-auth.mjs";
+
+// Antes de qualquer spawn: o token sai do process.env para os filhos (shell, terminal, Chrome) não o herdarem.
+const authGate = createAuthGate(takeControlToken());
+
 const PORT = Number.parseInt(process.env.SANDBOX_CONTROL_PORT ?? "3080", 10);
 const CDP_URL = process.env.CDP_URL ?? "http://127.0.0.1:9222";
 
@@ -563,6 +568,7 @@ const handleControlRequest = async (req, res) => {
 };
 
 const server = http.createServer((req, res) => {
+	if (!authGate(req, res)) return;
 	let tabId;
 	try {
 		tabId = parseTabHeader(req.headers["x-atlas-tab"]);
