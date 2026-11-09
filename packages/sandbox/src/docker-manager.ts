@@ -260,21 +260,34 @@ export function sandboxHardening(config: Pick<SandboxRuntimeConfig, "pidsLimit">
 
 /** Limites atuais do container diferem da config (env mudou depois de criado)? */
 export function resourceLimitsOutdated(
-	config: Pick<SandboxRuntimeConfig, "memoryBytes" | "nanoCpus">,
-	inspect: { HostConfig?: { Memory?: number; NanoCpus?: number } },
+	config: Pick<SandboxRuntimeConfig, "memoryBytes" | "nanoCpus"> & Partial<Pick<SandboxRuntimeConfig, "pidsLimit">>,
+	inspect: { HostConfig?: { Memory?: number; NanoCpus?: number; PidsLimit?: number | null } },
 ): boolean {
 	const host = inspect.HostConfig;
 	if (!host) return false;
-	return (host.Memory ?? 0) !== config.memoryBytes || (host.NanoCpus ?? 0) !== config.nanoCpus;
+	// VM criada antes do limite de processos fica sem ele: o update o aplica (pidsLimit 0 = desligado de propósito).
+	const pidsOutdated = (config.pidsLimit ?? 0) > 0 && (host.PidsLimit ?? 0) !== config.pidsLimit;
+	return (host.Memory ?? 0) !== config.memoryBytes || (host.NanoCpus ?? 0) !== config.nanoCpus || pidsOutdated;
+}
+
+/**
+ * O container foi criado sem o `CapDrop` de hoje (VM antiga)? Isso NÃO se corrige com `docker update`: só recriando. Não
+ * recriamos no meio do uso (perde o que está aberto): a VM é substituída quando parar e for religada pela imagem nova, e o
+ * log avisa enquanto isso.
+ */
+export function capDropOutdated(inspect: { HostConfig?: { CapDrop?: string[] | null } }): boolean {
+	const dropped = new Set((inspect.HostConfig?.CapDrop ?? []).map((cap) => cap.replace(/^CAP_/, "").toUpperCase()));
+	return sandboxHardening({ pidsLimit: 0 }).CapDrop.some((cap) => !dropped.has(cap));
 }
 
 /** Payload de `docker update`. MemorySwap junto: subir Memory acima do swap
  * já gravado (2x o antigo) falha; 2x mantém o padrão do `create`. */
-export function resourceLimitsUpdate(config: Pick<SandboxRuntimeConfig, "memoryBytes" | "nanoCpus">) {
+export function resourceLimitsUpdate(config: Pick<SandboxRuntimeConfig, "memoryBytes" | "nanoCpus"> & Partial<Pick<SandboxRuntimeConfig, "pidsLimit">>) {
 	return {
 		Memory: config.memoryBytes,
 		MemorySwap: config.memoryBytes * 2,
 		NanoCpus: config.nanoCpus,
+		...((config.pidsLimit ?? 0) > 0 ? { PidsLimit: config.pidsLimit } : {}),
 	};
 }
 
@@ -1213,6 +1226,9 @@ export function createSandboxManager(
 			}
 			// RAM/CPU mudaram no env (SANDBOX_MEMORY_MB/SANDBOX_CPUS): aplica no
 			// container reaproveitado; sem isso a VM fica com o limite antigo.
+			if (capDropOutdated(inspect)) {
+				console.warn(`[sandbox] ${record.containerName || record.containerId} was created without the current CapDrop; it is replaced when it next stops and starts from the current image`);
+			}
 			if (resourceLimitsOutdated(config, inspect)) {
 				const label = record.containerName || record.containerId;
 				try {
