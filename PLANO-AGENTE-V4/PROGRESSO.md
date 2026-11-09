@@ -143,8 +143,8 @@
 - [ ] F8.1 `browser` sobre a porta `Sandbox`: árvore de acessibilidade com refs, página inteira em partes (nunca poda escondida) e visão só quando a árvore for pobre.
 - [ ] F8.1a Página enorme e feed infinito: mapa primeiro, partes sob demanda, busca na página, "carregar mais" explícito e volume grande em arquivo lido por ajudante. Cenário: resposta no comentário nº 870 de 1.000.
 - [ ] F8.1b `browser-bench` real comparando o navegador atual (ADR 0005) com o `agent-browser` da Vercel Labs na VM; fica o que acertar mais.
-- [ ] F8.2 `code` (plan/build, edição precisa, verificação).
-- [ ] F8.3 Experimento Code Mode.
+- [x] F8.2 `code` (09/11, frente C: capacidade lazy `capabilities/code/` com 9 tools sobre a porta `Sandbox` (kinds `code.*` em `kinds.ts`), portão de comando reaproveitando `shared/dev-command-approval`, `.env` e caminho sensível = `credential`, saída redigida e não confiável, presets de política `plan`/`build` em `presets/policy-presets.ts`, adaptador `apps/worker/src/v4-adapters/code-actions.ts` (escopo usuário + sessão), seed v4 com repositório real em `packages/evals`. Pendências: abrir PR pelo conector GitHub; o integrador registra o tratador no dispatcher da frente A e liga `code: {}` no preset; `rootIsWorkspace` no adaptador; docs em `docs/features/codigo-v4.md`) `code`: plan/build, edição precisa, verificação.
+- [ ] F8.3 Experimento Code Mode (não feito na frente C; só liga se ganhar na matriz).
 - [ ] F8.0 Adaptador real de `card_fill` (pendência OBRIGATÓRIA da F6, ver contrato em `packages/agent/src/ports/payment.ts`): na página final da loja, ler o host que cobra e o total cobrado e devolver `declined`/`failed` SEM pagar se divergirem de `merchant`/`amount`; NUNCA gravar `params` (número, CVV, titular) em log, trace, journal ou mensagem de erro. Teste com VM fake: host trocado e total diferente não pagam; nenhum segredo em log.
 - [ ] F8.A Auditoria: 5 lentes, verificação, correções com teste, reauditoria e `auditorias/F8.md` fechado.
 
