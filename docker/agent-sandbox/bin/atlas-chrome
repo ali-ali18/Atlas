@@ -102,9 +102,10 @@ fi
 # --no-sandbox é obrigatório no container (root, sem userns); --test-type
 # esconde a infobar "unsupported command-line flag: --no-sandbox" (o
 # --disable-infobars foi removido do Chrome moderno e não faz mais nada).
-# RISCO ACEITO: sem o sandbox do Chrome um exploit de renderer vira root no container. O que segura isso é o container
-# (CapDrop ALL, no-new-privileges, limite de PIDs e de memória, rede sem acesso ao host e proxy de saída acima). Tornar o Chrome
-# sandboxed exige userns ou o perfil seccomp do Chrome no Docker, que a imagem ainda não traz; ver docs/adr/ da F8.
+# RISCO ACEITO: sem o sandbox do Chrome um exploit de renderer vira root no container. O que segura isso é o container:
+# CapDrop só de NET_RAW e MKNOD (não é CapDrop ALL), limite de PIDs e de memória (docker-manager.ts, sandboxHardening) e o
+# proxy de saída acima. no-new-privileges NÃO está ligado. Endurecer as capacidades (CapDrop ALL, no-new-privileges) ou
+# tornar o Chrome sandboxed (exige userns ou o perfil seccomp do Chrome no Docker, que a imagem ainda não traz) fica para um ADR.
 exec "$CHROME_BIN" \
 	--no-first-run \
 	--hide-crash-restore-bubble \
