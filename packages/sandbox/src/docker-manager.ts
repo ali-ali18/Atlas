@@ -536,7 +536,7 @@ export type SandboxManager = {
 	) => Promise<ControlBrowserClickResult>;
 	execBrowserType: (
 		sessionId: string,
-		params: { selector?: string; text: string; submit?: boolean; guard?: BrowserTypeGuard },
+		params: { selector?: string; ref?: string; text: string; submit?: boolean; guard?: BrowserTypeGuard },
 	) => Promise<ControlActionResult>;
 	execBrowserText: (
 		sessionId: string,

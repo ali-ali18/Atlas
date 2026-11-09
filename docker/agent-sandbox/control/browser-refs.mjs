@@ -459,5 +459,5 @@ export function createRefActions({
 		}, { tries: 2 });
 	}
 
-	return { browserSnapshot, browserAct, browserWait, observeAction, collect, locateRef, registry, axStore };
+	return { browserSnapshot, browserAct, browserWait, observeAction, collect, locateRef, resolveRef, registry, axStore };
 }

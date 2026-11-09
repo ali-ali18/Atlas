@@ -315,3 +315,37 @@ test("navigate: http(s), about:blank e file:// da pasta de trabalho; o resto é 
 	];
 	for (const url of bad) assert.throws(() => assertNavigableUrl(url), /URL não permitida/, url);
 });
+
+// ---- Login do Cofre por REF (campos declarados pelo modelo): `guard.kind: "field"` + resolvedor de ref injetado. ----
+test("login por ref: campo de texto qualquer (nome, CPF) e a senha entram pelo ref; resolvedor ausente, ref de iframe ou sem trava são recusados", async () => {
+	await withPage("/one-screen", async (p, actions) => {
+		actions.setRefResolver(async (_page, ref) => ({ locator: p.locator(ref === "e1" ? "#u" : ref === "e2" ? "#p" : "#nada") }));
+		await actions.browserType({ ref: "e1", text: "Ana Souza", guard: guard("field") });
+		await actions.browserType({ ref: "e2", text: "segredo", guard: guard("field") });
+		assert.equal(await valueOf(p, "#u"), "Ana Souza");
+		assert.equal(await valueOf(p, "#p"), "segredo");
+		await assert.rejects(actions.browserType({ ref: "f1e3", text: "x", guard: guard("field") }), /ref inválido/);
+		await assert.rejects(actions.browserType({ ref: "e1", text: "x" }), /só vale com a trava/);
+		await assert.rejects(actions.browserType({ ref: "e9", text: "x", guard: guard("field") }), /Não achei o campo de campo|Não achei/);
+	});
+	await withPage("/one-screen", async (_p, actions) => {
+		await assert.rejects(actions.browserType({ ref: "e1", text: "x", guard: guard("field") }), /não resolve ref/);
+	});
+});
+
+test("login por ref mantém as travas: origem trocada, formulário para outro site, campo oculto e campo que não é entrada de texto", async () => {
+	await withPage("/cross-action", async (p, actions) => {
+		actions.setRefResolver(async () => ({ locator: p.locator("#u") }));
+		await assert.rejects(actions.browserType({ ref: "e1", text: "x", guard: guard("field") }), /envia os dados para outro site/);
+	});
+	await withPage("/hidden-none", async (p, actions) => {
+		actions.setRefResolver(async () => ({ locator: p.locator("#p") }));
+		await assert.rejects(actions.browserType({ ref: "e1", text: "x", guard: guard("field") }), /Recusado: o campo está oculto|oculto/);
+	});
+	await withPage("/one-screen", async (p, actions) => {
+		actions.setRefResolver(async () => ({ locator: p.locator("#u") }));
+		await assert.rejects(actions.browserType({ ref: "e1", text: "x", guard: { kind: "field", origin: "https://outro.example" } }), /mudou de site/);
+		actions.setRefResolver(async () => ({ locator: p.locator("button") }));
+		await assert.rejects(actions.browserType({ ref: "e1", text: "x", guard: guard("field") }), /Recusado|Não achei/);
+	});
+});

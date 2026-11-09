@@ -168,6 +168,7 @@ const refActions = createRefActions({
 });
 const { browserSnapshot, browserAct, browserWait, observeAction } = refActions;
 actions.setObserver(observeAction);
+actions.setRefResolver(refActions.resolveRef);
 // Muda a cada ação/navegação: a continuação em cache do browser_read não vale depois de agir na página.
 let actionEpoch = 0;
 const { readPage, findText } = createPageReader({
@@ -419,6 +420,7 @@ const handleControlRequest = async (req, res) => {
 				200,
 				await browserType({
 					selector: body?.selector,
+					...(body?.ref !== undefined ? { ref: body.ref } : {}),
 					text,
 					submit: Boolean(body?.submit),
 					...(body?.guard && typeof body.guard === "object" ? { guard: body.guard } : {}),
