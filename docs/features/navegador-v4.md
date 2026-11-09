@@ -81,7 +81,7 @@ Números medidos no teste dos 1.000 comentários (estimativa de tokens = caracte
 
 No Chromium real (control server), mapa de 1.000 comentários: menos de 2.500 caracteres. O gasto dos ajudantes do `browser_digest` entra no teto do dono.
 
-### `browser-bench` (F8.1b preparada; **nada foi rodado com modelo real**)
+### `browser-bench` (F8.1b: rodada real feita em 09/11, ver `docs/ops/browser-bench-f8.md`; atual 9/9 contra agent-browser 6/9 em T11, T7 e T10; fica o atual)
 Compara o navegador atual (ADR 0005) com o `agent-browser` (Vercel Labs, Apache-2.0) usado pelo shell da VM, nas mesmas tarefas do `eval:web` (fixture LMS, tarefa nova **T11**: código no comentário nº 870 de 1.000, fora do `--tasks all`). Fica o que **acerta mais**; custo só desempata.
 
 ```bash
@@ -90,10 +90,10 @@ pnpm --filter @workspace/agent-runtime eval:browser-bench -- --estimate
 # roteirizado, sem Docker, sem modelo, sem chave (valida o harness)
 NODE_ENV=test ATLAS_HOOK_PEPPER=test-pepper pnpm --filter @workspace/agent-runtime eval:browser-bench -- --dry
 # rodada real (SÓ com o ok do dono; exige as três travas)
-ATLAS_BENCH_OWNER_OK=1 pnpm --filter @workspace/agent-runtime eval:browser-bench -- --real --max-cost 2 --reps 3 --tasks T11 --models anthropic/claude-haiku-5.5 --env-file <.env> --fixture-host <ip da bridge>
+ATLAS_BENCH_OWNER_OK=1 pnpm --filter @workspace/agent-runtime eval:browser-bench -- --real --max-cost 2 --reps 3 --tasks T11 --models anthropic-direct/claude-haiku-5-5 --fixture-host <ip da bridge> (chave em CLAUDE_KEY ou ANTHROPIC_API_KEY)
 ```
 
-Estimativa proposta: 2 braços × T11 × 3 repetições = 6 runs, ~25 passos de ~12 mil tokens de entrada e 300 de saída por run, modelo da classe Haiku (US$ 1/M entrada, US$ 5/M saída, sem cache): **~US$ 0,34 por run, ~US$ 2,03 no total** (teto `--max-cost 2`). O saldo do orçamento é de ~US$ 6,74 (US$ 10 menos ~US$ 3,26 usados). Se empatar no acerto, uma segunda rodada com T7 (iframe e shadow DOM) e T10 (canvas) custaria ~US$ 4 a mais; só vale com novo ok. Antes da rodada real: instalar o `agent-browser` na imagem da VM de teste (`agent-browser --version` é conferido) e confirmar a sintaxe do CLI (`agent-browser --help`), que o sufixo do pedido assume (`open`, `snapshot`, `click @ref`).
+Estimativa proposta (com o preço antigo de 1/5; o real do Haiku 5.5 é 0,10/0,50 e o custo medido foi de US$ 0,05 no total): 2 braços × T11 × 3 repetições = 6 runs, ~25 passos de ~12 mil tokens de entrada e 300 de saída por run, modelo da classe Haiku (US$ 1/M entrada, US$ 5/M saída, sem cache): **~US$ 0,34 por run, ~US$ 2,03 no total** (teto `--max-cost 2`). O saldo do orçamento é de ~US$ 6,74 (US$ 10 menos ~US$ 3,26 usados). Se empatar no acerto, uma segunda rodada com T7 (iframe e shadow DOM) e T10 (canvas) custaria ~US$ 4 a mais; só vale com novo ok. Antes da rodada real: instalar o `agent-browser` na imagem da VM de teste (`agent-browser --version` é conferido) e confirmar a sintaxe do CLI (`agent-browser --help`), que o sufixo do pedido assume (`open`, `snapshot`, `click @ref`).
 
 ## Como testar
 ```bash
