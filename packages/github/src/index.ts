@@ -9,3 +9,6 @@ export * from "./app/compare.js";
 export * from "./app/credentials.js";
 export * from "./app/jwt.js";
 export * from "./app/token.js";
+
+export * from "./write/gate.js";
+export * from "./write/ops.js";

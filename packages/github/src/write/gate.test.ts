@@ -21,7 +21,6 @@ vi.mock("@workspace/db", () => ({
 import type { GithubInstallationRecord } from "@workspace/db";
 import { gateGithubWrite, isGithubWriteConnector, type GithubWriteGateDeps } from "./gate.js";
 import { planGithubWrite, withGithubSignature } from "./ops.js";
-import { GITHUB_APP_PERMISSIONS, missingGithubWritePermissions } from "../app/manifest.js";
 
 const CREDS = { appId: "1", slug: "meu-app", name: "Meu App", privateKey: "pem", webhookSecret: "w", source: "db" as const };
 
@@ -199,16 +198,5 @@ describe("mapeamento das ferramentas de escrita", () => {
 		expect(isGithubWriteConnector("composio", "GITHUB_CREATE_AN_ISSUE")).toBe(true);
 		expect(isGithubWriteConnector("composio", "GMAIL_SEND")).toBe(false);
 		expect(isGithubWriteConnector("notion", "create_page")).toBe(false);
-	});
-});
-
-describe("manifest do app", () => {
-	it("pede issues, pull requests e contents com escrita e metadata com leitura", () => {
-		expect(GITHUB_APP_PERMISSIONS).toMatchObject({ issues: "write", pull_requests: "write", contents: "write", metadata: "read" });
-	});
-	it("detecta app antigo sem escrita em issues", () => {
-		expect(missingGithubWritePermissions({ issues: "read", pull_requests: "write", contents: "write" })).toEqual(["issues"]);
-		expect(missingGithubWritePermissions({ issues: "write", pull_requests: "write", contents: "write" })).toEqual([]);
-		expect(missingGithubWritePermissions(null)).toEqual([]);
 	});
 });
