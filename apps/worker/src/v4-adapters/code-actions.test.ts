@@ -7,11 +7,12 @@ import { test } from "node:test";
 import { CODE_KINDS, type SandboxAction } from "@workspace/agent";
 import type { DevClient, DevExecSnapshot } from "@workspace/sandbox";
 import { DevSandboxError } from "@workspace/sandbox";
-import { type CodeSession, createCodeActionHandler, parseStatus } from "./code-actions.js";
+import { type CodeActionDeps, type CodeSession, createCodeActionHandler, parseStatus } from "./code-actions.js";
+import { realCodeActionDeps } from "./code-actions-real.js";
 
 const TOKEN = "ghp_" + "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8";
 
-function rig(over: { stdout?: string; exitCode?: number; patchError?: string; monorepo?: boolean } = {}) {
+function rig(over: { stdout?: string; exitCode?: number; patchError?: string; monorepo?: boolean; prepare?: CodeActionDeps["prepare"] } = {}) {
 	const sessions = new Map<string, CodeSession>();
 	const execs: string[] = [];
 	const files = new Map<string, string>();
@@ -44,7 +45,7 @@ function rig(over: { stdout?: string; exitCode?: number; patchError?: string; mo
 			},
 		},
 		connect: async () => client,
-		prepare: async (_s, _c, input) => ({ ...input, testCommand: "pnpm test", secrets: [TOKEN] }),
+		prepare: over.prepare ?? (async (_s, _c, input) => ({ ...input, testCommand: "pnpm test", secrets: [TOKEN] })),
 		secrets: () => [TOKEN],
 		pollMs: 1,
 	});
@@ -145,7 +146,7 @@ test("saída longa vai para um arquivo do workspace e o resultado aponta o camin
 	const sessionId = await open(r);
 	const res = await r.run("A", CODE_KINDS.shell, { sessionId, cmd: "pnpm test" });
 	const data = res.data as { output: string; spillPath: string };
-	assert.match(data.spillPath, /^\/workspace\/\.atlas-output\/job\d+\.log$/);
+	assert.match(data.spillPath, /^\/workspace\/\.atlas\/output\/job\d+\.log$/);
 	assert.equal(r.files.get(data.spillPath)?.length, 40_000);
 	assert.match(data.output, /more characters in/);
 });
@@ -168,4 +169,46 @@ test("pnpm test na raiz de monorepo é a suíte inteira: o adaptador (que vê a 
 	const single = rig();
 	const id = await open(single);
 	assert.equal((await single.run("A", CODE_KINDS.test, { sessionId: id, cmd: "pnpm test" })).ok, true);
+});
+
+test("saída longa: o arquivo mora fora do repositório (com .gitignore) e o segredo é redigido ANTES de gravar", async () => {
+	const r = rig({ stdout: `${"x".repeat(40_000)}\nGITHUB_TOKEN=${TOKEN}\n` });
+	const sessionId = await open(r);
+	const res = await r.run("A", CODE_KINDS.shell, { sessionId, cmd: "pnpm test" });
+	const data = res.data as { output: string; spillPath: string };
+	assert.match(data.spillPath, /^\/workspace\/\.atlas\/output\//);
+	assert.equal(r.files.get("/workspace/.atlas/.gitignore"), "*\n");
+	const written = r.files.get(data.spillPath) ?? "";
+	assert.ok(written.length > 40_000);
+	assert.equal(written.includes(TOKEN), false, "o disco não guarda o token");
+	assert.match(written, /GITHUB_TOKEN=\[redacted\]/);
+	assert.equal(JSON.stringify(res).includes(TOKEN), false);
+	for (const path of r.files.keys()) assert.equal(path.startsWith("/workspace/.atlas/"), true, path);
+});
+
+test("clone que falha: o token já estava registrado, então o erro sai redigido (known.secrets antes do clone)", async () => {
+	const r = rig({
+		prepare: async (_s, _c, _input, _signal, track) => {
+			track?.(TOKEN);
+			throw new Error(`Could not clone acme/loja: fatal: unable to access 'https://x-access-token:${TOKEN}@github.com/acme/loja.git/'`);
+		},
+	});
+	const res = await r.run("A", CODE_KINDS.session, { repo: "acme/loja" });
+	assert.equal(res.ok, false);
+	assert.equal(JSON.stringify(res).includes(TOKEN), false);
+	assert.match(JSON.stringify(res), /\[redacted\]/);
+});
+
+test("segredos da sessão são duráveis: uma instância sem o Map refaz o token do dono para o repositório da sessão", async () => {
+	const asked: Array<[string, string | undefined]> = [];
+	const deps = realCodeActionDeps({ provider: {} as never, getGithubToken: async (userId, repo) => (asked.push([userId, repo]), { token: TOKEN }) });
+	const session: CodeSession = { id: "s9", userId: "A", repo: "acme/loja", branch: null, status: "RUNNING" };
+	assert.deepEqual(await deps.secrets!(session), [TOKEN]);
+	assert.deepEqual(await deps.secrets!(session), [TOKEN]);
+	assert.deepEqual(asked, [["A", "acme/loja"]], "o segundo uso vem do cache");
+	assert.deepEqual(await deps.secrets!({ ...session, id: "s10", repo: null }), []);
+	const failing = realCodeActionDeps({ provider: {} as never, getGithubToken: async () => ({ error: "sem token" }) });
+	assert.deepEqual(await failing.secrets!(session), []);
+	const throwing = realCodeActionDeps({ provider: {} as never, getGithubToken: async () => { throw new Error("db fora"); } });
+	assert.deepEqual(await throwing.secrets!(session), []);
 });

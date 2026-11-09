@@ -36,8 +36,11 @@ export type CodeActionDeps = {
 	};
 	/** Garante o ambiente rodando e devolve o cliente HTTP da VM. Lança com mensagem clara se estiver na fila. */
 	connect(session: CodeSession, signal?: AbortSignal): Promise<DevClient>;
-	/** Sessão nova: clona o repositório, troca de branch e detecta o comando de teste. Segredos usados (token) voltam em `secrets`. */
-	prepare?(session: CodeSession, client: DevClient, input: { repo?: string; branch?: string }, signal?: AbortSignal): Promise<{ repo?: string; branch?: string; testCommand?: string; note?: string; secrets?: string[] }>;
+	/**
+	 * Sessão nova: clona o repositório, troca de branch e detecta o comando de teste. Segredos usados (token) voltam em `secrets`.
+	 * `track(secret)` registra o segredo NA HORA (antes do clone): se o clone falhar, a mensagem de erro já sai redigida.
+	 */
+	prepare?(session: CodeSession, client: DevClient, input: { repo?: string; branch?: string }, signal?: AbortSignal, track?: (secret: string) => void): Promise<{ repo?: string; branch?: string; testCommand?: string; note?: string; secrets?: string[] }>;
 	/** Segredos conhecidos da sessão (token do GitHub, variáveis do ambiente) para redigir saída e erro. */
 	secrets?(session: CodeSession): Promise<readonly string[]> | readonly string[];
 	/** Teto de espera de um comando (ms). Padrão 120 s; o pedido do modelo pode baixar, nunca passar de 600 s. */
@@ -50,6 +53,8 @@ const DEFAULT_TIMEOUT_MS = 120_000;
 const NOT_FOUND = "Coding session not found.";
 /** Tudo abaixo disto fica inline; o resto da saída vai para um arquivo do workspace (`spillPath`) e o modelo lê em partes. */
 const INLINE_OUTPUT_CHARS = 30_000;
+/** Pasta de apoio do agente no workspace: fora de qualquer repositório e ignorada pelo git (ver `inlineOrSpill`). */
+const SPILL_DIR = "/workspace/.atlas";
 
 const shq = (value: string): string => `'${value.replaceAll("'", "'\\''")}'`;
 
@@ -113,10 +118,16 @@ export function createCodeActionHandler(deps: CodeActionDeps): CodeActionHandler
 		return { snapshot, output: `${stdout}${stderr}`, timedOut: snapshot.timedOut };
 	}
 
-	/** Saída longa: o corpo inteiro vai para um arquivo do workspace e o modelo lê o resto por `code.read`. Nada se perde em silêncio. */
-	async function inlineOrSpill(client: DevClient, output: string, jobId: string): Promise<{ output: string; spillPath?: string }> {
+	/**
+	 * Saída longa: o corpo inteiro vai para um arquivo e o modelo lê o resto por `code.read`. Nada se perde em silêncio.
+	 * O arquivo mora em `/workspace/.atlas/output/` com um `.gitignore` `*` (nunca entra em commit, mesmo que /workspace seja um
+	 * repositório) e o texto é REDIGIDO ANTES de gravar: segredo que apareceu na saída não fica em disco.
+	 */
+	async function inlineOrSpill(client: DevClient, rawOutput: string, jobId: string, secrets: readonly string[]): Promise<{ output: string; spillPath?: string }> {
+		const output = redactSecrets(rawOutput, [...secrets]);
 		if (output.length <= INLINE_OUTPUT_CHARS) return { output };
-		const spillPath = `/workspace/.atlas-output/${jobId}.log`;
+		const spillPath = `${SPILL_DIR}/output/${jobId}.log`;
+		await client.writeFile({ path: `${SPILL_DIR}/.gitignore`, content: "*\n" });
 		await client.writeFile({ path: spillPath, content: output });
 		return { output: `${output.slice(0, INLINE_OUTPUT_CHARS)}\n[… ${output.length - INLINE_OUTPUT_CHARS} more characters in ${spillPath}]`, spillPath };
 	}
@@ -146,7 +157,10 @@ export function createCodeActionHandler(deps: CodeActionDeps): CodeActionHandler
 			}
 			const session = await deps.sessions.create(userId, { ...(p.repo && { repo: p.repo }), ...(p.branch && { branch: p.branch }) });
 			const client = await deps.connect(session, signal);
-			const prepared = (await deps.prepare?.(session, client, { ...(p.repo && { repo: p.repo }), ...(p.branch && { branch: p.branch }) }, signal)) ?? {};
+			const track = (secret: string) => {
+				if (secret) known.secrets = [...known.secrets, secret];
+			};
+			const prepared = (await deps.prepare?.(session, client, { ...(p.repo && { repo: p.repo }), ...(p.branch && { branch: p.branch }) }, signal, track)) ?? {};
 			return { data: { sessionId: session.id, ...((prepared.repo ?? p.repo) && { repo: prepared.repo ?? p.repo }), ...((prepared.branch ?? p.branch) && { branch: prepared.branch ?? p.branch }), status: "RUNNING", ...(prepared.testCommand && { testCommand: prepared.testCommand }), ...(prepared.note && { note: prepared.note }) }, secrets: prepared.secrets ?? [] };
 		}
 
@@ -191,7 +205,7 @@ export function createCodeActionHandler(deps: CodeActionDeps): CodeActionHandler
 					if (whole) throw new Refused(fullSuiteAdvice(whole));
 				}
 				const { snapshot, output, timedOut } = await runJob(client, session, q, signal);
-				const spilled = await inlineOrSpill(client, output, snapshot.id);
+				const spilled = await inlineOrSpill(client, output, snapshot.id, secrets);
 				return { data: { exitCode: snapshot.exitCode, output: spilled.output, ...(timedOut && { timedOut: true }), durationMs: snapshot.durationMs, ...(spilled.spillPath && { spillPath: spilled.spillPath }), cwd: snapshot.cwd }, secrets };
 			}
 			case CODE_KINDS.gitStatus: {
@@ -204,7 +218,7 @@ export function createCodeActionHandler(deps: CodeActionDeps): CodeActionHandler
 				const cmd = `git --no-pager diff --no-color${q.staged ? " --cached" : ""}${q.path ? ` -- ${shq(q.path)}` : ""}`;
 				const { snapshot, output } = await runJob(client, session, { cmd, cwd: repoDir(session) }, signal);
 				if (snapshot.exitCode !== 0) throw new Refused(`git diff failed: ${output.trim().slice(0, 500)}`);
-				const spilled = await inlineOrSpill(client, output, snapshot.id);
+				const spilled = await inlineOrSpill(client, output, snapshot.id, secrets);
 				return { data: { diff: spilled.output, empty: output.trim() === "", ...(spilled.spillPath && { spillPath: spilled.spillPath }) }, secrets };
 			}
 		}

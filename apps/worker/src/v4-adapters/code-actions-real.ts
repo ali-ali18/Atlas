@@ -37,7 +37,7 @@ export function realCodeActionDeps(input: { provider: DevSandboxProvider; getGit
 			if (session.status !== "RUNNING") await updateDevSession(session.id, { status: "RUNNING", containerId: result.containerId, lastError: null, touch: true });
 			return createDevClient(result.endpoint, signal ? { signal } : {});
 		},
-		prepare: async (session, client, args) => {
+		prepare: async (session, client, args, _signal, track) => {
 			const notes: string[] = [];
 			const secrets: string[] = [];
 			if (!args.repo) return { note: "Empty workspace (no repository given)." };
@@ -48,6 +48,7 @@ export function realCodeActionDeps(input: { provider: DevSandboxProvider; getGit
 			if ("token" in token) {
 				tokens.set(session.id, token.token);
 				secrets.push(token.token);
+				track?.(token.token); // antes do clone: se ele falhar, o erro já sai redigido
 			}
 			const env = { DEV_REPO_URL: `https://github.com/${args.repo}.git`, DEV_REPO_DIR: `/workspace/${name}`, ...("token" in token && { GH_TOKEN: token.token, GITHUB_TOKEN: token.token }) };
 			const job = await client.execStart({ cmd: 'if [ -d "$DEV_REPO_DIR/.git" ]; then git -C "$DEV_REPO_DIR" fetch --all --prune; else git clone "$DEV_REPO_URL" "$DEV_REPO_DIR"; fi', env, timeoutMs: 300_000 });
@@ -65,7 +66,17 @@ export function realCodeActionDeps(input: { provider: DevSandboxProvider; getGit
 			const testCommand = await detectTestCommand(client, `/workspace/${name}`);
 			return { repo: args.repo, ...(args.branch && { branch: args.branch }), ...(testCommand && { testCommand }), ...(notes.length > 0 && { note: notes.join(" ") }), secrets };
 		},
-		secrets: (session) => (tokens.has(session.id) ? [tokens.get(session.id)!] : []),
+		// Durável: o Map é só cache. Outra instância do worker (ou depois de reiniciar) refaz o token do dono para a sessão, em vez
+		// de redigir só o que esta instância viu.
+		secrets: async (session) => {
+			const cached = tokens.get(session.id);
+			if (cached) return [cached];
+			if (!session.repo) return [];
+			const result = await input.getGithubToken(session.userId, session.repo).catch(() => ({ error: "unavailable" }) as GithubTokenResult);
+			if (!("token" in result)) return [];
+			tokens.set(session.id, result.token);
+			return [result.token];
+		},
 	};
 }
 
