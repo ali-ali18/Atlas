@@ -325,3 +325,17 @@ test("bots (F9): lazy no chat com dono; decide_bot_pending só com 'Decidir pelo
 	const noBot = await buildV4Registry({ ...base, deps: fakeAdapterDeps() });
 	assert.equal(toolsOf(noBot), undefined);
 });
+
+test("anexos (F9): entram com a fonte e dono presente; rotina e agenda não leem a conversa", async () => {
+	const source = { list: async () => [], cache: { get: async () => null } };
+	const toolsOf = (setup: Awaited<ReturnType<typeof buildV4Registry>>) => setup.registry.capabilities.find((c) => c.id === "attachments")?.tools.map((t) => t.name) ?? [];
+	const attended = await buildV4Registry({ ...base, attachments: source, deps: fakeAdapterDeps() });
+	assert.deepEqual(toolsOf(attended), ["attachment_list", "attachment_read", "attachment_to_computer"]);
+	assert.ok(!attended.registry.core().some((c) => c.id === "attachments"));
+	const unattended = await buildV4Registry({ ...base, unattended: true, attachments: source, deps: fakeAdapterDeps() });
+	assert.deepEqual(toolsOf(unattended), []);
+	const agenda = await buildV4Registry({ ...base, agendaRun: true, attachments: source, deps: fakeAdapterDeps() });
+	assert.deepEqual(toolsOf(agenda), []);
+	const noSource = await buildV4Registry({ ...base, deps: fakeAdapterDeps() });
+	assert.deepEqual(toolsOf(noSource), []);
+});

@@ -1291,6 +1291,8 @@ async function executeLeasedRun(ctx: {
 					...(deps.v4Queue ? { queue: deps.v4Queue } : {}),
 					...(deps.cvvEscrow ? { cvvEscrow: deps.cvvEscrow } : {}),
 					...(v4Sandbox ? { sandbox: v4Sandbox, ...(v4Sandbox.availability.vm && { browser: true }), codeAvailable: v4Sandbox.availability.code } : {}),
+					// Anexos da conversa (F9): a mesma fonte do motor atual. Só entra com arquivo na conversa (`present`): sem anexo, o índice da capacidade não vai ao prompt.
+					...(attachments?.present ? { attachments } : {}),
 					codeMode: v4CodeMode,
 					// Imagens (F9): o modelo do dono, ou o de `ATLAS_IMAGE_MODEL` como no legado (sem chave OpenRouter não há como gerar).
 					...(apiKey && (runtimeConfig.imageModel ?? process.env.ATLAS_IMAGE_MODEL?.trim()) ? { imageGeneration: { apiKey, model: (runtimeConfig.imageModel ?? process.env.ATLAS_IMAGE_MODEL)!.trim() } } : {}),

@@ -70,6 +70,7 @@ import {
 	type RunLease,
 } from "@workspace/db";
 import { buildV4Registry, type V4AdapterDeps, type V4RegistryInput } from "./v4-adapters/index.js";
+import type { V4AttachmentsSource } from "./v4-adapters/attachments.js";
 import type { V4ImagesConfig } from "./v4-adapters/images.js";
 import { createV4Payment, type V4PaymentDeps } from "./v4-adapters/payment.js";
 import { MODEL_ROLES, type CodeMode, formatModelRef, isMaintenanceModel, parseModelRef, type AgendaKind, type BotLanguage, type ComputerUseEvent, type ModelChainEntry, type RoleChains, type RunStop, type RunUsage } from "@workspace/shared";
@@ -371,6 +372,8 @@ export type RunEngineV4Input = {
 	briefEmail?: BriefEmailSource;
 	/** Rotinas (F9): sincroniza o agendador depois que o bot pausa, retoma ou apaga uma rotina (o `syncRoutineScheduler` do worker). */
 	onRoutineMutated?: V4RegistryInput["onRoutineMutated"];
+	/** Anexos da conversa (F9): a fonte do processador (lista e cache de extração). Sem ela a capacidade `attachments` não entra. */
+	attachments?: V4AttachmentsSource;
 	/** Prompt estável do preset (sem ele, o kernel monta o completo com o contrato de trabalho). */
 	stableSystem?: string;
 	policy?: PolicyContext;
@@ -486,6 +489,7 @@ export async function runEngineV4(input: RunEngineV4Input): Promise<V4EngineResu
 				...(codeMode !== "off" && { codeRequested: true }),
 				...(input.codeAvailable === true && { codeEnvironment: true }),
 				...(input.imageGeneration && { imageGeneration: input.imageGeneration }),
+				...(input.attachments && { attachments: input.attachments }),
 			});
 	const registry = input.registry ?? built!.registry;
 	motherRegistry = registry;

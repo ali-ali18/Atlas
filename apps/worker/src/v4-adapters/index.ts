@@ -29,6 +29,7 @@ import {
 import { countryFromLocale, type AgendaKind, type ComputerUseEvent, type RoutineRecord } from "@workspace/shared";
 import { createV4Bots, isBotDecideEnabled, realV4BotsDeps, type V4BotsDeps } from "./bots.js";
 import { createV4Agenda, realV4AgendaDeps, type V4AgendaDeps } from "./agenda.js";
+import { createV4Attachments, type V4AttachmentsSource } from "./attachments.js";
 import { createV4Email, realV4EmailDeps, type V4EmailDeps } from "./email.js";
 import { createV4Github, realV4GithubDeps, type V4GithubDeps } from "./github.js";
 import { createV4Images, realV4ImagesDeps, type V4ImagesConfig, type V4ImagesDeps } from "./images.js";
@@ -114,6 +115,8 @@ export type V4RegistryInput = {
 	imageGeneration?: V4ImagesConfig;
 	/** Rotinas (F9): sincroniza o agendador depois de pausar, retomar ou apagar uma rotina (o `syncRoutineScheduler` do worker). Sem ele a rotina muda no banco e o agendador só reconcilia no próximo boot. */
 	onRoutineMutated?: (routine: RoutineRecord) => Promise<unknown>;
+	/** Anexos da conversa (F9): a fonte do run (lista e cache de extração). Só com dono presente; rotina e agenda não leem anexos. */
+	attachments?: V4AttachmentsSource;
 };
 
 export type V4RegistrySetup = {
@@ -145,6 +148,8 @@ export async function buildV4Registry(input: V4RegistryInput): Promise<V4Registr
 	// Rotinas (F9): as da Biblioteca, do bot do run (sem bot não há o que listar). Sem dono presente só `routine_list`.
 	const routinesPort = botId ? createV4Routines({ scope: { botId, conversationId: input.conversationId ?? null, emit: input.emit, log, ...(input.onRoutineMutated && { onMutated: input.onRoutineMutated }) }, deps: deps.routines }) : undefined;
 	const country = countryFromLocale(input.locale);
+	// Anexos (F9): só com dono presente. Rotina e run de agenda leem a conversa sem ninguém para ver o que é lido, então não entram.
+	const attachmentsPort = input.attachments && !input.unattended && !input.agendaRun ? createV4Attachments({ scope: { ownerId: input.userId, conversationId: input.conversationId ?? null }, source: input.attachments }) : undefined;
 	const calendarPorts = createV4Calendar({ scope: { botId: botId ?? null, conversationId: input.conversationId ?? null, emit: input.emit, log }, deps: deps.calendar });
 	// Imagens (F9): sem dono presente o gasto de provedor não tem quem aprove, então a porta nem entra (a capacidade fica fora).
 	const images = input.unattended ? undefined : createV4Images({ scope: { conversationId: input.conversationId ?? null, emit: input.emit, log }, ...(input.imageGeneration && { config: input.imageGeneration }), deps: deps.images });
@@ -177,6 +182,7 @@ export async function buildV4Registry(input: V4RegistryInput): Promise<V4Registr
 		github: { github: createV4Github(deps.github) },
 		...(bots && { bots: { bots } }),
 		...(routinesPort && { routines: { routines: routinesPort, ...(input.unattended && { readOnly: true }) } }),
+		...(attachmentsPort && { attachments: { files: attachmentsPort } }),
 		...(input.code && { code: input.code }),
 		...(images && { images }),
 		...(country && { shoppingCountry: country }),
