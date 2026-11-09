@@ -4,7 +4,7 @@
 import { createHash } from "node:crypto";
 import { createCardFill, createCardVaultAdapter, type CheckoutDeps, type CvvEscrow, type PaymentLedger, type Sandbox } from "@workspace/agent";
 import { appendAgentJournalEntry, getPurchaseMandate, getSavedCardMeta, getSavedCardSealed, listSavedCards, consumePurchaseMandateUse, restorePurchaseMandateUse, type MandateToken } from "@workspace/db";
-import { openCardSecretsJson } from "@workspace/agent-runtime";
+import { openCardSecretsJson } from "@workspace/db/vault-crypto";
 import type { Mandate } from "@workspace/shared";
 
 export type V4PaymentDeps = {

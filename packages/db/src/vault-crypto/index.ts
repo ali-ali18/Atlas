@@ -3,3 +3,4 @@
 export * from "./envelope.js";
 export * from "./secret-box.js";
 export * from "./totp.js";
+export * from "./card-seal.js";
