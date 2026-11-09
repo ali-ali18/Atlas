@@ -1,4 +1,4 @@
-import { FakeCalendar, FakeEmail, FakeShopping, productPageHtml, type BriefEmailItem, type BriefEmailSource, type Search, type SearchExtract, type SearchHit } from "@workspace/agent";
+import { FakeBrowser, FakeCalendar, FakeEmail, FakeShopping, commentsPage, productPageHtml, type BriefEmailItem, type BriefEmailSource, type Search, type SearchExtract, type SearchHit } from "@workspace/agent";
 import { parseMoneyNumber, type CalendarEventView } from "@workspace/shared";
 import { EVAL_USER_ID } from "./environment.js";
 import { argsMatch } from "./predicates.js";
@@ -127,4 +127,26 @@ export function createFixtureBriefEmail(fixtures: readonly NativeFixture[]): Bri
 	if (!fixture || !fixture.result.ok) return undefined;
 	const items = JSON.parse(fixture.result.summary) as BriefEmailItem[];
 	return { listRecent: async (userId, options) => (userId === EVAL_USER_ID ? items.slice(0, options.limit) : []) };
+}
+
+/**
+ * Navegador no eval do v4: o fixture `browser_page` (summary = JSON) monta uma página do `FakeBrowser`, a mesma "VM" em memória
+ * dos testes da capacidade. Hoje só o molde `comments` (lista longa com "ver mais"); sem fixture, não há navegador (o preset
+ * nem oferece a capacidade). Resumo inválido falha alto: o cenário está errado, não o bot.
+ */
+export function createFixtureBrowser(fixtures: readonly NativeFixture[]): FakeBrowser | undefined {
+	const specs = fixtures.filter((item) => item.tool === "browser_page" && item.result.ok);
+	if (specs.length === 0) return undefined;
+	return new FakeBrowser(
+		specs.map((item) => {
+			let spec: { kind?: string; url?: string; total?: number; initial?: number; batch?: number; answerAt?: number; answer?: string };
+			try {
+				spec = JSON.parse(item.result.summary) as typeof spec;
+			} catch {
+				throw new Error("fixture browser_page: o summary precisa ser JSON");
+			}
+			if (spec.kind !== "comments") throw new Error(`fixture browser_page: molde "${String(spec.kind)}" desconhecido (use "comments")`);
+			return commentsPage({ ...(spec.url && { url: spec.url }), ...(spec.total !== undefined && { total: spec.total }), ...(spec.initial !== undefined && { initial: spec.initial }), ...(spec.batch !== undefined && { batch: spec.batch }), ...(spec.answerAt !== undefined && { answerAt: spec.answerAt }), ...(spec.answer && { answer: spec.answer }) });
+		}),
+	);
 }

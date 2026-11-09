@@ -158,6 +158,13 @@ describe("mergeServerPolicyKeys", () => {
 		expect(mergeServerPolicyKeys({ rules }, { a: 1 })).toEqual({});
 	});
 
+	it("o modo de código do bot é do servidor: a UI que grava a política inteira não o liga nem o apaga", () => {
+		expect(mergeServerPolicyKeys({ a: 1 }, { codeMode: "build" })).toEqual({ a: 1, codeMode: "build" });
+		expect(mergeServerPolicyKeys({ a: 1, codeMode: "off" }, { codeMode: "plan" })).toEqual({ a: 1, codeMode: "plan" });
+		expect(mergeServerPolicyKeys({ a: 1, codeMode: "build" }, {})).toEqual({ a: 1 });
+		expect(mergeServerPolicyKeys(null, { codeMode: "plan" })).toEqual({ codeMode: "plan" });
+	});
+
 	it("o sono só muda com booleano explícito; sem ele vale o que a linha já tem", () => {
 		expect(mergeServerPolicyKeys({ a: 1 }, { sleep: false })).toEqual({ a: 1, sleep: false });
 		expect(mergeServerPolicyKeys({ sleep: "x" }, { sleep: false })).toEqual({ sleep: false });

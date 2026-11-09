@@ -10,7 +10,17 @@ import { createV4Settings, ROLE_MODELS_UNAVAILABLE, type V4SettingsDeps } from "
 function fakeDb() {
 	const bots = new Map<string, { ownerId: string; name: string; snippet: string; description: string | null; language: string; notify: boolean }>([["bot-1", { ownerId: "user-a", name: "Atlas", snippet: "Resumo", description: null, language: "pt-BR", notify: true }]]);
 	const updates: Array<{ botId: string; patch: Record<string, unknown>; ownerId: string }> = [];
+	const policies = new Map<string, Record<string, unknown>>([["bot-1", { engine: "v2" }]]);
 	const deps: V4SettingsDeps = {
+		getPolicy: async (botId, userId) => (bots.get(botId ?? "")?.ownerId === userId ? (policies.get(botId ?? "") ?? null) : null),
+		setCodeMode: async (botId, userId, mode) => {
+			if (bots.get(botId)?.ownerId !== userId) return false;
+			const next = { ...(policies.get(botId) ?? {}) };
+			if (mode === "off") delete next.codeMode;
+			else next.codeMode = mode;
+			policies.set(botId, next);
+			return true;
+		},
 		getBot: async (userId, botId) => {
 			const bot = bots.get(botId);
 			return bot && bot.ownerId === userId ? { name: bot.name, snippet: bot.snippet, description: bot.description, language: bot.language, notify: bot.notify } : null;
@@ -22,7 +32,7 @@ function fakeDb() {
 			Object.assign(bot, patch);
 		},
 	};
-	return { deps, bots, updates };
+	return { deps, bots, updates, policies };
 }
 
 test("lê as configurações do bot do dono (modelo por papel ainda vazio)", async () => {
@@ -45,7 +55,7 @@ test("muda idioma, notificação e perfil pelo dono", async () => {
 test("declara que não guarda modelo por papel (a capacidade não anuncia set_role_model)", () => {
 	const { deps } = fakeDb();
 	assert.equal(createV4Settings({ botId: "bot-1", deps }).supportsRoleModels, false);
-	assert.deepEqual(createSettingsCapability(createV4Settings({ botId: "bot-1", deps })).tools.map((t) => t.name), ["settings_get", "settings_update", "update_bot_profile"]);
+	assert.deepEqual(createSettingsCapability(createV4Settings({ botId: "bot-1", deps })).tools.map((t) => t.name), ["settings_get", "settings_update", "settings_set_code_mode", "update_bot_profile"]);
 });
 
 test("modelo por papel: falha honesta, sem gravar nada", async () => {
@@ -70,4 +80,31 @@ test("idioma inválido é recusado antes de gravar", async () => {
 	const { deps, updates } = fakeDb();
 	await assert.rejects(createV4Settings({ botId: "bot-1", deps }).update("user-a", { language: "klingon" }), /Unknown language/);
 	assert.equal(updates.length, 0);
+});
+
+test("modo de código: lê e grava só a chave do modo, preservando a política; o dono vem do run", async () => {
+	const { deps, policies } = fakeDb();
+	const settings = createV4Settings({ botId: "bot-1", deps, codeEnvironment: true });
+	assert.ok(settings.codeMode);
+	assert.equal(settings.codeMode.environmentAvailable, true);
+	assert.equal(await settings.codeMode.get("user-a"), "off");
+	assert.equal(await settings.codeMode.set("user-a", "build"), "build");
+	assert.deepEqual(policies.get("bot-1"), { engine: "v2", codeMode: "build" });
+	assert.equal(await settings.codeMode.set("user-a", "off"), "off");
+	assert.deepEqual(policies.get("bot-1"), { engine: "v2" });
+	assert.equal(createV4Settings({ botId: "bot-1", deps }).codeMode?.environmentAvailable, false);
+});
+
+test("modo de código: o usuário B não lê nem muda o modo do bot do usuário A", async () => {
+	const { deps, policies } = fakeDb();
+	const settings = createV4Settings({ botId: "bot-1", deps });
+	await assert.rejects(() => settings.codeMode!.get("user-b"), /Bot not found/);
+	await assert.rejects(() => settings.codeMode!.set("user-b", "build"), /Bot not found/);
+	assert.deepEqual(policies.get("bot-1"), { engine: "v2" });
+});
+
+test("a capacidade anuncia settings_set_code_mode no v4", () => {
+	const { deps } = fakeDb();
+	const names = createSettingsCapability(createV4Settings({ botId: "bot-1", deps })).tools.map((t) => t.name);
+	assert.deepEqual(names, ["settings_get", "settings_update", "settings_set_code_mode", "update_bot_profile"]);
 });

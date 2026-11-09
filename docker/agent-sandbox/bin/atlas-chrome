@@ -86,9 +86,26 @@ if compgen -G "${USER_DATA_DIR}/Default/Sessions/*" >/dev/null 2>&1; then
 	done
 fi
 
+# Egress (SSRF): todo o tráfego do Chrome (páginas, WebSocket, Service Worker, workers) sai pelo proxy local do control server
+# (control/egress-proxy.mjs), que resolve o nome uma vez e conecta no IP já validado. `<-loopback>` tira o loopback da lista de
+# exceções do Chrome (por padrão ele NÃO passaria pelo proxy). O WebRTC não pode abrir UDP direto. SANDBOX_EGRESS_GUARD=0 desliga
+# (só para depurar a imagem).
+proxy_args=()
+if [[ "${SANDBOX_EGRESS_GUARD:-1}" != "0" ]]; then
+	proxy_args=(
+		"--proxy-server=http://127.0.0.1:${SANDBOX_EGRESS_PROXY_PORT:-3128}"
+		"--proxy-bypass-list=<-loopback>"
+		"--force-webrtc-ip-handling-policy=disable_non_proxied_udp"
+	)
+fi
+
 # --no-sandbox é obrigatório no container (root, sem userns); --test-type
 # esconde a infobar "unsupported command-line flag: --no-sandbox" (o
 # --disable-infobars foi removido do Chrome moderno e não faz mais nada).
+# RISCO ACEITO: sem o sandbox do Chrome um exploit de renderer vira root no container. O que segura isso é o container:
+# CapDrop só de NET_RAW e MKNOD (não é CapDrop ALL), limite de PIDs e de memória (docker-manager.ts, sandboxHardening) e o
+# proxy de saída acima. no-new-privileges NÃO está ligado. Endurecer as capacidades (CapDrop ALL, no-new-privileges) ou
+# tornar o Chrome sandboxed (exige userns ou o perfil seccomp do Chrome no Docker, que a imagem ainda não traz) fica para um ADR.
 exec "$CHROME_BIN" \
 	--no-first-run \
 	--hide-crash-restore-bubble \
@@ -98,6 +115,7 @@ exec "$CHROME_BIN" \
 	--test-type \
 	--disable-dev-shm-usage \
 	--disable-gpu \
+	${proxy_args[@]+"${proxy_args[@]}"} \
 	--user-data-dir="${USER_DATA_DIR}" \
 	--remote-debugging-address=127.0.0.1 \
 	--remote-debugging-port=9222 \

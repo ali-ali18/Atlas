@@ -37,6 +37,7 @@ import {
 	type LlmRole,
 	type LlmStreamEvent,
 	type PolicyContext,
+	applyPolicyPreset,
 	type Ports,
 	type PriorProvenance,
 	type RunEvent,
@@ -70,7 +71,7 @@ import {
 } from "@workspace/db";
 import { buildV4Registry, type V4AdapterDeps } from "./v4-adapters/index.js";
 import { createV4Payment, type V4PaymentDeps } from "./v4-adapters/payment.js";
-import { MODEL_ROLES, formatModelRef, isMaintenanceModel, parseModelRef, type AgendaKind, type BotLanguage, type ComputerUseEvent, type ModelChainEntry, type RoleChains, type RunStop, type RunUsage } from "@workspace/shared";
+import { MODEL_ROLES, type CodeMode, formatModelRef, isMaintenanceModel, parseModelRef, type AgendaKind, type BotLanguage, type ComputerUseEvent, type ModelChainEntry, type RoleChains, type RunStop, type RunUsage } from "@workspace/shared";
 
 /** As funções de persistência do v4 (as de `@workspace/db`); injetáveis para o teste. */
 export type V4Db = {
@@ -155,7 +156,7 @@ export function vaultBackendFromService(service: VaultServiceLike): VaultBackend
 	};
 }
 
-/** Sem adaptador de VM no v4 ainda: a tool que pedir recebe o motivo real (resultado honesto), o run segue. */
+/** VM desligada (SANDBOX_ENABLED=0; o adaptador real é `v4-adapters/sandbox.ts`): a tool que pedir recebe o motivo real (resultado honesto), o run segue. */
 export const unavailableSandbox: Sandbox = {
 	async run() {
 		return { ok: false, error: "The computer (virtual machine and browser) is not available in this version. Tell the owner plainly, and offer an alternative that does not need it." };
@@ -356,6 +357,12 @@ export type RunEngineV4Input = {
 	queue?: BullLikeQueue;
 	vault?: VaultBackend;
 	sandbox?: Sandbox;
+	/** A VM do navegador existe neste run (F8.1): liga a capacidade `browser`. Vem do adaptador `Sandbox` real. */
+	browser?: boolean;
+	/** Modo de código do bot (F8.2, `policyJson.codeMode`; padrão `off`). `plan`/`build` ligam a capacidade `code` e aplicam o preset de política. */
+	codeMode?: CodeMode;
+	/** O ambiente de código existe neste run (dev sandbox). `codeMode` ligado sem isso: `code` indisponível, dito no log. */
+	codeAvailable?: boolean;
 	/** Canal efêmero do CVV (F6.3). Sem ele o pagamento não é oferecido (o cartão de compra nem existe sem onde guardar o CVV). */
 	cvvEscrow?: CvvEscrow | null;
 	/** Funções de banco do pagamento (testes passam fakes). */
@@ -431,7 +438,12 @@ export async function runEngineV4(input: RunEngineV4Input): Promise<V4EngineResu
 	};
 	// Pagamento (F6.2 a F6.4): cartões do dono, `card_fill` e mandato. Run com registro pronto (teste) ou política dada (agenda) não monta.
 	const payment = input.registry || input.policy ? null : await createV4Payment({ userId: input.userId, escrow: input.cvvEscrow, sandbox: ports.sandbox, ownerPresent: input.ownerPresent, ...(input.paymentDeps && { deps: input.paymentDeps }), ...(input.log && { log: input.log }) });
-	const basePolicy: PolicyContext = input.policy ?? { surface: "chat", ownerPresent: input.ownerPresent, autonomy: "balanced", rules: input.rules ?? [], ...(payment?.mandate && { mandate: payment.mandate }) };
+	const rawPolicy: PolicyContext = input.policy ?? { surface: "chat", ownerPresent: input.ownerPresent, autonomy: "balanced", rules: input.rules ?? [], ...(payment?.mandate && { mandate: payment.mandate }) };
+	// Código (F8.2), opt-in do bot: com o modo ligado E o ambiente de código existindo, a capacidade `code` entra e a política ganha o
+	// preset (`plan` só lê; `build` edita com dono e só lê sem dono). Sem o ambiente, nada de preset: o `code` fica indisponível.
+	const codeMode: CodeMode = input.codeMode ?? "off";
+	const codeOn = codeMode !== "off" && input.codeAvailable === true;
+	const basePolicy: PolicyContext = codeOn ? applyPolicyPreset(codeMode === "plan" ? "plan" : "build", rawPolicy) : rawPolicy;
 	// Ajudantes (F3.1): runs filhos do próprio kernel, com as mesmas portas da mãe (a busca vem do registro), o papel `helper`
 	// da cadeia de modelos, o medidor da mãe (o uso aparece no run) e o teto do dono compartilhado pelo livro de gasto.
 	const ledger = createSpendLedger();
@@ -481,6 +493,10 @@ export async function runEngineV4(input: RunEngineV4Input): Promise<V4EngineResu
 				...(input.agendaKind && { agendaKind: input.agendaKind }),
 				...(input.briefEmail && { briefEmail: input.briefEmail }),
 				...(payment?.checkout && { checkout: payment.checkout }),
+				...(input.browser && { browser: true }),
+				...(codeOn && { code: codeMode === "plan" ? { readOnly: true } : {} }),
+				...(codeMode !== "off" && { codeRequested: true }),
+				...(input.codeAvailable === true && { codeEnvironment: true }),
 			});
 	const registry = input.registry ?? built!.registry;
 	motherRegistry = registry;

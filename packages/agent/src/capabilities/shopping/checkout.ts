@@ -148,7 +148,11 @@ export function createCheckoutTool(deps: CheckoutDeps, recordDeps?: CheckoutReco
 				case "unavailable":
 					return { ok: false, error: `The computer (browser) could not be used: ${result.reason}`, hint: "Nothing was paid. Tell the owner and offer the store link so they can pay themselves." };
 				case "declined":
-					return { ok: false, error: `The store or bank declined the payment: ${result.reason}`, hint: "Nothing was charged. Offer another card or another store." };
+					// Recusa ANTES do clique (loja ou total diferentes do aprovado) diz "Nothing was paid": aí é certo que nada foi cobrado.
+					// Recusa depois do clique é a loja respondendo: provavelmente não cobrou, mas só o pedido na loja confirma.
+					return result.reason.startsWith("Nothing was paid")
+						? { ok: false, error: `The store or bank declined the payment: ${result.reason}`, hint: "Nothing was charged. Offer another card or another store." }
+						: { ok: false, error: `The store or bank declined the payment: ${result.reason}`, hint: "The store refused the payment, so the card was most likely not charged, but that is not certain. Ask the owner to check the store's order page (or card statement) before trying again with another card or store." };
 				case "failed":
 					return { ok: false, error: `The payment could not be completed: ${result.reason}`, hint: "It may or may not have gone through. Check the store's order page before trying again." };
 			}

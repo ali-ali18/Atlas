@@ -1,13 +1,16 @@
 import http from "node:http";
 import { execFile, execFileSync, spawn } from "node:child_process";
 import { promisify } from "node:util";
+import * as fsp from "node:fs/promises";
 import { readFile, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright-core";
 import { createBrowserSession } from "./browser-session.mjs";
 import { attachTabNotice, createTabScope, parseTabHeader, parseTabsRequest, runTabsAction } from "./browser-tabs.mjs";
-import { assertNavigableUrl, createBrowserActions } from "./browser-actions.mjs";
+import { assertNavigableUrl, createBrowserActions, WORKSPACE_DIR } from "./browser-actions.mjs";
+import { resolveAxRef } from "./ax-refs.mjs";
+import { createBrowserV4 } from "./browser-v4.mjs";
 import { collectPageText, normalizeText, paginateText } from "./text-page.mjs";
 import { settleAfterAction } from "./stability.mjs";
 import { compactPlaywrightError } from "./target.mjs";
@@ -17,7 +20,16 @@ import { createPageReader } from "./reader.mjs";
 import { parseScreenshotOptions, scrotPlan } from "./screenshot-options.mjs";
 import { withMarks } from "./marks.mjs";
 import { HttpError, readJsonBody } from "./request-body.mjs";
+import { createCardFill } from "./card-fill.mjs";
+import { createPlaywrightDriver } from "./card-fill-driver.mjs";
+import { createEgressGuard, installEgressGuard } from "./egress-guard.mjs";
+import { createGuardedProxy, DEFAULT_PROXY_PORT } from "./egress-proxy.mjs";
 import { countUserProcesses, countViewerClients, createActivityTracker } from "./activity.mjs";
+
+import { createAuthGate, takeControlToken } from "./control-auth.mjs";
+
+// Antes de qualquer spawn: o token sai do process.env para os filhos (shell, terminal, Chrome) não o herdarem.
+const authGate = createAuthGate(takeControlToken());
 
 const PORT = Number.parseInt(process.env.SANDBOX_CONTROL_PORT ?? "3080", 10);
 const CDP_URL = process.env.CDP_URL ?? "http://127.0.0.1:9222";
@@ -129,7 +141,19 @@ async function scrollBy(deltaX, deltaY) {
 }
 
 // --- Browser (Playwright/CDP) para navegação confiável ---
-const browserSession = createBrowserSession({ chromium, cdpUrl: CDP_URL });
+// Egress: o Chromium da VM nunca alcança metadata, loopback, rede privada nem a rede Docker (SSRF), nem por redirecionamento.
+// SANDBOX_EGRESS_GUARD=0 desliga (só para depurar a imagem); o padrão é ligado.
+// A barreira de verdade é o proxy local (o Chromium sai por ele: ver bin/atlas-chrome); o `context.route` abaixo é defesa extra.
+const egressGuard = createEgressGuard();
+if (process.env.SANDBOX_EGRESS_GUARD !== "0") {
+	const proxy = createGuardedProxy({ onBlock: (reason, host) => console.warn(`[sandbox-control] egress bloqueado (proxy): ${reason}: ${host}`) });
+	proxy.listen(Number.parseInt(process.env.SANDBOX_EGRESS_PROXY_PORT ?? String(DEFAULT_PROXY_PORT), 10)).catch((error) => console.error(`[sandbox-control] proxy de saída não subiu (o Chrome fica sem rede, por segurança): ${error?.code ?? "erro"}`));
+}
+const browserSession = createBrowserSession({
+	chromium,
+	cdpUrl: CDP_URL,
+	...(process.env.SANDBOX_EGRESS_GUARD === "0" ? {} : { onContext: (context) => installEgressGuard(context, egressGuard, (reason) => console.warn(`[sandbox-control] egress bloqueado: ${reason}`)) }),
+});
 const { restart } = browserSession;
 // V8: cabeçalho x-atlas-tab leva a requisição para a aba do subagente.
 const tabScope = createTabScope(browserSession);
@@ -155,6 +179,30 @@ const { readPage, findText } = createPageReader({
 	locateRef: refActions.locateRef,
 	observeAction,
 	clickElement: actions.clickElement,
+});
+
+// F8.1 — ações `browser.*` do motor v4 (mapa, partes, busca, carregar mais, arquivo): uma rota só, `POST /browser/v4`.
+const browserV4 = createBrowserV4({
+	withPageRetry,
+	collect: refActions.collect,
+	noteDomRefs: () => noteDomRefs(),
+	browserAct,
+	browserWait,
+	navigate,
+	listTabs: () => browserSession.listTabs(),
+	switchTab: (index) => browserSession.switchTab(index),
+	closeTab: (index) => browserSession.closeMainTab(index),
+	clickElement: actions.clickElement,
+	locateRef: refActions.locateRef,
+	resolveAxLocator: async (page, ref) => {
+		try {
+			return (await resolveAxRef(page, refActions.axStore.tableFor(page), ref)).locator ?? null;
+		} catch {
+			return null;
+		}
+	},
+	workspaceDir: WORKSPACE_DIR,
+	fs: fsp,
 });
 
 function noteDomRefs() {
@@ -249,6 +297,10 @@ const handleRequest = async (req, res) => {
 		activity.end(token);
 	}
 };
+
+// Compras cujo "pagar" já foi clicado (trava de repetição do card_fill; vive enquanto o control server vive).
+const cardFillSubmitted = new Map();
+const cardFillBaselines = new Map();
 
 const READ_ONLY_POSTS = new Set(["/browser/read", "/browser/find", "/browser/snapshot"]);
 
@@ -419,8 +471,32 @@ const handleControlRequest = async (req, res) => {
 			return;
 		}
 
+		if (req.method === "POST" && req.url === "/browser/v4") {
+			const body = (await readJsonBody(req)) ?? {};
+			if (typeof body.kind !== "string") {
+				sendJson(res, 400, { error: "kind required" });
+				return;
+			}
+			sendJson(res, 200, await browserV4(body.kind, body.params));
+			return;
+		}
+
 		if (req.method === "GET" && req.url === "/browser/links") {
 			sendJson(res, 200, await browserLinks());
+			return;
+		}
+
+		// Pagamento (F8.0): o corpo leva número, CVV e titular. Nada dele é logado nem devolvido; `fill` nunca lança.
+		if (req.method === "POST" && req.url === "/card-fill") {
+			const body = await readJsonBody(req);
+			let page;
+			try {
+				page = await getPage();
+			} catch {
+				sendJson(res, 200, { state: "failed", reason: "Nothing was paid: the browser is not available." });
+				return;
+			}
+			sendJson(res, 200, await createCardFill({ driver: createPlaywrightDriver(page), submitted: cardFillSubmitted, baselines: cardFillBaselines }).fill(body));
 			return;
 		}
 
@@ -493,6 +569,7 @@ const handleControlRequest = async (req, res) => {
 };
 
 const server = http.createServer((req, res) => {
+	if (!authGate(req, res)) return;
 	let tabId;
 	try {
 		tabId = parseTabHeader(req.headers["x-atlas-tab"]);

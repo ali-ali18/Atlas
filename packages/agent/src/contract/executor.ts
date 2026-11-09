@@ -80,7 +80,7 @@ export function createExecutor(deps: ExecutorDeps) {
 			handoffKind: tool.handoffKindFor(args),
 			taint: { untrustedReadInRun: provenance.untrustedReadInRun, argsCarryUntrusted: provenance.carries(args), privateReadInRun: provenance.privateReadInRun },
 			riskFacts,
-			egress: tool.egress,
+			egress: tool.egressFor(args),
 			confirm: tool.confirm,
 			now: deps.ports.clock.now(),
 		});

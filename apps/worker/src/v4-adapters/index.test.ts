@@ -19,7 +19,7 @@ export function fakeAdapterDeps(options: { connections?: Connected; listFails?: 
 		deliverables: { persistArtifact: never, nextVersion: never, countRunFiles: never, loadArtifact: never, createPage: never, render: never, preview: never, persistCard: never } as unknown as V4AdapterDeps["deliverables"],
 		memory: { snapshot: never, add: never, getById: never, replaceById: never, removeById: never } as unknown as V4AdapterDeps["memory"],
 		notebook: { create: never, get: never, search: never, update: never, remove: never, listPinned: never } as unknown as V4AdapterDeps["notebook"],
-		settings: { getBot: never, update: never } as unknown as V4AdapterDeps["settings"],
+		settings: { getBot: never, update: never, getPolicy: never, setCodeMode: never } as unknown as V4AdapterDeps["settings"],
 		mcp: {
 			listConnected: async () => {
 				if (options.listFails) throw new Error("db fora do ar com token ghp_abcdefghijklmnopqrstuvwxyz0123456789");
@@ -37,14 +37,14 @@ export function fakeAdapterDeps(options: { connections?: Connected; listFails?: 
 
 const notes = {} as NoteStore;
 // O engine sempre passa a fábrica de ajudantes (a pesquisa depende dela); sem ela, `research` fica indisponível.
-const base = { runId: "run-1", userId: "user-a", conversationId: "conv-1", unattended: false, notes, emit: () => undefined, makeHelpers: () => ({ runAll: async () => [] }) };
+const base = { runId: "run-1", userId: "user-a", conversationId: "conv-1", unattended: false, browser: true, notes, emit: () => undefined, makeHelpers: () => ({ runAll: async () => [] }) };
 
 test("com bot e portas reais montadas, o preset full não tem capacidade indisponível", async () => {
 	const logs: string[] = [];
 	const setup = await buildV4Registry({ ...base, botId: "bot-1", deps: fakeAdapterDeps(), log: (m) => void logs.push(m) });
 	assert.deepEqual(setup.unavailable, []);
 	assert.deepEqual(logs, []);
-	assert.deepEqual(setup.registry.ids(), ["agenda", "calendar", "connectors", "deliverables", "email", "memory", "research", "settings", "shopping", "tasks", "web"]);
+	assert.deepEqual(setup.registry.ids(), ["agenda", "browser", "calendar", "connectors", "deliverables", "email", "memory", "research", "settings", "shopping", "tasks", "web"]);
 	assert.match(setup.stableSystem, /Work contract/);
 	assert.match(setup.stableSystem, /connectors/);
 	// confirmWrites do conector vira `confirm: "always"` na tool genérica de escrita
@@ -183,4 +183,45 @@ test("com email e calendar nativos no run, os conectores embutidos Gmail e Googl
 	assert.equal(setup.registry.toolByName("mcp_gmail_read"), undefined);
 	assert.equal(setup.registry.toolByName("mcp_google_calendar_write"), undefined);
 	assert.ok(setup.registry.toolByName("mcp_google_drive_read"));
+});
+
+test("navegador (F8.1): com a VM entra lazy; sem VM aparece em 'unavailable' e no log, sem sumir em silêncio", async () => {
+	const withVm = await buildV4Registry({ ...base, botId: "bot-1", deps: fakeAdapterDeps() });
+	assert.ok(withVm.registry.ids().includes("browser"));
+	assert.ok(!withVm.registry.core().some((c) => c.id === "browser"));
+	assert.match(withVm.stableSystem, /- browser:/);
+	const logs: string[] = [];
+	const { browser: _vm, ...noVm } = base;
+	const without = await buildV4Registry({ ...noVm, botId: "bot-1", deps: fakeAdapterDeps(), log: (m) => void logs.push(m) });
+	assert.deepEqual(without.unavailable, ["browser"]);
+	assert.ok(!without.registry.ids().includes("browser"));
+	assert.match(logs.join("\n"), /capacidades sem porta: browser/);
+});
+
+test("código (F8.2) é opt-in: sem a chave não entra nem vira 'unavailable'; plano só lê; ligado sem ambiente fica indisponível e dito", async () => {
+	const off = await buildV4Registry({ ...base, botId: "bot-1", deps: fakeAdapterDeps() });
+	assert.ok(!off.registry.ids().includes("code"));
+	assert.ok(!off.unavailable.includes("code"));
+	const build = await buildV4Registry({ ...base, botId: "bot-1", deps: fakeAdapterDeps(), code: {}, codeRequested: true });
+	assert.ok(build.registry.ids().includes("code"));
+	assert.ok(build.registry.toolByName("code_edit"));
+	const plan = await buildV4Registry({ ...base, botId: "bot-1", deps: fakeAdapterDeps(), code: { readOnly: true }, codeRequested: true });
+	assert.ok(plan.registry.ids().includes("code"));
+	assert.equal(plan.registry.toolByName("code_edit"), undefined);
+	const logs: string[] = [];
+	const noEnv = await buildV4Registry({ ...base, botId: "bot-1", deps: fakeAdapterDeps(), codeRequested: true, log: (m) => void logs.push(m) });
+	assert.deepEqual(noEnv.unavailable, ["code"]);
+	assert.match(logs.join("\n"), /capacidades sem porta: code/);
+});
+
+test("browser só lê quando não há dono presente (rotina, subagente, bot a bot), não só na agenda", async () => {
+	const toolsOf = (setup: Awaited<ReturnType<typeof buildV4Registry>>) => setup.registry.capabilities.find((c) => c.id === "browser")?.tools.map((t) => t.name) ?? [];
+	const attended = await buildV4Registry({ ...base, botId: "bot-1", deps: fakeAdapterDeps() });
+	assert.ok(toolsOf(attended).includes("browser_act"));
+	const unattended = await buildV4Registry({ ...base, unattended: true, botId: "bot-1", deps: fakeAdapterDeps() });
+	const names = toolsOf(unattended);
+	assert.ok(names.includes("browser_open") && names.includes("browser_load_more") && names.includes("browser_digest"));
+	assert.equal(names.includes("browser_act"), false);
+	assert.equal(names.includes("browser_tabs"), false);
+	assert.match(unattended.stableSystem, /- browser:/);
 });

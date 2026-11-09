@@ -1,0 +1,151 @@
+{
+  "version": 1,
+  "id": "seed-navegador-1000-comentarios-no-870",
+  "title": "'Abre o vídeo e acha o código de desconto do patrocinador' (1.000 comentários, a resposta está no nº 870) → mapa, carrega mais, busca na VM, sem estourar a janela",
+  "description": "F8.1 (só v4): a página tem 40 comentários carregados de ~1.000. O bot abre, mapeia (vê o tamanho da lista), carrega mais até o nº 870 entrar e acha o código pela busca da VM, ou lê o arquivo por ajudantes. Nunca dá a resposta a partir de uma parte como se fosse o todo. A página é montada pelo fixture `browser_page` (FakeBrowser, sem VM).",
+  "tags": [
+    "navegador",
+    "pagina-enorme",
+    "v4-only"
+  ],
+  "source": {
+    "kind": "seed",
+    "note": "F8.1: caso obrigatório da página enorme e feed infinito (05-fases)."
+  },
+  "bot": {
+    "name": "Ada",
+    "about": "Assistente pessoal do dono: pesquisa, compras e agenda.",
+    "language": "pt-BR"
+  },
+  "locale": {
+    "country": "BR",
+    "currency": "BRL",
+    "timezone": "America/Sao_Paulo"
+  },
+  "history": [],
+  "user": "abre https://video.example.test/watch?v=abc e me diz qual é o código de desconto do patrocinador (está num comentário, não sei qual)",
+  "tools": {
+    "fixtures": [
+      {
+        "tool": "browser_page",
+        "result": {
+          "ok": true,
+          "summary": "{\"kind\": \"comments\", \"url\": \"https://video.example.test/watch?v=abc\", \"total\": 1000, \"initial\": 40, \"batch\": 50, \"answerAt\": 870, \"answer\": \"Update from the sponsor: the discount code is ATLAS-4242, valid until 30 November.\"}"
+        }
+      }
+    ],
+    "connectors": [],
+    "allowReal": []
+  },
+  "run": {
+    "maxSteps": 14,
+    "origin": "chat",
+    "engine": "v4"
+  },
+  "expect": [
+    {
+      "type": "completed"
+    },
+    {
+      "id": "abriu-a-pagina",
+      "type": "tool_called",
+      "tool": "browser_open"
+    },
+    {
+      "id": "mapeou-antes-de-ler",
+      "type": "tool_called",
+      "tool": "browser_map"
+    },
+    {
+      "id": "nao-leu-a-lista-inteira",
+      "type": "tool_not_called",
+      "tool": "browser_act"
+    },
+    {
+      "id": "achou-o-codigo-na-pagina",
+      "type": "tool_result",
+      "tool": "browser_find",
+      "ok": true,
+      "pattern": "s2 #870[\\s\\S]*ATLAS-4242"
+    },
+    {
+      "id": "respondeu-com-o-codigo",
+      "type": "text_contains",
+      "value": "ATLAS-4242"
+    },
+    {
+      "type": "no_question"
+    },
+    {
+      "type": "no_internals"
+    }
+  ],
+  "mock": {
+    "turns": [
+      {
+        "calls": [
+          {
+            "name": "use_capability",
+            "args": {
+              "id": "browser"
+            }
+          }
+        ]
+      },
+      {
+        "calls": [
+          {
+            "name": "browser_open",
+            "args": {
+              "url": "https://video.example.test/watch?v=abc"
+            }
+          }
+        ]
+      },
+      {
+        "calls": [
+          {
+            "name": "browser_map",
+            "args": {}
+          }
+        ]
+      },
+      {
+        "calls": [
+          {
+            "name": "browser_load_more",
+            "args": {
+              "section": "s2",
+              "times": 10
+            }
+          }
+        ]
+      },
+      {
+        "calls": [
+          {
+            "name": "browser_load_more",
+            "args": {
+              "section": "s2",
+              "times": 10
+            }
+          }
+        ]
+      },
+      {
+        "calls": [
+          {
+            "name": "browser_find",
+            "args": {
+              "query": "discount code",
+              "section": "s2"
+            }
+          }
+        ]
+      },
+      {
+        "say": "O código de desconto do patrocinador é ATLAS-4242, válido até 30 de novembro (está no comentário 870)."
+      }
+    ]
+  }
+}

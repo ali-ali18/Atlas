@@ -7,6 +7,14 @@ export const REF_ATTR = "data-atlas-ref";
 
 export function collectInteractive(options) {
 	const { scope, start, mode, area, maxScan } = options;
+	const cardSelector = options.cardSelector || 'input[autocomplete^="cc-" i],select[autocomplete^="cc-" i]';
+	const isCardField = (el) => {
+		try {
+			return el.matches(cardSelector);
+		} catch {
+			return true;
+		}
+	};
 	const prefix = options.prefix || "";
 	// mode "refs": só descreve elementos que JÁ têm ref (os que reapareceram); não numera.
 	const only = mode === "refs" ? new Set(options.only || []) : null;
@@ -107,7 +115,7 @@ export function collectInteractive(options) {
 
 		const tag = el.tagName.toLowerCase();
 		const type = (el.getAttribute("type") || "").toLowerCase();
-		const isPassword = tag === "input" && type === "password";
+		const isPassword = (tag === "input" && type === "password") || isCardField(el);
 		const isField = tag === "input" || tag === "textarea" || tag === "select";
 		let value;
 		if (isPassword) value = undefined;

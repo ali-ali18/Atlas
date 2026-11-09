@@ -57,7 +57,7 @@ const checkoutDeps = () => {
 	const r = paymentRig();
 	return { cards: [r.info], fill: r.fill };
 };
-const fullDeps = () => ({ ...deps(), memory: new FakeMemory(), settings: new FakeSettings(), taskLists: new FakeTaskListStore(), helpers: new FakeHelpers(), agenda: new FakeAgenda(), shopping: new FakeShopping().ports, checkout: checkoutDeps(), email: new FakeEmail().ports, calendar: new FakeCalendar().ports });
+const fullDeps = () => ({ ...deps(), memory: new FakeMemory(), settings: new FakeSettings(), taskLists: new FakeTaskListStore(), helpers: new FakeHelpers(), agenda: new FakeAgenda(), shopping: new FakeShopping().ports, checkout: checkoutDeps(), email: new FakeEmail().ports, calendar: new FakeCalendar().ports, code: {}, browser: true });
 
 describe("preset full: memory, tasks e settings (F2.4)", () => {
 	it("entram como capacidades lazy: só o índice vai no prompt, as tools ficam de fora do primeiro passo", async () => {
@@ -85,7 +85,7 @@ describe("preset full: memory, tasks e settings (F2.4)", () => {
 
 	it("porta ausente: a capacidade não entra e `unavailable` diz qual (nada some em silêncio)", () => {
 		const setup = setupPreset("full", deps());
-		expect(setup.unavailable).toEqual(["memory", "tasks", "settings", "research", "agenda", "shopping", "email", "calendar"]);
+		expect(setup.unavailable).toEqual(["memory", "tasks", "settings", "research", "agenda", "shopping", "email", "calendar", "browser"]);
 		expect(setup.registry.ids()).toEqual(expect.not.arrayContaining(["memory"]));
 		expect(setupPreset("minimal", deps()).unavailable).toEqual([]);
 	});
@@ -274,5 +274,32 @@ describe("preset full: research (F3.2)", () => {
 		expect(withHelpers.registry.toolByName("research")).toBeDefined();
 		expect(withHelpers.registry.core().map((c) => c.id)).not.toContain("research");
 		expect(withHelpers.stableSystem).toContain("- research:");
+	});
+});
+
+describe("capacidade opt-in `code` (F8.2)", () => {
+	it("fora de qualquer preset: só entra quando a chave vem nas deps, e a ausência não vira `unavailable`", () => {
+		expect(PRESETS.full.capabilities).not.toContain("code");
+		const without = setupPreset("full", deps());
+		expect(without.registry.ids()).not.toContain("code");
+		expect(without.unavailable).not.toContain("code");
+		const withCode = setupPreset("full", { ...deps(), code: {} });
+		expect(withCode.registry.ids()).toContain("code");
+		expect(withCode.registry.get("code")!.tools.map((t) => t.name)).toContain("code_edit");
+		const plan = setupPreset("minimal", { ...deps(), code: { readOnly: true } });
+		expect(plan.registry.get("code")!.tools.map((t) => t.name)).not.toContain("code_edit");
+	});
+});
+
+describe("preset full: browser (F8.1)", () => {
+	it("entra lazy só quando a VM do dono existe; sem ela `unavailable` diz que falta", () => {
+		const withVm = setupPreset("full", fullDeps());
+		expect(withVm.registry.ids()).toContain("browser");
+		expect(withVm.registry.core().map((c) => c.id)).not.toContain("browser");
+		expect(withVm.registry.toolByName("browser_digest")).toBeDefined();
+		const { browser: _browser, ...noVm } = fullDeps();
+		const without = setupPreset("full", noVm);
+		expect(without.registry.ids()).not.toContain("browser");
+		expect(without.unavailable).toEqual(["browser"]);
 	});
 });

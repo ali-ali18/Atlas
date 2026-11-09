@@ -316,7 +316,7 @@ function fakeAdapters(searched: string[]): NonNullable<Parameters<typeof runEngi
 }
 
 /** Dono sem cartão nem mandato (pagamento da F6): o preset não depende do banco real nestes testes. */
-const noPaymentDeps = () => ({ listCards: async () => [], getMeta: async () => null, getSealed: async () => null, openJson: () => "{}", getMandate: async () => null, consumeUse: async () => true, restoreUse: async () => undefined }) as never;
+const noPaymentDeps = () => ({ listCards: async () => [], getMeta: async () => null, getSealed: async () => null, openJson: () => "{}", getMandate: async () => null, consumeUse: async () => true, restoreUse: async () => undefined, appendJournal: async () => ({ claimed: true }) }) as never;
 
 test("preset full pelas portas reais: capacidades montadas, nada indisponível e a busca passa pelo adaptador do worker", async () => {
 	const events: ComputerUseEvent[] = [];
@@ -325,7 +325,7 @@ test("preset full pelas portas reais: capacidades montadas, nada indisponível e
 	const { db } = fakeDb();
 	const llm = scripted([[{ type: "tool_call", call: { id: "c1", name: "web_search", args: { query: "atlas" } } }, done()], [{ type: "text_delta", text: "Achei." }, done()]]);
 	const { registry: _omit, ...input } = baseInput(llm, events, db);
-	const out = await runEngineV4({ ...input, botId: "bot-1", adapters: fakeAdapters(searched), paymentDeps: noPaymentDeps(), log: (m) => void logs.push(m) });
+	const out = await runEngineV4({ ...input, botId: "bot-1", browser: true, adapters: fakeAdapters(searched), paymentDeps: noPaymentDeps(), log: (m) => void logs.push(m) });
 	assert.equal(out.text, "Achei.");
 	assert.deepEqual(searched, ["atlas"]);
 	assert.deepEqual(logs, [], "com bot, nenhuma capacidade do preset fica sem porta");
@@ -432,4 +432,48 @@ test("títulos fixados do caderno chegam ao modelo no [context], sem o corpo", a
 	await runEngineV4({ ...input, botId: "bot-1", adapters: fakeAdapters([]), contextSections: ["Pinned notebook notes (titles only; read one with note_get, find others with note_search):\n- [n1] Plano da semana"] });
 	const context = (llm.requests[0]?.messages ?? []).find((m) => m.role === "system" && typeof m.content === "string" && m.content.startsWith("[context]"));
 	assert.match(String(context?.content), /\[n1\] Plano da semana/);
+});
+
+/** Sandbox falso do código (F8.2): grava o `kind` de cada ação que chegaria à VM. */
+function codeSandbox(kinds: string[]) {
+	return {
+		run: async (_userId: string, action: { kind: string }) => {
+			kinds.push(action.kind);
+			if (action.kind === "code.session") return { ok: true as const, data: { sessionId: "cs1", status: "RUNNING" } };
+			return { ok: true as const, data: { path: "src/a.js", diff: "-a\n+b", added: 1, removed: 1 } };
+		},
+		release: async () => undefined,
+	};
+}
+const codeTurns = () => [
+	[{ type: "tool_call", call: { id: "u", name: "use_capability", args: { id: "code" } } }, done()],
+	[{ type: "tool_call", call: { id: "s", name: "code_session", args: {} } }, done()],
+	[{ type: "tool_call", call: { id: "e", name: "code_edit", args: { sessionId: "cs1", path: "src/a.js", old: "a", new: "b" } } }, done()],
+	[{ type: "text_delta", text: "Feito." }, done()],
+] as LlmStreamEvent[][];
+
+async function runCode(over: { codeMode?: "off" | "plan" | "build"; codeAvailable?: boolean; ownerPresent?: boolean }) {
+	const kinds: string[] = [];
+	const { db } = fakeDb();
+	const { registry: _omit, ...input } = baseInput(scripted(codeTurns()), [], db);
+	const logs: string[] = [];
+	await runEngineV4({ ...input, botId: "bot-1", adapters: fakeAdapters([]), paymentDeps: noPaymentDeps(), sandbox: codeSandbox(kinds) as never, log: (m) => void logs.push(m), ...over });
+	return { kinds, logs };
+}
+
+test("código (F8.2): desligado por padrão; no modo build edita com dono; no plano só lê; sem dono (build) só lê", async () => {
+	const off = await runCode({});
+	assert.deepEqual(off.kinds, [], "sem codeMode a capacidade nem existe");
+	const build = await runCode({ codeMode: "build", codeAvailable: true });
+	assert.deepEqual(build.kinds, ["code.session", "code.edit"]);
+	const plan = await runCode({ codeMode: "plan", codeAvailable: true });
+	assert.deepEqual(plan.kinds, ["code.session"], "o plano não tem code_edit");
+	const unattended = await runCode({ codeMode: "build", codeAvailable: true, ownerPresent: false });
+	assert.ok(!unattended.kinds.includes("code.edit"), "sem dono, o build vira leitura");
+});
+
+test("código (F8.2): modo ligado sem o ambiente de código não oferece a capacidade e diz o motivo no log", async () => {
+	const out = await runCode({ codeMode: "build", codeAvailable: false });
+	assert.deepEqual(out.kinds, []);
+	assert.ok(out.logs.some((line) => /capacidades sem porta: .*code/.test(line)), out.logs.join("|"));
 });

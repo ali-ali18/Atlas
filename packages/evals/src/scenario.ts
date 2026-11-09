@@ -175,6 +175,8 @@ export const scenarioSchema = z
 				sandbox: z.boolean().optional(),
 				/** Autonomia do dono no motor v4 (padrão `balanced`): `autonomous` deixa o cenário executar uma escrita externa sem cartão. */
 				autonomy: z.enum(["always_ask", "balanced", "autonomous"]).optional(),
+				/** Motor v4 (F8.2): pasta de `fixtures/code/` com um repositório real. Liga a capacidade `code` sobre um `FakeCodeSandbox` cujos testes rodam de verdade numa cópia temporária. */
+				codeFixture: z.string().regex(/^[a-z0-9-]+$/).optional(),
 				/** Motor v4: o run é o do PLANO DO DIA (brief da agenda): sem dono, só `agenda_result`, `brief_sources` e `day_plan`. */
 				agendaBrief: z.boolean().optional(),
 			})

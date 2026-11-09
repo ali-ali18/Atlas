@@ -1,5 +1,5 @@
 import { Prisma } from "@prisma/client";
-import { BOT_LANGUAGE_AUTO, BOT_LINK_ROLE, isMessageSourceKind, mergeServerPolicyKeys, parseBotLanguageSetting, type Bot, type ReasoningEffort, withBotReasoningEffort, type BotLanguageSetting, type CreateBotInput, type UpdateBotInput } from "@workspace/shared";
+import { BOT_LANGUAGE_AUTO, BOT_LINK_ROLE, isMessageSourceKind, mergeServerPolicyKeys, parseBotLanguageSetting, type Bot, type ReasoningEffort, withBotReasoningEffort, withCodeMode, type CodeMode, type BotLanguageSetting, type CreateBotInput, type UpdateBotInput } from "@workspace/shared";
 import { prisma } from "./client.js";
 import { unreadResultsByConversation } from "./deliveries.js";
 import { getUnreadStates } from "./read-state.js";
@@ -353,6 +353,25 @@ export async function setBotReasoningEffort(
 		const rows = await tx.$queryRaw<Array<{ policyJson: unknown }>>`SELECT "policyJson" FROM "bots" WHERE "id" = ${botId} AND "ownerId" = ${owner} FOR UPDATE`;
 		if (!rows[0]) return false;
 		const next = withBotReasoningEffort(rows[0].policyJson, effort);
+		await tx.bot.update({
+			where: { id: botId, ownerId: owner },
+			data: { policyJson: Object.keys(next).length > 0 ? (next as Prisma.InputJsonValue) : Prisma.DbNull },
+		});
+		return true;
+	});
+}
+
+/**
+ * Troca só o modo de código do bot (`policyJson.codeMode`), preservando as outras chaves da política sob lock de linha.
+ * `false` quando o bot não é do usuário (nada é escrito).
+ */
+export async function setBotCodeMode(botId: string, userId: string, mode: CodeMode): Promise<boolean> {
+	const owner = ownerIds(userId)[0];
+	if (!owner || owner === "default") return false;
+	return prisma.$transaction(async (tx) => {
+		const rows = await tx.$queryRaw<Array<{ policyJson: unknown }>>`SELECT "policyJson" FROM "bots" WHERE "id" = ${botId} AND "ownerId" = ${owner} FOR UPDATE`;
+		if (!rows[0]) return false;
+		const next = withCodeMode(rows[0].policyJson, mode);
 		await tx.bot.update({
 			where: { id: botId, ownerId: owner },
 			data: { policyJson: Object.keys(next).length > 0 ? (next as Prisma.InputJsonValue) : Prisma.DbNull },

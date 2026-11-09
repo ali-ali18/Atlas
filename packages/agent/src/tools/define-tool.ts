@@ -35,6 +35,8 @@ export type ToolDefinition<S extends z.ZodObject> = {
 	ownerData?: OwnerDataKind;
 	/** A tool manda dado escolhido pelo modelo (URL, consulta) a um terceiro. Pede aprovação só com a trifeta completa no run (não confiável + privado; cláusula 8). Padrão: não. */
 	egress?: boolean;
+	/** Saída que depende dos argumentos (ex.: digitar texto numa página escreve dado do run num site de terceiro). Soma-se a `egress`. */
+	egressForArgs?: (args: z.output<S>) => boolean;
 	/** Confirmação declarada: `always` = o dono confirma toda chamada (mesmo em autonomia total); `when_untrusted` = só se o run leu dado não confiável. Sem dono, a tool fica fora. Padrão: nenhuma. */
 	confirm?: "always" | "when_untrusted";
 	/** A tool precisa de um dado que SÓ o dono digita no cartão de aprovação (hoje: o CVV do cartão). Com isso, nem o mandato dispensa o cartão: ele vira "só o campo". */
@@ -60,6 +62,8 @@ export interface Tool {
 	readonly ownerData?: OwnerDataKind;
 	/** Ver `ToolDefinition.egress`. */
 	readonly egress: boolean;
+	/** `egress` desta chamada (a base, ou o de `egressForArgs`). Args inválidos usam a base. */
+	egressFor(rawArgs: unknown): boolean;
 	/** Ver `ToolDefinition.confirm`. */
 	readonly confirm?: "always" | "when_untrusted";
 	/** Ver `ToolDefinition.ownerInput`. */
@@ -156,6 +160,12 @@ export function defineTool<S extends z.ZodObject>(def: ToolDefinition<S>): Tool 
 			const effect = def.effectForArgs(checked.args);
 			if (!isEffect(effect)) throw new Error(`${def.name}.effectForArgs returned an unknown effect "${String(effect)}".`);
 			return effect;
+		},
+		egressFor(rawArgs) {
+			if (def.egress === true) return true;
+			if (!def.egressForArgs) return false;
+			const checked = validateArgs(def.name, schema, acceptedFields, rawArgs);
+			return checked.ok ? def.egressForArgs(checked.args) === true : false;
 		},
 		riskFactsFor(rawArgs) {
 			if (!def.riskFacts) return undefined;

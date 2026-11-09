@@ -1,7 +1,7 @@
 // Capacidade `settings` (F2.4): configurar o bot pelo chat, inclusive o modelo por papel. Lazy (tools só entram ao
 // carregar a capacidade). O perfil do bot só muda com pedido explícito do dono ou no onboarding, e o modelo declara qual
 // dos dois é (campo `reason`, nunca deduzido de texto). Os papéis são nome interno: o bot fala em palavras simples.
-import { BOT_LANGUAGE_SETTINGS, MODEL_ROLES, parseModelRef } from "@workspace/shared";
+import { BOT_LANGUAGE_SETTINGS, CODE_MODES, MODEL_ROLES, parseModelRef, type CodeMode } from "@workspace/shared";
 import { z } from "zod";
 import type { AgentModelRole, BotSettingsView, Settings } from "../../ports/settings.js";
 import { defineTool } from "../../tools/define-tool.js";
@@ -23,6 +23,25 @@ const ROLE_MEANING: Readonly<Record<AgentModelRole, string>> = {
 	classifier: "quick routing decisions",
 };
 
+/** Como o bot explica cada modo para o dono (palavras simples, nunca o nome interno). */
+const CODE_MODE_MEANING: Readonly<Record<CodeMode, string>> = {
+	off: "off (the bot does not touch code)",
+	plan: "plan (the bot can look at a repository and plan, but changes nothing)",
+	build: "build (the bot can edit files and run permitted commands)",
+};
+/** Texto que o dono vê no cartão de aprovação antes de ligar o modo (pt-BR, sem o nome interno do modo). */
+const CODE_MODE_RISK_TARGET: Readonly<Record<CodeMode, string>> = {
+	off: "Desligar o modo de código",
+	plan: "Modo de código: só ler e planejar (não altera arquivos)",
+	build: "Modo de código: editar arquivos e rodar comandos permitidos num repositório",
+};
+/** Texto que o dono vê no cartão de resultado (pt-BR). */
+const CODE_MODE_RECEIPT: Readonly<Record<CodeMode, string>> = {
+	off: "Modo de código desligado",
+	plan: "Modo de código: planejar (só lê e planeja, sem alterar nada)",
+	build: "Modo de código: construir (edita arquivos e roda comandos permitidos)",
+};
+
 export function renderSettings(view: BotSettingsView, options: { roleModels: boolean } = { roleModels: true }): string {
 	const lines = [`Name: ${view.name}`, `Summary: ${view.snippet || "(none)"}`, `Description: ${view.description || "(none)"}`, `Language: ${view.language}`, `Notifications: ${view.notify ? "on" : "off"}`];
 	if (!options.roleModels) return lines.join("\n");
@@ -38,7 +57,8 @@ export function createSettingsCapability(settings: Settings) {
 		inputSchema: z.object({}),
 		effect: "read",
 		async execute(_args, ctx) {
-			return { ok: true, summary: renderSettings(await settings.get(ctx.ownerId), { roleModels }) };
+			const base = renderSettings(await settings.get(ctx.ownerId), { roleModels });
+			return { ok: true, summary: settings.codeMode ? `${base}\nCode mode: ${CODE_MODE_MEANING[await settings.codeMode.get(ctx.ownerId)]}` : base };
 		},
 	});
 
@@ -92,6 +112,26 @@ export function createSettingsCapability(settings: Settings) {
 		},
 	});
 
+	const codeMode = settings.codeMode;
+	const setCodeMode = codeMode && defineTool({
+		name: "settings_set_code_mode",
+		description:
+			"Turn this bot's code mode off, plan (look at a repository and plan, changes nothing) or build (edit files and run permitted commands). " +
+			"Use it only when the owner asks to turn code mode on, off or change it. Do not use it to work on code: after it is on, use the code tools. Tell the owner in plain words, never the mode names.",
+		inputSchema: z.object({ mode: z.enum(CODE_MODES) }),
+		effect: "write_internal",
+		// Liga poder de editar e rodar comando: o dono confirma, e rodada sem dono presente não consegue aprovar (fica negada).
+		confirm: "always",
+		riskFacts: ({ mode }) => ({ target: CODE_MODE_RISK_TARGET[mode] }),
+		async execute({ mode }, ctx) {
+			const current = await codeMode.get(ctx.ownerId);
+			if (current === mode) return { ok: true, summary: `Code mode was already ${CODE_MODE_MEANING[mode]}. Nothing changed.` };
+			const saved = await codeMode.set(ctx.ownerId, mode);
+			const note = saved !== "off" && !codeMode.environmentAvailable ? " The code environment is not available on this server right now, so the code tools stay off until it is: tell the owner plainly." : "";
+			return { ok: true, summary: `Code mode is now ${CODE_MODE_MEANING[saved]}. It applies from the next message.${note}`, receipt: { what: CODE_MODE_RECEIPT[saved], where: "Configurações do bot" } };
+		},
+	});
+
 	const updateBotProfile = defineTool({
 		name: "update_bot_profile",
 		description:
@@ -118,8 +158,8 @@ export function createSettingsCapability(settings: Settings) {
 	return defineCapability({
 		id: "settings",
 		title: "Configurações",
-		summary: roleModels ? "Configure the bot from chat: language, notifications, models by role, profile." : "Configure the bot from chat: language, notifications, profile.",
-		// Sem onde guardar o modelo por papel a tool não existe: anunciar e falhar sempre seria tool desonesta.
-		tools: roleModels ? [settingsGet, settingsUpdate, setRoleModel, updateBotProfile] : [settingsGet, settingsUpdate, updateBotProfile],
+		summary: `Configure the bot from chat: language, notifications, ${roleModels ? "models by role, " : ""}${codeMode ? "code mode (turn it on or off), " : ""}profile.`,
+		// Sem onde guardar o modelo por papel (ou o modo de código) a tool não existe: anunciar e falhar sempre seria tool desonesta.
+		tools: [settingsGet, settingsUpdate, ...(roleModels ? [setRoleModel] : []), ...(setCodeMode ? [setCodeMode] : []), updateBotProfile],
 	});
 }

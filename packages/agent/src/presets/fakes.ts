@@ -6,11 +6,11 @@ import type { Helpers, HelperResult, HelperTask } from "../ports/helpers.js";
 import type { FileStore, StoredFile } from "../ports/file-store.js";
 import type { Memory, MemoryAddInput, MemoryItem, MemoryLayer } from "../ports/memory.js";
 import type { Notebook, NotebookAddInput, NotebookNote, NotebookPatch } from "../ports/notebook.js";
-import { findDuplicateNote, purchaseDedupeKey, purchaseMergePatch, rankNotes, type CalendarEventView, type PurchaseView } from "@workspace/shared";
+import { type CodeMode, findDuplicateNote, purchaseDedupeKey, purchaseMergePatch, rankNotes, type CalendarEventView, type PurchaseView } from "@workspace/shared";
 import type { CalendarCardPayload, CalendarPorts } from "../ports/calendar.js";
 import type { ProductCardPayload, ShoppingPorts } from "../ports/shopping.js";
 import type { Search, SearchExtract, SearchHit } from "../ports/search.js";
-import type { BotSettingsPatch, BotSettingsView, Settings } from "../ports/settings.js";
+import type { BotSettingsPatch, BotSettingsView, CodeModeSetting, Settings } from "../ports/settings.js";
 import type { TaskListState, TaskListStore } from "../ports/task-list.js";
 
 export class FakeSearch implements Search {
@@ -168,9 +168,20 @@ export class FakeSettings implements Settings {
 	readonly updates: Array<{ userId: string; patch: BotSettingsPatch }> = [];
 	readonly availableModels?: () => Promise<readonly string[]>;
 	readonly supportsRoleModels: boolean;
-	constructor(models?: readonly string[], options: { supportsRoleModels?: boolean } = {}) {
+	readonly codeMode?: CodeModeSetting;
+	/** Modo de código por dono (só existe quando `options.codeMode` liga o suporte). */
+	readonly codeModes = new Map<string, CodeMode>();
+	constructor(models?: readonly string[], options: { supportsRoleModels?: boolean; codeMode?: { environmentAvailable?: boolean } } = {}) {
 		if (models) this.availableModels = async () => models;
 		this.supportsRoleModels = options.supportsRoleModels ?? true;
+		if (options.codeMode) {
+			const modes = this.codeModes;
+			this.codeMode = {
+				environmentAvailable: options.codeMode.environmentAvailable ?? true,
+				get: async (userId) => modes.get(userId) ?? "off",
+				set: async (userId, mode) => (modes.set(userId, mode), mode),
+			};
+		}
 	}
 	async get(userId: string): Promise<BotSettingsView> {
 		const view = this.views.get(userId) ?? DEFAULT_SETTINGS;

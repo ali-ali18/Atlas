@@ -1,5 +1,6 @@
 import type Docker from "dockerode";
 import type { SandboxRuntimeConfig } from "./config.js";
+import { controlTokenFromInspect } from "./control-token.js";
 import { resolveSandboxEndpoint } from "./docker-manager.js";
 
 /**
@@ -19,7 +20,9 @@ export async function probeSandboxIdleMs(
 		if (!inspect.State?.Running) return null;
 		const endpoint = resolveSandboxEndpoint(config, inspect);
 		if (!endpoint) return null;
+		const token = controlTokenFromInspect(inspect);
 		const response = await fetchImpl(`http://${endpoint.host}:${endpoint.controlPort}/idle`, {
+			headers: token ? { Authorization: `Bearer ${token}` } : {},
 			signal: AbortSignal.timeout(3_000),
 		});
 		if (!response.ok) return null;

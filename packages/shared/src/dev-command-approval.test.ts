@@ -4,6 +4,7 @@ import {
 	alwaysAllowDetail,
 	alwaysAllowLabel,
 	decideCommand,
+	isReadOnlySegment,
 	isSensitiveEnvFile,
 	sensitiveReadReason,
 	DEFAULT_COMMAND_ALLOWLIST,
@@ -201,7 +202,7 @@ describe("Automático honra a lista do repositório", () => {
 describe("proteção de leitura de .env", () => {
 	it("quais arquivos contam", () => {
 		for (const path of [".env", ".env.local", ".env.production", "apps/api/.env", "/workspace/x/.env.development.local", ".ENV"]) expect(isSensitiveEnvFile(path), path).toBe(true);
-		for (const path of [".env.example", ".env.sample", ".env.template", "apps/web/.env.local.example", "env.ts", "src/environment.ts", "README.md", ".envrc"]) expect(isSensitiveEnvFile(path), path).toBe(false);
+		for (const path of [".env.example", ".env.sample", ".env.template", "apps/web/.env.local.example", "env.ts", "src/environment.ts", "README.md"]) expect(isSensitiveEnvFile(path), path).toBe(false);
 	});
 	it("cat/grep/head... num .env perguntam; .env.example não", () => {
 		for (const cmd of ["cat .env", "cat apps/api/.env.local", "grep SECRET .env", "head -n 3 .env.production", "tail -f .env", "sed -n 1p .env", "cat < .env", "cat \".env\"", "FOO=1 cat .env", "ls && cat .env", "cat .env | grep KEY", "grep KEY .env*", "rg --file=.env x", "echo $(cat .env)"]) {
@@ -211,9 +212,70 @@ describe("proteção de leitura de .env", () => {
 			expect(sensitiveReadReason(cmd), cmd).toBeNull();
 		}
 	});
+	it("leituras de segredo por estrutura do comando: git show rev:.env, git log -p, diff --no-index, env, /proc/*/environ e caminho fora do /workspace", () => {
+		for (const cmd of [
+			"git show HEAD:.env", "git show main~2:apps/api/.env.local", "git -C repo show HEAD:.env", "git log -p -- .env", "git log --patch .env.production", "git diff .env", "git diff HEAD -- .env.local", "git blame .env", "git cat-file -p HEAD:.env",
+			"git diff --no-index /etc/passwd x", "git diff --no-index ../a b", "env", "printenv", "env -0", "ls && printenv", "cat /proc/self/environ", "cat /proc/1/environ", "tr '\\0' '\\n' < /proc/self/environ", "head -c 100 /proc/12/environ",
+			"cat /etc/passwd", "cat ~/.ssh/id_rsa", "cat ../../.git-credentials", "grep -r token /home/atlas", "rg --file=/root/.npmrc x",
+		]) {
+			expect(sensitiveReadReason(cmd), cmd).not.toBeNull();
+		}
+		for (const cmd of ["git show HEAD:README.md", "git log -p -- src/a.ts", "git log --oneline .env", "git diff", "git diff .env.example", "env FOO=1 pnpm test", "printenv PATH_UNUSED_NOT_CHECKED_BUT_ARGS", "cat /workspace/app/a.ts", "cat src/a.ts", "ls /usr/lib", "git status"]) {
+			expect(sensitiveReadReason(cmd), cmd).toBeNull();
+		}
+	});
 	it("decideCommand: pergunta em Automático e Lista liberada (mesmo com leitura simples), nunca oferece Sempre", () => {
 		expect(decide("cat .env", "auto", ["cat"])).toMatchObject({ action: "ask", reason: "sensitive-read", prefixes: [] });
 		expect(decide("cat .env", "allowlist")).toMatchObject({ action: "ask", reason: "sensitive-read", prefixes: [] });
 		expect(decide("cat .env.example", "auto")).toEqual({ action: "run" });
+	});
+});
+
+describe("somente leitura: flags que escrevem ou executam", () => {
+	const readOnly = (cmd: string) => {
+		const parsed = parseCommand(cmd);
+		return parsed.ok && parsed.segments.every(isReadOnlySegment);
+	};
+	it("saem de somente leitura", () => {
+		for (const cmd of [
+			"git grep -O'sh -c id' x", "git grep -Oid x", "git grep -O x", "git grep --open-files-in-pager=cmd x", "git grep --open-files-in-pager cmd x", "git grep --open=cmd x", "git grep -nOid x", "git grep --no-index -Oid x",
+			"git diff --ext-diff", "git diff --ext=cmd", "git log --output=x", "git show --out=x HEAD",
+			"uniq a b", "uniq -c a b", "uniq -f 1 a b", "tree -o x", "tree -ao x", "tree -ox", "tree --output=x", "tree --output x", "date -s '2020-01-01'", "date --set=x", "date -us x", "date 010112002026",
+			"sort -o x y", "sort --compress-program=id a", "hostname newname", "hostname -F file", "find . -exec id ;", "find . -execdir id ;", "find . -ok id ;", "find . -delete", "find . -fprint x", "find . -fprintf x y", "find . -fls x", "rg --pre id x",
+		]) {
+			expect(readOnly(cmd), cmd).toBe(false);
+		}
+	});
+	it("leituras legítimas continuam somente leitura", () => {
+		for (const cmd of ["git grep foo", "git grep -n -i foo -- src", "git grep -e Other x", "git log -p", "git diff --stat", "cat README.md", "ls -la", "uniq a", "uniq -c a", "uniq -f 1 a", "uniq", "tree", "tree -L 2 -a", "date", "date +%s", "date -u", "date -d 'next monday' +%F", "hostname", "hostname -f", "sort a", "sort -u a", "find . -name x", "grep -r foo src", "rg --hidden foo", "cat src/env.ts", "cat .env.example"]) {
+			expect(readOnly(cmd), cmd).toBe(true);
+		}
+	});
+	it("git log -p, grep -r e rg --hidden sem caminho sensível explícito são aceitos (o conteúdo do repositório é do dono)", () => {
+		for (const cmd of ["git log -p", "git log -p --all", "grep -r foo .", "grep -r SECRET src", "rg --hidden SECRET", "rg --hidden --no-ignore KEY ."]) {
+			expect(sensitiveReadReason(cmd), cmd).toBeNull();
+			expect(decide(cmd, "allowlist"), cmd).toEqual({ action: "run" });
+		}
+	});
+});
+
+describe("leitura de segredo por glob, substituição de comando e aspas", () => {
+	it("arquivos de credencial conhecidos contam", () => {
+		for (const path of [".npmrc", "apps/web/.netrc", ".envrc", ".dev.vars", "prod.env", ".git-credentials", "id_rsa", "~/.ssh/id_rsa", "id_ed25519", ".aws/credentials", "/home/u/.aws/credentials"]) expect(isSensitiveEnvFile(path), path).toBe(true);
+		for (const path of ["id_rsa.pub", "env", "src/env.ts", "credentials", "docs/credentials.md", "envrc", ".env.example"]) expect(isSensitiveEnvFile(path), path).toBe(false);
+	});
+	it("glob que pode casar um segredo, substituição de comando e redirecionamento de entrada perguntam", () => {
+		for (const cmd of [
+			"cat .e*", "cat .en[v]", "cat .e?v", "grep -h . .e*", "cat apps/api/.e*", "cat .n*rc", "cat .net*", "cat .dev.v*", "cat *.env", "cat id_rsa*", "cat .git-cred*", "cat .aws/cred*", "cat .aws/*", "head -n1 .?nv", "cat --show-all=.e* x",
+			"printf '%s' \"$(cat .env)\"", "echo \"`cat .env`\"", "echo $(<.env)", "echo \"$(<.env)\"", "cat \"$(echo .env)\"", "cat $(echo .e*)", "tr a b < .env", "x=$(cat .env.local)", "cat \".e*\"", "echo $(cat .npmrc)",
+		]) {
+			expect(sensitiveReadReason(cmd), cmd).not.toBeNull();
+			expect(decide(cmd, "auto"), cmd).toMatchObject({ action: "ask", reason: "sensitive-read" });
+		}
+	});
+	it("leituras comuns com glob ou substituição seguem sem perguntar", () => {
+		for (const cmd of ["cat README.md", "cat *.md", "cat *", "cat src/*.ts", "cat .eslintrc*", "cat .env.example", "grep -r foo src", "grep foo *.ts", "ls -la", "ls .e*", "echo .e*", "cat src/env.ts", "cat .env.example", "cat $(git ls-files)", "echo \"$(date)\"", "cat \"$(pwd)/README.md\"", "wc -l $(git ls-files)", "uniq a", "tree", "date"]) {
+			expect(sensitiveReadReason(cmd), cmd).toBeNull();
+		}
 	});
 });

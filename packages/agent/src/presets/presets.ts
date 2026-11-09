@@ -6,10 +6,12 @@ import { createDeliverablesCapability } from "../capabilities-builtin/deliverabl
 import { createResearchCapability } from "../capabilities-builtin/research/index.js";
 import type { DeliverablePorts } from "../ports/deliverables.js";
 import { createAgendaCapability } from "../capabilities/agenda/index.js";
+import { type CodeDeps, createCodeCapability } from "../capabilities/code/index.js";
 import { createCalendarCapability } from "../capabilities/calendar/index.js";
 import type { CalendarPorts } from "../ports/calendar.js";
 import { createMemoryCapability } from "../capabilities/memory/index.js";
 import { createEmailCapability } from "../capabilities/email/index.js";
+import { createBrowserCapability } from "../capabilities/browser/index.js";
 import { createShoppingCapability } from "../capabilities/shopping/index.js";
 import type { EmailPorts } from "../ports/email.js";
 import type { ShoppingPorts } from "../ports/shopping.js";
@@ -31,7 +33,7 @@ import { createWebCapability } from "./web.js";
 export const PRESET_IDS = ["minimal", "full"] as const;
 export type PresetId = (typeof PRESET_IDS)[number];
 
-export type CapabilityId = "web" | "deliverables-lite" | "memory" | "tasks" | "settings" | "research" | "agenda" | "shopping" | "email" | "calendar";
+export type CapabilityId = "web" | "deliverables-lite" | "memory" | "tasks" | "settings" | "research" | "agenda" | "shopping" | "email" | "calendar" | "code" | "browser";
 
 export type AgentPreset = {
 	id: PresetId;
@@ -43,7 +45,7 @@ export type AgentPreset = {
 
 export const PRESETS: Readonly<Record<PresetId, AgentPreset>> = Object.freeze({
 	minimal: Object.freeze({ id: "minimal", capabilities: Object.freeze(["web", "deliverables-lite"] as const), workContract: false }),
-	full: Object.freeze({ id: "full", capabilities: Object.freeze(["web", "deliverables-lite", "memory", "tasks", "settings", "research", "agenda", "shopping", "email", "calendar"] as const), workContract: true }),
+	full: Object.freeze({ id: "full", capabilities: Object.freeze(["web", "deliverables-lite", "memory", "tasks", "settings", "research", "agenda", "shopping", "email", "calendar", "browser"] as const), workContract: true }),
 });
 
 /**
@@ -74,6 +76,10 @@ export type PresetDeps = {
 	email?: EmailPorts;
 	/** Google Agenda do dono (F7.1). Lazy; sem a porta a capacidade não entra. */
 	calendar?: CalendarPorts;
+	/** Código (F8.2): sessão de código na VM, pela porta `Sandbox` do run. Lazy; sem esta chave a capacidade não entra (o worker liga quando o adaptador `code.*` existe). `readOnly` = modo plano. */
+	code?: CodeDeps;
+	/** Navegador (F8.1): a VM do dono existe neste run (adaptador `Sandbox` real). Sem isso a capacidade não entra. */
+	browser?: boolean;
 };
 
 export function isPresetId(value: unknown): value is PresetId {
@@ -98,7 +104,23 @@ const FACTORIES: Readonly<Record<CapabilityId, CapabilityFactory>> = {
 	shopping: (deps) => deps.shopping && createShoppingCapability({ ...deps.shopping, search: deps.search, ...(deps.agenda && { agenda: deps.agenda }), ...(deps.checkout && { checkout: deps.checkout }), ...(deps.shoppingCountry && { country: deps.shoppingCountry }) }),
 	// F7.1: lazy; ler, triar e rascunhar livres, enviar sempre com a aprovação do dono.
 	email: (deps) => deps.email && createEmailCapability(deps.email),
+	// F8.2: lazy; "Bom dia" não carrega o schema. As tools falam com a porta `Sandbox` (kinds `code.*`).
+	code: (deps) => deps.code && createCodeCapability(deps.code),
+	// F8.1: navegador da VM; lazy. Fala com a porta `Sandbox` do run (sem VM, as tools falham com o motivo real). `helpers` liga o `browser_digest`.
+	browser: (deps) => deps.browser === true ? createBrowserCapability({ ...(deps.helpers && { helpers: deps.helpers }) }) : undefined,
 };
+
+/**
+ * Capacidades opt-in: não fazem parte de nenhum preset, entram quando a dependência vem nas `deps`. O código (F8.2) liga por
+ * run ou bot (`code: {}`; `code: { readOnly: true }` no modo plano): o worker só passa a chave quando o adaptador `code.*` existe.
+ * Assim `full` não ganha uma capacidade "indisponível" em quem não usa código, e nada some em silêncio.
+ */
+const OPT_IN: readonly CapabilityId[] = ["code"];
+
+function capabilitiesOf(preset: AgentPreset, deps: PresetDeps): readonly CapabilityId[] {
+	const extra = OPT_IN.filter((id) => !preset.capabilities.includes(id) && FACTORIES[id](deps) !== undefined);
+	return [...preset.capabilities, ...extra];
+}
 
 /** Capacidades do preset que não entram por falta da porta. */
 export function unavailableCapabilities(preset: AgentPreset, deps: PresetDeps): CapabilityId[] {
@@ -106,7 +128,7 @@ export function unavailableCapabilities(preset: AgentPreset, deps: PresetDeps): 
 }
 
 export function buildPresetRegistry(preset: AgentPreset, deps: PresetDeps): CapabilityRegistry {
-	const built = preset.capabilities.map((id) => FACTORIES[id](deps)).filter((capability): capability is NonNullable<typeof capability> => capability !== undefined);
+	const built = capabilitiesOf(preset, deps).map((id) => FACTORIES[id](deps)).filter((capability): capability is NonNullable<typeof capability> => capability !== undefined);
 	return createCapabilityRegistry(built);
 }
 

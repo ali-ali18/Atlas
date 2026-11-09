@@ -45,7 +45,7 @@ async function main() {
 	}
 
 	const dry = args.has("dry");
-	const taskIds = (args.get("tasks") ?? "all") === "all" ? TASKS.map((task) => task.id) : args.get("tasks")!.split(",").map((id) => id.trim());
+	const taskIds = (args.get("tasks") ?? "all") === "all" ? TASKS.filter((task) => !task.optIn).map((task) => task.id) : args.get("tasks")!.split(",").map((id) => id.trim());
 	const tasks = taskIds.map(taskById);
 	const models = (args.get("models") ?? (dry ? "dry/scripted" : "anthropic/claude-haiku-5.5")).split(",").map((model) => model.trim());
 	const reps = Number(args.get("reps") ?? "1");
