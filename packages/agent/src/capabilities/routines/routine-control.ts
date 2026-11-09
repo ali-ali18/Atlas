@@ -4,7 +4,7 @@
 import { z } from "zod";
 import type { Routines } from "../../ports/routines.js";
 import { defineTool } from "../../tools/define-tool.js";
-import { findRoutine, optionsLine } from "./resolve.js";
+import { findRoutine, isExactRef, optionsLine } from "./resolve.js";
 
 export const ROUTINE_CONTROL_ACTIONS = ["pause", "resume", "delete"] as const;
 
@@ -13,7 +13,7 @@ export function createRoutineControlTool(routines: Routines) {
 		name: "routine_control",
 		description:
 			"Pause, resume or delete ONE existing routine or alert, by name or id from routine_list. pause stops the schedule and keeps everything; resume starts it again; delete removes it for good and the owner confirms first. " +
-			"Use it for \"pausa o alerta do estoque\", \"volta com a rotina X\", \"apaga a rotina Y\". Delete only when the owner clearly asked to delete (to just stop it, pause). " +
+			"Use it for \"pausa o alerta do estoque\", \"volta com a rotina X\", \"apaga a rotina Y\". Delete only when the owner clearly asked to delete (to just stop it, pause), and then target must be the exact name or the id (a partial name is refused). " +
 			"Not for changing what a routine does or when it runs, and not for groups (routine_group).",
 		inputSchema: z.object({
 			action: z.enum(ROUTINE_CONTROL_ACTIONS),
@@ -25,13 +25,17 @@ export function createRoutineControlTool(routines: Routines) {
 		async enrichRiskFacts({ action, target }, base, { ownerId }) {
 			if (action !== "delete") return base;
 			const found = findRoutine(await routines.list(ownerId), target);
-			return found.kind === "one" ? { ...base, target: `${found.item.name} (${found.item.trigger})` } : base;
+			return found.kind === "one" && isExactRef(found.item, target) ? { ...base, target: `${found.item.name} (${found.item.trigger})` } : base;
 		},
 		async execute({ action, target }, ctx) {
 			const found = findRoutine(await routines.list(ctx.ownerId), target);
 			if (found.kind === "none") return { ok: false, error: `No routine matches "${target.slice(0, 80)}".`, hint: "Call routine_list for the names." };
 			if (found.kind === "ambiguous") return { ok: false, error: `More than one routine matches "${target.slice(0, 80)}": ${optionsLine(found.items)}.`, hint: "Ask the owner which one, or call again with the exact name or id." };
 			const routine = found.item;
+			// Apagar não tem volta: um pedaço do nome que por acaso casa com uma só rotina não basta (P5). Só o id ou o nome completo.
+			if (action === "delete" && !isExactRef(routine, target)) {
+				return { ok: false, error: `"${target.slice(0, 80)}" only partly matches "${routine.name}" (id ${routine.id}). Delete needs the exact name or id.`, hint: "Ask the owner to confirm which routine, then call again with its id." };
+			}
 			const label = routine.alert ? "Alert" : "Routine";
 
 			if (action === "delete") {

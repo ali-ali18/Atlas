@@ -132,14 +132,25 @@ describe("routine_control", () => {
 
 	it("apagar pede o dono (cartão, mesmo em autonomia total) e o cartão diz QUAL rotina; nada some antes da aprovação", async () => {
 		const r = rig({ policy: { ...chatPolicy, autonomy: "autonomous" } });
-		const pending = await r.run("routine_control", { action: "delete", target: "aluguel" });
+		const pending = await r.run("routine_control", { action: "delete", target: "Lembrar do aluguel" });
 		if (pending.status !== "pending_approval") throw new Error(pending.status);
 		expect(pending.request.effect).toBe("destructive");
 		expect(pending.request.riskFacts).toMatchObject({ irreversible: true, target: "Lembrar do aluguel (Uma vez · 03/12 às 10:00)" });
 		expect(r.routines.rows.some((x) => x.id === "r3")).toBe(true);
-		const done = await r.approved("routine_control", { action: "delete", target: "aluguel" });
+		const done = await r.approved("routine_control", { action: "delete", target: "Lembrar do aluguel" });
 		expect(summaryOf(done)).toBe('Routine "Lembrar do aluguel" deleted for good.');
 		expect(r.routines.rows.some((x) => x.id === "r3")).toBe(false);
+	});
+
+	it("P5: apagar com pedaço do nome (mesmo que case com uma só) falha e pede o id; pausar continua aceitando o pedaço; o id apaga", async () => {
+		const r = rig({ policy: { ...chatPolicy, autonomy: "autonomous" } });
+		const refused = await r.approved("routine_control", { action: "delete", target: "aluguel" });
+		expect(refused.status).toBe("error");
+		expect(JSON.stringify(refused)).toContain("exact name or id");
+		expect(r.routines.rows.some((x) => x.id === "r3")).toBe(true);
+		expect((await r.run("routine_control", { action: "pause", target: "aluguel" })).status).toBe("ok");
+		const byId = await r.approved("routine_control", { action: "delete", target: "r3" });
+		expect(summaryOf(byId)).toBe('Routine "Lembrar do aluguel" deleted for good.');
 	});
 
 	it("pausar e retomar não pedem cartão em autonomia normal (voltam com outra chamada)", async () => {

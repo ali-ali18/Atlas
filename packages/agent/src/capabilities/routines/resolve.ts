@@ -20,6 +20,12 @@ function find<T extends { id: string; name: string }>(items: readonly T[], query
 export const findRoutine = (routines: readonly RoutineView[], query: string): Found<RoutineView> => find(routines, query);
 export const findGroup = (groups: readonly RoutineGroupView[], query: string): Found<RoutineGroupView> => find(groups, query);
 
+/** O que o modelo escreveu é o id ou o nome COMPLETO (sem diferença de caixa), não um pedaço? Apagar só aceita isto. */
+export function isExactRef(item: { id: string; name: string }, query: string): boolean {
+	const wanted = query.trim();
+	return item.id === wanted || item.name.trim().toLowerCase() === wanted.toLowerCase();
+}
+
 const MAX_OPTIONS = 5;
 
 /** Lista curta (até 5) de opções, só nome e id, para o erro "qual delas?". */

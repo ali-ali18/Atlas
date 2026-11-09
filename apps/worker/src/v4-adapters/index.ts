@@ -117,6 +117,8 @@ export type V4RegistryInput = {
 	onRoutineMutated?: (routine: RoutineRecord) => Promise<unknown>;
 	/** Anexos da conversa (F9): a fonte do run (lista e cache de extração). Só com dono presente; rotina e agenda não leem anexos. */
 	attachments?: V4AttachmentsSource;
+	/** Rotinas (F9): reconcilia o webhook do repositório no GitHub depois de pausar, retomar ou apagar uma rotina de GitHub (o `ensureGithubRepoHook` do legado). Sem ele o hook no GitHub só muda quando o legado mexer na rotina. */
+	ensureGithubHook?: (userId: string, repo: string) => Promise<unknown>;
 };
 
 export type V4RegistrySetup = {
@@ -146,7 +148,7 @@ export async function buildV4Registry(input: V4RegistryInput): Promise<V4Registr
 	// Cofre (F9): nomes e metadados para o modelo; o valor só vai ao executor. Sem dono presente só `secret_list` (sem pedir nem digitar).
 	const vaultPorts = createV4Vault({ scope: { conversationId: input.conversationId ?? null, botId: botId ?? null, botName: input.botName ?? null, emit: input.emit, log }, deps: deps.vault });
 	// Rotinas (F9): as da Biblioteca, do bot do run (sem bot não há o que listar). Sem dono presente só `routine_list`.
-	const routinesPort = botId ? createV4Routines({ scope: { botId, conversationId: input.conversationId ?? null, emit: input.emit, log, ...(input.onRoutineMutated && { onMutated: input.onRoutineMutated }) }, deps: deps.routines }) : undefined;
+	const routinesPort = botId ? createV4Routines({ scope: { botId, conversationId: input.conversationId ?? null, emit: input.emit, log, ...(input.onRoutineMutated && { onMutated: input.onRoutineMutated }), ...(input.ensureGithubHook && { ensureGithubHook: input.ensureGithubHook }) }, deps: deps.routines }) : undefined;
 	const country = countryFromLocale(input.locale);
 	// Anexos (F9): só com dono presente. Rotina e run de agenda leem a conversa sem ninguém para ver o que é lido, então não entram.
 	const attachmentsPort = input.attachments && !input.unattended && !input.agendaRun ? createV4Attachments({ scope: { ownerId: input.userId, conversationId: input.conversationId ?? null }, source: input.attachments }) : undefined;

@@ -104,7 +104,8 @@ function world() {
 		},
 		now: () => NOW,
 	};
-	const port = (opts: { conversationId?: string | null; syncFails?: boolean } = {}) =>
+	const hooks: Array<{ userId: string; repo: string }> = [];
+	const port = (opts: { conversationId?: string | null; syncFails?: boolean; withHook?: boolean; hookFails?: boolean } = {}) =>
 		createV4Routines({
 			scope: {
 				botId: "bot-1",
@@ -116,11 +117,17 @@ function world() {
 					if (opts.syncFails) throw new Error("redis fora");
 					synced.push({ id: r.id, enabled: r.enabled });
 				},
+				...(opts.withHook && {
+					ensureGithubHook: async (userId: string, repo: string) => {
+						if (opts.hookFails) throw new Error("github fora");
+						hooks.push({ userId, repo });
+					},
+				}),
 				log: () => undefined,
 			},
 			deps,
 		});
-	return { routines, groups, calls, cards, live, synced, port };
+	return { routines, groups, calls, cards, live, synced, hooks, port };
 }
 
 test("lista: só as rotinas do dono neste bot, com gatilho em frase, grupo, instrução numa linha e próxima execução quando se sabe", async () => {
@@ -238,4 +245,34 @@ test("desfazer o grupo: as rotinas ficam; mover e tirar do grupo usam o dono do 
 	const out = await port.moveToGroup("a", "r1", null);
 	assert.equal(out?.group, undefined);
 	assert.equal(await port.moveToGroup("a", "r1", "gb"), null); // grupo do B
+});
+
+const ghTrigger = (repo: string) => ({ kind: "github", repo, events: ["push"] });
+
+test("P2: retomar um grupo com rotinas de GitHub reconcilia o webhook uma vez por repositório (e só as de GitHub)", async () => {
+	const w = world();
+	for (const id of ["g-a", "g-b", "g-c"]) {
+		w.routines.push(routine({ id, userId: "a", name: id, groupId: "g1", group: { id: "g1", name: "Casa" }, enabled: false, triggerType: "event", schedule: null, triggerJson: ghTrigger(id === "g-c" ? "acme/outro" : "acme/site") }));
+	}
+	await w.port({ withHook: true }).setGroupEnabled("a", "g1", true);
+	assert.deepEqual(w.hooks.map((h) => h.repo).sort(), ["acme/outro", "acme/site"]);
+	assert.ok(w.hooks.every((h) => h.userId === "a"));
+});
+
+test("P2: pausar e apagar rotina de GitHub reconciliam o webhook; rotina comum não", async () => {
+	const w = world();
+	w.routines.push(routine({ id: "g1x", userId: "a", name: "PR", triggerType: "event", schedule: null, triggerJson: ghTrigger("acme/site") }));
+	const port = w.port({ withHook: true });
+	await port.setEnabled("a", "g1x", false);
+	await port.remove("a", "g1x");
+	assert.deepEqual(w.hooks, [{ userId: "a", repo: "acme/site" }, { userId: "a", repo: "acme/site" }]);
+	await port.setEnabled("a", "r1", false);
+	assert.equal(w.hooks.length, 2);
+});
+
+test("P2: falha ao sincronizar o webhook não desfaz a mudança", async () => {
+	const w = world();
+	w.routines.push(routine({ id: "g1x", userId: "a", name: "PR", triggerType: "event", schedule: null, triggerJson: ghTrigger("acme/site") }));
+	const result = await w.port({ withHook: true, hookFails: true }).setEnabled("a", "g1x", false);
+	assert.equal(result?.enabled, false);
 });

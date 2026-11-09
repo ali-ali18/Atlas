@@ -154,7 +154,7 @@ import { earlyWallMs, engineDefaultFromEnv, engineV4GateFromEnv, pickRunEngine, 
 import { type RunComputerUseResult } from "@workspace/agent-runtime";
 import { createV4VaultBackend } from "../v4-adapters/vault.js";
 import { createSseMapper, type BullLikeQueue, type CvvEscrow } from "@workspace/agent";
-import { isReadOnlyConnectorOrigin, budgetStopFallbackText, isBotConfigEventObjective, createReviewerClient, resolveMaintenanceCandidates } from "@workspace/agent-runtime";
+import { ensureGithubRepoHook, isReadOnlyConnectorOrigin, budgetStopFallbackText, isBotConfigEventObjective, createReviewerClient, resolveMaintenanceCandidates } from "@workspace/agent-runtime";
 import { runToolFilter } from "../run-tool-filter.js";
 import { briefDeliveryDeps, deliverBriefFailure, deliverDailyBrief, findRoutineRunIdWithRetry, isDetachedBriefRun } from "../daily-brief.js";
 import { appendConversationMessage, getLanguageContext, listRecentLoginAsks } from "@workspace/db";
@@ -1288,6 +1288,8 @@ async function executeLeasedRun(ctx: {
 					signal: aborter.signal,
 					vault: createV4VaultBackend(),
 					...(deps.onRoutineMutated ? { onRoutineMutated: deps.onRoutineMutated } : {}),
+					// O worker já usa o agent-runtime; o adaptador de rotinas do v4 recebe o gancho pronto (não o importa).
+					ensureGithubHook: (userId: string, repo: string) => ensureGithubRepoHook({ userId, repo }),
 					...(deps.v4Queue ? { queue: deps.v4Queue } : {}),
 					...(deps.cvvEscrow ? { cvvEscrow: deps.cvvEscrow } : {}),
 					...(v4Sandbox ? { sandbox: v4Sandbox, ...(v4Sandbox.availability.vm && { browser: true }), codeAvailable: v4Sandbox.availability.code } : {}),

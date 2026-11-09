@@ -340,6 +340,19 @@ describe("painéis: listar, ler, atualizar, compartilhar", () => {
 		expect(fake.updates[0]).toMatchObject({ userId: "owner-1", runId: "run-1", id: "page-1", revision: 2 });
 	});
 
+	it("P7: painel com link público não é editado depois de leitura não confiável no run; sem link, ou sem leitura, edita", async () => {
+		const { fake, tool, ctx } = await withPanel();
+		const dirty = { ...ctx, untrustedReadInRun: true };
+		const spec = { ...pageSpec, title: "Texto vindo de fora" };
+		expect(await tool("panel_update").run({ panel_id: "page-1", spec }, dirty)).toMatchObject({ ok: true });
+		await tool("panel_share").run({ panel_id: "page-1" }, ctx);
+		const refused = await tool("panel_update").run({ panel_id: "page-1", spec: { ...pageSpec, title: "Injetado" } }, dirty);
+		expect(refused).toMatchObject({ ok: false, error: expect.stringContaining("public link") });
+		expect(fake.updates).toHaveLength(1);
+		expect(await tool("panel_update").run({ panel_id: "page-1", spec: { ...pageSpec, title: "Do dono" } }, ctx)).toMatchObject({ ok: true });
+		expect(fake.updates).toHaveLength(2);
+	});
+
 	it("panel_update por ops troca só o nó citado; id inexistente falha sem gravar", async () => {
 		const { fake, tool, ctx } = await withPanel();
 		const read = await tool("panel_read").run({ panel_id: "page-1" }, ctx);

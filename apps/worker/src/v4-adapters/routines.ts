@@ -17,7 +17,7 @@ import {
 	updateRoutine,
 	updateRoutineGroup,
 } from "@workspace/db";
-import { describeRoutineAlertSentence, describeRoutineTrigger, routineNextRunAt, type ComputerUseEvent, type RoutineGroupRecord, type RoutineRecord } from "@workspace/shared";
+import { describeRoutineAlertSentence, describeRoutineTrigger, parseGithubWebhookTrigger, routineNextRunAt, type ComputerUseEvent, type RoutineGroupRecord, type RoutineRecord } from "@workspace/shared";
 
 /** Funções do db e do relógio; injetáveis para o teste (sem banco). */
 export type V4RoutinesDeps = {
@@ -54,6 +54,12 @@ export type V4RoutinesScope = {
 	emit: (event: ComputerUseEvent) => void | Promise<void>;
 	/** Sincroniza o agendador depois de mudar uma rotina (o mesmo gancho do legado: `syncRoutineScheduler`). Ausente = não sincroniza. */
 	onMutated?: (routine: RoutineRecord) => Promise<unknown>;
+	/**
+	 * Reconcilia o webhook do repositório no GitHub com as rotinas que sobraram (o `ensureGithubRepoHook` do legado: cria, atualiza
+	 * a união de eventos ou apaga o hook). Sem ele pausar/retomar/apagar uma rotina de GitHub muda o banco, mas o hook no GitHub fica
+	 * como estava. Quem monta o run injeta o real (o adaptador não importa o agent-runtime).
+	 */
+	ensureGithubHook?: (userId: string, repo: string) => Promise<unknown>;
 	log?: (message: string) => void;
 };
 
@@ -118,6 +124,23 @@ export function createV4Routines(input: { scope: V4RoutinesScope; deps?: V4Routi
 		}
 	}
 
+	/** Melhor esforço e uma chamada por repositório, mesmo que várias rotinas do grupo apontem para o mesmo. Só rotina com gatilho de GitHub. */
+	async function syncHooks(userId: string, routines: readonly RoutineRecord[]) {
+		if (!scope.ensureGithubHook) return;
+		const repos = new Set<string>();
+		for (const routine of routines) {
+			const trigger = parseGithubWebhookTrigger(routine.triggerJson);
+			if (trigger) repos.add(trigger.repo);
+		}
+		for (const repo of repos) {
+			try {
+				await scope.ensureGithubHook(userId, repo);
+			} catch {
+				log("[engine-v4] não consegui sincronizar o webhook do GitHub da rotina");
+			}
+		}
+	}
+
 	return {
 		async list(userId) {
 			const now = deps.now();
@@ -131,6 +154,7 @@ export function createV4Routines(input: { scope: V4RoutinesScope; deps?: V4Routi
 			const updated = await deps.update(userId, scope.botId, routineId, { enabled });
 			if (!updated) return null;
 			await sync(updated);
+			await syncHooks(userId, [updated]);
 			await showCard(updated, enabled ? "Retomada" : "Pausada", { persist: true });
 			return toRoutineView(updated, deps.now());
 		},
@@ -139,6 +163,7 @@ export function createV4Routines(input: { scope: V4RoutinesScope; deps?: V4Routi
 			if (!existing) return null;
 			if (!(await deps.remove(userId, scope.botId, routineId))) throw new Error("The routine could not be deleted right now.");
 			await sync({ ...existing, enabled: false });
+			await syncHooks(userId, [existing]);
 			await showCard(existing, "Apagada", { persist: true, gone: true });
 			return toRoutineView(existing, deps.now());
 		},
@@ -167,6 +192,7 @@ export function createV4Routines(input: { scope: V4RoutinesScope; deps?: V4Routi
 			const updated = await deps.setGroupEnabled(userId, scope.botId, groupId, enabled);
 			if (!updated) return null;
 			for (const routine of updated) await sync(routine);
+			await syncHooks(userId, updated);
 			const changed = updated.filter((routine) => routine.enabled === enabled && before.find((b) => b.id === routine.id)?.enabled !== enabled).length;
 			const first = updated[0];
 			if (first) await showCard(first, enabled ? "Grupo retomado" : "Grupo pausado", { persist: false });

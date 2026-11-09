@@ -73,6 +73,11 @@ export function createPanelUpdateTool(pages: PageStore) {
 			for (let attempt = 0; attempt < 2; attempt += 1) {
 				const current = await pages.read(ctx.ownerId, panel_id);
 				if (!current) throw notFound(panel_id);
+				// Painel com link público é lido por qualquer pessoa: depois de ler conteúdo de fora neste run (e-mail, web, arquivo, outro bot),
+				// o texto injetado poderia ir direto para a página pública. Sinal estrutural do run (`untrustedReadInRun`), sem olhar o texto.
+				if (current.shared && ctx.untrustedReadInRun === true) {
+					throw new Error("This panel has a public link and this run already read content from outside, so it will not be edited now. Hint: tell the owner in the chat what you would change and ask them to confirm, then change it in a new request, or turn the public link off first (panel_unshare).");
+				}
 				let base: PageSpec = current.spec;
 				if (parsedOps?.ok) {
 					const patched = applyPagePatch(base, parsedOps.ops);

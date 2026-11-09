@@ -374,6 +374,8 @@ export type RunEngineV4Input = {
 	onRoutineMutated?: V4RegistryInput["onRoutineMutated"];
 	/** Anexos da conversa (F9): a fonte do processador (lista e cache de extração). Sem ela a capacidade `attachments` não entra. */
 	attachments?: V4AttachmentsSource;
+	/** Rotinas (F9): reconcilia o webhook do GitHub depois de pausar, retomar ou apagar uma rotina de GitHub. */
+	ensureGithubHook?: V4RegistryInput["ensureGithubHook"];
 	/** Prompt estável do preset (sem ele, o kernel monta o completo com o contrato de trabalho). */
 	stableSystem?: string;
 	policy?: PolicyContext;
@@ -483,6 +485,7 @@ export async function runEngineV4(input: RunEngineV4Input): Promise<V4EngineResu
 				...(input.agendaKind && { agendaKind: input.agendaKind }),
 				...(input.briefEmail && { briefEmail: input.briefEmail }),
 				...(input.onRoutineMutated && { onRoutineMutated: input.onRoutineMutated }),
+				...(input.ensureGithubHook && { ensureGithubHook: input.ensureGithubHook }),
 				...(payment?.checkout && { checkout: payment.checkout }),
 				...(input.browser && { browser: true }),
 				...(codeOn && { code: codeMode === "plan" ? { readOnly: true } : {} }),
