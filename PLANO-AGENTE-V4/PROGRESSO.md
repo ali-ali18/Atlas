@@ -151,7 +151,17 @@
 
 ### F9: Ponte → zero
 - [x] F9.1 Inventário das pontes (09/11). **Catraca = 0**: a pasta `packages/agent/src/legacy-bridge/` não existe, e `boundary.test.ts` proíbe `@workspace/agent-runtime` dentro de `packages/agent`, então nenhuma tool do legado passa ao v4 por ponte. O que resta do legado no caminho do v4 são **5 adaptadores do worker** que importam helpers de `@workspace/agent-runtime`: `v4-adapters/calendar.ts` (`googleFetch`, OAuth, `openSecrets`), `email.ts` (`googleJson`, `emailService`, `buildMcpClientConfig`), `mcp.ts` (`loadMcpRuntime`: o cliente MCP inteiro), `code-actions-real.ts` (`getGithubToken`) e `payment.ts` (`openCardSecretsJson`). Fora do v4, o worker ainda importa o legado em 29 arquivos (motores v1/v2, `engine-choice.ts`), que é assunto da F10. **Capacidades que o v2 tem e o v4 não** (não são ponte, são ausência): falar com outros bots, rotinas, imagens, vídeo, GitHub e cofre (testes `computer-use.{bot-messaging,image-generation,github,vault,video-transcript,routine-page}.test.ts`). Decisão do escopo da F9 com o dono.
-- [ ] F9.2 Cada ponte nativa: um item por tool, adicionado quando o inventário existir.
+- [ ] F9.2 Capacidades do legado que faltam no v4 (dimensionamento de 09/11, em frentes de 1 agente; ordem custo × importância):
+  - [ ] Painéis: completar `page_update/read/list/share` (0,5; alta).
+  - [ ] Cofre: `secret_list`, `secret_request`, `login_fill`, marcador `{{secret}}` e adaptador fora do legado (1; alta).
+  - [ ] Rotinas: listar, controlar e agrupar; depois propor/editar, gatilhos e alerta (2; alta).
+  - [ ] Imagem: `generate_image` sobre `packages/llm` e `db` (0,5; média).
+  - [ ] GitHub leitura: `list_repos` e `compare`, movendo `agent-runtime/src/github/` para pacote (1; média).
+  - [ ] Vídeo: transcrição por `kind` novo no `Sandbox` (1; média; depende de yt-dlp na imagem da VM).
+  - [ ] Bots: `send_to_bot`, `decide_bot_pending`, `set_primary_bot` (1; média).
+  - [ ] GitHub escrita com identidade do App e gatilhos (1; pode ficar depois).
+  - Fora do total (~5 a 6 frentes, decidir com o dono): subagentes (`delegate_task`), skills, PR/CI das sessões de código, anexos, `suggest_routine`/`notify_user`.
+- [ ] F9.3 Desacoplar os 5 adaptadores do worker do `@workspace/agent-runtime` (calendar, email, mcp, code-actions-real, payment).
 - [ ] F9.A Auditoria: 5 lentes, verificação, correções com teste, reauditoria e `auditorias/F9.md` fechado.
 
 ### F10: Corte e remoção
