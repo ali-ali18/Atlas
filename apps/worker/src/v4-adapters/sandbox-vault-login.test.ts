@@ -280,3 +280,47 @@ test("sem nome: só enxerga os logins do dono do run (dono B não acha o de A) e
 	const out = await handler({ userId: "a", runId: "r", sessionId: "s", manager }, NO_NAME);
 	assert.equal(out.ok, false);
 });
+
+// ----- F9 parte 2: rotina com permissão de login (`onlySite`): só aquele login, só aquele site -----
+
+test("rotina com permissão: digita quando a página é o site aprovado (mesma normalização do cofre) e devolve só chaves", async () => {
+	const w = world({ urls: ["https://www.banco.example/entrar"] });
+	const out = await w.run({ ...PARAMS, onlySite: "banco.example" });
+	assert.equal(out.ok, true);
+	assert.deepEqual(w.typed.map((t) => t.ref), ["e1", "e2"]);
+	assert.ok(!JSON.stringify(out).includes(PASSWORD));
+});
+
+test("rotina com permissão: página de OUTRO site (ou parecido) não digita nada nem lê o cofre", async () => {
+	for (const url of ["https://outro.example/login", "https://app.banco.example/login", "https://banco.example.evil.test/"]) {
+		const w = world({ urls: [url] });
+		const out = (await w.run({ ...PARAMS, onlySite: "banco.example" })) as { ok: false; error: string };
+		assert.equal(out.ok, false, url);
+		assert.deepEqual(w.used, [], url);
+		assert.deepEqual(w.typed, [], url);
+	}
+});
+
+test("rotina com permissão para um site, mas o login aprovado é de OUTRO site: recusa antes de olhar a página", async () => {
+	const w = world({ login: { ...BANK, siteUrl: "https://app.banco.example/login", domain: "app.banco.example" }, urls: ["https://app.banco.example/login"] });
+	const out = (await w.run({ ...PARAMS, onlySite: "banco.example" })) as { ok: false; error: string };
+	assert.equal(out.ok, false);
+	assert.match(out.error, /belongs to app\.banco\.example, not to banco\.example/);
+	assert.deepEqual(w.typed, []);
+});
+
+test("rotina com permissão: a aba muda de site entre os campos, para na hora e diz o que já foi digitado", async () => {
+	const w = world({ urls: ["https://banco.example/login", "https://banco.example/login", "https://outro.example/"] });
+	const out = (await w.run({ ...PARAMS, onlySite: "banco.example" })) as { ok: false; error: string };
+	assert.equal(out.ok, false);
+	assert.match(out.error, /moved to another site/);
+	assert.deepEqual(w.typed.map((t) => t.ref), ["e1"]);
+});
+
+test("rotina com permissão: B não usa o login de A", async () => {
+	const w = world();
+	const out = (await w.run({ ...PARAMS, onlySite: "banco.example" }, "b")) as { ok: false; error: string };
+	assert.equal(out.ok, false);
+	assert.deepEqual(w.typed, []);
+	assert.deepEqual(w.used, []);
+});

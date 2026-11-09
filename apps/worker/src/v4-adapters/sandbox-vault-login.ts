@@ -57,12 +57,23 @@ export function createLoginFillHandler(source: LoginSource): SandboxKindHandler 
 		const site = login.domain ?? hostOf(login.siteUrl) ?? login.siteUrl;
 		const siteUrl = login.siteUrl;
 
+		// Rotina com permissão (F9 parte 2): o login só entra no site que o dono aprovou. A permissão é do SITE (normalizado), então o site
+		// salvo do login e a página têm de ser exatamente esse; conferido de novo antes de CADA campo, como a checagem do site do login.
+		const permitted = params.onlySite;
+		const outsidePermission = (url: string): boolean => permitted !== undefined && siteKey(url) !== permitted;
+		if (permitted !== undefined && siteKey(siteUrl) !== permitted) {
+			return { ok: false, error: `Refused: the login "${login.name}" belongs to ${site}, not to ${permitted}, the only site this routine may sign in to. Nothing was typed.` };
+		}
+
 		const currentUrl = async (): Promise<string> => (await ctx.manager.execBrowserText(ctx.sessionId, { mode: "viewport", limit: 1 })).url;
 		let pageUrl: string;
 		try {
 			pageUrl = await currentUrl();
 		} catch {
 			return { ok: false, error: "The browser page could not be read, so nothing was typed." };
+		}
+		if (outsidePermission(pageUrl)) {
+			return { ok: false, error: `Refused: the current page (${hostOf(pageUrl) ?? "unknown"}) is not ${permitted}, the only site this routine may sign in to. Nothing was typed. Do not try another site; say in your result that the sign-in did not happen.` };
 		}
 		if (!domainMatches(pageUrl, siteUrl)) {
 			return { ok: false, error: `Refused: the current page (${hostOf(pageUrl) ?? "unknown"}) is not the saved site of this login (${site}) or is not https. Nothing was typed. Open the sign-in page of ${site} and try again.` };
@@ -92,6 +103,7 @@ export function createLoginFillHandler(source: LoginSource): SandboxKindHandler 
 			try {
 				// A aba pode ter mudado de site entre os campos: reconfere antes de CADA digitação.
 				const current = await currentUrl();
+				if (outsidePermission(current)) return { ok: false, error: `The page moved to another site (${hostOf(current) ?? "unknown"}) before the field "${mapping.key}" was typed; it is not ${permitted}, the only site this routine may sign in to. Stopped.${progress()}` };
 				if (!domainMatches(current, siteUrl)) return { ok: false, error: `The page moved to another site (${hostOf(current) ?? "unknown"}) before the field "${mapping.key}" was typed; stopped.${progress()}` };
 				// A senha do login antigo só entra em input de senha; os demais campos, em qualquer entrada de texto visível (a VM confere).
 				const kind = saved.secret && mapping.key === LEGACY_PASSWORD_KEY ? "password" : "field";

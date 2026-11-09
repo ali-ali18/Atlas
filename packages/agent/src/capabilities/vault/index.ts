@@ -8,11 +8,13 @@ import type { SecretRequests, Vault } from "../../ports/vault.js";
 import type { Tool } from "../../tools/define-tool.js";
 import { defineCapability } from "../define-capability.js";
 import { createLoginFillTool } from "./login-fill.js";
+import { createRoutineLoginFillTool, type RoutineLoginGrant } from "./routine-login-fill.js";
 import { createSecretListTool } from "./secret-list.js";
 import { createSecretRequestTool } from "./secret-request.js";
 
 export * from "./kinds.js";
 export * from "./login-fill.js";
+export * from "./routine-login-fill.js";
 export * from "./secret-list.js";
 export * from "./secret-request.js";
 
@@ -23,6 +25,11 @@ export type VaultDeps = {
 	requests?: SecretRequests;
 	/** Sem dono presente: só `secret_list`. Nada de pedir segredo nem digitar login. */
 	readOnly?: boolean;
+	/**
+	 * Run de ROTINA com a permissão de login que o dono aprovou ao criar a rotina (F9 parte 2): entra um `login_fill` só para esse login e
+	 * esse site. Só vale com `readOnly` (sem dono); sem isso a rotina não digita login nenhum.
+	 */
+	routineLogin?: RoutineLoginGrant;
 	extraTools?: readonly Tool[];
 };
 
@@ -34,17 +41,23 @@ export const VAULT_INSTRUCTIONS =
 	"Say \"vault\", \"login\" and \"key\" to the owner, never tool names.";
 
 export const VAULT_READ_INSTRUCTIONS =
-	"Vault rules: you only ever see names, never values. A plain secret goes into a connector call as {{secret:<name>}}. This run has no owner present, so you cannot ask for new secrets or sign in to sites here.";
+	"Vault rules: you only ever see names, never values. A plain secret goes into a connector call as {{secret:<name>}}. This run has no owner present, so you cannot ask for new secrets or sign in to sites here. " +
+	"If the task needs a sign-in, say plainly in your result that this routine has no permission to sign in, so it did not.";
+
+export const vaultRoutineInstructions = (grant: RoutineLoginGrant): string =>
+	"Vault rules: you only ever see names, never values. A plain secret goes into a connector call as {{secret:<name>}}. This run has no owner present, so you cannot ask for new secrets. " +
+	`The owner approved this routine to sign in to ${grant.site} with the login "${grant.login}": login_fill types it there and nowhere else (open the sign-in page and map it first). ` +
+	"Any other site or login is not allowed: do not sign in, and say plainly in your result that the sign-in did not happen.";
 
 export function createVaultCapability(deps: VaultDeps) {
 	const tools = deps.readOnly
-		? [createSecretListTool()]
+		? [createSecretListTool(), ...(deps.routineLogin ? [createRoutineLoginFillTool(deps.routineLogin)] : [])]
 		: [createSecretListTool(), ...(deps.requests ? [createSecretRequestTool(deps.requests)] : []), createLoginFillTool({ vault: deps.vault }), ...(deps.extraTools ?? [])];
 	return defineCapability({
 		id: "vault",
 		title: "Cofre",
 		summary: "The owner's vault: list secret names, ask the owner to save a missing key, sign in to a saved site login. You never see values.",
 		tools,
-		instructions: deps.readOnly ? VAULT_READ_INSTRUCTIONS : VAULT_INSTRUCTIONS,
+		instructions: deps.readOnly ? (deps.routineLogin ? vaultRoutineInstructions(deps.routineLogin) : VAULT_READ_INSTRUCTIONS) : VAULT_INSTRUCTIONS,
 	});
 }

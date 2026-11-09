@@ -30,6 +30,11 @@ export const loginFillParamsSchema = z.strictObject({
 	/** Mapeamento decidido pelo modelo: qual campo salvo vai em qual campo da página, na ordem de digitação. */
 	fields: z.array(loginFillMappingSchema).min(1).max(LOGIN_FILL_MAX_FIELDS),
 	submit: z.boolean(),
+	/**
+	 * Só no run de ROTINA com permissão (F9 parte 2): o site (normalizado, `siteKey`) que o dono aprovou. O tratador só digita se a
+	 * página atual for ESSE site, além de todas as checagens de sempre. Quem põe isto é a tool, nunca o modelo (o schema do modelo não tem o campo).
+	 */
+	onlySite: z.string().min(1).max(253).optional(),
 });
 export type LoginFillParams = z.infer<typeof loginFillParamsSchema>;
 
