@@ -189,6 +189,9 @@ describe("code_shell e code_test: portão de comando", () => {
 		expect(!whole.ok && whole.error).toContain("Não rodei");
 		const asked = await s.tool("code_test").run({ sessionId, cmd: "pnpm -r test", fullSuite: true }, s.ctx());
 		expect(asked.ok).toBe(true);
+		// O pedido do dono segue até o adaptador (que confere a raiz do workspace na VM); sem o pedido, a chave nem viaja.
+		const sent = s.sandbox.calls.filter((call) => call.kind === "code.test").map((call) => (call.params as { fullSuite?: boolean }).fullSuite);
+		expect(sent).toEqual([undefined, true]);
 	});
 
 	it("teste que falha é resultado honesto (FAILED), não erro da tool", async () => {

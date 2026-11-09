@@ -16,7 +16,7 @@
 import { CODE_KIND_LIST, CODE_KINDS, type CodeKind, classifyShell, codeParams, codeResults, isCodeKind, type SandboxAction, type SandboxResult } from "@workspace/agent";
 import type { DevClient, DevExecSnapshot } from "@workspace/sandbox";
 import { DevSandboxError } from "@workspace/sandbox";
-import { redactSecrets } from "@workspace/shared";
+import { fullSuiteAdvice, isFullSuiteTestCommand, redactSecrets } from "@workspace/shared";
 import type { z } from "zod";
 
 export type CodeActionHandler = {
@@ -121,6 +121,20 @@ export function createCodeActionHandler(deps: CodeActionDeps): CodeActionHandler
 		return { output: `${output.slice(0, INLINE_OUTPUT_CHARS)}\n[… ${output.length - INLINE_OUTPUT_CHARS} more characters in ${spillPath}]`, spillPath };
 	}
 
+	/** A pasta do comando é a raiz de um workspace pnpm? (`pnpm test` ali roda todos os pacotes.) Só o adaptador enxerga a VM. */
+	async function isWorkspaceRoot(client: DevClient, session: CodeSession, cwd: string | undefined): Promise<boolean> {
+		const repo = session.repo ? `/workspace/${session.repo.split("/").pop()}` : "/workspace";
+		for (const dir of cwd ? [cwd] : [repo, "/workspace"]) {
+			try {
+				const file = await client.readFile({ path: `${dir.endsWith("/") ? dir.slice(0, -1) : dir}/pnpm-workspace.yaml`, offset: 0, limit: 40 });
+				if (file.kind === "text" && file.content.includes("packages")) return true;
+			} catch {
+				// sem o arquivo nessa pasta
+			}
+		}
+		return false;
+	}
+
 	async function handle(userId: string, kind: CodeKind, raw: unknown, known: { secrets: readonly string[] }, signal?: AbortSignal): Promise<{ data: unknown; secrets: readonly string[] }> {
 		if (kind === CODE_KINDS.session) {
 			const p = parse(codeParams.session, raw);
@@ -171,6 +185,11 @@ export function createCodeActionHandler(deps: CodeActionDeps): CodeActionHandler
 				const q = p as z.output<typeof codeParams.shell>;
 				const cls = classifyShell(q.cmd);
 				if (cls.kind === "deny") throw new Refused(`Refused: ${cls.reason}.`);
+				// `pnpm test` na raiz de monorepo roda todos os pacotes: a capacidade não vê a VM, então a conferência é daqui.
+				if (!(p as { fullSuite?: boolean }).fullSuite) {
+					const whole = isFullSuiteTestCommand(q.cmd, { rootIsWorkspace: await isWorkspaceRoot(client, session, q.cwd) });
+					if (whole) throw new Refused(fullSuiteAdvice(whole));
+				}
 				const { snapshot, output, timedOut } = await runJob(client, session, q, signal);
 				const spilled = await inlineOrSpill(client, output, snapshot.id);
 				return { data: { exitCode: snapshot.exitCode, output: spilled.output, ...(timedOut && { timedOut: true }), durationMs: snapshot.durationMs, ...(spilled.spillPath && { spillPath: spilled.spillPath }), cwd: snapshot.cwd }, secrets };

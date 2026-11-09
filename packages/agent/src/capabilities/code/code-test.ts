@@ -32,7 +32,7 @@ export function createCodeTestTool() {
 			const whole = fullSuiteOf(args.cmd);
 			if (whole && fullSuite !== true) throw new Error(fullSuiteAdvice(whole));
 			if (!whole && !isTestCommand(args.cmd)) throw new Error("This is not a test command. Use code_test for test runs only (pnpm test, vitest, jest, pytest, go test, cargo test…); use code_shell for other commands.");
-			const run = await callCode(ctx, "test", args, codeResults.shell);
+			const run = await callCode(ctx, "test", { ...args, ...(fullSuite === true && { fullSuite: true }) }, codeResults.shell);
 			const verdict = run.timedOut ? "TIMED OUT" : run.exitCode === 0 ? "PASSED" : "FAILED";
 			return { ok: true, summary: `Tests ${verdict}.\n${describeRun("Test command", run)}`, receipt: { what: `Ran tests (${verdict.toLowerCase()})`, where: "coding workspace" } };
 		},

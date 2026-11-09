@@ -46,7 +46,8 @@ export const codeParams = {
 	edit: z.object({ sessionId, path: z.string().min(1).max(500), old: z.string().min(1).max(200_000), new: z.string().max(200_000), replaceAll: z.boolean().optional() }),
 	write: z.object({ sessionId, path: z.string().min(1).max(500), content: z.string().max(2_000_000) }),
 	shell: runParams,
-	test: runParams,
+	/** `fullSuite` = o modelo declarou que o dono pediu a suíte inteira; o adaptador confere a raiz do workspace (`pnpm test` na raiz de monorepo). */
+	test: runParams.extend({ fullSuite: z.boolean().optional() }),
 	gitStatus: z.object({ sessionId }),
 	diff: z.object({ sessionId, path: z.string().max(500).optional(), staged: z.boolean().optional() }),
 } as const;

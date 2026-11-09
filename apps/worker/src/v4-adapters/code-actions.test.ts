@@ -11,7 +11,7 @@ import { type CodeSession, createCodeActionHandler, parseStatus } from "./code-a
 
 const TOKEN = "ghp_" + "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8";
 
-function rig(over: { stdout?: string; exitCode?: number; patchError?: string } = {}) {
+function rig(over: { stdout?: string; exitCode?: number; patchError?: string; monorepo?: boolean } = {}) {
 	const sessions = new Map<string, CodeSession>();
 	const execs: string[] = [];
 	const files = new Map<string, string>();
@@ -27,7 +27,7 @@ function rig(over: { stdout?: string; exitCode?: number; patchError?: string } =
 		execPoll: async () => last!,
 		execKill: async () => ({ ok: true }),
 		list: async () => ({ path: "/workspace", entries: [{ path: "a.js", type: "file", size: 3 }], total: 1, truncated: false }),
-		readFile: async (input: { path: string }) => ({ path: input.path, kind: "text", size: 3, content: "abc", totalLines: 1, startLine: 1, endLine: 1, nextOffset: null, truncated: false }),
+		readFile: async (input: { path: string }) => ({ path: input.path, kind: "text", size: 3, content: over.monorepo && input.path.endsWith("pnpm-workspace.yaml") ? "packages:\n  - 'packages/*'\n" : "abc", totalLines: 1, startLine: 1, endLine: 1, nextOffset: null, truncated: false }),
 		patchFile: async (input: { path: string }) => {
 			if (over.patchError) throw new DevSandboxError(over.patchError, 409);
 			return { path: input.path, diff: "-a\n+b", added: 1, removed: 1 };
@@ -154,4 +154,18 @@ test("git status: converte a saída porcelain", () => {
 	assert.deepEqual(parseStatus("## main...origin/main\n M src/a.js\n?? novo.txt\n"), { branch: "main", files: [{ status: "M", path: "src/a.js" }, { status: "??", path: "novo.txt" }], clean: false });
 	assert.deepEqual(parseStatus("## main\n"), { branch: "main", files: [], clean: true });
 	assert.equal(parseStatus("## HEAD (no branch)\n").branch, null);
+});
+
+test("pnpm test na raiz de monorepo é a suíte inteira: o adaptador (que vê a VM) devolve o conselho, a menos que o dono tenha pedido", async () => {
+	const mono = rig({ monorepo: true });
+	const sessionId = await open(mono);
+	const advised = await mono.run("A", CODE_KINDS.test, { sessionId, cmd: "pnpm test" });
+	assert.equal(advised.ok, false);
+	assert.equal(mono.execs.length, 0);
+	const asked = await mono.run("A", CODE_KINDS.test, { sessionId, cmd: "pnpm test", fullSuite: true });
+	assert.equal(asked.ok, true);
+	// Repositório que não é monorepo: `pnpm test` roda normal.
+	const single = rig();
+	const id = await open(single);
+	assert.equal((await single.run("A", CODE_KINDS.test, { sessionId: id, cmd: "pnpm test" })).ok, true);
 });
