@@ -37,6 +37,7 @@ import { DEFAULT_PROACTIVE_SETTINGS, planAgendaItem, parseModelRef, type Compute
 import { EVAL_USER_ID } from "./environment.js";
 import type { StreamChat } from "./mock-model.js";
 import type { Scenario } from "./scenario.js";
+import { createFixtureCodeSandbox } from "./v4-code-sandbox.js";
 import { createFixtureBriefEmail, createFixtureCalendar, createFixtureEmail, createFixtureShopping, fixtureSearchFor } from "./v4-ports.js";
 
 /**
@@ -112,7 +113,8 @@ export async function runScenarioV4(params: RunV4Params): Promise<{ text: string
 	const timezone = scenario.locale?.timezone ?? DEFAULT_PROACTIVE_SETTINGS.timezone;
 	const calendar = createFixtureCalendar(scenario.tools.fixtures, timezone);
 	const agenda = new FakeAgenda({ ...DEFAULT_PROACTIVE_SETTINGS, enabled: true, timezone });
-	const setup = setupPreset("full", { search, files: new FakeFileStore(), deliverables: new FakeDeliverables().ports(), memory: new FakeMemory(), settings: new FakeSettings(), taskLists: new FakeTaskListStore(), helpers, shopping: shopping.ports, email: email.ports, calendar: calendar.ports, agenda });
+	const codeSandbox = scenario.run.codeFixture ? await createFixtureCodeSandbox(scenario.run.codeFixture) : undefined;
+	const setup = setupPreset("full", { ...(codeSandbox && { code: {} }), search, files: new FakeFileStore(), deliverables: new FakeDeliverables().ports(), memory: new FakeMemory(), settings: new FakeSettings(), taskLists: new FakeTaskListStore(), helpers, shopping: shopping.ports, email: email.ports, calendar: calendar.ports, agenda });
 	// Plano do dia: o mesmo registro do worker para o run do brief (agenda_result + brief_sources + day_plan), com o item de brief
 	// ligado ao run como a varredura faz, e o wake que o modelo lê. As fontes vêm dos fixtures (agenda do Google e e-mail).
 	let registry = setup.registry;
@@ -144,7 +146,7 @@ export async function runScenarioV4(params: RunV4Params): Promise<{ text: string
 			llm,
 			store: createStoreAdapter(createMemoryStoreBackend()),
 			queue: createQueueAdapter({ add: async () => { throw new Error("Sem fila no eval do motor v4."); }, getJob: async () => null }),
-			sandbox: noSandbox,
+			sandbox: codeSandbox ?? noSandbox,
 			vault: createVaultAdapter({ listHandles: async () => [], resolveSecret: async () => null }),
 			clock: evalClock,
 			random: createSystemRandom(),
