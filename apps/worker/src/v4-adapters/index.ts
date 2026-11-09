@@ -21,6 +21,7 @@ import {
 	type PolicyContext,
 	type BriefEmailSource,
 	type CheckoutDeps,
+	type CodeDeps,
 	type PresetDeps,
 	type Search,
 } from "@workspace/agent";
@@ -90,6 +91,12 @@ export type V4RegistryInput = {
 	briefEmail?: BriefEmailSource;
 	/** Pagamento (F6.3): cartões do dono (bandeira e final) e o `card_fill`. Sem cartão salvo, a tool `checkout` não entra na capacidade `shopping`. */
 	checkout?: CheckoutDeps;
+	/** A VM do navegador existe neste run (adaptador `Sandbox` real, F8.1). Sem ela `browser` fica em `unavailable`, dito com honestidade. */
+	browser?: boolean;
+	/** Código (F8.2), opt-in do bot: o modo de código está ligado E o ambiente de código existe. `readOnly` = modo plano. */
+	code?: CodeDeps;
+	/** O bot ligou o modo de código (`policyJson.codeMode`). Se ligou e `code` não veio, o ambiente de código está desligado: entra em `unavailable`. */
+	codeRequested?: boolean;
 };
 
 export type V4RegistrySetup = {
@@ -136,6 +143,8 @@ export async function buildV4Registry(input: V4RegistryInput): Promise<V4Registr
 		...(agenda && { agenda }),
 		calendar: calendarPorts,
 		...(input.checkout && { checkout: input.checkout }),
+		...(input.browser && { browser: true }),
+		...(input.code && { code: input.code }),
 		...(country && { shoppingCountry: country }),
 	};
 	const preset = setupPreset("full", presetDeps);
@@ -168,9 +177,8 @@ export async function buildV4Registry(input: V4RegistryInput): Promise<V4Registr
 				? [...capabilities.filter((capability) => capability.id !== "agenda" && capability.id !== "shopping" && capability.id !== "calendar" && capability.id !== "email" && capability.id !== "browser"), createAgendaRunCapability(agenda), createShoppingCapability({ ...shoppingPorts, search, readOnly: true, ...(country && { country }) }), createEmailCapability({ ...emailPorts, readOnly: true }), createCalendarCapability({ calendar: calendarPorts.calendar, readOnly: true }), createBrowserCapability({ readOnly: true })]
 				: capabilities;
 	const registry = !asAgendaRun && !connectors.capability ? base.registry : createCapabilityRegistry(forRun);
-	// `browser` (F8.1) depende da VM real, que é o adaptador `Sandbox` da frente A (ela passa `browser: true` ao preset). Até lá a
-	// capacidade só não é oferecida: não é porta que falhou, então não entra em `unavailable` nem no log.
-	const unavailable = base.unavailable.filter((id) => id !== "browser");
+	// `browser` fica em `unavailable` sem a VM (SANDBOX_ENABLED desligado); `code` é opt-in e só aparece aqui se o bot ligou e o ambiente não existe.
+	const unavailable: CapabilityId[] = [...base.unavailable, ...(input.codeRequested && !input.code ? (['code'] as const) : [])];
 	if (unavailable.length > 0) log(`[engine-v4] run=${input.runId} capacidades sem porta: ${unavailable.join(", ")}`);
 	return {
 		registry,

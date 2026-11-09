@@ -37,14 +37,14 @@ export function fakeAdapterDeps(options: { connections?: Connected; listFails?: 
 
 const notes = {} as NoteStore;
 // O engine sempre passa a fábrica de ajudantes (a pesquisa depende dela); sem ela, `research` fica indisponível.
-const base = { runId: "run-1", userId: "user-a", conversationId: "conv-1", unattended: false, notes, emit: () => undefined, makeHelpers: () => ({ runAll: async () => [] }) };
+const base = { runId: "run-1", userId: "user-a", conversationId: "conv-1", unattended: false, browser: true, notes, emit: () => undefined, makeHelpers: () => ({ runAll: async () => [] }) };
 
 test("com bot e portas reais montadas, o preset full não tem capacidade indisponível", async () => {
 	const logs: string[] = [];
 	const setup = await buildV4Registry({ ...base, botId: "bot-1", deps: fakeAdapterDeps(), log: (m) => void logs.push(m) });
 	assert.deepEqual(setup.unavailable, []);
 	assert.deepEqual(logs, []);
-	assert.deepEqual(setup.registry.ids(), ["agenda", "calendar", "connectors", "deliverables", "email", "memory", "research", "settings", "shopping", "tasks", "web"]);
+	assert.deepEqual(setup.registry.ids(), ["agenda", "browser", "calendar", "connectors", "deliverables", "email", "memory", "research", "settings", "shopping", "tasks", "web"]);
 	assert.match(setup.stableSystem, /Work contract/);
 	assert.match(setup.stableSystem, /connectors/);
 	// confirmWrites do conector vira `confirm: "always"` na tool genérica de escrita
@@ -183,4 +183,33 @@ test("com email e calendar nativos no run, os conectores embutidos Gmail e Googl
 	assert.equal(setup.registry.toolByName("mcp_gmail_read"), undefined);
 	assert.equal(setup.registry.toolByName("mcp_google_calendar_write"), undefined);
 	assert.ok(setup.registry.toolByName("mcp_google_drive_read"));
+});
+
+test("navegador (F8.1): com a VM entra lazy; sem VM aparece em 'unavailable' e no log, sem sumir em silêncio", async () => {
+	const withVm = await buildV4Registry({ ...base, botId: "bot-1", deps: fakeAdapterDeps() });
+	assert.ok(withVm.registry.ids().includes("browser"));
+	assert.ok(!withVm.registry.core().some((c) => c.id === "browser"));
+	assert.match(withVm.stableSystem, /- browser:/);
+	const logs: string[] = [];
+	const { browser: _vm, ...noVm } = base;
+	const without = await buildV4Registry({ ...noVm, botId: "bot-1", deps: fakeAdapterDeps(), log: (m) => void logs.push(m) });
+	assert.deepEqual(without.unavailable, ["browser"]);
+	assert.ok(!without.registry.ids().includes("browser"));
+	assert.match(logs.join("\n"), /capacidades sem porta: browser/);
+});
+
+test("código (F8.2) é opt-in: sem a chave não entra nem vira 'unavailable'; plano só lê; ligado sem ambiente fica indisponível e dito", async () => {
+	const off = await buildV4Registry({ ...base, botId: "bot-1", deps: fakeAdapterDeps() });
+	assert.ok(!off.registry.ids().includes("code"));
+	assert.ok(!off.unavailable.includes("code"));
+	const build = await buildV4Registry({ ...base, botId: "bot-1", deps: fakeAdapterDeps(), code: {}, codeRequested: true });
+	assert.ok(build.registry.ids().includes("code"));
+	assert.ok(build.registry.toolByName("code_edit"));
+	const plan = await buildV4Registry({ ...base, botId: "bot-1", deps: fakeAdapterDeps(), code: { readOnly: true }, codeRequested: true });
+	assert.ok(plan.registry.ids().includes("code"));
+	assert.equal(plan.registry.toolByName("code_edit"), undefined);
+	const logs: string[] = [];
+	const noEnv = await buildV4Registry({ ...base, botId: "bot-1", deps: fakeAdapterDeps(), codeRequested: true, log: (m) => void logs.push(m) });
+	assert.deepEqual(noEnv.unavailable, ["code"]);
+	assert.match(logs.join("\n"), /capacidades sem porta: code/);
 });
