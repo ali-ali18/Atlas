@@ -5,3 +5,4 @@ export * from "./web.js";
 export * from "./fake-email.js";
 export * from "./policy-presets.js";
 export * from "./fake-code.js";
+export { checkPublicHttpUrl, type UrlCheck } from "./web-url.js";

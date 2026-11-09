@@ -61,6 +61,15 @@ export function findCourse(id) {
 }
 
 /** Gabarito servido em `/__truth`. */
+/** F8.1b: vídeo com 1.000 comentários; o código do patrocinador está no nº 870 (a lista carrega 40 de cada vez e 50 por "ver mais"). */
+export const COMMENTS = { total: 1000, initial: 40, batch: 50, answerAt: 870, code: "ATLAS-4242", path: "/video" };
+
+export function commentText(n) {
+	return n === COMMENTS.answerAt
+		? `@viewer${n}: Sponsor update: the discount code is ${COMMENTS.code} and it expires on 30 November.`
+		: `@viewer${n}: Nice video, comment number ${n} about the editing and the music, nothing about prices.`;
+}
+
 export function buildTruth() {
 	return {
 		favorites: COURSES.filter((c) => c.favorite).map((c) => c.name),
@@ -74,5 +83,6 @@ export function buildTruth() {
 		loginSecret: LOGIN_SECRET,
 		stats: STATS,
 		courses: COURSES,
+		comments: COMMENTS,
 	};
 }

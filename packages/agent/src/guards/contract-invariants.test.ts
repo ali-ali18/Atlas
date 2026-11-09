@@ -37,7 +37,7 @@ const hash = sha256;
 
 /** Todas as portas do preset `full`: assim nenhuma capacidade fica de fora do registro de teste. */
 function fullDeps() {
-	return { search: new FakeSearch(), files: new FakeFileStore(), memory: new FakeMemory(), notebook: new FakeNotebook(), settings: new FakeSettings(), taskLists: new FakeTaskListStore(), helpers: new FakeHelpers(), agenda: new FakeAgenda(), shopping: new FakeShopping().ports, email: new FakeEmail().ports, calendar: new FakeCalendar().ports, checkout: { cards: [paymentRig().info], fill: paymentRig().fill }, code: {} };
+	return { search: new FakeSearch(), files: new FakeFileStore(), memory: new FakeMemory(), notebook: new FakeNotebook(), settings: new FakeSettings(), taskLists: new FakeTaskListStore(), helpers: new FakeHelpers(), agenda: new FakeAgenda(), shopping: new FakeShopping().ports, email: new FakeEmail().ports, calendar: new FakeCalendar().ports, checkout: { cards: [paymentRig().info], fill: paymentRig().fill }, code: {}, browser: true };
 }
 
 /** Todas as tools que existem hoje em `packages/agent` (núcleo do kernel + as de capacidade). */
@@ -99,7 +99,7 @@ describe("A. toda tool registrada declara efeito", () => {
 	const tools = allRegisteredTools();
 
 	it("o registro de teste cobre o kernel de verdade", () => {
-		expect(tools.map((t) => t.name).sort()).toEqual([ASK_OWNER_TOOL, NOTE_READ_TOOL, USE_CAPABILITY_TOOL, "create_file", "create_file", "create_page", "chart", "inspect_file", "web_extract", "web_search", "memory_list", "memory_add", "memory_update", "memory_remove", "update_task_list", "settings_get", "settings_update", "set_role_model", "update_bot_profile", "research", "remind_me", "watch", "on_event", "brief_set", "agenda_list", "agenda_change", "agenda_result", "note_search", "note_get", "note_add", "note_update", "note_pin", "note_remove", "product_search", "record_purchase", "purchase_list", "purchase_update", "purchase_delete", "checkout", "email_list", "email_read", "email_triage", "email_draft", "email_send", "calendar_list", "calendar_get", "calendar_create", "calendar_update", "calendar_delete", "brief_sources", "day_plan", "code_session", "code_list", "code_read", "code_shell", "code_git_status", "code_diff", "code_edit", "code_write", "code_test"].sort());
+		expect(tools.map((t) => t.name).sort()).toEqual([ASK_OWNER_TOOL, NOTE_READ_TOOL, USE_CAPABILITY_TOOL, "create_file", "create_file", "create_page", "chart", "inspect_file", "web_extract", "web_search", "memory_list", "memory_add", "memory_update", "memory_remove", "update_task_list", "settings_get", "settings_update", "set_role_model", "update_bot_profile", "research", "remind_me", "watch", "on_event", "brief_set", "agenda_list", "agenda_change", "agenda_result", "note_search", "note_get", "note_add", "note_update", "note_pin", "note_remove", "product_search", "record_purchase", "purchase_list", "purchase_update", "purchase_delete", "checkout", "email_list", "email_read", "email_triage", "email_draft", "email_send", "calendar_list", "calendar_get", "calendar_create", "calendar_update", "calendar_delete", "brief_sources", "day_plan", "code_session", "code_list", "code_read", "code_shell", "code_git_status", "code_diff", "code_edit", "code_write", "code_test", "browser_open", "browser_map", "browser_read", "browser_find", "browser_load_more", "browser_wait", "browser_tabs", "browser_screenshot", "browser_export", "browser_act", "browser_digest"].sort());
 	});
 
 	it("o vocabulário de efeitos do motor é o mesmo de shared", () => {

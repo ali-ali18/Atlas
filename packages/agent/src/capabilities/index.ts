@@ -1,5 +1,6 @@
 export * from "./agenda/index.js";
 export * from "./brief/index.js";
+export * from "./browser/index.js";
 export * from "./calendar/index.js";
 export * from "./code/index.js";
 export * from "./define-capability.js";

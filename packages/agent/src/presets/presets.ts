@@ -11,6 +11,7 @@ import { createCalendarCapability } from "../capabilities/calendar/index.js";
 import type { CalendarPorts } from "../ports/calendar.js";
 import { createMemoryCapability } from "../capabilities/memory/index.js";
 import { createEmailCapability } from "../capabilities/email/index.js";
+import { createBrowserCapability } from "../capabilities/browser/index.js";
 import { createShoppingCapability } from "../capabilities/shopping/index.js";
 import type { EmailPorts } from "../ports/email.js";
 import type { ShoppingPorts } from "../ports/shopping.js";
@@ -32,7 +33,7 @@ import { createWebCapability } from "./web.js";
 export const PRESET_IDS = ["minimal", "full"] as const;
 export type PresetId = (typeof PRESET_IDS)[number];
 
-export type CapabilityId = "web" | "deliverables-lite" | "memory" | "tasks" | "settings" | "research" | "agenda" | "shopping" | "email" | "calendar" | "code";
+export type CapabilityId = "web" | "deliverables-lite" | "memory" | "tasks" | "settings" | "research" | "agenda" | "shopping" | "email" | "calendar" | "code" | "browser";
 
 export type AgentPreset = {
 	id: PresetId;
@@ -44,7 +45,7 @@ export type AgentPreset = {
 
 export const PRESETS: Readonly<Record<PresetId, AgentPreset>> = Object.freeze({
 	minimal: Object.freeze({ id: "minimal", capabilities: Object.freeze(["web", "deliverables-lite"] as const), workContract: false }),
-	full: Object.freeze({ id: "full", capabilities: Object.freeze(["web", "deliverables-lite", "memory", "tasks", "settings", "research", "agenda", "shopping", "email", "calendar"] as const), workContract: true }),
+	full: Object.freeze({ id: "full", capabilities: Object.freeze(["web", "deliverables-lite", "memory", "tasks", "settings", "research", "agenda", "shopping", "email", "calendar", "browser"] as const), workContract: true }),
 });
 
 /**
@@ -77,6 +78,8 @@ export type PresetDeps = {
 	calendar?: CalendarPorts;
 	/** Código (F8.2): sessão de código na VM, pela porta `Sandbox` do run. Lazy; sem esta chave a capacidade não entra (o worker liga quando o adaptador `code.*` existe). `readOnly` = modo plano. */
 	code?: CodeDeps;
+	/** Navegador (F8.1): a VM do dono existe neste run (adaptador `Sandbox` real). Sem isso a capacidade não entra. */
+	browser?: boolean;
 };
 
 export function isPresetId(value: unknown): value is PresetId {
@@ -103,6 +106,8 @@ const FACTORIES: Readonly<Record<CapabilityId, CapabilityFactory>> = {
 	email: (deps) => deps.email && createEmailCapability(deps.email),
 	// F8.2: lazy; "Bom dia" não carrega o schema. As tools falam com a porta `Sandbox` (kinds `code.*`).
 	code: (deps) => deps.code && createCodeCapability(deps.code),
+	// F8.1: navegador da VM; lazy. Fala com a porta `Sandbox` do run (sem VM, as tools falham com o motivo real). `helpers` liga o `browser_digest`.
+	browser: (deps) => deps.browser === true ? createBrowserCapability({ ...(deps.helpers && { helpers: deps.helpers }) }) : undefined,
 };
 
 /**
