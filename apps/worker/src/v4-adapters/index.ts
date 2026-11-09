@@ -31,7 +31,7 @@ import { createV4Bots, isBotDecideEnabled, realV4BotsDeps, type V4BotsDeps } fro
 import { createV4Agenda, realV4AgendaDeps, type V4AgendaDeps } from "./agenda.js";
 import { createV4Attachments, type V4AttachmentsSource } from "./attachments.js";
 import { createV4Email, realV4EmailDeps, type V4EmailDeps } from "./email.js";
-import { createV4Github, realV4GithubDeps, type V4GithubDeps } from "./github.js";
+import { createV4Github, createV4GithubWriter, realV4GithubDeps, type V4GithubDeps } from "./github.js";
 import { createV4Images, realV4ImagesDeps, type V4ImagesConfig, type V4ImagesDeps } from "./images.js";
 import { createV4Brief, realV4BriefDeps, type V4BriefDeps } from "./brief.js";
 import { createV4Calendar, realV4CalendarDeps, type V4CalendarDeps } from "./calendar.js";
@@ -164,6 +164,8 @@ export async function buildV4Registry(input: V4RegistryInput): Promise<V4Registr
 	// Sem dono presente (rotina, agenda, subagente) só lê e usa: ninguém para ver o aviso "Aprendi" nem desfazer.
 	const skillsPort = createV4Skills({ scope: { botId: botId ?? null, conversationId: input.conversationId ?? null, emit: input.emit, log }, deps: deps.skills });
 	const skillNames = await loadV4SkillNames({ userId: input.userId, botId: botId ?? null, deps: deps.skills, log });
+	// "Confirmar escritas" do conector GitHub do dono vale também para a escrita nativa. Falha ao ler = o conservador (confirmar).
+	const githubConfirmWrites = input.unattended ? false : await Promise.resolve().then(() => deps.github.confirmWrites(input.userId)).catch(() => true);
 	const presetDeps: PresetDeps = {
 		search,
 		...(input.makeHelpers && { helpers: input.makeHelpers({ search }) }),
@@ -186,8 +188,9 @@ export async function buildV4Registry(input: V4RegistryInput): Promise<V4Registr
 		// Vídeo (F9): a transcrição roda na mesma VM do navegador; sem ela a capacidade fica em `unavailable`.
 		...(input.browser && { video: true }),
 		vault: { vault: createVaultAdapter(vaultPorts.backend), ...(vaultPorts.requests && { requests: vaultPorts.requests }), ...(input.unattended && { readOnly: true }) },
-		// GitHub (F9, leitura): o token é o do dono do run, resolvido na chamada (nada é lido ao montar). O conector GitHub continua no run: é por ele que se escreve.
-		github: { github: createV4Github(deps.github) },
+		// GitHub (F9): o token é o do dono do run, resolvido na chamada (nada é lido ao montar). Escrita (issue, comentário, PR) pelo app do dono;
+		// sem dono presente só lê. O conector GitHub continua no run: branch, arquivo e review só existem por ele.
+		github: { github: createV4Github(deps.github), githubWrite: createV4GithubWriter({ botName: input.botName ?? null, deps: deps.github }), ...(input.unattended && { readOnly: true }), ...(githubConfirmWrites && { confirmWrites: true }) },
 		...(bots && { bots: { bots } }),
 		...(routinesPort && { routines: { routines: routinesPort, ...(input.unattended && { readOnly: true }) } }),
 		...(attachmentsPort && { attachments: { files: attachmentsPort } }),

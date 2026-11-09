@@ -111,6 +111,11 @@ export function toolKind(tool: string): ToolKind {
 		case "create_event":
 		case "create_draft":
 		case "create_issue":
+		case "github_issue_create":
+		case "github_issue_update":
+		case "github_comment":
+		case "github_pr_create":
+		case "github_pr_merge":
 		case "create_repository":
 		case "create_order":
 		case "email_send":

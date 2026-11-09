@@ -94,8 +94,8 @@ export type PresetDeps = {
 	images?: Images;
 	/** Cofre (F9): nomes e metadados dos segredos do dono, o cartão "cadastre este segredo" e o `login_fill` (pela porta `Sandbox`). Lazy; sem a porta a capacidade não entra. `readOnly` = sem dono: só `secret_list`. */
 	vault?: VaultDeps;
-	/** GitHub (F9, leitura): listar repositórios e comparar dois pontos, com o token do dono. Lazy; sem a porta a capacidade fica em `unavailable`. Escrita segue pelos conectores. */
-	github?: GithubPorts;
+	/** GitHub (F9): listar repositórios e comparar dois pontos (token do dono) e, com `githubWrite`, issue, comentário e PR pelo app do dono. Lazy; sem a porta a capacidade fica em `unavailable`. `readOnly` = sem dono presente; `confirmWrites` = o conector do dono pede confirmar escritas. */
+	github?: GithubPorts & { readOnly?: boolean; confirmWrites?: boolean };
 	/** Bots (F9): falar com os outros bots do dono, bot principal, pendências e proposta de bot novo. Lazy; só com dono presente (o worker não passa a chave em run sem dono). Sem a porta a capacidade fica em `unavailable`. */
 	bots?: BotsDeps;
 	/** Rotinas (F9 parte 1): ler e controlar as rotinas do produto (as da Biblioteca) do bot do run. Lazy; sem a porta a capacidade não entra. `readOnly` = sem dono: só `routine_list`. */

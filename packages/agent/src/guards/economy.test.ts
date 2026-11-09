@@ -7,7 +7,7 @@ import { createBrowserCapability } from "../capabilities/browser/index.js";
 import { createShoppingCapability } from "../capabilities/shopping/index.js";
 import { createGithubCapability } from "../capabilities/github/index.js";
 import { createVaultCapability } from "../capabilities/vault/index.js";
-import { FakeGithub } from "../testing/github-fakes.js";
+import { FakeGithub, FakeGithubWriter } from "../testing/github-fakes.js";
 import { createBotsCapability } from "../capabilities/bots/index.js";
 import { FakeBots } from "../testing/bots-fakes.js";
 import { createRoutinesCapability } from "../capabilities/routines/index.js";
@@ -226,6 +226,21 @@ describe("economia: Bom dia", () => {
 		expect((first?.tools ?? []).map((t) => t.name)).not.toContain("github_compare");
 		expect((second?.tools ?? []).map((t) => t.name)).toEqual(expect.arrayContaining(["github_list_repos", "github_compare"]));
 		expect(JSON.stringify(second?.messages)).toContain("GitHub rules");
+	});
+
+	it("github com escrita continua lazy: 'Bom dia' não ganha nenhuma tool de escrita e 'abre uma issue' carrega a capacidade no passo 1", async () => {
+		const ports = { ...new FakeGithub().ports, githubWrite: new FakeGithubWriter() };
+		const base = await measureGoodMorning();
+		const withGithub = await measureGoodMorning([createGithubCapability(ports)]);
+		expect(withGithub.toolNames).toEqual(base.toolNames);
+		for (const name of ["github_issue_create", "github_comment", "github_pr_create", "github_pr_merge"]) expect(withGithub.toolNames).not.toContain(name);
+		expect(withGithub.tokens - base.tokens).toBeLessThan(60);
+		const core = defineCapability({ id: "core", title: "Core", summary: "core tools", core: true, tools: [] });
+		const h = kernelHarness([reply({ calls: [call("c1", "use_capability", { id: "github" })] }), reply({ text: "Pronto." })], { capabilities: [core, createGithubCapability(ports)] });
+		await h.run({ input: { contextSections: [], history: [{ kind: "owner", text: "Abre uma issue no meu repositório do GitHub" }] } });
+		const [first, second] = h.llm.requests;
+		expect((first?.tools ?? []).map((t) => t.name)).not.toContain("github_issue_create");
+		expect((second?.tools ?? []).map((t) => t.name)).toEqual(expect.arrayContaining(["github_issue_create", "github_pr_merge"]));
 	});
 
 	it("'entra no meu banco com o login salvo' carrega a capacidade no passo 1; as tools e as regras só no passo seguinte", async () => {

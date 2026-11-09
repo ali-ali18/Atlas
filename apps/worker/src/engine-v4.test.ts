@@ -301,7 +301,7 @@ function fakeAdapters(searched: string[]): NonNullable<Parameters<typeof runEngi
 		brief: { listPurchases: never, listAgendaItems: never, conversationTasks: never, persistCard: never } as never,
 		images: { generate: never, process: never, persistArtifact: never, persistCard: never } as never,
 		vault: { listMeta: async () => [], getByName: never, getKey: never, touch: never, audit: never, unwrap: never, open: never, saveIntent: never, persistCard: never } as never,
-		github: { resolveReadOps: never, markAuthFailed: never } as never,
+		github: { resolveReadOps: never, markAuthFailed: never, gateWrite: never, confirmWrites: async () => false } as never,
 		bots: { roster: never, send: never, setPrimary: never, decidesForOthers: async () => false, findPending: never, attended: never, autoCount: never, queueAuto: never, escalate: never, botName: never, listSkills: never, persistCard: never } as never,
 		routines: { list: async () => [], update: never, remove: never, listGroups: async () => [], createGroup: never, updateGroup: never, deleteGroup: never, setGroupEnabled: never, persistCard: never, now: () => new Date() } as never,
 		skills: { list: async () => [], read: never, apply: never, remove: never, persistCard: never } as never,
