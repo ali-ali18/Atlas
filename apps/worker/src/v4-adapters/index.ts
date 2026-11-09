@@ -42,6 +42,7 @@ import { createV4Notebook, realV4NotebookDeps, type V4NotebookDeps } from "./not
 import { createV4Routines, realV4RoutinesDeps, type V4RoutinesDeps } from "./routines.js";
 import { createV4Settings, realV4SettingsDeps, type V4SettingsDeps } from "./settings.js";
 import { createV4Shopping, realV4ShoppingDeps, type V4ShoppingDeps } from "./shopping.js";
+import { createV4Skills, loadV4SkillNames, realV4SkillsDeps, type V4SkillsDeps } from "./skills.js";
 import { createV4Vault, realV4VaultDeps, type V4VaultDeps } from "./vault.js";
 import { createV4Search, realV4WebDeps, type V4WebDeps } from "./web.js";
 
@@ -62,9 +63,10 @@ export type V4AdapterDeps = {
 	github: V4GithubDeps;
 	bots: V4BotsDeps;
 	routines: V4RoutinesDeps;
+	skills: V4SkillsDeps;
 };
 
-export const realV4AdapterDeps = (): V4AdapterDeps => ({ web: realV4WebDeps(), deliverables: realV4DeliverablesDeps, memory: realV4MemoryDeps, notebook: realV4NotebookDeps, settings: realV4SettingsDeps, mcp: realV4McpDeps, agenda: realV4AgendaDeps, shopping: realV4ShoppingDeps, email: realV4EmailDeps, calendar: realV4CalendarDeps, brief: realV4BriefDeps, images: realV4ImagesDeps, vault: realV4VaultDeps, github: realV4GithubDeps, bots: realV4BotsDeps, routines: realV4RoutinesDeps });
+export const realV4AdapterDeps = (): V4AdapterDeps => ({ web: realV4WebDeps(), deliverables: realV4DeliverablesDeps, memory: realV4MemoryDeps, notebook: realV4NotebookDeps, settings: realV4SettingsDeps, mcp: realV4McpDeps, agenda: realV4AgendaDeps, shopping: realV4ShoppingDeps, email: realV4EmailDeps, calendar: realV4CalendarDeps, brief: realV4BriefDeps, images: realV4ImagesDeps, vault: realV4VaultDeps, github: realV4GithubDeps, bots: realV4BotsDeps, routines: realV4RoutinesDeps, skills: realV4SkillsDeps });
 
 export type V4RegistryInput = {
 	runId: string;
@@ -158,6 +160,10 @@ export async function buildV4Registry(input: V4RegistryInput): Promise<V4Registr
 	// Bots (F9): só com dono presente e bot no run. Sem dono (rotina, agenda, bot a bot) a capacidade nem entra: não há quem
 	// confirme, e mensagem a outro bot a partir de conteúdo de fora não pode partir de um run sem humano.
 	const bots = botId && !input.unattended ? createV4Bots({ scope: { botId, conversationId: input.conversationId ?? null, emit: input.emit, log, decideEnabled: await isBotDecideEnabled(botId, input.userId, deps.bots) }, deps: deps.bots }) : undefined;
+	// Habilidades (F9): as da conta e as deste bot. Só o índice de NOMES vai (curto) no resumo da capacidade; o corpo só com `skill_read`.
+	// Sem dono presente (rotina, agenda, subagente) só lê e usa: ninguém para ver o aviso "Aprendi" nem desfazer.
+	const skillsPort = createV4Skills({ scope: { botId: botId ?? null, conversationId: input.conversationId ?? null, emit: input.emit, log }, deps: deps.skills });
+	const skillNames = await loadV4SkillNames({ userId: input.userId, botId: botId ?? null, deps: deps.skills, log });
 	const presetDeps: PresetDeps = {
 		search,
 		...(input.makeHelpers && { helpers: input.makeHelpers({ search }) }),
@@ -185,6 +191,7 @@ export async function buildV4Registry(input: V4RegistryInput): Promise<V4Registr
 		...(bots && { bots: { bots } }),
 		...(routinesPort && { routines: { routines: routinesPort, ...(input.unattended && { readOnly: true }) } }),
 		...(attachmentsPort && { attachments: { files: attachmentsPort } }),
+		skills: { skills: skillsPort, names: skillNames, ...((input.unattended || input.agendaRun) && { readOnly: true }) },
 		...(input.code && { code: input.code }),
 		...(images && { images }),
 		...(country && { shoppingCountry: country }),

@@ -37,6 +37,7 @@ export function fakeAdapterDeps(options: { connections?: Connected; listFails?: 
 		github: { resolveReadOps: never, markAuthFailed: never } as unknown as V4AdapterDeps["github"],
 		bots: { roster: never, send: never, setPrimary: never, decidesForOthers: async () => options.decideForOthers === true, findPending: never, attended: never, autoCount: never, queueAuto: never, escalate: never, botName: never, listSkills: never, persistCard: never } as unknown as V4AdapterDeps["bots"],
 		routines: { list: async () => [], update: never, remove: never, listGroups: async () => [], createGroup: never, updateGroup: never, deleteGroup: never, setGroupEnabled: never, persistCard: never, now: () => new Date() } as unknown as V4AdapterDeps["routines"],
+		skills: { list: async () => [], read: never, apply: never, remove: never, persistCard: never } as unknown as V4AdapterDeps["skills"],
 	};
 }
 
@@ -49,7 +50,7 @@ test("com bot e portas reais montadas, o preset full não tem capacidade indispo
 	const setup = await buildV4Registry({ ...base, botId: "bot-1", deps: fakeAdapterDeps(), log: (m) => void logs.push(m) });
 	assert.deepEqual(setup.unavailable, []);
 	assert.deepEqual(logs, []);
-	assert.deepEqual(setup.registry.ids(), ["agenda", "bots", "browser", "calendar", "connectors", "deliverables", "email", "github", "images", "memory", "research", "routines", "settings", "shopping", "tasks", "vault", "video", "web"]);
+	assert.deepEqual(setup.registry.ids(), ["agenda", "bots", "browser", "calendar", "connectors", "deliverables", "email", "github", "images", "memory", "research", "routines", "settings", "shopping", "skills", "tasks", "vault", "video", "web"]);
 	assert.match(setup.stableSystem, /Work contract/);
 	assert.match(setup.stableSystem, /connectors/);
 	// confirmWrites do conector vira `confirm: "always"` na tool genérica de escrita
