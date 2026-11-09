@@ -1,10 +1,10 @@
 // `code_shell` (F8.2): comando no workspace, com o portão do v2 traduzido em efeito (ver `command-gate.ts`).
 // A saída é DADO não confiável (pode vir de teste, log ou arquivo do repositório): taint do run e segredo redigido.
-import { redactSecrets } from "@workspace/shared";
 import { z } from "zod";
 import { defineTool } from "../../tools/define-tool.js";
 import { callCode } from "./call.js";
 import { classifyShell, shellEffect } from "./command-gate.js";
+import { commandPreview } from "./command-preview.js";
 import { codeResults } from "./kinds.js";
 import { describeRun } from "./shell-output.js";
 
@@ -22,7 +22,7 @@ export function createCodeShellTool(options: { readOnly?: boolean } = {}) {
 		}),
 		effect: "write_internal",
 		effectForArgs: ({ cmd }) => shellEffect(classifyShell(cmd)),
-		riskFacts: ({ cmd }) => ({ target: redactSecrets(cmd).slice(0, 400) }),
+		riskFacts: ({ cmd }) => ({ target: commandPreview(cmd) }),
 		trust: "untrusted",
 		source: "file",
 		async execute(args, ctx) {

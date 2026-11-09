@@ -1,10 +1,11 @@
 // `code_test` (F8.2): roda um teste focado e devolve a saída. A suíte completa de um monorepo só roda com `fullSuite: true`,
 // que o modelo declara quando o dono pediu (sinal estruturado, não regex sobre a fala). Mesmo portão do shell.
-import { fullSuiteAdvice, redactSecrets } from "@workspace/shared";
+import { fullSuiteAdvice } from "@workspace/shared";
 import { z } from "zod";
 import { defineTool } from "../../tools/define-tool.js";
 import { callCode } from "./call.js";
 import { classifyShell, fullSuiteOf, isTestCommand, shellEffect } from "./command-gate.js";
+import { commandPreview } from "./command-preview.js";
 import { codeResults } from "./kinds.js";
 import { describeRun } from "./shell-output.js";
 
@@ -23,7 +24,7 @@ export function createCodeTestTool() {
 		}),
 		effect: "write_internal",
 		effectForArgs: ({ cmd }) => shellEffect(classifyShell(cmd)),
-		riskFacts: ({ cmd }) => ({ target: redactSecrets(cmd).slice(0, 400) }),
+		riskFacts: ({ cmd }) => ({ target: commandPreview(cmd) }),
 		trust: "untrusted",
 		source: "file",
 		async execute({ fullSuite, ...args }, ctx) {
