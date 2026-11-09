@@ -149,7 +149,7 @@
 - [x] F8.2 `code` (09/11, frente C: capacidade lazy `capabilities/code/` com 9 tools sobre a porta `Sandbox` (kinds `code.*` em `kinds.ts`), portão de comando reaproveitando `shared/dev-command-approval`, `.env` e caminho sensível = `credential`, saída redigida e não confiável, presets de política `plan`/`build` em `presets/policy-presets.ts`, adaptador `apps/worker/src/v4-adapters/code-actions.ts` (escopo usuário + sessão), seed v4 com repositório real em `packages/evals`. Pendências: abrir PR pelo conector GitHub; o integrador registra o tratador no dispatcher da frente A e liga `code: {}` no preset; `rootIsWorkspace` no adaptador; docs em `docs/features/codigo-v4.md`) `code`: plan/build, edição precisa, verificação.
 - [ ] F8.3 Experimento Code Mode (não feito na frente C; só liga se ganhar na matriz).
 - [ ] F8.0 Adaptador real de `card_fill` (pendência OBRIGATÓRIA da F6, ver contrato em `packages/agent/src/ports/payment.ts`): na página final da loja, ler o host que cobra e o total cobrado e devolver `declined`/`failed` SEM pagar se divergirem de `merchant`/`amount`; NUNCA gravar `params` (número, CVV, titular) em log, trace, journal ou mensagem de erro. Teste com VM fake: host trocado e total diferente não pagam; nenhum segredo em log.
-- [ ] F8.A Auditoria: 5 lentes, verificação, correções com teste, reauditoria e `auditorias/F8.md` fechado.
+- [ ] F8.A Auditoria: **em andamento (09/11): auditoria feita, 15 achados corrigidos com teste (14 inteiros, o 11 parcial; token do control server pendente), registrados em `auditorias/F8.md`. FALTA a reauditoria** e fechar o arquivo.
 
 ### F9: Ponte → zero
 - [ ] F9.1 Inventário das pontes, com a contagem inicial anotada aqui.
@@ -242,4 +242,10 @@
 - **09/11/2026 · sessão F8 · integração das frentes A, B e C**
   - **Feito:** merges de `wip/f8-a`, `wip/f8-c` e `wip/f8-b` em `feat/harness-v4-f8-navegador-codigo`; adaptador `Sandbox` despacha `card_fill`, `browser.*` e `code.*`; `browser: true` quando a VM existe; `code` opt-in por `policyJson.codeMode` com `applyPolicyPreset`; `rootIsWorkspace` informado pelo adaptador. Verificação: typecheck 18/18, shared 3036, agent 901, agent-runtime 4054, sandbox 214, evals 327, queue 17, ui 123, web 1790, mobile 469, control server 346, worker 838, api 971, db 728 e `*.db.test` da api 5 (Postgres real).
   - **Próximo passo:** previews, auditoria independente (`auditorias/F8.md`), PR contra `harness/v4`. Faltam a tool/tela para o bot ligar o modo de código, o ok do dono para o `browser-bench` real e a prova ponta a ponta com Docker.
+  - **Dúvidas para o dono:** nenhuma.
+
+- **09/11/2026 · sessão F8 · correção dos achados da auditoria**
+  - **Feito:** 15 achados corrigidos com teste (detalhe em `auditorias/F8.md`): cartão ilegível após o `card_fill`, egress por proxy local que valida o IP resolvido, envio de formulário de SPA, corrida e idempotência durável do pagamento, recusa por sinal estrutural, https e quadros confiáveis, botão de pagar estrutural, tool `settings_set_code_mode`, leituras de segredo no código, navegador só leitura sem dono, `PidsLimit`, saída longa redigida, segredos duráveis, limpeza de exports. Merge de `wip/f8-b` (bench real) e `pickWinner` com `tie`.
+  - **Próximo passo:** reauditoria independente (Sonnet, só leitura), previews, PR contra `harness/v4`.
+  - **Pendências:** token por sessão no control server; tela para ligar o modo de código; rodada extra do bench (T7 e T10) só com ok do dono; prova ponta a ponta com Docker.
   - **Dúvidas para o dono:** nenhuma.
