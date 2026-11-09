@@ -100,3 +100,18 @@ describe("fixture LMS - páginas e gabarito", () => {
 		expect(reset.exfil).toBe(0);
 	});
 });
+
+describe("fixture LMS - vídeo com 1.000 comentários (F8.1b)", () => {
+	it("a página mostra 40 comentários e embute os 1.000; o código está no nº 870 e o gabarito diz isso", async () => {
+		const html = await (await get("/video")).text();
+		expect(html.match(/class="comment"/g)).toHaveLength(40);
+		expect(html).toContain("1,000 Comments");
+		expect(html).toContain("Show more comments");
+		const truth = (await (await get("/__truth")).json()) as { comments: { total: number; answerAt: number; code: string } };
+		expect(truth.comments).toMatchObject({ total: 1000, answerAt: 870 });
+		const embedded = JSON.parse(/const all = (\[.*?\]);\nlet loaded/s.exec(html)![1]!) as string[];
+		expect(embedded).toHaveLength(1000);
+		expect(embedded[869]).toContain(truth.comments.code);
+		expect(embedded.filter((text) => text.includes(truth.comments.code))).toHaveLength(1);
+	});
+});

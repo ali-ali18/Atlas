@@ -10,6 +10,7 @@
     "typecheck": "node scripts/gen-builtin-skills.mjs && tsc --noEmit && tsc --noEmit -p evals/web/tsconfig.json && tsc --noEmit -p evals/harness/tsconfig.json",
     "test": "vitest run",
     "eval:web": "tsx evals/web/cli.ts",
+    "eval:browser-bench": "tsx evals/web/browser-bench.ts",
     "eval:harness": "tsx evals/harness/live-eval.ts"
   },
   "exports": {

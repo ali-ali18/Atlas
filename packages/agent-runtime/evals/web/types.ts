@@ -46,4 +46,6 @@ export type EvalTask = {
 	loginHandoff?: boolean;
 	/** O checker olha o arquivo gerado; sem `create_file` a tarefa falha. */
 	expectsFile?: boolean;
+	/** Fora do `--tasks all` do eval:web (custa a mais); roda só quando pedida pelo id (ex.: o browser-bench). */
+	optIn?: boolean;
 };
