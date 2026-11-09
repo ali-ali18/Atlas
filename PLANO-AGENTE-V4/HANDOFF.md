@@ -93,17 +93,31 @@ Branches no remoto:
 
 | Branch | HEAD | Conteúdo |
 |---|---|---|
-| `feat/harness-v4-f8-navegador-codigo` | `6345ba2a` | Integração A+B+C, já com parte das correções da auditoria. |
+| `feat/harness-v4-f8-navegador-codigo` | `bc4f9586` | Integração A+B+C com as correções da auditoria. Falta a reauditoria. |
 | `wip/f8-a` | `b7e3855e` | Pronta. |
 | `wip/f8-b` | `d666d181` | Pronta. Também tem o bench real (as duas rodadas) e o relatório `docs/ops/browser-bench-f8.md`. |
 | `wip/f8-c` | `c3bc670a` | Pronta. |
 
-**Estava rodando quando esta conta parou** (pode ter sido salvo em parte; confira o remoto):
-1. **Correções da auditoria F8**, no branch de integração.
-   - Feitas, em 7 ou mais commits: dados do cartão, egress, submit, corrida, idempotência, iframe/https, botão pagar e outros. Confira com `git log 71d41055..origin/feat/harness-v4-f8-navegador-codigo`.
-   - Faltavam, pela lista da auditoria abaixo: itens 12 e 13 (saída longa do shell fora do repo e redigida; segredos da sessão antes do clone) e os segredos duráveis por sessão em `code-actions`. Talvez também o 14 (custo e limpeza do `browser_digest`/`export`) e o 15 (testes).
-   - Faltavam também: merge de `origin/wip/f8-b` no branch de integração, correção do `pickWinner` do bench para devolver `tie` em empate (fica o atual, porque custo não desempata), `auditorias/F8.md`, CHANGELOG, PROGRESSO, verificação completa, push e comentário na #165.
-2. **Bench real concluído** (`wip/f8-b` em `d666d181`, relatório `docs/ops/browser-bench-f8.md`, comentário na #167). **Fica o navegador atual (ADR 0005)**: 9/9 contra 6/9 do `agent-browser` 0.41.2 nas tarefas T11, T7 e T10. O `agent-browser` errou as 3 do canvas (T10), porque não dá imagem ao modelo. Custo total do bench: US$ 0,08. O commit `d666d181` também precisa entrar no branch de integração junto com o merge de `origin/wip/f8-b`.
+**Atualização (09/11, fim desta conta):** as correções da auditoria F8 terminaram. O branch de integração está em **`bc4f9586`**, já no remoto. O estado está comentado na #165 e registrado em `PLANO-AGENTE-V4/auditorias/F8.md`.
+- **Achados corrigidos:** 14 de 15, cada um com teste.
+- **Achado 11, parcial:** falta o token por sessão no control server. O manager fala com a VM pelo IP da rede Docker, então é preciso derivar um token por container e enviá-lo em todos os fetch de `control-client.ts`.
+- **`pickWinner`:** corrigido, empate devolve `tie`.
+- **Merge de `origin/wip/f8-b`:** já foi feito, mas só até `96907808`. **Falta fazer o merge de novo** para trazer o `d666d181`, que traz a rodada 2 do bench e a decisão final no relatório.
+- **Bench real concluído:** fica o navegador atual, com 9/9 contra 6/9 do `agent-browser` 0.41.2. O `agent-browser` errou as 3 do canvas (T10). Custo total: US$ 0,08.
+- **Verificação completa** feita no `bc4f9586`, com tudo verde: typecheck 18/18, shared 3038, agent 909, agent-runtime 4060, sandbox 217, control server 386, worker 850, api 976 e db 732, este com Postgres real. Web e mobile não foram rerodados; não foram tocados.
+- **Aceitos, com motivo em F8.md:**
+  - `paid` e os desafios ainda são lidos de texto e URL;
+  - `git log -p` sem caminho;
+  - formulário de busca exige `intent: submit`;
+  - CapDrop de VM antiga só muda na recriação;
+  - Chrome com `--no-sandbox`.
+
+**Próximo passo da F8:**
+1. Merge de `origin/wip/f8-b`, para trazer o `d666d181`.
+2. Reauditoria independente do delta `71d41055..HEAD` e correções.
+3. Prévias, se houver UI nova (a tool `settings_set_code_mode` não tem tela).
+4. Fechar F8.md e PROGRESSO.
+5. PR para `harness/v4`, merge e fechar #165 a #168.
 
 ### Achados da auditoria F8 (commit `71d41055`): a lista que guia as correções
 1. **Dados do cartão legíveis depois do `card_fill`.** Campos `cc-*` passam a ser secretos no inpage, `clearCard` roda no challenge, e o screenshot é recusado com cartão preenchido.
