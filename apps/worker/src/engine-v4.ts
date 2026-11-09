@@ -69,7 +69,7 @@ import {
 	saveAgentV4Checkpoint,
 	type RunLease,
 } from "@workspace/db";
-import { buildV4Registry, type V4AdapterDeps } from "./v4-adapters/index.js";
+import { buildV4Registry, type V4AdapterDeps, type V4RegistryInput } from "./v4-adapters/index.js";
 import type { V4ImagesConfig } from "./v4-adapters/images.js";
 import { createV4Payment, type V4PaymentDeps } from "./v4-adapters/payment.js";
 import { MODEL_ROLES, type CodeMode, formatModelRef, isMaintenanceModel, parseModelRef, type AgendaKind, type BotLanguage, type ComputerUseEvent, type ModelChainEntry, type RoleChains, type RunStop, type RunUsage } from "@workspace/shared";
@@ -369,6 +369,8 @@ export type RunEngineV4Input = {
 	agendaKind?: AgendaKind;
 	/** Fonte de e-mail do plano do dia (frente de e-mail). Sem ela o brief segue sem a seção. */
 	briefEmail?: BriefEmailSource;
+	/** Rotinas (F9): sincroniza o agendador depois que o bot pausa, retoma ou apaga uma rotina (o `syncRoutineScheduler` do worker). */
+	onRoutineMutated?: V4RegistryInput["onRoutineMutated"];
 	/** Prompt estável do preset (sem ele, o kernel monta o completo com o contrato de trabalho). */
 	stableSystem?: string;
 	policy?: PolicyContext;
@@ -477,6 +479,7 @@ export async function runEngineV4(input: RunEngineV4Input): Promise<V4EngineResu
 				...(input.agendaRun && { agendaRun: true }),
 				...(input.agendaKind && { agendaKind: input.agendaKind }),
 				...(input.briefEmail && { briefEmail: input.briefEmail }),
+				...(input.onRoutineMutated && { onRoutineMutated: input.onRoutineMutated }),
 				...(payment?.checkout && { checkout: payment.checkout }),
 				...(input.browser && { browser: true }),
 				...(codeOn && { code: codeMode === "plan" ? { readOnly: true } : {} }),

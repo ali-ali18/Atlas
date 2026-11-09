@@ -1287,6 +1287,7 @@ async function executeLeasedRun(ctx: {
 					ownerPresent: !agendaRun && run.origin === "chat" && readRunHumanTurn(run),
 					signal: aborter.signal,
 					vault: createV4VaultBackend(),
+					...(deps.onRoutineMutated ? { onRoutineMutated: deps.onRoutineMutated } : {}),
 					...(deps.v4Queue ? { queue: deps.v4Queue } : {}),
 					...(deps.cvvEscrow ? { cvvEscrow: deps.cvvEscrow } : {}),
 					...(v4Sandbox ? { sandbox: v4Sandbox, ...(v4Sandbox.availability.vm && { browser: true }), codeAvailable: v4Sandbox.availability.code } : {}),

@@ -26,7 +26,7 @@ import {
 	type PresetDeps,
 	type Search,
 } from "@workspace/agent";
-import { countryFromLocale, type AgendaKind, type ComputerUseEvent } from "@workspace/shared";
+import { countryFromLocale, type AgendaKind, type ComputerUseEvent, type RoutineRecord } from "@workspace/shared";
 import { createV4Bots, isBotDecideEnabled, realV4BotsDeps, type V4BotsDeps } from "./bots.js";
 import { createV4Agenda, realV4AgendaDeps, type V4AgendaDeps } from "./agenda.js";
 import { createV4Email, realV4EmailDeps, type V4EmailDeps } from "./email.js";
@@ -38,6 +38,7 @@ import { createV4Deliverables, realV4DeliverablesDeps, type V4DeliverablesDeps }
 import { createV4Mcp, realV4McpDeps, type V4McpDeps } from "./mcp.js";
 import { createV4Memory, realV4MemoryDeps, type V4MemoryDeps } from "./memory.js";
 import { createV4Notebook, realV4NotebookDeps, type V4NotebookDeps } from "./notebook.js";
+import { createV4Routines, realV4RoutinesDeps, type V4RoutinesDeps } from "./routines.js";
 import { createV4Settings, realV4SettingsDeps, type V4SettingsDeps } from "./settings.js";
 import { createV4Shopping, realV4ShoppingDeps, type V4ShoppingDeps } from "./shopping.js";
 import { createV4Vault, realV4VaultDeps, type V4VaultDeps } from "./vault.js";
@@ -59,9 +60,10 @@ export type V4AdapterDeps = {
 	vault: V4VaultDeps;
 	github: V4GithubDeps;
 	bots: V4BotsDeps;
+	routines: V4RoutinesDeps;
 };
 
-export const realV4AdapterDeps = (): V4AdapterDeps => ({ web: realV4WebDeps(), deliverables: realV4DeliverablesDeps, memory: realV4MemoryDeps, notebook: realV4NotebookDeps, settings: realV4SettingsDeps, mcp: realV4McpDeps, agenda: realV4AgendaDeps, shopping: realV4ShoppingDeps, email: realV4EmailDeps, calendar: realV4CalendarDeps, brief: realV4BriefDeps, images: realV4ImagesDeps, vault: realV4VaultDeps, github: realV4GithubDeps, bots: realV4BotsDeps });
+export const realV4AdapterDeps = (): V4AdapterDeps => ({ web: realV4WebDeps(), deliverables: realV4DeliverablesDeps, memory: realV4MemoryDeps, notebook: realV4NotebookDeps, settings: realV4SettingsDeps, mcp: realV4McpDeps, agenda: realV4AgendaDeps, shopping: realV4ShoppingDeps, email: realV4EmailDeps, calendar: realV4CalendarDeps, brief: realV4BriefDeps, images: realV4ImagesDeps, vault: realV4VaultDeps, github: realV4GithubDeps, bots: realV4BotsDeps, routines: realV4RoutinesDeps });
 
 export type V4RegistryInput = {
 	runId: string;
@@ -110,6 +112,8 @@ export type V4RegistryInput = {
 	codeEnvironment?: boolean;
 	/** Imagens (F9): chave e modelo de imagem do run (modelo do dono, ou `ATLAS_IMAGE_MODEL`). Sem ele a tool avisa como configurar. Em run sem dono a capacidade não entra. */
 	imageGeneration?: V4ImagesConfig;
+	/** Rotinas (F9): sincroniza o agendador depois de pausar, retomar ou apagar uma rotina (o `syncRoutineScheduler` do worker). Sem ele a rotina muda no banco e o agendador só reconcilia no próximo boot. */
+	onRoutineMutated?: (routine: RoutineRecord) => Promise<unknown>;
 };
 
 export type V4RegistrySetup = {
@@ -138,6 +142,8 @@ export async function buildV4Registry(input: V4RegistryInput): Promise<V4Registr
 	const emailPorts = createV4Email({ scope: { ownerId: input.userId, botId: botId ?? null, conversationId: input.conversationId ?? null, emit: input.emit, log }, deps: deps.email });
 	// Cofre (F9): nomes e metadados para o modelo; o valor só vai ao executor. Sem dono presente só `secret_list` (sem pedir nem digitar).
 	const vaultPorts = createV4Vault({ scope: { conversationId: input.conversationId ?? null, botId: botId ?? null, emit: input.emit, log }, deps: deps.vault });
+	// Rotinas (F9): as da Biblioteca, do bot do run (sem bot não há o que listar). Sem dono presente só `routine_list`.
+	const routinesPort = botId ? createV4Routines({ scope: { botId, conversationId: input.conversationId ?? null, emit: input.emit, log, ...(input.onRoutineMutated && { onMutated: input.onRoutineMutated }) }, deps: deps.routines }) : undefined;
 	const country = countryFromLocale(input.locale);
 	const calendarPorts = createV4Calendar({ scope: { botId: botId ?? null, conversationId: input.conversationId ?? null, emit: input.emit, log }, deps: deps.calendar });
 	// Imagens (F9): sem dono presente o gasto de provedor não tem quem aprove, então a porta nem entra (a capacidade fica fora).
@@ -168,6 +174,7 @@ export async function buildV4Registry(input: V4RegistryInput): Promise<V4Registr
 		// GitHub (F9, leitura): o token é o do dono do run, resolvido na chamada (nada é lido ao montar). O conector GitHub continua no run: é por ele que se escreve.
 		github: { github: createV4Github(deps.github) },
 		...(bots && { bots: { bots } }),
+		...(routinesPort && { routines: { routines: routinesPort, ...(input.unattended && { readOnly: true }) } }),
 		...(input.code && { code: input.code }),
 		...(images && { images }),
 		...(country && { shoppingCountry: country }),
