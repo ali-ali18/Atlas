@@ -277,3 +277,34 @@ test("painel: sem bot no run, listar e ler falham com o motivo", async () => {
 	await assert.rejects(h.ports.pages.list("user-a"), /belong to a bot/);
 	await assert.rejects(h.ports.pages.read("user-a", "page-1"), /belong to a bot/);
 });
+
+test("rotina com painel (F9 parte 2): só o painel da própria rotina é atualizado e a gravação é marcada refreshed; outro painel do dono é recusado", async () => {
+	const h = harness();
+	const spec = { v: 2, title: "Vendas", root: { type: "section" } } as unknown as PageSpec;
+	const own = await h.ports.pages.save("user-a", "run-0", spec);
+	const other = await h.ports.pages.save("user-a", "run-0", { ...spec, title: "Outro" } as PageSpec);
+	const written: Array<{ id: string; refreshed?: boolean }> = [];
+	const deps = { ...h.deps, updatePage: (async (id: string, userId: string, input: { spec: PageSpec; expectedRevision?: number; refreshed?: boolean }) => {
+		written.push({ id, ...(input.refreshed !== undefined && { refreshed: input.refreshed }) });
+		return h.deps.updatePage(id, userId, input);
+	}) as V4DeliverablesDeps["updatePage"] };
+	const routine = createV4Deliverables({ runId: "run-r", scope: { conversationId: "conv-1", botId: "bot-1", routinePageId: own.id, emit: () => undefined }, deps });
+	const result = await routine.ports.pages.update("user-a", "run-r", own.id, { ...spec, title: "Vendas de hoje" } as PageSpec, 1);
+	assert.deepEqual(result, { ok: true, id: own.id, title: "Vendas de hoje", revision: 2 });
+	assert.deepEqual(written, [{ id: own.id, refreshed: true }]);
+	// O painel de outra coisa (mesmo dono e bot) não pode ser mexido por esta rotina; nada é gravado.
+	await assert.rejects(routine.ports.pages.update("user-a", "run-r", other.id, spec, 1), new RegExp(`only update its own panel \\(panel_id ${own.id}\\)`));
+	assert.equal(written.length, 1);
+	// Fora de rotina a gravação não leva `refreshed` (edição pelo chat).
+	const chat = createV4Deliverables({ runId: "run-c", scope: { conversationId: "conv-1", botId: "bot-1", emit: () => undefined }, deps });
+	await chat.ports.pages.update("user-a", "run-c", other.id, spec, 1);
+	assert.deepEqual(written.at(-1), { id: other.id });
+});
+
+test("rotina com painel: o painel do usuário B continua not found mesmo com o id certo da rotina de A", async () => {
+	const h = harness();
+	const spec = { v: 2, title: "Do A", root: { type: "section" } } as unknown as PageSpec;
+	const own = await h.ports.pages.save("user-a", "run-0", spec);
+	const routine = createV4Deliverables({ runId: "run-r", scope: { conversationId: "conv-1", botId: "bot-1", routinePageId: own.id, emit: () => undefined }, deps: h.deps });
+	assert.deepEqual(await routine.ports.pages.update("user-b", "run-r", own.id, spec, 1), { ok: false, error: "not_found" });
+});

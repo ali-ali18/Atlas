@@ -56,6 +56,11 @@ export type V4DeliverablesScope = {
 	conversationId?: string | null;
 	/** Bot do run; painel precisa dele. Sem bot, criar painel falha com o motivo. */
 	botId?: string | null;
+	/**
+	 * Run de ROTINA com painel (F9 parte 2): o painel que a rotina reconstrói a cada execução. Neste run só ele pode ser atualizado
+	 * (outro painel do dono, mesmo do mesmo bot, é recusado com o id certo) e cada gravação marca `refreshed` (a "atualizado em" do painel).
+	 */
+	routinePageId?: string | null;
 	/** Evento ao vivo do contrato SSE (o cartão na tela agora; o da conversa já foi gravado por `persistCard`). */
 	emit: (event: ComputerUseEvent) => void | Promise<void>;
 	/** Log do run; falha técnica de cartão vai aqui (sem segredo). Padrão: `console.warn`. */
@@ -192,8 +197,11 @@ function createPages(scope: V4DeliverablesScope, deps: V4DeliverablesDeps): Page
 			return { id: page.id, title: page.title, revision: page.revision, spec: page.spec, sourceCount: page.sources.length, shared: status?.active === true };
 		},
 		async update(userId, runId, pageId, spec, expectedRevision) {
+			if (scope.routinePageId && pageId !== scope.routinePageId) {
+				throw new Error(`This routine run may only update its own panel (panel_id ${scope.routinePageId}); ${pageId} is not it. Call panel_update with panel_id ${scope.routinePageId}.`);
+			}
 			if (!(await own(userId, pageId))) return { ok: false, error: "not_found" };
-			const result = await deps.updatePage(pageId, userId, { spec, expectedRevision });
+			const result = await deps.updatePage(pageId, userId, { spec, expectedRevision, ...(scope.routinePageId ? { refreshed: true } : {}) });
 			if (!result.ok) return result;
 			const page = result.page;
 			// Mesmo `pageId` do cartão criado: o merge da conversa troca a revisão no lugar, sem cartão novo.
