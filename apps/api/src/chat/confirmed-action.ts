@@ -482,7 +482,12 @@ export function infraSetupFollowUpContent(userText: string, infra: { label: stri
 }
 
 /** Nomes (nunca valores) que já estão salvos no ambiente, entre os pedidos. */
-export async function savedRequestedSecretNames(userId: string, request: { environmentId: string; names: string[] }): Promise<string[]> {
+export async function savedRequestedSecretNames(userId: string, request: { environmentId: string; names: string[]; login?: { site: string; name?: string } }): Promise<string[]> {
+	if (request.environmentId === VAULT_ENVIRONMENT_ID && request.login) {
+		// Pedido de login: confere as chaves dos campos no item do site (nunca valor).
+		const keys = new Set(await getVaultService().loginFieldKeys(userId, request.login).catch(() => []));
+		return request.names.filter((name) => keys.has(name));
+	}
 	if (request.environmentId === VAULT_ENVIRONMENT_ID) {
 		// Pedido do Cofre do usuário: confere por nome (nunca valor).
 		const existing = new Set((await getVaultService().listMeta(userId).catch(() => [])).map((item) => item.name));
@@ -530,13 +535,17 @@ export async function applyVaultUseApproval(
 }
 
 /** O agente só recebe os NOMES salvos (os valores foram do cartão direto para o armazenamento criptografado). */
-export function secretsFollowUpContent(userText: string, request: { names: string[] }, saved: string[]): string {
+export function secretsFollowUpContent(userText: string, request: { names: string[]; login?: { site: string } }, saved: string[]): string {
 	const missing = request.names.filter((name) => !saved.includes(name));
 	return [
 		userText,
 		"",
 		saved.length ? `[O usuário salvou os segredos: ${saved.join(", ")}.${missing.length ? ` Ainda faltam: ${missing.join(", ")}.` : ""}]` : "[O usuário confirmou, mas nenhum segredo pedido foi salvo.]",
-		saved.length ? "Rode de novo o comando que falhava (os valores já estão como variáveis de ambiente nos seus comandos; você nunca os vê)." : "Explique o que falta e peça de novo só se for indispensável.",
+		saved.length
+			? request.login
+				? `Os campos já estão no login de ${request.login.site} no cofre (você nunca vê os valores). Continue o login: se ainda houver etapa, olhe a página e peça os campos da próxima; quando a página pedir tudo o que já está salvo, chame login_fill com o mapeamento campo a campo.`
+				: "Rode de novo o comando que falhava (os valores já estão como variáveis de ambiente nos seus comandos; você nunca os vê)."
+			: "Explique o que falta e peça de novo só se for indispensável.",
 	].join("\n");
 }
 

@@ -100,3 +100,85 @@ test("POST /v1/vault/secrets (cartão do bot e composer): grava no dono, 'unique
 	assert.equal(invalid.status, 400);
 	assert.deepEqual((await vault.listMeta("bob")), []);
 });
+
+const CPF = "123.456.789-09";
+const login1 = (extra: Record<string, unknown> = {}) => ({
+	site: "https://www.plataforma.example/entrar",
+	fields: [{ key: "nome", label: "Nome", secret: false, value: "Ana Souza" }, { key: "cpf", label: "CPF", secret: true, value: CPF }, { key: "senha", label: "Senha", secret: true, value: SECRET }],
+	...extra,
+});
+
+test("POST /v1/vault/logins: login em 1 etapa com 3 campos vira UM item cifrado, sem valor em claro nem na lista", async () => {
+	const { appFor, store, vault } = setup();
+	const a = appFor("alice");
+	const res = await a.request("/v1/vault/logins", json(login1()));
+	assert.equal(res.status, 201);
+	const { saved } = (await res.json()) as { saved: { name: string; id: string; keys: string[]; created: boolean } };
+	assert.deepEqual(saved.keys, ["nome", "cpf", "senha"]);
+	assert.equal(saved.created, true);
+	assert.equal(saved.name, "plataforma");
+	assert.equal(store.rows.length, 1);
+	const raw = JSON.stringify(store.rows);
+	for (const value of [CPF, SECRET, "Ana Souza"]) assert.ok(!raw.includes(value), "valor não pode estar em claro no banco");
+	const listText = await (await a.request("/v1/vault")).text();
+	for (const value of [CPF, SECRET, "Ana Souza"]) assert.ok(!listText.includes(value));
+	const item = (JSON.parse(listText) as { items: Array<{ kind: string; domain: string; siteUrl: string }> }).items[0]!;
+	assert.deepEqual([item.kind, item.domain, item.siteUrl], ["login", "plataforma.example", "https://plataforma.example"]);
+	const { payload } = await vault.reveal("alice", saved.id);
+	assert.deepEqual((payload.fields ?? []).map((f) => [f.key, f.secret, f.value]), [["nome", false, "Ana Souza"], ["cpf", true, CPF], ["senha", true, SECRET]]);
+});
+
+test("POST /v1/vault/logins: login em 2 etapas (e-mail, depois senha) acrescenta ao MESMO item, sem apagar o anterior", async () => {
+	const { appFor, store, vault } = setup();
+	const a = appFor("alice");
+	const first = (await (await a.request("/v1/vault/logins", json({ site: "chatgpt.com/auth/login", fields: [{ key: "email", label: "E-mail", secret: false, value: "ana@x.test" }] }))).json()) as { saved: { id: string; created: boolean } };
+	assert.equal(first.saved.created, true);
+	// 2ª etapa: outro site-URL do mesmo host, com www e caminho diferente, sem informar nome.
+	const second = await a.request("/v1/vault/logins", json({ site: "https://www.chatgpt.com/", fields: [{ key: "senha", label: "Senha", secret: true, value: SECRET }] }));
+	assert.equal(second.status, 201);
+	const body = (await second.json()) as { saved: { id: string; created: boolean } };
+	assert.equal(body.saved.id, first.saved.id);
+	assert.equal(body.saved.created, false);
+	assert.equal(store.rows.length, 1);
+	const { payload } = await vault.reveal("alice", first.saved.id);
+	assert.deepEqual((payload.fields ?? []).map((f) => [f.key, f.value]), [["email", "ana@x.test"], ["senha", SECRET]]);
+	// Mesma chave de novo troca o valor, sem duplicar.
+	await a.request("/v1/vault/logins", json({ site: "chatgpt.com", fields: [{ key: "senha", label: "Senha", secret: true, value: "nova-senha-123456" }] }));
+	const again = await vault.reveal("alice", first.saved.id);
+	assert.deepEqual((again.payload.fields ?? []).map((f) => [f.key, f.value]), [["email", "ana@x.test"], ["senha", "nova-senha-123456"]]);
+});
+
+test("POST /v1/vault/logins: nome ocupado por um segredo simples ganha sufixo (nunca sobrescreve)", async () => {
+	const { appFor, store } = setup();
+	const a = appFor("alice");
+	await a.request("/v1/vault", json({ kind: "secret", name: "plataforma", value: SECRET }));
+	const res = await a.request("/v1/vault/logins", json(login1()));
+	assert.equal(((await res.json()) as { saved: { name: string } }).saved.name, "plataforma-2");
+	assert.equal(store.rows.length, 2);
+});
+
+test("POST /v1/vault/logins: campo vazio, chave inválida, site inválido e corpo inválido são 400; nada é gravado", async () => {
+	const { appFor, store } = setup();
+	const a = appFor("alice");
+	const empty = await a.request("/v1/vault/logins", json(login1({ fields: [{ key: "nome", label: "Nome", secret: false, value: "" }] })));
+	assert.equal(empty.status, 400);
+	assert.equal((await a.request("/v1/vault/logins", json(login1({ fields: [{ key: "com espaço", label: "X", secret: false, value: "v" }] })))).status, 400);
+	assert.equal((await a.request("/v1/vault/logins", json(login1({ site: "não é site" })))).status, 400);
+	assert.equal((await a.request("/v1/vault/logins", json(login1({ fields: [] })))).status, 400);
+	assert.equal((await a.request("/v1/vault/logins", json(login1({ name: "com espaço" })))).status, 400);
+	assert.equal((await a.request("/v1/vault/logins", { method: "POST", headers: { "content-type": "application/json" }, body: "[]" })).status, 400);
+	assert.equal(store.rows.length, 0);
+});
+
+test("POST /v1/vault/logins: outro dono não vê nem altera o login (cada um tem o seu item, mesmo site e nome)", async () => {
+	const { appFor, store, vault } = setup();
+	const alice = (await (await appFor("alice").request("/v1/vault/logins", json(login1()))).json()) as { saved: { id: string } };
+	const bob = (await (await appFor("bob").request("/v1/vault/logins", json(login1({ fields: [{ key: "nome", label: "Nome", secret: false, value: "Beto" }] })))).json()) as { saved: { id: string; created: boolean } };
+	assert.equal(bob.saved.created, true);
+	assert.notEqual(bob.saved.id, alice.saved.id);
+	assert.equal(store.rows.length, 2);
+	assert.deepEqual(((await (await appFor("bob").request("/v1/vault")).json()) as { items: Array<{ id: string }> }).items.map((i) => i.id), [bob.saved.id]);
+	assert.equal((await appFor("bob").request(`/v1/vault/${alice.saved.id}`)).status, 404);
+	const a = await vault.reveal("alice", alice.saved.id);
+	assert.equal((a.payload.fields ?? []).find((f) => f.key === "nome")?.value, "Ana Souza");
+});
