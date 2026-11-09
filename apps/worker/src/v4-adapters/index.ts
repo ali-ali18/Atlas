@@ -43,6 +43,7 @@ import { createV4Routines, realV4RoutinesDeps, type V4RoutinesDeps } from "./rou
 import { createV4Settings, realV4SettingsDeps, type V4SettingsDeps } from "./settings.js";
 import { createV4Shopping, realV4ShoppingDeps, type V4ShoppingDeps } from "./shopping.js";
 import { createV4Skills, loadV4SkillNames, realV4SkillsDeps, type V4SkillsDeps } from "./skills.js";
+import { createV4Subagents, type V4SubagentsDeps } from "./subagents.js";
 import { createV4Vault, realV4VaultDeps, type V4VaultDeps } from "./vault.js";
 import { createV4Search, realV4WebDeps, type V4WebDeps } from "./web.js";
 
@@ -64,6 +65,8 @@ export type V4AdapterDeps = {
 	bots: V4BotsDeps;
 	routines: V4RoutinesDeps;
 	skills: V4SkillsDeps;
+	/** Cartão dos subagentes (F9). Opcional: sem ele vale o real (`appendConversationCard`). */
+	subagents?: V4SubagentsDeps;
 };
 
 export const realV4AdapterDeps = (): V4AdapterDeps => ({ web: realV4WebDeps(), deliverables: realV4DeliverablesDeps, memory: realV4MemoryDeps, notebook: realV4NotebookDeps, settings: realV4SettingsDeps, mcp: realV4McpDeps, agenda: realV4AgendaDeps, shopping: realV4ShoppingDeps, email: realV4EmailDeps, calendar: realV4CalendarDeps, brief: realV4BriefDeps, images: realV4ImagesDeps, vault: realV4VaultDeps, github: realV4GithubDeps, bots: realV4BotsDeps, routines: realV4RoutinesDeps, skills: realV4SkillsDeps });
@@ -166,9 +169,13 @@ export async function buildV4Registry(input: V4RegistryInput): Promise<V4Registr
 	const skillNames = await loadV4SkillNames({ userId: input.userId, botId: botId ?? null, deps: deps.skills, log });
 	// "Confirmar escritas" do conector GitHub do dono vale também para a escrita nativa. Falha ao ler = o conservador (confirmar).
 	const githubConfirmWrites = input.unattended ? false : await Promise.resolve().then(() => deps.github.confirmWrites(input.userId)).catch(() => true);
+	// Os mesmos ajudantes servem a `research` e a `delegate` (um livro de gasto, uma numeração de runs filhos).
+	const helpers = input.makeHelpers?.({ search });
 	const presetDeps: PresetDeps = {
 		search,
-		...(input.makeHelpers && { helpers: input.makeHelpers({ search }) }),
+		...(helpers && { helpers }),
+		// Subagentes (F9): `delegate_task` só com dono presente (como no motor antigo: rotina, agenda e subagente não delegam).
+		...(helpers && !input.unattended && !input.agendaRun && { delegate: { helpers, cards: createV4Subagents({ scope: { conversationId: input.conversationId ?? null, emit: input.emit, log }, ...(deps.subagents && { deps: deps.subagents }) }) } }),
 		files: deliverables.fileStore,
 		deliverables: deliverables.ports,
 		memory: createV4Memory({ botId, deps: deps.memory }),

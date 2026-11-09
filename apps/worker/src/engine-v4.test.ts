@@ -373,6 +373,50 @@ test("ajudante pedindo capacidade que a mãe não tem (o preset sem bot não tem
 	assert.equal(llm.requests.length, 1, "o modelo não foi chamado pelo ajudante");
 });
 
+// F9: subagentes (`delegate_task`). O worker liga a capacidade `delegate` aos MESMOS ajudantes do run, o cartão sai pelos
+// eventos `subagent_*` do contrato SSE e a mensagem `subagents` é gravada na conversa com a identidade (groupId) da chamada.
+test("delegate_task: abre o subagente nos ajudantes do run, emite o cartão ao vivo e grava a mensagem `subagents` com o mesmo groupId", async () => {
+	const events: ComputerUseEvent[] = [];
+	const { db } = fakeDb();
+	const saved: Array<{ conversationId: string; card: { groupId: string; tasks: Array<{ status: string; toolsUsed: string[]; goal: string }> } }> = [];
+	const llm = scripted([
+		[{ type: "tool_call", call: { id: "m0", name: "use_capability", args: { id: "delegate" } } }, done(0.01)],
+		[{ type: "tool_call", call: { id: "m1", name: "delegate_task", args: { tasks: [{ goal: "Ache o preço", title: "Loja A" }] } } }, done(0.01)],
+		// subagente: lê uma página e responde
+		[{ type: "tool_call", call: { id: "h1", name: "web_extract", args: { url: "https://example.test/p" } } }, done(0.01)],
+		[{ type: "text_delta", text: "Custa 10" }, done(0.01)],
+		[{ type: "text_delta", text: "A loja A custa 10." }, done(0.01)],
+	]);
+	const { registry: _omit, ...input } = baseInput(llm, events, db);
+	const adapters = { ...fakeAdapters([]), subagents: { saveCard: async (conversationId: string, card: never) => void saved.push({ conversationId, card }) } };
+	const out = await runEngineV4({ ...input, botId: "bot-1", conversationId: "conv-1", adapters: adapters as never, limits: { ownerMaxUsd: 5 } });
+	assert.equal(out.text, "A loja A custa 10.");
+	assert.deepEqual(llm.requests.map((r) => r.role), ["main", "main", "helper", "helper", "main"]);
+	const started = events.filter((e) => e.type === "subagent_started");
+	const doneEvents = events.filter((e) => e.type === "subagent_done");
+	assert.equal(started.length, 1);
+	assert.equal(doneEvents.length, 1);
+	assert.ok(events.some((e) => e.type === "subagent_tool" && e.name === "web_extract" && e.ok));
+	const groupId = (started[0] as { groupId: string }).groupId;
+	assert.match(groupId, /^delegate:run-1:[0-9a-f]{16}$/);
+	assert.deepEqual({ ...(doneEvents[0] as object) }, { type: "subagent_done", groupId, taskIndex: 0, childRunId: "run-1:helper:1", status: "ok", summary: "Custa 10", toolsUsed: ["web_extract"], title: "Loja A" });
+	assert.equal(saved.length, 1);
+	assert.equal(saved[0]?.conversationId, "conv-1");
+	assert.equal(saved[0]?.card.groupId, groupId);
+	assert.deepEqual(saved[0]?.card.tasks.map((t) => [t.status, t.toolsUsed, t.goal]), [["ok", ["web_extract"], "Ache o preço"]]);
+	// O gasto do subagente entrou no uso do run (livro de gasto + medidor da mãe).
+	assert.ok(out.usage.costUsd !== undefined && out.usage.costUsd >= 0.04);
+});
+
+test("run sem dono presente (rotina, webhook): delegate_task não é oferecida", async () => {
+	const { db } = fakeDb();
+	const llm = scripted([[{ type: "text_delta", text: "Oi" }, done()]]);
+	const { registry: _omit, ...input } = baseInput(llm, [], db);
+	await runEngineV4({ ...input, botId: "bot-1", ownerPresent: false, limits: { unattended: true }, adapters: fakeAdapters([]), log: () => undefined });
+	const sent = JSON.stringify(llm.requests[0]?.messages);
+	assert.doesNotMatch(sent, /delegate/);
+});
+
 // F4.3: run acordado pela agenda. Superfície sem dono, `agenda_result` no núcleo e a capacidade `agenda` fora do registro.
 test("run de agenda: lê o que o modelo recebe, fecha com agenda_result em UM passo, sem criar item e sem cartão", async () => {
 	const { db } = fakeDb();

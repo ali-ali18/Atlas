@@ -50,7 +50,7 @@ test("com bot e portas reais montadas, o preset full não tem capacidade indispo
 	const setup = await buildV4Registry({ ...base, botId: "bot-1", deps: fakeAdapterDeps(), log: (m) => void logs.push(m) });
 	assert.deepEqual(setup.unavailable, []);
 	assert.deepEqual(logs, []);
-	assert.deepEqual(setup.registry.ids(), ["agenda", "bots", "browser", "calendar", "connectors", "deliverables", "email", "github", "images", "memory", "research", "routines", "settings", "shopping", "skills", "tasks", "vault", "video", "web"]);
+	assert.deepEqual(setup.registry.ids(), ["agenda", "bots", "browser", "calendar", "connectors", "delegate", "deliverables", "email", "github", "images", "memory", "research", "routines", "settings", "shopping", "skills", "tasks", "vault", "video", "web"]);
 	assert.match(setup.stableSystem, /Work contract/);
 	assert.match(setup.stableSystem, /connectors/);
 	// confirmWrites do conector vira `confirm: "always"` na tool genérica de escrita
@@ -345,4 +345,20 @@ test("anexos (F9): entram com a fonte e dono presente; rotina e agenda não leem
 	assert.deepEqual(toolsOf(agenda), []);
 	const noSource = await buildV4Registry({ ...base, deps: fakeAdapterDeps() });
 	assert.deepEqual(toolsOf(noSource), []);
+});
+
+test("subagentes (F9): `delegate` só com dono presente; rotina e run de agenda não delegam (como no motor antigo)", async () => {
+	const withOwner = await buildV4Registry({ ...base, botId: "bot-1", deps: fakeAdapterDeps() });
+	assert.ok(withOwner.registry.ids().includes("delegate"));
+	assert.ok(withOwner.registry.toolByName("delegate_task"));
+	assert.equal(withOwner.registry.core().some((c) => c.id === "delegate"), false, "lazy: fora do núcleo");
+	const routine = await buildV4Registry({ ...base, botId: "bot-1", deps: fakeAdapterDeps(), unattended: true, log: () => undefined });
+	assert.equal(routine.registry.ids().includes("delegate"), false);
+	assert.ok(routine.unavailable.includes("delegate"));
+	const agenda = await buildV4Registry({ ...base, botId: "bot-1", deps: fakeAdapterDeps(), unattended: true, agendaRun: true, log: () => undefined });
+	assert.equal(agenda.registry.ids().includes("delegate"), false);
+	// Sem a fábrica de ajudantes (teste) a capacidade não entra e `unavailable` diz.
+	const { makeHelpers: _omit, ...noHelpers } = base;
+	const bare = await buildV4Registry({ ...noHelpers, botId: "bot-1", deps: fakeAdapterDeps(), log: () => undefined });
+	assert.ok(bare.unavailable.includes("delegate"));
 });
