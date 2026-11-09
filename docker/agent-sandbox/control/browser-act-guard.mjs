@@ -30,8 +30,14 @@ export function probeActTarget(el, cardSelector) {
 	const form = el.form || el.closest("form");
 	const inForm = Boolean(form);
 	const writeForm = Boolean(form && (form.getAttribute("action") || (form.getAttribute("method") || "").toLowerCase() === "post"));
-	const isButton = tag === "button" || (tag === "input" && ["submit", "image", "button", "reset"].includes(type));
-	const submitControl = isButton && Boolean(form) && (el.hasAttribute("formaction") || el.hasAttribute("formmethod") || (tag === "button" ? el.type === "submit" : ["submit", "image"].includes(type)));
+	// O alvo real do clique: <span>/<svg> dentro de <button> e <label for=submit> acionam o botão, então olhamos o botão, não só a ref.
+	const labelled = tag === "label" ? el.control : null;
+	const target = labelled || (typeof el.closest === "function" ? el.closest('button, input[type="submit" i], input[type="image" i]') : null) || el;
+	const tTag = String(target.tagName || "").toLowerCase();
+	const tType = (target.getAttribute("type") || "").toLowerCase();
+	const tForm = target.form || target.closest?.("form") || null;
+	const isButton = tTag === "button" || (tTag === "input" && ["submit", "image", "button", "reset"].includes(tType));
+	const submitControl = isButton && Boolean(tForm) && (target.hasAttribute("formaction") || target.hasAttribute("formmethod") || (tTag === "button" ? target.type === "submit" : ["submit", "image"].includes(tType)));
 	const field = tag === "input" || tag === "textarea" || tag === "select";
 	const captcha = Boolean(el.closest(".g-recaptcha, .h-captcha, .cf-turnstile")) || (tag === "iframe" && /recaptcha|hcaptcha|challenges\.cloudflare/i.test(el.getAttribute("src") || ""));
 	return { tag, secret, inForm, writeForm, submitControl, field, captcha };
@@ -43,6 +49,7 @@ export function judgeAct(probe, { action, text, intent }) {
 	if (probe.secret && ["type", "select", "press", "clear", "check", "uncheck"].includes(action)) return { verdict: "needs_owner", needsOwner: probe.secret };
 	if (intent === "submit") return { verdict: "ok" };
 	if (action === "click" && probe.submitControl) return { verdict: "needs_submit_intent" };
+	if (action === "press" && probe.submitControl && (isEnterKey(text) || isSpaceKey(text))) return { verdict: "needs_submit_intent" };
 	if (action === "press" && probe.field && probe.inForm && isEnterKey(text) && (probe.tag !== "textarea" || hasModifier(text))) return { verdict: "needs_submit_intent" };
 	return { verdict: "ok" };
 }
@@ -52,6 +59,15 @@ export function isEnterKey(text) {
 	const parts = String(text ?? "").trim().split("+");
 	const key = (parts.at(-1) === "" && parts.length > 1 ? "+" : parts.at(-1)).toLowerCase();
 	return key === "enter" || key === "numpadenter" || key === "return";
+}
+
+/** Espaço (" ", "Space", "Spacebar") aciona o botão focado como um clique. */
+export function isSpaceKey(text) {
+	const raw = String(text ?? "");
+	if (raw.trim() === "" && raw.length > 0) return true;
+	const parts = raw.trim().split("+");
+	const key = (parts.at(-1) ?? "").toLowerCase();
+	return key === "space" || key === "spacebar" || (raw.endsWith("+ ") && raw.includes("+"));
 }
 
 const hasModifier = (text) => String(text ?? "").includes("+") && !/^\++$/.test(String(text));

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { isEnterKey, judgeAct, probeActTarget } from "./browser-act-guard.mjs";
+import { isEnterKey, isSpaceKey, judgeAct, probeActTarget } from "./browser-act-guard.mjs";
 
 const probe = (over = {}) => ({ tag: "button", secret: "", inForm: false, writeForm: false, submitControl: false, field: false, captcha: false, ...over });
 
@@ -66,4 +66,29 @@ test("sonda estrutural (elemento falso): button sem type, input submit/image, fo
 	assert.equal(probeActTarget(el("button", { type: "button", formaction: "/x" }, "button")).submitControl, true, "formaction");
 	assert.equal(probeActTarget(el("button", { type: "button", formmethod: "post" }, "button")).submitControl, true, "formmethod");
 	assert.equal(probeActTarget({ ...el("button"), form: null }).submitControl, false, "fora de form");
+});
+
+test("Enter e Espaço no botão de envio exigem intent submit; botão type=button fora de form segue ok", () => {
+	const send = probe({ submitControl: true, inForm: true });
+	for (const key of ["Enter", "NumpadEnter", "Return", " ", "Space", "Shift+Enter"]) {
+		assert.equal(judgeAct(send, { action: "press", text: key, intent: "browse" }).verdict, "needs_submit_intent", key);
+		assert.equal(judgeAct(send, { action: "press", text: key, intent: "submit" }).verdict, "ok", key);
+	}
+	assert.equal(judgeAct(send, { action: "press", text: "Tab", intent: "browse" }).verdict, "ok");
+	const plain = probe({ submitControl: false, inForm: false });
+	assert.equal(judgeAct(plain, { action: "press", text: "Enter", intent: "browse" }).verdict, "ok");
+	assert.equal(judgeAct(plain, { action: "press", text: " ", intent: "browse" }).verdict, "ok");
+	assert.equal(isSpaceKey(" "), true);
+	assert.equal(isSpaceKey("a"), false);
+});
+
+test("sonda: <span> dentro de <button type=submit> e <label for=submit> contam como envio", () => {
+	const form = { getAttribute: () => null };
+	const button = { tagName: "BUTTON", type: "submit", form, id: "", getAttribute: () => null, hasAttribute: () => false, closest: () => null, matches: () => false };
+	const span = { tagName: "SPAN", form: undefined, id: "", getAttribute: () => null, hasAttribute: () => false, closest: (sel) => (/button/.test(sel) ? button : null), matches: () => false };
+	assert.equal(probeActTarget(span).submitControl, true, "span dentro do botão");
+	const label = { tagName: "LABEL", control: button, id: "", getAttribute: () => null, hasAttribute: () => false, closest: () => null, matches: () => false };
+	assert.equal(probeActTarget(label).submitControl, true, "label for=submit");
+	const spanSemBotao = { ...span, closest: () => null };
+	assert.equal(probeActTarget(spanSemBotao).submitControl, false);
 });
