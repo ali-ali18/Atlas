@@ -19,6 +19,7 @@ import {
 	type BrowserTypeGuard,
 	controlBrowserText,
 	controlBrowserFind,
+	controlCardFill,
 	controlBrowserRead,
 	controlBrowserSnapshot,
 	controlBrowserAct,
@@ -53,6 +54,8 @@ import type {
 	ControlActResult,
 	ControlFindOptions,
 	ControlFindResult,
+	ControlCardFillParams,
+	ControlCardFillResult,
 	ControlReadOptions,
 	ControlReadResult,
 	ControlSnapshotOptions,
@@ -242,6 +245,17 @@ type InspectNetworking = {
 		Networks?: Record<string, { IPAddress?: string } | undefined>;
 	};
 };
+
+/**
+ * Endurecimento do container da VM (F8.0), conservador para não quebrar a imagem:
+ * - `CapDrop`: tira `NET_RAW` (sem pacote bruto/ARP na rede Docker) e `MKNOD` (sem criar device). O resto do conjunto padrão
+ *   fica: o entrypoint usa chown/su e o `sudo atlas-install` precisa de SETUID/SETGID/AUDIT_WRITE.
+ * - `no-new-privileges` NÃO entra: ele quebraria o `sudo atlas-install` (docs/features/vm-instalacoes.md).
+ * - `PidsLimit`: contém fork bomb (conta threads; Chrome e builds usam centenas, por isso o padrão é folgado).
+ */
+export function sandboxHardening(config: Pick<SandboxRuntimeConfig, "pidsLimit">): { CapDrop: string[]; PidsLimit?: number } {
+	return { CapDrop: ["NET_RAW", "MKNOD"], ...(config.pidsLimit > 0 ? { PidsLimit: config.pidsLimit } : {}) };
+}
 
 /** Limites atuais do container diferem da config (env mudou depois de criado)? */
 export function resourceLimitsOutdated(
@@ -508,6 +522,8 @@ export type SandboxManager = {
 	execBrowserWait: (sessionId: string, params: ControlWaitParams) => Promise<ControlWaitResult>;
 	execBrowserRead: (sessionId: string, options?: ControlReadOptions) => Promise<ControlReadResult>;
 	execBrowserFind: (sessionId: string, options: ControlFindOptions) => Promise<ControlFindResult>;
+	/** Paga o formulário da loja na VM (F8.0). Os parâmetros levam o cartão: nunca logar. */
+	execCardFill: (sessionId: string, params: ControlCardFillParams) => Promise<ControlCardFillResult>;
 	/** V8: abre uma aba própria (mesmo perfil/login) e devolve o id; use `withExecutionContext({ tabId })` para agir nela. */
 	execTabOpen: (sessionId: string, url?: string) => Promise<{ tabId: string }>;
 	execTabClose: (sessionId: string, tabId: string) => Promise<{ closed: boolean }>;
@@ -787,6 +803,11 @@ export function createSandboxManager(
 			return controlBrowserFind(record.host ?? config.controlHost, record.controlPort, options, context);
 		},
 
+		async execCardFill(sessionId, params) {
+			const record = getRecord(sessionId);
+			return controlCardFill(record.host ?? config.controlHost, record.controlPort, params, context);
+		},
+
 		async execBrowserWait(sessionId, params) {
 			const record = getRecord(sessionId);
 			return controlBrowserWait(record.host ?? config.controlHost, record.controlPort, params, context);
@@ -912,6 +933,7 @@ export function createSandboxManager(
 					// tini como PID 1: repassa SIGTERM ao entrypoint (que fecha o Chrome
 					// direito) e colhe processos zumbis.
 					Init: true,
+					...sandboxHardening(config),
 					Memory: config.memoryBytes,
 					NanoCpus: config.nanoCpus,
 					NetworkMode: config.networkMode,

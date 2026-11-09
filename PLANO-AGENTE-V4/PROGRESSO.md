@@ -145,7 +145,7 @@
 - [ ] F8.1b `browser-bench` real comparando o navegador atual (ADR 0005) com o `agent-browser` da Vercel Labs na VM; fica o que acertar mais.
 - [ ] F8.2 `code` (plan/build, edição precisa, verificação).
 - [ ] F8.3 Experimento Code Mode.
-- [ ] F8.0 Adaptador real de `card_fill` (pendência OBRIGATÓRIA da F6, ver contrato em `packages/agent/src/ports/payment.ts`): na página final da loja, ler o host que cobra e o total cobrado e devolver `declined`/`failed` SEM pagar se divergirem de `merchant`/`amount`; NUNCA gravar `params` (número, CVV, titular) em log, trace, journal ou mensagem de erro. Teste com VM fake: host trocado e total diferente não pagam; nenhum segredo em log.
+- [x] F8.0 (09/11, frente A: adaptador `Sandbox` no worker com registro de `kind`s, `card_fill` real no control server com host e total conferidos antes de pagar, challenge sem repetir o pagamento, egress/SSRF do Chromium e `CapDrop`/`PidsLimit`; `docs/features/pagamento-real-vm-v4.md`; falta a prova ponta a ponta com loja e VM reais, no piloto do dono) Adaptador real de `card_fill` (pendência OBRIGATÓRIA da F6, ver contrato em `packages/agent/src/ports/payment.ts`): na página final da loja, ler o host que cobra e o total cobrado e devolver `declined`/`failed` SEM pagar se divergirem de `merchant`/`amount`; NUNCA gravar `params` (número, CVV, titular) em log, trace, journal ou mensagem de erro. Teste com VM fake: host trocado e total diferente não pagam; nenhum segredo em log.
 - [ ] F8.A Auditoria: 5 lentes, verificação, correções com teste, reauditoria e `auditorias/F8.md` fechado.
 
 ### F9: Ponte → zero

@@ -129,6 +129,15 @@ describe("sandbox volumes e shell via manager", () => {
 		expect(binds.indexOf(home)).toBeLessThan(binds.findIndex((b) => b.endsWith(":/home/atlas/work")));
 	});
 
+	it("o container nasce com o endurecimento (CapDrop e PidsLimit) e sem privilégio extra", async () => {
+		await createSandboxManager(config, "u1").createSession("conv-h");
+		const host = state.created[0]!.HostConfig as Record<string, unknown>;
+		expect(host.CapDrop).toEqual(["NET_RAW", "MKNOD"]);
+		expect(host.PidsLimit).toBe(4096);
+		expect(host.Privileged).toBeUndefined();
+		expect(host.CapAdd).toBeUndefined();
+	});
+
 	it("createSession monta perfil e work; sem conversa ou com volumes desligados não monta", async () => {
 		await createSandboxManager(config, "u1").createSession("conv-x");
 		expect(state.created[0]!.HostConfig.Binds).toEqual(sandboxBinds("conv-x", "u1"));

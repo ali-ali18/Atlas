@@ -4,6 +4,8 @@ import {
 } from "./execution-context.js";
 import type {
 	ControlActParams,
+	ControlCardFillParams,
+	ControlCardFillResult,
 	ControlActResult,
 	ControlReadOptions,
 	ControlReadResult,
@@ -555,4 +557,17 @@ export async function controlBrowserTabs(
 	context: SandboxExecutionContext = {},
 ): Promise<ControlTabsResult> {
 	return controlPostJson<ControlTabsResult>(host, port, "/browser/tabs", params, 20_000, context);
+}
+
+/**
+ * Pagamento na página da loja (F8.0). O corpo leva o cartão: não passa por log nem entra em mensagem de erro (o servidor só
+ * devolve estado e frases fixas). Timeout longo: abre a página, preenche e espera a confirmação ou o desafio.
+ */
+export async function controlCardFill(
+	host: string,
+	port: number,
+	params: ControlCardFillParams,
+	context: SandboxExecutionContext = {},
+): Promise<ControlCardFillResult> {
+	return controlPostJson<ControlCardFillResult>(host, port, "/card-fill", params, 150_000, context);
 }

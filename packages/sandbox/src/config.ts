@@ -39,6 +39,8 @@ export type SandboxRuntimeConfig = {
 	 * recriação do container — a VM é do bot e o perfil acompanha a conversa.
 	 * Desligue com `SANDBOX_PROFILE_VOLUMES=0` (volta a efêmero). */
 	profileVolumes: boolean;
+	/** Teto de processos+threads do container (cgroup pids). 0 = sem teto. Padrão: 4096. */
+	pidsLimit: number;
 };
 
 function defaultDockerSocketPath(
@@ -82,6 +84,9 @@ export function loadSandboxConfig(
 			: env.SANDBOX_PROFILE_VOLUMES === "1" ||
 				env.SANDBOX_PROFILE_VOLUMES === "true";
 
+	const pids = Number.parseInt(env.SANDBOX_PIDS_LIMIT ?? "4096", 10);
+	const pidsLimit = Number.isFinite(pids) && pids >= 0 ? pids : 4096;
+
 	return {
 		image: env.SANDBOX_IMAGE?.trim() || DEFAULT_IMAGE,
 		viewerHost: (env.SANDBOX_VIEWER_HOST?.trim() || DEFAULT_VIEWER_HOST).replace(
@@ -107,5 +112,6 @@ export function loadSandboxConfig(
 		dockerHost: env.DOCKER_HOST?.trim() || "",
 		enabled,
 		profileVolumes,
+		pidsLimit,
 	};
 }

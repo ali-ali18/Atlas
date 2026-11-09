@@ -17,6 +17,9 @@ import { createPageReader } from "./reader.mjs";
 import { parseScreenshotOptions, scrotPlan } from "./screenshot-options.mjs";
 import { withMarks } from "./marks.mjs";
 import { HttpError, readJsonBody } from "./request-body.mjs";
+import { createCardFill } from "./card-fill.mjs";
+import { createPlaywrightDriver } from "./card-fill-driver.mjs";
+import { createEgressGuard, installEgressGuard } from "./egress-guard.mjs";
 import { countUserProcesses, countViewerClients, createActivityTracker } from "./activity.mjs";
 
 const PORT = Number.parseInt(process.env.SANDBOX_CONTROL_PORT ?? "3080", 10);
@@ -129,7 +132,14 @@ async function scrollBy(deltaX, deltaY) {
 }
 
 // --- Browser (Playwright/CDP) para navegação confiável ---
-const browserSession = createBrowserSession({ chromium, cdpUrl: CDP_URL });
+// Egress: o Chromium da VM nunca alcança metadata, loopback, rede privada nem a rede Docker (SSRF), nem por redirecionamento.
+// SANDBOX_EGRESS_GUARD=0 desliga (só para depurar a imagem); o padrão é ligado.
+const egressGuard = createEgressGuard();
+const browserSession = createBrowserSession({
+	chromium,
+	cdpUrl: CDP_URL,
+	...(process.env.SANDBOX_EGRESS_GUARD === "0" ? {} : { onContext: (context) => installEgressGuard(context, egressGuard, (reason) => console.warn(`[sandbox-control] egress bloqueado: ${reason}`)) }),
+});
 const { restart } = browserSession;
 // V8: cabeçalho x-atlas-tab leva a requisição para a aba do subagente.
 const tabScope = createTabScope(browserSession);
@@ -249,6 +259,9 @@ const handleRequest = async (req, res) => {
 		activity.end(token);
 	}
 };
+
+// Compras cujo "pagar" já foi clicado (trava de repetição do card_fill; vive enquanto o control server vive).
+const cardFillSubmitted = new Map();
 
 const READ_ONLY_POSTS = new Set(["/browser/read", "/browser/find", "/browser/snapshot"]);
 
@@ -421,6 +434,20 @@ const handleControlRequest = async (req, res) => {
 
 		if (req.method === "GET" && req.url === "/browser/links") {
 			sendJson(res, 200, await browserLinks());
+			return;
+		}
+
+		// Pagamento (F8.0): o corpo leva número, CVV e titular. Nada dele é logado nem devolvido; `fill` nunca lança.
+		if (req.method === "POST" && req.url === "/card-fill") {
+			const body = await readJsonBody(req);
+			let page;
+			try {
+				page = await getPage();
+			} catch {
+				sendJson(res, 200, { state: "failed", reason: "Nothing was paid: the browser is not available." });
+				return;
+			}
+			sendJson(res, 200, await createCardFill({ driver: createPlaywrightDriver(page), submitted: cardFillSubmitted }).fill(body));
 			return;
 		}
 
