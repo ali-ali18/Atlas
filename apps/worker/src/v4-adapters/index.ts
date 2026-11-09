@@ -28,6 +28,7 @@ import {
 import { countryFromLocale, type AgendaKind, type ComputerUseEvent } from "@workspace/shared";
 import { createV4Agenda, realV4AgendaDeps, type V4AgendaDeps } from "./agenda.js";
 import { createV4Email, realV4EmailDeps, type V4EmailDeps } from "./email.js";
+import { createV4Images, realV4ImagesDeps, type V4ImagesConfig, type V4ImagesDeps } from "./images.js";
 import { createV4Brief, realV4BriefDeps, type V4BriefDeps } from "./brief.js";
 import { createV4Calendar, realV4CalendarDeps, type V4CalendarDeps } from "./calendar.js";
 import { createV4Deliverables, realV4DeliverablesDeps, type V4DeliverablesDeps } from "./deliverables.js";
@@ -50,9 +51,10 @@ export type V4AdapterDeps = {
 	email: V4EmailDeps;
 	calendar: V4CalendarDeps;
 	brief: V4BriefDeps;
+	images: V4ImagesDeps;
 };
 
-export const realV4AdapterDeps = (): V4AdapterDeps => ({ web: realV4WebDeps(), deliverables: realV4DeliverablesDeps, memory: realV4MemoryDeps, notebook: realV4NotebookDeps, settings: realV4SettingsDeps, mcp: realV4McpDeps, agenda: realV4AgendaDeps, shopping: realV4ShoppingDeps, email: realV4EmailDeps, calendar: realV4CalendarDeps, brief: realV4BriefDeps });
+export const realV4AdapterDeps = (): V4AdapterDeps => ({ web: realV4WebDeps(), deliverables: realV4DeliverablesDeps, memory: realV4MemoryDeps, notebook: realV4NotebookDeps, settings: realV4SettingsDeps, mcp: realV4McpDeps, agenda: realV4AgendaDeps, shopping: realV4ShoppingDeps, email: realV4EmailDeps, calendar: realV4CalendarDeps, brief: realV4BriefDeps, images: realV4ImagesDeps });
 
 export type V4RegistryInput = {
 	runId: string;
@@ -99,6 +101,8 @@ export type V4RegistryInput = {
 	codeRequested?: boolean;
 	/** O ambiente de código existe neste servidor (dev sandbox). Serve para `settings_set_code_mode` ser honesta ao ligar sem ele. */
 	codeEnvironment?: boolean;
+	/** Imagens (F9): chave e modelo de imagem do run (modelo do dono, ou `ATLAS_IMAGE_MODEL`). Sem ele a tool avisa como configurar. Em run sem dono a capacidade não entra. */
+	imageGeneration?: V4ImagesConfig;
 };
 
 export type V4RegistrySetup = {
@@ -127,6 +131,8 @@ export async function buildV4Registry(input: V4RegistryInput): Promise<V4Registr
 	const emailPorts = createV4Email({ scope: { ownerId: input.userId, botId: botId ?? null, conversationId: input.conversationId ?? null, emit: input.emit, log }, deps: deps.email });
 	const country = countryFromLocale(input.locale);
 	const calendarPorts = createV4Calendar({ scope: { botId: botId ?? null, conversationId: input.conversationId ?? null, emit: input.emit, log }, deps: deps.calendar });
+	// Imagens (F9): sem dono presente o gasto de provedor não tem quem aprove, então a porta nem entra (a capacidade fica fora).
+	const images = input.unattended ? undefined : createV4Images({ scope: { conversationId: input.conversationId ?? null, emit: input.emit, log }, ...(input.imageGeneration && { config: input.imageGeneration }), deps: deps.images });
 	const presetDeps: PresetDeps = {
 		search,
 		...(input.makeHelpers && { helpers: input.makeHelpers({ search }) }),
@@ -147,6 +153,7 @@ export async function buildV4Registry(input: V4RegistryInput): Promise<V4Registr
 		...(input.checkout && { checkout: input.checkout }),
 		...(input.browser && { browser: true }),
 		...(input.code && { code: input.code }),
+		...(images && { images }),
 		...(country && { shoppingCountry: country }),
 	};
 	const preset = setupPreset("full", presetDeps);

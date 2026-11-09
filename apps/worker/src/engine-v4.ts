@@ -70,6 +70,7 @@ import {
 	type RunLease,
 } from "@workspace/db";
 import { buildV4Registry, type V4AdapterDeps } from "./v4-adapters/index.js";
+import type { V4ImagesConfig } from "./v4-adapters/images.js";
 import { createV4Payment, type V4PaymentDeps } from "./v4-adapters/payment.js";
 import { MODEL_ROLES, type CodeMode, formatModelRef, isMaintenanceModel, parseModelRef, type AgendaKind, type BotLanguage, type ComputerUseEvent, type ModelChainEntry, type RoleChains, type RunStop, type RunUsage } from "@workspace/shared";
 
@@ -363,6 +364,8 @@ export type RunEngineV4Input = {
 	codeMode?: CodeMode;
 	/** O ambiente de código existe neste run (dev sandbox). `codeMode` ligado sem isso: `code` indisponível, dito no log. */
 	codeAvailable?: boolean;
+	/** Imagens (F9): chave e modelo de imagem do run. Sem ele, a tool `generate_image` avisa como configurar o modelo. */
+	imageGeneration?: V4ImagesConfig;
 	/** Canal efêmero do CVV (F6.3). Sem ele o pagamento não é oferecido (o cartão de compra nem existe sem onde guardar o CVV). */
 	cvvEscrow?: CvvEscrow | null;
 	/** Funções de banco do pagamento (testes passam fakes). */
@@ -497,6 +500,7 @@ export async function runEngineV4(input: RunEngineV4Input): Promise<V4EngineResu
 				...(codeOn && { code: codeMode === "plan" ? { readOnly: true } : {} }),
 				...(codeMode !== "off" && { codeRequested: true }),
 				...(input.codeAvailable === true && { codeEnvironment: true }),
+				...(input.imageGeneration && { imageGeneration: input.imageGeneration }),
 			});
 	const registry = input.registry ?? built!.registry;
 	motherRegistry = registry;

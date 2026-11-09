@@ -312,6 +312,7 @@ function fakeAdapters(searched: string[]): NonNullable<Parameters<typeof runEngi
 		email: { listConnected: never, accessToken: never, googleFetch: never, googleJson: never, getMailbox: never, botMail: never, persistCard: never } as never,
 		calendar: { listConnected: never, accessToken: never, fetchFn: never, loadSettings: never, persistCard: never } as never,
 		brief: { listPurchases: never, listAgendaItems: never, conversationTasks: never, persistCard: never } as never,
+		images: { generate: never, process: never, persistArtifact: never, persistCard: never } as never,
 	};
 }
 

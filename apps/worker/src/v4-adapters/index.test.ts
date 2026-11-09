@@ -32,6 +32,7 @@ export function fakeAdapterDeps(options: { connections?: Connected; listFails?: 
 		email: { listConnected: never, accessToken: never, googleFetch: never, googleJson: never, getMailbox: never, botMail: never, persistCard: never } as unknown as V4AdapterDeps["email"],
 		calendar: { listConnected: never, accessToken: never, fetchFn: never, loadSettings: never, persistCard: never } as unknown as V4AdapterDeps["calendar"],
 		brief: { listPurchases: never, listAgendaItems: never, conversationTasks: never, persistCard: never } as unknown as V4AdapterDeps["brief"],
+		images: { generate: never, process: never, persistArtifact: never, persistCard: never } as unknown as V4AdapterDeps["images"],
 	};
 }
 
@@ -44,7 +45,7 @@ test("com bot e portas reais montadas, o preset full não tem capacidade indispo
 	const setup = await buildV4Registry({ ...base, botId: "bot-1", deps: fakeAdapterDeps(), log: (m) => void logs.push(m) });
 	assert.deepEqual(setup.unavailable, []);
 	assert.deepEqual(logs, []);
-	assert.deepEqual(setup.registry.ids(), ["agenda", "browser", "calendar", "connectors", "deliverables", "email", "memory", "research", "settings", "shopping", "tasks", "web"]);
+	assert.deepEqual(setup.registry.ids(), ["agenda", "browser", "calendar", "connectors", "deliverables", "email", "images", "memory", "research", "settings", "shopping", "tasks", "web"]);
 	assert.match(setup.stableSystem, /Work contract/);
 	assert.match(setup.stableSystem, /connectors/);
 	// confirmWrites do conector vira `confirm: "always"` na tool genérica de escrita

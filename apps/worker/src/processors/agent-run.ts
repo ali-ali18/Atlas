@@ -1290,6 +1290,8 @@ async function executeLeasedRun(ctx: {
 					...(deps.cvvEscrow ? { cvvEscrow: deps.cvvEscrow } : {}),
 					...(v4Sandbox ? { sandbox: v4Sandbox, ...(v4Sandbox.availability.vm && { browser: true }), codeAvailable: v4Sandbox.availability.code } : {}),
 					codeMode: v4CodeMode,
+					// Imagens (F9): o modelo do dono, ou o de `ATLAS_IMAGE_MODEL` como no legado (sem chave OpenRouter não há como gerar).
+					...(apiKey && (runtimeConfig.imageModel ?? process.env.ATLAS_IMAGE_MODEL?.trim()) ? { imageGeneration: { apiKey, model: (runtimeConfig.imageModel ?? process.env.ATLAS_IMAGE_MODEL)!.trim() } } : {}),
 				});
 				return engineRun.finally(() => v4Sandbox?.release(runUserId, runId).catch(() => undefined));
 			},
