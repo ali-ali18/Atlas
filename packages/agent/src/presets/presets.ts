@@ -131,7 +131,8 @@ const FACTORIES: Readonly<Record<CapabilityId, CapabilityFactory>> = {
 	// F7.1: lazy; ler, triar e rascunhar livres, enviar sempre com a aprovação do dono.
 	email: (deps) => deps.email && createEmailCapability(deps.email),
 	// F8.2: lazy; "Bom dia" não carrega o schema. As tools falam com a porta `Sandbox` (kinds `code.*`).
-	code: (deps) => deps.code && createCodeCapability(deps.code),
+	// F9: `code_open_pr` usa a escrita nativa do GitHub e a mesma confirmação (`confirmWrites`); sem dono (`github.readOnly`) não entra.
+	code: (deps) => deps.code && createCodeCapability({ ...deps.code, ...(deps.github?.githubWrite && !deps.github.readOnly && { githubWrite: deps.github.githubWrite }), ...(deps.github?.confirmWrites && { confirmWrites: true }) }),
 	// F8.1: navegador da VM; lazy. Fala com a porta `Sandbox` do run (sem VM, as tools falham com o motivo real). `helpers` liga o `browser_digest`.
 	browser: (deps) => deps.browser === true ? createBrowserCapability({ ...(deps.helpers && { helpers: deps.helpers }) }) : undefined,
 	// F9: imagens novas; lazy. Efeito `write_external` (a autonomia decide) e sem dono a tool não é oferecida.

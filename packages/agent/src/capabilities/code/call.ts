@@ -16,6 +16,11 @@ const KIND_OF: Record<Key, CodeKind> = {
 	test: CODE_KINDS.test,
 	gitStatus: CODE_KINDS.gitStatus,
 	diff: CODE_KINDS.diff,
+	commit: CODE_KINDS.commit,
+	push: CODE_KINDS.push,
+	prPrepare: CODE_KINDS.prPrepare,
+	ci: CODE_KINDS.ci,
+	ciLog: CODE_KINDS.ciLog,
 };
 
 export const redact = (text: string): string => redactSecrets(text);

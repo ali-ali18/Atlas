@@ -25,6 +25,16 @@ export const CODE_KINDS = {
 	gitStatus: "code.git_status",
 	/** `git diff` do workspace (ou de um arquivo). */
 	diff: "code.diff",
+	/** Commit das mudanças da sessão (opcionalmente numa branch nova). Local: não sai do workspace. */
+	commit: "code.commit",
+	/** Push da branch ATUAL para o origin, sem force e nunca na branch padrão. A credencial do dono só vive no ambiente do job. */
+	push: "code.push",
+	/** Fatos do repositório para abrir o PR (repo da SESSÃO, branch, base, commits à frente, se já foi enviada, PR aberto da branch). Não escreve. */
+	prPrepare: "code.pr_prepare",
+	/** PR e verificações (checks) do PR da branch da sessão. Leitura. */
+	ci: "code.ci",
+	/** Uma parte do log de um job do CI (offset/limite em caracteres). Leitura. */
+	ciLog: "code.ci_log",
 } as const;
 export type CodeKind = (typeof CODE_KINDS)[keyof typeof CODE_KINDS];
 export const CODE_KIND_LIST: readonly CodeKind[] = Object.values(CODE_KINDS);
@@ -50,6 +60,11 @@ export const codeParams = {
 	test: runParams.extend({ fullSuite: z.boolean().optional() }),
 	gitStatus: z.object({ sessionId }),
 	diff: z.object({ sessionId, path: z.string().max(500).optional(), staged: z.boolean().optional() }),
+	commit: z.object({ sessionId, message: z.string().min(1).max(5_000), branch: z.string().min(1).max(200).optional(), paths: z.array(z.string().min(1).max(500)).max(100).optional() }),
+	push: z.object({ sessionId }),
+	prPrepare: z.object({ sessionId, base: z.string().min(1).max(200).optional() }),
+	ci: z.object({ sessionId, number: z.number().int().min(1).max(10_000_000).optional() }),
+	ciLog: z.object({ sessionId, jobId: z.number().int().min(1), offset: z.number().int().min(0).optional(), limit: z.number().int().min(500).max(20_000).optional() }),
 } as const;
 
 const excerpt = z.object({ firstLine: z.number().int(), text: z.string() });
@@ -66,5 +81,26 @@ export const codeResults = {
 	test: runResult,
 	gitStatus: z.object({ branch: z.string().nullable(), files: z.array(z.object({ status: z.string(), path: z.string() })), clean: z.boolean() }),
 	diff: z.object({ diff: z.string(), empty: z.boolean(), spillPath: z.string().optional() }),
+	commit: z.object({ sha: z.string(), branch: z.string(), subject: z.string(), files: z.number().int(), createdBranch: z.boolean().optional() }),
+	push: z.object({ branch: z.string(), repo: z.string(), sha: z.string().optional(), newBranch: z.boolean(), url: z.string().optional() }),
+	prPrepare: z.object({
+		repo: z.string(),
+		head: z.string(),
+		base: z.string(),
+		ahead: z.number().int(),
+		files: z.number().int(),
+		dirty: z.number().int(),
+		/** A branch existe no origin com o mesmo commit da cabeça local. */
+		pushed: z.boolean(),
+		existingPr: z.object({ number: z.number().int(), url: z.string(), state: z.string(), title: z.string() }).optional(),
+	}),
+	ci: z.object({
+		repo: z.string(),
+		pr: z.object({ number: z.number().int(), url: z.string(), state: z.string(), title: z.string(), base: z.string(), head: z.string() }).nullable(),
+		summary: z.enum(["none", "pending", "passing", "failing"]),
+		checks: z.array(z.object({ name: z.string(), status: z.string(), conclusion: z.string().nullable(), url: z.string().optional(), durationMs: z.number().optional(), jobId: z.number().optional() })),
+		note: z.string().optional(),
+	}),
+	ciLog: z.object({ jobId: z.number().int(), text: z.string(), startOffset: z.number().int(), endOffset: z.number().int(), totalChars: z.number().int(), previousOffset: z.number().int().nullable(), nextOffset: z.number().int().nullable(), errors: z.array(z.string()).optional() }),
 } as const;
 export type CodeResultOf<K extends keyof typeof codeResults> = z.infer<(typeof codeResults)[K]>;

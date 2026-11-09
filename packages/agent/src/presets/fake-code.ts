@@ -4,12 +4,17 @@
 // Comando: o fake NÃO executa nada sozinho; quem monta injeta `exec` (o eval roda o shell de verdade numa cópia em disco;
 // o teste unitário responde por roteiro). Sem `exec`, o comando falha de forma honesta.
 import type { Sandbox, SandboxAction, SandboxResult } from "../ports/sandbox.js";
+import { isSensitiveEnvFile } from "@workspace/shared";
 import { CODE_KINDS, codeParams, isCodeKind } from "../capabilities/code/kinds.js";
 import { applyEdit } from "./code-edit-match.js";
 
 export type FakeCodeExec = (input: { cmd: string; cwd?: string; files: ReadonlyMap<string, string>; kind: "shell" | "test" }) => Promise<{ exitCode: number | null; output: string; timedOut?: boolean; files?: ReadonlyMap<string, string> }> | { exitCode: number | null; output: string; timedOut?: boolean; files?: ReadonlyMap<string, string> };
 
-type Workspace = { id: string; ownerId: string; repo?: string; branch?: string; files: Map<string, string>; baseline: Map<string, string> };
+/** Modelo mínimo de git/GitHub por sessão (F9): commits à frente da base, o que foi enviado e o que o CI devolve. */
+type FakeGit = { ahead: number; sha: string; remote: Map<string, string> };
+export type FakeCodeCi = { pr?: { number: number; url: string; state: string; title: string; base: string; head: string }; summary: "none" | "pending" | "passing" | "failing"; checks: Array<{ name: string; status: string; conclusion: string | null; url?: string; durationMs?: number; jobId?: number }> };
+type Workspace = { id: string; ownerId: string; repo?: string; branch?: string; files: Map<string, string>; baseline: Map<string, string>; git: FakeGit };
+const DEFAULT_BRANCH = "main";
 
 export type FakeCodeCall = { ownerId: string; kind: string; params: unknown };
 
@@ -30,7 +35,10 @@ export class FakeCodeSandbox implements Sandbox {
 	private readonly workspaces = new Map<string, Workspace>();
 	private seq = 0;
 
-	constructor(private readonly options: { seed?: Record<string, string>; exec?: FakeCodeExec; testCommand?: string } = {}) {}
+	/** Pushes pedidos (para o teste conferir que nunca houve força nem a branch padrão). */
+	readonly pushes: Array<{ ownerId: string; repo: string; branch: string }> = [];
+
+	constructor(private readonly options: { seed?: Record<string, string>; exec?: FakeCodeExec; testCommand?: string; ci?: FakeCodeCi; jobLogs?: Record<number, string>; existingPr?: { number: number; url: string; state: string; title: string } } = {}) {}
 
 	/** Arquivos da sessão, para o teste conferir o resultado. */
 	files(sessionId: string): Map<string, string> | undefined {
@@ -68,7 +76,7 @@ export class FakeCodeSandbox implements Sandbox {
 				}
 				const id = `sess-${++this.seq}`;
 				const files = new Map(Object.entries(this.options.seed ?? {}));
-				this.workspaces.set(id, { id, ownerId: userId, ...(p.repo && { repo: p.repo }), ...(p.branch && { branch: p.branch }), files, baseline: new Map(files) });
+				this.workspaces.set(id, { id, ownerId: userId, ...(p.repo && { repo: p.repo }), ...(p.branch && { branch: p.branch }), files, baseline: new Map(files), git: { ahead: 0, sha: "sha0", remote: new Map([[DEFAULT_BRANCH, "sha0"]]) } });
 				return { sessionId: id, repo: p.repo, branch: p.branch, status: "RUNNING", ...(this.options.testCommand && { testCommand: this.options.testCommand }) };
 			}
 			case CODE_KINDS.list: {
@@ -122,7 +130,7 @@ export class FakeCodeSandbox implements Sandbox {
 				const p = codeParams.gitStatus.parse(raw);
 				const ws = this.open(userId, p.sessionId);
 				const files = this.changed(ws).map((path) => ({ status: ws.baseline.has(path) ? "M" : "??", path }));
-				return { branch: ws.branch ?? "main", files, clean: files.length === 0 };
+				return { branch: ws.branch ?? DEFAULT_BRANCH, files, clean: files.length === 0 };
 			}
 			case CODE_KINDS.diff: {
 				const p = codeParams.diff.parse(raw);
@@ -130,6 +138,59 @@ export class FakeCodeSandbox implements Sandbox {
 				const paths = this.changed(ws).filter((path) => !p.path || path === clean(p.path));
 				const diff = paths.map((path) => lineDiff(path, ws.baseline.get(path) ?? "", ws.files.get(path) ?? "").diff).join("\n");
 				return { diff, empty: paths.length === 0 };
+			}
+			case CODE_KINDS.commit: {
+				const p = codeParams.commit.parse(raw);
+				const ws = this.open(userId, p.sessionId);
+				const head = ws.branch ?? DEFAULT_BRANCH;
+				if (!p.branch && head === DEFAULT_BRANCH) throw new Error("Refused: the workspace is on the default branch (main). Pass `branch` with a new branch name to commit the change there.");
+				if (p.branch === DEFAULT_BRANCH) throw new Error("Refused: main is the default branch. Pick a new branch name for the change.");
+				const paths = this.changed(ws).filter((path) => !p.paths || p.paths.map(clean).includes(path));
+				if (paths.length === 0) throw new Error("Nothing to commit: there are no changes in the workspace.");
+				const secret = paths.filter((path) => isSensitiveEnvFile(path));
+				if (secret.length > 0) throw new Error(`Refused: secret files would be committed (${secret.join(", ")}). Nothing was committed and the stage was undone.`);
+				for (const path of paths) ws.baseline.set(path, ws.files.get(path) ?? "");
+				ws.branch = p.branch ?? head;
+				ws.git.ahead += 1;
+				ws.git.sha = `sha${ws.git.ahead}-${ws.branch}`;
+				return { sha: ws.git.sha, branch: ws.branch, subject: p.message.split("\n")[0] ?? "", files: paths.length, ...(p.branch && { createdBranch: true }) };
+			}
+			case CODE_KINDS.push: {
+				const p = codeParams.push.parse(raw);
+				const ws = this.open(userId, p.sessionId);
+				if (!ws.repo) throw new Error("This session has no GitHub repository (owner/name). Open a session with a repo first.");
+				const head = ws.branch ?? DEFAULT_BRANCH;
+				if (head === DEFAULT_BRANCH || head === "master") throw new Error(`Refused: ${head} is the default branch and is never pushed from here. Commit on a new branch (code_commit with branch) and push that one.`);
+				const isNew = !ws.git.remote.has(head);
+				ws.git.remote.set(head, ws.git.sha);
+				this.pushes.push({ ownerId: userId, repo: ws.repo, branch: head });
+				return { branch: head, repo: ws.repo, sha: ws.git.sha, newBranch: isNew, url: `https://github.com/${ws.repo}/tree/${head}` };
+			}
+			case CODE_KINDS.prPrepare: {
+				const p = codeParams.prPrepare.parse(raw);
+				const ws = this.open(userId, p.sessionId);
+				if (!ws.repo) throw new Error("This session has no GitHub repository (owner/name). Open a session with a repo first.");
+				const head = ws.branch ?? DEFAULT_BRANCH;
+				const changed = this.changed(ws).length;
+				return { repo: ws.repo, head, base: p.base ?? DEFAULT_BRANCH, ahead: ws.git.ahead, files: ws.git.ahead > 0 ? 1 : 0, dirty: changed, pushed: ws.git.remote.get(head) === ws.git.sha, ...(this.options.existingPr && head !== DEFAULT_BRANCH && { existingPr: this.options.existingPr }) };
+			}
+			case CODE_KINDS.ci: {
+				const p = codeParams.ci.parse(raw);
+				const ws = this.open(userId, p.sessionId);
+				if (!ws.repo) throw new Error("This session has no GitHub repository (owner/name). Open a session with a repo first.");
+				const ci = this.options.ci;
+				return ci?.pr ? { repo: ws.repo, pr: ci.pr, summary: ci.summary, checks: ci.checks } : { repo: ws.repo, pr: null, summary: "none", checks: [], note: "Push the branch (code_push) and open one first." };
+			}
+			case CODE_KINDS.ciLog: {
+				const p = codeParams.ciLog.parse(raw);
+				const ws = this.open(userId, p.sessionId);
+				if (!ws.repo) throw new Error("This session has no GitHub repository (owner/name). Open a session with a repo first.");
+				const text = this.options.jobLogs?.[p.jobId];
+				if (text === undefined) throw new Error(`Job ${p.jobId} was not found.`);
+				const limit = p.limit ?? 6_000;
+				const start = Math.min(p.offset ?? Math.max(0, text.length - limit), text.length);
+				const end = Math.min(text.length, start + limit);
+				return { jobId: p.jobId, text: text.slice(start, end), startOffset: start, endOffset: end, totalChars: text.length, previousOffset: start > 0 ? Math.max(0, start - limit) : null, nextOffset: end < text.length ? end : null };
 			}
 		}
 		throw new Error(`Unhandled ${kind}`);
