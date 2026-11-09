@@ -12,6 +12,7 @@ import {
 	createEmailCapability,
 	createNoteTaskListStore,
 	createShoppingCapability,
+	createVaultAdapter,
 	presetStablePrompt,
 	setupPreset,
 	type CapabilityId,
@@ -37,6 +38,7 @@ import { createV4Memory, realV4MemoryDeps, type V4MemoryDeps } from "./memory.js
 import { createV4Notebook, realV4NotebookDeps, type V4NotebookDeps } from "./notebook.js";
 import { createV4Settings, realV4SettingsDeps, type V4SettingsDeps } from "./settings.js";
 import { createV4Shopping, realV4ShoppingDeps, type V4ShoppingDeps } from "./shopping.js";
+import { createV4Vault, realV4VaultDeps, type V4VaultDeps } from "./vault.js";
 import { createV4Search, realV4WebDeps, type V4WebDeps } from "./web.js";
 
 export type V4AdapterDeps = {
@@ -52,9 +54,10 @@ export type V4AdapterDeps = {
 	calendar: V4CalendarDeps;
 	brief: V4BriefDeps;
 	images: V4ImagesDeps;
+	vault: V4VaultDeps;
 };
 
-export const realV4AdapterDeps = (): V4AdapterDeps => ({ web: realV4WebDeps(), deliverables: realV4DeliverablesDeps, memory: realV4MemoryDeps, notebook: realV4NotebookDeps, settings: realV4SettingsDeps, mcp: realV4McpDeps, agenda: realV4AgendaDeps, shopping: realV4ShoppingDeps, email: realV4EmailDeps, calendar: realV4CalendarDeps, brief: realV4BriefDeps, images: realV4ImagesDeps });
+export const realV4AdapterDeps = (): V4AdapterDeps => ({ web: realV4WebDeps(), deliverables: realV4DeliverablesDeps, memory: realV4MemoryDeps, notebook: realV4NotebookDeps, settings: realV4SettingsDeps, mcp: realV4McpDeps, agenda: realV4AgendaDeps, shopping: realV4ShoppingDeps, email: realV4EmailDeps, calendar: realV4CalendarDeps, brief: realV4BriefDeps, images: realV4ImagesDeps, vault: realV4VaultDeps });
 
 export type V4RegistryInput = {
 	runId: string;
@@ -129,6 +132,8 @@ export async function buildV4Registry(input: V4RegistryInput): Promise<V4Registr
 	const agenda = botId ? createV4Agenda({ botId, policy: input.policy ?? { autonomy: "balanced", rules: [] }, deps: deps.agenda }) : undefined;
 	const shoppingPorts = createV4Shopping({ scope: { conversationId: input.conversationId ?? null, botId: botId ?? null, emit: input.emit, log }, deps: deps.shopping });
 	const emailPorts = createV4Email({ scope: { ownerId: input.userId, botId: botId ?? null, conversationId: input.conversationId ?? null, emit: input.emit, log }, deps: deps.email });
+	// Cofre (F9): nomes e metadados para o modelo; o valor só vai ao executor. Sem dono presente só `secret_list` (sem pedir nem digitar).
+	const vaultPorts = createV4Vault({ scope: { conversationId: input.conversationId ?? null, botId: botId ?? null, emit: input.emit, log }, deps: deps.vault });
 	const country = countryFromLocale(input.locale);
 	const calendarPorts = createV4Calendar({ scope: { botId: botId ?? null, conversationId: input.conversationId ?? null, emit: input.emit, log }, deps: deps.calendar });
 	// Imagens (F9): sem dono presente o gasto de provedor não tem quem aprove, então a porta nem entra (a capacidade fica fora).
@@ -152,6 +157,7 @@ export async function buildV4Registry(input: V4RegistryInput): Promise<V4Registr
 		calendar: calendarPorts,
 		...(input.checkout && { checkout: input.checkout }),
 		...(input.browser && { browser: true }),
+		vault: { vault: createVaultAdapter(vaultPorts.backend), ...(vaultPorts.requests && { requests: vaultPorts.requests }), ...(input.unattended && { readOnly: true }) },
 		...(input.code && { code: input.code }),
 		...(images && { images }),
 		...(country && { shoppingCountry: country }),

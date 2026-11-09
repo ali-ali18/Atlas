@@ -7,7 +7,7 @@ import { test } from "node:test";
 import { createCapabilityRegistry, createSseMapper, type Helpers, type Llm, type LlmChatRequest, type LlmStreamEvent, type RunEvent } from "@workspace/agent";
 import type { ProviderStreamChat } from "@workspace/llm";
 import type { ComputerUseEvent } from "@workspace/shared";
-import { buildV4RoleChains, cheapModelFromEnv, createMinimalEventMapper, createV4Llm, dropProcessorOwnedEvents, meterLlm, ownerStepsLimit, runEngineV4, stoppedEffectsNote, storeBackendFromDb, unavailableQueue, unavailableSandbox, V4_CHEAP_MODEL_DEFAULT, vaultBackendFromService, type V4Db } from "./engine-v4.js";
+import { buildV4RoleChains, cheapModelFromEnv, createMinimalEventMapper, createV4Llm, dropProcessorOwnedEvents, meterLlm, ownerStepsLimit, runEngineV4, stoppedEffectsNote, storeBackendFromDb, unavailableQueue, unavailableSandbox, V4_CHEAP_MODEL_DEFAULT, type V4Db } from "./engine-v4.js";
 
 const served = { provider: "fake", model: "m-1" };
 const done = (costUsd?: number): LlmStreamEvent => ({ type: "done", finishReason: "stop", usage: { inputTokens: 10, outputTokens: 5, ...(costUsd !== undefined ? { costUsd } : {}) }, served });
@@ -134,23 +134,10 @@ test("o mapa mínimo de eventos converte texto, chamada e resultado e ignora o r
 	assert.deepEqual(map({ type: "card", runId: "r", userId: "u", data: {} }), []);
 });
 
-test("meterLlm soma o uso e marca custo desconhecido; vault expõe só segredos simples e o dono", async () => {
+test("meterLlm soma o uso e marca custo desconhecido", async () => {
 	const meter = meterLlm(scripted([[done(0.5)], [done()]]));
 	for (const _ of [1, 2]) for await (const _event of meter.llm.chat({ role: "main", messages: [] })) void _event;
 	assert.deepEqual(meter.usage(), { promptTokens: 20, completionTokens: 10, totalTokens: 30, costUsd: 0.5, costUnknownCalls: 1 });
-
-	const calls: string[] = [];
-	const backend = vaultBackendFromService({
-		listMeta: async (userId) => (userId === "a" ? [{ kind: "secret", name: "api", label: "" }, { kind: "login", name: "site", label: "Site" }] : []),
-		resolveRef: async (userId, ref) => {
-			calls.push(`${userId}:${ref.name}`);
-			return userId === "a" && ref.name === "api" ? { value: "valor" } : null;
-		},
-	});
-	assert.deepEqual(await backend.listHandles("a"), [{ id: "api", label: "api" }]);
-	assert.deepEqual(await backend.listHandles("b"), []);
-	assert.equal(await backend.resolveSecret("a", "api"), "valor");
-	assert.equal(await backend.resolveSecret("b", "api"), null);
 });
 
 test("store do worker: setStatus não grava no banco e o recibo/nota passam o dono", async () => {
@@ -313,6 +300,7 @@ function fakeAdapters(searched: string[]): NonNullable<Parameters<typeof runEngi
 		calendar: { listConnected: never, accessToken: never, fetchFn: never, loadSettings: never, persistCard: never } as never,
 		brief: { listPurchases: never, listAgendaItems: never, conversationTasks: never, persistCard: never } as never,
 		images: { generate: never, process: never, persistArtifact: never, persistCard: never } as never,
+		vault: { listMeta: async () => [], getByName: never, getKey: never, touch: never, audit: never, unwrap: never, open: never, saveIntent: never, persistCard: never } as never,
 	};
 }
 

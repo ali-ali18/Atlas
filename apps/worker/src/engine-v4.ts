@@ -139,24 +139,6 @@ export function storeBackendFromDb(db: V4Db, lease: Pick<RunLease, "owner" | "to
 	};
 }
 
-/** Cofre: só segredos simples (`kind: "secret"`); o id do handle é o nome do item, que é o que o serviço resolve. */
-export type VaultServiceLike = {
-	listMeta(userId: string): Promise<Array<{ kind: string; name: string; label: string }>>;
-	resolveRef(userId: string, ref: { kind: "secret"; name: string; raw: string }, by?: { actor?: "user" | "bot"; detail?: string }): Promise<{ value: string } | null>;
-};
-
-export function vaultBackendFromService(service: VaultServiceLike): VaultBackend {
-	return {
-		async listHandles(userId) {
-			return (await service.listMeta(userId)).filter((m) => m.kind === "secret").map((m) => ({ id: m.name, label: m.label || m.name }));
-		},
-		async resolveSecret(userId, handleId) {
-			const resolved = await service.resolveRef(userId, { kind: "secret", name: handleId, raw: handleId }, { actor: "bot", detail: "agent_v4" });
-			return resolved?.value ?? null;
-		},
-	};
-}
-
 /** VM desligada (SANDBOX_ENABLED=0; o adaptador real é `v4-adapters/sandbox.ts`): a tool que pedir recebe o motivo real (resultado honesto), o run segue. */
 export const unavailableSandbox: Sandbox = {
 	async run() {

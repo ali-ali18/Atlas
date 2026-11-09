@@ -147,11 +147,12 @@ import { runV4Turn } from "../v4-turn.js";
 import { createBriefEmailForRun } from "../v4-adapters/brief-email.js";
 import { loadNotebookContext } from "../v4-adapters/notebook.js";
 import { createRunSandbox } from "../v4-adapters/sandbox.js";
-import { cheapModelFromEnv, createV4Llm, dropProcessorOwnedEvents, ownerStepsLimit, runEngineV4, vaultBackendFromService } from "../engine-v4.js";
+import { cheapModelFromEnv, createV4Llm, dropProcessorOwnedEvents, ownerStepsLimit, runEngineV4 } from "../engine-v4.js";
 /** Run de agenda que não chegou a executar (motor ou contexto): o item volta à fila neste prazo. */
 const AGENDA_NOT_RUN_RETRY_MS = 30 * 60_000;
 import { earlyWallMs, engineDefaultFromEnv, engineV4GateFromEnv, pickRunEngine, resolveRunLimits, runSelectedEngine } from "../engine-choice.js";
-import { getVaultService, type RunComputerUseResult } from "@workspace/agent-runtime";
+import { type RunComputerUseResult } from "@workspace/agent-runtime";
+import { createV4VaultBackend } from "../v4-adapters/vault.js";
 import { createSseMapper, type BullLikeQueue, type CvvEscrow } from "@workspace/agent";
 import { isReadOnlyConnectorOrigin, budgetStopFallbackText, isBotConfigEventObjective, createReviewerClient, resolveMaintenanceCandidates } from "@workspace/agent-runtime";
 import { runToolFilter } from "../run-tool-filter.js";
@@ -1285,7 +1286,7 @@ async function executeLeasedRun(ctx: {
 					limits: { ...(effectiveCostCap !== undefined ? { ownerMaxUsd: effectiveCostCap } : {}), ...(ownerStepsLimit(stepsCap) !== undefined ? { ownerMaxSteps: ownerStepsLimit(stepsCap)! } : {}), unattended: !(run.origin === "chat" && readRunHumanTurn(run)) },
 					ownerPresent: !agendaRun && run.origin === "chat" && readRunHumanTurn(run),
 					signal: aborter.signal,
-					vault: vaultBackendFromService(getVaultService()),
+					vault: createV4VaultBackend(),
 					...(deps.v4Queue ? { queue: deps.v4Queue } : {}),
 					...(deps.cvvEscrow ? { cvvEscrow: deps.cvvEscrow } : {}),
 					...(v4Sandbox ? { sandbox: v4Sandbox, ...(v4Sandbox.availability.vm && { browser: true }), codeAvailable: v4Sandbox.availability.code } : {}),

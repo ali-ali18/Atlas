@@ -33,6 +33,7 @@ export function fakeAdapterDeps(options: { connections?: Connected; listFails?: 
 		calendar: { listConnected: never, accessToken: never, fetchFn: never, loadSettings: never, persistCard: never } as unknown as V4AdapterDeps["calendar"],
 		brief: { listPurchases: never, listAgendaItems: never, conversationTasks: never, persistCard: never } as unknown as V4AdapterDeps["brief"],
 		images: { generate: never, process: never, persistArtifact: never, persistCard: never } as unknown as V4AdapterDeps["images"],
+		vault: { listMeta: async () => [], getByName: never, getKey: never, touch: never, audit: never, unwrap: never, open: never, saveIntent: never, persistCard: never } as unknown as V4AdapterDeps["vault"],
 	};
 }
 
@@ -45,7 +46,7 @@ test("com bot e portas reais montadas, o preset full não tem capacidade indispo
 	const setup = await buildV4Registry({ ...base, botId: "bot-1", deps: fakeAdapterDeps(), log: (m) => void logs.push(m) });
 	assert.deepEqual(setup.unavailable, []);
 	assert.deepEqual(logs, []);
-	assert.deepEqual(setup.registry.ids(), ["agenda", "browser", "calendar", "connectors", "deliverables", "email", "images", "memory", "research", "settings", "shopping", "tasks", "web"]);
+	assert.deepEqual(setup.registry.ids(), ["agenda", "browser", "calendar", "connectors", "deliverables", "email", "images", "memory", "research", "settings", "shopping", "tasks", "vault", "web"]);
 	assert.match(setup.stableSystem, /Work contract/);
 	assert.match(setup.stableSystem, /connectors/);
 	// confirmWrites do conector vira `confirm: "always"` na tool genérica de escrita
@@ -225,4 +226,19 @@ test("browser só lê quando não há dono presente (rotina, subagente, bot a bo
 	assert.equal(names.includes("browser_act"), false);
 	assert.equal(names.includes("browser_tabs"), false);
 	assert.match(unattended.stableSystem, /- browser:/);
+});
+
+test("cofre (F9): lazy no chat com as três tools; sem dono (rotina, agenda) só secret_list; sem conversa não há cartão de pedido", async () => {
+	const toolsOf = (setup: Awaited<ReturnType<typeof buildV4Registry>>) => setup.registry.capabilities.find((c) => c.id === "vault")?.tools.map((t) => t.name) ?? [];
+	const attended = await buildV4Registry({ ...base, botId: "bot-1", deps: fakeAdapterDeps() });
+	assert.ok(!attended.registry.core().some((c) => c.id === "vault"));
+	assert.match(attended.stableSystem, /- vault:/);
+	assert.deepEqual(toolsOf(attended), ["secret_list", "secret_request", "login_fill"]);
+	const unattended = await buildV4Registry({ ...base, unattended: true, botId: "bot-1", deps: fakeAdapterDeps() });
+	assert.deepEqual(toolsOf(unattended), ["secret_list"]);
+	const noConversation = await buildV4Registry({ ...base, conversationId: null, botId: "bot-1", deps: fakeAdapterDeps() });
+	assert.deepEqual(toolsOf(noConversation), ["secret_list", "login_fill"]);
+	const agenda = await buildV4Registry({ ...base, unattended: true, agendaRun: true, botId: "bot-1", deps: fakeAdapterDeps() });
+	assert.deepEqual(toolsOf(agenda), ["secret_list"]);
+	assert.equal(attended.unavailable.includes("vault" as never), false);
 });
