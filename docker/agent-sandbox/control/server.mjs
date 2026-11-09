@@ -17,6 +17,7 @@ import { createPageReader } from "./reader.mjs";
 import { parseScreenshotOptions, scrotPlan } from "./screenshot-options.mjs";
 import { withMarks } from "./marks.mjs";
 import { HttpError, readJsonBody } from "./request-body.mjs";
+import { createEgressGuard, installEgressGuard } from "./egress-guard.mjs";
 import { countUserProcesses, countViewerClients, createActivityTracker } from "./activity.mjs";
 
 const PORT = Number.parseInt(process.env.SANDBOX_CONTROL_PORT ?? "3080", 10);
@@ -129,7 +130,14 @@ async function scrollBy(deltaX, deltaY) {
 }
 
 // --- Browser (Playwright/CDP) para navegação confiável ---
-const browserSession = createBrowserSession({ chromium, cdpUrl: CDP_URL });
+// Egress: o Chromium da VM nunca alcança metadata, loopback, rede privada nem a rede Docker (SSRF), nem por redirecionamento.
+// SANDBOX_EGRESS_GUARD=0 desliga (só para depurar a imagem); o padrão é ligado.
+const egressGuard = createEgressGuard();
+const browserSession = createBrowserSession({
+	chromium,
+	cdpUrl: CDP_URL,
+	...(process.env.SANDBOX_EGRESS_GUARD === "0" ? {} : { onContext: (context) => installEgressGuard(context, egressGuard, (reason) => console.warn(`[sandbox-control] egress bloqueado: ${reason}`)) }),
+});
 const { restart } = browserSession;
 // V8: cabeçalho x-atlas-tab leva a requisição para a aba do subagente.
 const tabScope = createTabScope(browserSession);
