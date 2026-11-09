@@ -66,9 +66,9 @@ test("visibleFrameUrls ignora o quadro escondido (bframe do reCAPTCHA) e a pági
 });
 
 /** Página falsa com o formulário do cartão: o campo do número tem `elementHandle`, o formulário devolve o controle de envio. */
-function checkoutPage({ submit, inIframe = false, form = true } = {}) {
+function checkoutPage({ submit, inIframe = false, form = true, extra = [] } = {}) {
 	const control = submit === null ? null : { isVisible: async () => true, isEnabled: async () => true, click: async () => undefined, evaluate: async () => "Pagar R$ 129,90", ...submit };
-	const formHandle = { $: async () => control };
+	const formHandle = { $$: async () => [...(control ? [control] : []), ...extra] };
 	const anchor = { evaluateHandle: async () => ({ asElement: () => (form ? formHandle : null) }) };
 	const number = field();
 	number.elementHandle = async () => anchor;
@@ -190,7 +190,7 @@ test("declineSignal: HTTP 402 num POST depois do clique ou campo do cartão que 
 	await driver.findPayControl();
 	assert.equal(await driver.declineSignal(), false);
 	await driver.clickPay();
-	const respond = (status, method) => handlers.filter(([e]) => e === "response").forEach(([, fn]) => fn({ status: () => status, request: () => ({ method: () => method }) }));
+	const respond = (status, method, url = "https://loja.exemplo.com/api/pay") => handlers.filter(([e]) => e === "response").forEach(([, fn]) => fn({ status: () => status, url: () => url, request: () => ({ method: () => method }) }));
 	respond(500, "POST");
 	respond(402, "GET");
 	assert.equal(await driver.declineSignal(), false, "só 402 de escrita");
@@ -213,4 +213,81 @@ test("declineSignal: HTTP 402 num POST depois do clique ou campo do cartão que 
 	await third.findPayControl();
 	await third.clickPay();
 	assert.equal(await third.declineSignal(), false, "já inválido antes do clique não prova recusa");
+});
+
+test("402 só conta se vier da loja ou de gateway conhecido; de analytics de terceiro não vira recusa", async () => {
+	const handlers = [];
+	const page = checkoutPage({ submit: {} });
+	page.on = (event, fn) => handlers.push([event, fn]);
+	const driver = createPlaywrightDriver(page);
+	await driver.findPayControl();
+	await driver.clickPay();
+	const respond = (url) => handlers.forEach(([, fn]) => fn({ status: () => 402, url: () => url, request: () => ({ method: () => "POST" }) }));
+	respond("https://analytics.evil.example/collect");
+	assert.equal(await driver.declineSignal(), false);
+	respond("https://api.stripe.com/v1/payment_intents");
+	assert.equal(await driver.declineSignal(), true, "gateway conhecido");
+
+	const own = createPlaywrightDriver(Object.assign(checkoutPage({ submit: {} }), { on: (e, fn) => handlers.push([e, fn]) }));
+	handlers.length = 0;
+	await own.findPayControl();
+	await own.clickPay();
+	respond("https://loja.exemplo.com/api/pay");
+	assert.equal(await own.declineSignal(), true, "host da loja");
+});
+
+test("dispose remove o ouvinte de respostas (page.off)", async () => {
+	const on = [];
+	const off = [];
+	const page = checkoutPage({ submit: {} });
+	page.on = (event, fn) => on.push([event, fn]);
+	page.off = (event, fn) => off.push([event, fn]);
+	const driver = createPlaywrightDriver(page);
+	await driver.findPayControl();
+	await driver.clickPay();
+	driver.dispose();
+	assert.equal(on.length, 1);
+	assert.deepEqual(off, [["response", on[0][1]]]);
+	driver.dispose();
+	assert.equal(off.length, 1, "idempotente");
+});
+
+test("dois controles de envio: escolhe só se o rótulo com valor aprovado aponta para exatamente um; senão ambiguous", async () => {
+	const coupon = { isVisible: async () => true, isEnabled: async () => true, click: async () => undefined, evaluate: async () => "Aplicar cupom" };
+	const priced = (v) => (label) => label === v;
+	const clicks = [];
+	const pay = { click: async () => { clicks.push("pay"); }, evaluate: async () => "Pagar R$ 129,90" };
+	const page = checkoutPage({ submit: pay, extra: [{ ...coupon, click: async () => { clicks.push("coupon"); } }] });
+	const driver = createPlaywrightDriver(page);
+	assert.deepEqual(await driver.findPayControl(priced("Pagar R$ 129,90")), { label: "Pagar R$ 129,90" });
+	await driver.clickPay();
+	assert.deepEqual(clicks, ["pay"]);
+	assert.deepEqual(await createPlaywrightDriver(checkoutPage({ submit: pay, extra: [coupon] })).findPayControl(() => false), { ambiguous: true });
+	assert.deepEqual(await createPlaywrightDriver(checkoutPage({ submit: pay, extra: [coupon] })).findPayControl(), { ambiguous: true });
+	assert.deepEqual(await createPlaywrightDriver(checkoutPage({ submit: pay, extra: [{ ...coupon, evaluate: async () => "Pagar R$ 129,90" }] })).findPayControl(priced("Pagar R$ 129,90")), { ambiguous: true });
+	const hidden = { ...coupon, isVisible: async () => false };
+	assert.deepEqual(await createPlaywrightDriver(checkoutPage({ submit: pay, extra: [hidden] })).findPayControl(), { label: "Pagar R$ 129,90" }, "controle invisível não conta");
+});
+
+test("fillCard marca os campos com autocomplete=off antes de digitar e clearCard ainda os acha pelo marcador", async () => {
+	const marks = [];
+	const number = field();
+	number.evaluate = async (fn, kind) => { marks.push(kind); };
+	const frame = frameWith({ 'input[autocomplete="cc-number"]': number });
+	await createPlaywrightDriver(pageWith([frame])).fillCard(CARD);
+	assert.deepEqual(marks, ["number"]);
+	assert.deepEqual(number.filled, [CARD.number]);
+
+	const tagged = field();
+	tagged.value = "4111";
+	const only = frameWith({ '[data-atlas-cc="number"]': tagged });
+	await createPlaywrightDriver(pageWith([only])).clearCard();
+	assert.equal(tagged.value, "");
+});
+
+test("cardFieldGone: verdadeiro quando o campo do número não está mais em nenhum quadro da loja", async () => {
+	const number = field();
+	const present = createPlaywrightDriver(pageWith([frameWith({ 'input[autocomplete="cc-number"]': number })]));
+	assert.equal(await present.cardFieldGone(), false);
+	assert.equal(await createPlaywrightDriver(pageWith([frameWith({})])).cardFieldGone(), true);
 });

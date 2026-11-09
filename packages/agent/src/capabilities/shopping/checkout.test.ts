@@ -113,6 +113,17 @@ describe("checkout pago registra a compra e o vigia sozinho", () => {
 		const out = await pay(r, { purchases: shop.ports.purchases });
 		expect(out.status).toBe("error");
 		expect(shop.rows).toHaveLength(0);
+		if (out.status === "error") {
+			expect(out.hint).not.toMatch(/Nothing was charged/);
+			expect(out.hint).toMatch(/most likely not charged.*order page/);
+		}
+	});
+	it("recusa antes do clique (total diferente) segue dizendo que nada foi cobrado", async () => {
+		const r = rig();
+		r.sandbox.respond = () => ({ ok: true, data: { state: "declined", reason: "Nothing was paid: the total on the store's payment page is not the amount the owner approved." } });
+		const out = await pay(r, { purchases: new FakeShopping().ports.purchases });
+		expect(out.status).toBe("error");
+		if (out.status === "error") expect(out.hint).toMatch(/Nothing was charged/);
 	});
 });
 

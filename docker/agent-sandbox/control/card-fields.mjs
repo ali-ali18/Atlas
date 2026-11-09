@@ -23,6 +23,9 @@ export const HOLDER = ['input[autocomplete="cc-name"]', 'input[name*="holder" i]
 export const CARD_SECRET_SELECTOR = [
 	'input[autocomplete^="cc-" i]',
 	'select[autocomplete^="cc-" i]',
+	// Campo que o driver do card_fill marcou com autocomplete="off" (o Chrome não grava o valor no estado de sessão): perde o
+	// `autocomplete="cc-*"`, então este marcador mantém todas as leituras da página tratando-o como segredo.
+	"[data-atlas-cc]",
 	...NUMBER,
 	...EXP,
 	...EXP_MONTH,
