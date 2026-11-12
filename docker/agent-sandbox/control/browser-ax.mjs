@@ -15,7 +15,7 @@ import { buildRefTable } from "./ax-refs.mjs";
 import { toAriaRef } from "./ax-ref-names.mjs";
 import { diffAxTrees, flattenForDiff } from "./ax-diff.mjs";
 import { formatElementLine } from "./snapshot.mjs";
-import { CARD_SECRET_SELECTOR } from "./card-fields.mjs";
+import { READ_SECRET_SELECTOR } from "./card-fields.mjs";
 
 export const PROBE_CAP = 80;
 export const PROBE_TIMEOUT_MS = 800;
@@ -65,7 +65,7 @@ export async function probeRefs(page, refs, { timeoutMs = PROBE_TIMEOUT_MS } = {
 	const worker = async () => {
 		for (let ref = queue.shift(); ref; ref = queue.shift()) {
 			try {
-				const out = await page.locator(`aria-ref=${toAriaRef(ref)}`).first().evaluate(probeElement, CARD_SECRET_SELECTOR, { timeout: timeoutMs });
+				const out = await page.locator(`aria-ref=${toAriaRef(ref)}`).first().evaluate(probeElement, READ_SECRET_SELECTOR, { timeout: timeoutMs });
 				if (!out.failed) results.set(ref, out);
 			} catch {
 				// elemento sumiu ou frame navegando: sem sonda, o nó segue como está (campo de valor perde o valor, ver abaixo)

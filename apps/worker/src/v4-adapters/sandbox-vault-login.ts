@@ -13,7 +13,7 @@
 // query). Exatamente um candidato = usa; zero ou vários = erro honesto com só nomes e sites. A checagem acima (https, host
 // igual, reconferir antes de cada campo) vale igual depois que o login é escolhido.
 import { loginFillParamsSchema, type LoginFillData } from "@workspace/agent";
-import { domainMatches, hostOf, LEGACY_PASSWORD_KEY, pickLoginBySite, redactSecrets, siteKey } from "@workspace/shared";
+import { domainMatches, hostOf, pickLoginBySite, redactSecrets, siteKey } from "@workspace/shared";
 import type { SandboxKindHandler } from "./sandbox.js";
 import { type LoginRecord, type LoginSource, realV4LoginSource } from "./vault.js";
 
@@ -105,8 +105,8 @@ export function createLoginFillHandler(source: LoginSource): SandboxKindHandler 
 				const current = await currentUrl();
 				if (outsidePermission(current)) return { ok: false, error: `The page moved to another site (${hostOf(current) ?? "unknown"}) before the field "${mapping.key}" was typed; it is not ${permitted}, the only site this routine may sign in to. Stopped.${progress()}` };
 				if (!domainMatches(current, siteUrl)) return { ok: false, error: `The page moved to another site (${hostOf(current) ?? "unknown"}) before the field "${mapping.key}" was typed; stopped.${progress()}` };
-				// A senha do login antigo só entra em input de senha; os demais campos, em qualquer entrada de texto visível (a VM confere).
-				const kind = saved.secret && mapping.key === LEGACY_PASSWORD_KEY ? "password" : "field";
+				// Campo secreto (senha, PIN, token…) só entra em input type=password; os demais, em qualquer entrada de texto visível (a VM confere).
+				const kind = saved.secret ? "password" : "field";
 				const result = await ctx.manager.execBrowserType(ctx.sessionId, { ref: mapping.ref, text: saved.value, submit: params.submit && index === params.fields.length - 1, guard: { kind, origin: new URL(current).origin } });
 				if (result.ok === false) return { ok: false, error: `The page input ${mapping.ref} for "${mapping.key}" was not found.${progress()} Look at the page again with browser_map and pass the right ref.` };
 				done.push(mapping.key);

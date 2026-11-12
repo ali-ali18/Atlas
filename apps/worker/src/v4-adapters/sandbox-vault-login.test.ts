@@ -89,11 +89,11 @@ test("só um campo (login em etapas) e a ordem de digitação é a do mapeamento
 	assert.deepEqual(w2.typed.map((t) => t.ref), ["a3", "e4"]);
 });
 
-test("login novo de campos declarados (nome, cpf, senha): cada campo vai no ref mapeado; secreto e texto passam pela trava de campo, valores nunca voltam", async () => {
+test("login novo de campos declarados (nome, cpf, senha): cada campo vai no ref mapeado; campo secreto só entra em input de senha (trava password), texto comum pela trava de campo, valores nunca voltam", async () => {
 	const w = world({ saved: DECLARED, login: { ...BANK, name: "plataforma" } });
 	const out = await w.run({ login: "banco", fields: [{ key: "nome", ref: "e1" }, { key: "cpf", ref: "e2" }, { key: "senha", ref: "e3" }], submit: true });
 	assert.equal(out.ok, true);
-	assert.deepEqual(w.typed.map((t) => [t.ref, t.text, t.guard?.kind, t.submit]), [["e1", NOME, "field", false], ["e2", CPF, "field", false], ["e3", PASSWORD, "field", true]]);
+	assert.deepEqual(w.typed.map((t) => [t.ref, t.text, t.guard?.kind, t.submit]), [["e1", NOME, "field", false], ["e2", CPF, "password", false], ["e3", PASSWORD, "password", true]]);
 	assert.ok(!JSON.stringify(out).includes(CPF) && !JSON.stringify(out).includes(NOME) && !JSON.stringify(out).includes(PASSWORD));
 	assert.deepEqual((out as { data: { filled: string[] } }).data.filled, ["nome", "cpf", "senha"]);
 });

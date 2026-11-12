@@ -4,6 +4,7 @@ import { isChromeDeadError, shouldRetryPlaywrightError } from "./browser-session
 import { settleAfterAction, waitForPageReady } from "./stability.mjs";
 import { INTERACTIVE_SELECTOR, createClickLadder } from "./click-ladder.mjs";
 import { safePointer } from "./pointer.mjs";
+import { VAULT_TYPED_ATTR } from "./card-fields.mjs";
 import {
 	explainFillError,
 	compactPlaywrightError,
@@ -440,6 +441,8 @@ export function createBrowserActions({
 						if (handle) {
 							pointer = await safePointer(() => handle);
 							await fillHandle(handle, text);
+							// Segredo digitado: marca o campo para que nenhuma leitura devolva o valor (nem se o site trocar o type).
+							if (guard.kind === "password") await handle.evaluate((el, attr) => el.setAttribute(attr, ""), VAULT_TYPED_ATTR).catch(() => undefined);
 							// Antes de enviar, reconfere a origem da aba: se navegou durante o preenchimento, não aperta Enter.
 							if (submit) {
 								let current = "";

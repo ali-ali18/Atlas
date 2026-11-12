@@ -8,7 +8,7 @@ import { safePointer } from "./pointer.mjs";
 import { createFrameRegistry, frameTag, splitRef } from "./frames.mjs";
 import { waitForTextStable } from "./text-stable.mjs";
 import { collectInteractive } from "./snapshot-page.mjs";
-import { CARD_SECRET_SELECTOR } from "./card-fields.mjs";
+import { READ_SECRET_SELECTOR } from "./card-fields.mjs";
 import { SNAPSHOT_MAX_SCAN, buildSnapshot, describeElement, formatElementLine } from "./snapshot.mjs";
 import { AX_TIMEOUT_MS, AxUnavailableError, axEnabled } from "./ax-snapshot.mjs";
 import { StaleRefError, createAxStore, resolveAxRef } from "./ax-refs.mjs";
@@ -122,7 +122,7 @@ export function createRefActions({
 					only,
 					prefix: entry.prefix,
 					maxScan: maxScan - raws.length,
-					cardSelector: CARD_SECRET_SELECTOR,
+					cardSelector: READ_SECRET_SELECTOR,
 				});
 			} catch {
 				continue; // iframe navegando/inacessível: segue com os outros
@@ -233,7 +233,7 @@ export function createRefActions({
 					value: String(value ?? "").replace(/\s+/g, " ").trim().slice(0, 120),
 					checked: typeof el.checked === "boolean" ? el.checked : undefined,
 				};
-			}, CARD_SECRET_SELECTOR);
+			}, READ_SECRET_SELECTOR);
 		} catch {
 			return undefined; // re-render trocou o elemento: o delta mostra o novo estado
 		}
