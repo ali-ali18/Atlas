@@ -41,11 +41,11 @@ export const VAULT_INSTRUCTIONS =
 	"Say \"vault\", \"login\" and \"key\" to the owner, never tool names.";
 
 export const VAULT_READ_INSTRUCTIONS =
-	"Vault rules: you only ever see names, never values. A plain secret goes into a connector call as {{secret:<name>}}. This run has no owner present, so you cannot ask for new secrets or sign in to sites here. " +
-	"If the task needs a sign-in, say plainly in your result that this routine has no permission to sign in, so it did not.";
+	"Vault rules: you only ever see names, never values. This run has no owner present, so you cannot use a plain secret (the {{secret:<name>}} form is not available here), ask for new secrets or sign in to sites. " +
+	"If the task needs a secret or a sign-in, say plainly in your result that this routine has no permission to sign in or use secrets, so that part did not run.";
 
 export const vaultRoutineInstructions = (grant: RoutineLoginGrant): string =>
-	"Vault rules: you only ever see names, never values. A plain secret goes into a connector call as {{secret:<name>}}. This run has no owner present, so you cannot ask for new secrets. " +
+	"Vault rules: you only ever see names, never values. This run has no owner present, so you cannot use a plain secret (the {{secret:<name>}} form is not available here) or ask for new secrets. " +
 	`The owner approved this routine to sign in to ${grant.site} with the login "${grant.login}": login_fill types it there and nowhere else (open the sign-in page and map it first). ` +
 	"Any other site or login is not allowed: do not sign in, and say plainly in your result that the sign-in did not happen.";
 

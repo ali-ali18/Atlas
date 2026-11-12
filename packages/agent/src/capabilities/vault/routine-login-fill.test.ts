@@ -1,7 +1,9 @@
 // F9 parte 2: o `login_fill` do run de ROTINA (decisão do dono, 09/11): só existe com a permissão que o dono aprovou na criação da rotina,
 // só para aquele login e aquele site; sem dono não há cartão por uso e o valor nunca passa pelo modelo.
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import { createExecutor, type ExecutorDeps } from "../../contract/index.js";
+import { defineTool } from "../../tools/define-tool.js";
 import type { Ports } from "../../ports/index.js";
 import type { Sandbox, SandboxAction, SandboxResult } from "../../ports/sandbox.js";
 import { fakePorts, sha256 } from "../../testing/fake-ports.js";
@@ -46,6 +48,20 @@ describe("login_fill no run de rotina (só o login e o site aprovados)", () => {
 		const granted = loginRig({ grant: { login: "banco", site: "banco.example" } });
 		expect(granted.capability.tools.map((t) => t.name)).toEqual(["secret_list", "login_fill"]);
 		expect(granted.capability.instructions).toContain("banco.example");
+	});
+
+	// C7 da auditoria F9: usar {{secret:nome}} é ação de credencial e fica OCULTA sem dono; a instrução da rotina não pode mandar usar.
+	it("a rotina não pode usar {{secret:nome}} (fica fora sem dono) e as instruções dizem isso em vez de ensinar a usar", async () => {
+		const withSecret = defineTool({ name: "call_connector", description: "x", inputSchema: z.object({ q: z.string() }), effect: "read", acceptsSecretRefs: true, execute: () => ({ ok: true, summary: "ok" }) });
+		const f = fakePorts();
+		const executor = createExecutor({ runId: "run-1", ownerId: "owner-1", ports: { ...f.ports, vault: new FakeVault(ITEMS) } as unknown as Ports, hash: sha256, policy: routinePolicy });
+		const out = await executor.executeCall({ callId: "c1", step: 1, tool: withSecret, args: { q: "{{secret:chave}}" } });
+		expect(out.status).toBe("not_available");
+		for (const caps of [loginRig({}).capability, loginRig({ grant: { login: "banco", site: "banco.example" } }).capability]) {
+			expect(caps.instructions).not.toMatch(/goes into a connector call as \{\{secret/);
+			expect(caps.instructions).toContain("cannot use a plain secret");
+			expect(caps.instructions).toMatch(/did not run|not happen|did not/);
+		}
 	});
 
 	it("roda SEM cartão (a aprovação foi a da criação) e leva à VM o login fixo e o site permitido; o valor nunca passa", async () => {
