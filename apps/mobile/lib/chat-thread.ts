@@ -149,7 +149,7 @@ export function sessionMessageToItem(message: SessionMessage): ChatItem | null {
 		};
 	}
 	// Card do motor v4 gravado: `role` = tipo do evento, `content` = o evento em JSON (validado).
-	if (isAgentV4EventType(role)) return agentCardFromStored(message.id, role, message.content, { ...(message.runId ? { runId: message.runId } : {}), createdAt });
+	if (isAgentV4EventType(role)) return agentCardFromStored(message.id, role, message.content, { ...(message.runId ? { runId: message.runId } : {}), createdAt, ...(message.cardState ? { state: message.cardState } : {}) });
 	if (CARD_ROLES.has(role)) {
 		const card = parseConversationCard(message.content);
 		return card ? cardToItem(message.id, card, createdAt) : null;

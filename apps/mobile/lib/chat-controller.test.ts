@@ -816,6 +816,25 @@ describe("cards do motor v4", () => {
 		expect(calls.createRun).toHaveLength(0);
 	});
 
+	it("recarregar: o card gravado vem com o estado do servidor (aprovado, vencido, pendente) e o recibo de run encerrado aparece", async () => {
+		const receipt = { type: "receipt", id: "call-3", name: "create_event", what: "Evento criado", runId: "run-1" };
+		const rows = (state: string) => [
+			{ ...row("a", "approval_request", JSON.stringify(approval)), cardState: state },
+			row("r", "receipt", JSON.stringify(receipt), 1),
+		];
+		const open = async (state: string) => {
+			const { controller } = setup({ api: { fetchPage: async () => ({ messages: rows(state) as never, hasMore: false }) } });
+			await controller.open();
+			return view(controller).items.filter((item) => item.kind === "agent-card");
+		};
+		const [approved, receiptItem] = await open("approved");
+		expect(approved).toMatchObject({ decision: "approved", state: "approved" });
+		expect(receiptItem).toMatchObject({ card: { type: "receipt", what: "Evento criado" } });
+		expect((await open("expired"))[0]).toMatchObject({ state: "expired", settled: true });
+		expect((await open("expired"))[0]).not.toHaveProperty("decision");
+		expect((await open("denied"))[0]).toMatchObject({ decision: "denied" });
+	});
+
 	it("pergunta antiga (o dono já falou depois) não pede mais", async () => {
 		const { controller } = setup({ api: { fetchPage: async () => ({ messages: [row("a", "ask_owner", JSON.stringify({ type: "ask_owner", cardId: "run-1:k1", question: "Qual?", runId: "run-1" })), row("u", "user", "outra coisa", 1)], hasMore: false }) } });
 		await controller.open();

@@ -33,6 +33,7 @@ function badgeFor(item: AgentCardItem, labels: { ok: string }): Badge {
 	const decision: AgentCardDecision | undefined = item.decision;
 	if (decision === "dismissed" || decision === "denied") return { tone: "muted", label: CHAT_CARD_COPY.dismissed };
 	if (decision) return { tone: "success", label: labels.ok };
+	if (item.state === "expired") return { tone: "muted", label: "Venceu" };
 	if (item.settled) return { tone: "muted", label: "Resolvido" };
 	return { tone: "pending", label: CHAT_CARD_COPY.needsYou };
 }
@@ -217,7 +218,7 @@ function HandoffRow({ card, item, actions }: { card: Of<"handoff_request">; item
 
 /** Pergunta do bot: o mesmo questionário do app (alternativas + campo livre); a resposta segue como fala. */
 function AskOwnerRow({ card, item, actions }: { card: Of<"ask_owner">; item: AgentCardItem; actions: AgentCardActions }) {
-	const status = item.decision === "dismissed" ? "dismissed" : item.decision === "answered" || item.settled ? "submitted" : "pending";
+	const status = item.decision === "dismissed" || (item.state === "expired" && !item.decision) ? "dismissed" : item.decision === "answered" || item.settled ? "submitted" : "pending";
 	const questionnaire: Extract<ChatItem, { kind: "questionnaire" }> = React.useMemo(
 		() => ({ id: `ask-owner-${card.cardId}`, kind: "questionnaire", questionnaireId: card.cardId, title: "Pergunta para você", items: [askOwnerQuestionnaireItem(card)], status }),
 		[card, status],

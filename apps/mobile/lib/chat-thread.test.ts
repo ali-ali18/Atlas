@@ -245,6 +245,20 @@ describe("cards do motor v4 no fio", () => {
 		expect(sessionMessageToItem(row("db-2", "approval_request", "isso não é json"))).toBeNull();
 		expect(sessionMessageToItem(row("db-3", "receipt", JSON.stringify({ type: "receipt", id: "r", name: "n", what: "Feito" })))).toMatchObject({ kind: "agent-card" });
 	});
+	it("a linha gravada leva o estado do servidor (cardState): o recibo de run encerrado e o pedido vencido são restaurados", () => {
+		const receipt = { type: "receipt", id: "r", name: "n", what: "Evento criado", runId: "run-1" };
+		const withState = (cardState: string) => ({ ...(row("db-1", "approval_request", JSON.stringify(approval)) as object), cardState }) as never;
+		expect(sessionMessageToItem(row("db-3", "receipt", JSON.stringify(receipt)))).toMatchObject({ kind: "agent-card", card: { what: "Evento criado" } });
+		expect(sessionMessageToItem(withState("expired"))).toMatchObject({ id: "db-1", state: "expired", settled: true });
+		expect(sessionMessageToItem(withState("pending"))).toMatchObject({ state: "pending" });
+		expect(sessionMessageToItem(withState("pending"))).not.toHaveProperty("settled");
+	});
+	it("gravado com estado vence o ao vivo ainda pendente e não duplica", () => {
+		const stored = { ...agentCard("db-card", true), state: "approved" } as ChatItem;
+		const merged = reconcile([user("u1", "oi"), stored], [agentCard("agent-card-approval_request|run-1|req-1")]);
+		expect(merged.filter((item) => item.kind === "agent-card")).toHaveLength(1);
+		expect(merged.find((item) => item.kind === "agent-card")).toMatchObject({ id: "db-card", state: "approved", settled: true });
+	});
 	it("ao vivo e gravado (mesmo pedido do mesmo run) viram um só, o gravado; recarregar não duplica", () => {
 		const persisted: ChatItem[] = [user("u1", "oi"), agentCard("db-card")];
 		const live: ChatItem[] = [agentCard("agent-card-approval_request|run-1|req-1")];
