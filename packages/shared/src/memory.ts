@@ -1,4 +1,5 @@
 import type { ChatRole } from "./chat.js";
+import type { AgentCardState } from "./agent-v4-card-state.js";
 import type { ConversationCardRole } from "./skill-card.js";
 
 /** Camadas de memória durável (estilo Hermes — sem embeddings nesta fase). */
@@ -98,6 +99,8 @@ export type SessionMessage = {
 	runId?: string;
 	/** Rotina, lembrete ou evento que produziu a mensagem (marcador acima do balão). */
 	source?: { kind: "routine" | "reminder" | "github" | "webhook" | "reflection" | "email"; label: string; at: string } | null;
+	/** Card do motor v4 (aprovação, entrega ao dono, pergunta): estado de agora, derivado na leitura (ausente nos demais). */
+	cardState?: AgentCardState;
 	/** Reações (no máximo uma por ator: o usuário e o bot). */
 	reactions?: Array<{ actor: "user" | "bot"; emoji: string }>;
 	/** Mensagem a que esta responde (citação): trecho de até 160 caracteres, sem markdown pesado. Ausente/null = não é resposta. */

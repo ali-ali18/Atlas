@@ -34,7 +34,9 @@ import {
 	type QuestionnaireCardItem,
 	type ReplyQuote,
 } from "@workspace/shared";
+import type { AgentCardState } from "@workspace/shared";
 import { prisma } from "./client.js";
+import { attachAgentV4CardStates } from "./agent-v4-cards.js";
 import { currentMessageRunId } from "./message-run-context.js";
 import { approvalDetail, emitUserNeeded } from "./user-needed.js";
 import { loadReactionsByMessage } from "./message-reactions.js";
@@ -180,11 +182,14 @@ export async function listConversationMessages(
 	// Citações das respostas. Falha aqui também não derruba a conversa: some só o trecho.
 	const replyIds = [...new Set(ordered.flatMap((row) => (row.replyToMessageId ? [row.replyToMessageId] : [])))];
 	const quotes = await loadReplyQuotes(conversationId, replyIds).catch(() => new Map<string, ReplyQuote>());
+	// Estado dos cards do motor v4 (aprovação, entrega, pergunta): derivado agora, para o card restaurado nunca mostrar um botão que não vale mais.
+	const cardStates = await attachAgentV4CardStates(conversationId, ordered).catch(() => new Map<string, AgentCardState>());
 	return ordered.map((row) => {
 		const message = toSessionMessage(row);
 		const own = reactions.get(row.id);
 		const replyTo = row.replyToMessageId ? quotes.get(row.replyToMessageId) : undefined;
-		return { ...message, ...(own?.length ? { reactions: own } : {}), ...(replyTo ? { replyTo } : {}) };
+		const cardState = cardStates.get(row.id);
+		return { ...message, ...(own?.length ? { reactions: own } : {}), ...(replyTo ? { replyTo } : {}), ...(cardState ? { cardState } : {}) };
 	});
 }
 

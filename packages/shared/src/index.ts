@@ -158,6 +158,7 @@ export {
 	type ReceiptEvent,
 } from "./agent-v4-events.js";
 export { approvalEventFact, approvalMessageFact, formatApprovalEventWhen, type ApprovalEventFact, type ApprovalMessageFact } from "./agent-v4-approval-facts.js";
+export { AGENT_CARD_STATES, agentCardHasState, isAgentCardState, resolveAgentCardState, sanitizeAgentV4EventForStorage, type AgentCardState, type AgentCardStateInput } from "./agent-v4-card-state.js";
 export { purchaseRequestFromEvent, type PurchaseFacts, type PurchaseRequest } from "./agent-v4-purchase.js";
 export {
 	AGENT_POINTER_NAME_MAX,
