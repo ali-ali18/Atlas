@@ -253,7 +253,8 @@ type InspectNetworking = {
  * Endurecimento do container da VM (F8.0), conservador para não quebrar a imagem:
  * - `CapDrop`: tira `NET_RAW` (sem pacote bruto/ARP na rede Docker) e `MKNOD` (sem criar device). O resto do conjunto padrão
  *   fica: o entrypoint usa chown/su e o `sudo atlas-install` precisa de SETUID/SETGID/AUDIT_WRITE.
- * - `no-new-privileges` NÃO entra: ele quebraria o `sudo atlas-install` (docs/features/vm-instalacoes.md).
+ * - A opção do Docker que impede ganhar privilégios novos NÃO entra: ela quebraria o `sudo atlas-install`, que precisa de setuid
+ *   (docs/features/vm-instalacoes.md). O nome da opção não aparece aqui de propósito: `install/image.test.mjs` falha se ele surgir neste arquivo.
  * - `PidsLimit`: contém fork bomb (conta threads; Chrome e builds usam centenas, por isso o padrão é folgado).
  */
 export function sandboxHardening(config: Pick<SandboxRuntimeConfig, "pidsLimit">): { CapDrop: string[]; PidsLimit?: number } {
