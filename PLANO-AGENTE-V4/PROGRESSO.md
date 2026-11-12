@@ -167,7 +167,7 @@
   - [x] PR e CI (09/11): `code_commit`, `code_push` (nunca força, nunca na padrão), `code_open_pr`, `code_ci_status`. Fora: esperar o CI, cartão de PR/CI no chat.
   - **Decisão do dono (09/11): todas entram na F9** ("quero que entre todas que já existem"). Ordem por ondas de até 3 agentes; auditoria Sonnet (com dúvidas) + validação Opus a cada duas ondas.
 - [x] F9.3 Desacoplamento (09/11): `payment`, `calendar`, `email` e `code-actions-real` do v4 sem `@workspace/agent-runtime` (pacotes novos `@workspace/google`, `@workspace/bot-mail`; selo do cartão em `@workspace/db/vault-crypto`); guarda `v4-adapters/no-agent-runtime.guard.test.ts` com exceção só para `mcp.ts` (cliente MCP inteiro, ~7,5k linhas: fica para a F10). Restam imports do legado em `agent-run.ts`, `v4-turn.ts`, `engine-choice.ts` e módulos de apoio (lista no diário).
-- [ ] F9.A Auditoria: ondas 1 e 2 auditadas (2 Sonnet + validação Opus) e corrigidas (09/11; ver diário). **Falta** auditar o que entrou depois (vídeo, anexos, habilidades, cofre com campos dinâmicos, GitHub escrita, PR e CI, subagentes, rotinas parte 2, desacoplamento), prévias do cartão do cofre e do cartão de credencial da rotina, fechar `auditorias/F9.md` e abrir o PR para `harness/v4`.
+- [x] F9.A Auditoria (12/11): duas rodadas (2 Sonnet cada, skill de segurança da Cloudflare; rodada 1 validada por Opus, rodada 2 validada por teste que falha antes), 54 itens, correções com teste; adiados e aceitos em `auditorias/F9.md`. Cards do v4 gravados na conversa (#163, item 3) entraram depois, sem auditoria independente.
 
 ### F10: Corte e remoção
 - [ ] F10.1 Critério de corte atendido, com o relatório da matriz.
@@ -274,4 +274,10 @@
   - **Decisões do dono:** imagem sem teto por run e custo fora do teto por ora (#173); `login_fill` pede aprovação no chat; login em rotina por permissão dada na criação; campos do login declarados pela IA, etapas juntas num item; anexo abre só quando o bot precisa.
   - **Próximo passo:** auditoria do restante da F9 (F9.A), prévias de tela, `auditorias/F9.md`, PR para `harness/v4`.
   - **Pendências:** issues #171 a #174; tela Configurações › Cofre com os campos novos; cartão do cofre no celular; `mcp.ts` e demais imports do legado (F10); teste instável #174.
+  - **Dúvidas para o dono:** nenhuma.
+
+- **12/11/2026 · sessão F9 · fechamento**
+  - **Feito:** rodada 2 da auditoria (cofre com campos, rotinas parte 2, GitHub escrita, PR e CI, subagentes, vídeo, anexos, habilidades) e correções (segredo só em input de senha e nunca lido de volta; permissão de login cai quando a rotina muda; token do GitHub só nos jobs de rede e push para o repo da sessão; segredo e workflow recusados no commit e no push; cron validado; yt-dlp pelo proxy guardado). Cards do v4 (aprovação, entrega, pergunta, recibo) gravados na conversa com estado derivado na leitura (#163, item 3).
+  - **Próximo passo:** PR para `harness/v4`, release `0.5.0-beta` para a `main` (ok do dono dado em 12/11) e piloto na conta do dono (`ATLAS_ENGINE_V4` + `ATLAS_ENGINE_V4_ACCOUNTS`).
+  - **Pendências:** adiados de `auditorias/F9.md`; prévias de tela; tela Configurações › Cofre com os campos novos; pagamento real ponta a ponta; `mcp.ts` e demais imports do legado (F10).
   - **Dúvidas para o dono:** nenhuma.
