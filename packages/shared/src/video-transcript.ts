@@ -60,13 +60,20 @@ export function sliceTranscript(text: string, offset: number, limit: number): Tr
 	return { offset, end, total, text: text.slice(offset, end), done: end >= total };
 }
 
+/**
+ * Proxy de saída guardado da VM (`docker/agent-sandbox/control/egress-proxy.mjs`): resolve o nome UMA vez e recusa IP interno, de
+ * loopback ou de metadata. Só o Chromium saía por ele; o shell (yt-dlp, node) saía direto e seguia redirecionamento para a rede
+ * interna. A porta vem do ambiente da VM (`SANDBOX_EGRESS_PROXY_PORT`), padrão 3128.
+ */
+const EGRESS_PROXY_URL = "http://127.0.0.1:${SANDBOX_EGRESS_PROXY_PORT:-3128}";
+
 export function ytDlpCommand(dir: string, url: string, languages: readonly string[]): string {
 	return [
 		`mkdir -p ${shq(dir)} && cd ${shq(dir)} || exit 2`,
 		// Já baixada neste vídeo e idioma (página seguinte do texto): não baixa de novo.
 		`if ! ls ./*.vtt >/dev/null 2>&1; then`,
 		`  command -v yt-dlp >/dev/null 2>&1 || { echo "yt-dlp: command not found" >&2; exit 127; }`,
-		`  yt-dlp --no-playlist --skip-download --write-subs --write-auto-subs --sub-langs ${shq(languages.join(","))} --sub-format vtt --no-warnings --no-progress -o 'sub.%(ext)s' -- ${shq(url)} 2>&1 | tail -n 8 >&2`,
+		`  yt-dlp --proxy "${EGRESS_PROXY_URL}" --no-playlist --skip-download --write-subs --write-auto-subs --sub-langs ${shq(languages.join(","))} --sub-format vtt --no-warnings --no-progress -o 'sub.%(ext)s' -- ${shq(url)} 2>&1 | tail -n 8 >&2`,
 		`fi`,
 		`ls -1 ./*.vtt 2>/dev/null | sed 's#^\\./##'`,
 	].join("\n");
@@ -111,5 +118,6 @@ console.log("sub." + pick.languageCode + ".vtt");
 `;
 
 export function captionTracksCommand(dir: string, url: string, languages: readonly string[]): string {
-	return `VT_URL=${shq(url)} VT_DIR=${shq(dir)} VT_LANGS=${shq(languages.join(","))} node --input-type=module -e ${shq(CAPTION_TRACKS_SCRIPT)}`;
+	// node 22.21+ (e 24) lê HTTPS_PROXY com NODE_USE_ENV_PROXY=1; versão mais antiga ignora e segue como antes (só youtube.com é buscado).
+	return `NODE_USE_ENV_PROXY=1 HTTPS_PROXY="${EGRESS_PROXY_URL}" HTTP_PROXY="${EGRESS_PROXY_URL}" VT_URL=${shq(url)} VT_DIR=${shq(dir)} VT_LANGS=${shq(languages.join(","))} node --input-type=module -e ${shq(CAPTION_TRACKS_SCRIPT)}`;
 }
