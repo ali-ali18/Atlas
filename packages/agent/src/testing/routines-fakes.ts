@@ -86,6 +86,8 @@ export class FakeRoutines implements Routines {
 		for (const r of changing) r.enabled = enabled;
 		return { name: group.name, total: inside.length, changed: changing.length };
 	}
+	/** O agendador recusa a rotina que acabou de ser salva (o adaptador real devolve `notScheduled`). */
+	schedulerFails = false;
 	/** Resultado da próxima `suggest` (o teste escolhe); `null` = o adaptador lança como o real quando o modo proativo está desligado. */
 	suggestOutcome: RoutineSuggestOutcome | null = { status: "proposed" };
 	async create(userId: string, spec: RoutineCreateSpec): Promise<RoutineSaved> {
@@ -105,7 +107,7 @@ export class FakeRoutines implements Routines {
 			...(webhookUrl && { webhookUrl }),
 		};
 		this.rows.push(row);
-		return { routine: this.view(row), ...(webhookUrl && { webhook: { url: webhookUrl } }) };
+		return { routine: this.view(row), ...(webhookUrl && { webhook: { url: webhookUrl } }), ...(this.schedulerFails && { notScheduled: true as const }) };
 	}
 	async update(userId: string, routineId: string, spec: RoutineUpdateSpec): Promise<RoutineSaved | null> {
 		this.log("update", userId, routineId, spec);
@@ -126,7 +128,7 @@ export class FakeRoutines implements Routines {
 			if (spec.panelId === "") delete row.panelId;
 			else row.panelId = spec.panelId;
 		}
-		return { routine: this.view(row) };
+		return { routine: this.view(row), ...(this.schedulerFails && { notScheduled: true as const }) };
 	}
 	async webhooks(userId: string): Promise<RoutineWebhookView[]> {
 		this.log("webhooks", userId);

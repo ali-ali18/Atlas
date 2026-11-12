@@ -7,7 +7,7 @@ import type { Routines } from "../../ports/routines.js";
 import type { Vault } from "../../ports/vault.js";
 import { defineTool } from "../../tools/define-tool.js";
 import { findRoutine } from "./resolve.js";
-import { alertField, alertSpecOf, checkLoginAccess, loginAccessField, loginAccessCardTarget, NOTIFY_MODES, triggerArgsPhrase } from "./routine-save.js";
+import { alertField, alertSpecOf, checkLoginAccess, loginAccessField, loginAccessCardTarget, NOT_SCHEDULED_NOTE, NOTIFY_MODES, routineCardTarget, triggerArgsPhrase } from "./routine-save.js";
 import { alertNeedsTimeTrigger, isValidTimezone, planTrigger, triggerFields } from "./routine-trigger.js";
 
 export const DEFAULT_ROUTINE_TIMEZONE = "America/Sao_Paulo";
@@ -37,7 +37,12 @@ export function createRoutineCreateTool(deps: { routines: Routines; vault?: Pick
 		// Declarar o login faz o dono aprovar (cartão em qualquer autonomia); sem isso é uma escrita interna que desfaz.
 		effect: "write_internal",
 		effectForArgs: (args) => (args.loginAccess ? "credential" : "write_internal"),
-		riskFacts: (args) => ({ target: args.loginAccess ? loginAccessCardTarget(args.loginAccess, { name: args.name, trigger: triggerArgsPhrase(args), task: args.task }) : `routine ${args.name}` }),
+		// Depois de ler algo de fora (web, e-mail, arquivo) uma rotina nova pode ter sido pedida pelo texto de um terceiro: o dono vê e aprova.
+		confirm: "when_untrusted",
+		riskFacts: (args) => {
+			const facts = { name: args.name, trigger: triggerArgsPhrase(args), task: args.task };
+			return { target: args.loginAccess ? loginAccessCardTarget(args.loginAccess, facts) : routineCardTarget(facts) };
+		},
 		async execute(args, ctx) {
 			const now = ctx.ports.clock.now();
 			const timezone = args.timezone ?? DEFAULT_ROUTINE_TIMEZONE;
@@ -80,7 +85,7 @@ export function createRoutineCreateTool(deps: { routines: Routines; vault?: Pick
 			const state = routine.enabled ? "" : " It is paused.";
 			return {
 				ok: true,
-				summary: `${kind} "${routine.name}" created: ${routine.alert ?? routine.trigger}.${state}${login}${webhook} The routine card is already shown to the owner: confirm in one plain sentence what it does and when, do not repeat the card.`,
+				summary: `${kind} "${routine.name}" created: ${routine.alert ?? routine.trigger}.${state}${login}${webhook}${saved.notScheduled ? NOT_SCHEDULED_NOTE : ""} The routine card is already shown to the owner: confirm in one plain sentence what it does and when, do not repeat the card.`,
 				receipt: { what: `${kind} created: ${routine.name}`, where: "Routines", externalId: routine.id },
 			};
 		},

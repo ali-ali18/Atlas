@@ -80,7 +80,8 @@ export type RoutineUpdateSpec = {
 };
 
 /** Resultado de criar/editar. `webhook.url` só em gatilho webhook (sem segredo). */
-export type RoutineSaved = { routine: RoutineView; webhook?: { url: string } };
+/** `notScheduled`: a rotina foi salva, mas o agendador não a aceitou agora (o dono precisa saber). */
+export type RoutineSaved = { routine: RoutineView; webhook?: { url: string }; notScheduled?: true };
 
 /** Webhook de uma rotina: URL pública SEM segredo. */
 export type RoutineWebhookView = { routineId: string; name: string; enabled: boolean; url: string };

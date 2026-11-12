@@ -163,12 +163,14 @@ export function createV4Routines(input: { scope: V4RoutinesScope; deps?: V4Routi
 		await scope.emit(event);
 	}
 
-	async function sync(routine: RoutineRecord) {
-		// O agendador é melhor esforço (como no legado): a rotina já mudou no banco, e o worker reconcilia no boot.
+	/** `false` = o agendador falhou (a rotina já mudou no banco; o worker reconcilia no boot, mas o dono precisa saber que agora ela pode não rodar). */
+	async function sync(routine: RoutineRecord): Promise<boolean> {
 		try {
 			await scope.onMutated?.(routine);
+			return true;
 		} catch {
 			log("[engine-v4] não consegui sincronizar o agendador da rotina");
+			return false;
 		}
 	}
 
@@ -352,7 +354,7 @@ export function createV4Routines(input: { scope: V4RoutinesScope; deps?: V4Routi
 				throw saveError(error);
 			}
 			const { routine } = created;
-			await sync(routine);
+			const scheduled = await sync(routine);
 			if (spec.trigger.kind === "github") {
 				try {
 					await ensureHook(userId, spec.trigger.repo);
@@ -365,7 +367,7 @@ export function createV4Routines(input: { scope: V4RoutinesScope; deps?: V4Routi
 			}
 			const webhook = spec.trigger.kind === "webhook" ? hookUrlOf(routine) : undefined;
 			await showCard(routine, describeRoutineTrigger(routine), { persist: true, created: true, ...(webhook && { hookUrl: webhook }) });
-			return { routine: toRoutineView(routine, deps.now()), ...(webhook && { webhook: { url: webhook } }) };
+			return { routine: toRoutineView(routine, deps.now()), ...(webhook && { webhook: { url: webhook } }), ...(!scheduled && { notScheduled: true as const }) };
 		},
 		async update(userId, routineId, spec: RoutineUpdateSpec): Promise<RoutineSaved | null> {
 			const previous = await own(userId, routineId);
@@ -417,13 +419,13 @@ export function createV4Routines(input: { scope: V4RoutinesScope; deps?: V4Routi
 					throw new Error(`The GitHub trigger could not be activated: ${error instanceof Error ? error.message : "unknown error"}. ${note}`);
 				}
 			}
-			await sync(updated);
+			const scheduled = await sync(updated);
 			// Saiu de GitHub, trocou de repositório ou foi pausada/retomada: o hook do repositório antigo encolhe (ou some).
 			const leftRepo = previous.github && (spec.trigger ? spec.trigger.kind !== "github" || spec.trigger.repo.toLowerCase() !== previous.github.repo.toLowerCase() : spec.enabled !== undefined);
 			if (previous.github && leftRepo) await syncHooks(userId, [previous]);
 			const webhook = spec.trigger?.kind === "webhook" ? hookUrlOf(updated) : undefined;
 			await showCard(updated, describeRoutineTrigger(updated), { persist: false, ...(webhook && { hookUrl: webhook }) });
-			return { routine: toRoutineView(updated, deps.now()), ...(webhook && { webhook: { url: webhook } }) };
+			return { routine: toRoutineView(updated, deps.now()), ...(webhook && { webhook: { url: webhook } }), ...(!scheduled && { notScheduled: true as const }) };
 		},
 		async webhooks(userId): Promise<RoutineWebhookView[]> {
 			const hooks = (await deps.listWebhooks(userId)).filter((hook) => hook.botId === scope.botId);

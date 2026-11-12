@@ -120,7 +120,7 @@ function world(opts: { proactive?: { enabled: boolean; routineMode?: "suggest" |
 		},
 		now: () => NOW,
 	} as unknown as V4RoutinesDeps;
-	const port = (o: { withHook?: boolean; hookResult?: unknown } = {}) =>
+	const port = (o: { withHook?: boolean; hookResult?: unknown; failSync?: boolean } = {}) =>
 		createV4Routines({
 			scope: {
 				botId: "bot-1",
@@ -129,6 +129,7 @@ function world(opts: { proactive?: { enabled: boolean; routineMode?: "suggest" |
 					live.push(event);
 				},
 				onMutated: async (r) => {
+					if (o.failSync) throw new Error("queue down");
 					synced.push({ id: r.id, enabled: r.enabled });
 				},
 				...(o.withHook && {
@@ -318,4 +319,15 @@ test("push da rotina 'só importante': um por run; no horário de silêncio não
 	const quiet = createRoutinePush({ send: async (text) => void sent.push(text), quiet: { enabled: true, timezone: "UTC", quietStart: "00:00", quietEnd: "23:59" } as never, now: () => NOW });
 	assert.deepEqual(await quiet.send("de madrugada"), { sent: false, reason: "quiet_hours" });
 	assert.deepEqual(sent, ["Estoque baixo"]);
+});
+
+test("agendador que falha: a rotina fica salva, mas criar e editar devolvem notScheduled (o modelo não diz 'criada e rodando')", async () => {
+	const w = world();
+	const created = await w.port({ failSync: true }).create("a", { ...baseCreate, trigger: { kind: "cron", schedule: "0 9 * * 1-5" } });
+	assert.equal(created.notScheduled, true);
+	assert.equal(w.creates.length, 1, "a rotina foi gravada");
+	const updated = await w.port({ failSync: true }).update("a", created.routine.id, { name: "Novo nome" });
+	assert.equal(updated?.notScheduled, true);
+	const fine = await w.port().create("a", { ...baseCreate, name: "Outra", trigger: { kind: "cron", schedule: "0 10 * * 1-5" } });
+	assert.equal(fine.notScheduled, undefined);
 });

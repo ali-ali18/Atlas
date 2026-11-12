@@ -2,7 +2,7 @@
 // "sugerir" (padrão do dono) vira um cartão "Posso criar esta rotina?" (Criar / Agora não); só no modo automático que o dono escolheu a rotina
 // nasce e o cartão tem "Desfazer". Só vale com o modo proativo ligado no bot principal (o adaptador confere). Quando o dono JÁ pediu a
 // rotina, a tool é `routine_create`. Como é ideia do bot (nunca pedido explícito), o intervalo mínimo de 2 h vale sempre.
-import { INTERVAL_EVERY_MINUTES_MAX, ALERT_MIN_INTERVAL_MINUTES, isCronFive } from "@workspace/shared";
+import { INTERVAL_EVERY_MINUTES_MAX, ALERT_MIN_INTERVAL_MINUTES, validateCronExpression } from "@workspace/shared";
 import { z } from "zod";
 import type { Routines } from "../../ports/routines.js";
 import { defineTool } from "../../tools/define-tool.js";
@@ -28,7 +28,8 @@ export function createSuggestRoutineTool(routines: Routines) {
 		async execute(args, ctx) {
 			if (args.cron !== undefined && args.everyMinutes !== undefined) return { ok: false, error: "Use cron OR everyMinutes, not both.", hint: "Pick one: cron for fixed clock times, everyMinutes for a steady interval." };
 			if (args.cron === undefined && args.everyMinutes === undefined) return { ok: false, error: "Give cron (5 fields) or everyMinutes.", hint: 'Like cron "0 8 * * 1" or everyMinutes 240.' };
-			if (args.cron !== undefined && !isCronFive(args.cron)) return { ok: false, error: `cron "${args.cron.slice(0, 60)}" is not a valid 5-field cron.`, hint: 'Use minute hour day month weekday, like "0 8 * * 1".' };
+			const cron = args.cron === undefined ? undefined : validateCronExpression(args.cron);
+			if (args.cron !== undefined && cron && !cron.ok) return { ok: false, error: `cron "${args.cron.slice(0, 60)}" is not a valid cron: ${cron.reason}`, hint: 'Use 5 fields (minute hour day month weekday) with numbers, like "0 8 * * 1".' };
 			if (args.everyMinutes !== undefined && (args.everyMinutes < ALERT_MIN_INTERVAL_MINUTES || args.everyMinutes > INTERVAL_EVERY_MINUTES_MAX)) {
 				return { ok: false, error: `everyMinutes ${args.everyMinutes} is not allowed for a suggestion: use ${ALERT_MIN_INTERVAL_MINUTES} to ${INTERVAL_EVERY_MINUTES_MAX}. A routine you suggest on your own checks every 2 hours or less often.`, hint: "Use a longer interval, or a cron with a few fixed times." };
 			}

@@ -81,6 +81,16 @@ export function triggerArgsPhrase(args: Partial<TriggerArgs>): string {
 	}
 }
 
+/** O cartão de uma rotina nova ou editada (aprovação depois de leitura não confiável): nome, quando roda e a instrução truncada. */
+export function routineCardTarget(routine: { name: string; trigger?: string; task?: string }): string {
+	const task = routine.task ? (routine.task.length > TASK_CARD_MAX ? `${routine.task.slice(0, TASK_CARD_MAX)}…` : routine.task) : "";
+	return [`rotina "${routine.name.slice(0, 120)}"`, ...(routine.trigger ? [`roda ${routine.trigger}`] : []), ...(task ? [`instrução: "${task}"`] : [])].join(" · ");
+}
+
+/** Aviso ao modelo quando o agendador não aceitou a rotina salva: não diz só "criada". */
+export const NOT_SCHEDULED_NOTE =
+	" It was saved, but it could NOT be scheduled right now, so it may not run until it is saved again: tell the owner plainly and do not say it is running.";
+
 /**
  * O cartão da permissão de login diz TUDO o que o dono aprova: o login, o site, e qual rotina (nome), quando roda (frase) e o que
  * faz (instrução truncada). A permissão vale para esta instrução neste gatilho: trocar um dos dois a apaga (ver `routine_update`).

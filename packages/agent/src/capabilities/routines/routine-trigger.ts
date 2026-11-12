@@ -2,7 +2,7 @@
 // ou um erro com a lista do que é aceito. Reaproveita os validadores de `@workspace/shared` (os mesmos do legado e da API):
 // cron de 5 campos, uma vez (`run_at` ou `in_minutes`), intervalo de 5 a 1440 min, e-mail (filtros), GitHub (repo + eventos).
 // Regra de produto: alerta por intervalo só confere a cada 2 h ou mais, salvo pedido EXPLÍCITO do dono (`alert.frequent`).
-import { GITHUB_TRIGGER_EVENTS, INTERVAL_EVERY_MINUTES_MAX, INTERVAL_EVERY_MINUTES_MIN, isCronFive, parseEmailTriggerInput, parseGithubTriggerInput, parseIntervalEveryMinutes, resolveOnceRunAt, validateAlertInterval } from "@workspace/shared";
+import { GITHUB_TRIGGER_EVENTS, INTERVAL_EVERY_MINUTES_MAX, INTERVAL_EVERY_MINUTES_MIN, parseEmailTriggerInput, parseGithubTriggerInput, parseIntervalEveryMinutes, resolveOnceRunAt, validateAlertInterval, validateCronExpression } from "@workspace/shared";
 import { z } from "zod";
 import type { RoutineTriggerSpec } from "../../ports/routines.js";
 
@@ -74,7 +74,8 @@ export function planTrigger(args: TriggerArgs, ctx: { now: Date; timezone: strin
 	switch (kind) {
 		case "cron": {
 			if (!args.schedule) return fail("cron needs schedule.", 'Pass 5 cron fields, like "0 9 * * 1-5".');
-			if (!isCronFive(args.schedule)) return fail(`schedule "${args.schedule.slice(0, 60)}" is not a valid 5-field cron.`, 'Use minute hour day month weekday, like "0 9 * * 1-5".');
+			const cron = validateCronExpression(args.schedule);
+			if (!cron.ok) return fail(`schedule "${args.schedule.slice(0, 60)}" is not a valid cron: ${cron.reason}`, 'Use 5 fields (minute hour day month weekday) with numbers, like "0 9 * * 1-5".');
 			return { ok: true, trigger: { kind: "cron", schedule: args.schedule } };
 		}
 		case "once": {

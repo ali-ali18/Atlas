@@ -7,7 +7,7 @@ import type { RoutineUpdateSpec, Routines } from "../../ports/routines.js";
 import type { Vault } from "../../ports/vault.js";
 import { defineTool } from "../../tools/define-tool.js";
 import { findRoutine, isExactRef, optionsLine } from "./resolve.js";
-import { alertField, alertSpecOf, checkLoginAccess, loginAccessField, loginAccessCardTarget, NOTIFY_MODES, triggerArgsPhrase } from "./routine-save.js";
+import { alertField, alertSpecOf, checkLoginAccess, loginAccessField, loginAccessCardTarget, NOT_SCHEDULED_NOTE, NOTIFY_MODES, routineCardTarget, triggerArgsPhrase } from "./routine-save.js";
 import { alertNeedsTimeTrigger, isValidTimezone, planTrigger, triggerFields, type TriggerArgs } from "./routine-trigger.js";
 
 const TRIGGER_KEYS = ["schedule", "runAt", "inMinutes", "everyMinutes", "email", "github"] as const;
@@ -36,18 +36,20 @@ export function createRoutineUpdateTool(deps: { routines: Routines; vault?: Pick
 		}),
 		effect: "write_internal",
 		effectForArgs: (args) => (args.loginAccess ? "credential" : "write_internal"),
-		riskFacts: (args) => ({
-			target: args.loginAccess
-				? loginAccessCardTarget(args.loginAccess, { name: args.name ?? args.target, ...(args.triggerType && { trigger: triggerArgsPhrase(args) }), ...(args.task && { task: args.task }) })
-				: `routine ${args.target}`,
-		}),
+		// Como na criação: depois de leitura não confiável, mudar o que a rotina faz ou quando roda passa pelo dono.
+		confirm: "when_untrusted",
+		riskFacts: (args) => {
+			const facts = { name: args.name ?? args.target, ...(args.triggerType && { trigger: triggerArgsPhrase(args) }), ...(args.task && { task: args.task }) };
+			return { target: args.loginAccess ? loginAccessCardTarget(args.loginAccess, facts) : routineCardTarget(facts) };
+		},
 		// O cartão da permissão mostra a rotina de verdade (nome, gatilho em frase e instrução atuais, ou os novos se esta chamada os troca).
 		async enrichRiskFacts(args, base, { ownerId }) {
-			if (!args.loginAccess) return base;
 			const found = findRoutine(await routines.list(ownerId), args.target);
-			if (found.kind !== "one" || !isExactRef(found.item, args.target)) return base;
+			if (found.kind !== "one") return base;
 			const { item } = found;
-			return { ...base, target: loginAccessCardTarget(args.loginAccess, { name: args.name ?? item.name, trigger: args.triggerType ? triggerArgsPhrase(args) : item.trigger, task: args.task ?? item.task }) };
+			if (args.loginAccess && !isExactRef(item, args.target)) return base;
+			const facts = { name: args.name ?? item.name, trigger: args.triggerType ? triggerArgsPhrase(args) : item.trigger, task: args.task ?? item.task };
+			return { ...base, target: args.loginAccess ? loginAccessCardTarget(args.loginAccess, facts) : routineCardTarget(facts) };
 		},
 		async execute(args, ctx) {
 			const { target, ...changes } = args;
@@ -121,7 +123,7 @@ export function createRoutineUpdateTool(deps: { routines: Routines; vault?: Pick
 			const login = spec.loginAccess && routine.loginAccess ? ` It may sign in to ${routine.loginAccess.site} with the login "${routine.loginAccess.login}" (approved), nowhere else.` : "";
 			return {
 				ok: true,
-				summary: `${kind} "${routine.name}" updated: ${routine.alert ?? routine.trigger}.${routine.enabled ? "" : " It is paused."}${login}${revoked}${webhook} The routine card was updated: say in one plain sentence what changed.`,
+				summary: `${kind} "${routine.name}" updated: ${routine.alert ?? routine.trigger}.${routine.enabled ? "" : " It is paused."}${login}${revoked}${webhook}${saved.notScheduled ? NOT_SCHEDULED_NOTE : ""} The routine card was updated: say in one plain sentence what changed.`,
 				receipt: { what: `${kind} updated: ${routine.name}`, where: "Routines", externalId: routine.id },
 			};
 		},
