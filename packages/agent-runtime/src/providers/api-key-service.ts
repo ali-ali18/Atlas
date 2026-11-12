@@ -1,4 +1,7 @@
-import type { ApiKeyProvider, ApiKeyProviderStatus } from "@workspace/shared";
+import { normalizeApiKey, type ApiKeyProvider, type ApiKeyProviderStatus } from "@workspace/shared";
+
+// `normalizeApiKey` mora em `@workspace/shared` (o serviço de e-mail do bot o usa); reexport para o legado.
+export { normalizeApiKey };
 import {
 	deleteProviderConnection,
 	getProviderConnection,
@@ -35,15 +38,6 @@ const databaseStore: ApiKeyStore = {
 	update: updateProviderConnection,
 	remove: deleteProviderConnection,
 };
-
-/** Chave plausível: sem espaços/controles, tamanho razoável. Nunca devolve nem registra o valor. */
-export function normalizeApiKey(value: unknown): string | null {
-	if (typeof value !== "string") return null;
-	const key = value.trim();
-	// eslint-disable-next-line no-control-regex
-	if (key.length < 8 || key.length > 512 || /[\s\u0000-\u001f\u007f]/.test(key)) return null;
-	return key;
-}
 
 /**
  * Chaves de API do usuário (Anthropic, OpenCode Go) no cofre cifrado

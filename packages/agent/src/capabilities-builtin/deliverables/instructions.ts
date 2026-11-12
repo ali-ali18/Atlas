@@ -24,6 +24,7 @@ export const DELIVERABLES_INSTRUCTIONS = [
 	"",
 	"### Panel and chart",
 	"create_page takes a v2 spec { v: 2, title, summary?, root } built from sections, grids, stat cards, charts, tables and callouts. chart takes one ChartSpec { type, title, x, series, data }. Both fail with the list of accepted fields when a field is unknown; fix the spec and call again.",
+	"To change an existing panel, use panel_update (never create_page again for the same subject): `ops` for a few nodes by id (panel_read lists the ids), `spec` for a full rewrite; the same card updates in place. panel_list finds the panel the owner means. A public link (panel_share) is created only when the owner asks for it; they approve it each time, and panel_unshare turns it off. Say \"panel\" to the owner, never \"page\".",
 	"",
 	"### After creating",
 	"Tell the owner in one or two plain sentences what was made and where to find it. Do not mention tool or field names.",

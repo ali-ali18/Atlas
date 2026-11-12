@@ -16,9 +16,13 @@ import type { FetchLike } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { getMcpCatalogEntry, type McpCatalogEntry } from "@workspace/shared";
 import { updateMcpConnection, type McpConnectionRecord } from "@workspace/db";
 import type { McpAuthProviderFactory } from "./runtime.js";
-import { mcpAuthRequired } from "./auth-marker.js";
 import { humanizeOAuthError, normalizingFetch } from "./oauth-fetch.js";
 import { sealSecrets, type McpConnectorSecrets, type McpOAuthSecrets } from "./secret-box.js";
+import { mcpOAuthClientFor, persistTo, resolveMcpOAuthClient, type McpOAuthClient, type McpOAuthPersist, type McpOAuthReadiness } from "@workspace/google";
+
+// Token OAuth do conector (cliente do catálogo, persistência, access token fresco) mora em `@workspace/google`; reexport para o legado.
+export { getFreshAccessToken, mcpOAuthClientFor, persistTo, resolveMcpOAuthClient } from "@workspace/google";
+export type { McpOAuthClient, McpOAuthPersist, McpOAuthReadiness } from "@workspace/google";
 
 /**
  * OAuth dos conectores MCP. O SDK cuida de discovery, PKCE, registro
@@ -29,58 +33,6 @@ import { sealSecrets, type McpConnectorSecrets, type McpOAuthSecrets } from "./s
 export const MCP_OAUTH_CALLBACK_PATH = "/v1/mcp/oauth/callback";
 /** Login pendente expira: o popup abandonado não deixa `state` válido. */
 export const MCP_OAUTH_STATE_TTL_MS = 15 * 60_000;
-
-export type McpOAuthClient = {
-	/** App OAuth fixo (GitHub/Slack). Sem ele, registro dinâmico. */
-	clientId?: string;
-	clientSecret?: string;
-	scope?: string;
-	/** Parâmetros extras na URL de login (ex.: Google `access_type=offline`). */
-	authorizationParams?: Readonly<Record<string, string>>;
-	/** Servidor de autorização fixo (Google): pula a descoberta via URL do servidor MCP (`builtin://`). */
-	authorizationServer?: string;
-};
-
-export type McpOAuthReadiness =
-	| { ready: true; client: McpOAuthClient }
-	| { ready: false; missing: string[] };
-
-function envValue(env: NodeJS.ProcessEnv, name: string | undefined): string | undefined {
-	if (!name) return undefined;
-	const value = env[name]?.trim();
-	return value ? value : undefined;
-}
-
-/** Credenciais do app OAuth de um conector do catálogo (lidas do env). */
-export function resolveMcpOAuthClient(
-	entry: Pick<McpCatalogEntry, "oauth"> | undefined,
-	env: NodeJS.ProcessEnv = process.env,
-): McpOAuthReadiness {
-	const oauth = entry?.oauth;
-	if (!oauth?.clientIdEnv) {
-		return {
-			ready: true,
-			client: { scope: oauth?.scope, authorizationParams: oauth?.authorizationParams, authorizationServer: oauth?.authorizationServer },
-		};
-	}
-	const clientId = envValue(env, oauth.clientIdEnv);
-	const clientSecret = envValue(env, oauth.clientSecretEnv);
-	const missing = [
-		clientId ? undefined : oauth.clientIdEnv,
-		oauth.clientSecretEnv && !clientSecret ? oauth.clientSecretEnv : undefined,
-	].filter((name): name is string => !!name);
-	if (missing.length > 0) return { ready: false, missing };
-	return {
-		ready: true,
-		client: {
-			clientId,
-			clientSecret,
-			scope: oauth.scope,
-			authorizationParams: oauth.authorizationParams,
-			authorizationServer: oauth.authorizationServer,
-		},
-	};
-}
 
 /**
  * O callback OAuth dos conectores é servido pela API, mas o navegador chega
@@ -93,6 +45,12 @@ export const MCP_OAUTH_LOGO_PATH = "/icons/logo-avatar.png";
 
 export function mcpOAuthLogoUrl(redirectUrl: string = mcpOAuthRedirectUrl()): string {
 	return `${new URL(redirectUrl).origin}${MCP_OAUTH_LOGO_PATH}`;
+}
+
+function envValue(env: NodeJS.ProcessEnv, name: string | undefined): string | undefined {
+	if (!name) return undefined;
+	const value = env[name]?.trim();
+	return value ? value : undefined;
 }
 
 export function mcpOAuthRedirectUrl(env: NodeJS.ProcessEnv = process.env): string {
@@ -108,8 +66,6 @@ export function newMcpOAuthState(): { state: string; stateHash: string } {
 export function hashMcpOAuthState(state: string): string {
 	return createHash("sha256").update(state).digest("hex");
 }
-
-export type McpOAuthPersist = (secrets: McpConnectorSecrets) => Promise<void>;
 
 export class McpOAuthProvider implements OAuthClientProvider {
 	/** Preenchida quando o SDK pede login (a API devolve à UI). */
@@ -213,21 +169,6 @@ export class McpOAuthProvider implements OAuthClientProvider {
 		if (scope === "verifier") delete this.oauth.codeVerifier;
 		if (scope !== "discovery") await this.save();
 	}
-}
-
-/** Persiste os segredos (tokens/PKCE/etc.) de uma conexão no cofre. */
-export function persistTo(connectionId: string): McpOAuthPersist {
-	return async (secrets) => {
-		await updateMcpConnection(connectionId, { secretsEnc: sealSecrets(secrets) });
-	};
-}
-
-/** Cliente OAuth do registro: catálogo (env) ou personalizado (dinâmico). */
-export function mcpOAuthClientFor(
-	record: Pick<McpConnectionRecord, "catalogId">,
-	env: NodeJS.ProcessEnv = process.env,
-): McpOAuthReadiness {
-	return resolveMcpOAuthClient(record.catalogId ? getMcpCatalogEntry(record.catalogId) : undefined, env);
 }
 
 /**
@@ -359,64 +300,4 @@ export async function finishMcpOAuth(input: {
 	}
 	if (result !== "AUTHORIZED") throw new Error("servidor recusou o login");
 	return provider;
-}
-
-/** Token de acesso ainda válido, ou `undefined` se não sabemos a validade (sem `expires_in`). */
-function accessTokenIsFresh(tokens: OAuthTokens, savedAt: number | undefined): boolean {
-	const expiresIn = tokens.expires_in;
-	if (expiresIn == null) return true;
-	const ageMs = Date.now() - (savedAt ?? 0);
-	const marginMs = 60_000;
-	return ageMs < expiresIn * 1000 - marginMs;
-}
-
-/**
- * Token de acesso pronto para uso pelos servidores MCP embutidos: reaproveita
- * o salvo se ainda vale, senão renova via `refresh_token`. Sem refresh
- * possível (ou o Google recusa), joga `UnauthorizedError` — mesmo sinal que a
- * conexão "pending_auth" (reconectar) usa para OAuth normal.
- */
-export async function getFreshAccessToken(input: {
-	secrets: McpConnectorSecrets;
-	client: McpOAuthClient;
-	persist: McpOAuthPersist;
-	/** Só para teste: injeta o fetch usado no discovery/refresh (default: fetch global). */
-	fetchFn?: FetchLike;
-}): Promise<string> {
-	const oauth = input.secrets.oauth ?? {};
-	const tokens = oauth.tokens as OAuthTokens | undefined;
-	if (!tokens?.access_token) throw mcpAuthRequired("conector sem login: reconecte no Marketplace");
-	if (accessTokenIsFresh(tokens, oauth.tokensSavedAt)) return tokens.access_token;
-	if (!tokens.refresh_token) throw mcpAuthRequired("token expirado sem refresh_token: reconecte no Marketplace");
-	const authorizationServer = input.client.authorizationServer;
-	if (!authorizationServer) throw mcpAuthRequired("conector sem servidor de autorização configurado");
-	const clientInformation: OAuthClientInformationMixed | undefined = input.client.clientId
-		? { client_id: input.client.clientId, ...(input.client.clientSecret ? { client_secret: input.client.clientSecret } : {}) }
-		: undefined;
-	if (!clientInformation) throw mcpAuthRequired("conector sem client OAuth configurado");
-	let refreshed: OAuthTokens;
-	try {
-		const metadata = await discoverAuthorizationServerMetadata(authorizationServer, { fetchFn: input.fetchFn });
-		refreshed = await refreshAuthorization(authorizationServer, {
-			metadata,
-			clientInformation,
-			refreshToken: tokens.refresh_token,
-			fetchFn: input.fetchFn,
-		});
-	} catch (error) {
-		throw mcpAuthRequired(
-			`falha ao renovar token: ${error instanceof Error ? error.message : String(error)}`,
-		);
-	}
-	// `refreshAuthorization` já preserva o refresh_token antigo quando o Google não manda um novo, mas reforça aqui.
-	const merged: OAuthTokens = { ...refreshed, refresh_token: refreshed.refresh_token ?? tokens.refresh_token };
-	const nextSecrets: McpConnectorSecrets = {
-		...input.secrets,
-		oauth: { ...oauth, tokens: merged as Record<string, unknown>, tokensSavedAt: Date.now() },
-	};
-	// Atualiza a cópia em memória para reutilizar o novo access token até
-	// expirar (sem isso, o closure chamaria refresh a cada chamada).
-	input.secrets.oauth = nextSecrets.oauth;
-	await input.persist(nextSecrets);
-	return merged.access_token;
 }

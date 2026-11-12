@@ -3,6 +3,7 @@ import { AGENDA_MAX_ACTIVE_PER_OWNER, DEFAULT_PROACTIVE_SETTINGS, findDuplicateA
 import type { Agenda, AgendaAction, AgendaCreateResult, AgendaItemView, AgendaRunResult } from "../ports/agenda.js";
 import type { ChartStore, DeliverablePorts, DeliverableFiles, FileInspection, InspectPage, PageStore } from "../ports/deliverables.js";
 import type { Helpers, HelperResult, HelperTask } from "../ports/helpers.js";
+import type { Images } from "../ports/images.js";
 import type { FileStore, StoredFile } from "../ports/file-store.js";
 import type { Memory, MemoryAddInput, MemoryItem, MemoryLayer } from "../ports/memory.js";
 import type { Notebook, NotebookAddInput, NotebookNote, NotebookPatch } from "../ports/notebook.js";
@@ -38,7 +39,11 @@ export class FakeFileStore implements FileStore {
 
 export class FakeDeliverables {
 	readonly created: Array<{ userId: string; runId: string; input: CreateFileInput; id: string }> = [];
-	readonly pages: Array<{ userId: string; runId: string; spec: PageSpec; id: string }> = [];
+	readonly pages: Array<{ userId: string; runId: string; spec: PageSpec; id: string; revision: number; shared: boolean }> = [];
+	/** Cada update aceito: o painel segue com o MESMO id (o cartão troca no lugar). */
+	readonly updates: Array<{ userId: string; runId: string; id: string; revision: number }> = [];
+	/** Revisão que o próximo `update` verá como "ganhou a corrida" (simula conflito); consumido uma vez. */
+	conflictOnce = false;
 	readonly charts: Array<{ userId: string; runId: string; spec: ChartSpec; id: string }> = [];
 	/** Arquivos inspecionáveis: chave `userId:fileId`. */
 	readonly inspectable = new Map<string, FileInspection>();
@@ -56,11 +61,46 @@ export class FakeDeliverables {
 			return this.inspectable.get(`${userId}:${fileId}`) ?? null;
 		},
 	};
+	private ownPage(userId: string, id: string) {
+		return this.pages.find((page) => page.id === id && page.userId === userId);
+	}
 	readonly pageStore: PageStore = {
 		save: async (userId, runId, spec) => {
 			const id = `page-${this.pages.length + 1}`;
-			this.pages.push({ userId, runId, spec, id });
+			this.pages.push({ userId, runId, spec, id, revision: 1, shared: false });
 			return { id, title: spec.title, url: `https://pages.test/${id}` };
+		},
+		list: async (userId) => this.pages.filter((page) => page.userId === userId).map((page) => ({ id: page.id, title: page.spec.title, revision: page.revision, updatedAt: "2026-11-09T12:00:00.000Z" })),
+		read: async (userId, id) => {
+			const page = this.ownPage(userId, id);
+			return page ? { id: page.id, title: page.spec.title, revision: page.revision, spec: page.spec, sourceCount: 0, shared: page.shared } : null;
+		},
+		update: async (userId, runId, id, spec, expectedRevision) => {
+			const page = this.ownPage(userId, id);
+			if (!page) return { ok: false, error: "not_found" };
+			if (this.conflictOnce) {
+				this.conflictOnce = false;
+				page.revision += 1;
+				return { ok: false, error: "conflict" };
+			}
+			if (expectedRevision !== page.revision) return { ok: false, error: "conflict" };
+			page.spec = spec;
+			page.revision += 1;
+			this.updates.push({ userId, runId, id, revision: page.revision });
+			return { ok: true, id, title: spec.title, revision: page.revision };
+		},
+		share: async (userId, id) => {
+			const page = this.ownPage(userId, id);
+			if (!page) return null;
+			page.shared = true;
+			return { url: `https://web.test/p/token-${id}` };
+		},
+		unshare: async (userId, id) => {
+			const page = this.ownPage(userId, id);
+			if (!page) return null;
+			const was = page.shared;
+			page.shared = false;
+			return was;
 		},
 	};
 	readonly chartStore: ChartStore = {
@@ -506,6 +546,24 @@ export class FakeCalendar {
 			show: async (userId, runId, card) => {
 				if (!this.cards.some((c) => c.card.cardId === card.cardId)) this.cards.push({ userId, runId, card });
 			},
+		},
+	};
+}
+
+/** Imagens (F9): grava cada pedido e devolve imagens com id previsível. `fail` faz a porta lançar o motivo dado. */
+export class FakeImages {
+	readonly calls: Array<{ userId: string; runId: string; prompt: string; count: number; aspectRatio?: string }> = [];
+	/** Motivo de falha: a próxima chamada lança com esta mensagem. */
+	fail: string | null = null;
+	/** Custo que a porta informa (undefined = o provedor não informou). */
+	costUsd: number | undefined = 0.04;
+
+	readonly port: Images = {
+		generate: async (userId, runId, input) => {
+			this.calls.push({ userId, runId, prompt: input.prompt, count: input.count, ...(input.aspectRatio !== undefined && { aspectRatio: input.aspectRatio }) });
+			if (this.fail) throw new Error(this.fail);
+			const images = Array.from({ length: input.count }, (_, index) => ({ artifactId: `img-${this.calls.length}-${index + 1}`, mime: "image/png", width: 1024, height: 1024 }));
+			return { images, ...(this.costUsd !== undefined && { costUsd: this.costUsd }) };
 		},
 	};
 }

@@ -158,6 +158,7 @@ export {
 	type ReceiptEvent,
 } from "./agent-v4-events.js";
 export { approvalEventFact, approvalMessageFact, formatApprovalEventWhen, type ApprovalEventFact, type ApprovalMessageFact } from "./agent-v4-approval-facts.js";
+export { AGENT_CARD_STATES, agentCardHasState, isAgentCardState, resolveAgentCardState, sanitizeAgentV4EventForStorage, type AgentCardState, type AgentCardStateInput } from "./agent-v4-card-state.js";
 export { purchaseRequestFromEvent, type PurchaseFacts, type PurchaseRequest } from "./agent-v4-purchase.js";
 export {
 	AGENT_POINTER_NAME_MAX,
@@ -185,6 +186,8 @@ export {
 	parseDelegateTaskArgs,
 	subagentLabel,
 	DELEGATE_TITLE_MAX_CHARS,
+	DELEGATE_GOAL_MAX_CHARS,
+	DELEGATE_CONTEXT_MAX_CHARS,
 	planChildBudget,
 	DELEGATE_MODEL_MAX_CHARS,
 	readSubagentModel,
@@ -312,6 +315,7 @@ export * from "./read-state.js";
 export * from "./files.js";
 export * from "./deck.js";
 export * from "./attachments.js";
+export * from "./attachment-text.js";
 export {
 	parseSkillRecipe,
 	evaluateSkillRecipe,
@@ -531,6 +535,8 @@ export * from "./alert-rule-extract.js";
 export * from "./page-value.js";
 export * from "./market-hours.js";
 export * from "./routine-alert.js";
+export * from "./routine-trigger-summary.js";
+export * from "./routine-login-permission.js";
 export * from "./routine-alert-schedule.js";
 export * from "./routine-failure-text.js";
 export {
@@ -902,6 +908,9 @@ export * from "./dev-env-secrets-paste.js";
 export * from "./dev-env-detect.js";
 export * from "./dev-env-auto.js";
 export * from "./github-identity.js";
+export * from "./git-ref.js";
+export * from "./git-commit-guard.js";
+export * from "./cron-validate.js";
 export * from "./dev-command-approval.js";
 export * from "./test-pr.js";
 export * from "./coding-model.js";
@@ -916,6 +925,7 @@ export * from "./env-check.js";
 export * from "./diagnostics.js";
 export * from "./sentry-lite.js";
 export * from "./vault.js";
+export * from "./vault-login.js";
 
 export {
 	CATALOG_DEFAULT_URL,
@@ -1045,6 +1055,7 @@ export * from "./agent-activity.js";
 export * from "./avatar-activity.js";
 export * from "./avatar-governor.js";
 export * from "./vtt.js";
+export * from "./video-transcript.js";
 export * from "./agent-policy/index.js";
 export * from "./model-roles/index.js";
 export * from "./web/index.js";
@@ -1054,3 +1065,5 @@ export * from "./memory-doctor.js";
 export * from "./learned-rules.js";
 export * from "./payment-card.js";
 export * from "./merchant.js";
+export * from "./skill-similar.js";
+export * from "./api-key.js";

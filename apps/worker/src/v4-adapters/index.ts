@@ -11,7 +11,9 @@ import {
 	createConnectorsCapability,
 	createEmailCapability,
 	createNoteTaskListStore,
+	createRoutineRunCapability,
 	createShoppingCapability,
+	createVaultAdapter,
 	presetStablePrompt,
 	setupPreset,
 	type CapabilityId,
@@ -20,22 +22,32 @@ import {
 	type NoteStore,
 	type PolicyContext,
 	type BriefEmailSource,
+	type AlertRunPort,
+	type RoutinePush,
 	type CheckoutDeps,
 	type CodeDeps,
 	type PresetDeps,
 	type Search,
 } from "@workspace/agent";
-import { countryFromLocale, type AgendaKind, type ComputerUseEvent } from "@workspace/shared";
+import { countryFromLocale, type AgendaKind, type ComputerUseEvent, type RoutineRecord } from "@workspace/shared";
+import { createV4Bots, isBotDecideEnabled, realV4BotsDeps, type V4BotsDeps } from "./bots.js";
 import { createV4Agenda, realV4AgendaDeps, type V4AgendaDeps } from "./agenda.js";
+import { createV4Attachments, type V4AttachmentsSource } from "./attachments.js";
 import { createV4Email, realV4EmailDeps, type V4EmailDeps } from "./email.js";
+import { createV4Github, createV4GithubWriter, realV4GithubDeps, type V4GithubDeps } from "./github.js";
+import { createV4Images, realV4ImagesDeps, type V4ImagesConfig, type V4ImagesDeps } from "./images.js";
 import { createV4Brief, realV4BriefDeps, type V4BriefDeps } from "./brief.js";
 import { createV4Calendar, realV4CalendarDeps, type V4CalendarDeps } from "./calendar.js";
 import { createV4Deliverables, realV4DeliverablesDeps, type V4DeliverablesDeps } from "./deliverables.js";
 import { createV4Mcp, realV4McpDeps, type V4McpDeps } from "./mcp.js";
 import { createV4Memory, realV4MemoryDeps, type V4MemoryDeps } from "./memory.js";
 import { createV4Notebook, realV4NotebookDeps, type V4NotebookDeps } from "./notebook.js";
+import { createV4Routines, realV4RoutinesDeps, type V4RoutinesDeps } from "./routines.js";
 import { createV4Settings, realV4SettingsDeps, type V4SettingsDeps } from "./settings.js";
 import { createV4Shopping, realV4ShoppingDeps, type V4ShoppingDeps } from "./shopping.js";
+import { createV4Skills, loadV4SkillNames, realV4SkillsDeps, type V4SkillsDeps } from "./skills.js";
+import { createV4Subagents, type V4SubagentsDeps } from "./subagents.js";
+import { createV4Vault, realV4VaultDeps, type V4VaultDeps } from "./vault.js";
 import { createV4Search, realV4WebDeps, type V4WebDeps } from "./web.js";
 
 export type V4AdapterDeps = {
@@ -50,9 +62,31 @@ export type V4AdapterDeps = {
 	email: V4EmailDeps;
 	calendar: V4CalendarDeps;
 	brief: V4BriefDeps;
+	images: V4ImagesDeps;
+	vault: V4VaultDeps;
+	github: V4GithubDeps;
+	bots: V4BotsDeps;
+	routines: V4RoutinesDeps;
+	skills: V4SkillsDeps;
+	/** Cartão dos subagentes (F9). Opcional: sem ele vale o real (`appendConversationCard`). */
+	subagents?: V4SubagentsDeps;
 };
 
-export const realV4AdapterDeps = (): V4AdapterDeps => ({ web: realV4WebDeps(), deliverables: realV4DeliverablesDeps, memory: realV4MemoryDeps, notebook: realV4NotebookDeps, settings: realV4SettingsDeps, mcp: realV4McpDeps, agenda: realV4AgendaDeps, shopping: realV4ShoppingDeps, email: realV4EmailDeps, calendar: realV4CalendarDeps, brief: realV4BriefDeps });
+export const realV4AdapterDeps = (): V4AdapterDeps => ({ web: realV4WebDeps(), deliverables: realV4DeliverablesDeps, memory: realV4MemoryDeps, notebook: realV4NotebookDeps, settings: realV4SettingsDeps, mcp: realV4McpDeps, agenda: realV4AgendaDeps, shopping: realV4ShoppingDeps, email: realV4EmailDeps, calendar: realV4CalendarDeps, brief: realV4BriefDeps, images: realV4ImagesDeps, vault: realV4VaultDeps, github: realV4GithubDeps, bots: realV4BotsDeps, routines: realV4RoutinesDeps, skills: realV4SkillsDeps });
+
+/**
+ * O que a rotina deste run deixa para o v4 (F9 parte 2). Só em run de rotina; o worker lê do db (dono do run, nunca do modelo).
+ *  - `pageId`: o painel que a rotina reconstrói a cada execução; só ele pode ser atualizado e é marcado `refreshed`.
+ *  - `loginPermission`: o login e o site que o dono aprovou ao criar a rotina; só com ela o run ganha `login_fill`, só para aquele login e site.
+ *  - `alert`: onde o veredito do `report_alert` fica para o worker decidir o aviso.
+ */
+export type V4RoutineRun = {
+	pageId?: string | null;
+	loginPermission?: { login: string; site: string } | null;
+	alert?: AlertRunPort;
+	/** Rotina "só importante": push avulso ao dono (`notify_user`). Nunca junto de `alert`. */
+	push?: RoutinePush;
+};
 
 export type V4RegistryInput = {
 	runId: string;
@@ -99,6 +133,16 @@ export type V4RegistryInput = {
 	codeRequested?: boolean;
 	/** O ambiente de código existe neste servidor (dev sandbox). Serve para `settings_set_code_mode` ser honesta ao ligar sem ele. */
 	codeEnvironment?: boolean;
+	/** Imagens (F9): chave e modelo de imagem do run (modelo do dono, ou `ATLAS_IMAGE_MODEL`). Sem ele a tool avisa como configurar. Em run sem dono a capacidade não entra. */
+	imageGeneration?: V4ImagesConfig;
+	/** Rotinas (F9): sincroniza o agendador depois de pausar, retomar ou apagar uma rotina (o `syncRoutineScheduler` do worker). Sem ele a rotina muda no banco e o agendador só reconcilia no próximo boot. */
+	onRoutineMutated?: (routine: RoutineRecord) => Promise<unknown>;
+	/** Rotina (F9 parte 2): o que a rotina deste run aprovou e espera (painel, login, veredito de alerta). Ausente fora de run de rotina. */
+	routineRun?: V4RoutineRun;
+	/** Anexos da conversa (F9): a fonte do run (lista e cache de extração). Só com dono presente; rotina e agenda não leem anexos. */
+	attachments?: V4AttachmentsSource;
+	/** Rotinas (F9): reconcilia o webhook do repositório no GitHub depois de pausar, retomar ou apagar uma rotina de GitHub (o `ensureGithubRepoHook` do legado). Sem ele o hook no GitHub só muda quando o legado mexer na rotina. */
+	ensureGithubHook?: (userId: string, repo: string) => Promise<unknown>;
 };
 
 export type V4RegistrySetup = {
@@ -118,18 +162,40 @@ export async function buildV4Registry(input: V4RegistryInput): Promise<V4Registr
 	const botId = input.botId?.trim() || undefined;
 	const deliverables = createV4Deliverables({
 		runId: input.runId,
-		scope: { conversationId: input.conversationId ?? null, botId: botId ?? null, emit: input.emit, log },
+		scope: { conversationId: input.conversationId ?? null, botId: botId ?? null, emit: input.emit, log, ...(input.routineRun?.pageId && { routinePageId: input.routineRun.pageId }) },
 		deps: deps.deliverables,
 	});
 	const search = createV4Search(deps.web, input.locale);
 	const agenda = botId ? createV4Agenda({ botId, policy: input.policy ?? { autonomy: "balanced", rules: [] }, deps: deps.agenda }) : undefined;
 	const shoppingPorts = createV4Shopping({ scope: { conversationId: input.conversationId ?? null, botId: botId ?? null, emit: input.emit, log }, deps: deps.shopping });
 	const emailPorts = createV4Email({ scope: { ownerId: input.userId, botId: botId ?? null, conversationId: input.conversationId ?? null, emit: input.emit, log }, deps: deps.email });
+	// Cofre (F9): nomes e metadados para o modelo; o valor só vai ao executor. Sem dono presente só `secret_list` (sem pedir nem digitar).
+	const vaultPorts = createV4Vault({ scope: { conversationId: input.conversationId ?? null, botId: botId ?? null, botName: input.botName ?? null, emit: input.emit, log }, deps: deps.vault });
+	const vault = createVaultAdapter(vaultPorts.backend);
+	// Rotinas (F9): as da Biblioteca, do bot do run (sem bot não há o que listar). Sem dono presente só `routine_list`.
+	const routinesPort = botId ? createV4Routines({ scope: { botId, conversationId: input.conversationId ?? null, emit: input.emit, log, ...(input.onRoutineMutated && { onMutated: input.onRoutineMutated }), ...(input.ensureGithubHook && { ensureGithubHook: input.ensureGithubHook }) }, deps: deps.routines }) : undefined;
 	const country = countryFromLocale(input.locale);
+	// Anexos (F9): só com dono presente. Rotina e run de agenda leem a conversa sem ninguém para ver o que é lido, então não entram.
+	const attachmentsPort = input.attachments && !input.unattended && !input.agendaRun ? createV4Attachments({ scope: { ownerId: input.userId, conversationId: input.conversationId ?? null }, source: input.attachments }) : undefined;
 	const calendarPorts = createV4Calendar({ scope: { botId: botId ?? null, conversationId: input.conversationId ?? null, emit: input.emit, log }, deps: deps.calendar });
+	// Imagens (F9): sem dono presente o gasto de provedor não tem quem aprove, então a porta nem entra (a capacidade fica fora).
+	const images = input.unattended ? undefined : createV4Images({ scope: { conversationId: input.conversationId ?? null, emit: input.emit, log }, ...(input.imageGeneration && { config: input.imageGeneration }), deps: deps.images });
+	// Bots (F9): só com dono presente e bot no run. Sem dono (rotina, agenda, bot a bot) a capacidade nem entra: não há quem
+	// confirme, e mensagem a outro bot a partir de conteúdo de fora não pode partir de um run sem humano.
+	const bots = botId && !input.unattended ? createV4Bots({ scope: { botId, conversationId: input.conversationId ?? null, emit: input.emit, log, decideEnabled: await isBotDecideEnabled(botId, input.userId, deps.bots) }, deps: deps.bots }) : undefined;
+	// Habilidades (F9): as da conta e as deste bot. Só o índice de NOMES vai (curto) no resumo da capacidade; o corpo só com `skill_read`.
+	// Sem dono presente (rotina, agenda, subagente) só lê e usa: ninguém para ver o aviso "Aprendi" nem desfazer.
+	const skillsPort = createV4Skills({ scope: { botId: botId ?? null, conversationId: input.conversationId ?? null, emit: input.emit, log }, deps: deps.skills });
+	const skillNames = await loadV4SkillNames({ userId: input.userId, botId: botId ?? null, deps: deps.skills, log });
+	// "Confirmar escritas" do conector GitHub do dono vale também para a escrita nativa. Falha ao ler = o conservador (confirmar).
+	const githubConfirmWrites = input.unattended ? false : await Promise.resolve().then(() => deps.github.confirmWrites(input.userId)).catch(() => true);
+	// Os mesmos ajudantes servem a `research` e a `delegate` (um livro de gasto, uma numeração de runs filhos).
+	const helpers = input.makeHelpers?.({ search });
 	const presetDeps: PresetDeps = {
 		search,
-		...(input.makeHelpers && { helpers: input.makeHelpers({ search }) }),
+		...(helpers && { helpers }),
+		// Subagentes (F9): `delegate_task` só com dono presente (como no motor antigo: rotina, agenda e subagente não delegam).
+		...(helpers && !input.unattended && !input.agendaRun && { delegate: { helpers, cards: createV4Subagents({ scope: { conversationId: input.conversationId ?? null, emit: input.emit, log }, ...(deps.subagents && { deps: deps.subagents }) }) } }),
 		files: deliverables.fileStore,
 		deliverables: deliverables.ports,
 		memory: createV4Memory({ botId, deps: deps.memory }),
@@ -146,7 +212,19 @@ export async function buildV4Registry(input: V4RegistryInput): Promise<V4Registr
 		calendar: calendarPorts,
 		...(input.checkout && { checkout: input.checkout }),
 		...(input.browser && { browser: true }),
+		// Vídeo (F9): a transcrição roda na mesma VM do navegador; sem ela a capacidade fica em `unavailable`.
+		...(input.browser && { video: true }),
+		// Run de rotina com a permissão de login que o dono aprovou ao criar a rotina: `login_fill` só para esse login e esse site (sem ela, nada digita).
+		vault: { vault, ...(vaultPorts.requests && { requests: vaultPorts.requests }), ...(input.unattended && { readOnly: true }), ...(input.unattended && input.routineRun?.loginPermission && { routineLogin: { login: input.routineRun.loginPermission.login, site: input.routineRun.loginPermission.site } }) },
+		// GitHub (F9): o token é o do dono do run, resolvido na chamada (nada é lido ao montar). Escrita (issue, comentário, PR) pelo app do dono;
+		// sem dono presente só lê. O conector GitHub continua no run: branch, arquivo e review só existem por ele.
+		github: { github: createV4Github(deps.github), githubWrite: createV4GithubWriter({ botName: input.botName ?? null, deps: deps.github }), ...(input.unattended && { readOnly: true }), ...(githubConfirmWrites && { confirmWrites: true }) },
+		...(bots && { bots: { bots } }),
+		...(routinesPort && { routines: { routines: routinesPort, vault, ...(input.unattended && { readOnly: true }) } }),
+		...(attachmentsPort && { attachments: { files: attachmentsPort } }),
+		skills: { skills: skillsPort, names: skillNames, ...((input.unattended || input.agendaRun) && { readOnly: true }) },
 		...(input.code && { code: input.code }),
+		...(images && { images }),
 		...(country && { shoppingCountry: country }),
 	};
 	const preset = setupPreset("full", presetDeps);
@@ -181,8 +259,11 @@ export async function buildV4Registry(input: V4RegistryInput): Promise<V4Registr
 	// Sem dono presente (rotina, subagente, bot a bot, agenda) o navegador só lê: nada a enviar e ninguém para confirmar. O run de
 	// agenda já trocou o `browser` acima; os demais sem dono trocam aqui (mantém o `browser_digest` quando há ajudantes).
 	const readOnlyBrowser = input.unattended && !asAgendaRun && forRun.some((capability) => capability.id === "browser");
-	const finalCaps = readOnlyBrowser ? forRun.map((capability) => (capability.id === "browser" ? createBrowserCapability({ readOnly: true, ...(input.makeHelpers && { helpers: input.makeHelpers({ search }) }) }) : capability)) : forRun;
-	const registry = !asAgendaRun && !connectors.capability && !readOnlyBrowser ? base.registry : createCapabilityRegistry(finalCaps);
+	const baseCaps = readOnlyBrowser ? forRun.map((capability) => (capability.id === "browser" ? createBrowserCapability({ readOnly: true, ...(input.makeHelpers && { helpers: input.makeHelpers({ search }) }) }) : capability)) : forRun;
+	// Run de rotina: `report_alert` (alerta: o veredito vai ao worker, que decide o aviso) ou `notify_user` (só importante) entram no núcleo.
+	const routineRunCaps = input.routineRun && (input.routineRun.alert || input.routineRun.push) ? createRoutineRunCapability({ ...(input.routineRun.alert && { alert: input.routineRun.alert }), ...(input.routineRun.push && { push: input.routineRun.push }) }) : undefined;
+	const finalCaps = routineRunCaps ? [...baseCaps, routineRunCaps] : baseCaps;
+	const registry = !asAgendaRun && !connectors.capability && !readOnlyBrowser && !routineRunCaps ? base.registry : createCapabilityRegistry(finalCaps);
 	// `browser` fica em `unavailable` sem a VM (SANDBOX_ENABLED desligado); `code` é opt-in e só aparece aqui se o bot ligou e o ambiente não existe.
 	const unavailable: CapabilityId[] = [...base.unavailable, ...(input.codeRequested && !input.code ? (['code'] as const) : [])];
 	if (unavailable.length > 0) log(`[engine-v4] run=${input.runId} capacidades sem porta: ${unavailable.join(", ")}`);

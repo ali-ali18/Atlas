@@ -4,7 +4,7 @@
 // (envio durante o fim do run, parar antes do `runId`, toque duplo em aprovação…). O hook só assina e desenha.
 import type { AgentActivity, ComputerUseEvent } from "@workspace/shared";
 import { agentCardKey } from "@workspace/shared";
-import { agentCardPending, ASK_OWNER_ANSWER_MAX, type AgentCardDecision } from "./agent-cards";
+import { agentCardDecisionOfState, agentCardPending, ASK_OWNER_ANSWER_MAX, type AgentCardDecision } from "./agent-cards";
 import { ChatApiError, isNetworkError, isUnauthorized, sendErrorText, type AgentRequestResult, type AgentV4Decision, type CreateRunInput, type CreateRunResult } from "./chat-api";
 import { applyRunEvent, createLiveState, startLiveRun, type LiveState } from "./chat-live";
 import { followRun, type FollowOptions, type OpenStream } from "./chat-stream";
@@ -750,7 +750,7 @@ function withAgentCardState(items: readonly ChatItem[], snapshot: ChatSnapshot):
 	}
 	return items.map((item, index) => {
 		if (item.kind !== "agent-card") return item;
-		const decision = snapshot.agentDecisions[agentCardKey(item.card)];
+		const decision = snapshot.agentDecisions[agentCardKey(item.card)] ?? agentCardDecisionOfState(item.state) ?? undefined;
 		const pending = agentCardPending(item, { pausedRunId, laterUserMessage: flags[index] === true }, decision);
 		const settled = item.card.type === "receipt" ? undefined : !pending && !decision;
 		return { ...item, ...(decision ? { decision } : {}), ...(settled !== undefined ? { settled } : {}) };

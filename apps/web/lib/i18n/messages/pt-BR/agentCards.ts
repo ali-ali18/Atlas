@@ -15,6 +15,7 @@ export const agentCards = {
 	"agentCards.approval.deleteTarget": "Apagar {target}",
 	"agentCards.approval.deleteGeneric": "Apagar um item",
 	"agentCards.approval.credential": "Usar uma senha ou chave salva",
+	"agentCards.approval.credentialTarget": "Usar {target}",
 	"agentCards.approval.changeTarget": "Alterar {target}",
 	"agentCards.approval.changeExternal": "Fazer uma alteração fora do Atlas",
 	"agentCards.approval.saveTarget": "Salvar {target}",
@@ -45,6 +46,7 @@ export const agentCards = {
 	"agentCards.ask.title": "Pergunta para você",
 	"agentCards.receipt.done": "Feito",
 	"agentCards.receipt.open": "Abrir",
+	"agentCards.expired": "Venceu",
 	"agentCards.settled": "Resolvido",
 	"agentCards.sendFailed": "Não deu para enviar sua resposta agora. Tente de novo.",
 } as const;

@@ -101,7 +101,8 @@ describe("video_transcript: executor", () => {
 		const out = await executeVideoTranscript({ url: "https://youtu.be/xyz" }, ctx({ execShell, execReadFile }));
 		expect(execShell).toHaveBeenCalledTimes(1);
 		const command = (execShell.mock.calls[0] as unknown as [string, { command: string }])[1].command;
-		expect(command).toContain("yt-dlp --no-playlist --skip-download --write-subs --write-auto-subs");
+		expect(command).toContain("--no-playlist --skip-download --write-subs --write-auto-subs");
+		expect(command).toContain("--proxy");
 		expect(command).toContain("'https://youtu.be/xyz'");
 		expect(out.summary).toContain("language: en");
 		expect(out.summary).toContain("hoje vamos falar de energia solar");

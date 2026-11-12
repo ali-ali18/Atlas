@@ -94,6 +94,11 @@ export const FRESH_SUMMARY_IGNORE_ROLES: readonly string[] = [
 	"task-list",
 	"compaction",
 	"revised-draft",
+	// Cards do motor v4 (role = tipo do evento): não são fala.
+	"approval_request",
+	"handoff_request",
+	"ask_owner",
+	"receipt",
 ];
 
 export type FreshSummaryOptions = {

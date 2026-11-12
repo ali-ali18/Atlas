@@ -69,7 +69,9 @@ import {
 	saveAgentV4Checkpoint,
 	type RunLease,
 } from "@workspace/db";
-import { buildV4Registry, type V4AdapterDeps } from "./v4-adapters/index.js";
+import { buildV4Registry, type V4AdapterDeps, type V4RegistryInput } from "./v4-adapters/index.js";
+import type { V4AttachmentsSource } from "./v4-adapters/attachments.js";
+import type { V4ImagesConfig } from "./v4-adapters/images.js";
 import { createV4Payment, type V4PaymentDeps } from "./v4-adapters/payment.js";
 import { MODEL_ROLES, type CodeMode, formatModelRef, isMaintenanceModel, parseModelRef, type AgendaKind, type BotLanguage, type ComputerUseEvent, type ModelChainEntry, type RoleChains, type RunStop, type RunUsage } from "@workspace/shared";
 
@@ -135,24 +137,6 @@ export function storeBackendFromDb(db: V4Db, lease: Pick<RunLease, "owner" | "to
 		removeNote: (userId, id) => db.removeNote(userId, id),
 		getConversation: (userId, conversationId) => db.getConversation(userId, conversationId),
 		saveConversation: (userId, conversationId, state) => db.saveConversation(userId, conversationId, state),
-	};
-}
-
-/** Cofre: só segredos simples (`kind: "secret"`); o id do handle é o nome do item, que é o que o serviço resolve. */
-export type VaultServiceLike = {
-	listMeta(userId: string): Promise<Array<{ kind: string; name: string; label: string }>>;
-	resolveRef(userId: string, ref: { kind: "secret"; name: string; raw: string }, by?: { actor?: "user" | "bot"; detail?: string }): Promise<{ value: string } | null>;
-};
-
-export function vaultBackendFromService(service: VaultServiceLike): VaultBackend {
-	return {
-		async listHandles(userId) {
-			return (await service.listMeta(userId)).filter((m) => m.kind === "secret").map((m) => ({ id: m.name, label: m.label || m.name }));
-		},
-		async resolveSecret(userId, handleId) {
-			const resolved = await service.resolveRef(userId, { kind: "secret", name: handleId, raw: handleId }, { actor: "bot", detail: "agent_v4" });
-			return resolved?.value ?? null;
-		},
 	};
 }
 
@@ -363,6 +347,8 @@ export type RunEngineV4Input = {
 	codeMode?: CodeMode;
 	/** O ambiente de código existe neste run (dev sandbox). `codeMode` ligado sem isso: `code` indisponível, dito no log. */
 	codeAvailable?: boolean;
+	/** Imagens (F9): chave e modelo de imagem do run. Sem ele, a tool `generate_image` avisa como configurar o modelo. */
+	imageGeneration?: V4ImagesConfig;
 	/** Canal efêmero do CVV (F6.3). Sem ele o pagamento não é oferecido (o cartão de compra nem existe sem onde guardar o CVV). */
 	cvvEscrow?: CvvEscrow | null;
 	/** Funções de banco do pagamento (testes passam fakes). */
@@ -384,6 +370,14 @@ export type RunEngineV4Input = {
 	agendaKind?: AgendaKind;
 	/** Fonte de e-mail do plano do dia (frente de e-mail). Sem ela o brief segue sem a seção. */
 	briefEmail?: BriefEmailSource;
+	/** Rotinas (F9): sincroniza o agendador depois que o bot pausa, retoma ou apaga uma rotina (o `syncRoutineScheduler` do worker). */
+	onRoutineMutated?: V4RegistryInput["onRoutineMutated"];
+	/** Rotinas (F9 parte 2): o painel, a permissão de login e o veredito de alerta da rotina deste run. Só em run de rotina. */
+	routineRun?: V4RegistryInput["routineRun"];
+	/** Anexos da conversa (F9): a fonte do processador (lista e cache de extração). Sem ela a capacidade `attachments` não entra. */
+	attachments?: V4AttachmentsSource;
+	/** Rotinas (F9): reconcilia o webhook do GitHub depois de pausar, retomar ou apagar uma rotina de GitHub. */
+	ensureGithubHook?: V4RegistryInput["ensureGithubHook"];
 	/** Prompt estável do preset (sem ele, o kernel monta o completo com o contrato de trabalho). */
 	stableSystem?: string;
 	policy?: PolicyContext;
@@ -492,11 +486,16 @@ export async function runEngineV4(input: RunEngineV4Input): Promise<V4EngineResu
 				...(input.agendaRun && { agendaRun: true }),
 				...(input.agendaKind && { agendaKind: input.agendaKind }),
 				...(input.briefEmail && { briefEmail: input.briefEmail }),
+				...(input.onRoutineMutated && { onRoutineMutated: input.onRoutineMutated }),
+				...(input.routineRun && { routineRun: input.routineRun }),
+				...(input.ensureGithubHook && { ensureGithubHook: input.ensureGithubHook }),
 				...(payment?.checkout && { checkout: payment.checkout }),
 				...(input.browser && { browser: true }),
 				...(codeOn && { code: codeMode === "plan" ? { readOnly: true } : {} }),
 				...(codeMode !== "off" && { codeRequested: true }),
 				...(input.codeAvailable === true && { codeEnvironment: true }),
+				...(input.imageGeneration && { imageGeneration: input.imageGeneration }),
+				...(input.attachments && { attachments: input.attachments }),
 			});
 	const registry = input.registry ?? built!.registry;
 	motherRegistry = registry;

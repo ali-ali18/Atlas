@@ -31,8 +31,30 @@ export interface DeliverableFiles {
 
 export type StoredPage = { id: string; title: string; url?: string };
 
+/** Linha da lista de painéis do bot do run. */
+export type PanelSummary = { id: string; title: string; revision: number; updatedAt: string; groupName?: string | null; summary?: string };
+
+/** Painel lido por id: o spec completo, para o modelo editar por `ops`. `shared` = há link público ligado. */
+export type PanelRead = { id: string; title: string; revision: number; spec: PageSpec; sourceCount: number; shared: boolean };
+
+/** `conflict` = outro update ganhou a corrida (a tool relê e tenta de novo uma vez). `not_found` vale também para painel de outro dono. */
+export type PanelUpdateResult = { ok: true; id: string; title: string; revision: number } | { ok: false; error: "not_found" | "conflict" };
+
+/**
+ * Painéis do dono. Tudo escopado pelo `userId` do run (nunca de argumento do modelo): painel de outro dono, de outro bot
+ * ou inexistente dá o mesmo `null` / `not_found`. O adaptador mostra o cartão (criado ou atualizado, MESMO `pageId`).
+ */
 export interface PageStore {
 	save(userId: string, runId: string, spec: PageSpec): Promise<StoredPage>;
+	/** Painéis do bot do run, mais recentes primeiro. */
+	list(userId: string): Promise<PanelSummary[]>;
+	read(userId: string, pageId: string): Promise<PanelRead | null>;
+	/** Substitui o spec inteiro (já validado e com o patch aplicado), revisão + 1. `expectedRevision` = a que a tool leu. */
+	update(userId: string, runId: string, pageId: string, spec: PageSpec, expectedRevision: number): Promise<PanelUpdateResult>;
+	/** Liga (ou gira) o link público somente leitura. `null` = painel não encontrado. O endereço só existe nesta resposta. */
+	share(userId: string, pageId: string): Promise<{ url: string } | null>;
+	/** Desliga o link. `null` = painel não encontrado; `false` = não havia link ligado. */
+	unshare(userId: string, pageId: string): Promise<boolean | null>;
 }
 
 export type StoredChart = { id: string };

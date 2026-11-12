@@ -113,6 +113,7 @@ import {
 	getRoutine,
 	getRoutineAlertForAgentRun,
 	getRoutineContextForAgentRun,
+	getRoutineLoginPermissionForAgentRun,
 	getRoutineNotifyModeForAgentRun,
 	getRoutinePageIdForAgentRun,
 	findRoutineRunByAgentRunId,
@@ -147,13 +148,16 @@ import { runV4Turn } from "../v4-turn.js";
 import { createBriefEmailForRun } from "../v4-adapters/brief-email.js";
 import { loadNotebookContext } from "../v4-adapters/notebook.js";
 import { createRunSandbox } from "../v4-adapters/sandbox.js";
-import { cheapModelFromEnv, createV4Llm, dropProcessorOwnedEvents, ownerStepsLimit, runEngineV4, vaultBackendFromService } from "../engine-v4.js";
+import { withV4CardPersistence } from "../v4-card-persistence.js";
+import { cheapModelFromEnv, createV4Llm, dropProcessorOwnedEvents, ownerStepsLimit, runEngineV4 } from "../engine-v4.js";
 /** Run de agenda que não chegou a executar (motor ou contexto): o item volta à fila neste prazo. */
 const AGENDA_NOT_RUN_RETRY_MS = 30 * 60_000;
 import { earlyWallMs, engineDefaultFromEnv, engineV4GateFromEnv, pickRunEngine, resolveRunLimits, runSelectedEngine } from "../engine-choice.js";
-import { getVaultService, type RunComputerUseResult } from "@workspace/agent-runtime";
-import { createSseMapper, type BullLikeQueue, type CvvEscrow } from "@workspace/agent";
-import { isReadOnlyConnectorOrigin, budgetStopFallbackText, isBotConfigEventObjective, createReviewerClient, resolveMaintenanceCandidates } from "@workspace/agent-runtime";
+import { type RunComputerUseResult } from "@workspace/agent-runtime";
+import { createAlertRunPort, createRoutinePush } from "../v4-adapters/routines.js";
+import { createV4VaultBackend } from "../v4-adapters/vault.js";
+import { alertRunNote, createSseMapper, type BullLikeQueue, type CvvEscrow } from "@workspace/agent";
+import { ensureGithubRepoHook, isReadOnlyConnectorOrigin, budgetStopFallbackText, isBotConfigEventObjective, createReviewerClient, resolveMaintenanceCandidates } from "@workspace/agent-runtime";
 import { runToolFilter } from "../run-tool-filter.js";
 import { briefDeliveryDeps, deliverBriefFailure, deliverDailyBrief, findRoutineRunIdWithRetry, isDetachedBriefRun } from "../daily-brief.js";
 import { appendConversationMessage, getLanguageContext, listRecentLoginAsks } from "@workspace/db";
@@ -663,6 +667,8 @@ async function executeLeasedRun(ctx: {
 	// Rotina ligada a uma página: o run só pode atualizar essa página (o runtime trava as outras).
 	// O brief "Seu dia" nunca usa painel: sem pageId, o runtime não registra as tools de painel nem pré-carrega páginas.
 	const routinePageIdPromise = run.origin === "routine" && !isDetachedBriefRun(run) ? getRoutinePageIdForAgentRun(runId, runUserId).catch(() => null) : Promise.resolve(null);
+	// Permissão de login que o dono aprovou ao criar a rotina (F9 parte 2, v4): o run da rotina só digita login naquele site. Falha ao ler = sem permissão.
+	const routineLoginPromise = run.origin === "routine" && !isDetachedBriefRun(run) ? getRoutineLoginPermissionForAgentRun(runId, runUserId).catch(() => null) : Promise.resolve(null);
 	// Modelo da rotina ("Seu dia"): trava de leitura no run e entrega fora da conversa. Falha ao ler = rotina comum.
 	// Rotina de alerta: o run só verifica a condição; o aviso (com debounce) é decidido depois do veredito.
 	const alertCtxPromise = run.origin === "routine" ? getRoutineAlertForAgentRun(runId, runUserId).catch(() => null) : Promise.resolve(null);
@@ -1024,6 +1030,7 @@ async function executeLeasedRun(ctx: {
 	});
 	const routineNotify = await routineNotifyPromise;
 	const routinePageId = await routinePageIdPromise;
+	const routineLogin = await routineLoginPromise;
 	const userPushZone = (run.origin === "routine" && routineNotify === "important") || run.origin === "chat"
 		? (proactiveBot?.isPrimary === true ? accountTimezone : (await loadAccountConfig())?.general?.timezone)
 		: undefined;
@@ -1264,7 +1271,10 @@ async function executeLeasedRun(ctx: {
 					botId: run.botId ?? null,
 					botName: v4Bot?.name ?? null,
 					objective: run.objective ?? "",
-					...(notebookContext ? { contextSections: [notebookContext] } : {}),
+					// A conferência do alerta (a condição é do dono: dado) entra como contexto do run, ao lado do caderno.
+					...(notebookContext || alertRun ? { contextSections: [...(notebookContext ? [notebookContext] : []), ...(alertRun ? [alertRunNote(alertRun)] : [])] } : {}),
+					// Rotina (v4): o painel que ela atualiza, o login+site que o dono aprovou e o veredito do alerta (lido depois do loop, como no motor antigo).
+					...(run.origin === "routine" && !agendaRun ? { routineRun: { ...(routinePageId ? { pageId: routinePageId } : {}), ...(routineLogin ? { loginPermission: { login: routineLogin.login, site: routineLogin.site } } : {}), ...(alertRun ? { alert: createAlertRunPort(alertRun.report) } : {}), ...(!alertRun && userPushForRun?.mode === "routine" ? { push: createRoutinePush({ send: userPushForRun.send, ...(userPushForRun.quiet ? { quiet: userPushForRun.quiet } : {}) }) } : {}) } } : {}),
 					// Run de agenda: o que o modelo lê ao acordar, a política sem dono (permissão da criação) e `agenda_result` no núcleo.
 					// As regras atuais do dono (`policyJson.rules`) entram por último sobre as da criação: uma `deny` nova vale no próximo wake.
 					...(agendaRun
@@ -1277,7 +1287,8 @@ async function executeLeasedRun(ctx: {
 					language: systemLanguage,
 					llm: createV4Llm({ model: run.model, streamChat: providers.streamChat, openRouterKey: apiKey, language: systemLanguage, cheapModel: cheapModelFromEnv(), contextWindow: (modelId) => providers.capabilities(modelId).then((caps) => caps.contextTokens, () => null) }),
 					lease,
-					persistEvent: emit,
+					// Os cards do v4 (aprovação, entrega, pergunta, recibo) também ficam na conversa: recarregar (celular) os restaura.
+					persistEvent: withV4CardPersistence({ userId: runUserId, runId, conversationId: run.conversationId }, emit),
 					// O fim do stream (done/error/cancelled/teto de passos) é do processador, uma vez: o mapa do kernel não o repete.
 					mapEvent: prepared.observe(mapV4Event),
 					// Teto de passos do dono (pedido > bot > conta) só quando tem origem; sem ele vale o de segurança do kernel. Tetos de gasto
@@ -1285,11 +1296,18 @@ async function executeLeasedRun(ctx: {
 					limits: { ...(effectiveCostCap !== undefined ? { ownerMaxUsd: effectiveCostCap } : {}), ...(ownerStepsLimit(stepsCap) !== undefined ? { ownerMaxSteps: ownerStepsLimit(stepsCap)! } : {}), unattended: !(run.origin === "chat" && readRunHumanTurn(run)) },
 					ownerPresent: !agendaRun && run.origin === "chat" && readRunHumanTurn(run),
 					signal: aborter.signal,
-					vault: vaultBackendFromService(getVaultService()),
+					vault: createV4VaultBackend(),
+					...(deps.onRoutineMutated ? { onRoutineMutated: deps.onRoutineMutated } : {}),
+					// O worker já usa o agent-runtime; o adaptador de rotinas do v4 recebe o gancho pronto (não o importa).
+					ensureGithubHook: (userId: string, repo: string) => ensureGithubRepoHook({ userId, repo }),
 					...(deps.v4Queue ? { queue: deps.v4Queue } : {}),
 					...(deps.cvvEscrow ? { cvvEscrow: deps.cvvEscrow } : {}),
 					...(v4Sandbox ? { sandbox: v4Sandbox, ...(v4Sandbox.availability.vm && { browser: true }), codeAvailable: v4Sandbox.availability.code } : {}),
+					// Anexos da conversa (F9): a mesma fonte do motor atual. Só entra com arquivo na conversa (`present`): sem anexo, o índice da capacidade não vai ao prompt.
+					...(attachments?.present ? { attachments } : {}),
 					codeMode: v4CodeMode,
+					// Imagens (F9): o modelo do dono, ou o de `ATLAS_IMAGE_MODEL` como no legado (sem chave OpenRouter não há como gerar).
+					...(apiKey && (runtimeConfig.imageModel ?? process.env.ATLAS_IMAGE_MODEL?.trim()) ? { imageGeneration: { apiKey, model: (runtimeConfig.imageModel ?? process.env.ATLAS_IMAGE_MODEL)!.trim() } } : {}),
 				});
 				return engineRun.finally(() => v4Sandbox?.release(runUserId, runId).catch(() => undefined));
 			},

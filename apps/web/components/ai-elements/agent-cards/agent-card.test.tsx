@@ -62,6 +62,23 @@ test("aprovação decidida: só o selo, sem botões", () => {
 	assert.doesNotMatch(settled, />Agora não</);
 });
 
+test("card restaurado: estado do servidor mostra o selo certo e nunca botão que não vale mais", () => {
+	type State = "pending" | "approved" | "denied" | "expired" | "done" | "answered" | "dismissed";
+	const restored = (state: State, card: AgentV4Event = approval) => renderToStaticMarkup(<AgentCard message={{ ...agentCardMessage(card), state, ...(state !== "pending" && { settled: true }) }} />);
+	assert.match(restored("pending"), /Precisa de você/);
+	assert.match(restored("pending"), />Aprovar</);
+	assert.match(restored("approved"), /Aprovado/);
+	assert.match(restored("denied"), /Dispensado/);
+	const expired = restored("expired");
+	assert.match(expired, /Venceu/);
+	assert.doesNotMatch(expired, />Aprovar<|>Agora não</);
+	const handoff: AgentV4Event = { type: "handoff_request", callId: "call-2", message: "Troque a senha.", runId: "run-1" };
+	assert.match(restored("done", handoff), /Feito/);
+	assert.doesNotMatch(restored("done", handoff), />Já fiz</);
+	assert.match(restored("expired", handoff), /Venceu/);
+	assert.doesNotMatch(restored("expired", handoff), />Já fiz</);
+});
+
 test("card sem run não oferece botões (não teria para onde responder)", () => {
 	const html = render({ ...approval, runId: undefined });
 	assert.doesNotMatch(html, />Aprovar</);

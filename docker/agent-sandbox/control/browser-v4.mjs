@@ -4,7 +4,7 @@
 import { judgeAct, probeActTarget, SUBMIT_INTENT_REQUIRED } from "./browser-act-guard.mjs";
 import { ITEM_MAX_CHARS, parseReadArgs, planPart } from "./browser-chunks.mjs";
 import { atlasInPage } from "./browser-inpage.mjs";
-import { CARD_SECRET_SELECTOR } from "./card-fields.mjs";
+import { READ_SECRET_SELECTOR, CARD_SECRET_SELECTOR } from "./card-fields.mjs";
 import { buildMap } from "./browser-map.mjs";
 import { FIND_DEFAULT_LIMIT, FIND_MAX_LIMIT, searchItems } from "./browser-search.mjs";
 
@@ -77,7 +77,7 @@ export function createBrowserV4({ withPageRetry, collect, noteDomRefs = () => {}
 
 	const missing = (id) => new BrowserV4Error(`Section ${id} is no longer on the page (it changed or was never mapped). Hint: call browser_map again.`, "section_missing");
 	async function inPage(page, op, arg) {
-		const out = await page.evaluate(atlasInPage, { op, arg, cardSelector: CARD_SECRET_SELECTOR });
+		const out = await page.evaluate(atlasInPage, { op, arg, cardSelector: READ_SECRET_SELECTOR });
 		if (out?.missing) throw missing(arg.id);
 		if (out?.error) throw new Error(out.error);
 		return out;
@@ -101,7 +101,7 @@ export function createBrowserV4({ withPageRetry, collect, noteDomRefs = () => {}
 		return withPageRetry(async (page) => {
 			await collect(page, { mode: "all", area: "page", maxScan: MAP_MAX_REFS });
 			noteDomRefs();
-			const raw = await page.evaluate(atlasInPage, { op: "map", arg: {}, cardSelector: CARD_SECRET_SELECTOR });
+			const raw = await page.evaluate(atlasInPage, { op: "map", arg: {}, cardSelector: READ_SECRET_SELECTOR });
 			const built = buildMap(raw);
 			mapped.set(page, new Map(built.sections.map((s) => [s.id, { declaredTotal: s.declaredTotal, label: s.label }])));
 			return built;
@@ -166,7 +166,7 @@ export function createBrowserV4({ withPageRetry, collect, noteDomRefs = () => {}
 	async function describeTarget(page, ref) {
 		const locator = /^(?:f\d{1,3})?a\d/.test(ref) ? (await resolveAxLocator?.(page, ref)) ?? null : await locateRef(page, ref);
 		if (!locator) throw new Error(`Ref ${ref} not found: the page changed or the ref is old. Hint: call browser_map or browser_read again.`);
-		return locator.evaluate(probeActTarget, CARD_SECRET_SELECTOR);
+		return locator.evaluate(probeActTarget, READ_SECRET_SELECTOR);
 	}
 
 	async function act(body) {

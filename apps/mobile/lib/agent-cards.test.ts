@@ -1,6 +1,6 @@
-import type { AgentV4Event, ApprovalRequestEvent } from "@workspace/shared";
+import type { AgentCardState, AgentV4Event, ApprovalRequestEvent } from "@workspace/shared";
 import { describe, expect, it } from "vitest";
-import { addAgentCard, agentCardFromStored, agentCardItem, agentCardPending, approvalDetails, approvalMessageBody, approvalPaysWithoutForm, approvalSummaryLines, askOwnerAnswerText, askOwnerQuestionnaireItem, asAgentCardEvent, cvvComplete, cvvDigits, describeApproval, formatMoney, handoffSteps, safeReceiptUrl, settleAgentCardsForCall } from "./agent-cards";
+import { addAgentCard, agentCardDecisionOfState, agentCardFromStored, agentCardItem, agentCardPending, approvalDetails, approvalMessageBody, approvalPaysWithoutForm, approvalSummaryLines, askOwnerAnswerText, askOwnerQuestionnaireItem, asAgentCardEvent, cvvComplete, cvvDigits, describeApproval, formatMoney, handoffSteps, safeReceiptUrl, settleAgentCardsForCall } from "./agent-cards";
 import type { ChatItem } from "./chat-types";
 
 const approval: ApprovalRequestEvent = { type: "approval_request", requestId: "req-1", callId: "call-1", toolName: "send_email", effect: "send", args: { to: "ana@exemplo.com", subject: "Orçamento de novembro" }, riskFacts: { recipients: ["ana@exemplo.com"], externalRecipients: ["ana@exemplo.com"], irreversible: true }, runId: "run-1" };
@@ -17,6 +17,16 @@ describe("card do fio", () => {
 		expect(agentCardFromStored("x", "ask_owner", JSON.stringify(approval))).toBeNull();
 		expect(agentCardFromStored("x", "approval_request", JSON.stringify({ ...approval, effect: "inventado" }))).toBeNull();
 		expect(agentCardFromStored("x", "assistant", JSON.stringify(approval))).toBeNull();
+	});
+	it("o estado do servidor vem junto: fora de pendente o card já nasce resolvido; sem estado ou inválido, como antes", () => {
+		const content = JSON.stringify(approval);
+		expect(agentCardFromStored("db-1", "approval_request", content, { state: "pending" })).toMatchObject({ state: "pending" });
+		expect(agentCardFromStored("db-1", "approval_request", content, { state: "pending" })).not.toHaveProperty("settled");
+		for (const state of ["approved", "denied", "expired"] as const) expect(agentCardFromStored("db-1", "approval_request", content, { state })).toMatchObject({ state, settled: true });
+		expect(agentCardFromStored("db-1", "approval_request", content)).not.toHaveProperty("state");
+		expect(agentCardFromStored("db-1", "approval_request", content, { state: "xyz" as never })).not.toHaveProperty("state");
+		expect(agentCardFromStored("db-1", "approval_request", content, { state: "expired" })?.card).toEqual(approval);
+		expect((["approved", "done", "answered", "denied", "dismissed", "expired", "pending", undefined] as const).map((state) => agentCardDecisionOfState(state))).toEqual(["approved", "done", "answered", "denied", "dismissed", null, null, null]);
 	});
 	it("o run da linha gravada é a reserva da chave", () => {
 		const { runId: _drop, ...semRun } = approval;
@@ -47,6 +57,10 @@ describe("frases", () => {
 		expect(describeApproval({ ...approval, effect: "money", riskFacts: { amount: 89.9, currency: "BRL", merchant: "Livraria" } })).toMatch(/^Pagar R\$\s89,90 em Livraria$/);
 		expect(describeApproval({ ...approval, effect: "destructive", riskFacts: { target: "pasta Fotos" } })).toBe("Apagar pasta Fotos");
 		expect(describeApproval({ ...approval, effect: "read", riskFacts: {} })).toBe("Consultar uma informação");
+	});
+	it("credencial com alvo diz qual login e onde (rotina), sem alvo segue a frase genérica", () => {
+		expect(describeApproval({ ...approval, effect: "credential", riskFacts: { target: "o login banco para entrar em banco.example nesta rotina" } })).toBe("Usar o login banco para entrar em banco.example nesta rotina");
+		expect(describeApproval({ ...approval, effect: "credential", riskFacts: {} })).toBe("Usar uma senha ou chave salva");
 	});
 	it("detalhes: só valores simples; credencial não mostra nada", () => {
 		expect(approvalDetails(approval)).toEqual(["ana@exemplo.com", "Orçamento de novembro"]);
@@ -137,6 +151,15 @@ describe("quando o card ainda pede o dono", () => {
 		const ask: AgentV4Event = { type: "ask_owner", cardId: "k", question: "?", runId: "run-1" };
 		expect(agentCardPending(item(ask), none)).toBe(true);
 		expect(agentCardPending(item(ask), { ...none, laterUserMessage: true })).toBe(false);
+	});
+	it("o estado do servidor vale: vencido, decidido em outro aparelho ou dispensado = sem botões, mesmo com o run parado", () => {
+		const paused = { ...none, pausedRunId: "run-1" };
+		const withState = (state: AgentCardState) => ({ ...item(approval), state });
+		expect(agentCardPending(withState("pending"), paused)).toBe(true);
+		for (const state of ["expired", "approved", "denied"] as const) expect(agentCardPending(withState(state), paused)).toBe(false);
+		const ask: AgentV4Event = { type: "ask_owner", cardId: "k", question: "?", runId: "run-1" };
+		expect(agentCardPending({ ...item(ask), state: "expired" }, none)).toBe(false);
+		expect(agentCardPending({ ...item(ask), state: "pending" }, none)).toBe(true);
 	});
 	it("recibo nunca pede nada", () => {
 		expect(agentCardPending(item({ type: "receipt", id: "r", name: "n", what: "Feito" }), none)).toBe(false);

@@ -6,12 +6,15 @@
 // COMO UMA CAPACIDADE LIGA UM `kind` NOVO (frentes `browser` e `code`): escreva um `SandboxKindHandler` no módulo dela e
 // registre UMA linha em `defaultSandboxHandlers` (ou passe `handlers` ao criar o adaptador). O handler recebe a sessão da VM
 // já resolvida e o `manager` para falar com o control server; o adaptador cuida de escopo, sessão, cancelamento e `release`.
-import type { Sandbox, SandboxAction, SandboxResult } from "@workspace/agent";
+import { ATTACHMENT_KINDS, VAULT_KINDS, type Sandbox, type SandboxAction, type SandboxResult } from "@workspace/agent";
 import { createSandboxManager, loadSandboxConfig, type SandboxManager, type SandboxRuntimeConfig } from "@workspace/sandbox";
 import { browserKindHandlers } from "./sandbox-browser.js";
 import { cardFillHandler } from "./sandbox-card-fill.js";
+import { loginFillHandler } from "./sandbox-vault-login.js";
+import { videoKindHandlers } from "./sandbox-video.js";
 import type { CodeActionHandler } from "./code-actions.js";
 import { realCodeActionHandler } from "./code-actions-real.js";
+import { attachmentCopyHandler } from "./sandbox-attachments.js";
 
 export type SandboxKindContext = {
 	/** Dono do run (a sessão): o escopo de tudo. */
@@ -30,7 +33,10 @@ export type SandboxKindHandler = (ctx: SandboxKindContext, params: unknown) => P
  */
 export const defaultSandboxHandlers: Readonly<Record<string, SandboxKindHandler>> = {
 	card_fill: cardFillHandler,
+	[VAULT_KINDS.loginFill]: loginFillHandler,
+	[ATTACHMENT_KINDS.copy]: attachmentCopyHandler,
 	...browserKindHandlers,
+	...videoKindHandlers,
 };
 
 export type V4SandboxDeps = {

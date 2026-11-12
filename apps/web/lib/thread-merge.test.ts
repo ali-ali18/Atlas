@@ -244,6 +244,30 @@ test("card v4 só ao vivo (sem gravado ainda) continua na tela depois da reconci
 	assert.deepEqual(kinds(result), ["user", "agent-card"]);
 });
 
+test("card v4 gravado com o estado do servidor vence o ao vivo ainda pendente (decidido em outro aparelho, vencido, run encerrado)", () => {
+	const stored = (state: "approved" | "expired" | "pending"): Message => ({ id: "db-card", kind: "agent-card", card: v4Approval, ...(state !== "pending" ? { settled: true } : {}), state });
+	for (const state of ["approved", "expired"] as const) {
+		const result = reconcilePersistedThread([user("db-u1"), stored(state)], [user("db-u1"), agentCard("agent-card-approval_request|run-1|req-1")]);
+		const cards = result.filter((message) => message.kind === "agent-card");
+		assert.equal(cards.length, 1);
+		assert.ok(cards[0]?.kind === "agent-card" && cards[0].id === "db-card" && cards[0].settled === true && cards[0].state === state);
+	}
+	// Gravado ainda pendente e o ao vivo já resolvido (resultado da chamada chegou antes do refetch): resolvido, sem duplicar.
+	const result = reconcilePersistedThread([user("db-u1"), stored("pending")], [user("db-u1"), agentCard("agent-card-approval_request|run-1|req-1", true)]);
+	const cards = result.filter((message) => message.kind === "agent-card");
+	assert.equal(cards.length, 1);
+	assert.ok(cards[0]?.kind === "agent-card" && cards[0].settled === true);
+});
+
+test("recibo gravado + recibo ao vivo do mesmo run: um só", () => {
+	const receipt = { type: "receipt", id: "call-3", name: "create_event", what: "Evento criado", runId: "run-1" } as const;
+	const live: Message = { id: "agent-card-receipt|run-1|call-3", kind: "agent-card", card: receipt };
+	const persisted: Message = { id: "db-receipt", kind: "agent-card", card: receipt };
+	const result = reconcilePersistedThread([user("db-u1"), persisted], [user("db-u1"), live]);
+	assert.deepEqual(result.filter((message) => message.kind === "agent-card").map((message) => message.id), ["db-receipt"]);
+	assert.equal(dedupeCards([persisted, live]).length, 1);
+});
+
 test("card v4 resolvido ao vivo continua resolvido quando o gravado o substitui (auditoria: botões voltavam)", () => {
 	const live: Message[] = [user("db-u1"), agentCard("agent-card-approval_request|run-1|req-1", true)];
 	const persisted: Message[] = [user("db-u1"), agentCard("db-card")];

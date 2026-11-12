@@ -657,6 +657,52 @@ export function summarizePageSpec(spec: PageSpec): string {
 	return `Page "${spec.title}": ${total} node${total === 1 ? "" : "s"} (${parts.join(", ")})${palette}`;
 }
 
+function nodeLabel(node: PageNode): string {
+	switch (node.type) {
+		case "section":
+		case "card":
+			return node.props.title ?? "";
+		case "stat":
+		case "progress":
+			return node.props.label;
+		case "heading":
+			return node.props.text.slice(0, 60);
+		case "text":
+			return node.props.markdown.slice(0, 60);
+		case "badge":
+			return node.props.text;
+		case "callout":
+			return (node.props.title ?? node.props.text).slice(0, 60);
+		case "chart":
+			return node.props.spec.title ?? node.props.spec.type;
+		case "table":
+			return node.props.columns.map((column) => column.label).join(", ").slice(0, 60);
+		case "bar_list":
+		case "list":
+		case "timeline":
+			return `${node.props.items.length} items`;
+		case "kanban":
+			return node.props.columns.map((column) => column.title).join(" | ").slice(0, 60);
+		case "tabs":
+			return node.props.tabs.map((tab) => tab.label).join(" | ");
+		case "grid":
+			return `${node.props.cols} cols`;
+		default:
+			return "";
+	}
+}
+
+/** Uma linha por nó (id, tipo, rótulo), com os filhos indentados: o modelo pega os ids daqui para o `page_update` por `ops`. */
+export function outlinePageSpec(spec: PageSpec): string {
+	const lines: string[] = [];
+	const visit = (node: PageNode, depth: number) => {
+		lines.push(`${"  ".repeat(depth)}- ${node.id} [${node.type}] ${nodeLabel(node)}`.trimEnd());
+		for (const child of node.children ?? []) visit(child, depth + 1);
+	};
+	visit(spec.root, 0);
+	return lines.join("\n");
+}
+
 export type PagePatchOp =
 	| { op: "replace"; id: string; node: unknown }
 	| { op: "insert_after"; id?: string; node: unknown }

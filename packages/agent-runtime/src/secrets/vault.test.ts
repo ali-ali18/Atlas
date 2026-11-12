@@ -241,3 +241,69 @@ describe("referências", () => {
 		expect((await maskKnownSecrets("bob", "use VALOR-REAL-123456", vault)).masked).toBe(false);
 	});
 });
+
+describe("login com campos declarados (F9)", () => {
+	const field = (key: string, value: string, secret = true) => ({ key, label: key.toUpperCase(), secret, value });
+
+	it("upsertLogin cria um item e as etapas seguintes acrescentam campos ao mesmo item (site normalizado)", async () => {
+		const store = memoryVaultStore();
+		const vault = new VaultService(store);
+		const first = await vault.upsertLogin("u1", { site: "https://www.Site.example/entrar", fields: [field("email", "a@x.test", false)] });
+		expect(first.created).toBe(true);
+		const second = await vault.upsertLogin("u1", { site: "site.example", fields: [field("senha", "valor-secreto-1")] });
+		expect(second.created).toBe(false);
+		expect(second.meta.id).toBe(first.meta.id);
+		expect(await vault.listMeta("u1")).toHaveLength(1);
+		const { payload } = await vault.reveal("u1", first.meta.id);
+		expect((payload.fields ?? []).map((f) => f.key)).toEqual(["email", "senha"]);
+		expect(await vault.loginFieldKeys("u1", { site: "site.example" })).toEqual(["email", "senha"]);
+		expect(await vault.loginFieldKeys("u2", { site: "site.example" })).toEqual([]);
+	});
+
+	it("login antigo (usuário + senha) recebe campos novos sem perder a senha", async () => {
+		const vault = new VaultService(memoryVaultStore());
+		const legacy = await vault.create("u1", { kind: "login", name: "banco", siteUrl: "https://banco.example", username: "dono", payload: { password: "Senha-antiga-1" } });
+		const res = await vault.upsertLogin("u1", { site: "banco.example", fields: [field("cpf", "12345678909")] });
+		expect(res.meta.id).toBe(legacy.id);
+		const { payload } = await vault.reveal("u1", legacy.id);
+		expect(payload.password).toBe("Senha-antiga-1");
+		expect((payload.fields ?? []).map((f) => f.key)).toEqual(["cpf"]);
+	});
+
+	it("C5: pedido com o name de um login SEM site não adota o item (nem grava o site novo nele): cria um item novo e o antigo fica como estava", async () => {
+		const vault = new VaultService(memoryVaultStore());
+		const legacy = await vault.create("u1", { kind: "login", name: "banco", username: "dono", payload: { password: "Senha-antiga-1" } });
+		const res = await vault.upsertLogin("u1", { site: "evil.example", name: "banco", fields: [field("senha", "valor-novo")] });
+		expect(res.created).toBe(true);
+		expect(res.meta.id).not.toBe(legacy.id);
+		const old = (await vault.listMeta("u1")).find((m) => m.id === legacy.id)!;
+		expect(old.siteUrl ?? "").toBe("");
+		expect((await vault.reveal("u1", legacy.id)).payload.password).toBe("Senha-antiga-1");
+	});
+
+	it("C5: vários logins no mesmo site sem name é ambíguo (erro); com o name escolhe aquele; name que não é do site não adota outro login do site", async () => {
+		const vault = new VaultService(memoryVaultStore());
+		const a = await vault.create("u1", { kind: "login", name: "a", siteUrl: "https://banco.example", payload: { password: "p-a-12345" } });
+		const b = await vault.create("u1", { kind: "login", name: "b", siteUrl: "https://banco.example", payload: { password: "p-b-12345" } });
+		await expect(vault.upsertLogin("u1", { site: "banco.example", fields: [field("cpf", "12345678909")] })).rejects.toMatchObject({ code: "conflict" });
+		const picked = await vault.upsertLogin("u1", { site: "banco.example", name: "b", fields: [field("cpf", "12345678909")] });
+		expect(picked.meta.id).toBe(b.id);
+		const other = await vault.upsertLogin("u1", { site: "banco.example", name: "c", fields: [field("cpf", "12345678909")] });
+		expect(other.created).toBe(true);
+		expect([a.id, b.id]).not.toContain(other.meta.id);
+		expect(await vault.loginFieldKeys("u1", { site: "banco.example" })).toEqual([]);
+	});
+
+	it("o valor dos campos secretos entra na redação; campo não secreto não", async () => {
+		const vault = new VaultService(memoryVaultStore());
+		await vault.upsertLogin("u1", { site: "site.example", fields: [field("cpf", "12345678909"), field("nome", "Ana Souza", false)] });
+		const entries = await vault.redactionEntries("u1");
+		expect(entries.map((e) => e.value)).toEqual(["12345678909"]);
+	});
+
+	it("site inválido e lista vazia são recusados", async () => {
+		const vault = new VaultService(memoryVaultStore());
+		await expect(vault.upsertLogin("u1", { site: "###", fields: [field("a", "b")] })).rejects.toBeInstanceOf(VaultError);
+		await expect(vault.upsertLogin("u1", { site: "a.example", fields: [] })).rejects.toBeInstanceOf(VaultError);
+	});
+});

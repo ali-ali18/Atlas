@@ -2,10 +2,13 @@ import { createHash } from "node:crypto";
 import { isIP } from "node:net";
 import type { ChatTool } from "@workspace/llm";
 import { SandboxShellError, type SandboxManager } from "@workspace/sandbox";
-import { decideAction, parseVtt, type AutonomyToolMeta, type EffectiveAutonomy } from "@workspace/shared";
+import { captionLanguages, captionTracksCommand, decideAction, isYoutubeUrl, parseVtt, pickCaptionFile, shq, ytDlpCommand, type AutonomyToolMeta, type EffectiveAutonomy } from "@workspace/shared";
 import { redactSecrets } from "../mcp/sanitize.js";
 import { isPrivateAddress } from "../web-native.js";
 import { UNTRUSTED_PAGE_NOTE } from "./computer-changes.js";
+
+// Peças puras vivem em `packages/shared` (o v4 usa as mesmas); reexportadas para quem já importava daqui.
+export { captionLanguages, pickCaptionFile };
 
 /**
  * Texto falado de um vídeo (legenda) lido DENTRO da VM do bot: o texto do vídeo não está na página,
@@ -44,8 +47,6 @@ export const VIDEO_TRANSCRIPT_TOOL: ChatTool = {
 		},
 	},
 };
-
-const YOUTUBE_HOSTS = ["youtube.com", "youtu.be", "youtube-nocookie.com"];
 
 export function videoTranscriptAutonomyMeta(): AutonomyToolMeta {
 	// Leitura dentro da VM do próprio bot (nível Equilibrado não pergunta, como `sandbox_read`).
@@ -102,100 +103,6 @@ export function parseVideoTranscriptArgs(args: Record<string, unknown>): VideoTr
 		offset: intArg(args.offset, "offset", 0, Number.MAX_SAFE_INTEGER, 0),
 		limit: intArg(args.limit, "limit", 1, MAX_LIMIT, DEFAULT_LIMIT),
 	};
-}
-
-/** Aspas simples seguras para bash (`'` vira `'\''`). */
-function shq(value: string): string {
-	return `'${value.split("'").join(`'\\''`)}'`;
-}
-
-function isYoutubeUrl(url: string): boolean {
-	const host = new URL(url).hostname.toLowerCase();
-	return YOUTUBE_HOSTS.some((h) => host === h || host.endsWith(`.${h}`));
-}
-
-/** Idiomas pedidos ao yt-dlp, em ordem de preferência (a base do idioma e o `-orig` do original entram junto). */
-export function captionLanguages(lang: string | undefined): string[] {
-	const out: string[] = [];
-	const add = (code: string) => {
-		if (!out.includes(code)) out.push(code);
-	};
-	if (lang) {
-		add(lang);
-		add(`${lang}-orig`);
-		const base = lang.split("-")[0] ?? lang;
-		add(base);
-		add(`${base}-orig`);
-	}
-	for (const code of ["en", "pt", "es"]) {
-		add(code);
-		add(`${code}-orig`);
-	}
-	return out;
-}
-
-/** Cada arquivo `sub.<idioma>.vtt` ganha a posição do idioma na lista de preferência (o primeiro vence). */
-export function pickCaptionFile(files: readonly string[], languages: readonly string[]): string | undefined {
-	const rank = (file: string) => {
-		const code = file.replace(/^sub\./, "").replace(/\.vtt$/, "");
-		const i = languages.indexOf(code);
-		return i < 0 ? languages.length : i;
-	};
-	return [...files].filter((f) => f.endsWith(".vtt")).sort((a, b) => rank(a) - rank(b) || a.localeCompare(b))[0];
-}
-
-function ytDlpCommand(dir: string, url: string, languages: readonly string[]): string {
-	return [
-		`mkdir -p ${shq(dir)} && cd ${shq(dir)} || exit 2`,
-		// Já baixada neste vídeo e idioma (página seguinte do texto): não baixa de novo.
-		`if ! ls ./*.vtt >/dev/null 2>&1; then`,
-		`  command -v yt-dlp >/dev/null 2>&1 || { echo "yt-dlp: command not found" >&2; exit 127; }`,
-		`  yt-dlp --no-playlist --skip-download --write-subs --write-auto-subs --sub-langs ${shq(languages.join(","))} --sub-format vtt --no-warnings --no-progress -o 'sub.%(ext)s' -- ${shq(url)} 2>&1 | tail -n 8 >&2`,
-		`fi`,
-		`ls -1 ./*.vtt 2>/dev/null | sed 's#^\\./##'`,
-	].join("\n");
-}
-
-/** Só no YouTube: lê `captionTracks` do `ytInitialPlayerResponse` da página e baixa a faixa como VTT. */
-const CAPTION_TRACKS_SCRIPT = String.raw`
-const UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
-const headers = { "user-agent": UA, "accept-language": "en-US,en;q=0.9", cookie: "CONSENT=YES+1" };
-const fail = (code, msg) => { console.error(msg); process.exit(code); };
-const page = await fetch(process.env.VT_URL, { headers });
-const html = await page.text();
-const marker = '"captionTracks":';
-const at = html.indexOf(marker);
-if (at < 0) fail(3, "NO_CAPTIONS");
-const start = html.indexOf("[", at);
-let depth = 0, inStr = false, esc = false, end = -1;
-for (let i = start; i < html.length; i++) {
-  const c = html[i];
-  if (inStr) { if (esc) esc = false; else if (c === "\\") esc = true; else if (c === '"') inStr = false; continue; }
-  if (c === '"') inStr = true;
-  else if (c === "[") depth++;
-  else if (c === "]") { depth--; if (depth === 0) { end = i; break; } }
-}
-if (end < 0) fail(3, "NO_CAPTIONS");
-const tracks = JSON.parse(html.slice(start, end + 1));
-const wanted = (process.env.VT_LANGS || "en").split(",");
-let pick;
-for (const w of wanted) { pick = tracks.find((t) => t.languageCode === w) ?? tracks.find((t) => String(t.languageCode).startsWith(w + "-")); if (pick) break; }
-pick = pick ?? tracks[0];
-if (!pick || !pick.baseUrl) fail(3, "NO_CAPTIONS");
-const u = new URL(pick.baseUrl);
-if (!(u.hostname === "youtube.com" || u.hostname.endsWith(".youtube.com"))) fail(4, "unexpected caption host");
-u.searchParams.set("fmt", "vtt");
-const r = await fetch(u, { headers });
-const body = await r.text();
-if (!body.trim() || !body.includes("-->")) fail(4, "caption download returned no text (HTTP " + r.status + ")");
-const fs = await import("node:fs");
-fs.mkdirSync(process.env.VT_DIR, { recursive: true });
-fs.writeFileSync(process.env.VT_DIR + "/sub." + pick.languageCode + ".vtt", body);
-console.log("sub." + pick.languageCode + ".vtt");
-`;
-
-function captionTracksCommand(dir: string, url: string, languages: readonly string[]): string {
-	return `VT_URL=${shq(url)} VT_DIR=${shq(dir)} VT_LANGS=${shq(languages.join(","))} node --input-type=module -e ${shq(CAPTION_TRACKS_SCRIPT)}`;
 }
 
 type CacheEntry = { text: string; language: string; truncated: boolean; at: number };

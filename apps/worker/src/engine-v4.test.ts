@@ -7,7 +7,7 @@ import { test } from "node:test";
 import { createCapabilityRegistry, createSseMapper, type Helpers, type Llm, type LlmChatRequest, type LlmStreamEvent, type RunEvent } from "@workspace/agent";
 import type { ProviderStreamChat } from "@workspace/llm";
 import type { ComputerUseEvent } from "@workspace/shared";
-import { buildV4RoleChains, cheapModelFromEnv, createMinimalEventMapper, createV4Llm, dropProcessorOwnedEvents, meterLlm, ownerStepsLimit, runEngineV4, stoppedEffectsNote, storeBackendFromDb, unavailableQueue, unavailableSandbox, V4_CHEAP_MODEL_DEFAULT, vaultBackendFromService, type V4Db } from "./engine-v4.js";
+import { buildV4RoleChains, cheapModelFromEnv, createMinimalEventMapper, createV4Llm, dropProcessorOwnedEvents, meterLlm, ownerStepsLimit, runEngineV4, stoppedEffectsNote, storeBackendFromDb, unavailableQueue, unavailableSandbox, V4_CHEAP_MODEL_DEFAULT, type V4Db } from "./engine-v4.js";
 
 const served = { provider: "fake", model: "m-1" };
 const done = (costUsd?: number): LlmStreamEvent => ({ type: "done", finishReason: "stop", usage: { inputTokens: 10, outputTokens: 5, ...(costUsd !== undefined ? { costUsd } : {}) }, served });
@@ -134,23 +134,10 @@ test("o mapa mínimo de eventos converte texto, chamada e resultado e ignora o r
 	assert.deepEqual(map({ type: "card", runId: "r", userId: "u", data: {} }), []);
 });
 
-test("meterLlm soma o uso e marca custo desconhecido; vault expõe só segredos simples e o dono", async () => {
+test("meterLlm soma o uso e marca custo desconhecido", async () => {
 	const meter = meterLlm(scripted([[done(0.5)], [done()]]));
 	for (const _ of [1, 2]) for await (const _event of meter.llm.chat({ role: "main", messages: [] })) void _event;
 	assert.deepEqual(meter.usage(), { promptTokens: 20, completionTokens: 10, totalTokens: 30, costUsd: 0.5, costUnknownCalls: 1 });
-
-	const calls: string[] = [];
-	const backend = vaultBackendFromService({
-		listMeta: async (userId) => (userId === "a" ? [{ kind: "secret", name: "api", label: "" }, { kind: "login", name: "site", label: "Site" }] : []),
-		resolveRef: async (userId, ref) => {
-			calls.push(`${userId}:${ref.name}`);
-			return userId === "a" && ref.name === "api" ? { value: "valor" } : null;
-		},
-	});
-	assert.deepEqual(await backend.listHandles("a"), [{ id: "api", label: "api" }]);
-	assert.deepEqual(await backend.listHandles("b"), []);
-	assert.equal(await backend.resolveSecret("a", "api"), "valor");
-	assert.equal(await backend.resolveSecret("b", "api"), null);
 });
 
 test("store do worker: setStatus não grava no banco e o recibo/nota passam o dono", async () => {
@@ -312,6 +299,12 @@ function fakeAdapters(searched: string[]): NonNullable<Parameters<typeof runEngi
 		email: { listConnected: never, accessToken: never, googleFetch: never, googleJson: never, getMailbox: never, botMail: never, persistCard: never } as never,
 		calendar: { listConnected: never, accessToken: never, fetchFn: never, loadSettings: never, persistCard: never } as never,
 		brief: { listPurchases: never, listAgendaItems: never, conversationTasks: never, persistCard: never } as never,
+		images: { generate: never, process: never, persistArtifact: never, persistCard: never } as never,
+		vault: { listMeta: async () => [], getByName: never, getKey: never, touch: never, audit: never, unwrap: never, open: never, saveIntent: never, persistCard: never } as never,
+		github: { resolveReadOps: never, markAuthFailed: never, gateWrite: never, confirmWrites: async () => false } as never,
+		bots: { roster: never, send: never, setPrimary: never, decidesForOthers: async () => false, findPending: never, attended: never, autoCount: never, queueAuto: never, escalate: never, botName: never, listSkills: never, persistCard: never } as never,
+		routines: { list: async () => [], update: never, remove: never, listGroups: async () => [], createGroup: never, updateGroup: never, deleteGroup: never, setGroupEnabled: never, persistCard: never, now: () => new Date() } as never,
+		skills: { list: async () => [], read: never, apply: never, remove: never, persistCard: never } as never,
 	};
 }
 
@@ -378,6 +371,50 @@ test("ajudante pedindo capacidade que a mãe não tem (o preset sem bot não tem
 	assert.equal(result?.status, "failed");
 	assert.match(result?.error ?? "", /does not have the capability "settings"/);
 	assert.equal(llm.requests.length, 1, "o modelo não foi chamado pelo ajudante");
+});
+
+// F9: subagentes (`delegate_task`). O worker liga a capacidade `delegate` aos MESMOS ajudantes do run, o cartão sai pelos
+// eventos `subagent_*` do contrato SSE e a mensagem `subagents` é gravada na conversa com a identidade (groupId) da chamada.
+test("delegate_task: abre o subagente nos ajudantes do run, emite o cartão ao vivo e grava a mensagem `subagents` com o mesmo groupId", async () => {
+	const events: ComputerUseEvent[] = [];
+	const { db } = fakeDb();
+	const saved: Array<{ conversationId: string; card: { groupId: string; tasks: Array<{ status: string; toolsUsed: string[]; goal: string }> } }> = [];
+	const llm = scripted([
+		[{ type: "tool_call", call: { id: "m0", name: "use_capability", args: { id: "delegate" } } }, done(0.01)],
+		[{ type: "tool_call", call: { id: "m1", name: "delegate_task", args: { tasks: [{ goal: "Ache o preço", title: "Loja A" }] } } }, done(0.01)],
+		// subagente: lê uma página e responde
+		[{ type: "tool_call", call: { id: "h1", name: "web_extract", args: { url: "https://example.test/p" } } }, done(0.01)],
+		[{ type: "text_delta", text: "Custa 10" }, done(0.01)],
+		[{ type: "text_delta", text: "A loja A custa 10." }, done(0.01)],
+	]);
+	const { registry: _omit, ...input } = baseInput(llm, events, db);
+	const adapters = { ...fakeAdapters([]), subagents: { saveCard: async (conversationId: string, card: never) => void saved.push({ conversationId, card }) } };
+	const out = await runEngineV4({ ...input, botId: "bot-1", conversationId: "conv-1", adapters: adapters as never, limits: { ownerMaxUsd: 5 } });
+	assert.equal(out.text, "A loja A custa 10.");
+	assert.deepEqual(llm.requests.map((r) => r.role), ["main", "main", "helper", "helper", "main"]);
+	const started = events.filter((e) => e.type === "subagent_started");
+	const doneEvents = events.filter((e) => e.type === "subagent_done");
+	assert.equal(started.length, 1);
+	assert.equal(doneEvents.length, 1);
+	assert.ok(events.some((e) => e.type === "subagent_tool" && e.name === "web_extract" && e.ok));
+	const groupId = (started[0] as { groupId: string }).groupId;
+	assert.match(groupId, /^delegate:run-1:[0-9a-f]{16}$/);
+	assert.deepEqual({ ...(doneEvents[0] as object) }, { type: "subagent_done", groupId, taskIndex: 0, childRunId: "run-1:helper:1", status: "ok", summary: "Custa 10", toolsUsed: ["web_extract"], title: "Loja A" });
+	assert.equal(saved.length, 1);
+	assert.equal(saved[0]?.conversationId, "conv-1");
+	assert.equal(saved[0]?.card.groupId, groupId);
+	assert.deepEqual(saved[0]?.card.tasks.map((t) => [t.status, t.toolsUsed, t.goal]), [["ok", ["web_extract"], "Ache o preço"]]);
+	// O gasto do subagente entrou no uso do run (livro de gasto + medidor da mãe).
+	assert.ok(out.usage.costUsd !== undefined && out.usage.costUsd >= 0.04);
+});
+
+test("run sem dono presente (rotina, webhook): delegate_task não é oferecida", async () => {
+	const { db } = fakeDb();
+	const llm = scripted([[{ type: "text_delta", text: "Oi" }, done()]]);
+	const { registry: _omit, ...input } = baseInput(llm, [], db);
+	await runEngineV4({ ...input, botId: "bot-1", ownerPresent: false, limits: { unattended: true }, adapters: fakeAdapters([]), log: () => undefined });
+	const sent = JSON.stringify(llm.requests[0]?.messages);
+	assert.doesNotMatch(sent, /delegate/);
 });
 
 // F4.3: run acordado pela agenda. Superfície sem dono, `agenda_result` no núcleo e a capacidade `agenda` fora do registro.

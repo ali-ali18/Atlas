@@ -1,3 +1,4 @@
+import { decide, parsePageSpec } from "@workspace/shared";
 import { describe, expect, it } from "vitest";
 import { createLoadedSet } from "../../capabilities/loaded-set.js";
 import { createCapabilityRegistry } from "../../capabilities/registry.js";
@@ -20,10 +21,10 @@ const chartSpec = { type: "bar", title: "Vendas", x: "mes", series: [{ key: "tot
 const pageSpec = { v: 2, title: "Visão geral", root: { type: "stack", children: [{ type: "stat", props: { label: "Total", value: 30 } }] } };
 
 describe("capacidade deliverables: forma", () => {
-	it("é lazy (não núcleo), tem as 4 tools e instrução lazy", () => {
+	it("é lazy (não núcleo), tem as 9 tools e instrução lazy", () => {
 		const { capability } = setup();
 		expect(capability.core).toBe(false);
-		expect(capability.tools.map((t) => t.name)).toEqual(["create_file", "create_page", "chart", "inspect_file"]);
+		expect(capability.tools.map((t) => t.name)).toEqual(["create_file", "create_page", "chart", "inspect_file", "panel_list", "panel_read", "panel_update", "panel_share", "panel_unshare"]);
 		expect(capability.instructions).toContain("ABNT");
 	});
 
@@ -51,7 +52,7 @@ describe("capacidade deliverables: forma", () => {
 		const set = createLoadedSet(createCapabilityRegistry([capability]));
 		expect(set.toolsForModel().map((t) => t.name)).toEqual(["use_capability"]);
 		const out = await set.useCapabilityTool.run({ id: "deliverables" }, ctx);
-		expect(out.ok && out.summary).toContain("create_file, create_page, chart, inspect_file");
+		expect(out.ok && out.summary).toContain("create_file, create_page, chart, inspect_file, panel_list, panel_read, panel_update, panel_share, panel_unshare");
 		expect(out.ok && out.summary).toContain("Academic work (ABNT)");
 		expect(out.ok && out.summary).toContain("Spreadsheet (xlsx)");
 		expect(out.ok && out.summary).toContain("Deck (pptx)");
@@ -280,5 +281,153 @@ describe("inspect_file", () => {
 		expect(out.ok && out.summary).toContain("[truncated]");
 		expect((await tool("inspect_file").run({ file_id: "" }, ctx)).ok).toBe(false);
 		expect((await tool("inspect_file").run({ file_id: "f4", path: "/etc/passwd" }, ctx)).ok).toBe(false);
+	});
+});
+
+describe("painéis: listar, ler, atualizar, compartilhar", () => {
+	const withPanel = async () => {
+		const s = setup();
+		await s.tool("create_page").run({ spec: pageSpec }, s.ctx);
+		return s;
+	};
+	const ctxOf = (ownerId: string) => ({ ...fakeToolContext(), ownerId });
+
+	it("as tools novas ficam na parte lazy: o prompt estável só tem use_capability", () => {
+		const { capability } = setup();
+		const set = createLoadedSet(createCapabilityRegistry([capability]));
+		expect(set.toolsForModel().map((t) => t.name)).toEqual(["use_capability"]);
+	});
+
+	it("efeitos: ler = read (privado), atualizar = write_internal, link público = public_link com confirmação sempre", () => {
+		const { tool } = setup();
+		expect(tool("panel_list")).toMatchObject({ effect: "read", privateData: true });
+		expect(tool("panel_read")).toMatchObject({ effect: "read", privateData: true });
+		expect(tool("panel_update").effect).toBe("write_internal");
+		expect(tool("panel_unshare").effect).toBe("write_internal");
+		expect(tool("panel_share")).toMatchObject({ effect: "public_link", confirm: "always" });
+	});
+
+	it("panel_list lista só os painéis do dono do run", async () => {
+		const { fake, tool, ctx } = await withPanel();
+		const other = parsePageSpec({ ...pageSpec, title: "Do outro" });
+		if (!other.ok) throw new Error(other.error);
+		await fake.pageStore.save("owner-2", "run-9", other.spec);
+		const out = await tool("panel_list").run({}, ctx);
+		expect(out.ok && out.summary).toContain('page-1: "Visão geral"');
+		expect(out.ok && out.summary).not.toContain("Do outro");
+		const empty = await tool("panel_list").run({}, ctxOf("owner-3"));
+		expect(empty.ok && empty.summary).toBe("This bot has no panels yet.");
+	});
+
+	it("panel_read mostra revisão, ids dos nós e o conteúdo; painel de outro dono ou inexistente = not found", async () => {
+		const { tool, ctx } = await withPanel();
+		const out = await tool("panel_read").run({ panel_id: "page-1" }, ctx);
+		expect(out.ok && out.summary).toContain("revision 1");
+		expect(out.ok && out.summary).toContain("[stat]");
+		expect(out.ok && out.summary).toContain("public link OFF");
+		for (const [owner, id] of [["owner-2", "page-1"], ["owner-1", "nao-existe"]] as const) {
+			const bad = await tool("panel_read").run({ panel_id: id }, ctxOf(owner));
+			expect(bad).toMatchObject({ ok: false, error: expect.stringContaining("not found") });
+		}
+	});
+
+	it("panel_update com spec completo mantém o pageId e sobe a revisão", async () => {
+		const { fake, tool, ctx } = await withPanel();
+		const out = await tool("panel_update").run({ panel_id: "page-1", spec: { ...pageSpec, title: "Visão nova" } }, ctx);
+		expect(out).toMatchObject({ ok: true, receipt: { externalId: "page-1", where: "Visão nova" } });
+		expect(out.ok && out.summary).toContain("revision 2");
+		expect(fake.pages).toHaveLength(1);
+		expect(fake.updates[0]).toMatchObject({ userId: "owner-1", runId: "run-1", id: "page-1", revision: 2 });
+	});
+
+	it("P7: painel com link público não é editado depois de leitura não confiável no run; sem link, ou sem leitura, edita", async () => {
+		const { fake, tool, ctx } = await withPanel();
+		const dirty = { ...ctx, untrustedReadInRun: true };
+		const spec = { ...pageSpec, title: "Texto vindo de fora" };
+		expect(await tool("panel_update").run({ panel_id: "page-1", spec }, dirty)).toMatchObject({ ok: true });
+		await tool("panel_share").run({ panel_id: "page-1" }, ctx);
+		const refused = await tool("panel_update").run({ panel_id: "page-1", spec: { ...pageSpec, title: "Injetado" } }, dirty);
+		expect(refused).toMatchObject({ ok: false, error: expect.stringContaining("public link") });
+		expect(fake.updates).toHaveLength(1);
+		expect(await tool("panel_update").run({ panel_id: "page-1", spec: { ...pageSpec, title: "Do dono" } }, ctx)).toMatchObject({ ok: true });
+		expect(fake.updates).toHaveLength(2);
+	});
+
+	it("panel_update por ops troca só o nó citado; id inexistente falha sem gravar", async () => {
+		const { fake, tool, ctx } = await withPanel();
+		const read = await tool("panel_read").run({ panel_id: "page-1" }, ctx);
+		const statId = read.ok ? /- (\S+) \[stat\]/.exec(read.summary)?.[1] : undefined;
+		expect(statId).toBeTruthy();
+		const out = await tool("panel_update").run({ panel_id: "page-1", ops: [{ op: "replace", id: statId, node: { type: "stat", props: { label: "Total", value: 99 } } }] }, ctx);
+		expect(out.ok).toBe(true);
+		expect(JSON.stringify(fake.pages[0]?.spec)).toContain("99");
+		const bad = await tool("panel_update").run({ panel_id: "page-1", ops: [{ op: "remove", id: "id-que-nao-existe" }] }, ctx);
+		expect(bad.ok).toBe(false);
+		expect(fake.updates).toHaveLength(1);
+	});
+
+	it("panel_update com spec inválido falha com o motivo; campo desconhecido, ops+spec e nada a mudar também", async () => {
+		const { fake, tool, ctx } = await withPanel();
+		const bad = await tool("panel_update").run({ panel_id: "page-1", spec: { v: 2, title: "x", root: { type: "nada" } } }, ctx);
+		expect(bad).toMatchObject({ ok: false, error: expect.stringContaining("Invalid panel spec") });
+		const unknown = await tool("panel_update").run({ panel_id: "page-1", palette: "x" }, ctx);
+		expect(unknown).toMatchObject({ ok: false, error: expect.stringContaining("Unknown field(s) for panel_update: palette") });
+		expect(unknown.ok === false && unknown.hint).toContain("Accepted fields: panel_id, ops, spec, title, summary");
+		const both = await tool("panel_update").run({ panel_id: "page-1", spec: pageSpec, ops: [{ op: "remove", id: "a" }] }, ctx);
+		expect(both).toMatchObject({ ok: false, error: expect.stringContaining("not both") });
+		const nothing = await tool("panel_update").run({ panel_id: "page-1" }, ctx);
+		expect(nothing).toMatchObject({ ok: false, error: expect.stringContaining("Nothing to update") });
+		expect(fake.updates).toEqual([]);
+	});
+
+	it("panel_update só título muda o título e mantém o resto; outro dono não altera", async () => {
+		const { fake, tool, ctx } = await withPanel();
+		expect((await tool("panel_update").run({ panel_id: "page-1", title: "Só o título" }, ctx)).ok).toBe(true);
+		expect(fake.pages[0]?.spec).toMatchObject({ title: "Só o título", root: { type: "stack" } });
+		const other = await tool("panel_update").run({ panel_id: "page-1", title: "Invadido" }, ctxOf("owner-2"));
+		expect(other).toMatchObject({ ok: false, error: expect.stringContaining("not found") });
+		expect(fake.pages[0]?.spec.title).toBe("Só o título");
+	});
+
+	it("conflito de revisão: relê e tenta uma vez de novo", async () => {
+		const { fake, tool, ctx } = await withPanel();
+		fake.conflictOnce = true;
+		const out = await tool("panel_update").run({ panel_id: "page-1", title: "Depois da corrida" }, ctx);
+		expect(out.ok && out.summary).toContain("revision 3");
+	});
+
+	it("panel_share pede aprovação sempre (mesmo autônomo) e fica oculto sem dono presente", () => {
+		const { tool } = setup();
+		const share = tool("panel_share");
+		const base = { effect: share.effect, rules: [], taint: { untrustedReadInRun: false, argsCarryUntrusted: false }, confirm: share.confirm, now: new Date(0), action: { toolName: "panel_share" } } as const;
+		expect(decide({ ...base, surface: "chat", ownerPresent: true, autonomy: "autonomous" }).kind).toBe("approve");
+		for (const surface of ["agenda", "routine", "subagent", "bot_to_bot"] as const) {
+			expect(decide({ ...base, surface, ownerPresent: false, autonomy: "autonomous" }).kind, surface).toBe("hidden");
+		}
+	});
+
+	it("panel_share devolve o link só no resumo (recibo sem endereço); outro dono = not found; riskFacts diz o painel", async () => {
+		const { fake, tool, ctx } = await withPanel();
+		const out = await tool("panel_share").run({ panel_id: "page-1" }, ctx);
+		expect(out.ok && out.summary).toContain("https://web.test/p/token-page-1");
+		expect(JSON.stringify(out.ok && out.receipt)).not.toContain("token-page-1");
+		expect(fake.pages[0]?.shared).toBe(true);
+		const other = await tool("panel_share").run({ panel_id: "page-1" }, ctxOf("owner-2"));
+		expect(other).toMatchObject({ ok: false, error: expect.stringContaining("not found") });
+		const facts = await tool("panel_share").enrichedRiskFactsFor({ panel_id: "page-1" }, { ownerId: "owner-1" });
+		expect(facts?.target).toContain("Visão geral");
+	});
+
+	it("panel_unshare desliga o link; sem link ligado diz que não havia; outro dono não desliga", async () => {
+		const { fake, tool, ctx } = await withPanel();
+		const none = await tool("panel_unshare").run({ panel_id: "page-1" }, ctx);
+		expect(none.ok && none.summary).toContain("nothing to turn off");
+		await tool("panel_share").run({ panel_id: "page-1" }, ctx);
+		const other = await tool("panel_unshare").run({ panel_id: "page-1" }, ctxOf("owner-2"));
+		expect(other.ok).toBe(false);
+		expect(fake.pages[0]?.shared).toBe(true);
+		const off = await tool("panel_unshare").run({ panel_id: "page-1" }, ctx);
+		expect(off.ok && off.summary).toContain("turned off");
+		expect(fake.pages[0]?.shared).toBe(false);
 	});
 });

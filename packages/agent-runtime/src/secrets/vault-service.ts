@@ -18,7 +18,7 @@ import {
 	type UserSecretAuditRow,
 	type UserSecretRow,
 } from "@workspace/db";
-import { hostOf, isValidSecretName, loginMarker, routineSecretMarker, secretMarker, suggestSecretName, type SecretRef } from "@workspace/shared";
+import { hostOf, isValidSecretName, loginMarker, mergeLoginFields, readStoredLoginFields, routineSecretMarker, secretMarker, siteKey, suggestLoginName, suggestSecretName, type LoginFieldValue, type SecretRef } from "@workspace/shared";
 import { readConnectorKey } from "./secret-box.js";
 import { itemAad, newDataKey, openItem, sealItem, unwrapDataKey, wrapDataKey } from "./envelope.js";
 import type { SecretEntry } from "./redact.js";
@@ -45,6 +45,8 @@ export type VaultPayload = {
 	totp?: string;
 	notes?: string;
 	extras?: VaultExtraField[];
+	/** kind=login: campos que a IA declarou para o site (chave, rótulo, secreto, valor). Login antigo não tem: usa `username` + `password`. */
+	fields?: LoginFieldValue[];
 };
 
 export type VaultMeta = {
@@ -193,7 +195,7 @@ export class VaultService {
 
 	private validatePayload(kind: "secret" | "login", payload: VaultPayload) {
 		if (kind === "secret" && !payload.value) throw new VaultError("Informe o valor do segredo.", "invalid");
-		if (kind === "login" && !payload.password) throw new VaultError("Informe a senha.", "invalid");
+		if (kind === "login" && !payload.password && !(payload.fields && payload.fields.length > 0)) throw new VaultError("Informe a senha.", "invalid");
 		if (payload.totp?.trim() && !parseTotpInput(payload.totp)) throw new VaultError("Chave 2FA inválida (cole a chave base32 ou o link otpauth://).", "invalid");
 	}
 
@@ -203,6 +205,61 @@ export class VaultService {
 		if (!existing) return this.create(userId, { kind: "secret", name, description, payload: { value } }, by);
 		if (existing.kind !== "secret") throw new VaultError(`"${name}" é um login; escolha outro nome.`, "conflict");
 		return this.update(userId, existing.id, { payload: { value }, ...(description ? { description } : {}) }, by);
+	}
+
+	/**
+	 * Acha o login do dono para um pedido, SEMPRE entre os do mesmo SITE normalizado: com `name`, o do site com esse nome; sem
+	 * `name`, o único do site. Login sem site nunca é adotado por nome (a senha antiga passaria a valer num site novo) e vários
+	 * logins no site sem `name` é ambíguo (erro), o mesmo critério da tool `secret_request`.
+	 */
+	private findLoginRow(rows: readonly UserSecretRow[], site: string, name?: string): UserSecretRow | undefined {
+		const key = siteKey(site);
+		if (key === null) return undefined;
+		const sameSite = rows.filter((row) => row.kind === "login" && siteKey(row.siteUrl || row.domain || "") === key);
+		if (name !== undefined) return sameSite.find((row) => row.name === name);
+		if (sameSite.length > 1) throw new VaultError(`Há mais de um login de ${key} (${sameSite.map((row) => row.name).join(", ")}). Diga o nome do que deve receber os campos.`, "conflict");
+		return sameSite[0];
+	}
+
+	/**
+	 * Cartão de LOGIN (F9): grava os campos que o dono digitou NUM item de login do site. Primeira etapa cria o item; as
+	 * seguintes (mesmo site ou mesmo nome) ACRESCENTAM campos ao existente, sem apagar os anteriores. Escopado por `userId`.
+	 */
+	async upsertLogin(userId: string, input: { site: string; name?: string; fields: LoginFieldValue[] }, by: VaultActor = {}): Promise<{ meta: VaultMeta; created: boolean }> {
+		const key = siteKey(input.site);
+		if (!key) throw new VaultError("Site inválido.", "invalid");
+		if (input.fields.length === 0) throw new VaultError("Informe os campos do login.", "invalid");
+		const siteUrl = key.startsWith("localhost") || key.startsWith("127.0.0.1") ? `http://${key}` : `https://${key}`;
+		const rows = await this.store.listRows(userId);
+		const existing = this.findLoginRow(rows, input.site, input.name);
+		const dk = (await this.dataKey(userId, true))!;
+		if (existing) {
+			const merged = mergeLoginFields(readStoredLoginFields(this.open(dk, existing).fields), input.fields);
+			const meta = await this.update(userId, existing.id, { payload: { fields: merged }, ...(existing.siteUrl ? {} : { siteUrl }) }, { ...by, detail: by.detail ?? "login: campos" });
+			return { meta, created: false };
+		}
+		const suggested = suggestLoginName(siteUrl);
+		const wanted = input.name ?? (isValidSecretName(suggested) ? suggested : "login");
+		const taken = new Set(rows.map((row) => row.name));
+		let name = wanted;
+		for (let n = 2; taken.has(name); n += 1) name = `${wanted.slice(0, 60)}-${n}`;
+		const meta = await this.create(userId, { kind: "login", name, label: key, siteUrl, payload: { fields: input.fields } }, by);
+		return { meta, created: true };
+	}
+
+	/** Chaves (nunca valores) dos campos já guardados no login do pedido; vazio se não há login. */
+	async loginFieldKeys(userId: string, input: { site: string; name?: string }): Promise<string[]> {
+		let row: UserSecretRow | undefined;
+		try {
+			row = this.findLoginRow(await this.store.listRows(userId), input.site, input.name);
+		} catch (error) {
+			if (error instanceof VaultError && error.code === "conflict") return []; // ambíguo: nada é "já guardado" até o pedido dizer o nome
+			throw error;
+		}
+		if (!row) return [];
+		const dk = await this.dataKey(userId, false);
+		if (!dk) return [];
+		return readStoredLoginFields(this.open(dk, row).fields).map((f) => f.key);
 	}
 
 	async update(
@@ -364,6 +421,7 @@ export class VaultService {
 					if (config) out.push({ value: config.secret, marker: loginMarker(row.name, "totp") });
 				}
 				for (const extra of payload.extras ?? []) if (extra.secret && extra.value) out.push({ value: extra.value, marker: `{{secret:${row.name}}}` });
+				for (const field of readStoredLoginFields(payload.fields)) if (field.secret && field.value) out.push({ value: field.value, marker: `{{secret:${row.name}}}` });
 			}
 		}
 		for (const hook of await this.store.routineWebhooks(userId)) {

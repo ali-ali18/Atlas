@@ -1,7 +1,7 @@
 // Cards do motor v4 no celular (aprovação, compra com CVV, "isso é com você", pergunta do bot, recibo). Parte pura,
 // sem React: monta o item do fio a partir do evento (ao vivo e gravado, mesma chave que o web), diz em frase simples
 // o que vai ser feito e prepara as respostas. O evento já vem validado por `parseAgentV4Event` (shared).
-import { agentCardCallId, agentCardKey, approvalEventFact, approvalMessageFact, formatApprovalEventWhen, isAgentV4EventType, parseAgentV4Event, type AgentV4Event, type ComputerUseEvent, type QuestionnaireCardItem } from "@workspace/shared";
+import { agentCardCallId, agentCardKey, approvalEventFact, isAgentCardState, type AgentCardState, approvalMessageFact, formatApprovalEventWhen, isAgentV4EventType, parseAgentV4Event, type AgentV4Event, type ComputerUseEvent, type QuestionnaireCardItem } from "@workspace/shared";
 import type { ChatItem } from "./chat-types";
 
 export type AgentCardItem = Extract<ChatItem, { kind: "agent-card" }>;
@@ -20,7 +20,7 @@ export function agentCardItem(event: AgentV4Event, options: { id?: string; runId
 }
 
 /** Card gravado na conversa (`role` = tipo do evento, `content` = o evento em JSON). Inválido = sem card. */
-export function agentCardFromStored(id: string, role: string, content: string, options: { runId?: string; createdAt?: string } = {}): AgentCardItem | null {
+export function agentCardFromStored(id: string, role: string, content: string, options: { runId?: string; createdAt?: string; state?: AgentCardState } = {}): AgentCardItem | null {
 	if (!isAgentV4EventType(role)) return null;
 	let raw: unknown;
 	try {
@@ -30,7 +30,24 @@ export function agentCardFromStored(id: string, role: string, content: string, o
 	}
 	const event = parseAgentV4Event(raw);
 	if (!event || event.type !== role) return null;
-	return agentCardItem(event, { id, ...options });
+	const { state, ...rest } = options;
+	const item = agentCardItem(event, { id, ...rest });
+	// Estado que o servidor derivou agora (pedido, oferta, run): fora de "pendente" o card já nasce resolvido, sem botões.
+	return state && isAgentCardState(state) ? { ...item, state, ...(state !== "pending" && { settled: true }) } : item;
+}
+
+/** A decisão que o card mostra no selo, a partir do estado do servidor (`expired` não é decisão: vira o selo "Venceu"). */
+export function agentCardDecisionOfState(state: AgentCardState | undefined): AgentCardDecision | null {
+	switch (state) {
+		case "approved":
+		case "denied":
+		case "done":
+		case "answered":
+		case "dismissed":
+			return state;
+		default:
+			return null;
+	}
 }
 
 /** O evento do stream que é um card v4 válido, ou `null`. */
@@ -112,7 +129,7 @@ export function describeApproval(event: ApprovalEvent): string {
 		case "destructive":
 			return target ? `Apagar ${target}` : "Apagar um item";
 		case "credential":
-			return "Usar uma senha ou chave salva";
+			return target ? `Usar ${target}` : "Usar uma senha ou chave salva";
 		case "write_external":
 			return target ? `Alterar ${target}` : "Fazer uma alteração fora do Atlas";
 		case "write_internal":
@@ -229,6 +246,8 @@ export type AgentCardDecision = "approved" | "denied" | "done" | "answered" | "d
  */
 export function agentCardPending(item: AgentCardItem, context: { pausedRunId: string | null; laterUserMessage: boolean }, decision?: AgentCardDecision): boolean {
 	if (decision || item.settled) return false;
+	// O servidor já diz que não vale mais (decidido em outro aparelho, vencido, run encerrado).
+	if (item.state && item.state !== "pending") return false;
 	switch (item.card.type) {
 		case "approval_request":
 		case "handoff_request":

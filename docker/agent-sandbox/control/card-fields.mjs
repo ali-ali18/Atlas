@@ -33,3 +33,9 @@ export const CARD_SECRET_SELECTOR = [
 	...CVV,
 	...HOLDER,
 ].join(",");
+
+/** Marcador que o login do Cofre põe no campo onde digitou um segredo: o valor nunca volta em mapa, snapshot nem leitura, mesmo que o site troque o `type`. */
+export const VAULT_TYPED_ATTR = "data-atlas-vault";
+
+/** Campos cujo valor nenhuma leitura devolve ao modelo: os do cartão e os que o login do Cofre preencheu. A recusa de screenshot continua só no cartão. */
+export const READ_SECRET_SELECTOR = `${CARD_SECRET_SELECTOR},[${VAULT_TYPED_ATTR}]`;

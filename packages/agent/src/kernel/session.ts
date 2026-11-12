@@ -2,12 +2,30 @@
 import { buildRunMessages, channelMessage, createRunNonce, type RunNonce } from "../channels/index.js";
 import type { CapabilityRegistry } from "../capabilities/index.js";
 import { buildStablePrompt } from "../prompt/index.js";
+import type { TrustSource } from "../contract/provenance.js";
 import type { Ports } from "../ports/index.js";
 import type { KernelState, KernelSnapshot, RunInput } from "./types.js";
 import { freshGuard } from "./loop-guard.js";
 
+/**
+ * Fala que o dono não escreveu (outro bot, rotina, webhook) entra no histórico como `data`. Isso é dado não confiável
+ * já presente no contexto: marca o taint e a origem (bot ou externa) sem olhar o texto.
+ */
+function historyTaint(history: RunInput["history"]): { untrusted: boolean; sources: TrustSource[] } {
+	const sources = new Set<TrustSource>();
+	let untrusted = false;
+	for (const item of history) {
+		if (item.kind !== "data") continue;
+		untrusted = true;
+		// Só o prefixo fixo `bot:` (montado por `buildV4History`) vira origem; as demais ficam só com o taint.
+		if (item.source.startsWith("bot:")) sources.add("other_bot");
+	}
+	return { untrusted, sources: [...sources] };
+}
+
 export function initSnapshot(input: RunInput, ports: Ports, runtimeNotes: readonly string[] = [], registry?: CapabilityRegistry): KernelSnapshot {
 	const nonce = createRunNonce(ports.random);
+	const fromHistory = historyTaint(input.history);
 	return {
 		v: 1,
 		nonce,
@@ -18,7 +36,8 @@ export function initSnapshot(input: RunInput, ports: Ports, runtimeNotes: readon
 		step: 0,
 		loadedIds: [],
 		// Herda o taint da conversa (S8): a fala passada do assistente no histórico não lava o que o run anterior leu.
-		provenance: { untrustedReadInRun: input.priorProvenance?.untrustedReadInRun === true, privateReadInRun: input.priorProvenance?.privateReadInRun === true, sources: [...(input.priorProvenance?.sources ?? [])], texts: [] },
+		// O mesmo vale para fala de outro bot/rotina/webhook no histórico (S5): `kind:"data"` já é dado não confiável no contexto.
+		provenance: { untrustedReadInRun: input.priorProvenance?.untrustedReadInRun === true || fromHistory.untrusted, privateReadInRun: input.priorProvenance?.privateReadInRun === true, sources: [...new Set([...(input.priorProvenance?.sources ?? []), ...fromHistory.sources])], texts: [] },
 		spentUsd: 0,
 		stepsWithoutPrice: 0,
 		lastText: "",

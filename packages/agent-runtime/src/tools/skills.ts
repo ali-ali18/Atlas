@@ -9,6 +9,7 @@ import {
 	SKILL_DESCRIPTION_MAX_CHARS,
 	applySkillBodyPatches,
 	decideAction,
+	findSimilarSkill as findSimilarSkillShared,
 	redactSecrets,
 	renderSkillMarkdown,
 	slugifySkillName,
@@ -287,36 +288,12 @@ export function isBareSkillCreateRequest(recentUserTexts: readonly string[] | un
 	return words.filter((word) => !SKILL_FILLER.has(word)).length < 3;
 }
 
-const SIMILAR_STOP = new Set(["criar", "crie", "create", "para", "como", "uso", "usar", "when", "with", "from", "that", "this", "the", "and", "uma", "com", "dos", "das", "use", "quando", "skill"]);
-
-function similarTokens(text: string): Set<string> {
-	const plain = text.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
-	return new Set(plain.split(/[^a-z0-9]+/).filter((word) => word.length >= 3 && !SIMILAR_STOP.has(word)));
-}
-
-function overlap(a: Set<string>, b: Set<string>): { jaccard: number; contained: boolean } {
-	if (!a.size || !b.size) return { jaccard: 0, contained: false };
-	let shared = 0;
-	for (const word of a) if (b.has(word)) shared += 1;
-	return { jaccard: shared / (a.size + b.size - shared), contained: shared >= 2 && (shared === a.size || shared === b.size) };
-}
-
 /**
- * Skill existente (conta ou do bot do run) que parece a mesma que se quer criar:
- * nome com os mesmos termos (um conjunto contido no outro) ou descrição muito sobreposta.
- * Similaridade simples por tokens, sem lista de palavras-chave de domínio.
+ * Skill existente (conta ou do bot do run) que parece a mesma que se quer criar. A regra pura mora em `@workspace/shared`
+ * (o v4 usa a mesma).
  */
 export function findSimilarSkill(docs: readonly SkillDocRecord[], name: string, description: string | undefined, botId: string | null): SkillDocRecord | undefined {
-	const nameTokens = similarTokens(name);
-	const descTokens = similarTokens(description ?? "");
-	return docs.find((doc) => {
-		if (doc.botId !== null && doc.botId !== botId) return false;
-		if (doc.status !== "active" && doc.status !== "draft") return false;
-		if (doc.name === name) return true;
-		const byName = overlap(nameTokens, similarTokens(doc.name));
-		if (byName.contained || byName.jaccard >= 0.6) return true;
-		return descTokens.size >= 4 && overlap(descTokens, similarTokens(doc.description)).jaccard >= 0.6;
-	});
+	return findSimilarSkillShared(docs, name, description, botId);
 }
 
 /** Skills já gravadas (ou com card enviado) por run: no máximo uma criação/edição por skill por run. */

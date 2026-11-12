@@ -1,5 +1,5 @@
 import { skillScope } from "../helpers.js";
-import { b3QuotePageReason, describeRoutineProposalSchedule } from "@workspace/shared";
+import { b3QuotePageReason, describeRoutineTrigger } from "@workspace/shared";
 import type { RoutineRecord } from "@workspace/shared";
 import {
 	isCronFive,
@@ -210,18 +210,7 @@ export async function executeListRoutines(
 		return { summary: onlyAlerts ? "Nenhum alerta neste bot." : "Nenhuma rotina neste bot." };
 	}
 	const lines = items.map((row, index) => {
-		const kind =
-			row.triggerType === "event"
-				? (row.email
-					? `e-mail (${describeEmailTrigger(row.email)})`
-					: row.github
-					? `GitHub (${describeGithubTrigger(row.github)})`
-					: `webhook${row.hook?.hookKey ? ` · ${row.hook.hookKey}` : ""}`)
-				: row.triggerType === "once"
-					? formatOnceSummary(row.once?.runAt ?? "", row.timezone)
-					: row.triggerType === "interval"
-						? formatIntervalSummary(row.interval?.everyMinutes ?? 0)
-						: describeRoutineProposalSchedule({ schedule: row.schedule ?? undefined });
+		const kind = describeRoutineTrigger(row, { hookKey: true });
 		const state = row.enabled ? "ativa" : "pausada";
 		const groupNote = row.group ? ` [grupo: ${row.group.name}]` : "";
 		const alertSentence = describeRoutineAlertSentence(row);

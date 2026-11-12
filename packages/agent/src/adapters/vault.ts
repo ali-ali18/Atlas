@@ -33,8 +33,17 @@ class SealedSecret implements SecretValue {
 export function createVaultAdapter(backend: VaultBackend): Vault {
 	return {
 		async listHandles(userId) {
-			// Só id e rótulo: um backend que devolva campos a mais não vaza nada para o modelo.
-			return (await backend.listHandles(userId)).map(({ id, label }) => ({ id, label }));
+			// Só os campos de metadado, copiados um a um: um backend que devolva campos a mais (valor, senha) não vaza nada para o modelo.
+			return (await backend.listHandles(userId)).map(({ id, label, kind, description, site, username, fields }) => ({
+				id,
+				label,
+				...(kind && { kind }),
+				...(description && { description }),
+				...(site && { site }),
+				...(username && { username }),
+				// Campos do login: só chave, rótulo e se é secreto (cada um copiado; um `value` a mais do backend não passa).
+				...(fields && { fields: fields.map((f) => ({ key: f.key, label: f.label, secret: f.secret })) }),
+			}));
 		},
 		async resolve(userId, handleId) {
 			const value = await backend.resolveSecret(userId, handleId);

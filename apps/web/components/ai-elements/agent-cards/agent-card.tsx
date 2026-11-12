@@ -21,6 +21,7 @@ import {
 	approvalSummaryLines,
 	approvalFacts,
 	approvalPaysWithoutForm,
+	agentCardDecisionOfState,
 	describeApproval,
 	handoffSteps,
 	safeReceiptUrl,
@@ -46,20 +47,23 @@ export type AgentCardProps = {
 /** Um card do motor v4 no chat. Escolhe a forma pelo tipo do evento. */
 export function AgentCard({ message, respond = respondToAgentCard, initialDecision, onAnswer }: AgentCardProps) {
 	const { card } = message;
+	// Card restaurado: o estado que o servidor derivou (aprovado, dispensado, vencido...) vale como decisão inicial.
+	const restored = initialDecision ?? agentCardDecisionOfState(message.state) ?? undefined;
+	const expired = message.state === "expired";
 	switch (card.type) {
 		case "receipt":
 			return <ReceiptLine card={card} />;
 		case "approval_request":
-			return <ApprovalOrPurchase card={card} initialDecision={initialDecision} respond={respond} settled={message.settled} />;
+			return <ApprovalOrPurchase card={card} expired={expired} initialDecision={restored} respond={respond} settled={message.settled} />;
 		case "handoff_request":
-			return <HandoffCard card={card} initialDecision={initialDecision} respond={respond} settled={message.settled} />;
+			return <HandoffCard card={card} expired={expired} initialDecision={restored} respond={respond} settled={message.settled} />;
 		case "ask_owner":
-			return <AskOwnerCard card={card} initialDecision={initialDecision} onAnswer={onAnswer} respond={respond} settled={message.settled} />;
+			return <AskOwnerCard card={card} expired={expired} initialDecision={restored} onAnswer={onAnswer} respond={respond} settled={message.settled} />;
 	}
 }
 
 type CardOf<T extends AgentV4Event["type"]> = Extract<AgentV4Event, { type: T }>;
-type InteractiveProps<T extends AgentV4Event["type"]> = { card: CardOf<T>; respond: AgentCardRespond; settled?: boolean; initialDecision?: AgentCardDecision };
+type InteractiveProps<T extends AgentV4Event["type"]> = { card: CardOf<T>; respond: AgentCardRespond; settled?: boolean; expired?: boolean; initialDecision?: AgentCardDecision };
 
 /**
  * Resposta de um card: envia, e só depois de o servidor aceitar grava a decisão (falhou = o card continua
@@ -90,7 +94,8 @@ function useCardResponse(card: AgentV4Event, respond: AgentCardRespond, initialD
 }
 
 /** Selo do card resolvido. Resolvido em outro lugar (sem decisão aqui) = "Resolvido", neutro. */
-function resolvedBadge(decision: AgentCardDecision | null, labels: { ok: string; dismissed: string; settled: string }) {
+function resolvedBadge(decision: AgentCardDecision | null, labels: { ok: string; dismissed: string; settled: string; expired: string }, expired = false) {
+	if (!decision && expired) return { tone: "muted" as const, label: labels.expired };
 	if (decision === "dismissed") return { tone: "muted" as const, label: labels.dismissed };
 	if (decision) return { tone: "success" as const, label: labels.ok };
 	return { tone: "muted" as const, label: labels.settled };
@@ -105,15 +110,15 @@ function ApprovalOrPurchase(props: InteractiveProps<"approval_request">) {
 	return purchase ? <PurchaseCard {...props} request={purchase} /> : <ApprovalCard {...props} />;
 }
 
-function PurchaseCard({ card, settled, initialDecision, request }: InteractiveProps<"approval_request"> & { request: NonNullable<ReturnType<typeof purchaseRequestFromEvent>> }) {
+function PurchaseCard({ card, settled, expired, initialDecision, request }: InteractiveProps<"approval_request"> & { request: NonNullable<ReturnType<typeof purchaseRequestFromEvent>> }) {
 	const key = agentCardKey(card);
 	const stored = useAgentCardDecision(key);
 	const decision = stored ?? initialDecision ?? null;
-	const status = decision === "dismissed" ? "dismissed" : decision ? "approved" : settled ? "settled" : "pending";
+	const status = decision === "dismissed" ? "dismissed" : decision ? "approved" : expired ? "expired" : settled ? "settled" : "pending";
 	return <PurchaseApprovalCard initialStatus={status} key={status} onDecided={(next) => setAgentCardDecision(key, next)} request={request} />;
 }
 
-function ApprovalCard({ card, respond, settled, initialDecision }: InteractiveProps<"approval_request">) {
+function ApprovalCard({ card, respond, settled, expired, initialDecision }: InteractiveProps<"approval_request">) {
 	const translator = useTranslations();
 	const { t, locale } = translator;
 	const copy = useUiCopy();
@@ -143,7 +148,7 @@ function ApprovalCard({ card, respond, settled, initialDecision }: InteractivePr
 					</>
 				) : null
 			}
-			badge={resolved ? resolvedBadge(decision, { ok: t("agentCards.approval.approved"), dismissed: copy.cardDismissed, settled: t("agentCards.settled") }) : { tone: "pending", label: copy.cardNeedsYou }}
+			badge={resolved ? resolvedBadge(decision, { ok: t("agentCards.approval.approved"), dismissed: copy.cardDismissed, settled: t("agentCards.settled"), expired: t("agentCards.expired") }, expired) : { tone: "pending", label: copy.cardNeedsYou }}
 			data-kind="agent-approval"
 			error={failed ? t("agentCards.sendFailed") : undefined}
 			leading={payment ? <CreditCardIcon aria-hidden /> : <ShieldCheckIcon aria-hidden />}
@@ -190,7 +195,7 @@ function ApprovalCard({ card, respond, settled, initialDecision }: InteractivePr
 	);
 }
 
-function HandoffCard({ card, respond, settled, initialDecision }: InteractiveProps<"handoff_request">) {
+function HandoffCard({ card, respond, settled, expired, initialDecision }: InteractiveProps<"handoff_request">) {
 	const t = useTranslations().t;
 	const copy = useUiCopy();
 	const { decision, busy, failed, send, canRespond } = useCardResponse(card, respond, initialDecision);
@@ -209,7 +214,7 @@ function HandoffCard({ card, respond, settled, initialDecision }: InteractivePro
 					</>
 				) : null
 			}
-			badge={resolved ? resolvedBadge(decision, { ok: t("agentCards.handoff.doneBadge"), dismissed: t("agentCards.settled"), settled: t("agentCards.settled") }) : { tone: "pending", label: copy.cardNeedsYou }}
+			badge={resolved ? resolvedBadge(decision, { ok: t("agentCards.handoff.doneBadge"), dismissed: t("agentCards.settled"), settled: t("agentCards.settled"), expired: t("agentCards.expired") }, expired) : { tone: "pending", label: copy.cardNeedsYou }}
 			data-kind="agent-handoff"
 			error={failed ? t("agentCards.sendFailed") : undefined}
 			leading={<HandIcon aria-hidden />}
@@ -231,12 +236,12 @@ function HandoffCard({ card, respond, settled, initialDecision }: InteractivePro
 	);
 }
 
-function AskOwnerCard({ card, respond, settled, initialDecision, onAnswer }: InteractiveProps<"ask_owner"> & { onAnswer?: (answer: string) => void }) {
+function AskOwnerCard({ card, respond, settled, expired, initialDecision, onAnswer }: InteractiveProps<"ask_owner"> & { onAnswer?: (answer: string) => void }) {
 	const t = useTranslations().t;
 	const { decision, failed, send, canRespond } = useCardResponse(card, respond, initialDecision);
 	const [sentAnswer, setSentAnswer] = useState<string | null>(null);
 	const [tooLong, setTooLong] = useState(false);
-	const status: AskOwnerStatus = decision === "dismissed" ? "dismissed" : decision === "answered" || settled ? "submitted" : "pending";
+	const status: AskOwnerStatus = decision === "dismissed" || (expired && !decision) ? "dismissed" : decision === "answered" || settled ? "submitted" : "pending";
 	// Resposta enviada neste aparelho: o card colapsado mostra o que foi escolhido (só em memória).
 	const answers = status === "submitted" && sentAnswer ? { answer: sentAnswer } : undefined;
 	const message = askOwnerQuestionnaire(card, t("agentCards.ask.title"), status, answers);

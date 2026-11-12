@@ -21,12 +21,12 @@ import { buildClipHint } from "../execution/pagination.js";
 import { gateGithubWrite, isGithubWriteConnector } from "../github/write/gate.js";
 import { callMcpTool, type McpCallResult } from "./call.js";
 import { getSharedMcpPool, type McpClientConfig, type McpClientPool } from "./client-pool.js";
-import { defaultMcpAuthProviderFactory, getFreshAccessToken, mcpOAuthClientFor, persistTo } from "./oauth-provider.js";
+import { defaultMcpAuthProviderFactory } from "./oauth-provider.js";
+import { builtinAccessTokenConfig, resolveMcpUrl } from "@workspace/google";
 import { buildMcpToolset, type McpToolset } from "./registry.js";
 import {
 	isSecretBoxConfigured,
 	openSecrets,
-	sealSecrets,
 	secretValues,
 	type McpConnectorSecrets,
 } from "./secret-box.js";
@@ -68,45 +68,6 @@ export type McpRuntimeOptions = {
 	botName?: string;
 	conversationId?: string;
 };
-
-/**
- * Conexões antigas dos 4 conectores Google foram criadas com a URL oficial
- * (`...mcp.googleapis.com`); o catálogo agora aponta pra `builtin://google/...`.
- * Enquanto o registro não é atualizado (a API faz isso no próximo login), usa
- * a URL do catálogo aqui — assim runs em andamento já pegam o servidor certo.
- */
-function resolveMcpUrl(record: McpConnectionRecord, secrets: McpConnectorSecrets): string {
-	const catalogUrl = record.catalogId ? getMcpCatalogEntry(record.catalogId)?.url : undefined;
-	if (catalogUrl && isBuiltinMcpUrl(catalogUrl)) return catalogUrl;
-	return secrets.url ?? record.url;
-}
-
-/** `builtin.getAccessToken` do config: token do cofre, renovado via refresh_token quando preciso. */
-function builtinAccessTokenConfig(
-	record: McpConnectionRecord,
-	secrets: McpConnectorSecrets,
-): McpClientConfig["builtin"] {
-	const readiness = mcpOAuthClientFor(record);
-	if (!readiness.ready) return undefined;
-	const client = readiness.client;
-	return {
-		getAccessToken: () =>
-			getFreshAccessToken({
-				secrets,
-				client,
-				persist: async (next) => {
-					await persistTo(record.id)(next);
-					// Sincroniza a linha em memória para a próxima chamada abrir
-					// o token novo (sem isso, `record.secretsEnc` stale renovava a cada chamada).
-					try {
-						record.secretsEnc = sealSecrets(next);
-					} catch {
-						// Cofre indisponível: mantém o stale, o próximo refresh tenta de novo.
-					}
-				},
-			}),
-	};
-}
 
 export function buildMcpClientConfig(
 	record: McpConnectionRecord,

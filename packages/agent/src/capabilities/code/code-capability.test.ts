@@ -34,19 +34,19 @@ describe("capacidade code: contrato", () => {
 		const { cap, tool } = setup();
 		expect(cap.core).toBe(false);
 		expect(cap.summary.length).toBeLessThanOrEqual(160);
-		expect(cap.tools.map((t) => t.name)).toEqual(["code_session", "code_list", "code_read", "code_shell", "code_git_status", "code_diff", "code_edit", "code_write", "code_test"]);
+		expect(cap.tools.map((t) => t.name)).toEqual(["code_session", "code_list", "code_read", "code_shell", "code_git_status", "code_diff", "code_ci_status", "code_edit", "code_write", "code_test", "code_commit", "code_push"]);
 		expect(tool("code_session")).toMatchObject({ effect: "read" });
 		for (const name of ["code_list", "code_read", "code_git_status", "code_diff"]) expect(tool(name)).toMatchObject({ effect: "read", trust: "untrusted", source: "file", egress: false });
 		expect(tool("code_edit")).toMatchObject({ effect: "write_internal", trust: "trusted" });
 		expect(tool("code_write")).toMatchObject({ effect: "write_internal" });
 		for (const name of ["code_shell", "code_test"]) expect(tool(name)).toMatchObject({ effect: "write_internal", trust: "untrusted", source: "file" });
-		expect(CODE_KIND_LIST).toHaveLength(9);
+		expect(CODE_KIND_LIST).toHaveLength(14);
 		expect(Object.values(CODE_KINDS).every((k) => k.startsWith("code."))).toBe(true);
 	});
 
 	it("modo plano: só as tools de leitura entram, e a instrução diz que não edita", () => {
 		const { cap } = setup({ readOnly: true });
-		expect(cap.tools.map((t) => t.name)).toEqual(["code_session", "code_list", "code_read", "code_shell", "code_git_status", "code_diff"]);
+		expect(cap.tools.map((t) => t.name)).toEqual(["code_session", "code_list", "code_read", "code_shell", "code_git_status", "code_diff", "code_ci_status"]);
 		expect(cap.instructions).toContain("only read");
 		expect(cap.instructions).not.toContain("code_edit");
 	});

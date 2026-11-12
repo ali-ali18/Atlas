@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { detectSecretsInText, domainMatches, findSecretRefs, nameMatchesSite, pickVaultLoginForPage, registrableDomain, replaceDetected, replaceSecretRefs, suggestSecretName } from "./vault.js";
+import { detectSecretsInText, domainMatches, findSecretRefs, nameMatchesSite, pickLoginBySite, pickVaultLoginForPage, siteKey, registrableDomain, replaceDetected, replaceSecretRefs, suggestSecretName } from "./vault.js";
 
 describe("refs", () => {
 	it("acha secret, rotina e login", () => {
@@ -126,5 +126,45 @@ describe("Public Suffix List: sufixo de plataforma exige host exato", () => {
 		expect(domainMatches("https://kodea.com.br/login", "https://panel.kodea.com.br")).toBe(false);
 		expect(domainMatches("https://kodea.xyz/login", "https://panel.kodea.com.br")).toBe(false);
 		expect(domainMatches("https://github.xyz/login", "https://github.com")).toBe(false);
+	});
+});
+
+describe("achar o login pelo site da página", () => {
+	it("siteKey: minúsculas, sem www, sem caminho, query, hash nem barra final; porta só em localhost e IP", () => {
+		const same = ["https://banco.example", "https://WWW.Banco.Example/", "banco.example/login?x=1#topo", "http://www.banco.example:8443/a/b/", "banco.example."];
+		for (const value of same) expect(siteKey(value)).toBe("banco.example");
+		expect(siteKey("http://localhost:3000/entrar")).toBe("localhost:3000");
+		expect(siteKey("http://127.0.0.1:9999")).toBe("127.0.0.1:9999");
+		expect(siteKey("")).toBeNull();
+		expect(siteKey("   ")).toBeNull();
+	});
+
+	const bank = { name: "banco", siteUrl: "https://banco.example/login", domain: "banco.example" };
+	const bankWww = { name: "banco-www", siteUrl: null, domain: "www.banco.example" };
+	const other = { name: "loja", siteUrl: "https://loja.example", domain: "loja.example" };
+	const sub = { name: "banco-painel", siteUrl: "https://painel.banco.example", domain: "painel.banco.example" };
+	const noSite = { name: "sem-site", siteUrl: null, domain: null };
+
+	it("um candidato: www, caminho, query e barra final não atrapalham, de nenhum dos dois lados", () => {
+		for (const page of ["https://banco.example/", "https://www.banco.example/entrar?next=/conta", "https://BANCO.example/a/b/"]) {
+			expect(pickLoginBySite([bank, other, noSite], page)).toEqual({ kind: "match", item: bank });
+		}
+		expect(pickLoginBySite([bankWww, other], "https://banco.example/login")).toEqual({ kind: "match", item: bankWww });
+	});
+
+	it("dois candidatos no mesmo site: ambíguo, sem chutar", () => {
+		expect(pickLoginBySite([bank, bankWww, other], "https://banco.example/login")).toEqual({ kind: "ambiguous", items: [bank, bankWww] });
+	});
+
+	it("nenhum candidato: lista só os de domínio parecido (outro subdomínio), nunca os de outro site; login sem site não casa", () => {
+		expect(pickLoginBySite([sub, other, noSite], "https://banco.example/login")).toEqual({ kind: "none", similar: [sub] });
+		expect(pickLoginBySite([other, noSite], "https://banco.example/login")).toEqual({ kind: "none", similar: [] });
+		expect(pickLoginBySite([bank], "")).toEqual({ kind: "none", similar: [] });
+	});
+
+	it("não olha o protocolo (quem digita recusa http com o motivo certo) e subdomínio de plataforma não casa com outro tenant", () => {
+		expect(pickLoginBySite([bank], "http://banco.example/login")).toEqual({ kind: "match", item: bank });
+		const mine = { name: "meu", siteUrl: "https://meuapp.vercel.app" };
+		expect(pickLoginBySite([mine], "https://atacante.vercel.app/login")).toEqual({ kind: "none", similar: [] });
 	});
 });

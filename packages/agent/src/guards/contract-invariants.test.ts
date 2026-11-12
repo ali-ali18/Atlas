@@ -1,7 +1,13 @@
 import { paymentRig } from "../testing/payment-fakes.js";
+import { FakeGithub, FakeGithubWriter } from "../testing/github-fakes.js";
+import { FakeBots } from "../testing/bots-fakes.js";
+import { FakeRoutines } from "../testing/routines-fakes.js";
+import { FakeSkills } from "../testing/skills-fakes.js";
+import { FakeSecretRequests, FakeVault } from "../testing/vault-fakes.js";
 import { createDeliverablesCapability } from "../capabilities-builtin/deliverables/index.js";
 import { FakeEmail } from "../presets/fake-email.js";
-import { FakeAgenda, FakeCalendar, FakeDeliverables, FakeHelpers, FakeFileStore, FakeMemory, FakeNotebook, FakeSearch, FakeSettings, FakeShopping, FakeTaskListStore } from "../presets/fakes.js";
+import { FakeAgenda, FakeCalendar, FakeDeliverables, FakeHelpers, FakeFileStore, FakeImages, FakeMemory, FakeNotebook, FakeSearch, FakeSettings, FakeShopping, FakeTaskListStore } from "../presets/fakes.js";
+import { FakeAttachments } from "../testing/attachments-fakes.js";
 import { setupPreset } from "../presets/presets.js";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -10,6 +16,7 @@ import { EFFECT_CLASSES as SHARED_EFFECTS, HANDOFF_ACTIONS, SURFACES, decide, ty
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
+import { createRoutineRunCapability } from "../capabilities/routines/index.js";
 import { USE_CAPABILITY_TOOL, createAgendaRunCapability, createBriefCapability, createCapabilityRegistry, createLoadedSet, defineCapability } from "../capabilities/index.js";
 import { EFFECT_CLASSES, type Effect, RunProvenance, createExecutor, grantApproval, isEffect, type ApprovalGrant, type PolicyContext } from "../contract/index.js";
 import { TOOL_SEARCH_TOOL } from "../connectors/capability.js";
@@ -37,7 +44,7 @@ const hash = sha256;
 
 /** Todas as portas do preset `full`: assim nenhuma capacidade fica de fora do registro de teste. */
 function fullDeps() {
-	return { search: new FakeSearch(), files: new FakeFileStore(), memory: new FakeMemory(), notebook: new FakeNotebook(), settings: new FakeSettings(undefined, { codeMode: {} }), taskLists: new FakeTaskListStore(), helpers: new FakeHelpers(), agenda: new FakeAgenda(), shopping: new FakeShopping().ports, email: new FakeEmail().ports, calendar: new FakeCalendar().ports, checkout: { cards: [paymentRig().info], fill: paymentRig().fill }, code: {}, browser: true };
+	return { search: new FakeSearch(), files: new FakeFileStore(), memory: new FakeMemory(), notebook: new FakeNotebook(), settings: new FakeSettings(undefined, { codeMode: {} }), taskLists: new FakeTaskListStore(), helpers: new FakeHelpers(), agenda: new FakeAgenda(), shopping: new FakeShopping().ports, email: new FakeEmail().ports, calendar: new FakeCalendar().ports, checkout: { cards: [paymentRig().info], fill: paymentRig().fill }, code: {}, browser: true, images: new FakeImages().port, vault: { vault: new FakeVault(), requests: new FakeSecretRequests() }, github: { ...new FakeGithub().ports, githubWrite: new FakeGithubWriter() }, bots: { bots: new FakeBots([], "bot-a").port }, routines: { routines: new FakeRoutines() }, skills: { skills: new FakeSkills() }, delegate: { helpers: new FakeHelpers() }, video: true, attachments: { files: new FakeAttachments() } };
 }
 
 /** Todas as tools que existem hoje em `packages/agent` (núcleo do kernel + as de capacidade). */
@@ -52,7 +59,10 @@ function allRegisteredTools(): Tool[] {
 	const agendaRun = createAgendaRunCapability(new FakeAgenda());
 	// `brief` (F7.2) também só existe nos runs do plano do dia.
 	const brief = createBriefCapability({ agenda: new FakeAgenda() });
-	return [...kernelCapability.tools, loaded.useCapabilityTool, ...preset.registry.capabilities.flatMap((c) => c.tools), ...rich.tools, ...agendaRun.tools, ...brief.tools];
+	// `routine-run` (F9 parte 2) só existe nos runs de rotina: `report_alert` (alerta) e `notify_user` (só importante).
+	const routineAlert = createRoutineRunCapability({ alert: { record: () => "recorded" } });
+	const routinePush = createRoutineRunCapability({ push: { send: async () => ({ sent: true }) } });
+	return [...kernelCapability.tools, loaded.useCapabilityTool, ...preset.registry.capabilities.flatMap((c) => c.tools), ...rich.tools, ...agendaRun.tools, ...brief.tools, ...routineAlert.tools, ...routinePush.tools];
 }
 
 function listTs(dir: string): string[] {
@@ -99,7 +109,7 @@ describe("A. toda tool registrada declara efeito", () => {
 	const tools = allRegisteredTools();
 
 	it("o registro de teste cobre o kernel de verdade", () => {
-		expect(tools.map((t) => t.name).sort()).toEqual([ASK_OWNER_TOOL, NOTE_READ_TOOL, USE_CAPABILITY_TOOL, "create_file", "create_file", "create_page", "chart", "inspect_file", "web_extract", "web_search", "memory_list", "memory_add", "memory_update", "memory_remove", "update_task_list", "settings_get", "settings_update", "set_role_model", "settings_set_code_mode", "update_bot_profile", "research", "remind_me", "watch", "on_event", "brief_set", "agenda_list", "agenda_change", "agenda_result", "note_search", "note_get", "note_add", "note_update", "note_pin", "note_remove", "product_search", "record_purchase", "purchase_list", "purchase_update", "purchase_delete", "checkout", "email_list", "email_read", "email_triage", "email_draft", "email_send", "calendar_list", "calendar_get", "calendar_create", "calendar_update", "calendar_delete", "brief_sources", "day_plan", "code_session", "code_list", "code_read", "code_shell", "code_git_status", "code_diff", "code_edit", "code_write", "code_test", "browser_open", "browser_map", "browser_read", "browser_find", "browser_load_more", "browser_wait", "browser_tabs", "browser_screenshot", "browser_export", "browser_act", "browser_digest"].sort());
+		expect(tools.map((t) => t.name).sort()).toEqual([ASK_OWNER_TOOL, NOTE_READ_TOOL, USE_CAPABILITY_TOOL, "create_file", "create_file", "create_page", "chart", "inspect_file", "panel_list", "panel_read", "panel_update", "panel_share", "panel_unshare", "web_extract", "web_search", "memory_list", "memory_add", "memory_update", "memory_remove", "update_task_list", "settings_get", "settings_update", "set_role_model", "settings_set_code_mode", "update_bot_profile", "research", "remind_me", "watch", "on_event", "brief_set", "agenda_list", "agenda_change", "agenda_result", "note_search", "note_get", "note_add", "note_update", "note_pin", "note_remove", "product_search", "record_purchase", "purchase_list", "purchase_update", "purchase_delete", "checkout", "email_list", "email_read", "email_triage", "email_draft", "email_send", "calendar_list", "calendar_get", "calendar_create", "calendar_update", "calendar_delete", "brief_sources", "day_plan", "code_session", "code_list", "code_read", "code_shell", "code_git_status", "code_diff", "code_ci_status", "code_edit", "code_write", "code_test", "code_commit", "code_push", "code_open_pr", "browser_open", "browser_map", "browser_read", "browser_find", "browser_load_more", "browser_wait", "browser_tabs", "browser_screenshot", "browser_export", "browser_act", "browser_digest", "generate_image", "secret_list", "secret_request", "login_fill", "github_list_repos", "github_compare", "list_bots", "send_to_bot", "set_primary_bot", "decide_bot_pending", "propose_bot", "routine_list", "routine_control", "routine_group", "video_transcript", "attachment_list", "attachment_read", "attachment_to_computer", "skill_list", "skill_read", "skill_save", "skill_delete", "github_issue_create", "github_issue_update", "github_comment", "github_pr_create", "github_pr_merge", "delegate_task", "routine_create", "routine_update", "routine_webhook_info", "suggest_routine", "report_alert", "notify_user"].sort());
 	});
 
 	it("o vocabulário de efeitos do motor é o mesmo de shared", () => {

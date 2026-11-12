@@ -2014,7 +2014,7 @@ export async function getGithubStatus(): Promise<GithubStatus> {
 export type GithubRepoOption = {
 	fullName: string;
 	private: boolean;
-	defaultBranch: string;
+	defaultBranch: string | null;
 	pushedAt: string;
 };
 
@@ -2786,6 +2786,15 @@ export async function saveVaultSecrets(
 	mode: "upsert" | "unique" = "upsert",
 ): Promise<{ saved: { name: string; id: string }[] }> {
 	return atlasFetch("/v1/vault/secrets", { method: "POST", body: JSON.stringify({ entries, mode }) });
+}
+
+/** Cartão de login do bot: um campo por item que a IA declarou; tudo vai para UM item de login do site (etapas seguintes acrescentam campos). */
+export async function saveVaultLogin(input: {
+	site: string;
+	name?: string;
+	fields: { key: string; label: string; secret: boolean; value: string }[];
+}): Promise<{ saved: { name: string; id: string; keys: string[]; created: boolean } }> {
+	return atlasFetch("/v1/vault/logins", { method: "POST", body: JSON.stringify(input) });
 }
 
 // --- Marketplace de skills e agentes (/v1/catalog) ---

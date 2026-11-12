@@ -96,6 +96,14 @@ function parseUrl(value: string): URL | null {
 	}
 }
 
+/** Seletores padrão dos campos do login do Cofre (usuário, senha, código). O control server ainda confere o campo e a origem antes de digitar. */
+export const LOGIN_FIELD_SELECTORS = {
+	username:
+		'input[autocomplete="username"], input[type="email"], input[name*="user" i], input[name*="email" i], input[name*="login" i], input[id*="user" i], input[id*="email" i], input[id*="login" i], input[type="text"]',
+	password: 'input[type="password"]',
+	totp: 'input[autocomplete="one-time-code"], input[name*="otp" i], input[name*="code" i], input[name*="token" i], input[id*="otp" i], input[id*="code" i], input[inputmode="numeric"]',
+} as const;
+
 export function hostOf(url: string): string | null {
 	const parsed = parseUrl(url);
 	return parsed ? parsed.hostname.toLowerCase().replace(/\.$/, "") || null : null;
@@ -194,6 +202,45 @@ export function pickVaultLoginForPage<T extends VaultLoginCandidate>(items: read
 	if (byName.length === 1) return { kind: "match", item: byName[0]!, byName: true };
 	if (byName.length > 1) return { kind: "ambiguous", items: byName };
 	return { kind: "none" };
+}
+
+/**
+ * Chave de comparação de um site: host em minúsculas, sem ponto final e sem `www.`. Esquema, caminho, query, hash e barra
+ * final não contam (`https://WWW.Banco.example/login?x=1` e `banco.example/` dão a mesma chave). Em localhost e IP a porta
+ * conta, como em `domainMatches`. Aceita URL ou só o domínio; `null` se não der para ler.
+ */
+export function siteKey(value: string): string | null {
+	const parsed = parseUrl(value);
+	if (!parsed) return null;
+	const host = canonicalHost(parsed.hostname);
+	if (!host) return null;
+	const exactPort = isLocalHost(host) || psl(host).isIp === true;
+	return exactPort && parsed.port ? `${host}:${parsed.port}` : host;
+}
+
+export type SiteLoginCandidate = { name: string; siteUrl?: string | null; domain?: string | null };
+export type LoginSitePick<T extends SiteLoginCandidate> =
+	| { kind: "match"; item: T }
+	| { kind: "ambiguous"; items: T[] }
+	/** `similar`: logins do mesmo domínio registrável (outro subdomínio, por exemplo), só para o erro ser útil. */
+	| { kind: "none"; similar: T[] };
+
+/**
+ * Qual login salvo é do SITE da página atual? Compara só o host normalizado (`siteKey`), sem olhar o protocolo: se a página
+ * não for https, quem digita recusa depois com o motivo certo (`domainMatches`). Um candidato = usa; vários = ambíguo (o
+ * modelo escolhe pelo nome); nenhum = lista os de domínio parecido. Login sem site salvo nunca casa.
+ */
+export function pickLoginBySite<T extends SiteLoginCandidate>(items: readonly T[], pageUrl: string): LoginSitePick<T> {
+	const pageKey = siteKey(pageUrl);
+	const saved = items.map((item) => ({ item, key: siteKey(item.siteUrl || item.domain || "") })).filter((row): row is { item: T; key: string } => row.key !== null);
+	if (!pageKey) return { kind: "none", similar: [] };
+	const same = saved.filter((row) => row.key === pageKey).map((row) => row.item);
+	if (same.length === 1) return { kind: "match", item: same[0]! };
+	if (same.length > 1) return { kind: "ambiguous", items: same };
+	const pageHost = pageKey.split(":")[0]!;
+	const pageRoot = registrableDomain(pageHost);
+	const similar = saved.filter((row) => registrableDomain(row.key.split(":")[0]!) === pageRoot).map((row) => row.item);
+	return { kind: "none", similar };
 }
 
 // ----- detector de segredo em texto -----

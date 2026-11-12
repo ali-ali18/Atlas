@@ -5,12 +5,13 @@ import type { BotLanguage } from "@workspace/shared";
 import { copyFor } from "../copy/index.js";
 import type { Ports } from "../ports/index.js";
 import type { Tool } from "../tools/define-tool.js";
-import type { ToolContext } from "../tools/types.js";
+import type { RiskFacts, ToolContext } from "../tools/types.js";
 import { type ApprovalGrant, type Hash, checkGrant, payloadHashOf, requestApproval } from "./approval.js";
 import { type PolicyContext, authorize } from "./authorize.js";
 import { RunProvenance } from "./provenance.js";
 import type { CallOutcome } from "./outcome.js";
 import { redactDeep, sanitizeText as redact } from "./sanitize.js";
+import { checkSecretRefs, hasSecretRefs, injectSecretRefs, secretRefNames } from "./secret-refs.js";
 import { storageSafe } from "./storage-text.js";
 
 export type ExecutorDeps = {
@@ -48,6 +49,10 @@ const INTERRUPTED_HINT =
 const IN_PROGRESS_HINT =
 	"Another attempt is already running this exact write. Do not repeat it; check the target before deciding anything else.";
 const ALREADY_DONE_HINT = "This exact call already finished successfully earlier in this run. Do not repeat it; use the receipt.";
+const VAULT_DOWN_ERROR = "The owner's vault is unavailable right now. Nothing was run.";
+const VAULT_DOWN_HINT = "Tell the owner the vault is unavailable; do not retry.";
+/** Efeitos já tão estritos quanto `credential`: o uso de segredo não os troca. */
+const STRICTER_THAN_CREDENTIAL: ReadonlySet<string> = new Set(["send", "money", "public_link", "destructive"]);
 const HANDOFF_MESSAGE = "This step is always the owner's. Explain what they need to do and wait; do not attempt it.";
 
 /** Redige segredos e troca os caracteres que o banco recusa (ver storage-text.ts). */
@@ -63,8 +68,19 @@ export function createExecutor(deps: ExecutorDeps) {
 
 	async function executeCall(call: ToolCall): Promise<CallOutcome> {
 		const { tool, args } = call;
-		const effect = tool.effectFor(args);
-		let riskFacts = tool.riskFactsFor(args);
+		// Usar o valor do cofre é uma ação de credencial, seja qual for o comando em volta: `echo {{secret:k}} | rev` "só lê",
+		// mas devolve o segredo transformado ao modelo. Cartão em toda autonomia, fora sem dono, regra do dono não afrouxa.
+		const usesSecret = tool.acceptsSecretRefs && hasSecretRefs(args);
+		const baseEffect = tool.effectFor(args);
+		const effect = usesSecret && !STRICTER_THAN_CREDENTIAL.has(baseEffect) ? "credential" : baseEffect;
+		const secretNames = usesSecret ? secretRefNames(args) : [];
+		/** Fato fixo no cartão: qual segredo do cofre a chamada usa. */
+		const withSecretFact = (facts: RiskFacts | undefined): RiskFacts | undefined => {
+			if (secretNames.length === 0) return facts;
+			const fact = `usa o segredo ${secretNames.join(", ")} do cofre`;
+			return { ...facts, target: facts?.target ? `${facts.target} (${fact})` : fact };
+		};
+		let riskFacts: RiskFacts | undefined = withSecretFact(tool.riskFactsFor(args));
 		let payloadHash: string;
 		try {
 			payloadHash = payloadHashOf(tool.name, args, deps.hash);
@@ -88,6 +104,18 @@ export function createExecutor(deps: ExecutorDeps) {
 		if (verdict.kind === "handoff") return { status: "handoff", reason: verdict.reason, message: HANDOFF_MESSAGE, userMessage: copyFor(deps.language, "handoff") };
 		if (verdict.kind === "hidden") return { status: "not_available", reason: verdict.reason, message: HIDDEN_MESSAGE, userMessage: copyFor(deps.language, "not_available") };
 
+		// `{{secret:NOME}}` nos argumentos: confere os nomes (sem ler valor) antes de qualquer cartão ou journal.
+		if (usesSecret) {
+			let issue: Awaited<ReturnType<typeof checkSecretRefs>>;
+			try {
+				issue = await checkSecretRefs(deps.ownerId, deps.ports.vault, args);
+			} catch {
+				// Cofre fora do ar (ou erro de banco): texto fixo, sem a mensagem original, que pode carregar dado.
+				return { status: "error", error: VAULT_DOWN_ERROR, hint: VAULT_DOWN_HINT };
+			}
+			if (issue) return { status: "error", error: sanitizeText(issue.error, secrets()), hint: issue.hint };
+		}
+
 		// Efeito (tudo que não é `read`) passa pelo journal: a retomada nunca repete escrita às cegas (cláusula 6).
 		const effectful = effect !== "read";
 		// Id de chamada com namespace do passo: provedor que repete `call_0` a cada passo não colide no journal nem nos pedidos de aprovação.
@@ -107,7 +135,7 @@ export function createExecutor(deps: ExecutorDeps) {
 		if (verdict.kind === "approve" || inputOnly) {
 			// O cartão mostra o que será feito de verdade (ex.: o evento a apagar): a tool completa os fatos com uma leitura. O id do pedido não depende deles.
 			// Só ao pedir: a retomada já aprovada (com grant) não relê, o cartão não será mostrado de novo.
-			if (!call.grant) riskFacts = await tool.enrichedRiskFactsFor(args, { ownerId: deps.ownerId, ...(deps.signal && { signal: deps.signal }) });
+			if (!call.grant) riskFacts = withSecretFact(await tool.enrichedRiskFactsFor(args, { ownerId: deps.ownerId, ...(deps.signal && { signal: deps.signal }) }));
 			const request = requestApproval({ runId: deps.runId, callId: scopedCallId, toolName: tool.name, effect, args, riskFacts, hash: deps.hash, secrets: secrets(), ...(tool.ownerInput && { ownerInput: tool.ownerInput }), ...(inputOnly && { inputOnly: true }) });
 			approvalId = request.id;
 			if (!call.grant) return { status: "pending_approval", request };
@@ -117,6 +145,19 @@ export function createExecutor(deps: ExecutorDeps) {
 			const check = checkGrant(call.grant, request, consumed);
 			if (!check.ok) return { status: "approval_invalid", reason: check.reason, request };
 			consumed.add(request.id);
+		}
+
+		// Aprovado (ou livre): só agora o valor sai do cofre, e só para a tool. `args` (cartão, hash, journal) fica com o marcador.
+		let runArgs: unknown = args;
+		if (usesSecret) {
+			let injected: Awaited<ReturnType<typeof injectSecretRefs>>;
+			try {
+				injected = await injectSecretRefs(deps.ownerId, deps.ports.vault, args);
+			} catch {
+				return { status: "error", error: VAULT_DOWN_ERROR, hint: VAULT_DOWN_HINT };
+			}
+			if (!injected.ok) return { status: "error", error: sanitizeText(injected.error, secrets()), hint: injected.hint };
+			runArgs = injected.args;
 		}
 
 		let spentUse = false;
@@ -139,7 +180,7 @@ export function createExecutor(deps: ExecutorDeps) {
 			}
 		}
 		const ctx: ToolContext = { runId: deps.runId, ownerId: deps.ownerId, ports: deps.ports, signal: deps.signal, callId: scopedCallId, untrustedReadInRun: provenance.untrustedReadInRun, ...(approvalId && { approvalId }) };
-		const result = await tool.run(args, ctx);
+		const result = await tool.run(runArgs, ctx);
 		// Dado de fonte não confiável marca o run ANTES de voltar ao modelo (vale também para o texto de erro).
 		// Redigido ANTES de registrar: a proveniência vai no checkpoint e não pode guardar segredo que a tool deixou escapar.
 		if (tool.privateData && result.ok) provenance.markPrivateRead();
@@ -153,13 +194,16 @@ export function createExecutor(deps: ExecutorDeps) {
 			if (effectful) await deps.ports.store.journal.append({ ...journalBase, outcome: "failed" });
 			return { status: "error", error: sanitizeText(result.error, secrets()), ...(result.hint && { hint: sanitizeText(result.hint, secrets()) }) };
 		}
+		// Efeito de credencial que a tool tratava como leitura (shell, leitura de conector) não traz recibo: o executor registra
+		// o uso do segredo, para a regra "efeito sem recibo é bug" continuar valendo para o resto.
+		const receipt = result.receipt ?? (effectful && usesSecret ? { what: `Ran with a vault secret: ${secretNames.join(", ")}` } : undefined);
 		if (effectful) {
-			if (!result.receipt) {
+			if (!receipt) {
 				// O efeito pode ter acontecido: registra como feito (não repetir) e acusa a tool, nunca "sucesso".
 				await deps.ports.store.journal.append({ ...journalBase, outcome: "succeeded" });
 				return { status: "contract_error", error: `${tool.name} has effect "${effect}" but returned no receipt. Report this as a bug; do not retry the call.` };
 			}
-			const { what, where, externalId, url } = result.receipt;
+			const { what, where, externalId, url } = receipt;
 			await deps.ports.store.receipts.append({
 				runId: deps.runId,
 				userId: deps.ownerId,
@@ -173,7 +217,7 @@ export function createExecutor(deps: ExecutorDeps) {
 			});
 			await deps.ports.store.journal.append({ ...journalBase, outcome: "succeeded" });
 		}
-		return { status: "ok", summary: sanitizeText(result.summary, secrets()), ...(result.receipt && { receipt: redactDeep(result.receipt, secrets()) }), ...(result.park && { park: result.park }) };
+		return { status: "ok", summary: sanitizeText(result.summary, secrets()), ...(receipt && { receipt: redactDeep(receipt, secrets()) }), ...(result.park && { park: result.park }) };
 	}
 
 	return { executeCall, provenance, mandateUsesLeft: () => mandate?.usesLeft };

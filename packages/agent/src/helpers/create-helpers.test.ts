@@ -592,3 +592,50 @@ describe("ponta a ponta (F3): research da mãe com ajudantes reais", () => {
 		expect(read?.().untrustedReadInRun).toBe(true);
 	});
 });
+
+describe("createHelpers: observador do cartão e teto de passos por tarefa (F9, delegate)", () => {
+	const reads = (n: number): Turn[] => Array.from({ length: n }, (_, i) => reply({ calls: [call(`c${i}`, "web_search", { query: `q${i}` })] }));
+
+	it("o observador vê começo, tools e fim de cada ajudante, com o id do run filho e as tools usadas", async () => {
+		const { helpers } = setup({ "OBJ-A": [reply({ calls: [call("c1", "web_extract", { url: "https://a.test/x" })] }), reply({ text: "A done" })] });
+		const log: string[] = [];
+		const [r] = await helpers.runAll([task("OBJ-A")], undefined, {
+			started: (i, id) => void log.push(`start:${i}:${id}`),
+			tool: (i, id, name, ok) => void log.push(`tool:${i}:${id}:${name}:${ok}`),
+			done: (i, id, result) => void log.push(`done:${i}:${id}:${result.status}`),
+		});
+		expect(log).toEqual(["start:0:run-mother:helper:1", "tool:0:run-mother:helper:1:web_extract:true", "done:0:run-mother:helper:1:done"]);
+		expect(r).toMatchObject({ toolsUsed: ["web_extract"], toolCalls: { ok: 1, failed: 0 } });
+	});
+
+	it("falha antes de abrir o run filho (capacidade que a mãe não tem) ainda tem começo e fim, sem id de run", async () => {
+		const { helpers } = setup({});
+		const log: string[] = [];
+		const [r] = await helpers.runAll([task("OBJ-A", ["web", "browser"])], undefined, { started: (i, id) => void log.push(`start:${i}:${JSON.stringify(id)}`), done: (i, id, result) => void log.push(`done:${i}:${JSON.stringify(id)}:${result.status}`) });
+		expect(r?.status).toBe("failed");
+		expect(log).toEqual(['start:0:""', 'done:0:"":failed']);
+	});
+
+	it("observador que lança não derruba nem muda o resultado do ajudante", async () => {
+		const { helpers } = setup({ "OBJ-A": [reply({ text: "ok" })] });
+		const boom = () => {
+			throw new Error("sse caiu");
+		};
+		const [r] = await helpers.runAll([task("OBJ-A")], undefined, { started: boom, tool: boom, done: boom });
+		expect(r).toMatchObject({ status: "done", text: "ok" });
+	});
+
+	it("`maxSteps` da tarefa estreita a rede de segurança: o filho para com o motivo real", async () => {
+		const { helpers } = setup({ "OBJ-A": [...reads(3), reply({ text: "partial findings" })] });
+		const [r] = await helpers.runAll([{ ...task("OBJ-A"), maxSteps: 3 }]);
+		expect(r?.status).toBe("stopped");
+		expect(r?.error).toContain("the safety step limit");
+		expect(r?.text).toBe("partial findings");
+	});
+
+	it("`maxSteps` nunca afrouxa o teto da mãe: vale o menor", async () => {
+		const { helpers } = setup({ "OBJ-A": [...reads(10), reply({ text: "partial" })] }, { limits: { safetyMaxSteps: 2 } });
+		const [r] = await helpers.runAll([{ ...task("OBJ-A"), maxSteps: 30 }]);
+		expect(r?.status).toBe("stopped");
+	});
+});

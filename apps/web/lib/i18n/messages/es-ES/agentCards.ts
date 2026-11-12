@@ -17,6 +17,7 @@ export const agentCards: NamespaceMessages<typeof ptBR> = {
 	"agentCards.approval.deleteTarget": "Borrar {target}",
 	"agentCards.approval.deleteGeneric": "Borrar un elemento",
 	"agentCards.approval.credential": "Usar una contraseña o clave guardada",
+	"agentCards.approval.credentialTarget": "Usar {target}",
 	"agentCards.approval.changeTarget": "Modificar {target}",
 	"agentCards.approval.changeExternal": "Hacer un cambio fuera de Atlas",
 	"agentCards.approval.saveTarget": "Guardar {target}",
@@ -47,6 +48,7 @@ export const agentCards: NamespaceMessages<typeof ptBR> = {
 	"agentCards.ask.title": "Una pregunta para ti",
 	"agentCards.receipt.done": "Hecho",
 	"agentCards.receipt.open": "Abrir",
+	"agentCards.expired": "Venció",
 	"agentCards.settled": "Resuelto",
 	"agentCards.sendFailed": "No se pudo enviar tu respuesta ahora. Inténtalo de nuevo.",
 };

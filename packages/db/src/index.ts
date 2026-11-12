@@ -2,6 +2,7 @@ export { prisma } from "./client.js";
 export * from "./agent-v4-store.js";
 export * from "./agent-v4-bot-settings.js";
 export * from "./agent-v4-requests.js";
+export * from "./agent-v4-cards.js";
 export * from "./message-reactions.js";
 export * from "./message-run-context.js";
 export * from "./reaction-only.js";
@@ -363,6 +364,7 @@ export {
 	getRoutineTemplateForAgentRun,
 	getRoutineContextForAgentRun,
 	recordRoutineAlertState,
+	getRoutineLoginPermissionForAgentRun,
 	getRoutinePageIdForAgentRun,
 	findRecentRoutineRunByIdempotency,
 	createRoutineRun,

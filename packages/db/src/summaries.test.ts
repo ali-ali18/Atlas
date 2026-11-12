@@ -79,6 +79,8 @@ describe("isSummaryFreshSnapshot", () => {
 
 	it("ignora system + cards por padrão", () => {
 		assert.deepEqual([...FRESH_SUMMARY_IGNORE_ROLES].sort(), [
+			"approval_request",
+			"ask_owner",
 			"bot-link",
 			"bot-profile",
 			"calendar",
@@ -90,12 +92,14 @@ describe("isSummaryFreshSnapshot", () => {
 			"email-draft",
 			"email-triage",
 			"file",
+			"handoff_request",
 			"login",
 			"page",
 			"product",
 			"provider-fallback",
 			"purchase",
 			"questionnaire",
+			"receipt",
 			"revised-draft",
 			"routine",
 			"skill",
