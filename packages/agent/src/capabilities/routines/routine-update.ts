@@ -6,8 +6,8 @@ import { z } from "zod";
 import type { RoutineUpdateSpec, Routines } from "../../ports/routines.js";
 import type { Vault } from "../../ports/vault.js";
 import { defineTool } from "../../tools/define-tool.js";
-import { findRoutine, optionsLine } from "./resolve.js";
-import { alertField, alertSpecOf, checkLoginAccess, loginAccessField, loginAccessTarget, NOTIFY_MODES } from "./routine-save.js";
+import { findRoutine, isExactRef, optionsLine } from "./resolve.js";
+import { alertField, alertSpecOf, checkLoginAccess, loginAccessField, loginAccessCardTarget, NOTIFY_MODES, triggerArgsPhrase } from "./routine-save.js";
 import { alertNeedsTimeTrigger, isValidTimezone, planTrigger, triggerFields, type TriggerArgs } from "./routine-trigger.js";
 
 const TRIGGER_KEYS = ["schedule", "runAt", "inMinutes", "everyMinutes", "email", "github"] as const;
@@ -18,7 +18,7 @@ export function createRoutineUpdateTool(deps: { routines: Routines; vault?: Pick
 		name: "routine_update",
 		description:
 			"Change ONE existing routine or alert, by name or id from routine_list: name, task (the instruction), the trigger, group, panelId, notify, alert, loginAccess, timezone, or enabled (false pauses, true resumes). Pass only what changes; the rest stays. " +
-			"To change WHEN it runs, pass triggerType with ALL the fields of that trigger (the same as routine_create), even if the type stays the same. group: empty string takes it out of its group. panelId: empty string detaches the panel. alert: null turns an alert back into a normal routine. loginAccess: a new login permission asks the owner to approve; null removes it. " +
+			"To change WHEN it runs, pass triggerType with ALL the fields of that trigger (the same as routine_create), even if the type stays the same. group: empty string takes it out of its group. panelId: empty string detaches the panel. alert: null turns an alert back into a normal routine. loginAccess: a new login permission asks the owner to approve (target must be the exact name or id); null removes it. Changing task, trigger or panelId of a routine that has a login permission removes the permission. " +
 			"Use it when the owner asks to change, move, rename or re-time a routine. Do not use it to just pause, resume or delete (routine_control), to move between groups without other changes (routine_group), to create one (routine_create), or inside a routine run.",
 		inputSchema: z.object({
 			target: z.string().trim().min(1).max(200).describe("Routine name or id from routine_list."),
@@ -36,13 +36,29 @@ export function createRoutineUpdateTool(deps: { routines: Routines; vault?: Pick
 		}),
 		effect: "write_internal",
 		effectForArgs: (args) => (args.loginAccess ? "credential" : "write_internal"),
-		riskFacts: (args) => ({ target: args.loginAccess ? loginAccessTarget({ login: args.loginAccess.login, site: args.loginAccess.site }) : `routine ${args.target}` }),
+		riskFacts: (args) => ({
+			target: args.loginAccess
+				? loginAccessCardTarget(args.loginAccess, { name: args.name ?? args.target, ...(args.triggerType && { trigger: triggerArgsPhrase(args) }), ...(args.task && { task: args.task }) })
+				: `routine ${args.target}`,
+		}),
+		// O cartão da permissão mostra a rotina de verdade (nome, gatilho em frase e instrução atuais, ou os novos se esta chamada os troca).
+		async enrichRiskFacts(args, base, { ownerId }) {
+			if (!args.loginAccess) return base;
+			const found = findRoutine(await routines.list(ownerId), args.target);
+			if (found.kind !== "one" || !isExactRef(found.item, args.target)) return base;
+			const { item } = found;
+			return { ...base, target: loginAccessCardTarget(args.loginAccess, { name: args.name ?? item.name, trigger: args.triggerType ? triggerArgsPhrase(args) : item.trigger, task: args.task ?? item.task }) };
+		},
 		async execute(args, ctx) {
 			const { target, ...changes } = args;
 			const found = findRoutine(await routines.list(ctx.ownerId), target);
 			if (found.kind === "none") return { ok: false, error: `No routine matches "${target.slice(0, 80)}".`, hint: "Call routine_list for the names." };
 			if (found.kind === "ambiguous") return { ok: false, error: `More than one routine matches "${target.slice(0, 80)}": ${optionsLine(found.items)}.`, hint: "Ask the owner which one, or call again with the exact name or id." };
 			const current = found.item;
+			// Conceder login é aprovar uma rotina específica: pedaço de nome que por acaso casa com uma só não basta.
+			if (changes.loginAccess && !isExactRef(current, target)) {
+				return { ok: false, error: `"${target.slice(0, 80)}" only partly matches "${current.name}" (id ${current.id}). A login permission needs the exact name or id.`, hint: "Call again with the routine id from routine_list." };
+			}
 			const spec: RoutineUpdateSpec = {};
 
 			const timezone = changes.timezone;
@@ -72,11 +88,16 @@ export function createRoutineUpdateTool(deps: { routines: Routines; vault?: Pick
 				spec.alert = alertSpecOf(changes.alert);
 			}
 
+			let revokedLogin = false;
 			if (changes.loginAccess === null) spec.loginAccess = null;
 			else if (changes.loginAccess) {
 				const checked = await checkLoginAccess(changes.loginAccess, ctx.ownerId, vault);
 				if (!checked.ok) return checked;
 				spec.loginAccess = checked.access;
+			} else if (current.loginAccess && (changes.task !== undefined || changes.triggerType !== undefined || changes.panelId !== undefined)) {
+				// A permissão foi aprovada para ESTA instrução neste gatilho: se algum deles (ou o painel) muda, ela cai e o dono aprova de novo.
+				spec.loginAccess = null;
+				revokedLogin = true;
 			}
 
 			if (changes.name !== undefined) {
@@ -96,10 +117,11 @@ export function createRoutineUpdateTool(deps: { routines: Routines; vault?: Pick
 			const { routine } = saved;
 			const kind = routine.alert ? "Alert" : "Routine";
 			const webhook = saved.webhook ? ` Webhook address (no secret): ${saved.webhook.url}. The secret is not shown here: the owner copies it from the routine in the Library ("Gerar novo segredo").` : "";
+			const revoked = revokedLogin ? ` The login permission was removed because the instruction, trigger or panel changed: the routine can no longer sign in to ${current.loginAccess?.site ?? "the site"}. If it still needs to, ask the owner and call routine_update again with loginAccess so they approve it.` : "";
 			const login = spec.loginAccess && routine.loginAccess ? ` It may sign in to ${routine.loginAccess.site} with the login "${routine.loginAccess.login}" (approved), nowhere else.` : "";
 			return {
 				ok: true,
-				summary: `${kind} "${routine.name}" updated: ${routine.alert ?? routine.trigger}.${routine.enabled ? "" : " It is paused."}${login}${webhook} The routine card was updated: say in one plain sentence what changed.`,
+				summary: `${kind} "${routine.name}" updated: ${routine.alert ?? routine.trigger}.${routine.enabled ? "" : " It is paused."}${login}${revoked}${webhook} The routine card was updated: say in one plain sentence what changed.`,
 				receipt: { what: `${kind} updated: ${routine.name}`, where: "Routines", externalId: routine.id },
 			};
 		},

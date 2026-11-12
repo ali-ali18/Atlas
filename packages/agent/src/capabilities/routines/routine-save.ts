@@ -1,9 +1,10 @@
 // Peças comuns de `routine_create` e `routine_update` (F9 parte 2): o schema do alerta e da permissão de login, a conferência da
 // permissão contra o cofre e o texto do cartão de aprovação. Nada aqui decide por texto livre: só campos declarados.
-import { ALERT_CONDITION_MAX, ALERT_HINT_MAX, ALERT_CONDITION_MIN, describeRoutineLoginPermission, parseRoutineLoginAccess, siteKey } from "@workspace/shared";
+import { ALERT_CONDITION_MAX, ALERT_HINT_MAX, ALERT_CONDITION_MIN, describeRoutineLoginPermission, describeRoutineProposalSchedule, formatIntervalSummary, parseRoutineLoginAccess, siteKey } from "@workspace/shared";
 import { z } from "zod";
 import type { RoutineAlertSpec, RoutineLoginAccess } from "../../ports/routines.js";
 import type { Vault } from "../../ports/vault.js";
+import type { TriggerArgs } from "./routine-trigger.js";
 
 export const NOTIFY_MODES = ["always", "important"] as const;
 
@@ -56,4 +57,40 @@ export async function checkLoginAccess(raw: unknown, ownerId: string, vault: Pic
 /** O que o cartão de aprovação mostra: a frase "usar o login X para entrar em Y" e que vale só para esta rotina. */
 export function loginAccessTarget(access: { login: string; site: string }): string {
 	return `${describeRoutineLoginPermission({ login: access.login, site: siteKey(access.site) ?? access.site })} nesta rotina`;
+}
+
+const TASK_CARD_MAX = 240;
+
+/** O gatilho que o modelo declarou, em frase curta para o cartão (a rotina ainda não existe, então não há frase pronta). */
+export function triggerArgsPhrase(args: Partial<TriggerArgs>): string {
+	switch (args.triggerType) {
+		case "cron":
+			return describeRoutineProposalSchedule({ schedule: args.schedule });
+		case "once":
+			return args.runAt ? `uma vez, em ${args.runAt}` : args.inMinutes ? `uma vez, daqui a ${args.inMinutes} min` : "uma vez";
+		case "interval":
+			return formatIntervalSummary(args.everyMinutes ?? 0);
+		case "email":
+			return "quando chega e-mail";
+		case "github":
+			return `GitHub (${(args.github?.repo ?? "").slice(0, 80)})`;
+		case "webhook":
+			return "webhook";
+		default:
+			return "";
+	}
+}
+
+/**
+ * O cartão da permissão de login diz TUDO o que o dono aprova: o login, o site, e qual rotina (nome), quando roda (frase) e o que
+ * faz (instrução truncada). A permissão vale para esta instrução neste gatilho: trocar um dos dois a apaga (ver `routine_update`).
+ */
+export function loginAccessCardTarget(access: { login: string; site: string }, routine: { name: string; trigger?: string; task?: string }): string {
+	const task = routine.task ? (routine.task.length > TASK_CARD_MAX ? `${routine.task.slice(0, TASK_CARD_MAX)}…` : routine.task) : "";
+	return [
+		loginAccessTarget(access),
+		`"${routine.name.slice(0, 120)}"`,
+		...(routine.trigger ? [`roda ${routine.trigger}`] : []),
+		...(task ? [`instrução: "${task}"`] : []),
+	].join(" · ");
 }

@@ -149,7 +149,7 @@ describe("permissão de login da rotina (decisão do dono, 09/11)", () => {
 		expect(pending.status).toBe("pending_approval");
 		const facts = (pending as unknown as { request: { effect: string; riskFacts: { target: string } } }).request;
 		expect(facts.effect).toBe("credential");
-		expect(facts.riskFacts.target).toBe("o login banco para entrar em banco.example nesta rotina");
+		expect(facts.riskFacts.target).toContain("o login banco para entrar em banco.example nesta rotina");
 		expect(r.routines.calls.some((c) => c.method === "create")).toBe(false);
 	});
 
@@ -198,6 +198,62 @@ describe("permissão de login da rotina (decisão do dono, 09/11)", () => {
 		expect(lastCall(r, "update")?.args[1]).toEqual({ loginAccess: null });
 		await r.run("routine_update", { target: "Resumo da manhã", task: "Outra instrução." });
 		expect(lastCall(r, "update")?.args[1]).toEqual({ task: "Outra instrução." });
+	});
+
+	// C2 da auditoria F9: a permissão aprovada é para ESTA instrução neste gatilho. Trocar qualquer um dos dois (ou o painel) a apaga.
+	const withPermission = () => {
+		const r = rig();
+		r.routines.rows.find((x) => x.id === "r1")!.loginAccess = { login: "banco", site: "banco.example" };
+		return r;
+	};
+
+	it("trocar a instrução, o gatilho ou o painel de rotina com login APAGA a permissão e o resultado manda pedir de novo ao dono", async () => {
+		for (const change of [{ task: "Outra instrução." }, { triggerType: "interval", everyMinutes: 240 }, { panelId: "p9" }]) {
+			const r = withPermission();
+			const out = await r.run("routine_update", { target: "Resumo da manhã", ...change });
+			expect(out.status).toBe("ok");
+			expect(lastCall(r, "update")?.args[1]).toMatchObject({ loginAccess: null });
+			expect(r.routines.rows.find((x) => x.id === "r1")?.loginAccess).toBeUndefined();
+			expect(text(out)).toContain("login permission was removed");
+			expect(text(out)).toContain("ask the owner");
+		}
+	});
+
+	it("mudanças que não alteram o que a rotina faz (nome, grupo, aviso, pausar) mantêm a permissão", async () => {
+		const r = withPermission();
+		const out = await r.run("routine_update", { target: "Resumo da manhã", name: "Resumo novo", group: "Casa", notify: "important", enabled: false });
+		expect(out.status).toBe("ok");
+		expect(lastCall(r, "update")?.args[1]).not.toHaveProperty("loginAccess");
+		expect(r.routines.rows.find((x) => x.id === "r1")?.loginAccess).toEqual({ login: "banco", site: "banco.example" });
+	});
+
+	it("conceder permissão exige o nome inteiro ou o id da rotina (pedaço de nome é recusado) e o cartão mostra rotina, gatilho e instrução", async () => {
+		const r = rig();
+		const grant = { login: "banco", site: "banco.example" };
+		const partial = await r.approved("routine_update", { target: "manhã", loginAccess: grant });
+		expect(partial.status).toBe("error");
+		expect(text(partial)).toContain("exact name or id");
+		expect(r.routines.calls.some((c) => c.method === "update")).toBe(false);
+		const pending = await r.run("routine_update", { target: "Resumo da manhã", task: "x".repeat(400), loginAccess: grant });
+		expect(pending.status).toBe("pending_approval");
+		const target = (pending as unknown as { request: { riskFacts: { target: string } } }).request.riskFacts.target;
+		expect(target).toContain("o login banco para entrar em banco.example");
+		expect(target).toContain("Resumo da manhã");
+		expect(target).toContain("x".repeat(100));
+		expect(target.length).toBeLessThan(500);
+		const same = await r.run("routine_update", { target: "r1", loginAccess: grant });
+		const current = (same as unknown as { request: { riskFacts: { target: string } } }).request.riskFacts.target;
+		expect(current).toContain("todo dia às 8h");
+		expect(current).toContain("Resume os e-mails importantes.");
+	});
+
+	it("criar com login: o cartão mostra o nome da rotina, o gatilho em frase e a instrução", async () => {
+		const r = rig();
+		const pending = await r.run("routine_create", withLogin);
+		const target = (pending as unknown as { request: { riskFacts: { target: string } } }).request.riskFacts.target;
+		expect(target).toContain("Conferir o estoque");
+		expect(target).toContain("Confere o estoque da canela e resume.");
+		expect(target).toMatch(/dias úteis|segunda/i);
 	});
 
 	it("sem dono presente a criação e a edição nem existem (readOnly) e, mesmo declarada, a política esconde o efeito de credencial", async () => {

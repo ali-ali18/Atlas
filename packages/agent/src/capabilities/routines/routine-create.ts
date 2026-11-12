@@ -7,7 +7,7 @@ import type { Routines } from "../../ports/routines.js";
 import type { Vault } from "../../ports/vault.js";
 import { defineTool } from "../../tools/define-tool.js";
 import { findRoutine } from "./resolve.js";
-import { alertField, alertSpecOf, checkLoginAccess, loginAccessField, loginAccessTarget, NOTIFY_MODES } from "./routine-save.js";
+import { alertField, alertSpecOf, checkLoginAccess, loginAccessField, loginAccessCardTarget, NOTIFY_MODES, triggerArgsPhrase } from "./routine-save.js";
 import { alertNeedsTimeTrigger, isValidTimezone, planTrigger, triggerFields } from "./routine-trigger.js";
 
 export const DEFAULT_ROUTINE_TIMEZONE = "America/Sao_Paulo";
@@ -37,7 +37,7 @@ export function createRoutineCreateTool(deps: { routines: Routines; vault?: Pick
 		// Declarar o login faz o dono aprovar (cartão em qualquer autonomia); sem isso é uma escrita interna que desfaz.
 		effect: "write_internal",
 		effectForArgs: (args) => (args.loginAccess ? "credential" : "write_internal"),
-		riskFacts: (args) => ({ target: args.loginAccess ? loginAccessTarget({ login: args.loginAccess.login, site: args.loginAccess.site }) : `routine ${args.name}` }),
+		riskFacts: (args) => ({ target: args.loginAccess ? loginAccessCardTarget(args.loginAccess, { name: args.name, trigger: triggerArgsPhrase(args), task: args.task }) : `routine ${args.name}` }),
 		async execute(args, ctx) {
 			const now = ctx.ports.clock.now();
 			const timezone = args.timezone ?? DEFAULT_ROUTINE_TIMEZONE;
