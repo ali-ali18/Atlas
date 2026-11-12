@@ -494,6 +494,31 @@ describe("login com campos decididos pela IA (F9)", () => {
 		expect(r.requests.asks[0]!.request.login?.name).toBeUndefined();
 	});
 
+	// C5 da auditoria F9: o item de um pedido é o do SITE; nome de login sem site nunca o adota e site com vários logins pede o nome.
+	it("name de login legado SEM site não é adotado para outro site: erro honesto, sem cartão (nada de a senha antiga passar a valer em site novo)", async () => {
+		const r = rig(NEW_ITEMS);
+		const out = await r.executor.executeCall({ callId: "c1", step: 1, tool: r.tool("secret_request"), args: { kind: "login", site: "https://evil.example/entrar", name: "sem-site", fields: [{ key: "senha", label: "Senha", secret: true }], reason: "x" } });
+		expect(out.status).toBe("error");
+		expect(JSON.stringify(out)).toContain("already used");
+		expect(r.requests.asks).toHaveLength(0);
+	});
+
+	it("dois logins no mesmo site e nenhum name: erro listando os nomes; com o name de um deles o cartão vai para esse item", async () => {
+		const two: FakeVaultItem[] = [
+			...NEW_ITEMS,
+			{ owner: "owner-1", id: "plataforma-2", kind: "login", password: "", site: "plataforma.example", fields: [{ key: "email", label: "E-mail", secret: false, value: "x@y.test" }] },
+		];
+		const r = rig(two);
+		const args = { kind: "login", site: "plataforma.example", fields: [{ key: "senha", label: "Senha", secret: true }], reason: "x" };
+		const ambiguous = await r.executor.executeCall({ callId: "c1", step: 1, tool: r.tool("secret_request"), args });
+		expect(ambiguous.status).toBe("error");
+		expect(JSON.stringify(ambiguous)).toMatch(/plataforma.*plataforma-2/);
+		expect(r.requests.asks).toHaveLength(0);
+		const named = await r.executor.executeCall({ callId: "c2", step: 1, tool: r.tool("secret_request"), args: { ...args, name: "plataforma-2" } });
+		expect(named.status).toBe("ok");
+		expect(r.requests.asks[0]!.request.login?.name).toBe("plataforma-2");
+	});
+
 	it("pedido de login inválido falha com o aceito, sem cartão", async () => {
 		const r = rig();
 		const bad: Array<Record<string, unknown>> = [

@@ -270,6 +270,30 @@ describe("login com campos declarados (F9)", () => {
 		expect((payload.fields ?? []).map((f) => f.key)).toEqual(["cpf"]);
 	});
 
+	it("C5: pedido com o name de um login SEM site não adota o item (nem grava o site novo nele): cria um item novo e o antigo fica como estava", async () => {
+		const vault = new VaultService(memoryVaultStore());
+		const legacy = await vault.create("u1", { kind: "login", name: "banco", username: "dono", payload: { password: "Senha-antiga-1" } });
+		const res = await vault.upsertLogin("u1", { site: "evil.example", name: "banco", fields: [field("senha", "valor-novo")] });
+		expect(res.created).toBe(true);
+		expect(res.meta.id).not.toBe(legacy.id);
+		const old = (await vault.listMeta("u1")).find((m) => m.id === legacy.id)!;
+		expect(old.siteUrl ?? "").toBe("");
+		expect((await vault.reveal("u1", legacy.id)).payload.password).toBe("Senha-antiga-1");
+	});
+
+	it("C5: vários logins no mesmo site sem name é ambíguo (erro); com o name escolhe aquele; name que não é do site não adota outro login do site", async () => {
+		const vault = new VaultService(memoryVaultStore());
+		const a = await vault.create("u1", { kind: "login", name: "a", siteUrl: "https://banco.example", payload: { password: "p-a-12345" } });
+		const b = await vault.create("u1", { kind: "login", name: "b", siteUrl: "https://banco.example", payload: { password: "p-b-12345" } });
+		await expect(vault.upsertLogin("u1", { site: "banco.example", fields: [field("cpf", "12345678909")] })).rejects.toMatchObject({ code: "conflict" });
+		const picked = await vault.upsertLogin("u1", { site: "banco.example", name: "b", fields: [field("cpf", "12345678909")] });
+		expect(picked.meta.id).toBe(b.id);
+		const other = await vault.upsertLogin("u1", { site: "banco.example", name: "c", fields: [field("cpf", "12345678909")] });
+		expect(other.created).toBe(true);
+		expect([a.id, b.id]).not.toContain(other.meta.id);
+		expect(await vault.loginFieldKeys("u1", { site: "banco.example" })).toEqual([]);
+	});
+
 	it("o valor dos campos secretos entra na redação; campo não secreto não", async () => {
 		const vault = new VaultService(memoryVaultStore());
 		await vault.upsertLogin("u1", { site: "site.example", fields: [field("cpf", "12345678909"), field("nome", "Ana Souza", false)] });

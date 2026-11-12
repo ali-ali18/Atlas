@@ -207,15 +207,18 @@ export class VaultService {
 		return this.update(userId, existing.id, { payload: { value }, ...(description ? { description } : {}) }, by);
 	}
 
-	/** Acha o login do dono para um pedido: pelo NOME (se o item é login e sem site ou do mesmo site) ou pelo SITE normalizado. */
+	/**
+	 * Acha o login do dono para um pedido, SEMPRE entre os do mesmo SITE normalizado: com `name`, o do site com esse nome; sem
+	 * `name`, o único do site. Login sem site nunca é adotado por nome (a senha antiga passaria a valer num site novo) e vários
+	 * logins no site sem `name` é ambíguo (erro), o mesmo critério da tool `secret_request`.
+	 */
 	private findLoginRow(rows: readonly UserSecretRow[], site: string, name?: string): UserSecretRow | undefined {
 		const key = siteKey(site);
-		const logins = rows.filter((row) => row.kind === "login");
-		const rowKey = (row: UserSecretRow) => siteKey(row.siteUrl || row.domain || "");
-		const byName = name ? logins.find((row) => row.name === name && (!rowKey(row) || rowKey(row) === key)) : undefined;
-		if (byName) return byName;
-		const bySite = logins.filter((row) => key !== null && rowKey(row) === key);
-		return bySite.find((row) => name !== undefined && row.name === name) ?? bySite[0];
+		if (key === null) return undefined;
+		const sameSite = rows.filter((row) => row.kind === "login" && siteKey(row.siteUrl || row.domain || "") === key);
+		if (name !== undefined) return sameSite.find((row) => row.name === name);
+		if (sameSite.length > 1) throw new VaultError(`Há mais de um login de ${key} (${sameSite.map((row) => row.name).join(", ")}). Diga o nome do que deve receber os campos.`, "conflict");
+		return sameSite[0];
 	}
 
 	/**
@@ -246,7 +249,13 @@ export class VaultService {
 
 	/** Chaves (nunca valores) dos campos já guardados no login do pedido; vazio se não há login. */
 	async loginFieldKeys(userId: string, input: { site: string; name?: string }): Promise<string[]> {
-		const row = this.findLoginRow(await this.store.listRows(userId), input.site, input.name);
+		let row: UserSecretRow | undefined;
+		try {
+			row = this.findLoginRow(await this.store.listRows(userId), input.site, input.name);
+		} catch (error) {
+			if (error instanceof VaultError && error.code === "conflict") return []; // ambíguo: nada é "já guardado" até o pedido dizer o nome
+			throw error;
+		}
 		if (!row) return [];
 		const dk = await this.dataKey(userId, false);
 		if (!dk) return [];

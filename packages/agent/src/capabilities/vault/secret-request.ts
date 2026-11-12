@@ -67,7 +67,10 @@ async function askLogin(args: Args, ctx: Ctx, handles: readonly SecretHandle[], 
 	if ("error" in parsed) return { ok: false as const, error: `Invalid fields: ${parsed.error}.`, hint: "Declare one { key, label, secret } per input the sign-in page shows (look with browser_map first)." };
 	// O item do site: o que já guarda esse site (qualquer etapa anterior) ou o de mesmo nome; senão será criado com o nome do pedido.
 	const logins = handles.filter((h) => h.kind === "login");
-	const existing = logins.find((h) => h.site !== undefined && siteKey(h.site) === key) ?? (args.name ? logins.find((h) => h.id === args.name && !h.site) : undefined);
+	// Mesmo critério do servidor: só entre os logins DESTE site (login sem site nunca é adotado por nome), e vários no site pedem o nome.
+	const sameSite = logins.filter((h) => h.site !== undefined && siteKey(h.site) === key);
+	if (!args.name && sameSite.length > 1) return { ok: false as const, error: `More than one saved login belongs to ${key}: ${sameSite.map((h) => h.id).join(", ")}.`, hint: "Pass name set to the one that should receive these fields (the owner may have named it), or ask which." };
+	const existing = args.name ? sameSite.find((h) => h.id === args.name) : sameSite[0];
 	if (args.name && !existing && handles.some((h) => h.id === args.name)) return { ok: false as const, error: `"${args.name}" is already used by another vault item.`, hint: "Leave name out (the site name is used) or pick another one." };
 	const saved = new Set((existing?.fields ?? []).map((f) => f.key));
 	const missing = parsed.fields.filter((f) => !saved.has(f.key));
