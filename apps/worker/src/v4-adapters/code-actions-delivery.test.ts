@@ -66,7 +66,7 @@ async function open(r: ReturnType<typeof rig>, userId = "A"): Promise<string> {
 	return (res.data as { sessionId: string }).sessionId;
 }
 
-const isPush = (job: Job) => job.cmd.includes("git push");
+const isPush = (job: Job) => /\bpush\b/.test(job.cmd);
 
 test("pushRefusal e isProtectedBranch: padrão, main e master nunca; HEAD solto e nome estranho também", () => {
 	assert.match(pushRefusal("main", "main") ?? "", /default branch/);
@@ -127,7 +127,7 @@ test("commit: na branch padrão exige branch nova; com branch cria, comita e dev
 	const r = rig({
 		respond: (job) => {
 			if (job.cmd.includes('echo "default=')) return { stdout: inspect("main", "main") };
-			if (job.cmd.includes("git diff --cached --name-only")) return { stdout: staged };
+			if (job.cmd.includes("diff --cached --name-only")) return { stdout: staged };
 			if (job.cmd.includes("git commit")) return { stdout: "sha=deadbeef\nbranch=fix/preco\nsubject=fix: preço\n" };
 			return undefined;
 		},
@@ -149,7 +149,7 @@ test("commit: na branch padrão exige branch nova; com branch cria, comita e dev
 test("commit com arquivo de segredo no stage: desfaz o stage, não comita e diz quais", async () => {
 	const r = rig({
 		respond: (job) => {
-			if (job.cmd.includes("git diff --cached --name-only")) return { stdout: "src/a.js\napps/api/.env.local\n" };
+			if (job.cmd.includes("diff --cached --name-only")) return { stdout: "src/a.js\napps/api/.env.local\n" };
 			return undefined;
 		},
 	});
@@ -162,7 +162,7 @@ test("commit com arquivo de segredo no stage: desfaz o stage, não comita e diz 
 });
 
 test("commit sem mudanças e branch inválida são recusados", async () => {
-	const r = rig({ respond: (job) => (job.cmd.includes("git diff --cached --name-only") ? { stdout: "" } : undefined) });
+	const r = rig({ respond: (job) => (job.cmd.includes("diff --cached --name-only") ? { stdout: "" } : undefined) });
 	const sessionId = await open(r);
 	const none = await r.run("A", CODE_KINDS.commit, { sessionId, message: "x", branch: "fix/a" });
 	assert.match(none.error ?? "", /Nothing to commit/);
@@ -170,19 +170,21 @@ test("commit sem mudanças e branch inválida são recusados", async () => {
 	assert.match(bad.error ?? "", /unsupported branch name/);
 });
 
+/** Os três jobs do pr_prepare (plano, rede, contagem) respondem com o mesmo bloco; cada um lê só as chaves que emite. */
+const isPrJob = (job: Job) => /echo "(base|remote|ahead)=/.test(job.cmd);
 const PR_REPLY = (remote: string) => `head=fix/preco\nbase=main\ndirty=0\nahead=2\nfiles=3\nsha=abc123\nremote=${remote}\n`;
 
 test("pr_prepare: devolve os fatos da SESSÃO; 'pushed' só se o origin tem o mesmo commit; PR aberto da branch vem junto", async () => {
 	const github: CodeActionDeps["github"] = { findOpenPull: async () => ({ number: 9, url: "https://github.com/acme/loja/pull/9", state: "open", title: "Já existe", base: "main", head: "fix/preco" }), pull: async () => null, jobLog: async () => "" };
-	const behind = rig({ github, respond: (job) => (job.cmd.includes('echo "base=') ? { stdout: PR_REPLY("") } : undefined) });
+	const behind = rig({ github, respond: (job) => (isPrJob(job) ? { stdout: PR_REPLY("") } : undefined) });
 	const a = await open(behind);
 	const notPushed = await behind.run("A", CODE_KINDS.prPrepare, { sessionId: a });
 	assert.deepEqual(notPushed.data, { repo: "acme/loja", head: "fix/preco", base: "main", ahead: 2, files: 3, dirty: 0, pushed: false, existingPr: { number: 9, url: "https://github.com/acme/loja/pull/9", state: "open", title: "Já existe" } });
-	const pushed = rig({ respond: (job) => (job.cmd.includes('echo "base=') ? { stdout: PR_REPLY("abc123") } : undefined) });
+	const pushed = rig({ respond: (job) => (isPrJob(job) ? { stdout: PR_REPLY("abc123") } : undefined) });
 	const b = await open(pushed);
 	const prepared = await pushed.run("A", CODE_KINDS.prPrepare, { sessionId: b });
 	assert.equal((prepared.data as { pushed: boolean }).pushed, true);
-	const withToken = pushed.jobs.find((j) => j.cmd.includes('echo "base='))!;
+	const withToken = pushed.jobs.find((j) => j.cmd.includes("ls-remote"))!;
 	assert.equal(withToken.env.GH_TOKEN, TOKEN, "o fetch e o ls-remote precisam da credencial do dono");
 });
 
@@ -284,4 +286,96 @@ test("montagem real: a credencial do dono sai só por gitEnv, e a leitura do CI 
 	assert.equal(found?.summary, "failing");
 	assert.ok(seen.every((call) => call.auth === `Bearer ${TOKEN}`));
 	assert.ok(!JSON.stringify(found).includes(TOKEN));
+});
+
+// ---- D1/D2/D3/D4 da auditoria F9 ----
+const NETWORK = /\b(push|fetch|ls-remote)\b/;
+const LOCAL_GIT = /\b(status|rev-list|diff|rev-parse|symbolic-ref|log)\b/;
+
+test("D1: o token só vai no comando de rede, sem hooks, fsmonitor nem helper de credencial do repositório e com --no-verify", async () => {
+	const r = rig({ respond: (job) => (isPrJob(job) ? { stdout: PR_REPLY("abc123") } : undefined) });
+	const sessionId = await open(r);
+	await r.run("A", CODE_KINDS.push, { sessionId });
+	await r.run("A", CODE_KINDS.prPrepare, { sessionId });
+	const withToken = r.jobs.filter((j) => j.env.GH_TOKEN || j.env.GITHUB_TOKEN);
+	assert.ok(withToken.length >= 2 && withToken.some((j) => /\bfetch\b/.test(j.cmd) && j.cmd.includes("ls-remote")), "push, fetch e ls-remote usam a credencial");
+	for (const job of withToken) {
+		assert.match(job.cmd, NETWORK, `job com token tem de ser de rede: ${job.cmd.slice(0, 60)}`);
+		assert.ok(!LOCAL_GIT.test(job.cmd), `git local com token: ${job.cmd}`);
+		for (const flag of ["core.hooksPath=/dev/null", "core.fsmonitor=false", "credential.helper="]) assert.ok(job.cmd.includes(flag), `${flag} em ${job.cmd}`);
+	}
+	assert.ok(withToken.some((j) => /\bpush\b/.test(j.cmd) && j.cmd.includes("--no-verify")));
+	for (const job of r.jobs.filter((j) => !j.env.GH_TOKEN)) assert.ok(!NETWORK.test(job.cmd), `rede sem token: ${job.cmd.slice(0, 60)}`);
+});
+
+test("D2: push, fetch e ls-remote vão para a URL do repositório da SESSÃO, nunca para `origin` (que o repositório pode ter reapontado)", async () => {
+	const r = rig({ respond: (job) => (isPrJob(job) ? { stdout: PR_REPLY("abc123") } : undefined) });
+	const sessionId = await open(r);
+	await r.run("A", CODE_KINDS.push, { sessionId });
+	await r.run("A", CODE_KINDS.prPrepare, { sessionId });
+	const network = r.jobs.filter((j) => j.env.GH_TOKEN);
+	assert.ok(network.length >= 2);
+	for (const job of network) {
+		assert.equal(job.env.DEV_REMOTE_URL, "https://github.com/acme/loja.git");
+		assert.ok(job.cmd.includes('"$DEV_REMOTE_URL"'), job.cmd);
+		assert.ok(!/\borigin\b/.test(job.cmd.replace(/origin\//g, "")), `usa origin: ${job.cmd}`);
+	}
+});
+
+test("D4: a base do PR começando com hífen é recusada e o fetch usa refspec explícito", async () => {
+	const r = rig();
+	const sessionId = await open(r);
+	const bad = await r.run("A", CODE_KINDS.prPrepare, { sessionId, base: "--upload-pack=touch" });
+	assert.equal(bad.ok, false);
+	assert.match(bad.error ?? "", /unsupported base branch/);
+	assert.equal(r.jobs.some((j) => NETWORK.test(j.cmd)), false);
+	const fine = rig({ respond: (job) => (isPrJob(job) ? { stdout: PR_REPLY("") } : undefined) });
+	const id = await open(fine);
+	await fine.run("A", CODE_KINDS.prPrepare, { sessionId: id, base: "develop" });
+	const fetch = fine.jobs.find((j) => /\bfetch\b/.test(j.cmd))!;
+	assert.ok(fetch.cmd.includes('"+refs/heads/$DEV_BASE:refs/remotes/origin/$DEV_BASE"'), fetch.cmd);
+});
+
+test("D3: a lista do stage sai com quotePath desligado e separada por NUL; segredo de qualquer tipo ou caminho de CI/hook recusa e desfaz o stage", async () => {
+	for (const [names, expected] of [
+		["src/a.js\ncerts/server.pem\n", /secret files .*server\.pem/],
+		["src/a.js\nde/.env\n", /secret files .*\.env/],
+		["src/a.js\n.github/workflows/deploy.yml\n", /by hand/],
+		["src/a.js\n.husky/pre-commit\n", /by hand/],
+	] as const) {
+		const r = rig({ respond: (job) => (job.cmd.includes("diff --cached --name-only") ? { stdout: names } : undefined) });
+		const sessionId = await open(r);
+		const res = await r.run("A", CODE_KINDS.commit, { sessionId, message: "x", branch: "fix/a" });
+		assert.equal(res.ok, false, names);
+		assert.match(res.error ?? "", expected);
+		assert.equal(r.jobs.some((j) => j.cmd.includes("git commit")), false);
+		assert.equal(r.jobs.some((j) => j.cmd.includes("git reset -q")), true);
+		const stage = r.jobs.find((j) => j.cmd.includes("diff --cached --name-only"))!;
+		assert.ok(stage.cmd.includes("core.quotePath=false") && stage.cmd.includes("-z"), stage.cmd);
+	}
+});
+
+test("D3: push verifica os arquivos dos commits que ainda não estão no GitHub e recusa segredo ou caminho de CI, sem usar o token", async () => {
+	for (const [files, expected] of [
+		[".env\nsrc/a.ts\n", /secret files .*\.env/],
+		["src/a.ts\n.github/workflows/x.yml\n", /by hand/],
+	] as const) {
+		const r = rig({ respond: (job) => (job.cmd.includes("--not --remotes") ? { stdout: files } : undefined) });
+		const sessionId = await open(r);
+		const res = await r.run("A", CODE_KINDS.push, { sessionId });
+		assert.equal(res.ok, false, files);
+		assert.match(res.error ?? "", expected);
+		assert.match(res.error ?? "", /Nothing was pushed/);
+		assert.equal(r.jobs.some((j) => isPush(j)), false);
+		assert.equal(r.jobs.some((j) => j.env.GH_TOKEN), false);
+	}
+	const clean = rig({ respond: (job) => (job.cmd.includes("--not --remotes") ? { stdout: "src/a.ts\nREADME.md\n" } : undefined) });
+	const id = await open(clean);
+	assert.equal((await clean.run("A", CODE_KINDS.push, { sessionId: id })).ok, true);
+	const failing = rig({ respond: (job) => (job.cmd.includes("--not --remotes") ? { exitCode: 128, stdout: "fatal" } : undefined) });
+	const f = await open(failing);
+	const res = await failing.run("A", CODE_KINDS.push, { sessionId: f });
+	assert.equal(res.ok, false);
+	assert.match(res.error ?? "", /Could not check the commits/);
+	assert.equal(failing.jobs.some((j) => isPush(j)), false);
 });

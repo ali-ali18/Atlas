@@ -17,7 +17,7 @@ import { CODE_KIND_LIST, CODE_KINDS, type CodeKind, classifyShell, codeParams, c
 import type { DevClient, DevExecSnapshot } from "@workspace/sandbox";
 import { DevSandboxError } from "@workspace/sandbox";
 import { cleanJobLog, jobLogErrors } from "@workspace/github";
-import { type DevCiCheck, type DevCiSummary, type DevPrInfo, fullSuiteAdvice, isFullSuiteTestCommand, isSafeGitRef, isSensitiveEnvFile, redactSecrets } from "@workspace/shared";
+import { type DevCiCheck, type DevCiSummary, type DevPrInfo, classifyCommitPaths, fullSuiteAdvice, isFullSuiteTestCommand, isSafeGitRef, redactSecrets } from "@workspace/shared";
 import type { z } from "zod";
 
 export type CodeActionHandler = {
@@ -312,10 +312,11 @@ export function createCodeActionHandler(deps: CodeActionDeps): CodeActionHandler
 		if (staged.exitCode !== 0) throw new Refused(`Could not stage the changes: ${staged.output.trim().slice(0, 400)}`);
 		const names = staged.output.split("\n").map((line) => line.trim()).filter(Boolean);
 		if (names.length === 0) throw new Refused("Nothing to commit: there are no changes in the workspace.");
-		const secretFiles = names.filter((name) => isSensitiveEnvFile(name));
-		if (secretFiles.length > 0) {
+		const { secrets: secretFiles, guarded } = classifyCommitPaths(names);
+		if (secretFiles.length > 0 || guarded.length > 0) {
 			await git(client, session, 'cd "$DEV_REPO_DIR" && git reset -q', {}, 30_000, signal);
-			throw new Refused(`Refused: secret files would be committed (${secretFiles.slice(0, 5).join(", ")}). Nothing was committed and the stage was undone. Add them to .gitignore or commit only the right files with paths.`);
+			if (secretFiles.length > 0) throw new Refused(`Refused: secret files would be committed (${secretFiles.slice(0, 5).join(", ")}). Nothing was committed and the stage was undone. Add them to .gitignore or commit only the right files with paths.`);
+			throw new Refused(GUARDED_PATHS_REFUSAL("committed", guarded));
 		}
 		const message = redactSecrets(p.message, [...secrets]);
 		const done = await git(client, session, COMMIT_SCRIPT, { DEV_MSG: message }, 120_000, signal);
@@ -329,9 +330,17 @@ export function createCodeActionHandler(deps: CodeActionDeps): CodeActionHandler
 		const state = await inspect(client, session, signal);
 		const refusal = pushRefusal(state.head, state.defaultBranch);
 		if (refusal) throw new Refused(refusal);
+		// O que `code_shell` comitou (git add -f .env, workflow) também chega ao GitHub: confere os arquivos de TODOS os commits que
+		// ainda não estão em nenhum remoto, antes de usar o token.
+		const check = await git(client, session, PUSH_CHECK_SCRIPT, {}, 60_000, signal);
+		if (check.exitCode !== 0) throw new Refused(`Could not check the commits to send, so nothing was pushed: ${check.output.trim().slice(0, 300)}`);
+		const { secrets: secretFiles, guarded } = classifyCommitPaths(check.output.split("\n"));
+		if (secretFiles.length > 0) throw new Refused(`Refused: secret files are in the commits to send (${[...new Set(secretFiles)].slice(0, 5).join(", ")}). Nothing was pushed. A new commit that deletes them does not remove them from the earlier commit: tell the owner, who must rewrite the history by hand.`);
+		if (guarded.length > 0) throw new Refused(GUARDED_PATHS_REFUSAL("pushed", guarded));
 		const env = (await deps.gitEnv?.(session)) ?? {};
-		// Refspec explícito sem `+`: nunca força, e só a branch atual vai (o modelo não escolhe o destino).
-		const r = await git(client, session, PUSH_SCRIPT, { ...env, DEV_HEAD: state.head }, 300_000, signal);
+		// Destino = o repositório DA SESSÃO (URL explícita, nunca `origin`, que o repositório pode ter reapontado) e refspec explícito
+		// sem `+`: nunca força, e só a branch atual vai (o modelo não escolhe o destino).
+		const r = await git(client, session, PUSH_SCRIPT, { ...env, DEV_HEAD: state.head, DEV_REMOTE_URL: remoteUrl(repo) }, 300_000, signal);
 		if (r.exitCode !== 0) {
 			const tail = r.output.trim().slice(-800);
 			const hint = ["rejected", "non-fast-forward", "fetch first"].some((word) => r.output.includes(word)) ? " The remote branch has commits the workspace does not have; do not force. Tell the owner and pick a new branch name." : ["Authentication", "denied", "403", "could not read Username"].some((word) => r.output.includes(word)) ? " GitHub refused the credentials: tell the owner to check the GitHub connection (Connections) and the repository access." : "";
@@ -343,13 +352,19 @@ export function createCodeActionHandler(deps: CodeActionDeps): CodeActionHandler
 	async function prPrepare(client: DevClient, session: CodeSession, p: z.output<typeof codeParams.prPrepare>, signal?: AbortSignal) {
 		const repo = repoOf(session);
 		if (p.base && !isSafeGitRef(p.base)) throw new Refused("Refused: unsupported base branch name.");
-		const env = (await deps.gitEnv?.(session)) ?? {};
-		const r = await git(client, session, PR_SCRIPT, { ...env, DEV_BASE: p.base ?? "" }, 120_000, signal);
-		if (r.exitCode !== 0) throw new Refused(`Could not read the repository in the workspace: ${r.output.trim().slice(0, 300)}`);
-		const v = parseKeyValues(r.output);
-		const head = v.head ?? "";
+		const plan = await git(client, session, PR_PLAN_SCRIPT, { DEV_BASE: p.base ?? "" }, 30_000, signal);
+		if (plan.exitCode !== 0) throw new Refused(`Could not read the repository in the workspace: ${plan.output.trim().slice(0, 300)}`);
+		const planned = parseKeyValues(plan.output);
+		const head = planned.head ?? "";
 		if (!head) throw new Refused("The workspace is not on a branch (detached HEAD). Create one with code_commit (branch) first.");
-		const base = v.base || "main";
+		const base = planned.base || "main";
+		if (!isSafeGitRef(head) || !isSafeGitRef(base)) throw new Refused("Refused: unsupported branch or base branch name.");
+		// Só o job de rede leva o token (fetch e ls-remote, no repositório da sessão); os números saem de git local sem token.
+		const env = (await deps.gitEnv?.(session)) ?? {};
+		const net = await git(client, session, PR_NET_SCRIPT, { ...env, DEV_BASE: base, DEV_HEAD: head, DEV_REMOTE_URL: remoteUrl(repo) }, 120_000, signal);
+		const counted = await git(client, session, PR_COUNT_SCRIPT, { DEV_BASE: base }, 30_000, signal);
+		if (counted.exitCode !== 0) throw new Refused(`Could not read the repository in the workspace: ${counted.output.trim().slice(0, 300)}`);
+		const v = { ...planned, ...parseKeyValues(net.output), ...parseKeyValues(counted.output) };
 		const sha = v.sha ?? "";
 		let existingPr: { number: number; url: string; state: string; title: string } | undefined;
 		if (deps.github && head !== base) {
@@ -483,7 +498,8 @@ const STAGE_SCRIPT = [
 	"\tset -f; IFS='",
 	"'; for p in $DEV_PATHS; do git add -A -- \"$p\" || exit 14; done",
 	"else git add -A || exit 14; fi",
-	"git diff --cached --name-only",
+	// quotePath desligado e NUL como separador: nome com acento ou espaço sai cru (com aspas e escape octal o portão de segredo não o reconhecia).
+	"git -c core.quotePath=false diff --cached --name-only --no-renames -z | tr '\\0' '\\n'",
 ].join("\n");
 const COMMIT_SCRIPT = [
 	'cd "$DEV_REPO_DIR" || exit 11',
@@ -492,8 +508,14 @@ const COMMIT_SCRIPT = [
 	'echo "branch=$(git symbolic-ref --short -q HEAD)"',
 	'echo "subject=$(git log -1 --format=%s)"',
 ].join("\n");
-const PUSH_SCRIPT = ['cd "$DEV_REPO_DIR" || exit 11', 'git push -u origin "refs/heads/$DEV_HEAD:refs/heads/$DEV_HEAD" 2>&1'].join("\n");
-const PR_SCRIPT = [
+// Git que fala com o GitHub. Só estes jobs recebem GH_TOKEN. O repositório do workspace é código do usuário/de terceiros (um
+// `pnpm install` pode ter gravado .git/config), então o comando de rede ignora hooks, fsmonitor e helpers de credencial dele e usa um
+// helper fixo, restrito a github.com (o token não sai para outro host nem se a URL for reescrita por `url.*.insteadOf`).
+const GITNET_FN = `gitnet() { git -c core.hooksPath=/dev/null -c core.fsmonitor=false -c credential.helper= -c 'credential.https://github.com.helper=!f() { echo username=x-access-token; echo "password=$GH_TOKEN"; }; f' "$@"; }`;
+/** Commits que ainda não estão em nenhum remoto: seus arquivos passam pelo portão de segredo antes do push. Sem token. */
+const PUSH_CHECK_SCRIPT = ['cd "$DEV_REPO_DIR" || exit 11', "git -c core.quotePath=false log --no-renames --name-only --format= HEAD --not --remotes || exit 12"].join("\n");
+const PUSH_SCRIPT = ['cd "$DEV_REPO_DIR" || exit 11', GITNET_FN, 'gitnet push --no-verify "$DEV_REMOTE_URL" "refs/heads/$DEV_HEAD:refs/heads/$DEV_HEAD" 2>&1'].join("\n");
+const PR_PLAN_SCRIPT = [
 	'cd "$DEV_REPO_DIR" || exit 11',
 	'head=$(git symbolic-ref --short -q HEAD)',
 	'echo "head=$head"',
@@ -501,13 +523,26 @@ const PR_SCRIPT = [
 	`if [ -z "$base" ]; then base=$(git symbolic-ref --short -q refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||'); fi`,
 	'[ -z "$base" ] && base=main',
 	'echo "base=$base"',
-	'git fetch origin "$base" >/dev/null 2>&1 || echo "fetch=failed"',
-	'echo "dirty=$(git status --porcelain | wc -l)"',
-	'echo "ahead=$(git rev-list --count "origin/$base..HEAD" 2>/dev/null || echo -1)"',
-	'echo "files=$(git diff --name-only "origin/$base...HEAD" 2>/dev/null | wc -l)"',
-	'echo "sha=$(git rev-parse HEAD 2>/dev/null)"',
-	'[ -n "$head" ] && echo "remote=$(git ls-remote --heads origin "$head" 2>/dev/null | cut -f1)"',
 ].join("\n");
+const PR_NET_SCRIPT = [
+	'cd "$DEV_REPO_DIR" || exit 11',
+	GITNET_FN,
+	'gitnet fetch --no-tags "$DEV_REMOTE_URL" "+refs/heads/$DEV_BASE:refs/remotes/origin/$DEV_BASE" >/dev/null 2>&1 || echo "fetch=failed"',
+	'[ -n "$DEV_HEAD" ] && echo "remote=$(gitnet ls-remote --heads "$DEV_REMOTE_URL" "refs/heads/$DEV_HEAD" 2>/dev/null | cut -f1)"',
+].join("\n");
+const PR_COUNT_SCRIPT = [
+	'cd "$DEV_REPO_DIR" || exit 11',
+	'echo "dirty=$(git status --porcelain | wc -l)"',
+	'echo "ahead=$(git rev-list --count "origin/$DEV_BASE..HEAD" -- 2>/dev/null || echo -1)"',
+	'echo "files=$(git diff --name-only "origin/$DEV_BASE...HEAD" -- 2>/dev/null | wc -l)"',
+	'echo "sha=$(git rev-parse HEAD 2>/dev/null)"',
+].join("\n");
+
+/** URL do repositório DA SESSÃO (o slug já passou por `REPO_SLUG`): o destino de push, fetch e ls-remote, em vez de `origin`. */
+const remoteUrl = (repo: string): string => `https://github.com/${repo}.git`;
+
+const GUARDED_PATHS_REFUSAL = (verb: "committed" | "pushed", paths: readonly string[]): string =>
+	`Refused: these paths decide what runs on the owner's GitHub or machine (CI workflows, git hooks) and would be ${verb}: ${[...new Set(paths)].slice(0, 5).join(", ")}. Nothing was ${verb}${verb === "committed" ? " and the stage was undone" : ""}. Tell the owner to make this change by hand.`;
 
 /** Pasta do repositório da sessão: `/workspace/<nome>` quando há repo, senão a raiz. */
 function repoDir(session: CodeSession): string {
@@ -532,3 +567,6 @@ export function parseStatus(output: string): { branch: string | null; files: Arr
 }
 
 export { CODE_KIND_LIST };
+
+/** Os scripts de git, exportados para o teste com git de verdade (repositório hostil). */
+export const GIT_SCRIPTS = { STAGE_SCRIPT, PUSH_CHECK_SCRIPT, PUSH_SCRIPT, PR_NET_SCRIPT };
