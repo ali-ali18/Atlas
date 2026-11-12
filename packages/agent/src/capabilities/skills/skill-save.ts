@@ -25,6 +25,9 @@ function findTarget(docs: readonly SkillDoc[], name: string, scope: SkillScope |
 	return named.find((doc) => doc.scope === "bot") ?? named.find((doc) => doc.scope === "account");
 }
 
+/** Quanto do corpo da habilidade o cartão de aprovação mostra. */
+const RISK_EXCERPT_MAX = 400;
+
 export function createSkillSaveTool(skills: Skills) {
 	// Uma gravação por habilidade por run.
 	const written = new Set<string>();
@@ -48,7 +51,13 @@ export function createSkillSaveTool(skills: Skills) {
 		}),
 		effect: "write_internal",
 		confirm: "when_untrusted",
-		riskFacts: ({ name }) => ({ target: `Habilidade: ${name}` }),
+		// O dono aprova lendo o QUE a habilidade manda fazer (um trecho do corpo ou das trocas da edição), não só o nome. Truncado aqui; o
+		// cartão ainda passa pela redação dos segredos conhecidos (`requestApproval`).
+		riskFacts: ({ name, body, patch }) => {
+			const text = body ?? patch?.map((swap) => `${swap.find.slice(0, 80)} -> ${swap.replace.slice(0, 160)}`).join(" | ");
+			const excerpt = text ? ` · ${text.split("\n").join(" ").trim().slice(0, RISK_EXCERPT_MAX)}${text.length > RISK_EXCERPT_MAX ? "…" : ""}` : "";
+			return { target: `Habilidade: ${name}${excerpt}` };
+		},
 		async execute(args, ctx) {
 			const { action } = args;
 			const name = slugifySkillName(args.name);
