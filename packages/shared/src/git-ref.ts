@@ -13,7 +13,7 @@ export function isSafeGitRef(value: string): boolean {
 		const code = ch.codePointAt(0) ?? 0;
 		if (code < 0x20 || code === 0x7f) return false;
 	}
-	return value.split("/").every((segment) => segment !== "." && segment !== "" && !segment.startsWith("."));
+	return value.split("/").every((segment) => segment !== "." && segment !== "" && !segment.startsWith(".") && !segment.startsWith("-"));
 }
 
 /** `owner/name` sem segmento `.`/`..` (os dois lados só aceitam letras, números, `_`, `.` e `-`). */
