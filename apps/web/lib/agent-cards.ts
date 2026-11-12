@@ -1,7 +1,8 @@
-import { type AgentV4Event, type ComputerUseEvent, agentCardCallId, agentCardIdentity, agentCardKey, approvalEventFact, approvalMessageFact, formatApprovalEventWhen, isAgentV4EventType, parseAgentV4Event } from "@workspace/shared";
+import { type AgentCardState, type AgentV4Event, type ComputerUseEvent, isAgentCardState, agentCardCallId, agentCardIdentity, agentCardKey, approvalEventFact, approvalMessageFact, formatApprovalEventWhen, isAgentV4EventType, parseAgentV4Event } from "@workspace/shared";
 import type { Message } from "@/components/ui/templates/template-4/data";
 import { formatCurrency, formatList } from "@/lib/format";
 import { defaultTranslator, type Translator } from "@/lib/i18n/translator";
+import type { AgentCardDecision } from "@/lib/agent-card-state";
 
 /**
  * Cards do motor v4 no chat (aprovação, "isso é com você", pergunta do bot, recibo). Parte pura: identidade
@@ -27,7 +28,7 @@ export function agentCardMessage(event: AgentV4Event, options: { id?: string; ru
  * Card gravado na conversa (`role` = tipo do evento, `content` = o evento em JSON). Valida com o parser
  * de shared: JSON inválido ou campo fora do contrato = sem card (nunca um card quebrado na tela).
  */
-export function agentCardFromStored(id: string, role: string, content: string, runId?: string): AgentCardMessage | null {
+export function agentCardFromStored(id: string, role: string, content: string, runId?: string, state?: AgentCardState): AgentCardMessage | null {
 	if (!isAgentV4EventType(role)) return null;
 	let raw: unknown;
 	try {
@@ -38,7 +39,26 @@ export function agentCardFromStored(id: string, role: string, content: string, r
 	const event = parseAgentV4Event(raw);
 	if (!event || event.type !== role) return null;
 	// O run da linha gravada é a reserva: a chave tem de ser a mesma do card ao vivo (que recebe a do stream).
-	return agentCardMessage(event, { id, ...(runId ? { runId } : {}) });
+	const message = agentCardMessage(event, { id, ...(runId ? { runId } : {}) });
+	// Estado que o servidor derivou agora (pedido, oferta, run): fora de "pendente" o card já nasce resolvido, sem botões.
+	return state && isAgentCardState(state) ? { ...message, state, ...(state !== "pending" && { settled: true }) } : message;
+}
+
+/** A decisão que o card mostra no selo, a partir do estado do servidor (`expired` não é decisão: vira selo "Venceu"). */
+export function agentCardDecisionOfState(state: AgentCardState | undefined): AgentCardDecision | null {
+	switch (state) {
+		case "approved":
+			return "approved";
+		case "done":
+			return "done";
+		case "answered":
+			return "answered";
+		case "denied":
+		case "dismissed":
+			return "dismissed";
+		default:
+			return null;
+	}
 }
 
 /** Vale para o ao vivo e para a hidratação: o evento do stream que é um card v4 válido, ou `null`. */

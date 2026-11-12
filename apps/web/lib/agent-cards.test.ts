@@ -6,6 +6,7 @@ import { createTranslator } from "@/lib/i18n/translator";
 import { loadMessages } from "@/lib/i18n/messages";
 import { dispatchComputerUseEvent, type ComputerUseHandlers } from "./atlas-api";
 import {
+	agentCardDecisionOfState,
 	agentCardFromStored,
 	agentCardKey,
 	agentCardMessage,
@@ -195,6 +196,29 @@ test("card gravado na conversa (role = tipo do evento) é restaurado e validado"
 	assert.equal(agentCardFromStored("db-1", "receipt", "{quebrado"), null);
 	assert.equal(agentCardFromStored("db-1", "ask_owner", JSON.stringify(receipt)), null);
 	assert.equal(agentCardFromStored("db-1", "assistant", JSON.stringify(receipt)), null);
+});
+
+test("card gravado com estado do servidor: pendente segue com botões; resolvido, dispensado e vencido nascem sem botões", () => {
+	const content = JSON.stringify(approval());
+	const pending = agentCardFromStored("db-1", "approval_request", content, "run-1", "pending");
+	assert.ok(pending && pending.state === "pending" && pending.settled === undefined);
+	for (const state of ["approved", "denied", "expired"] as const) {
+		const restored = agentCardFromStored("db-1", "approval_request", content, "run-1", state);
+		assert.ok(restored && restored.state === state && restored.settled === true);
+	}
+	// Sem estado (servidor antigo) ou com valor desconhecido: como antes.
+	assert.equal(agentCardFromStored("db-1", "approval_request", content, "run-1")?.state, undefined);
+	assert.equal(agentCardFromStored("db-1", "approval_request", content, "run-1", "xyz" as never)?.state, undefined);
+	assert.deepEqual(
+		(["approved", "done", "answered", "denied", "dismissed", "expired", "pending", undefined] as const).map((state) => agentCardDecisionOfState(state)),
+		["approved", "done", "answered", "dismissed", "dismissed", null, null, null],
+	);
+});
+
+test("a mensagem do servidor com cardState vira o card restaurado (web)", () => {
+	const row = { id: "db-9", role: "ask_owner", content: JSON.stringify({ type: "ask_owner", cardId: "run-1:ask:1", question: "Qual prazo?", runId: "run-1" }), createdAt: "2026-11-06T10:00:00Z", cardState: "answered" };
+	const restored = buildSessionMessage(row as never);
+	assert.ok(restored?.kind === "agent-card" && restored.state === "answered" && restored.settled === true);
 });
 
 test("ids do ao vivo seguem a chave estável", () => {

@@ -48,6 +48,7 @@ export const agentCards: NamespaceMessages<typeof ptBR> = {
 	"agentCards.ask.title": "A question for you",
 	"agentCards.receipt.done": "Done",
 	"agentCards.receipt.open": "Open",
+	"agentCards.expired": "Expired",
 	"agentCards.settled": "Resolved",
 	"agentCards.sendFailed": "Couldn't send your answer right now. Try again.",
 };

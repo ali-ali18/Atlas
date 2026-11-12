@@ -424,7 +424,7 @@ export function buildSessionMessage(message: SessionMessage): Message | null {
 		return { id: message.id, kind: "assistant", text: message.content };
 	}
 	// Card do motor v4 gravado na conversa: `role` = tipo do evento, `content` = o evento em JSON (validado).
-	if (isAgentV4EventType(message.role)) return agentCardFromStored(message.id, message.role, message.content, message.runId ?? undefined);
+	if (isAgentV4EventType(message.role)) return agentCardFromStored(message.id, message.role, message.content, message.runId ?? undefined, message.cardState);
 	// Card `questionnaire` (role próprio, não vai ao LLM): parse via
 	// parseConversationCard + narrow para o kind.
 	if ((message.role as string) === "questionnaire") {

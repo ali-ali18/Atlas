@@ -46,6 +46,7 @@ export const agentCards = {
 	"agentCards.ask.title": "Pergunta para você",
 	"agentCards.receipt.done": "Feito",
 	"agentCards.receipt.open": "Abrir",
+	"agentCards.expired": "Venceu",
 	"agentCards.settled": "Resolvido",
 	"agentCards.sendFailed": "Não deu para enviar sua resposta agora. Tente de novo.",
 } as const;
