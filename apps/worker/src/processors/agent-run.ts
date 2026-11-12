@@ -148,6 +148,7 @@ import { runV4Turn } from "../v4-turn.js";
 import { createBriefEmailForRun } from "../v4-adapters/brief-email.js";
 import { loadNotebookContext } from "../v4-adapters/notebook.js";
 import { createRunSandbox } from "../v4-adapters/sandbox.js";
+import { withV4CardPersistence } from "../v4-card-persistence.js";
 import { cheapModelFromEnv, createV4Llm, dropProcessorOwnedEvents, ownerStepsLimit, runEngineV4 } from "../engine-v4.js";
 /** Run de agenda que não chegou a executar (motor ou contexto): o item volta à fila neste prazo. */
 const AGENDA_NOT_RUN_RETRY_MS = 30 * 60_000;
@@ -1286,7 +1287,8 @@ async function executeLeasedRun(ctx: {
 					language: systemLanguage,
 					llm: createV4Llm({ model: run.model, streamChat: providers.streamChat, openRouterKey: apiKey, language: systemLanguage, cheapModel: cheapModelFromEnv(), contextWindow: (modelId) => providers.capabilities(modelId).then((caps) => caps.contextTokens, () => null) }),
 					lease,
-					persistEvent: emit,
+					// Os cards do v4 (aprovação, entrega, pergunta, recibo) também ficam na conversa: recarregar (celular) os restaura.
+					persistEvent: withV4CardPersistence({ userId: runUserId, runId, conversationId: run.conversationId }, emit),
 					// O fim do stream (done/error/cancelled/teto de passos) é do processador, uma vez: o mapa do kernel não o repete.
 					mapEvent: prepared.observe(mapV4Event),
 					// Teto de passos do dono (pedido > bot > conta) só quando tem origem; sem ele vale o de segurança do kernel. Tetos de gasto
