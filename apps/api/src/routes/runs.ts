@@ -799,12 +799,15 @@ export function createRunRoutes(
 			return c.json({ error: "Invalid JSON body" }, 400);
 		}
 		const body = json as Record<string, unknown>;
-		// Run do motor v4 estacionado esperando o dono: o v4 não consome inputs de run, então a mensagem ficaria presa (e o run
+		// Run do motor v4 estacionado (esperando o dono ou com a decisão ainda por retomar): o v4 não consome inputs de run, então a mensagem ficaria presa (e o run
 		// voltaria a estacionar sem ninguém decidir). Encerra o run, expira os pedidos pendentes (o cartão mostra isso) e devolve
 		// 409: o app já trata como "run terminou" e envia a mensagem como run novo da conversa.
 		if (run.status === "paused" && parseRunInputMode(body.mode) !== "cancel") {
-			const { pending } = await loadAgentV4Decisions(userId, runId, new Date());
-			if (pending > 0) {
+			// O motor do run se reconhece pelos pedidos v4 que ele registrou, em QUALQUER estado: pendentes, já decididos (retomada
+			// ainda não aconteceu) ou vencidos em 24 h. Todos pedem o mesmo: o v4 não lê input de run e uma aprovação gravada não deve
+			// ser executada depois de o dono mudar de assunto, então o run é encerrado e a mensagem vira run novo.
+			const d = await loadAgentV4Decisions(userId, runId, new Date());
+			if (d.pending + d.approved.length + d.denied.length + d.handoffDone.length + d.expired.length > 0) {
 				await expirePendingAgentV4RequestsForRun(userId, runId);
 				await requestCancelAgentRun(runId);
 				await notifyRunSignal(publish, runId, "cancel");

@@ -277,6 +277,26 @@ test("corrida do lease: se o run não fecha a tempo, 503 honesto (nada enviado) 
 	assert.equal(response.status, 503);
 });
 
+for (const state of ["expired", "approved", "denied"]) {
+	test(`mensagem a run v4 pausado SEM pedido pendente (só ${state}): também encerra e vira run novo, sem executar nada e sem enfileirar`, async (t) => {
+		stubInputPath(row("paused"));
+		const requests = [{ userId: A, runId: "run-a", kind: "approval", key: "k1", callId: "c1", toolName: "send_email", payloadHash: "h", state, expiresAt: new Date(Date.now() + 3_600_000), decidedAt: now, createdAt: now, id: "r1" }];
+		stubMethod(prisma.agentV4Request, "findMany", async () => requests);
+		const created = stubMethod(prisma.runInput, "create", async () => { throw new Error("a mensagem não pode virar input"); });
+		let status = "paused";
+		stubMethod(prisma.agentRun, "findFirst", async ({ where }: { where: { userId: string | { in: string[] } } }) => ((typeof where.userId === "string" ? where.userId : where.userId.in[0]) === A ? row(status) : null));
+		const cancel = stubMethod(prisma.agentRun, "update", async ({ data }: { data: { status?: string } }) => ((status = data.status ?? status), row("paused")));
+		const added: unknown[] = [];
+		t.after(() => mock.restoreAll());
+		const app = appFor(A, noPublish, async () => { added.push(1); return { id: "job" }; });
+		assert.equal((await post(app, "/v1/runs/run-a/inputs", { content: "outra coisa", mode: "join" })).status, 409);
+		assert.equal(cancel.mock.callCount(), 1);
+		assert.equal(created.mock.callCount(), 0);
+		assert.equal(added.length, 0);
+		assert.equal(requests[0]!.state, state === "expired" ? "expired" : state, "a decisão gravada não é reescrita");
+	});
+}
+
 test("conector conectado retoma e enfileira os runs do dono parados no card dele", async (t) => {
 	const { resumeRunsAwaitingConnector } = await import("./runs.js");
 	const pending = { pendingLogin: { loginId: "l", site: "Google Agenda", url: "u", connector: { kind: "native", id: "google_calendar" } } };
