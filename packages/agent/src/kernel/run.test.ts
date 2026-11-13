@@ -295,10 +295,20 @@ describe("kernel: taint herdado e handoff vencido", () => {
 			await h.run({ policy: autonomous, input: { ...h.input, priorProvenance: prior } });
 			const saved = h.runs.checkpoints.get("owner-1:run-1")?.payload as { provenance: { untrustedReadThisRun: boolean; privateReadThisRun: boolean } };
 			expect(saved.provenance).toMatchObject({ untrustedReadThisRun: true, privateReadThisRun: true });
-			const fresh = kernelHarness([reply({ text: "oi" })], { tools: [] });
-			await fresh.run({ policy: autonomous, input: { ...fresh.input, priorProvenance: prior } });
+			// Run novo estacionado numa escrita (taint herdado) deixa checkpoint: a asserção abaixo sempre roda.
+			const fresh = kernelHarness([reply({ calls: eventCall })], { tools: [eventTool()] });
+			expect((await fresh.run({ policy: autonomous, input: { ...fresh.input, priorProvenance: prior } })).status).toBe("parked");
 			const seeded = fresh.runs.checkpoints.get("owner-1:run-1")?.payload as { provenance: { untrustedReadThisRun: boolean; privateReadThisRun: boolean } } | undefined;
-			if (seeded) expect(seeded.provenance).toMatchObject({ untrustedReadThisRun: false, privateReadThisRun: false });
+			expect(seeded).toBeDefined();
+			expect(seeded!.provenance).toMatchObject({ untrustedReadThisRun: false, privateReadThisRun: false });
+		});
+
+		it("sem dono (grupo, cartão de confirmação, proativo): conversa contaminada mantém a saída fora, como antes do recorte 'deste run'", async () => {
+			const counter = { runs: 0 };
+			const h = kernelHarness([reply({ calls: [call("s1", "web_search", { query: "preço" })] }), reply({ text: "ok" })], { tools: [searchTool(counter)] });
+			await h.run({ policy: { ...autonomous, ownerPresent: false }, input: { ...h.input, priorProvenance: prior } });
+			expect(counter.runs).toBe(0);
+			expect(h.log.of("card")).toHaveLength(0);
 		});
 	});
 

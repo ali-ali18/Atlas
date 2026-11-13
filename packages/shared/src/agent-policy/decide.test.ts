@@ -179,9 +179,17 @@ describe("egress (auditoria F1, S2)", () => {
 		expect(kind({ effect: "read", egress: true, taint: { ...inherited, untrustedReadThisRun: true, privateReadThisRun: true } })).toBe("approve");
 		expect(kind({ effect: "read", egress: true, taint: { ...inherited, untrustedReadThisRun: true } })).toBe("approve");
 		expect(kind({ effect: "read", egress: true, taint: inherited })).toBe("approve");
-		expect(kind({ effect: "read", egress: true, taint: { ...inherited, untrustedReadThisRun: false, privateReadThisRun: false }, surface: "routine" })).toBe("run");
+		expect(kind({ effect: "read", egress: true, taint: { ...inherited, untrustedReadThisRun: false, privateReadThisRun: false }, surface: "routine" })).toBe("hidden");
 		expect(kind({ effect: "read", egress: true, taint: { ...inherited, untrustedReadThisRun: true, privateReadThisRun: true }, surface: "routine" })).toBe("hidden");
 		expect(kind({ effect: "send", taint: { ...inherited, untrustedReadThisRun: false, privateReadThisRun: false } })).toBe("approve");
+	});
+	it("sem dono o recorte 'deste run' não vale: trifeta herdada da conversa fica fora, mesmo com ThisRun falso; com dono presente roda", () => {
+		const contaminated = { untrustedReadInRun: true, argsCarryUntrusted: false, privateReadInRun: true, untrustedReadThisRun: false, privateReadThisRun: false };
+		expect(kind({ effect: "read", egress: true, taint: contaminated, ownerPresent: false })).toBe("hidden");
+		expect(kind({ effect: "read", egress: true, taint: contaminated, surface: "agenda" })).toBe("hidden");
+		expect(kind({ effect: "read", egress: true, taint: contaminated, ownerPresent: true })).toBe("run");
+		// sem contaminação herdada, sem dono continua rodando (pesquisa pura)
+		expect(kind({ effect: "read", egress: true, taint: { untrustedReadInRun: false, argsCarryUntrusted: false }, ownerPresent: false })).toBe("run");
 	});
 	it("trifeta sem dono (rotina, ou dono ausente) fica fora em vez de estacionar com cartão que ninguém vê", () => {
 		expect(kind({ effect: "read", egress: true, taint: trifecta, surface: "routine" })).toBe("hidden");
