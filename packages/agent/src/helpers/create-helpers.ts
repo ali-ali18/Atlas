@@ -16,7 +16,7 @@
 //    mostra o que quiser no resultado da própria tool.
 //  - Concorrência: `HELPER_CONCURRENCY` é um limite TÉCNICO (rede, memória, taxa do provedor), nunca de economia.
 import type { BotLanguage } from "@workspace/shared";
-import { childPolicy } from "@workspace/shared";
+import { childPolicy, runHasOwner } from "@workspace/shared";
 import { createCapabilityRegistry, type Capability, type CapabilityRegistry } from "../capabilities/index.js";
 import { redactDeep, type Hash, type PolicyContext } from "../contract/index.js";
 import type { ChannelInput } from "../channels/envelope.js";
@@ -194,7 +194,7 @@ export function createHelpers(deps: CreateHelpersDeps): Helpers {
 		};
 		await observer?.started?.(taskIndex, childRunId);
 		const ports: Ports = { llm: deps.llm, store: createMemoryStore(), queue: noQueue, sandbox: noSandbox, vault: noVault, clock: deps.clock, random: deps.random, events };
-		const prior = inheritedProvenance(deps.motherProvenance?.());
+		const prior = inheritedProvenance(deps.motherProvenance?.(), runHasOwner(deps.motherPolicy));
 		const policy = childPolicy(deps.motherPolicy);
 		const { ownerMaxUsd, ownerMaxSteps, unattended, unattendedMaxSteps, safetyMaxSteps } = deps.motherLimits;
 		// O filho herda o teto de passos da MÃE (o do dono; sem ele, a rede de segurança dela). Só entra no teto de run sem

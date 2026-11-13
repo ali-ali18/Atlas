@@ -40,6 +40,13 @@ export type TaintFacts = {
 	 */
 	untrustedReadThisRun?: boolean;
 	privateReadThisRun?: boolean;
+	/**
+	 * Só run SEM dono que nasceu de uma mãe (subagente): sinais EFETIVOS da mãe para a saída (mãe com dono: o que ela leu neste
+	 * run; mãe sem dono: o que a conversa já carregava). Sem dono, a saída olha estes (+ o que o próprio run leu); ausentes,
+	 * valem os herdados. Envio/escrita externa/confirm NÃO usam estes: seguem vendo a contaminação inteira da conversa.
+	 */
+	untrustedEgressInherited?: boolean;
+	privateEgressInherited?: boolean;
 };
 
 /** Fatos tipados da chamada, para o cartão e para o mandato. Nada de texto livre. */

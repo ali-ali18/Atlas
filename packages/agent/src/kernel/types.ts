@@ -58,6 +58,9 @@ export type PriorProvenance = Pick<ProvenanceSnapshot, "untrustedReadInRun" | "p
 	 */
 	untrustedReadThisRun?: boolean;
 	privateReadThisRun?: boolean;
+	/** Só filho: sinais efetivos da mãe para a trifeta da SAÍDA (ver `TaintFacts`). Escrita/envio seguem nos `...InRun`. */
+	untrustedEgressInherited?: boolean;
+	privateEgressInherited?: boolean;
 };
 
 export type RunInput = {

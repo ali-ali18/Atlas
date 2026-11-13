@@ -13,10 +13,17 @@ import type { TrustSource } from "../contract/provenance.js";
 import type { PriorProvenance } from "../kernel/types.js";
 import type { HelperResult } from "../ports/helpers.js";
 
-/** Sinais que o filho herda da mãe (cópia; os textos não vão). */
-export function inheritedProvenance(parent: PriorProvenance | undefined): PriorProvenance | undefined {
+/**
+ * Sinais que o filho herda da mãe (cópia; os textos não vão). `motherHasOwner` diz o que vale para a SAÍDA do filho (que não tem
+ * dono): mãe com dono → só o que ela leu por tool neste run (conversa contaminada não bloqueia pesquisa delegada); mãe sem dono
+ * (agenda, grupo, rotina) → o que a conversa já carregava, mais o que ela leu. Esses dois sinais vão em campos próprios: envio,
+ * escrita externa, link público e confirmação do filho continuam lendo `...InRun`, com a contaminação inteira.
+ */
+export function inheritedProvenance(parent: PriorProvenance | undefined, motherHasOwner = false): PriorProvenance | undefined {
 	if (!parent) return undefined;
-	return { untrustedReadInRun: parent.untrustedReadInRun, ...(parent.privateReadInRun !== undefined && { privateReadInRun: parent.privateReadInRun }), sources: [...parent.sources], ...(parent.untrustedReadThisRun !== undefined && { untrustedReadThisRun: parent.untrustedReadThisRun }), ...(parent.privateReadThisRun !== undefined && { privateReadThisRun: parent.privateReadThisRun }) };
+	const untrustedEgress = motherHasOwner ? (parent.untrustedReadThisRun ?? parent.untrustedReadInRun) : (parent.untrustedEgressInherited ?? parent.untrustedReadInRun) || parent.untrustedReadThisRun === true;
+	const privateEgress = motherHasOwner ? (parent.privateReadThisRun ?? parent.privateReadInRun === true) : (parent.privateEgressInherited ?? parent.privateReadInRun === true) || parent.privateReadThisRun === true;
+	return { untrustedEgressInherited: untrustedEgress, privateEgressInherited: privateEgress, untrustedReadInRun: parent.untrustedReadInRun, ...(parent.privateReadInRun !== undefined && { privateReadInRun: parent.privateReadInRun }), sources: [...parent.sources], ...(parent.untrustedReadThisRun !== undefined && { untrustedReadThisRun: parent.untrustedReadThisRun }), ...(parent.privateReadThisRun !== undefined && { privateReadThisRun: parent.privateReadThisRun }) };
 }
 
 /** O que os ajudantes leram, para a mãe herdar. `untrustedRead` é verdadeiro se QUALQUER filho leu conteúdo não confiável. */

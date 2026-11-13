@@ -1,3 +1,4 @@
+import { inheritedProvenance } from "./taint.js";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { createCapabilityRegistry, defineCapability, type Capability } from "../capabilities/index.js";
@@ -478,11 +479,29 @@ describe("createHelpers: taint nos dois sentidos", () => {
 		expect(r?.untrustedRead).toBe(false);
 	});
 
-	it("a mãe só herdou da conversa (não leu nada neste run): o filho não tem dono, então vale o herdado e a saída fica fora", async () => {
+	it("mãe COM dono que só herdou da conversa (não leu nada neste run): a busca do filho roda", async () => {
 		const { helpers, llm } = setup({ "OBJ-A": web() }, { provenance: () => ({ untrustedReadInRun: true, privateReadInRun: true, untrustedReadThisRun: false, privateReadThisRun: false, sources: ["web", "email"] }) });
 		await helpers.runAll([task("OBJ-A")]);
 		const toolMessage = llm.of("OBJ-A")[1]?.messages.find((m) => m.role === "tool") as { content: string };
-		expect(toolMessage.content).toContain("not available in this context");
+		expect(toolMessage.content).toContain("about q");
+	});
+
+	it("mãe SEM dono (agenda, grupo, rotina) com a conversa contaminada: o filho fica fora da saída", async () => {
+		for (const policy of [{ ...chatPolicy, autonomy: "autonomous" as const, ownerPresent: false }, { ...chatPolicy, autonomy: "autonomous" as const, surface: "agenda" as const }]) {
+			const { helpers, llm } = setup({ "OBJ-A": web() }, { policy, provenance: () => ({ untrustedReadInRun: true, privateReadInRun: true, untrustedReadThisRun: false, privateReadThisRun: false, sources: ["web", "email"] }) });
+			await helpers.runAll([task("OBJ-A")]);
+			const toolMessage = llm.of("OBJ-A")[1]?.messages.find((m) => m.role === "tool") as { content: string };
+			expect(toolMessage.content).toContain("not available in this context");
+		}
+	});
+
+	it("o filho continua vendo a contaminação da conversa para o que não é saída (herdados InRun intactos)", () => {
+		const parent = { untrustedReadInRun: true, privateReadInRun: true, untrustedReadThisRun: false, privateReadThisRun: false, sources: ["web" as const] };
+		expect(inheritedProvenance(parent, true)).toMatchObject({ untrustedReadInRun: true, privateReadInRun: true, untrustedEgressInherited: false, privateEgressInherited: false });
+		expect(inheritedProvenance(parent, false)).toMatchObject({ untrustedReadInRun: true, privateReadInRun: true, untrustedEgressInherited: true, privateEgressInherited: true });
+		// neto: o filho (sem dono) repassa o que a mãe disse valer para a saída, mais o que ele mesmo leu
+		expect(inheritedProvenance({ ...parent, untrustedEgressInherited: false, privateEgressInherited: false }, false)).toMatchObject({ untrustedEgressInherited: false, privateEgressInherited: false });
+		expect(inheritedProvenance({ ...parent, untrustedEgressInherited: false, privateEgressInherited: false, privateReadThisRun: true }, false)).toMatchObject({ untrustedEgressInherited: false, privateEgressInherited: true });
 	});
 
 	it("sem taint na mãe, a mesma busca roda", async () => {

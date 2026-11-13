@@ -191,6 +191,18 @@ describe("egress (auditoria F1, S2)", () => {
 		// sem contaminação herdada, sem dono continua rodando (pesquisa pura)
 		expect(kind({ effect: "read", egress: true, taint: { untrustedReadInRun: false, argsCarryUntrusted: false }, ownerPresent: false })).toBe("run");
 	});
+	it("subagente: sinais efetivos da mãe valem para a saída, mas envio, escrita externa, link público e confirm seguem vendo a conversa contaminada", () => {
+		const child = { untrustedReadInRun: true, argsCarryUntrusted: false, privateReadInRun: true, untrustedReadThisRun: false, privateReadThisRun: false, untrustedEgressInherited: false, privateEgressInherited: false };
+		const base = { ownerPresent: false, surface: "subagent" as const };
+		expect(kind({ ...base, effect: "read", egress: true, taint: child })).toBe("run");
+		// o que o próprio filho leu conta
+		expect(kind({ ...base, effect: "read", egress: true, taint: { ...child, untrustedReadThisRun: true, privateReadThisRun: true } })).toBe("hidden");
+		// mãe sem dono contaminada: efetivo verdadeiro, fica fora
+		expect(kind({ ...base, effect: "read", egress: true, taint: { ...child, untrustedEgressInherited: true, privateEgressInherited: true } })).toBe("hidden");
+		// escrita/envio/link: sem dono continuam fora; confirm when_untrusted continua olhando a conversa
+		for (const effect of ["write_external", "send", "public_link"] as const) expect(kind({ ...base, effect, taint: child })).toBe("hidden");
+		expect(kind({ ...base, effect: "read", confirm: "when_untrusted", taint: child })).toBe("hidden");
+	});
 	it("trifeta sem dono (rotina, ou dono ausente) fica fora em vez de estacionar com cartão que ninguém vê", () => {
 		expect(kind({ effect: "read", egress: true, taint: trifecta, surface: "routine" })).toBe("hidden");
 		expect(kind({ effect: "read", egress: true, taint: trifecta, ownerPresent: false })).toBe("hidden");

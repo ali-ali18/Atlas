@@ -49,6 +49,9 @@ export type ProvenanceSnapshot = {
 	untrustedReadThisRun?: boolean;
 	/** Dado privado lido por tool NESTE run (não herdado da conversa). */
 	privateReadThisRun?: boolean;
+	/** Só filho: o que a mãe diz valer para a saída (ver `TaintFacts`). */
+	untrustedEgressInherited?: boolean;
+	privateEgressInherited?: boolean;
 	sources: TrustSource[];
 	texts: string[];
 };
@@ -64,6 +67,8 @@ export class RunProvenance {
 	 */
 	untrustedReadThisRun = false;
 	privateReadThisRun = false;
+	untrustedEgressInherited: boolean | undefined;
+	privateEgressInherited: boolean | undefined;
 	private readonly sources = new Set<TrustSource>();
 	private readonly texts: string[] = [];
 	private storedChars = 0;
@@ -77,6 +82,8 @@ export class RunProvenance {
 		// Snapshot gravado antes dos campos "deste run": sem o campo, vale o herdado (conservador), nunca "falso" por omissão.
 		p.untrustedReadThisRun = snapshot.untrustedReadThisRun ?? snapshot.untrustedReadInRun;
 		p.privateReadThisRun = snapshot.privateReadThisRun ?? snapshot.privateReadInRun === true;
+		p.untrustedEgressInherited = snapshot.untrustedEgressInherited;
+		p.privateEgressInherited = snapshot.privateEgressInherited;
 		for (const s of snapshot.sources) p.sources.add(s);
 		return p;
 	}
@@ -115,7 +122,7 @@ export class RunProvenance {
 	}
 
 	snapshot(): ProvenanceSnapshot {
-		return { untrustedReadInRun: this.untrustedReadInRun, privateReadInRun: this.privateReadInRun, untrustedReadThisRun: this.untrustedReadThisRun, privateReadThisRun: this.privateReadThisRun, sources: [...this.sources], texts: [...this.texts] };
+		return { untrustedReadInRun: this.untrustedReadInRun, privateReadInRun: this.privateReadInRun, untrustedReadThisRun: this.untrustedReadThisRun, privateReadThisRun: this.privateReadThisRun, ...(this.untrustedEgressInherited !== undefined && { untrustedEgressInherited: this.untrustedEgressInherited }), ...(this.privateEgressInherited !== undefined && { privateEgressInherited: this.privateEgressInherited }), sources: [...this.sources], texts: [...this.texts] };
 	}
 }
 

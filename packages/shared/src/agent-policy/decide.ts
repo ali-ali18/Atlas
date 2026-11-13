@@ -63,6 +63,11 @@ function lastMatchingRule(rules: readonly PolicyRule[], effect: EffectClass, too
  *  8. regra do dono (a última que casa): `approve` aperta qualquer coisa; `run` só afrouxa
  *     draft/write_internal/write_external, e nunca por cima de taint nem de `confirm`.
  */
+/** O run tem um dono vendo o que acontece? (mesma regra do `decide`: dono presente e superfície com dono). */
+export function runHasOwner(ctx: { ownerPresent: boolean; surface: Surface }): boolean {
+	return ctx.ownerPresent && !NO_OWNER_SURFACES.has(ctx.surface);
+}
+
 export function decide(input: DecideInput): Verdict {
 	const { effect, surface, autonomy, taint, action } = input;
 
@@ -85,8 +90,9 @@ export function decide(input: DecideInput): Verdict {
 	// Sem dono (agenda, rotina, grupo, cartão de confirmação, proativo) o recorte "deste run" NÃO vale: nada na conversa foi visto
 	// por um humano neste turno, então o que a conversa já carrega conta como lido agora (como era antes de existir o recorte).
 	const ownerAbsent = !input.ownerPresent || NO_OWNER_SURFACES.has(surface);
-	const untrustedForEgress = ownerAbsent ? taint.untrustedReadInRun : (taint.untrustedReadThisRun ?? taint.untrustedReadInRun);
-	const privateForEgress = ownerAbsent ? taint.privateReadInRun === true : (taint.privateReadThisRun ?? taint.privateReadInRun === true);
+	// Subagente: a mãe diz o que vale para a saída (`...EgressInherited`); o que o próprio filho leu (`...ThisRun`) sempre conta.
+	const untrustedForEgress = ownerAbsent ? (taint.untrustedEgressInherited ?? taint.untrustedReadInRun) || taint.untrustedReadThisRun === true : (taint.untrustedReadThisRun ?? taint.untrustedReadInRun);
+	const privateForEgress = ownerAbsent ? (taint.privateEgressInherited ?? taint.privateReadInRun === true) || taint.privateReadThisRun === true : (taint.privateReadThisRun ?? taint.privateReadInRun === true);
 	const egressRisk = input.egress === true && untrustedForEgress && privateForEgress;
 	const taintFloor = (tainted && TAINT_EFFECTS.has(effect)) || egressRisk;
 	// Sem dono não há quem veja o cartão: a saída na trifeta fica fora, como um envio sem dono (passo 3).
