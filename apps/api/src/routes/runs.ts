@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { maskKnownSecretsInMessages, sealSecrets } from "@workspace/agent-runtime";
-import { isActiveRunConflict, ResourceOwnershipError, type getAccountConfig } from "@workspace/db";
+import { expirePendingAgentV4RequestsForRun, isActiveRunConflict, loadAgentV4Decisions, ResourceOwnershipError, type getAccountConfig } from "@workspace/db";
 import { validateRunReferences } from "../chat/run-ownership.js";
 import { API_INPUT_LIMITS, validMaxSteps } from "../chat/input-limits.js";
 import { createRunObserver } from "./run-observer.js";
@@ -794,6 +794,18 @@ export function createRunRoutes(
 			return c.json({ error: "Invalid JSON body" }, 400);
 		}
 		const body = json as Record<string, unknown>;
+		// Run do motor v4 estacionado esperando o dono: o v4 não consome inputs de run, então a mensagem ficaria presa (e o run
+		// voltaria a estacionar sem ninguém decidir). Encerra o run, expira os pedidos pendentes (o cartão mostra isso) e devolve
+		// 409: o app já trata como "run terminou" e envia a mensagem como run novo da conversa.
+		if (run.status === "paused" && parseRunInputMode(body.mode) !== "cancel") {
+			const { pending } = await loadAgentV4Decisions(userId, runId, new Date());
+			if (pending > 0) {
+				await expirePendingAgentV4RequestsForRun(userId, runId);
+				await requestCancelAgentRun(runId);
+				await notifyRunSignal(publish, runId, "cancel");
+				return c.json({ error: "Run já terminou; crie um novo run para continuar." }, 409);
+			}
+		}
 		const attachments = parseImageAttachments(body.attachments);
 		if (!attachments) return c.json({ error: "anexos inválidos" }, 400);
 		try { await resolveUserImagesCard(attachments, userId); await resolveUserFileCards(attachments, userId); }

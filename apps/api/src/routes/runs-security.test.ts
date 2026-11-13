@@ -177,6 +177,9 @@ function stubInputPath(run = row()) {
 	stubMethod(prisma, "$transaction", async (callback: (tx: typeof prisma) => Promise<unknown>) => callback(prisma));
 	stubMethod(prisma, "$executeRaw", async () => 0);
 	stubMethod(prisma, "$queryRaw", async () => [{ id: "event", runId: run.id, seq: 1, type: "input_received", payload: {}, createdAt: now }]);
+	// Pedidos do motor v4 do run: por padrão nenhum (run pausado por login/conector, não por aprovação).
+	stubMethod(prisma.agentV4Request, "updateMany", async () => ({ count: 0 }));
+	stubMethod(prisma.agentV4Request, "findMany", async () => []);
 	stubMethod(prisma.runInput, "findFirst", async () => null);
 	stubMethod(prisma.runInput, "create", async ({ data }: { data: { mode: string; content: string } }) => ({ ...data, id: "input", runId: run.id, seq: 1, author: "user", status: "pending", createdAt: now, consumedAt: null, clientKey: null }));
 }
@@ -202,6 +205,37 @@ test("mensagem enviada a run pausado (card de conexão) retoma o run e o enfilei
 	assert.equal((await post(app, "/v1/runs/run-a/inputs", { content: "Conectei", mode: "join" })).status, 201);
 	assert.ok(resume.mock.callCount() >= 1);
 	assert.equal(added.length, 1);
+});
+
+test("mensagem a run v4 estacionado em pedido do dono: expira os pedidos, encerra o run e responde 409 (o app manda como run novo); nada é enfileirado", async (t) => {
+	stubInputPath(row("paused"));
+	const pendingRow = { userId: A, runId: "run-a", kind: "approval", key: "k1", callId: "c1", toolName: "send_email", payloadHash: "h", state: "pending", expiresAt: new Date(Date.now() + 3_600_000), decidedAt: null, createdAt: now, id: "r1" };
+	const requests = [pendingRow];
+	stubMethod(prisma.agentV4Request, "findMany", async () => requests);
+	const expire = stubMethod(prisma.agentV4Request, "updateMany", async ({ where, data }: { where: { state?: string; userId?: unknown; runId?: string; expiresAt?: unknown }; data: { state: string } }) => {
+		// A varredura por prazo vencido (`expiresAt`) não pega pedido dentro do prazo; só a expiração explícita do run pega.
+		const hit = "expiresAt" in where ? [] : requests.filter((r) => r.state === where.state && r.runId === where.runId && "userId" in where);
+		for (const r of hit) r.state = data.state;
+		return { count: hit.length };
+	});
+	const created = stubMethod(prisma.runInput, "create", async () => { throw new Error("a mensagem não pode virar input de um run que o v4 nunca consome"); });
+	const cancel = stubMethod(prisma.agentRun, "update", async ({ data }: { data: { cancelRequested?: boolean; status?: string } }) => ({ ...row("paused"), ...data }));
+	const added: unknown[] = [];
+	t.after(() => mock.restoreAll());
+	const published: Array<[string, string]> = [];
+	const app = appFor(A, async (runId, kind) => { published.push([runId, kind]); return true; }, async () => { added.push(1); return { id: "job" }; });
+	const response = await post(app, "/v1/runs/run-a/inputs", { content: "esquece isso, faz outra coisa", mode: "join" });
+	assert.equal(response.status, 409);
+	assert.equal(pendingRow.state, "expired", "o cartão deixa de pedir decisão");
+	assert.ok(expire.mock.callCount() >= 1);
+	assert.equal(created.mock.callCount(), 0);
+	assert.equal(cancel.mock.callCount(), 1, "o run parado é encerrado");
+	assert.equal(added.length, 0);
+	assert.deepEqual(published, [["run-a", "cancel"]]);
+	// B nunca chega aqui: o run de A é 404 para ele e nada dos pedidos muda
+	pendingRow.state = "pending";
+	assert.equal((await post(appFor(B), "/v1/runs/run-a/inputs", { content: "oi", mode: "join" })).status, 404);
+	assert.equal(pendingRow.state, "pending");
 });
 
 test("conector conectado retoma e enfileira os runs do dono parados no card dele", async (t) => {
