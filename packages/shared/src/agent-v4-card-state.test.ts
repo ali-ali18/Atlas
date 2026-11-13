@@ -56,4 +56,23 @@ describe("card v4 gravado sem segredo", () => {
 		expect(JSON.stringify(stored)).not.toContain("AAAAAAAAAAAAAAAAAAAAAAAA");
 		expect(sanitizeAgentV4EventForStorage({ type: "assistant_delta", id: "x", delta: "y" })).toBeNull();
 	});
+
+	it("não mutila ids de identidade: 2000 sha256 hex determinísticos passam intactos em requestId, callId, cardId e runId", () => {
+		let seed = 20261113;
+		const next = () => ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0), seed);
+		const hex = (): string => Array.from({ length: 8 }, () => next().toString(16).padStart(8, "0")).join("");
+		for (let i = 0; i < 2000; i++) {
+			const [requestId, callId, cardId, runId] = [hex(), hex(), hex(), hex()];
+			const approval = sanitizeAgentV4EventForStorage({ type: "approval_request", requestId, callId, toolName: "send_email", effect: "send", args: {}, riskFacts: {}, runId });
+			expect(approval).toMatchObject({ requestId, callId, runId });
+			expect(sanitizeAgentV4EventForStorage({ type: "ask_owner", cardId, question: "Quer?", runId })).toMatchObject({ cardId, runId });
+			expect(sanitizeAgentV4EventForStorage({ type: "receipt", id: callId, name: "x", what: "Feito" })).toMatchObject({ id: callId });
+		}
+	});
+
+	it("o resto do evento continua redigido mesmo com ids intactos", () => {
+		const stored = sanitizeAgentV4EventForStorage({ type: "handoff_request", callId: "a".repeat(64), message: "Use ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA para entrar", runId: "run-1" });
+		expect(stored).toMatchObject({ callId: "a".repeat(64) });
+		expect(JSON.stringify(stored)).not.toContain("ghp_AAAA");
+	});
 });

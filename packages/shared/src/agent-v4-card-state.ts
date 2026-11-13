@@ -85,5 +85,22 @@ function scrub(value: unknown, depth = 0): unknown {
  * `ownerInput`); isto garante que também não entra por argumento, fato de risco ou texto livre.
  */
 export function sanitizeAgentV4EventForStorage(event: unknown): AgentV4Event | null {
-	return parseAgentV4Event(scrub(event));
+	return parseAgentV4Event(scrubKeepingIdentity(event));
+}
+
+/**
+ * Campos de identidade do evento (nível raiz). São chaves que o app devolve às rotas (`/requests/:key/respond`,
+ * `/cards/:cardId/respond`) e que o dedupe compara: `redactSecrets` mutilava hex longo (o `requestId` é um sha256) e o cartão
+ * gravado dava 404 ao responder. Vêm do próprio motor, nunca de texto livre, então não passam pelo redator.
+ */
+const IDENTITY_KEYS: ReadonlySet<string> = new Set(["type", "requestId", "callId", "cardId", "runId", "id"]);
+
+function scrubKeepingIdentity(event: unknown): unknown {
+	if (typeof event !== "object" || event === null || Array.isArray(event)) return scrub(event);
+	const out: Record<string, unknown> = {};
+	for (const [key, entry] of Object.entries(event)) {
+		if (SECRET_KEY.test(key)) continue;
+		out[key] = IDENTITY_KEYS.has(key) && typeof entry === "string" ? entry : scrub(entry, 1);
+	}
+	return out;
 }
