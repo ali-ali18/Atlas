@@ -212,3 +212,12 @@ describe("falhas honestas", () => {
 		expect(browser.actions.every((a) => a.userId === "o1")).toBe(true);
 	});
 });
+
+describe("instruções do navegador (piloto de 13/11): chegar à resposta antes de relatar", () => {
+	it("manda fechar avisos, escolher a variante pedida e ler o valor; tentar de novo em página de erro; e passar ao dono o login ou a verificação", async () => {
+		const { BROWSER_INSTRUCTIONS } = await import("./index.js");
+		expect(BROWSER_INSTRUCTIONS).toMatch(/close cookie and location banners, pick the variant asked for \(colour, size, storage\) with browser_act browse, and read the value that appears/);
+		expect(BROWSER_INSTRUCTIONS).toMatch(/If a site shows an error page, try once more and then the site's own search or another URL of the same site/);
+		expect(BROWSER_INSTRUCTIONS).toMatch(/asks to log in or to verify the account, say that the owner can do that step in the browser view and continue after it/);
+	});
+});

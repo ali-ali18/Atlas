@@ -8,8 +8,10 @@ import { WORK_CONTRACT_PROMPT, buildStablePrompt } from "./work-contract.js";
 
 // Linha de base MEDIDA (caracteres). O prompt estável não pode crescer mais de 15% sem decisão
 // explícita: suba a constante no mesmo commit, com o motivo (custo de tokens em todo run).
-const BASELINE_WORK_CONTRACT_CHARS = 1274;
-const BASELINE_STABLE_CHARS = 1861; // contrato + canais, sem índice de capacidades
+// 13/11: +2 cláusulas (agir em vez de anunciar; ler a página no navegador quando a leitura simples vem vazia). Decisão do dono
+// depois do piloto: o bot perguntava antes de abrir página e terminava o turno prometendo.
+const BASELINE_WORK_CONTRACT_CHARS = 1614;
+const BASELINE_STABLE_CHARS = 2201; // contrato + canais, sem índice de capacidades
 const GROWTH_LIMIT = 1.15;
 
 describe("contrato de trabalho no prompt (F1.11): uma instrução-chave por seção", () => {
@@ -21,6 +23,8 @@ describe("contrato de trabalho no prompt (F1.11): uma instrução-chave por seç
 		["formato certo: arquivo, tabela ou painel, card", /file; comparisons in a table or panel; products in a card/],
 		["formato certo: confere o próprio arquivo", /Check your own file before delivering/],
 		["pesquisa: proporcional, várias fontes, URLs, o que não confirmou", /Research in proportion[^]*several sources, URLs cited, and what you could not confirm/],
+		["age em vez de anunciar: não termina o turno prometendo; abrir, ler e navegar nunca é pergunta ao dono", /Act, do not announce\. Never end a turn saying what you will do: do it and answer with the result\. Searching, reading or opening a page is never a question to the owner/],
+		["lê a página de verdade: sem conteúdo (cookies, acesso negado, vazia), abre no navegador antes de dizer que não conseguiu", /If a page comes back without the content \(cookie wall, access denied, empty\), open it in the browser yourself before saying you could not read it/],
 		["decide sozinho, pergunta só na fronteira, uma pergunta com padrão", /ask only at the boundary: money, sending, public links, credentials, anything irreversible\. Ask one question with a suggested default/],
 		["anotações: caderno vs memória", /notebook for the working state of this task, memory for lasting facts/],
 		["não insiste: recusou ou ignorou, larga; falha reportada está fechada", /Never insist\. Once the owner declined or ignored an offer, drop it\. A failed task, honestly reported, is finished/],
@@ -30,9 +34,9 @@ describe("contrato de trabalho no prompt (F1.11): uma instrução-chave por seç
 		expect(p).toMatch(re);
 	});
 
-	it("tem as nove seções e o título", () => {
+	it("tem as onze seções e o título", () => {
 		expect(p.startsWith("## Work contract\n")).toBe(true);
-		expect(p.split("\n").filter((l) => l.startsWith("- "))).toHaveLength(9);
+		expect(p.split("\n").filter((l) => l.startsWith("- "))).toHaveLength(11);
 	});
 });
 
