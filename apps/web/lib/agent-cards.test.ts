@@ -94,6 +94,13 @@ test("aprovação de evento no idioma da tela", async () => {
 	assert.ok(approvalSummaryLines(eventApproval("delete"), en).includes("The guests won't be notified."));
 });
 
+test("busca na web mostra só a consulta, sem o limite nem outros campos internos", () => {
+	const search = approval({ toolName: "web_search", effect: "read", args: { query: "preço do notebook X", limit: 8 }, riskFacts: { target: "preço do notebook X" } });
+	assert.equal(describeApproval(search), "Consultar preço do notebook X");
+	assert.deepEqual(approvalDetails(search), []);
+	assert.deepEqual(approvalDetails({ ...search, riskFacts: {} }), ["preço do notebook X", "8"]);
+});
+
 test("aprovação de e-mail mostra assunto, de onde sai e o corpo inteiro, sem campos internos", () => {
 	const body = "Olá,\n".repeat(300);
 	const mail = approval({ args: { source: "bot", to: ["ana@exemplo.com"], body, in_reply_to: "msg-1" }, riskFacts: { recipients: ["ana@exemplo.com"], message: { subject: "Orçamento", body, from: "bot", reply: true } } });

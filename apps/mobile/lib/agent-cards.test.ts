@@ -77,6 +77,12 @@ describe("frases", () => {
 		expect(describeApproval({ ...event, riskFacts: { event: { action: "delete" } } })).toBe("Apagar um evento da agenda");
 		expect(approvalSummaryLines({ ...event, riskFacts: { event: { action: "delete" } } })).toEqual(["Não consegui ler o evento. Identificador: abc123xyz"]);
 	});
+	it("busca na web: só a consulta aparece, sem o limite nem outros campos internos", () => {
+		const search = { ...approval, toolName: "web_search", effect: "read" as const, args: { query: "preço do notebook X", limit: 8 }, riskFacts: { target: "preço do notebook X" } };
+		expect(describeApproval(search)).toBe("Consultar preço do notebook X");
+		expect(approvalDetails(search)).toEqual([]);
+		expect(approvalDetails({ ...search, riskFacts: {} })).toEqual(["preço do notebook X", "8"]);
+	});
 	it("aprovação de e-mail: assunto, de onde sai e corpo inteiro; sem source nem in_reply_to", () => {
 		const body = "Olá,\n".repeat(300);
 		const mail = { ...approval, args: { source: "gmail", to: ["ana@exemplo.com"], body, in_reply_to: "msg-1" }, riskFacts: { recipients: ["ana@exemplo.com"], message: { subject: "Orçamento", body, from: "gmail", reply: true } } };

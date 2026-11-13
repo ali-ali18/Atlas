@@ -197,6 +197,12 @@ describe("saída para terceiros pela web (auditoria F1, S2)", () => {
 		for (const tool of createWebCapability(new FakeSearch()).tools) expect(tool.egress).toBe(true);
 	});
 
+	it("riskFacts de web_search/web_extract são só a consulta e o endereço (o cartão não mostra limit)", () => {
+		const [search, extract] = createWebCapability(new FakeSearch()).tools;
+		expect(search!.riskFactsFor({ query: "preço do notebook", limit: 8 })).toEqual({ target: "preço do notebook" });
+		expect(extract!.riskFactsFor({ url: "https://example.test/p" })).toEqual({ target: "https://example.test/p" });
+	});
+
 	it("run limpo: web_extract roda sem cartão", async () => {
 		const search = new FakeSearch();
 		const { executor } = setup(chatPolicy);

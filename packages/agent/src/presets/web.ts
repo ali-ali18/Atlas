@@ -16,6 +16,8 @@ export function createWebCapability(search: Search) {
 		effect: "read",
 		// A consulta e a URL são escolhidas pelo modelo e saem para um terceiro: com taint no run pedem aprovação (S2).
 		egress: true,
+		// O cartão de aprovação mostra só a consulta ("Consultar <consulta>"), não o `limit` nem outro campo interno.
+		riskFacts: ({ query }) => ({ target: query }),
 		trust: "untrusted",
 		source: "web",
 		async execute({ query, limit }, ctx) {
@@ -38,6 +40,7 @@ export function createWebCapability(search: Search) {
 		}),
 		effect: "read",
 		egress: true,
+		riskFacts: ({ url }) => ({ target: url }),
 		trust: "untrusted",
 		source: "web",
 		async execute({ url }, ctx) {

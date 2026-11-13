@@ -218,6 +218,8 @@ export function approvalDetailValues(args: unknown, max = 6): string[] {
 export function approvalDetails(event: ApprovalEvent, max = 6): string[] {
 	// Evento e e-mail têm linhas próprias (`approvalSummaryLines`): os argumentos crus trariam o id do evento e campos internos.
 	if (event.effect === "credential" || approvalEventFact(event.riskFacts) || approvalMessageFact(event.riskFacts)) return [];
+	// Leitura com alvo declarado (consulta, endereço): a frase "Consultar <alvo>" já diz tudo; os argumentos crus só trariam campos internos (limite etc.).
+	if (event.effect === "read" && typeof event.riskFacts.target === "string" && event.riskFacts.target.trim() !== "") return [];
 	return collectDetailValues(event.args, max);
 }
 
