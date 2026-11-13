@@ -104,7 +104,7 @@ describe("proveniência (F1.5)", () => {
 		expect(RunProvenance.restore({ untrustedReadInRun: true, sources: [], texts: [] }).privateReadInRun).toBe(false);
 	});
 
-	it("sinais 'deste run': só tool os liga, vão ao snapshot, voltam no restore e não vêm dos herdados", () => {
+	it("sinais 'deste run': só tool os liga, vão ao snapshot e voltam no restore (snapshot antigo, sem os campos, cai nos herdados)", () => {
 		const p = new RunProvenance();
 		p.record(INJECTION, "web");
 		p.markPrivateRead();
@@ -112,6 +112,17 @@ describe("proveniência (F1.5)", () => {
 		const back = RunProvenance.restore(p.snapshot());
 		expect([back.untrustedReadThisRun, back.privateReadThisRun]).toEqual([true, true]);
 		const inherited = RunProvenance.restore({ untrustedReadInRun: true, privateReadInRun: true, sources: ["web"], texts: [] });
-		expect([inherited.untrustedReadThisRun, inherited.privateReadThisRun]).toEqual([false, false]);
+		// Herdados de OUTRO run (instância nova, sem checkpoint): o snapshot completo sem os campos novos é o formato antigo.
+		expect([inherited.untrustedReadThisRun, inherited.privateReadThisRun]).toEqual([true, true]);
+	});
+
+	it("checkpoint gravado antes dos campos 'deste run' volta com os herdados, não com falso", () => {
+		const old = RunProvenance.restore({ untrustedReadInRun: true, privateReadInRun: true, sources: ["web"], texts: [] });
+		expect([old.untrustedReadThisRun, old.privateReadThisRun]).toEqual([true, true]);
+		const clean = RunProvenance.restore({ untrustedReadInRun: false, sources: [], texts: [] });
+		expect([clean.untrustedReadThisRun, clean.privateReadThisRun]).toEqual([false, false]);
+		// com os campos presentes, valem eles (o novo formato manda)
+		const fresh = RunProvenance.restore({ untrustedReadInRun: true, privateReadInRun: true, untrustedReadThisRun: false, privateReadThisRun: false, sources: [], texts: [] });
+		expect([fresh.untrustedReadThisRun, fresh.privateReadThisRun]).toEqual([false, false]);
 	});
 });

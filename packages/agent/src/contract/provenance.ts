@@ -74,8 +74,9 @@ export class RunProvenance {
 		for (const text of snapshot.texts) p.index(text);
 		p.untrustedReadInRun = snapshot.untrustedReadInRun;
 		p.privateReadInRun = snapshot.privateReadInRun === true;
-		p.untrustedReadThisRun = snapshot.untrustedReadThisRun === true;
-		p.privateReadThisRun = snapshot.privateReadThisRun === true;
+		// Snapshot gravado antes dos campos "deste run": sem o campo, vale o herdado (conservador), nunca "falso" por omissão.
+		p.untrustedReadThisRun = snapshot.untrustedReadThisRun ?? snapshot.untrustedReadInRun;
+		p.privateReadThisRun = snapshot.privateReadThisRun ?? snapshot.privateReadInRun === true;
 		for (const s of snapshot.sources) p.sources.add(s);
 		return p;
 	}
