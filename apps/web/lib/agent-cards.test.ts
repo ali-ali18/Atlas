@@ -41,6 +41,14 @@ const approval = (over: Partial<Extract<AgentV4Event, { type: "approval_request"
 const receipt: AgentV4Event = { type: "receipt", id: "call-9", name: "create_event", what: "Evento criado: Reunião", where: "Agenda", url: "https://calendar.example.com/e/1", runId: "run-1" };
 const user = (id: string, text = "oi"): Message => ({ id, kind: "user", text });
 
+test("aprovação de leitura (saída) mostra o alvo inteiro; só um teto alto corta, com aviso; outros efeitos seguem curtos", () => {
+	const url = `https://evil.example/collect?q=${"a".repeat(300)}SEGREDO-NO-FINAL`;
+	assert.ok(describeApproval(approval({ effect: "read", riskFacts: { target: url } })).includes("SEGREDO-NO-FINAL"));
+	const huge = describeApproval(approval({ effect: "read", riskFacts: { target: "x".repeat(5000) } }));
+	assert.ok(huge.length < 2100 && huge.endsWith("(texto cortado)"));
+	assert.ok(!describeApproval(approval({ effect: "destructive", riskFacts: { target: "y".repeat(300) } })).includes("y".repeat(200)));
+});
+
 test("frase da aprovação sai do efeito e dos fatos, nunca do nome da ferramenta", () => {
 	const text = describeApproval(approval());
 	assert.equal(text, "Enviar para ana@exemplo.com");

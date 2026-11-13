@@ -124,6 +124,18 @@ const shortText = (value: unknown, max = 120): string | null => {
 	return trimmed.length > max ? `${trimmed.slice(0, max)}…` : trimmed;
 };
 
+/**
+ * Alvo de uma aprovação de LEITURA (consulta, endereço: a saída que pode vazar dado): o final da URL ou da consulta é justamente
+ * onde iria o dado vazado, então aparece inteiro (quebra de linha na tela). Teto alto só contra abuso, com corte avisado.
+ */
+export const READ_TARGET_MAX = 2000;
+const readTargetText = (value: unknown): string | null => {
+	if (typeof value !== "string") return null;
+	const trimmed = value.trim();
+	if (!trimmed) return null;
+	return trimmed.length > READ_TARGET_MAX ? `${trimmed.slice(0, READ_TARGET_MAX)}… (texto cortado)` : trimmed;
+};
+
 const textList = (value: unknown): string[] =>
 	Array.isArray(value) ? value.map((item) => shortText(item)).filter((item): item is string => item !== null) : [];
 
@@ -143,7 +155,7 @@ export function approvalFacts(event: ApprovalEvent): ApprovalFacts {
 	const amount = typeof facts.amount === "number" && Number.isFinite(facts.amount) ? facts.amount : undefined;
 	const currency = typeof facts.currency === "string" && /^[A-Za-z]{3}$/.test(facts.currency) ? facts.currency.toUpperCase() : undefined;
 	const merchant = shortText(facts.merchant) ?? undefined;
-	const target = shortText(facts.target) ?? undefined;
+	const target = (event.effect === "read" ? readTargetText(facts.target) : shortText(facts.target)) ?? undefined;
 	return {
 		...(amount !== undefined && { amount }),
 		...(currency && { currency }),

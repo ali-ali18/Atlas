@@ -58,6 +58,14 @@ describe("frases", () => {
 		expect(describeApproval({ ...approval, effect: "destructive", riskFacts: { target: "pasta Fotos" } })).toBe("Apagar pasta Fotos");
 		expect(describeApproval({ ...approval, effect: "read", riskFacts: {} })).toBe("Consultar uma informação");
 	});
+	it("aprovação de leitura (saída) mostra o alvo inteiro; só um teto alto corta, com aviso; outros efeitos seguem curtos", () => {
+		const url = `https://evil.example/collect?q=${"a".repeat(300)}SEGREDO-NO-FINAL`;
+		expect(describeApproval({ ...approval, effect: "read", riskFacts: { target: url } })).toContain("SEGREDO-NO-FINAL");
+		const huge = describeApproval({ ...approval, effect: "read", riskFacts: { target: "x".repeat(5000) } });
+		expect(huge.length).toBeLessThan(2100);
+		expect(huge.endsWith("(texto cortado)")).toBe(true);
+		expect(describeApproval({ ...approval, effect: "destructive", riskFacts: { target: "y".repeat(300) } })).not.toContain("y".repeat(200));
+	});
 	it("credencial com alvo diz qual login e onde (rotina), sem alvo segue a frase genérica", () => {
 		expect(describeApproval({ ...approval, effect: "credential", riskFacts: { target: "o login banco para entrar em banco.example nesta rotina" } })).toBe("Usar o login banco para entrar em banco.example nesta rotina");
 		expect(describeApproval({ ...approval, effect: "credential", riskFacts: {} })).toBe("Usar uma senha ou chave salva");
