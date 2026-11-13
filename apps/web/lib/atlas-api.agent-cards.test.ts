@@ -114,7 +114,7 @@ test("resposta do cartão: decisão gravada com o run ainda soltando o lease (re
 	assert.deepEqual(waits, [10, 10]);
 	// resposta normal (com pendência de outro pedido, ou já retomado) não repete
 	let once = 0;
-	await retryWhileResumePending(async () => (once += 1, { resumed: false, pending: 1 }), { sleep: async () => undefined });
+	await retryWhileResumePending(async () => (once += 1, { resumed: false, pending: 1, retryable: undefined }), { sleep: async () => undefined });
 	assert.equal(once, 1);
 	// teto: devolve a última resposta em vez de girar para sempre
 	let capped = 0;
