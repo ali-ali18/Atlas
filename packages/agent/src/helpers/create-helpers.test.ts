@@ -478,11 +478,11 @@ describe("createHelpers: taint nos dois sentidos", () => {
 		expect(r?.untrustedRead).toBe(false);
 	});
 
-	it("a mãe só herdou da conversa (não leu nada neste run): a busca do filho roda", async () => {
+	it("a mãe só herdou da conversa (não leu nada neste run): o filho não tem dono, então vale o herdado e a saída fica fora", async () => {
 		const { helpers, llm } = setup({ "OBJ-A": web() }, { provenance: () => ({ untrustedReadInRun: true, privateReadInRun: true, untrustedReadThisRun: false, privateReadThisRun: false, sources: ["web", "email"] }) });
 		await helpers.runAll([task("OBJ-A")]);
 		const toolMessage = llm.of("OBJ-A")[1]?.messages.find((m) => m.role === "tool") as { content: string };
-		expect(toolMessage.content).toContain("about q");
+		expect(toolMessage.content).toContain("not available in this context");
 	});
 
 	it("sem taint na mãe, a mesma busca roda", async () => {
