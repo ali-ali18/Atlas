@@ -27,7 +27,7 @@
     "@workspace/shared": "workspace:*",
     "better-auth": "^1.7.6",
     "dotenv": "^17.2.3",
-    "hono": "^4.13.11",
+    "hono": "^4.13.16",
     "pg": "^8.23.0",
     "sharp": "0.35.5",
     "zod": "^4.6.5"
