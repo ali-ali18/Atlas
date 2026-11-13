@@ -132,3 +132,24 @@ test("soltar o lease de um run pausado grava o motivo: awaiting_owner no v4, pau
 		assert.equal(parked().stopReason, null);
 	}
 });
+
+test("soltar o lease de run pausado com cancelamento já pedido fecha como cancelado (a mensagem nova não se junta a um run preso)", async () => {
+	const lease = { owner: "w1", token: "t1", generation: 1 };
+	Object.assign(runs.rows[0]!, { status: "paused", cancelRequested: true, leaseOwner: lease.owner, leaseToken: lease.token, leaseUntil: new Date(Date.now() + 60_000) });
+	const finalized: string[] = [];
+	const { setRunFinalizedByRequestHook } = await import("./runs.js");
+	setRunFinalizedByRequestHook((id) => void finalized.push(id));
+	try {
+		await releasePausedRunLease("run-1", lease, "awaiting_owner");
+	} finally {
+		setRunFinalizedByRequestHook(null);
+	}
+	assert.equal(runs.rows[0]!.status, "cancelled");
+	assert.equal(runs.rows[0]!.stopReason, "cancelled");
+	assert.equal(runs.rows[0]!.leaseOwner, null);
+	assert.ok(runs.rows[0]!.finishedAt instanceof Date);
+	assert.deepEqual(finalized, ["run-1"]);
+	// lease de outro worker continua sendo erro, com ou sem cancelamento
+	Object.assign(runs.rows[0]!, { status: "paused", leaseOwner: "outro", leaseToken: "x" });
+	await assert.rejects(releasePausedRunLease("run-1", lease), /lease_lost/);
+});

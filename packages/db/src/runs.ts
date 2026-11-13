@@ -1216,6 +1216,21 @@ export async function releasePausedRunLease(
 	/** Por que o run ficou pausado; sem ele vale o histórico (login). O v4 estacionado esperando o dono passa `awaiting_owner`. */
 	reason: "paused_login" | "awaiting_owner" = "paused_login",
 ): Promise<void> {
+	// "Parar" (ou mensagem nova sobre um pedido do dono) chegou entre o `paused` e esta liberação: o cancelamento só pôde marcar
+	// `cancelRequested` porque o lease ainda era do worker. Soltar o lease deixaria o run `paused` e "ativo" (a mensagem nova se
+	// juntaria a ele e se perderia). Quem solta o lease fecha o run como cancelado.
+	const cancelled = await prisma.agentRun.updateMany({
+		where: { id: runId, status: "paused", cancelRequested: true, ...ownedLeaseWhere(lease) },
+		data: { status: "cancelled", finishedAt: new Date(), leaseOwner: null, leaseUntil: null, leaseToken: null, ...stopColumns({ reason: "cancelled", detail: "parked" }) },
+	});
+	if (cancelled.count === 1) {
+		try {
+			runFinalizedByRequestHook?.(runId);
+		} catch {
+			// gancho com defeito não afeta o cancelamento
+		}
+		return;
+	}
 	const result = await prisma.agentRun.updateMany({
 		where: {
 			id: runId,
