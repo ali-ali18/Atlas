@@ -84,6 +84,15 @@ const shortText = (value: unknown, max = 120): string | null => {
 	return trimmed.length > max ? `${trimmed.slice(0, max)}…` : trimmed;
 };
 
+/** Alvo de aprovação de LEITURA (saída que pode vazar dado): aparece inteiro; teto alto só contra abuso, com corte avisado. */
+export const READ_TARGET_MAX = 2000;
+const readTargetText = (value: unknown): string | null => {
+	if (typeof value !== "string") return null;
+	const trimmed = value.trim();
+	if (!trimmed) return null;
+	return trimmed.length > READ_TARGET_MAX ? `${trimmed.slice(0, READ_TARGET_MAX)}… (texto cortado)` : trimmed;
+};
+
 const textList = (value: unknown): string[] => (Array.isArray(value) ? value.map((entry) => shortText(entry)).filter((entry): entry is string => entry !== null) : []);
 
 export function formatMoney(amount: number, currency: string): string {
@@ -106,7 +115,7 @@ export function describeApproval(event: ApprovalEvent): string {
 	const amount = typeof facts.amount === "number" && Number.isFinite(facts.amount) ? facts.amount : undefined;
 	const currency = typeof facts.currency === "string" && /^[A-Za-z]{3}$/.test(facts.currency) ? facts.currency.toUpperCase() : undefined;
 	const merchant = shortText(facts.merchant);
-	const target = shortText(facts.target);
+	const target = event.effect === "read" ? readTargetText(facts.target) : shortText(facts.target);
 	const recipients = textList(facts.recipients);
 	const calendarEvent = approvalEventFact(facts);
 	if (calendarEvent) {
@@ -145,6 +154,8 @@ export function describeApproval(event: ApprovalEvent): string {
 export function approvalDetails(event: ApprovalEvent, max = 6): string[] {
 	// Evento e e-mail têm linhas próprias (`approvalSummaryLines`): os argumentos crus trariam o id do evento e campos internos.
 	if (event.effect === "credential" || approvalEventFact(event.riskFacts) || approvalMessageFact(event.riskFacts)) return [];
+	// Leitura com alvo declarado (consulta, endereço): a frase "Consultar <alvo>" já diz tudo; os argumentos crus só trariam campos internos (limite etc.).
+	if (event.effect === "read" && typeof event.riskFacts.target === "string" && event.riskFacts.target.trim() !== "") return [];
 	const out: string[] = [];
 	const visit = (value: unknown, depth: number) => {
 		if (out.length >= max || depth > 2) return;

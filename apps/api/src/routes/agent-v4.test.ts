@@ -36,6 +36,8 @@ type RunRow = { id: string; userId: string; status: string };
 
 /** Estado em memória por trás dos delegates do prisma: run, pedidos e ofertas. */
 function world(opts: { runStatus?: string; both?: boolean; toolName?: string } = {}) {
+	/** Worker ainda segurando o lease de um run `paused` (entre `pause()` e `releasePausedRunLease`): a retomada recusa. */
+	const lease = { held: false };
 	const runs: RunRow[] = [{ id: "run-a", userId: A, status: opts.runStatus ?? "paused" }];
 	const requests: RequestRow[] = [
 		{ userId: A, runId: "run-a", kind: "approval", key: "req-1", callId: "c1", toolName: opts.toolName ?? "send_email", payloadHash: "hash-1", conversationId: "conv-a", state: "pending", expiresAt: new Date(T0.getTime() + DAY), decidedAt: null, consumedAt: null },
@@ -61,7 +63,7 @@ function world(opts: { runStatus?: string; both?: boolean; toolName?: string } =
 		return r ? runRow(r) : null;
 	});
 	const resumeUpdate = stubMethod(prisma.agentRun, "updateMany", async ({ where }: { where: { id: string; status: string } }) => {
-		const r = runs.find((x) => x.id === where.id && x.status === where.status);
+		const r = runs.find((x) => x.id === where.id && x.status === where.status && !(lease.held && "OR" in where));
 		if (r) r.status = "queued";
 		return { count: r ? 1 : 0 };
 	});
@@ -79,7 +81,7 @@ function world(opts: { runStatus?: string; both?: boolean; toolName?: string } =
 		return { count };
 	});
 	stubMethod(prisma.agentConversationOffer, "findFirst", async ({ where }: { where: Record<string, unknown> }) => offers.find((o) => matches(o as never, where)) ?? null);
-	return { runs, requests, resumeUpdate };
+	return { runs, requests, resumeUpdate, lease };
 }
 
 function appFor(userId: string, opts: { queue?: { add: () => Promise<unknown> } | null; now?: Date; escrow?: { deposit: (scope: unknown, cvv: string, ttl: number) => Promise<boolean>; discard: (scope: unknown) => Promise<void> } | null } = {}) {
@@ -185,6 +187,42 @@ test("run que ainda não estacionou pede para repetir e não grava nada", async 
 	assert.deepEqual(await res.json(), { error: "run_not_paused", retryable: true });
 	assert.equal(w.requests.find((r) => r.key === "req-1")!.state, "pending");
 	assert.equal(add.mock.callCount(), 0);
+});
+
+test("clique antes de o pedido existir: run do dono em andamento pede para repetir (409 retryable); terminado ou outro dono segue 404", async () => {
+	for (const runStatus of ["queued", "running", "retrying"]) {
+		const w = world({ runStatus });
+		w.requests.length = 0;
+		const { app, add } = appFor(A);
+		const res = await respond(app, `${REQ}/req-1/respond`, { decision: "approve" });
+		assert.equal(res.status, 409, runStatus);
+		assert.deepEqual(await res.json(), { error: "run_not_paused", retryable: true });
+		assert.equal(add.mock.callCount(), 0);
+	}
+	const done = world({ runStatus: "completed" });
+	done.requests.length = 0;
+	assert.equal((await respond(appFor(A).app, `${REQ}/req-1/respond`, { decision: "approve" })).status, 404);
+	// usuário B: o run em andamento é de A, então 404 igual a inexistente (não revela que o run existe)
+	const other = world({ runStatus: "running" });
+	other.requests.length = 0;
+	assert.equal((await respond(appFor(B).app, `${REQ}/req-1/respond`, { decision: "approve" })).status, 404);
+});
+
+test("corrida: clique entre pause() e a liberação do lease grava a decisão mas NÃO diz que retomou; repetir depois da liberação retoma", async () => {
+	const w = world();
+	w.lease.held = true;
+	const { app, add } = appFor(A);
+	const first = await respond(app, `${REQ}/req-1/respond`, { decision: "approve" });
+	assert.equal(first.status, 200);
+	assert.deepEqual({ ...(await first.json() as object), request: undefined }, { ok: true, status: "recorded", decision: "approve", resumed: false, retryable: true, request: undefined });
+	assert.equal(w.requests.find((r) => r.key === "req-1")!.state, "approved");
+	assert.equal(w.runs[0]!.status, "paused");
+	assert.equal(add.mock.callCount(), 0);
+	w.lease.held = false; // o worker soltou o lease
+	const second = (await (await respond(app, `${REQ}/req-1/respond`, { decision: "approve" })).json()) as { status: string; resumed: boolean; retryable?: boolean };
+	assert.deepEqual({ status: second.status, resumed: second.resumed, retryable: second.retryable }, { status: "already", resumed: true, retryable: undefined });
+	assert.equal(w.runs[0]!.status, "queued");
+	assert.equal(add.mock.callCount(), 1);
 });
 
 test("corpo inválido é 400 (campo desconhecido, decisão fora do enum, sem JSON) e fila ausente é 503 sem gravar", async () => {

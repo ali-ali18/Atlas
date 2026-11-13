@@ -162,7 +162,7 @@ import { runToolFilter } from "../run-tool-filter.js";
 import { briefDeliveryDeps, deliverBriefFailure, deliverDailyBrief, findRoutineRunIdWithRetry, isDetachedBriefRun } from "../daily-brief.js";
 import { appendConversationMessage, getLanguageContext, listRecentLoginAsks } from "@workspace/db";
 import { readCodeMode, toPolicyRules, resolveReplyLanguage, stopOfCompletion, systemMessages, type BotLanguage, type RunStop } from "@workspace/shared";
-import { stopOfBudgetError, stopOfFailure } from "../run-stop.js";
+import { pausedStopReason, stopOfBudgetError, stopOfFailure } from "../run-stop.js";
 import { runSystemLanguage } from "../system-language.js";
 import {
 	AUTO_CONTINUE_MAX,
@@ -1843,7 +1843,7 @@ async function executeLeasedRun(ctx: {
 			await emit({ type: "paused", reason: error.message });
 			await coalescer.flush().catch(() => undefined);
 			await emitState.tail;
-			await releasePausedRunLease(runId, lease);
+			await releasePausedRunLease(runId, lease, pausedStopReason(error));
 			return { runId, status: "paused" };
 		}
 		// Fechamento de um "Parar": compartilhado entre o abort direto (AgentRunCancelledError) e o lease perdido com cancel pedido.

@@ -37,7 +37,9 @@ export function initSnapshot(input: RunInput, ports: Ports, runtimeNotes: readon
 		loadedIds: [],
 		// Herda o taint da conversa (S8): a fala passada do assistente no histórico não lava o que o run anterior leu.
 		// O mesmo vale para fala de outro bot/rotina/webhook no histórico (S5): `kind:"data"` já é dado não confiável no contexto.
-		provenance: { untrustedReadInRun: input.priorProvenance?.untrustedReadInRun === true || fromHistory.untrusted, privateReadInRun: input.priorProvenance?.privateReadInRun === true, sources: [...new Set([...(input.priorProvenance?.sources ?? []), ...fromHistory.sources])], texts: [] },
+		provenance: { untrustedReadInRun: input.priorProvenance?.untrustedReadInRun === true || fromHistory.untrusted, privateReadInRun: input.priorProvenance?.privateReadInRun === true, // Fala de bot/webhook/e-mail no histórico entra no contexto AGORA: conta como não confiável deste run (a injeção está na janela). O
+		// que runs anteriores leram por tool (`priorProvenance`) NÃO conta, senão toda busca pediria cartão.
+		untrustedReadThisRun: input.priorProvenance?.untrustedReadThisRun === true || fromHistory.untrusted, privateReadThisRun: input.priorProvenance?.privateReadThisRun === true, ...(input.priorProvenance?.untrustedEgressInherited !== undefined && { untrustedEgressInherited: input.priorProvenance.untrustedEgressInherited }), ...(input.priorProvenance?.privateEgressInherited !== undefined && { privateEgressInherited: input.priorProvenance.privateEgressInherited }), sources: [...new Set([...(input.priorProvenance?.sources ?? []), ...fromHistory.sources])], texts: [] },
 		spentUsd: 0,
 		stepsWithoutPrice: 0,
 		lastText: "",

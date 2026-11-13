@@ -29,7 +29,7 @@ function row(status = "running") {
 
 /** Publicador falso: nenhum teste abre conexão Redis. */
 const noPublish = async () => true;
-function appFor(userId: string, publishRunSignal: (runId: string, kind: "input" | "cancel") => Promise<unknown> = noPublish, queueAdd: () => Promise<unknown> = async () => ({ id: "job" })) {
+function appFor(userId: string, publishRunSignal: (runId: string, kind: "input" | "cancel") => Promise<unknown> = noPublish, queueAdd: () => Promise<unknown> = async () => ({ id: "job" }), routeDeps: { cancelSettle?: { attempts: number; waitMs: number } } = {}) {
 	const config: Parameters<typeof createRunRoutes>[0] = { port: 3001, hostname: "localhost", openRouterApiKey: "test-only", openRouterModel: "test/model", redisUrl: "", databaseUrl: undefined, chatQueue: null, routineQueue: null,
 		agentRunQueue: { add: queueAdd as never, getJob: async () => undefined },
 	};
@@ -39,7 +39,7 @@ function appFor(userId: string, publishRunSignal: (runId: string, kind: "input" 
 		c.set("session", { user: { id: userId, name: "Test", email: "owner@example.com", emailVerified: true, createdAt: now, updatedAt: now }, session: { id: "session", token: "test", userId, expiresAt: now, createdAt: now, updatedAt: now, ipAddress: null, userAgent: null } });
 		await next();
 	});
-	app.route("/", createRunRoutes(config, { getAccountConfig: async () => ({ v: 1 as const }), publishRunSignal, subscribeRunEvents: () => () => undefined }));
+	app.route("/", createRunRoutes(config, { getAccountConfig: async () => ({ v: 1 as const }), publishRunSignal, subscribeRunEvents: () => () => undefined, ...routeDeps }));
 	app.route("/", createComputerUseRoutes(config, { getAccountConfig: async () => ({ v: 1 as const }), publishRunSignal }));
 	return app;
 }
@@ -177,6 +177,9 @@ function stubInputPath(run = row()) {
 	stubMethod(prisma, "$transaction", async (callback: (tx: typeof prisma) => Promise<unknown>) => callback(prisma));
 	stubMethod(prisma, "$executeRaw", async () => 0);
 	stubMethod(prisma, "$queryRaw", async () => [{ id: "event", runId: run.id, seq: 1, type: "input_received", payload: {}, createdAt: now }]);
+	// Pedidos do motor v4 do run: por padrão nenhum (run pausado por login/conector, não por aprovação).
+	stubMethod(prisma.agentV4Request, "updateMany", async () => ({ count: 0 }));
+	stubMethod(prisma.agentV4Request, "findMany", async () => []);
 	stubMethod(prisma.runInput, "findFirst", async () => null);
 	stubMethod(prisma.runInput, "create", async ({ data }: { data: { mode: string; content: string } }) => ({ ...data, id: "input", runId: run.id, seq: 1, author: "user", status: "pending", createdAt: now, consumedAt: null, clientKey: null }));
 }
@@ -203,6 +206,96 @@ test("mensagem enviada a run pausado (card de conexão) retoma o run e o enfilei
 	assert.ok(resume.mock.callCount() >= 1);
 	assert.equal(added.length, 1);
 });
+
+test("mensagem a run v4 estacionado em pedido do dono: expira os pedidos, encerra o run e responde 409 (o app manda como run novo); nada é enfileirado", async (t) => {
+	stubInputPath(row("paused"));
+	const pendingRow = { userId: A, runId: "run-a", kind: "approval", key: "k1", callId: "c1", toolName: "send_email", payloadHash: "h", state: "pending", expiresAt: new Date(Date.now() + 3_600_000), decidedAt: null, createdAt: now, id: "r1" };
+	const requests = [pendingRow];
+	stubMethod(prisma.agentV4Request, "findMany", async () => requests);
+	const expire = stubMethod(prisma.agentV4Request, "updateMany", async ({ where, data }: { where: { state?: string; userId?: unknown; runId?: string; expiresAt?: unknown }; data: { state: string } }) => {
+		// A varredura por prazo vencido (`expiresAt`) não pega pedido dentro do prazo; só a expiração explícita do run pega.
+		const hit = "expiresAt" in where ? [] : requests.filter((r) => r.state === where.state && r.runId === where.runId && "userId" in where);
+		for (const r of hit) r.state = data.state;
+		return { count: hit.length };
+	});
+	const created = stubMethod(prisma.runInput, "create", async () => { throw new Error("a mensagem não pode virar input de um run que o v4 nunca consome"); });
+	// Sem lease do worker o cancelamento fecha o run na hora: as consultas seguintes já o veem terminado.
+	let status = "paused";
+	stubMethod(prisma.agentRun, "findFirst", async ({ where }: { where: { userId: string | { in: string[] } } }) => ((typeof where.userId === "string" ? where.userId : where.userId.in[0]) === A ? row(status) : null));
+	const cancel = stubMethod(prisma.agentRun, "update", async ({ data }: { data: { cancelRequested?: boolean; status?: string } }) => ((status = data.status ?? status), { ...row("paused"), ...data }));
+	const added: unknown[] = [];
+	t.after(() => mock.restoreAll());
+	const published: Array<[string, string]> = [];
+	const app = appFor(A, async (runId, kind) => { published.push([runId, kind]); return true; }, async () => { added.push(1); return { id: "job" }; });
+	const response = await post(app, "/v1/runs/run-a/inputs", { content: "esquece isso, faz outra coisa", mode: "join" });
+	assert.equal(response.status, 409);
+	assert.equal(pendingRow.state, "expired", "o cartão deixa de pedir decisão");
+	assert.ok(expire.mock.callCount() >= 1);
+	assert.equal(created.mock.callCount(), 0);
+	assert.equal(cancel.mock.callCount(), 1, "o run parado é encerrado");
+	assert.equal(added.length, 0);
+	assert.deepEqual(published, [["run-a", "cancel"]]);
+	// B nunca chega aqui: o run de A é 404 para ele e nada dos pedidos muda
+	pendingRow.state = "pending";
+	assert.equal((await post(appFor(B), "/v1/runs/run-a/inputs", { content: "oi", mode: "join" })).status, 404);
+	assert.equal(pendingRow.state, "pending");
+});
+
+/** Run v4 estacionado com pedido pendente cujo lease ainda é do worker (entre `paused` e a liberação). */
+function stubParkedWithLease(onCancel: () => void) {
+	stubInputPath(row("paused"));
+	const pendingRow = { userId: A, runId: "run-a", kind: "approval", key: "k1", callId: "c1", toolName: "send_email", payloadHash: "h", state: "pending", expiresAt: new Date(Date.now() + 3_600_000), decidedAt: null, createdAt: now, id: "r1" };
+	stubMethod(prisma.agentV4Request, "findMany", async () => [pendingRow]);
+	const created = stubMethod(prisma.runInput, "create", async () => { throw new Error("a mensagem não pode virar input"); });
+	let polls = 0;
+	let cancelled = false;
+	const status = () => (cancelled && polls++ >= 2 ? "cancelled" : "paused");
+	stubMethod(prisma.agentRun, "findFirst", async ({ where }: { where: { userId: string | { in: string[] } } }) => ((typeof where.userId === "string" ? where.userId : where.userId.in[0]) === A ? row(status()) : null));
+	// lease vigente: só marca cancelRequested, o status segue `paused`
+	stubMethod(prisma.agentRun, "update", async () => (onCancel(), (cancelled = true), row("paused")));
+	return { created, polls: () => polls };
+}
+
+test("corrida do lease: o 409 só sai depois que o run deixou de ocupar a conversa (a mensagem não se junta a ele)", async (t) => {
+	const cancels: number[] = [];
+	const state = stubParkedWithLease(() => void cancels.push(1));
+	t.after(() => mock.restoreAll());
+	const app = appFor(A, noPublish, async () => ({ id: "job" }), { cancelSettle: { attempts: 20, waitMs: 1 } });
+	const response = await post(app, "/v1/runs/run-a/inputs", { content: "outra coisa", mode: "join" });
+	assert.equal(response.status, 409);
+	assert.equal(cancels.length, 1);
+	assert.ok(state.polls() >= 3, "esperou o run fechar antes de responder");
+	assert.equal(state.created.mock.callCount(), 0);
+});
+
+test("corrida do lease: se o run não fecha a tempo, 503 honesto (nada enviado) em vez de 409 que perderia a mensagem", async (t) => {
+	stubParkedWithLease(() => undefined);
+	stubMethod(prisma.agentRun, "findFirst", async () => row("paused"));
+	t.after(() => mock.restoreAll());
+	const app = appFor(A, noPublish, async () => ({ id: "job" }), { cancelSettle: { attempts: 2, waitMs: 1 } });
+	const response = await post(app, "/v1/runs/run-a/inputs", { content: "outra coisa", mode: "join" });
+	assert.equal(response.status, 503);
+});
+
+for (const state of ["expired", "approved", "denied"]) {
+	test(`mensagem a run v4 pausado SEM pedido pendente (só ${state}): também encerra e vira run novo, sem executar nada e sem enfileirar`, async (t) => {
+		stubInputPath(row("paused"));
+		const requests = [{ userId: A, runId: "run-a", kind: "approval", key: "k1", callId: "c1", toolName: "send_email", payloadHash: "h", state, expiresAt: new Date(Date.now() + 3_600_000), decidedAt: now, createdAt: now, id: "r1" }];
+		stubMethod(prisma.agentV4Request, "findMany", async () => requests);
+		const created = stubMethod(prisma.runInput, "create", async () => { throw new Error("a mensagem não pode virar input"); });
+		let status = "paused";
+		stubMethod(prisma.agentRun, "findFirst", async ({ where }: { where: { userId: string | { in: string[] } } }) => ((typeof where.userId === "string" ? where.userId : where.userId.in[0]) === A ? row(status) : null));
+		const cancel = stubMethod(prisma.agentRun, "update", async ({ data }: { data: { status?: string } }) => ((status = data.status ?? status), row("paused")));
+		const added: unknown[] = [];
+		t.after(() => mock.restoreAll());
+		const app = appFor(A, noPublish, async () => { added.push(1); return { id: "job" }; });
+		assert.equal((await post(app, "/v1/runs/run-a/inputs", { content: "outra coisa", mode: "join" })).status, 409);
+		assert.equal(cancel.mock.callCount(), 1);
+		assert.equal(created.mock.callCount(), 0);
+		assert.equal(added.length, 0);
+		assert.equal(requests[0]!.state, state === "expired" ? "expired" : state, "a decisão gravada não é reescrita");
+	});
+}
 
 test("conector conectado retoma e enfileira os runs do dono parados no card dele", async (t) => {
 	const { resumeRunsAwaitingConnector } = await import("./runs.js");

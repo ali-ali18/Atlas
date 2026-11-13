@@ -47,7 +47,7 @@ export const BROWSER_INSTRUCTIONS =
 	"Use browser_screenshot only when the page has no useful labels or the request is visual. " +
 	"browser_act: intent browse only looks around; intent submit sends or changes something and may ask the owner. Passwords, codes and captchas are filled by the owner in the browser view. " +
 	"Reach the answer on the page before reporting: close cookie and location banners, pick the variant asked for (colour, size, storage) with browser_act browse, and read the value that appears. " +
-	"If a site shows an error page, try once more and then the site's own search or another URL of the same site. If it asks to log in or to verify the account, say that the owner can do that step in the browser view and continue after it. " +
+	"If a site shows an error page, try once more and then the site's own search or another URL of the same site. If the site requires the owner's login or verification, hand that step to the owner (they do it in the browser view); do not promise to continue. " +
 	"Say \"page\", \"list\" and \"browser\" to the owner, never tool names or refs.";
 
 export const BROWSER_READ_INSTRUCTIONS =

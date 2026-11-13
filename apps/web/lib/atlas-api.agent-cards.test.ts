@@ -97,3 +97,28 @@ test("resposta do cartão: conflito de verdade, 404 e erro de rede sobem na hora
 	);
 	assert.equal(calls, 4);
 });
+
+test("resposta do cartão: decisão gravada com o run ainda soltando o lease (retryable) repete até retomar, com teto", async () => {
+	const { retryWhileResumePending } = await import("./atlas-api");
+	let calls = 0;
+	const waits: number[] = [];
+	const result = await retryWhileResumePending(
+		async () => {
+			calls += 1;
+			return calls < 3 ? { resumed: false, retryable: true } : { resumed: true };
+		},
+		{ sleep: async (ms) => void waits.push(ms), waitMs: 10 },
+	);
+	assert.deepEqual(result, { resumed: true });
+	assert.equal(calls, 3);
+	assert.deepEqual(waits, [10, 10]);
+	// resposta normal (com pendência de outro pedido, ou já retomado) não repete
+	let once = 0;
+	await retryWhileResumePending(async () => (once += 1, { resumed: false, pending: 1, retryable: undefined }), { sleep: async () => undefined });
+	assert.equal(once, 1);
+	// teto: devolve a última resposta em vez de girar para sempre
+	let capped = 0;
+	const last = await retryWhileResumePending(async () => (capped += 1, { resumed: false, retryable: true }), { attempts: 4, sleep: async () => undefined });
+	assert.equal(capped, 4);
+	assert.equal(last.retryable, true);
+});

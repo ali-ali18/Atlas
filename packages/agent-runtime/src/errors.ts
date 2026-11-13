@@ -14,9 +14,13 @@ export class AgentRunCancelledError extends Error {
 export class AgentRunPausedError extends Error {
 	readonly code = "paused" as const;
 
-	constructor(message = "Execução pausada") {
+	/** Por que o run estacionou: `awaiting_owner` = o v4 espera o dono decidir um pedido. Sem valor = pausa de login/conector. */
+	readonly reason: "awaiting_owner" | undefined;
+
+	constructor(message = "Execução pausada", reason?: "awaiting_owner") {
 		super(message);
 		this.name = "AgentRunPausedError";
+		this.reason = reason;
 	}
 }
 

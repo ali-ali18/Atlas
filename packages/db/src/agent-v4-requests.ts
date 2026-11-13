@@ -133,6 +133,17 @@ export async function loadAgentV4Decisions(userId: string, runId: string, now: D
 }
 
 /**
+ * O dono escreveu enquanto o run estava estacionado num pedido: o run vai ser encerrado e a mensagem vira um run novo, então
+ * os pedidos pendentes dele passam a `expired` (o cartão mostra isso e responder dá 410, não "repita"). Escopado por dono e
+ * run; devolve quantos mudaram.
+ */
+export async function expirePendingAgentV4RequestsForRun(userId: string, runId: string): Promise<number> {
+	if (!owned(userId)) return 0;
+	const { count } = await prisma.agentV4Request.updateMany({ where: { userId, runId, kind: { in: ["approval", "handoff"] }, state: "pending" }, data: { state: "expired" } });
+	return count;
+}
+
+/**
  * Na próxima mensagem do dono na conversa: pedidos pendentes que já passaram do prazo viram `expired`. Uma instrução
  * só, escopada por dono e conversa; escrever outra coisa NÃO expira pedido dentro do prazo. Devolve quantos venceram.
  */

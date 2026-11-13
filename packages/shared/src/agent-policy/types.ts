@@ -34,6 +34,19 @@ export type TaintFacts = {
 	argsCarryUntrusted: boolean;
 	/** O run leu dado privado do dono (e-mail, arquivo, memória, conector privado). Com leitura não confiável, fecha a trifeta. */
 	privateReadInRun?: boolean;
+	/**
+	 * Os mesmos sinais, só do que tools leram NESTE run (sem o que veio da conversa). A trifeta da SAÍDA (egress) usa
+	 * estes quando informados; ausente = cai nos sinais acima. Envio/escrita externa seguem nos herdados.
+	 */
+	untrustedReadThisRun?: boolean;
+	privateReadThisRun?: boolean;
+	/**
+	 * Só run SEM dono que nasceu de uma mãe (subagente): sinais EFETIVOS da mãe para a saída (mãe com dono: o que ela leu neste
+	 * run; mãe sem dono: o que a conversa já carregava). Sem dono, a saída olha estes (+ o que o próprio run leu); ausentes,
+	 * valem os herdados. Envio/escrita externa/confirm NÃO usam estes: seguem vendo a contaminação inteira da conversa.
+	 */
+	untrustedEgressInherited?: boolean;
+	privateEgressInherited?: boolean;
 };
 
 /** Fatos tipados da chamada, para o cartão e para o mandato. Nada de texto livre. */

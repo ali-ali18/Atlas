@@ -42,4 +42,13 @@ describe("pausa esperando o dono (Postgres real)", { skip: dbSkip }, () => {
 		assert.ok(resumed, "a retomada aceita o run pausado sem lease");
 		assert.notEqual(resumed?.status, "paused");
 	});
+
+	test("estacionado esperando o dono grava awaiting_owner (não paused_login) e a retomada limpa o motivo", async () => {
+		const run = await runningRun();
+		await requestPauseAgentRun(run.id);
+		await releasePausedRunLease(run.id, lease, "awaiting_owner");
+		assert.equal((await prisma.agentRun.findUniqueOrThrow({ where: { id: run.id } })).stopReason, "awaiting_owner");
+		await requestResumeAgentRun(run.id);
+		assert.equal((await prisma.agentRun.findUniqueOrThrow({ where: { id: run.id } })).stopReason, null);
+	});
 });

@@ -52,8 +52,8 @@ export async function runAgent(deps: RunAgentDeps): Promise<RunResult> {
 	const tracked = ports.vault ? trackVault(ports.vault) : undefined;
 	const executor = createExecutor({ runId, ownerId, ports: tracked ? { ...ports, vault: tracked.vault } : ports, ...(tracked && { secrets: tracked.secrets }), hash: deps.hash, policy: deps.policy, provenance: RunProvenance.restore(snap.provenance), ...(snap.mandateUsesLeft !== undefined && { mandateUsesLeft: snap.mandateUsesLeft }), ...(deps.language && { language: deps.language }), ...(deps.signal && { signal: deps.signal }), ...(deps.onMandateSpent && { onMandateSpent: deps.onMandateSpent }), ...(deps.mandateUses && { mandateUses: deps.mandateUses }) });
 	deps.exposeProvenance?.(() => {
-		const { untrustedReadInRun, privateReadInRun, sources } = executor.provenance.snapshot();
-		return { untrustedReadInRun, ...(privateReadInRun !== undefined && { privateReadInRun }), sources };
+		const { untrustedReadInRun, privateReadInRun, untrustedReadThisRun, privateReadThisRun, untrustedEgressInherited, privateEgressInherited, sources } = executor.provenance.snapshot();
+		return { untrustedReadInRun, ...(privateReadInRun !== undefined && { privateReadInRun }), ...(untrustedReadThisRun !== undefined && { untrustedReadThisRun }), ...(privateReadThisRun !== undefined && { privateReadThisRun }), ...(untrustedEgressInherited !== undefined && { untrustedEgressInherited }), ...(privateEgressInherited !== undefined && { privateEgressInherited }), sources };
 	});
 	const role = deps.role ?? "main";
 	// Gasto de ajudantes: o que já valia antes da retomada (no checkpoint) + o que os filhos gastam agora (ao vivo).

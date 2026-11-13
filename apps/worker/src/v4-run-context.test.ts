@@ -12,6 +12,7 @@ import { AGENT_V4_HISTORY_MAX, AGENT_V4_REQUEST_TTL_MS, agentV4ProvenanceOf } fr
 import { AgentRunPausedError } from "@workspace/agent-runtime";
 import { runEngineV4, type V4Db } from "./engine-v4.js";
 import { runV4Turn } from "./v4-turn.js";
+import { pausedStopReason } from "./run-stop.js";
 import { buildV4History, prepareV4Run, requestsFromParked, resumeInputFromDecisions, type V4RunContextDb } from "./v4-run-context.js";
 
 const served = { provider: "fake", model: "m-1" };
@@ -530,7 +531,7 @@ test("T3: turno que estaciona registra os pedidos ANTES de sinalizar a pausa (aw
 	ctx.db.registerRequests = (async (...args: never[]) => (order.push("register"), (register as (...a: never[]) => Promise<void>)(...args))) as never;
 	await assert.rejects(
 		processorTurn({ ctx, mem: memoryV4Db(), llm: scripted([callTool("c1", "send_email", { to: "a@example.com", body: "oi" })]), runId: "run-t3b", registry: registryOf(sendEmail({ runs: 0 })), order }),
-		(error: unknown) => error instanceof AgentRunPausedError && error.message === "awaiting_owner",
+		(error: unknown) => error instanceof AgentRunPausedError && error.message === "awaiting_owner" && error.reason === "awaiting_owner" && pausedStopReason(error) === "awaiting_owner",
 	);
 	// Piloto de 13/11: sem o `pause` o run ficava `running`, o lease não era solto e toda aprovação respondia 409.
 	assert.deepEqual(order, ["prepare", "engine", "register", "pause"]);

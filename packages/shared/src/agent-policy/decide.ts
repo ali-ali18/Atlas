@@ -63,6 +63,11 @@ function lastMatchingRule(rules: readonly PolicyRule[], effect: EffectClass, too
  *  8. regra do dono (a última que casa): `approve` aperta qualquer coisa; `run` só afrouxa
  *     draft/write_internal/write_external, e nunca por cima de taint nem de `confirm`.
  */
+/** O run tem um dono vendo o que acontece? (mesma regra do `decide`: dono presente e superfície com dono). */
+export function runHasOwner(ctx: { ownerPresent: boolean; surface: Surface }): boolean {
+	return ctx.ownerPresent && !NO_OWNER_SURFACES.has(ctx.surface);
+}
+
 export function decide(input: DecideInput): Verdict {
 	const { effect, surface, autonomy, taint, action } = input;
 
@@ -81,10 +86,17 @@ export function decide(input: DecideInput): Verdict {
 	// Egress (URL/consulta a terceiro) só pede aprovação com a trifeta completa: conteúdo não confiável E dado privado do
 	// dono no mesmo run. Pesquisa pura na web (só dado público) segue autônoma: pedir cartão a cada página lida mataria a
 	// pesquisa (decisão do dono, 06/11; cláusula 8 fala em efeito que carregue dado privado).
-	const egressRisk = input.egress === true && taint.untrustedReadInRun && taint.privateReadInRun === true;
+	// A trifeta da saída olha só o que ESTE run leu por tool (`...ThisRun`); sem o campo, vale o sinal herdado.
+	// Sem dono (agenda, rotina, grupo, cartão de confirmação, proativo) o recorte "deste run" NÃO vale: nada na conversa foi visto
+	// por um humano neste turno, então o que a conversa já carrega conta como lido agora (como era antes de existir o recorte).
+	const ownerAbsent = !input.ownerPresent || NO_OWNER_SURFACES.has(surface);
+	// Subagente: a mãe diz o que vale para a saída (`...EgressInherited`); o que o próprio filho leu (`...ThisRun`) sempre conta.
+	const untrustedForEgress = ownerAbsent ? (taint.untrustedEgressInherited ?? taint.untrustedReadInRun) || taint.untrustedReadThisRun === true : (taint.untrustedReadThisRun ?? taint.untrustedReadInRun);
+	const privateForEgress = ownerAbsent ? (taint.privateEgressInherited ?? taint.privateReadInRun === true) || taint.privateReadThisRun === true : (taint.privateReadThisRun ?? taint.privateReadInRun === true);
+	const egressRisk = input.egress === true && untrustedForEgress && privateForEgress;
 	const taintFloor = (tainted && TAINT_EFFECTS.has(effect)) || egressRisk;
 	// Sem dono não há quem veja o cartão: a saída na trifeta fica fora, como um envio sem dono (passo 3).
-	if (egressRisk && (!input.ownerPresent || NO_OWNER_SURFACES.has(surface))) return { kind: "hidden", reason: "no owner present: egress after private and untrusted reads" };
+	if (egressRisk && ownerAbsent) return { kind: "hidden", reason: "no owner present: egress after private and untrusted reads" };
 	if (taintFloor && verdict.kind === "run") verdict = { kind: "approve", reason: "untrusted data in the run: confirm first" };
 
 	// `confirm` declarado pela tool: o dono confirma. Sem dono, a tool fica fora; regra `run` não afrouxa (abaixo).

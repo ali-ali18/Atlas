@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { maskKnownSecretsInMessages, sealSecrets } from "@workspace/agent-runtime";
-import { isActiveRunConflict, ResourceOwnershipError, type getAccountConfig } from "@workspace/db";
+import { expirePendingAgentV4RequestsForRun, isActiveRunConflict, loadAgentV4Decisions, ResourceOwnershipError, type getAccountConfig } from "@workspace/db";
 import { validateRunReferences } from "../chat/run-ownership.js";
 import { API_INPUT_LIMITS, validMaxSteps } from "../chat/input-limits.js";
 import { createRunObserver } from "./run-observer.js";
@@ -69,6 +69,8 @@ import { findBotCreatedRun } from "../chat/bot-onboarding.js";
 
 
 /** Conversa ocupada por outro run no instante do envio (corrida com o fim dele). O cliente reenvia sem perder a mensagem. */
+/** Status em que o run ainda ocupa a conversa (o índice de um run ativo por conversa). */
+const ACTIVE_RUN_STATUSES: ReadonlySet<string> = new Set(["queued", "running", "retrying", "paused", "waiting_user", "waiting_external"]);
 export const ACTIVE_RUN_CONFLICT_MESSAGE = "A conversa já tem uma tarefa em andamento. Tente de novo em instantes.";
 
 const ALLOWED_ROLES = new Set(["user", "assistant", "system"]);
@@ -327,8 +329,11 @@ export function createRunRoutes(
 		runEventsSubscribed?: (runId: string) => boolean;
 		/** "Responder só com reação"; injetável em teste. */
 		reactionOnly?: ReactionOnlyDeps;
+		/** Espera pelo fim de um run cancelado cujo lease ainda é do worker; injetável em teste. */
+		cancelSettle?: { attempts: number; waitMs: number };
 	} = {},
 ) {
+	const cancelSettle = dependencies.cancelSettle ?? { attempts: 30, waitMs: 100 };
 	const validateModel = dependencies.validateModel ?? validateProviderModel;
 	const publish = dependencies.publishRunSignal ?? defaultPublishRunSignal;
 	const subscribeEvents = dependencies.subscribeRunEvents ?? subscribeRunEventsSignal;
@@ -794,6 +799,30 @@ export function createRunRoutes(
 			return c.json({ error: "Invalid JSON body" }, 400);
 		}
 		const body = json as Record<string, unknown>;
+		// Run do motor v4 estacionado (esperando o dono ou com a decisão ainda por retomar): o v4 não consome inputs de run, então a mensagem ficaria presa (e o run
+		// voltaria a estacionar sem ninguém decidir). Encerra o run, expira os pedidos pendentes (o cartão mostra isso) e devolve
+		// 409: o app já trata como "run terminou" e envia a mensagem como run novo da conversa.
+		if (run.status === "paused" && parseRunInputMode(body.mode) !== "cancel") {
+			// O motor do run se reconhece pelos pedidos v4 que ele registrou, em QUALQUER estado: pendentes, já decididos (retomada
+			// ainda não aconteceu) ou vencidos em 24 h. Todos pedem o mesmo: o v4 não lê input de run e uma aprovação gravada não deve
+			// ser executada depois de o dono mudar de assunto, então o run é encerrado e a mensagem vira run novo.
+			const d = await loadAgentV4Decisions(userId, runId, new Date());
+			if (d.pending + d.approved.length + d.denied.length + d.handoffDone.length + d.expired.length > 0) {
+				await expirePendingAgentV4RequestsForRun(userId, runId);
+				await requestCancelAgentRun(runId);
+				await notifyRunSignal(publish, runId, "cancel");
+				// Com o lease ainda do worker (entre `paused` e a liberação) o cancelamento só marca o pedido e o run segue "ativo" por
+				// instantes: responder 409 já faria o app criar um run que o índice de "um run ativo por conversa" juntaria a ele,
+				// e a mensagem se perderia. Espera o run sair do ativo; se não sair, 503 honesto (nada é enviado, o app mostra o erro).
+				for (let attempt = 0; ; attempt++) {
+					const current = await getAgentRunForUser(runId, userId).catch(() => null);
+					if (!current || !ACTIVE_RUN_STATUSES.has(current.status)) break;
+					if (attempt >= cancelSettle.attempts) return c.json({ error: "Ainda estou encerrando o pedido anterior. Envie de novo em instantes." }, 503);
+					await new Promise((resolve) => setTimeout(resolve, cancelSettle.waitMs));
+				}
+				return c.json({ error: "Run já terminou; crie um novo run para continuar." }, 409);
+			}
+		}
 		const attachments = parseImageAttachments(body.attachments);
 		if (!attachments) return c.json({ error: "anexos inválidos" }, 400);
 		try { await resolveUserImagesCard(attachments, userId); await resolveUserFileCards(attachments, userId); }

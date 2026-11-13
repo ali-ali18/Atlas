@@ -218,6 +218,7 @@ describe("instruções do navegador (piloto de 13/11): chegar à resposta antes 
 		const { BROWSER_INSTRUCTIONS } = await import("./index.js");
 		expect(BROWSER_INSTRUCTIONS).toMatch(/close cookie and location banners, pick the variant asked for \(colour, size, storage\) with browser_act browse, and read the value that appears/);
 		expect(BROWSER_INSTRUCTIONS).toMatch(/If a site shows an error page, try once more and then the site's own search or another URL of the same site/);
-		expect(BROWSER_INSTRUCTIONS).toMatch(/asks to log in or to verify the account, say that the owner can do that step in the browser view and continue after it/);
+		expect(BROWSER_INSTRUCTIONS).toMatch(/If the site requires the owner's login or verification, hand that step to the owner \(they do it in the browser view\); do not promise to continue/);
+		expect(BROWSER_INSTRUCTIONS).not.toMatch(/and continue after it/);
 	});
 });

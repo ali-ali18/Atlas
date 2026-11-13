@@ -58,6 +58,14 @@ describe("frases", () => {
 		expect(describeApproval({ ...approval, effect: "destructive", riskFacts: { target: "pasta Fotos" } })).toBe("Apagar pasta Fotos");
 		expect(describeApproval({ ...approval, effect: "read", riskFacts: {} })).toBe("Consultar uma informação");
 	});
+	it("aprovação de leitura (saída) mostra o alvo inteiro; só um teto alto corta, com aviso; outros efeitos seguem curtos", () => {
+		const url = `https://evil.example/collect?q=${"a".repeat(300)}SEGREDO-NO-FINAL`;
+		expect(describeApproval({ ...approval, effect: "read", riskFacts: { target: url } })).toContain("SEGREDO-NO-FINAL");
+		const huge = describeApproval({ ...approval, effect: "read", riskFacts: { target: "x".repeat(5000) } });
+		expect(huge.length).toBeLessThan(2100);
+		expect(huge.endsWith("(texto cortado)")).toBe(true);
+		expect(describeApproval({ ...approval, effect: "destructive", riskFacts: { target: "y".repeat(300) } })).not.toContain("y".repeat(200));
+	});
 	it("credencial com alvo diz qual login e onde (rotina), sem alvo segue a frase genérica", () => {
 		expect(describeApproval({ ...approval, effect: "credential", riskFacts: { target: "o login banco para entrar em banco.example nesta rotina" } })).toBe("Usar o login banco para entrar em banco.example nesta rotina");
 		expect(describeApproval({ ...approval, effect: "credential", riskFacts: {} })).toBe("Usar uma senha ou chave salva");
@@ -76,6 +84,12 @@ describe("frases", () => {
 		expect([describeApproval(event), ...lines].join(" ")).not.toMatch(/abc123xyz|Google Calendar|delete event/);
 		expect(describeApproval({ ...event, riskFacts: { event: { action: "delete" } } })).toBe("Apagar um evento da agenda");
 		expect(approvalSummaryLines({ ...event, riskFacts: { event: { action: "delete" } } })).toEqual(["Não consegui ler o evento. Identificador: abc123xyz"]);
+	});
+	it("busca na web: só a consulta aparece, sem o limite nem outros campos internos", () => {
+		const search = { ...approval, toolName: "web_search", effect: "read" as const, args: { query: "preço do notebook X", limit: 8 }, riskFacts: { target: "preço do notebook X" } };
+		expect(describeApproval(search)).toBe("Consultar preço do notebook X");
+		expect(approvalDetails(search)).toEqual([]);
+		expect(approvalDetails({ ...search, riskFacts: {} })).toEqual(["preço do notebook X", "8"]);
 	});
 	it("aprovação de e-mail: assunto, de onde sai e corpo inteiro; sem source nem in_reply_to", () => {
 		const body = "Olá,\n".repeat(300);

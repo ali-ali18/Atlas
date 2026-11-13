@@ -127,6 +127,14 @@ describe("stoppedWithOpenWork", () => {
 	});
 });
 
+describe("awaiting_owner (run v4 estacionado esperando o dono)", () => {
+	it("é motivo válido e se descreve sem falar em login", () => {
+		expect(isRunStopReason("awaiting_owner")).toBe(true);
+		expect(describeRunStop({ reason: "awaiting_owner" })).toBe("Esperando a sua decisão");
+		expect(describeRunStop({ reason: "awaiting_owner" })).not.toMatch(/login/i);
+	});
+});
+
 describe("describeRunStop (Motivo da parada, em pt-BR simples)", () => {
 	it("teto de gasto configurado cita valor e origem; teto de tempo também", () => {
 		expect(describeRunStop({ reason: "budget_cost", detail: "delivered" }, { costUsd: 0.25, costSource: "server" })).toBe("Teto de gasto configurado (US$ 0,25 · servidor)");
