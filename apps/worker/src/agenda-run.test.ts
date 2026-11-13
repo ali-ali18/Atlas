@@ -218,6 +218,6 @@ test("S1: nota/memo de run contaminado entram como dado no wake e o run nasce co
 	assert.ok(ctx.history.some((h) => h.kind === "data" && h.text === "memo sujo"));
 	const clean = (await loadAgendaRunContext({ userId: "user-a", runId: "run-1", origin: "proactive", objective: "", now: () => NOW, db: db([item()]) }))!;
 	assert.equal(clean.provenance, undefined);
-	assert.deepEqual(mergeProvenance(ctx.provenance, { untrustedReadInRun: false, privateReadInRun: true, sources: ["email"] }), { untrustedReadInRun: true, privateReadInRun: true, sources: ["email"] });
+	assert.deepEqual(mergeProvenance(ctx.provenance, { untrustedReadInRun: false, privateReadInRun: true, sources: ["email"] }), { untrustedReadInRun: true, privateReadInRun: true, untrustedReadThisRun: true, privateReadThisRun: true, sources: ["email"] });
 	assert.equal(mergeProvenance(undefined, undefined), undefined);
 });

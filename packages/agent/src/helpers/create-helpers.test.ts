@@ -470,12 +470,19 @@ describe("createHelpers: taint nos dois sentidos", () => {
 	const web = (): Turn[] => [reply({ calls: [call("c1", "web_search", { query: "q" })] }), reply({ text: "searched" })];
 
 	it("mãe → filho: o filho herda os sinais da mãe (trifeta) e a saída a terceiro fica fora, sem dono para aprovar", async () => {
-		const { helpers, llm } = setup({ "OBJ-A": web() }, { provenance: () => ({ untrustedReadInRun: true, privateReadInRun: true, sources: ["web", "email"] }) });
+		const { helpers, llm } = setup({ "OBJ-A": web() }, { provenance: () => ({ untrustedReadInRun: true, privateReadInRun: true, untrustedReadThisRun: true, privateReadThisRun: true, sources: ["web", "email"] }) });
 		const [r] = await helpers.runAll([task("OBJ-A")]);
 		const toolMessage = llm.of("OBJ-A")[1]?.messages.find((m) => m.role === "tool") as { content: string };
 		expect(toolMessage.content).toContain("not available in this context");
 		// o que o filho herdou não conta como leitura dele
 		expect(r?.untrustedRead).toBe(false);
+	});
+
+	it("a mãe só herdou da conversa (não leu nada neste run): a busca do filho roda", async () => {
+		const { helpers, llm } = setup({ "OBJ-A": web() }, { provenance: () => ({ untrustedReadInRun: true, privateReadInRun: true, untrustedReadThisRun: false, privateReadThisRun: false, sources: ["web", "email"] }) });
+		await helpers.runAll([task("OBJ-A")]);
+		const toolMessage = llm.of("OBJ-A")[1]?.messages.find((m) => m.role === "tool") as { content: string };
+		expect(toolMessage.content).toContain("about q");
 	});
 
 	it("sem taint na mãe, a mesma busca roda", async () => {

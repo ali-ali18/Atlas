@@ -21,8 +21,13 @@ export const realAgendaRunDb: AgendaRunDb = { getByRunId: getAgendaItemByRunId, 
 
 /** Junta os sinais de proveniência do wake da agenda com os da conversa: contaminado em qualquer um vale contaminado. */
 export function mergeProvenance(a: PriorProvenance | undefined, b: PriorProvenance | undefined): PriorProvenance | undefined {
-	if (!a || !b) return a ?? b;
-	return { untrustedReadInRun: a.untrustedReadInRun || b.untrustedReadInRun, privateReadInRun: a.privateReadInRun === true || b.privateReadInRun === true, sources: [...new Set([...a.sources, ...b.sources])] };
+	if (!a) return b;
+	const merged: PriorProvenance = b
+		? { untrustedReadInRun: a.untrustedReadInRun || b.untrustedReadInRun, privateReadInRun: a.privateReadInRun === true || b.privateReadInRun === true, sources: [...new Set([...a.sources, ...b.sources])] }
+		: a;
+	// Run de agenda não tem dono para ver cartão: o wake contaminado conta como leitura "deste run" na trifeta de saída
+	// (mantém o comportamento seguro de antes; só a conversa com dono foi aliviada).
+	return { ...merged, untrustedReadThisRun: merged.untrustedReadInRun, privateReadThisRun: merged.privateReadInRun === true };
 }
 
 export type AgendaRunContext = {

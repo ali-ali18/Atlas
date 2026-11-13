@@ -103,4 +103,15 @@ describe("proveniência (F1.5)", () => {
 		expect(RunProvenance.restore(executor.provenance.snapshot()).privateReadInRun).toBe(true);
 		expect(RunProvenance.restore({ untrustedReadInRun: true, sources: [], texts: [] }).privateReadInRun).toBe(false);
 	});
+
+	it("sinais 'deste run': só tool os liga, vão ao snapshot, voltam no restore e não vêm dos herdados", () => {
+		const p = new RunProvenance();
+		p.record(INJECTION, "web");
+		p.markPrivateRead();
+		expect(p.snapshot()).toMatchObject({ untrustedReadThisRun: true, privateReadThisRun: true });
+		const back = RunProvenance.restore(p.snapshot());
+		expect([back.untrustedReadThisRun, back.privateReadThisRun]).toEqual([true, true]);
+		const inherited = RunProvenance.restore({ untrustedReadInRun: true, privateReadInRun: true, sources: ["web"], texts: [] });
+		expect([inherited.untrustedReadThisRun, inherited.privateReadThisRun]).toEqual([false, false]);
+	});
 });

@@ -16,7 +16,7 @@ import type { HelperResult } from "../ports/helpers.js";
 /** Sinais que o filho herda da mãe (cópia; os textos não vão). */
 export function inheritedProvenance(parent: PriorProvenance | undefined): PriorProvenance | undefined {
 	if (!parent) return undefined;
-	return { untrustedReadInRun: parent.untrustedReadInRun, ...(parent.privateReadInRun !== undefined && { privateReadInRun: parent.privateReadInRun }), sources: [...parent.sources] };
+	return { untrustedReadInRun: parent.untrustedReadInRun, ...(parent.privateReadInRun !== undefined && { privateReadInRun: parent.privateReadInRun }), sources: [...parent.sources], ...(parent.untrustedReadThisRun !== undefined && { untrustedReadThisRun: parent.untrustedReadThisRun }), ...(parent.privateReadThisRun !== undefined && { privateReadThisRun: parent.privateReadThisRun }) };
 }
 
 /** O que os ajudantes leram, para a mãe herdar. `untrustedRead` é verdadeiro se QUALQUER filho leu conteúdo não confiável. */

@@ -51,7 +51,14 @@ export type ResumeInput = {
  * podem ter ecoado conteúdo não confiável ou dado privado; sem isto o taint seria "lavado" na virada do run. Só os
  * sinais (sem os textos): o piso de aprovação vale pelo sinal, e o texto lido há runs não volta a ser indexado.
  */
-export type PriorProvenance = Pick<ProvenanceSnapshot, "untrustedReadInRun" | "privateReadInRun" | "sources">;
+export type PriorProvenance = Pick<ProvenanceSnapshot, "untrustedReadInRun" | "privateReadInRun" | "sources"> & {
+	/**
+	 * Só para filho (ajudante) e run de agenda: sinais "deste run" que a mãe/o wake já tinha. Run novo de conversa NÃO os
+	 * recebe (o worker não os preenche): é o que tira a conversa inteira da trifeta de saída.
+	 */
+	untrustedReadThisRun?: boolean;
+	privateReadThisRun?: boolean;
+};
 
 export type RunInput = {
 	/** Bloco 1 (igual em todo run). Sem valor, o kernel monta o prompt estável (contrato de trabalho + canais + capacidades). */

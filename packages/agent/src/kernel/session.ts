@@ -37,7 +37,7 @@ export function initSnapshot(input: RunInput, ports: Ports, runtimeNotes: readon
 		loadedIds: [],
 		// Herda o taint da conversa (S8): a fala passada do assistente no histórico não lava o que o run anterior leu.
 		// O mesmo vale para fala de outro bot/rotina/webhook no histórico (S5): `kind:"data"` já é dado não confiável no contexto.
-		provenance: { untrustedReadInRun: input.priorProvenance?.untrustedReadInRun === true || fromHistory.untrusted, privateReadInRun: input.priorProvenance?.privateReadInRun === true, sources: [...new Set([...(input.priorProvenance?.sources ?? []), ...fromHistory.sources])], texts: [] },
+		provenance: { untrustedReadInRun: input.priorProvenance?.untrustedReadInRun === true || fromHistory.untrusted, privateReadInRun: input.priorProvenance?.privateReadInRun === true, untrustedReadThisRun: input.priorProvenance?.untrustedReadThisRun === true, privateReadThisRun: input.priorProvenance?.privateReadThisRun === true, sources: [...new Set([...(input.priorProvenance?.sources ?? []), ...fromHistory.sources])], texts: [] },
 		spentUsd: 0,
 		stepsWithoutPrice: 0,
 		lastText: "",

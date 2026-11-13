@@ -63,6 +63,6 @@ describe("kernel: opções do run filho", () => {
 		let read: (() => unknown) | undefined;
 		const h = kernelHarness([reply({ calls: [call("c1", "web_read", {})] }), reply({ text: "done" })], { tools: [web] });
 		await h.run({ exposeProvenance: (fn) => (read = fn) });
-		expect(read?.()).toEqual({ untrustedReadInRun: true, privateReadInRun: false, sources: ["web"] });
+		expect(read?.()).toEqual({ untrustedReadInRun: true, privateReadInRun: false, untrustedReadThisRun: true, privateReadThisRun: false, sources: ["web"] });
 	});
 });

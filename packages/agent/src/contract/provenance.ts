@@ -42,12 +42,28 @@ export const MIN_COPIED_SPAN = 24;
 const MAX_GRAMS = 200_000;
 const MAX_STORED_CHARS = 200_000;
 
-export type ProvenanceSnapshot = { untrustedReadInRun: boolean; privateReadInRun?: boolean; sources: TrustSource[]; texts: string[] };
+export type ProvenanceSnapshot = {
+	untrustedReadInRun: boolean;
+	privateReadInRun?: boolean;
+	/** Leitura não confiável feita por tool NESTE run (não herdada da conversa). Base do risco de saída (egress). */
+	untrustedReadThisRun?: boolean;
+	/** Dado privado lido por tool NESTE run (não herdado da conversa). */
+	privateReadThisRun?: boolean;
+	sources: TrustSource[];
+	texts: string[];
+};
 
 export class RunProvenance {
 	untrustedReadInRun = false;
 	/** Alguma tool com `privateData` devolveu dado do dono neste run (lado privado da trifeta). */
 	privateReadInRun = false;
+	/**
+	 * Os mesmos dois sinais, mas só do que ESTE run leu por tool (nunca preenchidos a partir da conversa). A trifeta da
+	 * saída (egress) usa estes: pesquisar na web depois de uma conversa que já leu página e memória não pede cartão a
+	 * cada busca (decisão do dono, 13/11). Envio, escrita externa e `when_untrusted` seguem nos sinais herdados.
+	 */
+	untrustedReadThisRun = false;
+	privateReadThisRun = false;
 	private readonly sources = new Set<TrustSource>();
 	private readonly texts: string[] = [];
 	private storedChars = 0;
@@ -58,6 +74,8 @@ export class RunProvenance {
 		for (const text of snapshot.texts) p.index(text);
 		p.untrustedReadInRun = snapshot.untrustedReadInRun;
 		p.privateReadInRun = snapshot.privateReadInRun === true;
+		p.untrustedReadThisRun = snapshot.untrustedReadThisRun === true;
+		p.privateReadThisRun = snapshot.privateReadThisRun === true;
 		for (const s of snapshot.sources) p.sources.add(s);
 		return p;
 	}
@@ -65,6 +83,7 @@ export class RunProvenance {
 	/** Chame com TODO texto que voltou de uma tool não confiável (resultado ou erro). */
 	record(text: string, source: TrustSource): void {
 		this.untrustedReadInRun = true;
+		this.untrustedReadThisRun = true;
 		this.sources.add(source);
 		this.index(text);
 	}
@@ -82,6 +101,7 @@ export class RunProvenance {
 	/** Uma tool com `privateData` devolveu dado do dono. */
 	markPrivateRead(): void {
 		this.privateReadInRun = true;
+		this.privateReadThisRun = true;
 	}
 
 	/** Algum texto dos argumentos tem um trecho (>= MIN_COPIED_SPAN) idêntico a algo lido de fonte não confiável? */
@@ -94,7 +114,7 @@ export class RunProvenance {
 	}
 
 	snapshot(): ProvenanceSnapshot {
-		return { untrustedReadInRun: this.untrustedReadInRun, privateReadInRun: this.privateReadInRun, sources: [...this.sources], texts: [...this.texts] };
+		return { untrustedReadInRun: this.untrustedReadInRun, privateReadInRun: this.privateReadInRun, untrustedReadThisRun: this.untrustedReadThisRun, privateReadThisRun: this.privateReadThisRun, sources: [...this.sources], texts: [...this.texts] };
 	}
 }
 

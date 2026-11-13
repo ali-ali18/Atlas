@@ -81,7 +81,8 @@ export function decide(input: DecideInput): Verdict {
 	// Egress (URL/consulta a terceiro) só pede aprovação com a trifeta completa: conteúdo não confiável E dado privado do
 	// dono no mesmo run. Pesquisa pura na web (só dado público) segue autônoma: pedir cartão a cada página lida mataria a
 	// pesquisa (decisão do dono, 06/11; cláusula 8 fala em efeito que carregue dado privado).
-	const egressRisk = input.egress === true && taint.untrustedReadInRun && taint.privateReadInRun === true;
+	// A trifeta da saída olha só o que ESTE run leu por tool (`...ThisRun`); sem o campo, vale o sinal herdado.
+	const egressRisk = input.egress === true && (taint.untrustedReadThisRun ?? taint.untrustedReadInRun) && (taint.privateReadThisRun ?? taint.privateReadInRun === true);
 	const taintFloor = (tainted && TAINT_EFFECTS.has(effect)) || egressRisk;
 	// Sem dono não há quem veja o cartão: a saída na trifeta fica fora, como um envio sem dono (passo 3).
 	if (egressRisk && (!input.ownerPresent || NO_OWNER_SURFACES.has(surface))) return { kind: "hidden", reason: "no owner present: egress after private and untrusted reads" };

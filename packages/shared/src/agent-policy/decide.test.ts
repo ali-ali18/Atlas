@@ -171,6 +171,18 @@ describe("egress (auditoria F1, S2)", () => {
 		expect(kind({ effect: "read", egress: true, taint: { untrustedReadInRun: false, argsCarryUntrusted: false, privateReadInRun: true } })).toBe("run");
 		expect(kind({ effect: "read", egress: true, taint: trifecta })).toBe("approve");
 	});
+	it("campos ThisRun mandam na saída; ausentes caem nos herdados; envio segue nos herdados", () => {
+		const inherited = { untrustedReadInRun: true, argsCarryUntrusted: false, privateReadInRun: true };
+		expect(kind({ effect: "read", egress: true, taint: { ...inherited, untrustedReadThisRun: false, privateReadThisRun: false } })).toBe("run");
+		expect(kind({ effect: "read", egress: true, taint: { ...inherited, untrustedReadThisRun: true, privateReadThisRun: false } })).toBe("run");
+		expect(kind({ effect: "read", egress: true, taint: { ...inherited, untrustedReadThisRun: false, privateReadThisRun: true } })).toBe("run");
+		expect(kind({ effect: "read", egress: true, taint: { ...inherited, untrustedReadThisRun: true, privateReadThisRun: true } })).toBe("approve");
+		expect(kind({ effect: "read", egress: true, taint: { ...inherited, untrustedReadThisRun: true } })).toBe("approve");
+		expect(kind({ effect: "read", egress: true, taint: inherited })).toBe("approve");
+		expect(kind({ effect: "read", egress: true, taint: { ...inherited, untrustedReadThisRun: false, privateReadThisRun: false }, surface: "routine" })).toBe("run");
+		expect(kind({ effect: "read", egress: true, taint: { ...inherited, untrustedReadThisRun: true, privateReadThisRun: true }, surface: "routine" })).toBe("hidden");
+		expect(kind({ effect: "send", taint: { ...inherited, untrustedReadThisRun: false, privateReadThisRun: false } })).toBe("approve");
+	});
 	it("trifeta sem dono (rotina, ou dono ausente) fica fora em vez de estacionar com cartão que ninguém vê", () => {
 		expect(kind({ effect: "read", egress: true, taint: trifecta, surface: "routine" })).toBe("hidden");
 		expect(kind({ effect: "read", egress: true, taint: trifecta, ownerPresent: false })).toBe("hidden");

@@ -94,7 +94,7 @@ export function createExecutor(deps: ExecutorDeps) {
 			effect,
 			toolName: tool.name,
 			handoffKind: tool.handoffKindFor(args),
-			taint: { untrustedReadInRun: provenance.untrustedReadInRun, argsCarryUntrusted: provenance.carries(args), privateReadInRun: provenance.privateReadInRun },
+			taint: { untrustedReadInRun: provenance.untrustedReadInRun, argsCarryUntrusted: provenance.carries(args), privateReadInRun: provenance.privateReadInRun, untrustedReadThisRun: provenance.untrustedReadThisRun, privateReadThisRun: provenance.privateReadThisRun },
 			riskFacts,
 			egress: tool.egressFor(args),
 			confirm: tool.confirm,
