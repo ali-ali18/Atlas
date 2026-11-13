@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import { afterEach, beforeEach, test } from "node:test";
 import {
 	listQueuedRunsMissingJob,
+	releasePausedRunLease,
 	requestPauseAgentRun,
 	requestResumeAgentRun,
 	tryAcquireRunLease,
@@ -117,4 +118,17 @@ test("listRunsAwaitingConnector acha só runs pausados do dono parados naquele c
 	runs.rows.push(runRow({ id: "c", userId: "u2", status: "paused", checkpointJson: pending("google_calendar") }));
 	runs.rows.push(runRow({ id: "d", userId: "u1", status: "running", checkpointJson: pending("google_calendar") }));
 	assert.deepEqual(await listRunsAwaitingConnector("u1", "google_calendar"), ["a"]);
+});
+
+test("soltar o lease de um run pausado grava o motivo: awaiting_owner no v4, paused_login por padrão; retomar limpa", async () => {
+	const lease = { owner: "w1", token: "t1", generation: 1 };
+	const parked = () => runs.rows[0]!;
+	for (const [reason, expected] of [[undefined, "paused_login"], ["awaiting_owner", "awaiting_owner"]] as const) {
+		Object.assign(parked(), { status: "paused", leaseOwner: lease.owner, leaseToken: lease.token, leaseUntil: new Date(Date.now() + 60_000), stopReason: null });
+		await releasePausedRunLease("run-1", lease, reason);
+		assert.equal(parked().stopReason, expected);
+		assert.equal(parked().leaseOwner, null);
+		assert.ok(await requestResumeAgentRun("run-1"));
+		assert.equal(parked().stopReason, null);
+	}
 });

@@ -18,6 +18,8 @@ export const RUN_STOP_REASONS = [
 	"awaiting_confirmation",
 	/** Pausado esperando login do usuário. */
 	"paused_login",
+	/** Run v4 estacionado esperando o dono decidir um pedido (aprovação, "isso é com você"). */
+	"awaiting_owner",
 	"budget_steps",
 	"budget_stalled",
 	"budget_wall",
@@ -229,6 +231,8 @@ export function describeRunStop(
 			return "Esperando uma resposta ou confirmação sua";
 		case "paused_login":
 			return "Pausado esperando o seu login";
+		case "awaiting_owner":
+			return "Esperando a sua decisão";
 		case "cancelled":
 			return "Cancelado";
 		case "retries_exhausted":

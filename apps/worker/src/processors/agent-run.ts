@@ -1843,7 +1843,7 @@ async function executeLeasedRun(ctx: {
 			await emit({ type: "paused", reason: error.message });
 			await coalescer.flush().catch(() => undefined);
 			await emitState.tail;
-			await releasePausedRunLease(runId, lease);
+			await releasePausedRunLease(runId, lease, error.message === "awaiting_owner" ? "awaiting_owner" : "paused_login");
 			return { runId, status: "paused" };
 		}
 		// Fechamento de um "Parar": compartilhado entre o abort direto (AgentRunCancelledError) e o lease perdido com cancel pedido.

@@ -1011,7 +1011,7 @@ export async function requestResumeAgentRun(runId: string): Promise<AgentRun | n
 		data: {
 			status: "queued",
 			error: null,
-			// O motivo `paused_login` valia só enquanto parado; retomado, o run volta a não ter motivo até terminar.
+			// O motivo (`paused_login`/`awaiting_owner`) valia só enquanto parado; retomado, o run volta a não ter motivo até terminar.
 			stopReason: null,
 			stopDetail: null,
 			jobEnqueuedAt: null,
@@ -1213,6 +1213,8 @@ export async function getRunControlState(
 export async function releasePausedRunLease(
 	runId: string,
 	lease: RunLease,
+	/** Por que o run ficou pausado; sem ele vale o histórico (login). O v4 estacionado esperando o dono passa `awaiting_owner`. */
+	reason: "paused_login" | "awaiting_owner" = "paused_login",
 ): Promise<void> {
 	const result = await prisma.agentRun.updateMany({
 		where: {
@@ -1220,8 +1222,8 @@ export async function releasePausedRunLease(
 			status: "paused",
 			...ownedLeaseWhere(lease),
 		},
-		// O run segue vivo (espera o login); o motivo da pausa fica registrado até o término sobrescrevê-lo.
-		data: { leaseOwner: null, leaseUntil: null, leaseToken: null, ...stopColumns({ reason: "paused_login" }) },
+		// O run segue vivo (espera o login ou o dono); o motivo da pausa fica registrado até o término sobrescrevê-lo.
+		data: { leaseOwner: null, leaseUntil: null, leaseToken: null, ...stopColumns({ reason }) },
 	});
 	if (result.count !== 1) throw new Error("lease_lost");
 }
