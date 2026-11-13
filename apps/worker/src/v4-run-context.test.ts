@@ -508,12 +508,15 @@ function processorTurn(opts: { ctx: ReturnType<typeof fakeContextDb>; mem: Retur
 				policy: { surface: "chat", ownerPresent: true, autonomy: "autonomous", rules: [] },
 			});
 		},
+		pause: async () => void opts.order?.push("pause"),
 	});
 }
 
 test("T3: turno que conclui devolve o resultado do motor e não pausa", async () => {
 	const ctx = fakeContextDb({ cards: [{ cardId: "run-0:ask1", response: "dismissed" }] });
-	const result = await processorTurn({ ctx, mem: memoryV4Db(), llm: scripted([say("pronto")]), runId: "run-t3a", registry: registryOf(sendEmail({ runs: 0 })) });
+	const order: string[] = [];
+	const result = await processorTurn({ ctx, mem: memoryV4Db(), llm: scripted([say("pronto")]), runId: "run-t3a", registry: registryOf(sendEmail({ runs: 0 })), order });
+	assert.equal(order.includes("pause"), false, "run que conclui não é pausado");
 	assert.equal(result.text, "pronto");
 	assert.equal(result.model, "fake/m-1");
 	assert.deepEqual(ctx.consumed, ["run-0:ask1"], "a resposta de cartão foi entregue ao kernel e marcada");
@@ -529,7 +532,8 @@ test("T3: turno que estaciona registra os pedidos ANTES de sinalizar a pausa (aw
 		processorTurn({ ctx, mem: memoryV4Db(), llm: scripted([callTool("c1", "send_email", { to: "a@example.com", body: "oi" })]), runId: "run-t3b", registry: registryOf(sendEmail({ runs: 0 })), order }),
 		(error: unknown) => error instanceof AgentRunPausedError && error.message === "awaiting_owner",
 	);
-	assert.deepEqual(order, ["prepare", "engine", "register"]);
+	// Piloto de 13/11: sem o `pause` o run ficava `running`, o lease não era solto e toda aprovação respondia 409.
+	assert.deepEqual(order, ["prepare", "engine", "register", "pause"]);
 	assert.equal(ctx.requests.length, 1);
 	assert.equal(ctx.requests[0]!.state, "pending");
 });
