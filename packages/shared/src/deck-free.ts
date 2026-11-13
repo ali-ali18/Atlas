@@ -23,7 +23,7 @@ export type DeckColorToken = (typeof DECK_COLOR_TOKENS)[number];
 /** `#rrggbb` (minúsculo) ou um token do tema. */
 export type DeckColor = string;
 
-/** Ícones disponíveis (lucide, ISC). Os desenhos estão em `agent-runtime/src/files/deck/icon-data.ts`. */
+/** Ícones disponíveis (lucide, ISC). Os desenhos estão em `packages/files/src/deck/icon-data.ts`. */
 export const DECK_ICON_NAMES = [
 	"rocket", "target", "users", "user", "chart-line", "chart-column", "chart-pie", "trending-up", "trending-down",
 	"dollar-sign", "wallet", "credit-card", "shopping-cart", "store", "package", "truck", "globe", "map-pin", "building-2",

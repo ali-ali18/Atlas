@@ -5,6 +5,8 @@ import {
   clearExtractRateLimits,
   clearExtractRobotsCache,
   extractWebPage,
+  decodeHtmlBytes,
+  fetchPageHtml,
   htmlToMarkdown,
   type ExtractFetchFn,
   type ExtractLookupFn,
@@ -172,5 +174,56 @@ describe("extractWebPage", () => {
     await expect(
       extractWebPage("https://a.com/doc.pdf", { fetchFn, lookupFn: publicLookup }),
     ).rejects.toMatchObject({ code: "blocked" });
+  });
+});
+
+describe("fetchPageHtml (F6.1)", () => {
+  const ld = '<script type="application/ld+json">{"@type":"Product","name":"Fone"}</script>';
+
+  it("devolve a marcação bruta, com o JSON-LD que o Markdown perde", async () => {
+    const fetchFn: ExtractFetchFn = async (url: string) =>
+      url.endsWith("/robots.txt") ? new Response("", { status: 404 }) : response(`<html><head>${ld}</head><body>x</body></html>`);
+    const page = await fetchPageHtml("https://a.com/p/fone", { fetchFn, lookupFn: publicLookup });
+    expect(page.url).toBe("https://a.com/p/fone");
+    expect(page.html).toContain('"@type":"Product"');
+  });
+
+  it("decodifica pelo charset do Content-Type ou do <meta>, com UTF-8 de padrão e fallback seguro", async () => {
+    // "Fone sem fio – promoção" em Latin-1: ç = 0xE7, ã = 0xE3, en dash não existe (usa hífen)
+    const latin1 = (s: string) => Uint8Array.from(Array.from(s).map((c) => c.charCodeAt(0)));
+    expect(decodeHtmlBytes(latin1("<html>promoção</html>"), "text/html; charset=ISO-8859-1")).toContain("promoção");
+    expect(decodeHtmlBytes(latin1('<html><head><meta charset="windows-1252"></head>promoção</html>'), "text/html")).toContain("promoção");
+    expect(decodeHtmlBytes(latin1('<meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1">ação'), "")).toContain("ação");
+    const utf8 = new TextEncoder().encode("<html>promoção</html>");
+    expect(decodeHtmlBytes(utf8, "text/html")).toContain("promoção");
+    // rótulo inventado: cai em UTF-8, sem lançar
+    expect(decodeHtmlBytes(utf8, "text/html; charset=x-inventado")).toContain("promoção");
+  });
+
+  it("fetchPageHtml entrega o texto certo de uma página Latin-1", async () => {
+    const body = Uint8Array.from(Array.from(`<html><head>${ld}</head><body>Promoção</body></html>`).map((c) => c.charCodeAt(0)));
+    const fetchFn: ExtractFetchFn = async (url: string) =>
+      url.endsWith("/robots.txt") ? new Response("", { status: 404 }) : new Response(body, { status: 200, headers: { "content-type": "text/html; charset=iso-8859-1" } });
+    const page = await fetchPageHtml("https://a.com/p/latin", { fetchFn, lookupFn: publicLookup });
+    expect(page.html).toContain("Promoção");
+  });
+
+  it("barra SSRF: IP interno, DNS que resolve para privado e redirecionamento para metadata", async () => {
+    const never: ExtractFetchFn = vi.fn(async () => response("x"));
+    await expect(fetchPageHtml("http://169.254.169.254/latest", { fetchFn: never, lookupFn: publicLookup })).rejects.toMatchObject({ code: "blocked" });
+    await expect(fetchPageHtml("https://interno.a.com/x", { fetchFn: never, lookupFn: async () => ["10.0.0.5"] })).rejects.toMatchObject({ code: "blocked" });
+    const redirect: ExtractFetchFn = async (url: string) =>
+      url.endsWith("/robots.txt") ? new Response("", { status: 404 }) : new Response(null, { status: 302, headers: { location: "http://169.254.169.254/" } });
+    await expect(fetchPageHtml("https://a.com/r", { fetchFn: redirect, lookupFn: publicLookup })).rejects.toMatchObject({ code: "blocked" });
+    expect(never).not.toHaveBeenCalled();
+  });
+
+  it("respeita robots.txt, recusa conteúdo que não é página e erro HTTP", async () => {
+    const robots: ExtractFetchFn = async (url: string) => (url.endsWith("/robots.txt") ? new Response("User-agent: *\nDisallow: /p", { status: 200 }) : response("x"));
+    await expect(fetchPageHtml("https://a.com/p/x", { fetchFn: robots, lookupFn: publicLookup })).rejects.toMatchObject({ code: "robots_denied" });
+    const pdf: ExtractFetchFn = async (url: string) => (url.endsWith("/robots.txt") ? new Response("", { status: 404 }) : response("%PDF", { headers: { "content-type": "application/pdf" } }));
+    await expect(fetchPageHtml("https://b.com/x", { fetchFn: pdf, lookupFn: publicLookup })).rejects.toMatchObject({ code: "blocked" });
+    const gone: ExtractFetchFn = async (url: string) => (url.endsWith("/robots.txt") ? new Response("", { status: 404 }) : response("", { status: 404 }));
+    await expect(fetchPageHtml("https://c.com/x", { fetchFn: gone, lookupFn: publicLookup })).rejects.toMatchObject({ code: "blocked" });
   });
 });

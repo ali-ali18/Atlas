@@ -251,7 +251,7 @@ export const MCP_CATALOG: readonly McpCatalogEntry[] = [
 		authType: "oauth",
 		// Oficial (Developer Preview Program, não aceita @gmail.com pessoal): "https://gmailmcp.googleapis.com/mcp/v1"
 		url: "builtin://google/gmail",
-		oauth: { ...GOOGLE_OAUTH, scope: googleScope("gmail.readonly", "gmail.compose") },
+		oauth: { ...GOOGLE_OAUTH, scope: googleScope("gmail.readonly", "gmail.compose", "gmail.send") },
 		availability: "available",
 		docsUrl: "https://developers.google.com/workspace/guides/configure-mcp-servers",
 		skills: [

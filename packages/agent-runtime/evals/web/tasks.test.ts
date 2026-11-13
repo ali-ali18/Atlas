@@ -29,9 +29,17 @@ describe("helpers dos checkers", () => {
 
 describe("checkers T1..T10 contra o gabarito", () => {
 	it("o gabarito tem as 10 tarefas e cada uma conta itens", () => {
-		expect(TASKS.map((task) => task.id)).toEqual(["T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8", "T9", "T10"]);
+		expect(TASKS.map((task) => task.id)).toEqual(["T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8", "T9", "T10", "T11"]);
+		expect(TASKS.filter((task) => task.optIn).map((task) => task.id)).toEqual(["T11"]);
 		for (const task of TASKS) expect(task.itemsTotal(truth), task.id).toBeGreaterThan(0);
 		expect(() => taskById("T99")).toThrow(/unknown task/);
+	});
+
+	it("T11 exige o código do comentário nº 870; sem ele ou com outro, falha", () => {
+		expect(truth.comments).toMatchObject({ total: 1000, answerAt: 870, code: "ATLAS-4242" });
+		expect(run("T11", { answer: "O código é ATLAS-4242." }).success).toBe(true);
+		expect(run("T11", { answer: "Não achei, só vi os primeiros 40 comentários." }).success).toBe(false);
+		expect(run("T11", { answer: "O código é ATLAS-4241." }).success).toBe(false);
 	});
 
 	it("T1 exige as 3 favoritas e nenhuma outra", () => {

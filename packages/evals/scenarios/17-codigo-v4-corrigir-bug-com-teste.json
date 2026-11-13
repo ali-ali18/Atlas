@@ -1,0 +1,184 @@
+{
+  "version": 1,
+  "id": "seed-codigo-corrigir-bug-com-teste",
+  "title": "Corrigir um bug num repositório com teste falhando → abre a sessão, roda o teste (falha de verdade), lê, edita com precisão e roda de novo (passa)",
+  "description": "F8.2 (só v4): substitui o gold 17 (que media a trajetória pela VM de shell por fixture). Aqui o repositório é REAL (packages/evals/fixtures/code/fixture-loja) e o teste roda de verdade numa cópia temporária: a 1ª execução falha (formatPrice devolve ponto nos centavos), o modelo lê src/price.js, edita com code_edit e a 2ª execução passa. Confere a prova (saída real do teste antes e depois), que não abriu PR e que o bot fala sem nomes de tool.",
+  "tags": [
+    "codigo",
+    "repositorio-fixture",
+    "v4-only",
+    "f8"
+  ],
+  "source": {
+    "kind": "seed",
+    "note": "F8.2: capacidade code (sessão, leitura em partes, edição precisa, teste focado)."
+  },
+  "bot": {
+    "name": "Ada",
+    "about": "Assistente pessoal do dono: e-mail, compras, estudos e agenda.",
+    "language": "pt-BR"
+  },
+  "locale": {
+    "country": "BR",
+    "currency": "BRL",
+    "timezone": "America/Sao_Paulo"
+  },
+  "history": [],
+  "user": "o teste do formatPrice no repo acme/fixture-loja está falhando. Corrige o bug e roda o teste de novo pra provar.",
+  "tools": {
+    "fixtures": [],
+    "connectors": [],
+    "allowReal": []
+  },
+  "run": {
+    "maxSteps": 14,
+    "origin": "chat",
+    "engine": "v4",
+    "sandbox": true,
+    "codeFixture": "fixture-loja"
+  },
+  "expect": [
+    {
+      "type": "completed"
+    },
+    {
+      "id": "abriu-a-sessao",
+      "type": "tool_called",
+      "tool": "code_session",
+      "args": {
+        "repo": {
+          "equals": "acme/fixture-loja"
+        }
+      }
+    },
+    {
+      "id": "viu-o-teste-falhar",
+      "type": "tool_result",
+      "tool": "code_test",
+      "pattern": "Tests FAILED"
+    },
+    {
+      "id": "leu-o-codigo",
+      "type": "tool_called",
+      "tool": "code_read",
+      "args": {
+        "path": {
+          "contains": "price"
+        }
+      }
+    },
+    {
+      "id": "editou-com-precisao",
+      "type": "tool_result",
+      "tool": "code_edit",
+      "pattern": "Edited src/price\\.js: \\+1 -1"
+    },
+    {
+      "id": "viu-o-teste-passar",
+      "type": "tool_result",
+      "tool": "code_test",
+      "pattern": "Tests PASSED"
+    },
+    {
+      "id": "testou-antes-e-depois",
+      "type": "tool_called",
+      "tool": "code_test",
+      "min": 2
+    },
+    {
+      "id": "nao-roda-a-suite-inteira",
+      "type": "tool_not_called",
+      "tool": "code_shell"
+    },
+    {
+      "id": "nao-cria-pr-sem-pedir",
+      "type": "tool_not_called",
+      "toolPattern": "pr_create|github"
+    },
+    {
+      "id": "relata-a-prova",
+      "type": "text_contains",
+      "pattern": "passou|passaram|verde",
+      "ignoreCase": true
+    },
+    {
+      "type": "no_unfulfilled_promise"
+    },
+    {
+      "type": "no_internals"
+    }
+  ],
+  "mock": {
+    "turns": [
+      {
+        "calls": [
+          {
+            "name": "use_capability",
+            "args": {
+              "id": "code"
+            }
+          }
+        ]
+      },
+      {
+        "calls": [
+          {
+            "name": "code_session",
+            "args": {
+              "repo": "acme/fixture-loja"
+            }
+          }
+        ]
+      },
+      {
+        "calls": [
+          {
+            "name": "code_test",
+            "args": {
+              "sessionId": "sess-1",
+              "cmd": "pnpm test"
+            }
+          }
+        ]
+      },
+      {
+        "calls": [
+          {
+            "name": "code_read",
+            "args": {
+              "sessionId": "sess-1",
+              "path": "src/price.js"
+            }
+          }
+        ]
+      },
+      {
+        "calls": [
+          {
+            "name": "code_edit",
+            "args": {
+              "sessionId": "sess-1",
+              "path": "src/price.js",
+              "old": "return `R$ ${value.toFixed(2)}`;",
+              "new": "return `R$ ${value.toFixed(2).replace(\".\", \",\")}`;"
+            }
+          }
+        ]
+      },
+      {
+        "calls": [
+          {
+            "name": "code_test",
+            "args": {
+              "sessionId": "sess-1",
+              "cmd": "pnpm test"
+            }
+          }
+        ]
+      },
+      {
+        "say": "Corrigi o formatPrice em src/price.js: ele devolvia o ponto dos centavos (R$ 1234.50) e agora troca por vírgula (R$ 1234,50). Antes da correção 2 testes falhavam; depois rodei de novo e os 3 passaram. Não abri PR; me diga se quer."
+      }
+    ]
+  }
+}

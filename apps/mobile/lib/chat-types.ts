@@ -1,6 +1,7 @@
 // O que a tela do chat desenha. Menor que o `Message` do web (`template-4/data.ts`): só os tipos que o app
 // mostra por enquanto; o resto vira uma linha "Abrir no navegador" (`web-card`) ou some.
-import type { MessageSource, QuestionnaireCardItem } from "@workspace/shared";
+import type { AgentCardDecision } from "./agent-cards";
+import type { AgentCardState, AgentV4Event, CalendarCardAction, CalendarCardEvent, DayPlanSection, DayPlanSourceError, EmailSourceId, EmailTriageEntry, MessageSource, QuestionnaireCardItem } from "@workspace/shared";
 
 /** Reação no balão (no máximo uma por ator): o bot reage à fala do usuário e vice-versa. */
 export type Reaction = { actor: "user" | "bot"; emoji: string };
@@ -22,6 +23,13 @@ export type ChatItem =
 	| (Base & { kind: "task-list"; runId: string; items: TaskItem[] })
 	| (Base & { kind: "confirm"; confirmId: string; title: string; description?: string; confirmLabel?: string; cancelLabel?: string; status: ConfirmStatus })
 	| (Base & { kind: "questionnaire"; questionnaireId: string; title: string; description?: string; items: QuestionnaireCardItem[]; status: QuestionnaireStatus; answers?: Record<string, string | string[]> })
+	/** Card do motor v4 (aprovação, compra com CVV, "isso é com você", pergunta do bot, recibo). `settled`: a chamada estacionada já teve resultado. */
+	| (Base & { kind: "agent-card"; card: AgentV4Event; settled?: boolean; decision?: AgentCardDecision; state?: AgentCardState })
+	/** Plano do dia, agenda e e-mail (F7): só mostram. */
+	| (Base & { kind: "day-plan"; planId: string; date: string; timeZone: string; headline: string; sections: DayPlanSection[]; sourceErrors: DayPlanSourceError[] })
+	| (Base & { kind: "calendar"; cardId: string; action: CalendarCardAction; timeZone: string; events: CalendarCardEvent[]; more?: number; notified?: boolean })
+	| (Base & { kind: "email-triage"; cardId: string; items: EmailTriageEntry[] })
+	| (Base & { kind: "email-draft"; cardId: string; source: EmailSourceId; to: string[]; cc?: string[]; subject: string; body: string; reply?: boolean; saved: boolean })
 	/** Cartão que ainda não tem tela nativa (gráfico, painel, arquivo, rotina…): uma linha com "Abrir no navegador". */
 	| (Base & { kind: "web-card"; card: WebCardKind; title: string; key: string })
 	/** Marcador de uma linha no fio (conversa compactada, mensagem enviada a outro bot). */

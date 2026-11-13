@@ -134,3 +134,19 @@ test("restart() mata, relança e devolve página nova com o mesmo perfil", async
 	assert.equal(await session.restart(), page);
 	assert.deepEqual(log, ["kill", "launch"]);
 });
+
+test("onContext roda uma vez por contexto antes de entregar a página e, se falhar, a página não sai", async () => {
+	const page = { isClosed: () => false };
+	const context = { pages: () => [page] };
+	const browser = { isConnected: () => true, contexts: () => [context] };
+	const seen = [];
+	const session = createBrowserSession({ cdpUrl: "http://127.0.0.1:9222", chromium: { connectOverCDP: async () => browser }, onContext: async (c) => { seen.push(c); } });
+	assert.equal(await session.getPage(), page);
+	assert.deepEqual(seen, [context]);
+
+	let allow = false;
+	const failing = createBrowserSession({ cdpUrl: "http://127.0.0.1:9222", chromium: { connectOverCDP: async () => browser }, onContext: async () => { if (!allow) throw new Error("guard failed"); } });
+	await assert.rejects(() => failing.getPage(), /guard failed/);
+	allow = true;
+	assert.equal(await failing.getPage(), page);
+});

@@ -1,7 +1,7 @@
 import { checkItems, mentions, mentionsDate, mentionsWord, normalize } from "./check.js";
 import type { CheckResult, EvalTask, RunArtifacts, Truth, TruthCourse } from "./types.js";
 
-// T1..T10 do PLANO-VM (seção 6). O pedido é em pt-BR (como o usuário real); o gabarito vem de `/__truth`.
+// T1..T10 do PLANO-VM (seção 6); T11 é da F8.1b (página enorme). O pedido é em pt-BR (como o usuário real); o gabarito vem de `/__truth`.
 
 const ITEM_SUFFIXES = ["lecture notes", "reading list", "practice set"];
 
@@ -181,6 +181,19 @@ export const TASKS: EvalTask[] = [
 				text: artifacts.answer,
 				expected: [{ label: `value ${truth.stats.value}`, found: mentionsWord(artifacts.answer, String(truth.stats.value)) }],
 				extra: [{ label: "used a screenshot (the value exists only in the canvas)", ok: artifacts.screenshots >= 1 }],
+			}),
+	},
+	{
+		// F8.1b: o código está no comentário nº 870 de 1.000. A página mostra 40; o resto vem por "Show more comments".
+		id: "T11",
+		optIn: true,
+		title: "Achar um código num comentário entre mil",
+		goal: (base) => `Abra ${base}/video e me diga qual é o código de desconto do patrocinador. Ele está num comentário, não sei qual.`,
+		itemsTotal: () => 1,
+		check: (artifacts, truth) =>
+			checkItems({
+				text: artifacts.answer,
+				expected: [{ label: `code ${truth.comments.code}`, found: mentionsWord(artifacts.answer, truth.comments.code) }],
 			}),
 	},
 ];

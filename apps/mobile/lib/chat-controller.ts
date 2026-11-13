@@ -3,7 +3,9 @@
 // defasada de render), e as dependências (API, stream, cache, relógio) entram por injeção para testar as corridas
 // (envio durante o fim do run, parar antes do `runId`, toque duplo em aprovação…). O hook só assina e desenha.
 import type { AgentActivity, ComputerUseEvent } from "@workspace/shared";
-import { ChatApiError, isNetworkError, isUnauthorized, sendErrorText, type CreateRunInput, type CreateRunResult } from "./chat-api";
+import { agentCardKey } from "@workspace/shared";
+import { agentCardDecisionOfState, agentCardPending, ASK_OWNER_ANSWER_MAX, type AgentCardDecision } from "./agent-cards";
+import { ChatApiError, isNetworkError, isUnauthorized, sendErrorText, type AgentRequestResult, type AgentV4Decision, type CreateRunInput, type CreateRunResult } from "./chat-api";
 import { applyRunEvent, createLiveState, startLiveRun, type LiveState } from "./chat-live";
 import { followRun, type FollowOptions, type OpenStream } from "./chat-stream";
 import { initialSync, syncLine, syncReducer, type SyncAction, type SyncState } from "./chat-sync";
@@ -20,6 +22,8 @@ export type ChatApi = {
 	getRunStatus: (runId: string) => Promise<string | null>;
 	listActiveRuns: (conversationId: string) => Promise<{ id: string; status: string }[]>;
 	submitQuestionnaire: (input: { conversationId: string; questionnaireId: string; botId: string; answers: Record<string, string | string[]> }) => Promise<{ runId: string | null }>;
+	respondRequest: (input: { runId: string; key: string; decision: AgentV4Decision; cvv?: string }) => Promise<AgentRequestResult>;
+	respondCard: (cardId: string, response: "answered" | "dismissed") => Promise<void>;
 	setReaction: (messageId: string, emoji: string) => Promise<void>;
 	clearReaction: (messageId: string) => Promise<void>;
 	markConversationUnread: (conversationId: string) => Promise<void>;
@@ -58,15 +62,37 @@ export type ChatSnapshot = {
 	error: string | null;
 	decisions: Record<string, "approved" | "rejected">;
 	answered: Record<string, true>;
+	/** O que o dono respondeu aos cards do motor v4 neste aparelho (só em memória; nunca guarda o código do cartão). */
+	agentDecisions: Record<string, AgentCardDecision>;
 };
 
 const ACTIVE_CONFLICT = "A conversa já tem uma tarefa em andamento";
 const DEFAULT_RETRY = [400, 1_000, 2_000] as const;
 
+/** Aviso amigável quando a resposta a um card v4 não passou (sem expor código técnico). */
+export function requestErrorText(reason: unknown, withCode = false): string {
+	// O código do cartão nunca é reenviado sozinho: falha passageira (rede, run ainda não parado, 5xx) = o dono digita de novo.
+	if (withCode) {
+		// 409 run_not_paused vem antes do depósito do código: aí SIM nada foi enviado nem cobrado. Rede, timeout e 5xx não garantem isso
+		// (a resposta pode ter se perdido depois de o servidor aceitar): texto neutro, sem prometer.
+		if (reason instanceof ChatApiError && reason.status === 409 && reason.message === "run_not_paused") return "Não deu para enviar o código agora. Nada foi cobrado. Digite o código de novo.";
+		const unconfirmed = !(reason instanceof ChatApiError) || (reason.status >= 500 && reason.status !== 503);
+		if (unconfirmed) return "Não consegui confirmar o envio. Confira a conversa antes de tentar de novo.";
+	}
+	if (reason instanceof ChatApiError) {
+		if (reason.status === 400 && reason.message === "cvv_required") return "Digite os 3 ou 4 números do código.";
+		if (reason.status === 503) return "O envio não está disponível agora. Nada foi aprovado nem cobrado.";
+		if (reason.status === 410) return "O pedido passou do prazo. Peça de novo ao bot.";
+		if (reason.status === 409) return "Este pedido já foi respondido.";
+		if (reason.status === 404) return "Não encontrei este pedido. Ele pode ter sido resolvido em outro aparelho.";
+	}
+	return sendErrorText(reason);
+}
+
 type Queued = { text: string; optimisticId: string; replyToMessageId?: string };
 
 function initial(): ChatSnapshot {
-	return { persisted: [], live: createLiveState(), hasMore: false, loadingOlder: false, following: false, creating: false, ready: false, sync: initialSync, error: null, decisions: {}, answered: {} };
+	return { persisted: [], live: createLiveState(), hasMore: false, loadingOlder: false, following: false, creating: false, ready: false, sync: initialSync, error: null, decisions: {}, answered: {}, agentDecisions: {} };
 }
 
 export class ChatController {
@@ -158,7 +184,7 @@ export class ChatController {
 		this.disposed = false; // (o React em desenvolvimento monta, desmonta e monta de novo)
 		const generation = ++this.generation;
 		this.stopFollowing();
-		this.state = { ...initial(), decisions: this.state.decisions, answered: this.state.answered };
+		this.state = { ...initial(), decisions: this.state.decisions, answered: this.state.answered, agentDecisions: this.state.agentDecisions };
 		this.publish();
 		const convId = this.conversationId;
 		const cache = convId ? this.deps.cacheFor(convId) : null;
@@ -254,7 +280,9 @@ export class ChatController {
 		if (!convId || this.abort) return;
 		try {
 			const runs = await this.deps.api.listActiveRuns(convId);
-			const active = runs.find((run) => run.status !== "paused");
+			// Run parado esperando o dono num card v4 (aprovação, "isso é com você"): segue também, para os botões do card valerem.
+			const waitingForCard = (runId: string) => this.state.persisted.some((item) => item.kind === "agent-card" && item.card.runId === runId && (item.card.type === "approval_request" || item.card.type === "handoff_request"));
+			const active = runs.find((run) => run.status !== "paused") ?? runs.find((run) => waitingForCard(run.id));
 			if (active && generation === this.generation && !this.abort) void this.follow(active.id);
 		} catch (reason) {
 			this.fail(reason);
@@ -516,6 +544,88 @@ export class ChatController {
 		})();
 	}
 
+	/**
+	 * Aprovar, dispensar ("Agora não") ou concluir o passo do dono num card v4. Na compra, `cvv` é o código do cartão: só
+	 * passa por aqui como argumento, vai no corpo da chamada e nunca entra em estado, cache nem log.
+	 */
+	respondToRequest(item: Extract<ChatItem, { kind: "agent-card" }>, decision: AgentV4Decision, cvv?: string): void {
+		const card = item.card;
+		if ((card.type !== "approval_request" && card.type !== "handoff_request") || !card.runId) return;
+		const key = agentCardKey(card);
+		if (this.state.agentDecisions[key] || item.settled) return;
+		const runId = card.runId;
+		const requestKey = card.type === "approval_request" ? card.requestId : card.callId;
+		const local: AgentCardDecision = decision === "approve" ? "approved" : decision === "deny" ? "denied" : "done";
+		this.set({ error: null, agentDecisions: { ...this.state.agentDecisions, [key]: local } });
+		void (async () => {
+			try {
+				// Com o código do cartão a chamada é UMA só: sem repetição automática, o valor não fica guardado esperando um retry.
+				const result = await this.respondWithRetry({ runId, key: requestKey, decision, ...(cvv !== undefined ? { cvv } : {}) });
+				if (result.resumed && !this.disposed) void this.follow(runId);
+			} catch (reason) {
+				const { [key]: _removed, ...rest } = this.state.agentDecisions;
+				// Pedido vencido: o card fica sem botões (nada foi aprovado).
+				const expired = reason instanceof ChatApiError && reason.status === 410;
+				this.set({ agentDecisions: expired ? { ...rest, [key]: "dismissed" } : rest });
+				this.fail(reason);
+				if (!this.disposed) this.set({ error: requestErrorText(reason, cvv !== undefined) });
+			}
+		})();
+	}
+
+	/** Repete o mesmo POST quando o run ainda não estacionou (409 `run_not_paused`) ou não podia ser retomado ainda. */
+	private async respondWithRetry(input: { runId: string; key: string; decision: AgentV4Decision; cvv?: string }): Promise<AgentRequestResult> {
+		// Com o código do cartão (`cvv`) não há repetição: cada envio é uma tentativa do dono, que digita o código de novo se falhar.
+		const delays = input.cvv !== undefined ? [] : (this.deps.retryDelays ?? DEFAULT_RETRY);
+		const sleep = this.deps.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+		for (let attempt = 0; ; attempt += 1) {
+			const delay = delays[attempt];
+			try {
+				const result = await this.deps.api.respondRequest(input);
+				if (result.resumed || result.pending !== undefined || delay === undefined) return result;
+			} catch (reason) {
+				const notParked = reason instanceof ChatApiError && reason.status === 409 && reason.message === "run_not_paused";
+				if (!notParked || delay === undefined) throw reason;
+			}
+			await sleep(delay);
+		}
+	}
+
+	/** Pergunta do bot: o card só marca "respondido"; o texto segue como fala da conversa (é assim que o run seguinte o recebe). */
+	answerAgentCard(item: Extract<ChatItem, { kind: "agent-card" }>, answer: string): void {
+		const card = item.card;
+		const text = answer.trim();
+		if (card.type !== "ask_owner" || !text || text.length > ASK_OWNER_ANSWER_MAX) return;
+		const key = agentCardKey(card);
+		if (this.state.agentDecisions[key] || item.settled) return;
+		this.set({ error: null, agentDecisions: { ...this.state.agentDecisions, [key]: "answered" } });
+		void (async () => {
+			try {
+				await this.deps.api.respondCard(card.cardId, "answered");
+				this.send(text);
+			} catch (reason) {
+				const { [key]: _removed, ...rest } = this.state.agentDecisions;
+				this.set({ agentDecisions: rest });
+				this.fail(reason);
+				if (!this.disposed) this.set({ error: requestErrorText(reason) });
+			}
+		})();
+	}
+
+	dismissAgentCard(item: Extract<ChatItem, { kind: "agent-card" }>): void {
+		const card = item.card;
+		if (card.type !== "ask_owner") return;
+		const key = agentCardKey(card);
+		if (this.state.agentDecisions[key] || item.settled) return;
+		this.set({ error: null, agentDecisions: { ...this.state.agentDecisions, [key]: "dismissed" } });
+		void this.deps.api.respondCard(card.cardId, "dismissed").catch((reason: unknown) => {
+			const { [key]: _removed, ...rest } = this.state.agentDecisions;
+			this.set({ agentDecisions: rest });
+			this.fail(reason);
+			if (!this.disposed) this.set({ error: requestErrorText(reason) });
+		});
+	}
+
 	// ---- menu da mensagem ---------------------------------------------------------------------------------
 
 	/** Põe (ou tira) as reações de uma fala gravada, na tela e no cache. `false` = a fala não está na lista. */
@@ -629,6 +739,24 @@ function withLocalDecisions(item: ChatItem, snapshot: ChatSnapshot): ChatItem {
 	return item;
 }
 
+/** Cada card v4 sabe se ainda pede o dono: aprovação só com o run dele parado esperando; pergunta até o dono falar de outra coisa. */
+function withAgentCardState(items: readonly ChatItem[], snapshot: ChatSnapshot): ChatItem[] {
+	const pausedRunId = snapshot.live.paused && !snapshot.live.ended ? snapshot.live.runId : null;
+	let userAfter = false;
+	const flags = new Array<boolean>(items.length).fill(false);
+	for (let index = items.length - 1; index >= 0; index -= 1) {
+		flags[index] = userAfter;
+		if (items[index]?.kind === "user") userAfter = true;
+	}
+	return items.map((item, index) => {
+		if (item.kind !== "agent-card") return item;
+		const decision = snapshot.agentDecisions[agentCardKey(item.card)] ?? agentCardDecisionOfState(item.state) ?? undefined;
+		const pending = agentCardPending(item, { pausedRunId, laterUserMessage: flags[index] === true }, decision);
+		const settled = item.card.type === "receipt" ? undefined : !pending && !decision;
+		return { ...item, ...(decision ? { decision } : {}), ...(settled !== undefined ? { settled } : {}) };
+	});
+}
+
 export function deriveView(snapshot: ChatSnapshot): ChatView {
 	const merged = reconcile(
 		snapshot.persisted.map((item) => withLocalDecisions(item, snapshot)),
@@ -637,10 +765,11 @@ export function deriveView(snapshot: ChatSnapshot): ChatView {
 	// `creating`: a fala já foi e o run ainda está sendo criado (pode levar segundos); conta como em andamento, senão
 	// o "Pensando…" some e o botão volta a ser o de voz nesse meio-tempo.
 	const running = snapshot.following || snapshot.live.paused || snapshot.creating;
+	const items = withAgentCardState(merged, snapshot);
 	const runTasks = dockedTaskList(merged, running, snapshot.live.runId);
 	const lastTasks = [...merged].reverse().find((item): item is Extract<ChatItem, { kind: "task-list" }> => item.kind === "task-list" && item.items.length > 0) ?? null;
 	return {
-		items: withSourceMarkers(merged),
+		items: withSourceMarkers(items),
 		runTasks,
 		lastTasks,
 		line: syncLine(snapshot.sync),

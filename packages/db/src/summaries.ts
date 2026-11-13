@@ -84,10 +84,21 @@ export const FRESH_SUMMARY_IGNORE_ROLES: readonly string[] = [
 	"subagents",
 	"code-run",
 	"chart",
+	"product",
+	"purchase",
+	"email-triage",
+	"email-draft",
+	"calendar",
+	"day-plan",
 	"page",
 	"task-list",
 	"compaction",
 	"revised-draft",
+	// Cards do motor v4 (role = tipo do evento): não são fala.
+	"approval_request",
+	"handoff_request",
+	"ask_owner",
+	"receipt",
 ];
 
 export type FreshSummaryOptions = {

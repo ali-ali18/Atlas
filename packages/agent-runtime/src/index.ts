@@ -161,6 +161,7 @@ export {
 	type McpTransportKind,
 } from "./mcp/client-pool.js";
 export { createGoogleMcpServer, type GoogleProduct } from "./mcp/builtin/google.js";
+// REST do Google com o token do dono (usado pelo adaptador de e-mail do motor v4, no worker).
 export {
 	MCP_CALL_TIMEOUT_MS,
 	MCP_RESULT_MAX_CHARS,
@@ -258,6 +259,7 @@ export { apiSecretValues, openApiSecrets, sealApiSecrets, type ApiConnectorSecre
 export { RateLimiter, ReadCache, resetApiRateLimiters, retryAfterMs } from "./api-connector/rate-limit.js";
 export { safeHttpRequest, SafeHttpError } from "./api-connector/safe-http.js";
 export { probeMcpServer } from "./mcp/connect.js";
+export { GoogleApiError, googleFetch, googleJson, mapGoogleApiError, type GoogleApiContext, type GoogleFetchFn } from "./mcp/builtin/google-api.js";
 export { SITE_ICON_MAX_BYTES, parseIconHostname, resolveSiteIcon, type SiteIcon } from "./mcp/site-icon.js";
 export { humanizeOAuthError, normalizingFetch } from "./mcp/oauth-fetch.js";
 export {
@@ -416,7 +418,7 @@ export {
 	printPdfWithChromium,
 	type FilePreview,
 	type RenderedFile,
-} from "./files/index.js";
+} from "@workspace/files";
 export { CREATE_FILE_TOOL, executeCreateFile } from "./tools/create-file.js";
 export {
 	decisionStepTelemetry,
@@ -521,3 +523,4 @@ export { MARKET_KEY_CATALOG_IDS, ownerMarketAccess, probeMarketKey, reportReject
 export { runEngineV2, type EngineV2Options } from "./engine-v2/index.js";
 export { executeSetEngine, shouldExposeSetEngine, SET_ENGINE_TOOL, SET_ENGINE_TOOL_NAME } from "./tools/set-engine.js";
 export type { ComputerUseParams, RunComputerUseResult } from "./computer-use.js";
+export { connectorEscrowSealer, isCardVaultConfigured, openCardSecretsJson, sealCardSecrets } from "./payment/card-seal.js";

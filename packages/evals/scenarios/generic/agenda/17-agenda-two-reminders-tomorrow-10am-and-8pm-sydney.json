@@ -1,0 +1,264 @@
+{
+  "version": 1,
+  "id": "generic-agenda-two-reminders-tomorrow-10am-and-8pm-sydney",
+  "title": "'Remind me tomorrow at 10am and again at 8pm to take my medication' (Sydney) → TWO one-time reminders (10:00 and 20:00), not one",
+  "description": "Pedido com dois horários e a mesma nota: o motor não pode tratá-los como o mesmo lembrete (auditoria F4, C2). No v4 o resultado de cada `remind_me` precisa trazer o horário resolvido no fuso do dono (Australia/Sydney) e nenhum pode voltar como 'Already scheduled'. No v2, duas rotinas de uma vez ou dois follow-ups.",
+  "tags": [
+    "generic",
+    "agenda",
+    "data-relativa"
+  ],
+  "source": {
+    "kind": "seed",
+    "note": "Conjunto genérico F0.7 (PLANO-AGENTE-V4/04-avaliacao.md §1.1): cenário sintético, acrescentado na auditoria F4 (T1/C2) para travar 'me lembra às 10h e às 20h'."
+  },
+  "bot": {
+    "name": "Mira",
+    "about": "Personal assistant: e-mail, shopping, studies and calendar.",
+    "language": "en-US"
+  },
+  "locale": {
+    "country": "AU",
+    "currency": "AUD",
+    "timezone": "Australia/Sydney"
+  },
+  "user": "remind me tomorrow at 10am and again at 8pm to take my medication",
+  "tools": {
+    "fixtures": [
+      {
+        "tool": "propose_routine",
+        "args": {
+          "action": {
+            "equals": "create"
+          }
+        },
+        "result": {
+          "ok": true,
+          "summary": "Routine created: \"Take medication\" · once · tomorrow (Australia/Sydney). The user sees the routine card."
+        }
+      },
+      {
+        "tool": "list_routines",
+        "result": {
+          "ok": true,
+          "summary": "No routines yet."
+        }
+      },
+      {
+        "tool": "list_followups",
+        "result": {
+          "ok": true,
+          "summary": "No open follow-ups."
+        }
+      },
+      {
+        "tool": "schedule_followup",
+        "result": {
+          "ok": true,
+          "summary": "Follow-up scheduled (reminder) for tomorrow."
+        }
+      }
+    ]
+  },
+  "run": {
+    "engine": "v2",
+    "proactive": true
+  },
+  "expect": [
+    {
+      "type": "completed"
+    },
+    {
+      "id": "created-the-reminder-for-10:00",
+      "type": "any_of",
+      "checks": [
+        {
+          "type": "tool_called",
+          "tool": "propose_routine",
+          "args": {
+            "action": {
+              "equals": "create"
+            },
+            "trigger_type": {
+              "equals": "once"
+            },
+            "run_at": {
+              "matches": "T10:00"
+            }
+          }
+        },
+        {
+          "type": "tool_called",
+          "tool": "schedule_followup",
+          "args": {
+            "when": {
+              "matches": "T10:00|10"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "created-the-reminder-for-20:00",
+      "type": "any_of",
+      "checks": [
+        {
+          "type": "tool_called",
+          "tool": "propose_routine",
+          "args": {
+            "action": {
+              "equals": "create"
+            },
+            "trigger_type": {
+              "equals": "once"
+            },
+            "run_at": {
+              "matches": "T20:00"
+            }
+          }
+        },
+        {
+          "type": "tool_called",
+          "tool": "schedule_followup",
+          "args": {
+            "when": {
+              "matches": "T20:00|8"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "type": "tool_not_called",
+      "tool": "propose_questionnaire"
+    },
+    {
+      "type": "no_question"
+    },
+    {
+      "id": "says-both-times",
+      "type": "text_contains",
+      "pattern": "10 ?(am|:00)",
+      "ignoreCase": true
+    },
+    {
+      "type": "no_internals"
+    }
+  ],
+  "mock": {
+    "turns": [
+      {
+        "calls": [
+          {
+            "name": "propose_routine",
+            "args": {
+              "action": "create",
+              "title": "Take medication",
+              "detail": "Remind the user to take the medication.",
+              "trigger_type": "once",
+              "run_at": "2026-11-06T10:00"
+            }
+          },
+          {
+            "name": "propose_routine",
+            "args": {
+              "action": "create",
+              "title": "Take medication (evening)",
+              "detail": "Remind the user to take the medication.",
+              "trigger_type": "once",
+              "run_at": "2026-11-06T20:00"
+            }
+          }
+        ]
+      },
+      {
+        "say": "Done: tomorrow at 10:00 am and again at 8:00 pm I will remind you to take your medication."
+      }
+    ]
+  },
+  "engineOverrides": {
+    "v4": {
+      "expect": [
+        {
+          "type": "completed"
+        },
+        {
+          "id": "created-two-reminders",
+          "type": "tool_called",
+          "tool": "remind_me",
+          "min": 2
+        },
+        {
+          "id": "first-is-tomorrow-1000-in-the-owners-zone",
+          "type": "tool_result",
+          "tool": "remind_me",
+          "pattern": "first run 2026-11-06 10:00 \\(Australia/Sydney\\)"
+        },
+        {
+          "id": "second-is-tomorrow-2000-in-the-owners-zone",
+          "type": "tool_result",
+          "tool": "remind_me",
+          "pattern": "first run 2026-11-06 20:00 \\(Australia/Sydney\\)"
+        },
+        {
+          "id": "neither-was-merged-into-the-other",
+          "type": "tool_result",
+          "tool": "remind_me",
+          "pattern": "Already scheduled",
+          "max": 0
+        },
+        {
+          "type": "tool_not_called",
+          "tool": "propose_questionnaire"
+        },
+        {
+          "type": "no_question"
+        },
+        {
+          "id": "says-both-times",
+          "type": "text_contains",
+          "pattern": "10 ?(am|:00)",
+          "ignoreCase": true
+        },
+        {
+          "type": "no_internals"
+        }
+      ],
+      "mock": {
+        "turns": [
+          {
+            "calls": [
+              {
+                "name": "use_capability",
+                "args": {
+                  "id": "agenda"
+                }
+              }
+            ]
+          },
+          {
+            "calls": [
+              {
+                "name": "remind_me",
+                "args": {
+                  "note": "Remind the owner to take the medication.",
+                  "when": "2026-11-06T10:00"
+                }
+              },
+              {
+                "name": "remind_me",
+                "args": {
+                  "note": "Remind the owner to take the medication.",
+                  "when": "2026-11-06T20:00"
+                }
+              }
+            ]
+          },
+          {
+            "say": "Done: tomorrow at 10:00 am and again at 8:00 pm I will remind you to take your medication."
+          }
+        ]
+      }
+    }
+  }
+}

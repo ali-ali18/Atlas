@@ -1,4 +1,8 @@
 export { prisma } from "./client.js";
+export * from "./agent-v4-store.js";
+export * from "./agent-v4-bot-settings.js";
+export * from "./agent-v4-requests.js";
+export * from "./agent-v4-cards.js";
 export * from "./message-reactions.js";
 export * from "./message-run-context.js";
 export * from "./reaction-only.js";
@@ -127,6 +131,7 @@ export {
 	getBotModelForUser,
 	getBotModelChoiceForUser,
 	setBotReasoningEffort,
+	setBotCodeMode,
 	getBotPolicy,
 	listBots,
 	updateBot,
@@ -359,6 +364,7 @@ export {
 	getRoutineTemplateForAgentRun,
 	getRoutineContextForAgentRun,
 	recordRoutineAlertState,
+	getRoutineLoginPermissionForAgentRun,
 	getRoutinePageIdForAgentRun,
 	findRecentRoutineRunByIdempotency,
 	createRoutineRun,
@@ -563,6 +569,7 @@ export {
 	loadReflectionContext,
 	processProactive,
 	recordProactiveEvent,
+	resolveProactiveModel,
 	rescheduleFollowup,
 	reserveProactiveMessage,
 	type FollowupKind,
@@ -573,6 +580,41 @@ export {
 	type ProactiveEventKind,
 	type ProactiveSweepResult,
 } from "./proactive.js";
+export {
+	AGENDA_RUN_RETRY_MS,
+	AgendaError,
+	beginAgendaRun,
+	changeAgendaItem,
+	claimDueAgendaItems,
+	createAgendaItem,
+	decideAgendaWake,
+	finalizeAgendaRun,
+	findAgendaItemsForEvent,
+	AGENDA_EVENT_PENDING,
+	markAgendaEventPending,
+	queueAgendaEventWakes,
+	getAgendaItem,
+	getAgendaItemByRunId,
+	isAgendaRunInFlight,
+	listAgendaItems,
+	loadAgendaSettings,
+	loadNoticeSignals,
+	listEndedAgendaItems,
+	releaseAgendaRun,
+	recordAgendaResult,
+	reserveAgendaItem,
+	rescheduleAgendaItem,
+	stopAgendaItem,
+	type AgendaAction,
+	type AgendaGrant,
+	type AgendaItemRecord,
+	type AgendaLastResult,
+	type AgendaWakeDecision,
+	type CreateAgendaResult,
+	type FinalizeAgendaRunResult,
+	type RecordAgendaResultInput,
+	type RecordAgendaResultOutput,
+} from "./agenda.js";
 export {
 	ROUTINE_PROPOSAL_ROLE,
 	appendRoutineProposalCard,
@@ -764,3 +806,8 @@ export {
 	type AutoBriefCandidate,
 	type AutoBriefSignals,
 } from "./brief-auto.js";
+export * from "./notes.js";
+export * from "./purchases.js";
+export * from "./sleep-reports.js";
+export { patchBotRuleForOwner, listBotRulesForOwner, removeBotRuleForOwner } from "./bot-rules.js";
+export * from "./saved-cards.js";

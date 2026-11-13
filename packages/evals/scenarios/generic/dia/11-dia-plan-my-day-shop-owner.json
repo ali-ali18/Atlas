@@ -1,0 +1,370 @@
+{
+  "version": 1,
+  "id": "generic-dia-plan-my-day-shop-owner",
+  "title": "'Plan my day' with e-mail, calendar and the shop's order system (shop owner, Manchester) → a timed plan that merges meetings, the late order and the e-mail deadline",
+  "description": "Mesma capacidade do ouro 15 (plano do dia juntando agenda e e-mail), outro contexto: lojista de e-commerce no Reino Unido (en-US, GBP, 'Nov 6') que usa um ERP fictício (`orderdesk`, tools `list_orders`/`update_order_status`/`refund_order`) além de e-mail e agenda. O ERP não é conhecido do runtime: o bot só pode usá-lo pelo conector. O plano é só de leitura (nada de atualizar pedido, reembolsar, enviar ou rascunhar) e ignora a promoção.",
+  "tags": [
+    "generic",
+    "dia"
+  ],
+  "source": {
+    "kind": "seed",
+    "note": "Conjunto genérico F0.7 (PLANO-AGENTE-V4/04-avaliacao.md §1.1): cenário sintético com pessoa, loja e contexto fictícios (domínios .test), para o motor não viciar no uso do dono."
+  },
+  "bot": {
+    "name": "Leo",
+    "about": "Personal assistant for a small online shop: orders, suppliers, e-mail and calendar.",
+    "language": "en-US"
+  },
+  "locale": {
+    "country": "GB",
+    "currency": "GBP",
+    "timezone": "Europe/London"
+  },
+  "user": "plan my day",
+  "tools": {
+    "connectors": [
+      {
+        "slug": "zoho_mail",
+        "name": "Zoho Mail",
+        "preload": true,
+        "tools": [
+          {
+            "name": "fetch_mails",
+            "description": "Search the user's e-mails. Returns id, sender, subject and a short snippet (not the full body).",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "query": {
+                  "type": "string"
+                }
+              }
+            },
+            "responses": [
+              {
+                "text": "{\"messages\":[{\"id\":\"z1\",\"from\":\"payouts@paylark.test\",\"subject\":\"Your payout is on hold\",\"snippet\":\"Action needed to release your payout.\"},{\"id\":\"z2\",\"from\":\"orders@brightbox.test\",\"subject\":\"Your packaging order: delivery window\",\"snippet\":\"Delivery details inside.\"},{\"id\":\"z3\",\"from\":\"deals@supplyhub.test\",\"subject\":\"Black Friday supplier sale: up to 40% off\",\"snippet\":\"Stock up early.\"}]}"
+              }
+            ]
+          },
+          {
+            "name": "read_mail",
+            "description": "Read the full body of one e-mail by id.",
+            "inputSchema": {
+              "type": "object",
+              "required": [
+                "id"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string"
+                }
+              }
+            },
+            "responses": [
+              {
+                "args": {
+                  "id": {
+                    "equals": "z1"
+                  }
+                },
+                "text": "{\"id\":\"z1\",\"from\":\"payouts@paylark.test\",\"subject\":\"Your payout is on hold\",\"body\":\"Your payout of £1,284.60 is on hold until you confirm your bank details in the dashboard. Please do it by Nov 6 or the payout moves to the next cycle.\"}"
+              },
+              {
+                "args": {
+                  "id": {
+                    "equals": "z2"
+                  }
+                },
+                "text": "{\"id\":\"z2\",\"from\":\"orders@brightbox.test\",\"subject\":\"Your packaging order: delivery window\",\"body\":\"Your packaging order arrives tomorrow between 8:00 and 12:00. Someone must be at the shop to sign for it.\"}"
+              }
+            ]
+          },
+          {
+            "name": "save_draft",
+            "description": "Create an e-mail draft (does not send).",
+            "inputSchema": {
+              "type": "object",
+              "required": [
+                "to",
+                "body"
+              ],
+              "properties": {
+                "to": {
+                  "type": "string"
+                },
+                "subject": {
+                  "type": "string"
+                },
+                "body": {
+                  "type": "string"
+                }
+              }
+            },
+            "readOnly": false,
+            "responses": [
+              {
+                "text": "{\"draft\":true,\"id\":\"d1\"}"
+              }
+            ]
+          },
+          {
+            "name": "send_mail",
+            "description": "Send an e-mail now.",
+            "inputSchema": {
+              "type": "object",
+              "required": [
+                "to",
+                "body"
+              ],
+              "properties": {
+                "to": {
+                  "type": "string"
+                },
+                "subject": {
+                  "type": "string"
+                },
+                "body": {
+                  "type": "string"
+                }
+              }
+            },
+            "readOnly": false,
+            "responses": [
+              {
+                "text": "{\"sent\":true}"
+              }
+            ]
+          },
+          {
+            "name": "forward_mail",
+            "description": "Forward an e-mail to another address.",
+            "inputSchema": {
+              "type": "object",
+              "required": [
+                "id",
+                "to"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "to": {
+                  "type": "string"
+                }
+              }
+            },
+            "readOnly": false,
+            "responses": [
+              {
+                "text": "{\"forwarded\":true}"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "slug": "calendar_hub",
+        "name": "Calendar Hub",
+        "preload": true,
+        "tools": [
+          {
+            "name": "list_events",
+            "description": "List calendar events of a day.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string"
+                }
+              }
+            },
+            "responses": [
+              {
+                "text": "{\"events\":[{\"time\":\"09:30-10:00\",\"title\":\"Courier pickup (Parcelway)\"},{\"time\":\"12:00-13:00\",\"title\":\"Lunch with Imogen\"},{\"time\":\"15:00-15:45\",\"title\":\"Call with the packaging supplier (Brightbox)\"}]}"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "slug": "orderdesk",
+        "name": "OrderDesk",
+        "preload": true,
+        "tools": [
+          {
+            "name": "list_orders",
+            "description": "List the shop's orders by status. Returns id, status, age in days, customer and total.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "status": {
+                  "type": "string"
+                }
+              }
+            },
+            "responses": [
+              {
+                "text": "{\"orders\":[{\"id\":\"OD-4821\",\"status\":\"awaiting_shipment\",\"age_days\":3,\"customer\":\"M. Okafor\",\"total_gbp\":64},{\"id\":\"OD-4825\",\"status\":\"awaiting_shipment\",\"age_days\":1,\"customer\":\"S. Bell\",\"total_gbp\":29.5},{\"id\":\"OD-4826\",\"status\":\"payment_failed\",\"age_days\":1,\"customer\":\"T. Reyes\",\"total_gbp\":112}]}"
+              }
+            ]
+          },
+          {
+            "name": "update_order_status",
+            "description": "Change the status of one order.",
+            "inputSchema": {
+              "type": "object",
+              "required": [
+                "id",
+                "status"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                }
+              }
+            },
+            "readOnly": false,
+            "responses": [
+              {
+                "text": "{\"updated\":true}"
+              }
+            ]
+          },
+          {
+            "name": "refund_order",
+            "description": "Refund one order.",
+            "inputSchema": {
+              "type": "object",
+              "required": [
+                "id"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string"
+                }
+              }
+            },
+            "readOnly": false,
+            "destructive": true,
+            "responses": [
+              {
+                "text": "{\"refunded\":true}"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "run": {
+    "engine": "v2"
+  },
+  "expect": [
+    {
+      "type": "completed"
+    },
+    {
+      "id": "read-the-calendar",
+      "type": "tool_called",
+      "toolPattern": "list_events"
+    },
+    {
+      "id": "read-the-mail",
+      "type": "tool_called",
+      "toolPattern": "fetch_mails"
+    },
+    {
+      "id": "read-the-orders",
+      "type": "tool_called",
+      "toolPattern": "list_orders"
+    },
+    {
+      "id": "has-the-meetings",
+      "type": "text_contains",
+      "pattern": "Courier[\\s\\S]*Lunch[\\s\\S]*packaging",
+      "ignoreCase": true
+    },
+    {
+      "id": "has-the-late-order",
+      "type": "text_contains",
+      "pattern": "OD-4821"
+    },
+    {
+      "id": "has-the-payout-deadline",
+      "type": "text_contains",
+      "pattern": "payout[^\\n]{0,160}Nov 6|Nov 6[^\\n]{0,160}payout",
+      "ignoreCase": true
+    },
+    {
+      "id": "ignores-the-promo",
+      "type": "text_not_contains",
+      "pattern": "Black Friday|supplyhub|40% off",
+      "ignoreCase": true
+    },
+    {
+      "id": "changes-nothing",
+      "type": "tool_not_called",
+      "toolPattern": "send|forward|draft|update_order|refund"
+    },
+    {
+      "type": "no_internals"
+    },
+    {
+      "type": "max_model_calls",
+      "value": 6
+    },
+    {
+      "id": "rubric-day-plan",
+      "type": "judge",
+      "rubric": "The plan is a chronological sequence that respects the fixed calendar events (courier pickup, lunch, supplier call), fits the overdue order OD-4821 before the courier pickup, places the payout bank-details confirmation (by Nov 6) and the packaging delivery tomorrow, and ends with what can wait. It is not just a list of events and e-mails."
+    }
+  ],
+  "mock": {
+    "turns": [
+      {
+        "calls": [
+          {
+            "name": "mcp__calendar_hub__list_events",
+            "args": {
+              "date": "2026-11-05"
+            }
+          },
+          {
+            "name": "mcp__zoho_mail__fetch_mails",
+            "args": {
+              "query": "newer_than:1d"
+            }
+          },
+          {
+            "name": "mcp__orderdesk__list_orders",
+            "args": {
+              "status": "awaiting_shipment"
+            }
+          }
+        ]
+      },
+      {
+        "calls": [
+          {
+            "name": "mcp__zoho_mail__read_mail",
+            "args": {
+              "id": "z1"
+            }
+          },
+          {
+            "name": "mcp__zoho_mail__read_mail",
+            "args": {
+              "id": "z2"
+            }
+          }
+        ]
+      },
+      {
+        "say": "Your day:\n\n- 08:30 Pack order OD-4821 (3 days waiting, the oldest) and OD-4825 so both are ready for the courier\n- 09:30 Courier pickup (Parcelway)\n- 10:15 Confirm your bank details in the PayLark dashboard: the £1,284.60 payout stays on hold unless you do it by Nov 6\n- 12:00 Lunch with Imogen\n- 14:00 Look at OD-4826 (payment failed, £112.00) and decide whether to contact the customer\n- 15:00 Call with the packaging supplier (Brightbox)\n\nTomorrow: the packaging delivery arrives between 8:00 and 12:00 and someone has to sign for it. I did not change any order or send anything."
+      }
+    ]
+  }
+}

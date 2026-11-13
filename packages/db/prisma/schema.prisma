@@ -27,6 +27,8 @@ model User {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   sessions      Session[]
+  savedCards    SavedCard[]
+  purchaseMandate PurchaseMandate?
   accounts      Account[]
   bots          Bot[]
   sections      Section[]
@@ -34,6 +36,9 @@ model User {
   settings      UserSettings?
   memories      MemoryEntry[]
   memoryChanges MemoryChange[]
+  notes Note[]
+  purchases Purchase[]
+  sleepReports SleepReport[]
   botLessons    BotLesson[]
   pages         Page[]
   runs          AgentRun[]
@@ -258,6 +263,10 @@ model MemoryChange {
   beforeMeta Json?
   /// chat | reflection | user
   source    String
+  /// Metadados do estado posterior (nota do caderno: título e fixada). Nulo nas entradas de memória.
+  afterMeta Json?
+  /// Relatório do sono que fez a mudança (`sleep_reports.id`), para agrupar "o que o sono fez". Sem FK: o relatório pode sumir.
+  reportId  String?
   /// Se esta linha é um "desfazer", o id da mudança desfeita (não pode ser desfeita de novo).
   undoOfId  String?
   createdAt DateTime  @default(now())
@@ -265,6 +274,7 @@ model MemoryChange {
 
   @@index([userId, createdAt])
   @@index([userId, botId, createdAt])
+  @@index([userId, target, createdAt])
   @@map("memory_changes")
 }
 
@@ -438,6 +448,9 @@ model AgentRun {
   leaseGeneration  Int       @default(0)
   sandboxSessionId String?
   checkpointJson   Json?
+  /// Motor v4: sinais de proveniência do run (`untrustedReadInRun`, `privateReadInRun`, `sources`), gravados junto com o checkpoint v4.
+  /// Coluna pequena para ler o taint herdado da conversa sem abrir o `checkpointJson` (grande, em TOAST). Nulo = run sem v4.
+  v4Provenance     Json?
   error            String?
   /// Por que o run terminou (RunStopReason de @workspace/shared). String livre, sem enum no banco: motivo novo não exige migration.
   stopReason       String?
@@ -460,6 +473,10 @@ model AgentRun {
   skillLearningJobs SkillLearningJob[]
   routineRuns RoutineRun[]
   delivery  RunDelivery?
+  /// Motor v4: journal e recibos (tabelas novas; sem coluna em `agent_runs`).
+  v4Journal  AgentJournalEntry[]
+  v4Receipts AgentReceipt[]
+  v4Requests AgentV4Request[]
 
   @@index([conversationId, status])
   @@index([userId, status])
@@ -784,6 +801,8 @@ model Routine {
   /// Alerta por condição (só cron/interval): { condition, hint?, active, checkedAt?, triggeredAt?, lastSummary? }.
   /// `active` é o estado da última verificação conclusiva (debounce: só avisa na virada para verdadeiro).
   alertJson       Json?
+  /// Permissão de login aprovada pelo dono ao criar/editar: { login, site, approvedAt }. No run da rotina o `login_fill` só existe para esse login e site.
+  loginPermissionJson Json?
   /// user | bot (criada pelo bot no modo proativo)
   createdBy       String    @default("user")
   lastRunAt       DateTime?
@@ -1107,7 +1126,7 @@ model BotFollowup {
   note           String
   /// reminder | check
   kind           String    @default("reminder")
-  /// pending | done | cancelled
+  /// pending | done | cancelled (agenda v4 acrescenta: paused)
   status         String    @default("pending")
   /// chat (usuário pediu na conversa) | reflection (o bot decidiu sozinho)
   source         String    @default("chat")
@@ -1120,12 +1139,43 @@ model BotFollowup {
   doneAt         DateTime?
   /// Avisos do lembrete: [{ at, firedAt }]. Nulo = um aviso só, em dueAt. dueAt = próximo aviso pendente.
   stages         Json?
+  // --- Agenda do agente (Motor v4, F4.1). Tudo anulável ou com default: linha antiga (v2) fica com `agendaKind` nulo. ---
+  /// remind | watch | intent | brief. Nulo = lembrete/verificação do v2 (a varredura do v2 só pega nulo).
+  agendaKind       String?
+  /// Intervalo entre execuções (watch e remind recorrente). Nulo = uma vez.
+  intervalMinutes  Int?
+  /// A agenda para de vigiar depois deste instante.
+  untilAt          DateTime?
+  /// Teto de execuções (runCount conta as já feitas).
+  maxRuns          Int?
+  runCount         Int       @default(0)
+  /// Filtro estrutural do evento que acorda um item `intent` (campos declarados, sem regex).
+  eventFilterJson  Json?
+  /// Execuções seguidas sem novidade: aumentam o espaçamento.
+  noChangeStreak   Int       @default(0)
+  /// Último resultado do run de agenda: { runId, outcome, at, message?, memo?, pending? }.
+  lastResultJson   Json?
+  /// Instante do último aviso postado e ainda não avaliado como lido ou ignorado.
+  lastNoticeAt     DateTime?
+  /// Avisos seguidos que o dono ignorou (parou ao chegar em 2).
+  ignoredStreak    Int       @default(0)
+  /// Permissão decidida na criação: { autonomy, rules }. O run de agenda usa só isto, sem dono para perguntar.
+  grantJson        Json?
+  /// Por que a agenda encerrou ou pausou sozinha (done | cancelled | paused): ignored_notices, max_runs, expired, no_result…
+  endReason        String?
+  /// A nota nasceu num run que leu conteúdo não confiável (e-mail, web, arquivo…): no wake ela entra como DADO, não como
+  /// instrução do runtime. O memo do último resultado leva o próprio sinal em `lastResultJson.memoUntrusted`.
+  noteUntrusted    Boolean   @default(false)
+  /// Janela de 24h do item `intent`: quando abriu e quantos acordares por evento já gastou (teto diário de custo).
+  eventWindowAt    DateTime?
+  eventWindowCount Int       @default(0)
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
   @@index([status, dueAt])
   @@index([botId, status])
   @@index([userId])
+  @@index([userId, agendaKind, status])
   @@map("bot_followups")
 }
 
@@ -1510,4 +1560,255 @@ model PageRevision {
 
   @@unique([pageId, revision])
   @@map("page_revisions")
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Motor v4 (PLANO-AGENTE-V4, F1.12). Tabelas NOVAS, por acréscimo: nada de tabela ou coluna existente muda, então o v2
+// segue idêntico durante a convivência e api/worker em versões diferentes no deploy não se enxergam. O checkpoint do v4
+// reaproveita `AgentRun.checkpointJson` (chave `v4`), sem coluna nova. Toda leitura/escrita filtra por `userId`.
+// ---------------------------------------------------------------------------------------------------------------
+
+/// Journal de efeitos do v4: `started` antes de escrever, `succeeded`/`failed` depois. A chave de idempotência impede
+/// repetir um efeito já feito na retomada. Guarda só o hash dos argumentos, nunca os argumentos crus.
+model AgentJournalEntry {
+  id             String   @id @default(cuid())
+  runId          String
+  run            AgentRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  userId         String
+  step           Int
+  idempotencyKey String
+  toolName       String
+  argsHash       String
+  /// started | succeeded | failed (string livre, sem enum no banco).
+  state          String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([userId, runId, idempotencyKey])
+  /// Cobre a FK: apagar o run (cascata) não varre a tabela inteira.
+  @@index([runId])
+  @@map("agent_journal_entries")
+}
+
+/// Recibo tipado de um efeito do v4 (o card de resultado sai daqui, não da narração do modelo).
+model AgentReceipt {
+  id         String   @id @default(cuid())
+  runId      String
+  run        AgentRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  userId     String
+  toolName   String
+  effect     String
+  summary    String
+  /// Onde o efeito aconteceu (conta, arquivo, URL...).
+  location   String?
+  externalId String?
+  url        String?
+  createdAt  DateTime @default(now())
+
+  @@index([userId, runId, createdAt])
+  @@index([runId])
+  @@map("agent_receipts")
+}
+
+/// Nota do agente v4 (caderno de trabalho do run e, depois, o "Caderno" do dono). A chave é (dono, id): o mesmo id
+/// de dois donos nunca colide.
+model AgentNote {
+  id          String
+  userId      String
+  botId       String?
+  title       String
+  body        String
+  pinned      Boolean  @default(false)
+  sourceRunId String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@id([userId, id])
+  @@index([userId, pinned, updatedAt])
+  @@map("agent_notes")
+}
+
+/// Oferta de continuar ("quer que eu continue?") de uma conversa: só existe como cartão, com estado próprio.
+model AgentConversationOffer {
+  id             String   @id @default(cuid())
+  userId         String
+  conversationId String
+  cardId         String
+  label          String
+  /// open | answered | dismissed | ignored.
+  state          String
+  /// Ordem de criação na conversa (a mais antiga cai primeiro quando passa do limite).
+  position       Int
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([userId, conversationId, cardId])
+  @@index([userId, conversationId, position])
+  @@map("agent_conversation_offers")
+}
+
+/// Rótulo de oferta que o dono dispensou ou ignorou: o modelo o recebe como dado e não oferece de novo.
+model AgentConversationDeclined {
+  userId         String
+  conversationId String
+  label          String
+  createdAt      DateTime @default(now())
+
+  @@id([userId, conversationId, label])
+  @@map("agent_conversation_declined")
+}
+
+/// Pedido do v4 que espera o dono (aprovação, handoff) ou resposta dada a um cartão de pergunta (`ask_owner`).
+/// A chave é (dono, run, tipo, chave): `approval` = `ApprovalRequest.id`, `handoff` = id da chamada, `card` = id do cartão.
+/// A decisão do dono grava aqui (uma vez, por transição atômica de estado) e o processador monta o `ResumeInput` / as
+/// `cardResponses` do kernel a partir destas linhas.
+model AgentV4Request {
+  id             String    @id @default(cuid())
+  userId         String
+  runId          String
+  run            AgentRun  @relation(fields: [runId], references: [id], onDelete: Cascade)
+  conversationId String?
+  /// approval | handoff | card.
+  kind           String
+  key            String
+  /// Chamada estacionada (approval e handoff).
+  callId         String?
+  toolName       String?
+  /// Hash dos argumentos reais aprovados (só approval): o grant do kernel o repete.
+  payloadHash    String?
+  /// approval/handoff: pending | approved | denied | done | expired. card: answered | dismissed.
+  state          String
+  /// Prazo de resposta (approval e handoff); passado dele o pedido vira `expired`.
+  expiresAt      DateTime?
+  decidedAt      DateTime?
+  /// card: o run seguinte já levou a resposta ao kernel.
+  consumedAt     DateTime?
+  createdAt      DateTime  @default(now())
+
+  @@unique([userId, runId, kind, key])
+  @@index([runId])
+  @@index([userId, conversationId, kind, state])
+  @@map("agent_v4_requests")
+}
+
+/// Caderno do dono (Motor v4, F5.1): notas duráveis, além do caderno de trabalho de um run (`agent_notes`, notas `work:`).
+/// Tabela própria porque o ciclo de vida é outro: nota de trabalho é descartável e grande (saída de tool) com chave composta;
+/// nota do dono é pequena, fixável, aparece na Biblioteca e entra no histórico desfazível. Escopo por dono SEMPRE:
+/// toda consulta filtra `userId`. `botId` nulo = do dono (todos os bots leem); preenchido = só deste bot.
+/// `botId` sem FK de propósito (como `memory_entries`): apagar o bot não apaga as notas do dono.
+model Note {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  botId       String?
+  title       String
+  body        String
+  pinned      Boolean  @default(false)
+  /// owner (UI/API) | agent (tool, a pedido do dono) | sleep (sono do bot)
+  source      String   @default("owner")
+  sourceRunId String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId, pinned, updatedAt])
+  @@index([userId, botId, updatedAt])
+  @@map("notes")
+}
+
+/// Relatório do sono (Motor v4, F5.3): uma linha por bot e por slot (dia local do dono; domingo no doctor). A unicidade
+/// é também a reserva do trabalho: dois workers nunca dormem o mesmo bot no mesmo dia. Guarda o resumo para o dono e as
+/// propostas que não se aplicam sozinhas (habilidades, casos de eval, achados do doctor).
+model SleepReport {
+  id            String    @id @default(cuid())
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Restrict)
+  botId         String
+  /// daily | doctor
+  kind          String
+  /// Dia local do dono (`YYYY-MM-DD`).
+  slot          String
+  /// running | done | skipped | failed
+  status        String    @default("running")
+  /// Motivo curto de skipped/failed (sem segredo).
+  detail        String?
+  /// Frase para o dono (pt-BR ou idioma do bot).
+  summary       String?
+  proposalsJson Json?
+  statsJson     Json?
+  /// Fim da janela lida (o início do próximo sono).
+  windowEnd     DateTime?
+  createdAt     DateTime  @default(now())
+  finishedAt    DateTime?
+
+  @@unique([botId, kind, slot])
+  @@index([userId, createdAt])
+  @@map("sleep_reports")
+}
+
+/// Compra registrada (Motor v4, F6.5): fato da vida do dono (loja, itens, total pago, pedido, rastreio). Toda consulta
+/// filtra `userId`; `botId` é o bot que registrou. `dedupeKey` (loja + pedido, ou loja + total + dia) evita duplicar.
+/// `deliveryWatchId` liga ao vigia de entrega criado na agenda (BotFollowup), sem FK de propósito.
+model Purchase {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  botId           String?
+  conversationId  String?
+  merchant        String
+  /// [{ name, quantity, unitPrice? }]
+  itemsJson       Json
+  total           Decimal  @db.Decimal(14, 2)
+  currency        String
+  purchasedAt     DateTime
+  orderNumber     String?
+  trackingCode    String?
+  trackingUrl     String?
+  dedupeKey       String
+  sourceRunId     String?
+  deliveryWatchId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([userId, dedupeKey])
+  @@index([userId, purchasedAt])
+  @@index([userId, botId])
+  @@map("purchases")
+}
+
+/// Cartão salvo do dono (Motor v4, F6.2). Número, nome, validade e endereço de cobrança só em `secretsEnc`
+/// (AES-256-GCM, mesma caixa dos conectores). NUNCA existe coluna nem campo de CVV: ele é digitado a cada compra.
+/// `brand` e `last4` são o que a lista mostra.
+model SavedCard {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  label      String
+  brand      String
+  last4      String
+  secretsEnc String
+  createdAt  DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@map("saved_cards")
+}
+
+/// Mandato de compra do dono (F6.4): um por dono. Pula só o "confirmar"; o CVV continua sendo pedido.
+model PurchaseMandate {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  maxAmount Float
+  currency  String
+  /// Lojas permitidas (identificadores em minúsculo).
+  merchants String[]
+  until     DateTime
+  usesLeft  Int
+  /// Total de usos original: o teto da devolução de um uso (nunca passa disto).
+  usesTotal Int      @default(0)
+  /// Sobe a cada troca do mandato: gasto e devolução valem só para a revisão que o run viu.
+  rev       Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("purchase_mandates")
 }

@@ -8,6 +8,7 @@ import {
 	parsePagePatchOps,
 	parsePageSources,
 	parsePageSpec,
+	outlinePageSpec,
 	summarizePageSpec,
 	type ComputerUseEvent,
 	type PageNode,
@@ -230,51 +231,8 @@ export function sourcesFromResearchNotes(notes: readonly ResearchNote[]): PageSo
 
 const READ_FULL_MAX_CHARS = 20_000;
 
-function nodeLabel(node: PageNode): string {
-	switch (node.type) {
-		case "section":
-		case "card":
-			return node.props.title ?? "";
-		case "stat":
-		case "progress":
-			return node.props.label;
-		case "heading":
-			return node.props.text.slice(0, 60);
-		case "text":
-			return node.props.markdown.slice(0, 60);
-		case "badge":
-			return node.props.text;
-		case "callout":
-			return (node.props.title ?? node.props.text).slice(0, 60);
-		case "chart":
-			return node.props.spec.title ?? node.props.spec.type;
-		case "table":
-			return node.props.columns.map((column) => column.label).join(", ").slice(0, 60);
-		case "bar_list":
-		case "list":
-		case "timeline":
-			return `${node.props.items.length} items`;
-		case "kanban":
-			return node.props.columns.map((column) => column.title).join(" | ").slice(0, 60);
-		case "tabs":
-			return node.props.tabs.map((tab) => tab.label).join(" | ");
-		case "grid":
-			return `${node.props.cols} cols`;
-		default:
-			return "";
-	}
-}
-
-/** Uma linha por nó (id, tipo, rótulo), com os filhos indentados. */
-export function outlinePage(spec: PageSpec): string {
-	const lines: string[] = [];
-	const visit = (node: PageNode, depth: number) => {
-		lines.push(`${"  ".repeat(depth)}- ${node.id} [${node.type}] ${nodeLabel(node)}`.trimEnd());
-		for (const child of node.children ?? []) visit(child, depth + 1);
-	};
-	visit(spec.root, 0);
-	return lines.join("\n");
-}
+/** Uma linha por nó (id, tipo, rótulo); a lógica pura mora em `shared` (o v4 usa a mesma). */
+export const outlinePage = outlinePageSpec;
 
 function requireScope(ctx: PageToolContext): { userId: string; botId: string; store: PagesStore } {
 	const userId = ctx.userId?.trim();

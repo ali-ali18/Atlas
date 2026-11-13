@@ -7,6 +7,7 @@
 import { DEV_COMMAND_ALLOWLIST_MAX, agentMayAllowPrefix, normalizeCommandPrefix } from "./dev-command-approval.js";
 import { DETECT_TEXT_FILES, type RepoProbe } from "./dev-env-detect.js";
 import { isValidSecretName } from "./vault.js";
+import { parseLoginFieldDecls, type LoginRequestInfo } from "./vault-login.js";
 import { DEV_ENV_COMMAND_MAX, DEV_ENV_TIER_LABEL, DEV_ENV_TIERS, isDevEnvTier, minTier, validateSecretName, type DevEnvTier } from "./dev-environment.js";
 
 const NL = String.fromCharCode(10);
@@ -309,18 +310,33 @@ export type SecretsRequestInfo = {
 	repo: string;
 	names: string[];
 	reason: string;
+	/** Pedido de LOGIN do cofre (só `environmentId: "vault"`): um campo por item declarado, `names` são as chaves. Sem valores. */
+	login?: LoginRequestInfo;
 };
 
 export function parseSecretsRequestInfo(raw: unknown): SecretsRequestInfo | undefined {
 	if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return undefined;
 	const row = raw as Record<string, unknown>;
 	if (typeof row.environmentId !== "string" || !row.environmentId || typeof row.repo !== "string" || !Array.isArray(row.names)) return undefined;
-	const names: string[] = [];
 	const vault = row.environmentId === VAULT_ENVIRONMENT_ID;
+	const login = vault ? parseLoginRequestInfo(row.login) : undefined;
+	if (login) return { environmentId: row.environmentId.slice(0, 64), repo: row.repo.slice(0, 140), names: login.fields.map((f) => f.key), reason: typeof row.reason === "string" ? row.reason.slice(0, 300) : "", login };
+	const names: string[] = [];
 	for (const item of row.names.slice(0, REQUEST_SECRETS_MAX_NAMES)) {
 		const checked = vault ? (isValidSecretName(item) ? { name: item } : { error: "nome inválido" }) : validateSecretName(item);
 		if (!("error" in checked) && !names.includes(checked.name)) names.push(checked.name);
 	}
 	if (names.length === 0) return undefined;
 	return { environmentId: row.environmentId.slice(0, 64), repo: row.repo.slice(0, 140), names, reason: typeof row.reason === "string" ? row.reason.slice(0, 300) : "" };
+}
+
+/** Lê o pedido de login (site + campos) de um evento ou intenção guardada; `undefined` se faltar ou estiver inválido. */
+export function parseLoginRequestInfo(raw: unknown): LoginRequestInfo | undefined {
+	if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return undefined;
+	const row = raw as Record<string, unknown>;
+	if (typeof row.site !== "string" || !row.site.trim()) return undefined;
+	const parsed = parseLoginFieldDecls(row.fields);
+	if ("error" in parsed) return undefined;
+	const name = typeof row.name === "string" && isValidSecretName(row.name) ? row.name : undefined;
+	return { site: row.site.trim().slice(0, 200), ...(name && { name }), fields: parsed.fields };
 }

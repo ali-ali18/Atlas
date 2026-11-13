@@ -699,3 +699,63 @@ export async function extractWebPage(
     truncated: capped.truncated,
   };
 }
+
+/** Rótulo de charset de uma lista de parâmetros (`text/html; charset=ISO-8859-1`) ou de uma tag `<meta>`. */
+function charsetLabel(text: string): string | undefined {
+  return /charset\s*=\s*["']?\s*([A-Za-z0-9_.:-]+)/i.exec(text)?.[1];
+}
+
+/**
+ * Decodifica o HTML pelo charset do `Content-Type`, senão do `<meta charset>` / `http-equiv` dos primeiros bytes, com UTF-8
+ * como padrão. Rótulo desconhecido ou que o `TextDecoder` não suporta cai em UTF-8 (nunca lança).
+ */
+export function decodeHtmlBytes(bytes: Uint8Array, contentType: string): string {
+  const head = new TextDecoder("latin1").decode(bytes.subarray(0, 2048));
+  const metaTag = /<meta\b[^>]*charset[^>]*>/i.exec(head)?.[0];
+  const label = charsetLabel(contentType) ?? (metaTag ? charsetLabel(metaTag) : undefined) ?? "utf-8";
+  try {
+    return new TextDecoder(label).decode(bytes);
+  } catch {
+    return new TextDecoder("utf-8").decode(bytes);
+  }
+}
+
+/**
+ * HTML bruto de uma página (F6.1, `product_search`): o JSON-LD/OpenGraph só existem na marcação, não no Markdown que o
+ * `extractWebPage` devolve. Mesmas proteções da extração: SSRF por salto (DNS e redirecionamentos), robots.txt, limite
+ * por domínio, timeout e teto de bytes. Não usa o cache de Markdown. Lança `ExtractError` com `code`.
+ */
+export async function fetchPageHtml(
+  rawUrl: string,
+  options: ExtractWebPageOptions = {},
+): Promise<{ url: string; html: string }> {
+  let first: URL;
+  try {
+    first = await assertPublicExtractUrl(rawUrl, options.lookupFn);
+  } catch (error) {
+    if (error instanceof ExtractError) throw error;
+    throw new ExtractError("blocked", "URL inválida", "corrija a URL ou use web_search");
+  }
+  const fetchFn = options.fetchFn ?? globalThis.fetch.bind(globalThis);
+  const allowed = await isAllowedByRobots(first, fetchFn, options.signal).catch(() => true);
+  if (!allowed) {
+    throw new ExtractError("robots_denied", `robots.txt proíbe a extração: ${first.origin}${first.pathname}`, `${BROWSER_HINT}, motivo: robots.txt`);
+  }
+  checkExtractRateLimit(first.hostname.toLowerCase());
+  let response: Response;
+  let finalUrl: string;
+  try {
+    ({ response, finalUrl } = await safeExtractFetch(rawUrl, options));
+  } catch (error) {
+    if (error instanceof ExtractError) throw error;
+    const timedOut = error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");
+    throw new ExtractError(timedOut ? "timeout" : "blocked", timedOut ? "tempo esgotado na leitura" : "falha de rede", `${BROWSER_HINT}, motivo: ${timedOut ? "timeout" : "falha de rede"}`);
+  }
+  if (response.status === 401 || response.status === 403) throw new ExtractError("needs_login", `HTTP ${response.status} (acesso negado/login)`, `${BROWSER_HINT}, motivo: acesso negado/login`);
+  if (response.status === 429) throw new ExtractError("rate_limited", "HTTP 429 (limite do site)", `${BROWSER_HINT}, motivo: rate limit`);
+  if (!response.ok) throw new ExtractError("blocked", `HTTP ${response.status}`, `${BROWSER_HINT}, motivo: HTTP ${response.status}`);
+  const type = (response.headers.get("content-type") ?? "").toLowerCase();
+  if (type && !/html|xml/.test(type)) throw new ExtractError("blocked", `conteúdo não é uma página (${type.split(";")[0]})`, `${BROWSER_HINT}, motivo: não é HTML`);
+  const bytes = await readCappedBytes(response, EXTRACT_MAX_BYTES);
+  return { url: finalUrl, html: decodeHtmlBytes(bytes, type) };
+}

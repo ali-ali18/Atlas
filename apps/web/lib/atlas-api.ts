@@ -1,5 +1,12 @@
 import type {
 	AccountSettingsResponse,
+	LearnedRuleView,
+	MemoryChange,
+	MemoryChangesPage,
+	OwnerNoteView,
+	RulePatch,
+	SleepReportKind,
+	SleepReportView,
 	AutonomyUpdateInput,
 	AutonomyView,
 	Bot,
@@ -66,7 +73,7 @@ import type {
 	BotProposalEvent,
 	RunInputMode,
 } from "@workspace/shared";
-import type { CompactConversationResponse, ReasoningEffort } from "@workspace/shared";
+import type { AgendaAction, AgendaChangeResponse, AgendaListResponse, CompactConversationResponse, ReasoningEffort } from "@workspace/shared";
 import type { RunInspection } from "@workspace/shared";
 import type {
 	CatalogBotEntry,
@@ -76,7 +83,7 @@ import type {
 	ScanFinding,
 	TextDiff,
 } from "@workspace/shared";
-import { parseSseBlock, type DevApprovalCardInfo, type DevSessionEvent, type DevTimingEvent, type FilePreview, type LoginConnector } from "@workspace/shared";
+import { parseAgentV4Event, parseSseBlock, type AgentV4Event, type DevApprovalCardInfo, type DevSessionEvent, type DevTimingEvent, type FilePreview, type LoginConnector } from "@workspace/shared";
 import { filePreviewPath } from "@/lib/file-card";
 import { getStoredSseCursor, setStoredSseCursor } from "@/lib/active-run";
 import { isJevToolReview, type JevToolReview } from "@/lib/jev-status";
@@ -1289,8 +1296,16 @@ export type ComputerUseHandlers = {
 	}) => void;
 	onFile?: (event: Extract<ComputerUseEvent, { type: "file" }>) => void;
 	onChart?: (event: Extract<ComputerUseEvent, { type: "chart" }>) => void;
+	onProduct?: (event: Extract<ComputerUseEvent, { type: "product" }>) => void;
+	onPurchase?: (event: Extract<ComputerUseEvent, { type: "purchase" }>) => void;
+	onEmailTriage?: (event: Extract<ComputerUseEvent, { type: "email_triage" }>) => void;
+	onEmailDraft?: (event: Extract<ComputerUseEvent, { type: "email_draft" }>) => void;
+	onCalendar?: (event: Extract<ComputerUseEvent, { type: "calendar" }>) => void;
+	onDayPlan?: (event: Extract<ComputerUseEvent, { type: "day_plan" }>) => void;
 	onPage?: (event: Extract<ComputerUseEvent, { type: "page" }>) => void;
 	onTaskList?: (event: Extract<ComputerUseEvent, { type: "task_list" }>) => void;
+	/** Cards do motor v4 (aprovação, "isso é com você", pergunta do bot, recibo), já validados por `parseAgentV4Event`. */
+	onAgentCard?: (event: AgentV4Event) => void;
 	/** Cursor do agente no navegador do sandbox (efêmero, só para a UI). */
 	onAgentPointer?: (event: AgentPointerEvent) => void;
 	onLogin?: (event: {
@@ -1414,12 +1429,39 @@ export function dispatchComputerUseEvent(
 		case "chart":
 			handlers.onChart?.(event);
 			break;
+		case "product":
+			handlers.onProduct?.(event);
+			break;
+		case "purchase":
+			handlers.onPurchase?.(event);
+			break;
+		case "email_triage":
+			handlers.onEmailTriage?.(event);
+			break;
+		case "email_draft":
+			handlers.onEmailDraft?.(event);
+			break;
+		case "calendar":
+			handlers.onCalendar?.(event);
+			break;
+		case "day_plan":
+			handlers.onDayPlan?.(event);
+			break;
 		case "page":
 			handlers.onPage?.(event);
 			break;
 		case "task_list":
 			handlers.onTaskList?.(event);
 			break;
+		case "approval_request":
+		case "handoff_request":
+		case "ask_owner":
+		case "receipt": {
+			// Payload persistido/reentregue pode vir de uma versão diferente do worker: valida antes de virar card.
+			const card = parseAgentV4Event(event);
+			if (card) handlers.onAgentCard?.(card);
+			break;
+		}
 		case "agent_pointer":
 			handlers.onAgentPointer?.(event);
 			break;
@@ -1635,6 +1677,41 @@ export async function resolveBotProfileProposal(request: {
 			body: JSON.stringify(request),
 		},
 	);
+}
+
+/**
+ * Resposta do dono a um card do motor v4. `approve`/`dismiss` no pedido de aprovação; `done` no "isso é com
+ * você" (que não tem "Agora não" na API: o pedido só vence pelo prazo); `answer`/`dismiss` na pergunta do bot.
+ * O recibo não tem resposta.
+ *
+ * O texto da resposta à pergunta NÃO vai nesta chamada: ela só marca o card como respondido. O texto segue como
+ * mensagem normal da conversa (quem chama envia), que é como o run seguinte o recebe.
+ * O código de segurança do cartão (pagamento) também não passa por aqui: ver `respondAgentV4Request`.
+ */
+export type AgentCardResponse =
+	| { kind: "approval"; requestId: string; callId: string; decision: "approve" | "dismiss" }
+	| { kind: "handoff"; callId: string; decision: "done" }
+	| { kind: "ask_owner"; cardId: string; decision: "answer"; answer: string }
+	| { kind: "ask_owner"; cardId: string; decision: "dismiss" };
+
+/** Teto da resposta digitada no card de pergunta (o mesmo teto de texto dos eventos v4). */
+export const AGENT_CARD_ANSWER_MAX = 8_000;
+
+/**
+ * Envia a resposta do card ao servidor: aprovação e handoff em `POST /v1/agent-v4/runs/:runId/requests/:key/respond`
+ * (retoma o run estacionado), pergunta em `POST /v1/agent-v4/cards/:cardId/respond` (o run seguinte leva a resposta).
+ * Falhou = lança `AtlasApiError` e o card continua pendente, sem marcar a decisão como feita.
+ */
+export async function respondToAgentCard(runId: string, response: AgentCardResponse): Promise<unknown> {
+	if (response.kind === "approval") {
+		return respondAgentV4Request({ runId, key: response.requestId, decision: response.decision === "approve" ? "approve" : "deny" });
+	}
+	if (response.kind === "handoff") return respondAgentV4Request({ runId, key: response.callId, decision: "handoff_done" });
+	if (response.decision === "answer" && response.answer.length > AGENT_CARD_ANSWER_MAX) throw new Error("answer too long");
+	return atlasFetch<{ ok: boolean; status: string }>(`/v1/agent-v4/cards/${encodeURIComponent(response.cardId)}/respond`, {
+		method: "POST",
+		body: JSON.stringify({ response: response.decision === "answer" ? "answered" : "dismissed" }),
+	});
 }
 
 export async function getAgentRun(runId: string): Promise<{
@@ -1937,7 +2014,7 @@ export async function getGithubStatus(): Promise<GithubStatus> {
 export type GithubRepoOption = {
 	fullName: string;
 	private: boolean;
-	defaultBranch: string;
+	defaultBranch: string | null;
 	pushedAt: string;
 };
 
@@ -1984,6 +2061,19 @@ export async function listRoutines(botId: string): Promise<RoutineRecord[]> {
 		`/v1/bots/${encodeURIComponent(botId)}/routines`,
 	);
 	return body.routines;
+}
+
+/** Agenda do bot (lembretes, acompanhamentos, esperas por e-mail). `enabled: false` = a conta não usa o motor novo. */
+export async function listAgenda(botId: string): Promise<AgendaListResponse> {
+	return atlasFetch<AgendaListResponse>(`/v1/agenda?botId=${encodeURIComponent(botId)}`);
+}
+
+/** Pausa, retoma ou cancela um item da agenda. 404 = já não existe; 409 = a ação não cabe mais no estado dele. */
+export async function changeAgendaItem(id: string, action: AgendaAction): Promise<AgendaChangeResponse> {
+	return atlasFetch<AgendaChangeResponse>(`/v1/agenda/${encodeURIComponent(id)}`, {
+		method: "POST",
+		body: JSON.stringify({ action }),
+	});
 }
 
 export async function listRoutineGroups(botId: string): Promise<RoutineGroupRecord[]> {
@@ -2698,6 +2788,15 @@ export async function saveVaultSecrets(
 	return atlasFetch("/v1/vault/secrets", { method: "POST", body: JSON.stringify({ entries, mode }) });
 }
 
+/** Cartão de login do bot: um campo por item que a IA declarou; tudo vai para UM item de login do site (etapas seguintes acrescentam campos). */
+export async function saveVaultLogin(input: {
+	site: string;
+	name?: string;
+	fields: { key: string; label: string; secret: boolean; value: string }[];
+}): Promise<{ saved: { name: string; id: string; keys: string[]; created: boolean } }> {
+	return atlasFetch("/v1/vault/logins", { method: "POST", body: JSON.stringify(input) });
+}
+
 // --- Marketplace de skills e agentes (/v1/catalog) ---
 
 export type CatalogInstallView = {
@@ -2878,4 +2977,125 @@ export async function resolveConnectorGuideSuggestion(
 /** Inspetor do run (só o dono): o que o modelo recebeu por passo, chamadas de tool e aprovações. */
 export async function getRunInspection(runId: string): Promise<{ inspection: RunInspection }> {
 	return atlasFetch(`/v1/runs/${encodeURIComponent(runId)}/inspect`);
+}
+
+// --- Caderno, regras aprendidas e revisão da noite (Motor v4, F5) ---
+// Todas as rotas filtram pelo dono da sessão; recurso alheio é 404. Os 409/422 trazem `code` em `AtlasApiError.details`.
+
+/** Notas do dono. Com `botId`: as do dono + as deste bot; sem ele, todas as do dono. */
+export async function listNotes(options: { botId?: string } = {}): Promise<{ notes: OwnerNoteView[]; limit: number }> {
+	const query = options.botId ? `?botId=${encodeURIComponent(options.botId)}` : "";
+	return atlasFetch<{ notes: OwnerNoteView[]; limit: number }>(`/v1/notes${query}`);
+}
+
+export async function createNote(input: { title: string; body: string; pinned?: boolean; botId?: string | null }): Promise<OwnerNoteView> {
+	const body = await atlasFetch<{ note: OwnerNoteView }>("/v1/notes", { method: "POST", body: JSON.stringify(input) });
+	return body.note;
+}
+
+/** Edita título, texto e/ou fixada (é assim que se fixa e desafixa). */
+export async function updateNote(id: string, patch: { title?: string; body?: string; pinned?: boolean }): Promise<OwnerNoteView> {
+	const body = await atlasFetch<{ note: OwnerNoteView }>(`/v1/notes/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(patch) });
+	return body.note;
+}
+
+export async function deleteNote(id: string): Promise<void> {
+	await atlasFetch(`/v1/notes/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+/** Histórico de mudanças do caderno (para desfazer). */
+export async function listNoteChanges(options: { botId?: string; cursor?: string; limit?: number } = {}): Promise<MemoryChangesPage> {
+	return atlasFetch<MemoryChangesPage>(`/v1/notes/changes${changesQuery(options)}`);
+}
+
+function changesQuery(options: { botId?: string; reportId?: string; cursor?: string; limit?: number; kind?: SleepReportKind }): string {
+	const params = new URLSearchParams();
+	for (const [key, value] of Object.entries(options)) if (value !== undefined && value !== "") params.set(key, String(value));
+	const text = params.toString();
+	return text ? `?${text}` : "";
+}
+
+/** Regras que o bot aprendeu (veredito por tipo de ação). */
+export async function listBotRules(botId: string): Promise<LearnedRuleView[]> {
+	const body = await atlasFetch<{ rules: LearnedRuleView[] }>(`/v1/bots/${encodeURIComponent(botId)}/rules`);
+	return body.rules;
+}
+
+/** Muda o que vale (`verdict`) e/ou a observação. 422 = acima do teto de regras. */
+export async function patchBotRule(botId: string, ruleId: string, patch: RulePatch): Promise<LearnedRuleView> {
+	const body = await atlasFetch<{ rule: LearnedRuleView }>(`/v1/bots/${encodeURIComponent(botId)}/rules/${encodeURIComponent(ruleId)}`, { method: "PATCH", body: JSON.stringify(patch) });
+	return body.rule;
+}
+
+export async function deleteBotRule(botId: string, ruleId: string): Promise<void> {
+	await atlasFetch(`/v1/bots/${encodeURIComponent(botId)}/rules/${encodeURIComponent(ruleId)}`, { method: "DELETE" });
+}
+
+/** Relatórios da revisão da noite (`daily`) e do domingo (`doctor`), do mais novo ao mais antigo. */
+export async function listSleepReports(options: { botId?: string; kind?: SleepReportKind; cursor?: string; limit?: number } = {}): Promise<{ reports: SleepReportView[]; nextCursor: string | null }> {
+	return atlasFetch<{ reports: SleepReportView[]; nextCursor: string | null }>(`/v1/sleep/reports${changesQuery(options)}`);
+}
+
+export async function getSleepReport(id: string): Promise<SleepReportView> {
+	const body = await atlasFetch<{ report: SleepReportView }>(`/v1/sleep/reports/${encodeURIComponent(id)}`);
+	return body.report;
+}
+
+/** "Agora não": dispensa uma proposta do relatório. Devolve o relatório atualizado. */
+export async function dismissSleepProposal(reportId: string, proposalId: string): Promise<SleepReportView> {
+	const body = await atlasFetch<{ report: SleepReportView }>(`/v1/sleep/reports/${encodeURIComponent(reportId)}/proposals/${encodeURIComponent(proposalId)}/dismiss`, { method: "POST" });
+	return body.report;
+}
+
+/** O que a revisão da noite mudou (cada linha traz o id usado para desfazer). */
+export async function listSleepChanges(options: { botId?: string; reportId?: string; cursor?: string; limit?: number } = {}): Promise<MemoryChangesPage> {
+	return atlasFetch<MemoryChangesPage>(`/v1/sleep/changes${changesQuery(options)}`);
+}
+
+/** Desfaz uma mudança de memória ou de nota. 409 `code`: `stale | duplicate | limit | already_undone`. */
+export async function undoMemoryChange(changeId: string): Promise<MemoryChange> {
+	const body = await atlasFetch<{ change: MemoryChange }>(`/v1/memory/changes/${encodeURIComponent(changeId)}/undo`, { method: "POST" });
+	return body.change;
+}
+
+/** Código de negócio de um erro 409/422 (`code` do corpo), ou null. */
+export function apiErrorCode(error: unknown): string | null {
+	if (!(error instanceof AtlasApiError)) return null;
+	const code = (error.details as { code?: unknown } | undefined)?.code;
+	return typeof code === "string" ? code : null;
+}
+
+// ------------------------------------------------------------------ compras (F6)
+
+/** Cartão salvo como a API devolve: só rótulo, bandeira e final. Número, nome, validade e endereço nunca voltam. */
+export type SavedCardView = import("@workspace/shared").SavedCardView;
+
+/** Corpo para salvar um cartão. NÃO existe campo de CVV: ele é digitado a cada compra, no cartão de aprovação. */
+export type SavedCardInput = import("@workspace/shared").SavedCardInput;
+
+export async function listSavedCards(): Promise<{ configured: boolean; cards: SavedCardView[] }> {
+	return atlasFetch("/v1/cards");
+}
+
+export async function createSavedCard(input: SavedCardInput): Promise<SavedCardView> {
+	return (await atlasFetch<{ card: SavedCardView }>("/v1/cards", { method: "POST", body: JSON.stringify(input) })).card;
+}
+
+export async function deleteSavedCard(id: string): Promise<void> {
+	await atlasFetch<void>(`/v1/cards/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+export type AgentV4Decision = "approve" | "deny" | "handoff_done";
+
+/**
+ * Responde a um pedido do motor v4 (aprovação, "Agora não", handoff). Para o pedido de COMPRA, `cvv` é o código de segurança
+ * digitado no cartão: vai SÓ no corpo desta chamada (nunca em URL, storage, estado global ou log) e o servidor o entrega a um
+ * canal efêmero de uso único. Quem chama deve limpar o campo logo depois de enviar.
+ */
+export async function respondAgentV4Request(input: { runId: string; key: string; decision: AgentV4Decision; cvv?: string }): Promise<{ ok: boolean; status: string; resumed: boolean; pending?: number }> {
+	const { cvv, decision } = input;
+	return atlasFetch(`/v1/agent-v4/runs/${encodeURIComponent(input.runId)}/requests/${encodeURIComponent(input.key)}/respond`, {
+		method: "POST",
+		body: JSON.stringify(cvv !== undefined ? { decision, cvv } : { decision }),
+	});
 }

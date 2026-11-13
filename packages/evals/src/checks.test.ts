@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { evaluateExpectation, passed, runChecks } from "./checks.js";
+import { evaluateExpectation, firstStepContextTokens, passed, runChecks } from "./checks.js";
 import { parseScenario, type Expectation, type Scenario } from "./scenario.js";
 import type { RecordedModelCall, Trajectory } from "./trajectory.js";
 
@@ -49,6 +49,22 @@ describe("verificações", () => {
 		expect(one({ type: "tool_called", tool: "propose_routine", args: { trigger_type: { equals: "cron" } } }, trajectory({ toolCalls: [routineCall] })).detail).toMatch(/argumentos: trigger_type/);
 		expect(one({ type: "tool_called", tool: "propose_routine" }, trajectory()).detail).toMatch(/não chamou \(nenhuma tool\)/);
 		expect(one({ type: "tool_called", tool: "propose_routine", max: 1 }, trajectory({ toolCalls: [routineCall, { ...routineCall, id: "c2" }] })).detail).toMatch(/2x/);
+	});
+
+	it("tool_result confere o que a tool devolveu (o que o motor resolveu), não o que o roteiro pediu (auditoria F4, T1)", () => {
+		const result = (summary: string, ok = true) => ({ id: "r", name: "remind_me", ok, summary, source: "real" as const });
+		const ten = trajectory({ toolResults: [result("Scheduled reminder ag-1: first run 2026-11-06 10:00 (America/Sao_Paulo).")] });
+		const item = { type: "tool_result", tool: "remind_me", pattern: "first run 2026-11-06 10:00 \\(America/Sao_Paulo\\)" };
+		expect(one(item, ten).pass).toBe(true);
+		// o roteiro pediu 10h mas o motor entendeu 15h: reprova
+		expect(one(item, trajectory({ toolResults: [result("Scheduled reminder ag-1: first run 2026-11-06 15:00 (America/Sao_Paulo).")] })).detail).toMatch(/sem \/first run 2026-11-06 10:00/);
+		expect(one(item, trajectory()).detail).toMatch(/não devolveu resultado/);
+		// ok é verificado (padrão true); max 0 vale como "nenhum resultado assim"
+		expect(one(item, trajectory({ toolResults: [result("first run 2026-11-06 10:00 (America/Sao_Paulo)", false)] })).pass).toBe(false);
+		const merged = trajectory({ toolResults: [result("Already scheduled (nothing new created): reminder ag-1.")] });
+		expect(one({ type: "tool_result", tool: "remind_me", pattern: "Already scheduled", max: 0 }, merged).detail).toMatch(/1 resultados/);
+		expect(one({ type: "tool_result", tool: "remind_me", pattern: "Already scheduled", max: 0 }, ten).pass).toBe(true);
+		expect(parseScenario({ version: 1, id: "t", title: "t", bot: { name: "Ada" }, user: "oi", expect: [{ type: "tool_result", tool: "x", pattern: "(" }] }).ok).toBe(false);
 	});
 
 	it("tool_not_called com padrão", () => {
@@ -115,6 +131,46 @@ describe("verificações", () => {
 		const delivered = [main([], [{ role: "user", content: "[mensagem do usuário] inclui 2025" }])];
 		expect(one({ type: "steer_delivered" }, trajectory({ modelCalls: delivered }), extra).pass).toBe(true);
 		expect(one({ type: "steer_delivered" }, trajectory(), extra).pass).toBe(false);
+	});
+
+	it("any_of: passa se qualquer verificação aninhada passa; a falha lista o motivo de todas", () => {
+		const item = {
+			type: "any_of",
+			checks: [
+				{ type: "tool_called", tool: "propose_routine", args: { run_at: { matches: "T10:00" } } },
+				{ type: "tool_called", tool: "schedule_followup", args: { when: { matches: "10" } } },
+			],
+		};
+		const followup = { id: "f1", name: "schedule_followup", args: { when: "amanhã 10h" }, argsRaw: "" };
+		expect(one(item, trajectory({ toolCalls: [followup] })).pass).toBe(true);
+		expect(one(item, trajectory({ toolCalls: [{ ...routineCall, args: { run_at: "2026-11-06T10:00" } }] })).pass).toBe(true);
+		const wrong = one(item, trajectory({ toolCalls: [{ ...routineCall, args: { run_at: "2026-11-06T15:00" } }] }));
+		expect(wrong.pass).toBe(false);
+		expect(wrong.detail).toMatch(/nenhuma passou: tool_called:propose_routine \(argumentos: run_at.*\| tool_called:schedule_followup \(não chamou/);
+	});
+
+	it("max_context_tokens: estimativa do 1º passo (mensagens + schemas das tools), chars / 4", () => {
+		const first = { ...main(["a"], [{ role: "user", content: "x".repeat(400) }]), toolsChars: 600 };
+		const tokens = firstStepContextTokens({ modelCalls: [first] });
+		expect(tokens).toBe(Math.ceil((JSON.stringify(first.messages).length + 600) / 4));
+		expect(one({ type: "max_context_tokens", value: tokens! }, trajectory({ modelCalls: [first] })).pass).toBe(true);
+		expect(one({ type: "max_context_tokens", value: tokens! - 1 }, trajectory({ modelCalls: [first] })).detail).toMatch(/contexto do 1º passo ~\d+ tokens \(máx \d+\)/);
+		// só o 1º passo conta: um passo seguinte maior não reprova
+		const later = { ...main(["a"], [{ role: "user", content: "y".repeat(4000) }]), index: 1, toolsChars: 0 };
+		expect(one({ type: "max_context_tokens", value: tokens! }, trajectory({ modelCalls: [first, later] })).pass).toBe(true);
+		expect(one({ type: "max_context_tokens", value: 10 }, trajectory({ modelCalls: [] })).detail).toBe("nenhum passo do agente");
+	});
+
+	it("padrões negativos do conjunto ouro: 'vídeo' (com acento ou sem) e oferta de continuar", () => {
+		const noVideo = { type: "text_not_contains", pattern: "v[ií]deo|youtube|legenda", ignoreCase: true };
+		expect(one(noVideo, trajectory({ text: "Amanhã faz 22 °C em Curitiba." })).pass).toBe(true);
+		expect(one(noVideo, trajectory({ text: "Amanhã 22 °C. Quer voltar ao resumo do VÍDEO?" })).pass).toBe(false);
+		expect(one(noVideo, trajectory({ text: "Sobre o YouTube: não deu." })).pass).toBe(false);
+		const noOffer = { type: "text_not_contains", pattern: "quer que eu (continue|tente|retome)|posso (tentar|continuar|retomar)", ignoreCase: true };
+		expect(one(noOffer, trajectory({ text: "Quer que eu continue de onde parei?" })).pass).toBe(false);
+		const noPurchaseClaim = { type: "text_not_contains", pattern: "(?<!n[aã]o )comprei", ignoreCase: true };
+		expect(one(noPurchaseClaim, trajectory({ text: "Não comprei nada." })).pass).toBe(true);
+		expect(one(noPurchaseClaim, trajectory({ text: "Comprei o kit." })).pass).toBe(false);
 	});
 
 	it("erro do run falha 'completed' mesmo sem ele declarado; juiz desligado é pulado", async () => {

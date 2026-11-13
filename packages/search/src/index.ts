@@ -57,6 +57,7 @@ export {
   clearExtractRateLimits,
   clearExtractRobotsCache,
   extractWebPage,
+  fetchPageHtml,
   htmlToMarkdown,
   isAllowedByRobots,
   isPrivateExtractAddress,

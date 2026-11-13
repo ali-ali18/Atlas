@@ -25,6 +25,11 @@ export type ConfirmAlertProps = Omit<
   disabled?: boolean;
   /** Ação irreversível (ex.: apagar): o botão de confirmar usa o estilo destrutivo. */
   destructive?: boolean;
+  /**
+   * A confirmação foi pedida pelo próprio usuário (ex.: ele clicou em apagar): não há nada "esperando por ele",
+   * então some o selo "Precisa de você" e o ícone de alerta. Vale só enquanto `status` é `pending`.
+   */
+  selfConfirm?: boolean;
   onConfirm?: () => void;
   onCancel?: () => void;
   onEdit?: () => void;
@@ -59,6 +64,7 @@ function ConfirmAlert({
   alwaysLabel,
   disabled = false,
   destructive = false,
+  selfConfirm = false,
   onConfirm,
   onCancel,
   onEdit,
@@ -69,12 +75,13 @@ function ConfirmAlert({
 }: ConfirmAlertProps) {
   const copy = useUiCopy();
   const resolved = status !== "pending";
+  const quiet = selfConfirm && !resolved;
   return (
     <RequestCard
       {...props}
-      badge={badgeFor(status, copy)}
+      badge={quiet ? undefined : badgeFor(status, copy)}
       description={description}
-      leading={leading ?? <StatusIcon copy={copy} status={status} />}
+      leading={quiet ? leading : (leading ?? <StatusIcon copy={copy} status={status} />)}
       resolved={resolved}
       title={title}
       actions={

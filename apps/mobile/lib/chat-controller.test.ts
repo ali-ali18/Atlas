@@ -1,7 +1,7 @@
 import type { ComputerUseEvent, SessionMessage } from "@workspace/shared";
 import { describe, expect, it, vi } from "vitest";
 import { ChatApiError } from "./chat-api";
-import { ChatController, deriveView, type ChatApi, type ChatDeps } from "./chat-controller";
+import { ChatController, deriveView, requestErrorText, type ChatApi, type ChatDeps } from "./chat-controller";
 import type { FollowOptions, FollowResult } from "./chat-stream";
 import type { ChatItem } from "./chat-types";
 
@@ -23,7 +23,7 @@ type Script = (options: FollowOptions, runId: string) => Promise<FollowResult>;
 
 function setup(overrides: { api?: Partial<ChatApi>; follow?: Script; conversationId?: string | null; cache?: ChatDeps["cacheFor"] } = {}) {
 	let runCount = 0;
-	const calls = { createRun: [] as unknown[], createRunInput: [] as Array<[string, string]>, cancelRun: [] as string[], submit: [] as unknown[], reaction: [] as string[], unread: [] as string[], inputReplies: [] as Array<string | undefined>, fetchPage: [] as string[], createConversation: 0, unauthorized: 0 };
+	const calls = { createRun: [] as unknown[], createRunInput: [] as Array<[string, string]>, cancelRun: [] as string[], submit: [] as unknown[], reaction: [] as string[], unread: [] as string[], inputReplies: [] as Array<string | undefined>, requests: [] as unknown[], cards: [] as unknown[], fetchPage: [] as string[], createConversation: 0, unauthorized: 0 };
 	const api: ChatApi = {
 		fetchPage: async (conversationId) => (calls.fetchPage.push(conversationId), { messages: [row("m1", "user", "oi"), row("m2", "assistant", "olá, tudo bem por aí?", 1)], hasMore: false }),
 		createConversation: async () => (calls.createConversation++, "c-new"),
@@ -33,6 +33,8 @@ function setup(overrides: { api?: Partial<ChatApi>; follow?: Script; conversatio
 		getRunStatus: async () => "running",
 		listActiveRuns: async () => [],
 		submitQuestionnaire: async (input) => (calls.submit.push(input), { runId: `r${++runCount}` }),
+		respondRequest: async (input) => (calls.requests.push(input), { ok: true, status: "recorded", resumed: true }),
+		respondCard: async (cardId, response) => void calls.cards.push([cardId, response]),
 		setReaction: async (messageId, emoji) => void calls.reaction.push(`PUT ${messageId} ${emoji}`),
 		clearReaction: async (messageId) => void calls.reaction.push(`DELETE ${messageId}`),
 		markConversationUnread: async (conversationId) => void calls.unread.push(conversationId),
@@ -639,5 +641,203 @@ describe("responder (replyTo)", () => {
 		await flush();
 		await flush();
 		expect(bubbles(controller)).toEqual([]);
+	});
+});
+
+describe("cards do motor v4", () => {
+	const approval = { type: "approval_request", requestId: "req-1", callId: "call-1", toolName: "checkout", effect: "money", args: {}, riskFacts: { amount: 109.8, currency: "BRL", merchant: "loja.test" }, ownerInput: "card_cvv", runId: "run-1" } as const;
+	const approvalItem = (settled?: boolean): Extract<ChatItem, { kind: "agent-card" }> => ({ id: "c", kind: "agent-card", card: approval, ...(settled ? { settled } : {}) });
+	const ask: Extract<ChatItem, { kind: "agent-card" }> = { id: "q", kind: "agent-card", card: { type: "ask_owner", cardId: "run-1:k1", question: "Qual capa?", runId: "run-1" } };
+
+	it("aprovar com o CVV chama a API uma vez, com o código só no corpo, e segue o run retomado", async () => {
+		const followed: string[] = [];
+		const { controller, calls } = setup({ follow: async (_options, _id) => (followed.push("x"), new Promise<FollowResult>(() => undefined)) });
+		await controller.open();
+		controller.respondToRequest(approvalItem(), "approve", "123");
+		controller.respondToRequest(approvalItem(), "approve", "123");
+		await flush();
+		expect(calls.requests).toEqual([{ runId: "run-1", key: "req-1", decision: "approve", cvv: "123" }]);
+		expect(followed).toHaveLength(1);
+		// o código não fica em estado, snapshot nem na visão que a tela lê
+		expect(JSON.stringify(controller.getSnapshot())).not.toContain("123");
+		expect(JSON.stringify(view(controller))).not.toContain("123");
+		expect(controller.getSnapshot().agentDecisions).toEqual({ "approval_request|run-1|req-1": "approved" });
+	});
+
+	it("falha ao enviar libera o card e avisa em linguagem simples; pedido vencido fecha o card", async () => {
+		let attempt = 0;
+		const { controller } = setup({
+			api: {
+				respondRequest: async () => {
+					attempt += 1;
+					if (attempt === 1) throw new ChatApiError("payment_unavailable", 503);
+					if (attempt === 2) throw new ChatApiError("expired", 410);
+					return { ok: true, status: "recorded", resumed: false, pending: 1 };
+				},
+			},
+		});
+		await controller.open();
+		controller.respondToRequest(approvalItem(), "approve", "123");
+		await flush();
+		expect(controller.getSnapshot().agentDecisions).toEqual({});
+		expect(controller.getSnapshot().error).toBe("O envio não está disponível agora. Nada foi aprovado nem cobrado.");
+		controller.respondToRequest(approvalItem(), "approve", "123");
+		await flush();
+		expect(controller.getSnapshot().error).toBe("O pedido passou do prazo. Peça de novo ao bot.");
+		expect(Object.values(controller.getSnapshot().agentDecisions)).toEqual(["dismissed"]);
+	});
+
+	it("com o CVV, falha passageira NÃO repete o envio: libera o card e pede para digitar o código de novo", async () => {
+		const sent: Array<string | undefined> = [];
+		let attempt = 0;
+		const { controller } = setup({
+			api: {
+				respondRequest: async (input) => {
+					sent.push(input.cvv);
+					attempt += 1;
+					if (attempt === 1) throw new ChatApiError("run_not_paused", 409);
+					if (attempt === 2) throw new TypeError("Network request failed");
+					return { ok: true, status: "recorded", resumed: true };
+				},
+			},
+			follow: async () => new Promise<FollowResult>(() => undefined),
+		});
+		await controller.open();
+		controller.respondToRequest(approvalItem(), "approve", "123");
+		await flush();
+		await flush();
+		expect(sent).toEqual(["123"]);
+		expect(controller.getSnapshot().agentDecisions).toEqual({});
+		expect(controller.getSnapshot().error).toBe("Não deu para enviar o código agora. Nada foi cobrado. Digite o código de novo.");
+		// Falha de rede: também uma tentativa só; o código foi digitado de novo pelo dono na segunda.
+		controller.respondToRequest(approvalItem(), "approve", "456");
+		await flush();
+		expect(sent).toEqual(["123", "456"]);
+		// Falha de rede: o servidor pode ter aceitado, então o texto não promete que nada foi cobrado.
+		expect(controller.getSnapshot().error).toBe("Não consegui confirmar o envio. Confira a conversa antes de tentar de novo.");
+		expect(JSON.stringify(controller.getSnapshot())).not.toMatch(/123|456/);
+		// Na terceira, o dono digita de novo e vai.
+		controller.respondToRequest(approvalItem(), "approve", "789");
+		await flush();
+		expect(sent).toEqual(["123", "456", "789"]);
+		expect(controller.getSnapshot().error).toBeNull();
+	});
+
+	it("texto da falha do CVV: 'nada foi cobrado' só quando o servidor garante; timeout, rede e 5xx são neutros", () => {
+		const neutral = "Não consegui confirmar o envio. Confira a conversa antes de tentar de novo.";
+		expect(requestErrorText(new ChatApiError("run_not_paused", 409), true)).toContain("Nada foi cobrado");
+		expect(requestErrorText(new ChatApiError("cvv_required", 400), true)).toBe("Digite os 3 ou 4 números do código.");
+		for (const reason of [new TypeError("Network request failed"), new ChatApiError("boom", 500), new ChatApiError("bad gateway", 502)]) expect(requestErrorText(reason, true)).toBe(neutral);
+		expect(requestErrorText(new ChatApiError("payment_unavailable", 503), true)).toContain("Nada foi aprovado nem cobrado");
+	});
+
+	it("run que ainda não estacionou (409 run_not_paused) repete o mesmo pedido (sem CVV)", async () => {
+		let attempt = 0;
+		const { controller } = setup({
+			api: {
+				respondRequest: async () => {
+					attempt += 1;
+					if (attempt < 3) throw new ChatApiError("run_not_paused", 409);
+					return { ok: true, status: "recorded", resumed: true };
+				},
+			},
+			follow: async () => new Promise<FollowResult>(() => undefined),
+		});
+		await controller.open();
+		controller.respondToRequest(approvalItem(), "deny");
+		await flush();
+		await flush();
+		expect(attempt).toBe(3);
+		expect(controller.getSnapshot().error).toBeNull();
+	});
+
+	it("com outros pedidos pendentes (pending) o run não é seguido de novo", async () => {
+		const followed: string[] = [];
+		const { controller } = setup({ api: { respondRequest: async () => ({ ok: true, status: "recorded", resumed: false, pending: 1 }) }, follow: async () => (followed.push("x"), new Promise<FollowResult>(() => undefined)) });
+		await controller.open();
+		controller.respondToRequest(approvalItem(), "deny");
+		await flush();
+		expect(followed).toHaveLength(0);
+	});
+
+	it("card já resolvido, ou de outro tipo, não envia nada", async () => {
+		const { controller, calls } = setup();
+		await controller.open();
+		controller.respondToRequest(approvalItem(true), "approve", "123");
+		controller.respondToRequest(ask, "approve");
+		await flush();
+		expect(calls.requests).toEqual([]);
+	});
+
+	it("o card só pede o dono com o run dele parado esperando", async () => {
+		const { controller } = setup({ follow: async (options) => (options.onEvent({ type: "run", runId: "run-1", status: "running" }), options.onEvent(approval as never), options.onEvent({ type: "paused" }), "boundary" as const) });
+		await controller.open();
+		await controller.follow("run-1");
+		await flush();
+		const card = view(controller).items.find((item) => item.kind === "agent-card");
+		expect(card).toMatchObject({ kind: "agent-card", settled: false });
+		controller.respondToRequest(card as never, "deny");
+		await flush();
+		expect(view(controller).items.find((item) => item.kind === "agent-card")).toMatchObject({ decision: "denied" });
+		// card de um run que não está parado (histórico): sem botões
+		expect(view(setup().controller).items).toEqual([]);
+	});
+
+	it("pergunta do bot: marca o card respondido e o texto segue como fala da conversa", async () => {
+		const { controller, calls } = setup({ follow: async () => new Promise<FollowResult>(() => undefined) });
+		await controller.open();
+		controller.answerAgentCard(ask, "  Capa dura  ");
+		controller.answerAgentCard(ask, "Capa dura");
+		await flush();
+		await flush();
+		expect(calls.cards).toEqual([["run-1:k1", "answered"]]);
+		expect(calls.createRun).toHaveLength(1);
+		expect(calls.createRun[0]).toMatchObject({ content: "Capa dura" });
+	});
+
+	it("pergunta: se o servidor recusar, a fala não é enviada e o card volta a pedir", async () => {
+		const { controller, calls } = setup({ api: { respondCard: async () => Promise.reject(new ChatApiError("conflict", 409)) } });
+		await controller.open();
+		controller.answerAgentCard(ask, "Capa dura");
+		await flush();
+		expect(calls.createRun).toHaveLength(0);
+		expect(controller.getSnapshot().agentDecisions).toEqual({});
+		expect(controller.getSnapshot().error).toBe("Este pedido já foi respondido.");
+	});
+
+	it("pergunta: 'Agora não' só marca dispensada; resposta vazia ou longa demais é ignorada", async () => {
+		const { controller, calls } = setup();
+		await controller.open();
+		controller.dismissAgentCard(ask);
+		controller.answerAgentCard({ ...ask, id: "q2", card: { ...ask.card, cardId: "run-1:k2" } as never }, "   ");
+		controller.answerAgentCard({ ...ask, id: "q3", card: { ...ask.card, cardId: "run-1:k3" } as never }, "x".repeat(8_001));
+		await flush();
+		expect(calls.cards).toEqual([["run-1:k1", "dismissed"]]);
+		expect(calls.createRun).toHaveLength(0);
+	});
+
+	it("recarregar: o card gravado vem com o estado do servidor (aprovado, vencido, pendente) e o recibo de run encerrado aparece", async () => {
+		const receipt = { type: "receipt", id: "call-3", name: "create_event", what: "Evento criado", runId: "run-1" };
+		const rows = (state: string) => [
+			{ ...row("a", "approval_request", JSON.stringify(approval)), cardState: state },
+			row("r", "receipt", JSON.stringify(receipt), 1),
+		];
+		const open = async (state: string) => {
+			const { controller } = setup({ api: { fetchPage: async () => ({ messages: rows(state) as never, hasMore: false }) } });
+			await controller.open();
+			return view(controller).items.filter((item) => item.kind === "agent-card");
+		};
+		const [approved, receiptItem] = await open("approved");
+		expect(approved).toMatchObject({ decision: "approved", state: "approved" });
+		expect(receiptItem).toMatchObject({ card: { type: "receipt", what: "Evento criado" } });
+		expect((await open("expired"))[0]).toMatchObject({ state: "expired", settled: true });
+		expect((await open("expired"))[0]).not.toHaveProperty("decision");
+		expect((await open("denied"))[0]).toMatchObject({ decision: "denied" });
+	});
+
+	it("pergunta antiga (o dono já falou depois) não pede mais", async () => {
+		const { controller } = setup({ api: { fetchPage: async () => ({ messages: [row("a", "ask_owner", JSON.stringify({ type: "ask_owner", cardId: "run-1:k1", question: "Qual?", runId: "run-1" })), row("u", "user", "outra coisa", 1)], hasMore: false }) } });
+		await controller.open();
+		expect(view(controller).items.find((item) => item.kind === "agent-card")).toMatchObject({ settled: true });
 	});
 });

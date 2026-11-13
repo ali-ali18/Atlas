@@ -1,0 +1,294 @@
+{
+  "version": 1,
+  "id": "generic-email-summary-with-content-and-action",
+  "title": "'Summarize my e-mail since yesterday' (nurse, Toronto) → content and action of each relevant message (amount, deadline, swap request), not just subjects; skips the promo",
+  "description": "Mesma capacidade do ouro 01 (e-mail com conteúdo e ação), outra pessoa: enfermeira em Toronto (en-US, CAD, datas em 'Nov 7'), conector de e-mail com nomes de tool diferentes do ouro (`list_messages`/`get_message`). O resumo precisa abrir os corpos (o snippet não traz valor nem prazo) e ignorar a promoção.",
+  "tags": [
+    "generic",
+    "email"
+  ],
+  "source": {
+    "kind": "seed",
+    "note": "Conjunto genérico F0.7 (PLANO-AGENTE-V4/04-avaliacao.md §1.1): cenário sintético com pessoa, loja e contexto fictícios (domínios .test), para o motor não viciar no uso do dono."
+  },
+  "bot": {
+    "name": "Mira",
+    "about": "Personal assistant: e-mail, shopping, studies and calendar.",
+    "language": "en-US"
+  },
+  "locale": {
+    "country": "CA",
+    "currency": "CAD",
+    "timezone": "America/Toronto"
+  },
+  "user": "can you summarize what came in on my email since yesterday morning?",
+  "tools": {
+    "connectors": [
+      {
+        "slug": "outlook",
+        "name": "Outlook",
+        "preload": true,
+        "tools": [
+          {
+            "name": "list_messages",
+            "description": "Search the user's e-mails. Returns id, sender, subject and a short snippet (not the full body).",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "query": {
+                  "type": "string"
+                }
+              }
+            },
+            "responses": [
+              {
+                "text": "{\"messages\":[{\"id\":\"n1\",\"from\":\"scheduling@northgate-health.test\",\"subject\":\"Shift swap request: Sat Nov 7 nights\",\"snippet\":\"A colleague asked to swap a night shift with you.\"},{\"id\":\"n2\",\"from\":\"billing@lakeshore-college.test\",\"subject\":\"Tuition instalment reminder\",\"snippet\":\"Your next instalment is coming up.\"},{\"id\":\"n3\",\"from\":\"registrar@nursing-college.test\",\"subject\":\"Annual membership renewal is open\",\"snippet\":\"Renewal for 2027 is now open.\"},{\"id\":\"n4\",\"from\":\"deals@northwind-market.test\",\"subject\":\"Weekend flash sale: 30% off everything\",\"snippet\":\"Use code SAVE30 at checkout.\"}]}"
+              }
+            ]
+          },
+          {
+            "name": "get_message",
+            "description": "Read the full body of one e-mail by id.",
+            "inputSchema": {
+              "type": "object",
+              "required": [
+                "id"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string"
+                }
+              }
+            },
+            "responses": [
+              {
+                "args": {
+                  "id": {
+                    "equals": "n1"
+                  }
+                },
+                "text": "{\"id\":\"n1\",\"from\":\"scheduling@northgate-health.test\",\"subject\":\"Shift swap request: Sat Nov 7 nights\",\"body\":\"Hi! Priya Raman asked to swap her Saturday Nov 7 night shift (19:00-07:00, Ward 4B) with your Monday Nov 9 night. Please accept or decline in the staff portal by Nov 6, 5 pm.\"}"
+              },
+              {
+                "args": {
+                  "id": {
+                    "equals": "n2"
+                  }
+                },
+                "text": "{\"id\":\"n2\",\"from\":\"billing@lakeshore-college.test\",\"subject\":\"Tuition instalment reminder\",\"body\":\"Your instalment of CAD $412.50 for the Wound Care Certificate is due on Nov 12. Pay in the student portal to avoid a $25 late fee.\"}"
+              },
+              {
+                "args": {
+                  "id": {
+                    "equals": "n3"
+                  }
+                },
+                "text": "{\"id\":\"n3\",\"from\":\"registrar@nursing-college.test\",\"subject\":\"Annual membership renewal is open\",\"body\":\"Renewal for 2027 is open until Nov 30. The fee is CAD $539.00, and you must confirm 40 practice hours when you renew.\"}"
+              },
+              {
+                "args": {
+                  "id": {
+                    "equals": "n4"
+                  }
+                },
+                "text": "{\"id\":\"n4\",\"from\":\"deals@northwind-market.test\",\"subject\":\"Weekend flash sale: 30% off everything\",\"body\":\"This weekend only: 30% off everything with code SAVE30.\"}"
+              }
+            ]
+          },
+          {
+            "name": "create_draft",
+            "description": "Create an e-mail draft (does not send).",
+            "inputSchema": {
+              "type": "object",
+              "required": [
+                "to",
+                "body"
+              ],
+              "properties": {
+                "to": {
+                  "type": "string"
+                },
+                "subject": {
+                  "type": "string"
+                },
+                "body": {
+                  "type": "string"
+                }
+              }
+            },
+            "readOnly": false,
+            "responses": [
+              {
+                "text": "{\"draft\":true,\"id\":\"d1\"}"
+              }
+            ]
+          },
+          {
+            "name": "send_mail",
+            "description": "Send an e-mail now.",
+            "inputSchema": {
+              "type": "object",
+              "required": [
+                "to",
+                "body"
+              ],
+              "properties": {
+                "to": {
+                  "type": "string"
+                },
+                "subject": {
+                  "type": "string"
+                },
+                "body": {
+                  "type": "string"
+                }
+              }
+            },
+            "readOnly": false,
+            "responses": [
+              {
+                "text": "{\"sent\":true}"
+              }
+            ]
+          },
+          {
+            "name": "forward_mail",
+            "description": "Forward an e-mail to another address.",
+            "inputSchema": {
+              "type": "object",
+              "required": [
+                "id",
+                "to"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "to": {
+                  "type": "string"
+                }
+              }
+            },
+            "readOnly": false,
+            "responses": [
+              {
+                "text": "{\"forwarded\":true}"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "run": {
+    "engine": "v2"
+  },
+  "expect": [
+    {
+      "type": "completed"
+    },
+    {
+      "id": "read-the-inbox",
+      "type": "tool_called",
+      "toolPattern": "list_messages"
+    },
+    {
+      "id": "opened-the-bodies",
+      "type": "tool_called",
+      "toolPattern": "get_message",
+      "min": 2
+    },
+    {
+      "id": "has-the-amount",
+      "type": "text_contains",
+      "value": "412.50"
+    },
+    {
+      "id": "has-the-tuition-deadline",
+      "type": "text_contains",
+      "pattern": "Nov 12"
+    },
+    {
+      "id": "has-the-swap-request",
+      "type": "text_contains",
+      "pattern": "swap",
+      "ignoreCase": true
+    },
+    {
+      "id": "has-the-swap-deadline",
+      "type": "text_contains",
+      "pattern": "Nov 6"
+    },
+    {
+      "id": "has-the-renewal",
+      "type": "text_contains",
+      "pattern": "renewal[\\s\\S]{0,200}(Nov 30|539)|(Nov 30|539)[\\s\\S]{0,200}renewal",
+      "ignoreCase": true
+    },
+    {
+      "id": "skips-the-promo",
+      "type": "text_not_contains",
+      "pattern": "Northwind|30% ?off|SAVE30",
+      "ignoreCase": true
+    },
+    {
+      "type": "tool_not_called",
+      "toolPattern": "send|forward|draft"
+    },
+    {
+      "type": "language",
+      "value": "en-US"
+    },
+    {
+      "type": "no_internals"
+    },
+    {
+      "type": "max_model_calls",
+      "value": 6
+    },
+    {
+      "id": "rubric-content-and-action",
+      "type": "judge",
+      "rubric": "The summary says, for each relevant e-mail, what it asks and by when (swap request answer by Nov 6, tuition instalment of CAD $412.50 by Nov 12, membership renewal by Nov 30), instead of only listing senders and subjects, and it does not mention the promotion."
+    }
+  ],
+  "mock": {
+    "turns": [
+      {
+        "calls": [
+          {
+            "name": "mcp__outlook__list_messages",
+            "args": {
+              "query": "newer_than:2d"
+            }
+          }
+        ]
+      },
+      {
+        "calls": [
+          {
+            "name": "mcp__outlook__get_message",
+            "args": {
+              "id": "n1"
+            }
+          },
+          {
+            "name": "mcp__outlook__get_message",
+            "args": {
+              "id": "n2"
+            }
+          },
+          {
+            "name": "mcp__outlook__get_message",
+            "args": {
+              "id": "n3"
+            }
+          }
+        ]
+      },
+      {
+        "say": "Here is what came in since yesterday morning (4 e-mails, 3 need you):\n\n1. **Shift swap**: Priya Raman asked to swap her Sat Nov 7 night shift (Ward 4B) with your Mon Nov 9 night. Accept or decline in the staff portal by Nov 6, 5 pm.\n2. **Tuition**: the Wound Care Certificate instalment of CAD $412.50 is due Nov 12; paying later adds a $25 fee.\n3. **Membership renewal**: renewal for 2027 is open until Nov 30 (CAD $539.00) and you must confirm 40 practice hours.\n\nThe fourth e-mail is a store promotion, nothing to do. I did not send or change anything."
+      }
+    ]
+  }
+}

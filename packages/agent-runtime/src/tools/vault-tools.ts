@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { ChatTool } from "@workspace/llm";
 import { getSkillPendingIntent, hookPublicUrl, listUserRoutineWebhooks, saveSkillPendingIntent, persistConversationCardFromEvent } from "@workspace/db";
-import { domainMatches, hostOf, isValidSecretName, loginMarker, nameMatchesSite, routineSecretMarker, secretMarker, VAULT_ENVIRONMENT_ID } from "@workspace/shared";
+import { domainMatches, hostOf, isValidSecretName, LOGIN_FIELD_SELECTORS, loginMarker, nameMatchesSite, routineSecretMarker, secretMarker, VAULT_ENVIRONMENT_ID } from "@workspace/shared";
 import { getVaultService, routineSlug, VaultError, type VaultService } from "../secrets/vault-service.js";
 
 /**
@@ -199,12 +199,7 @@ export async function executeSecretRequest(
 	};
 }
 
-const DEFAULT_SELECTORS = {
-	username:
-		'input[autocomplete="username"], input[type="email"], input[name*="user" i], input[name*="email" i], input[name*="login" i], input[id*="user" i], input[id*="email" i], input[id*="login" i], input[type="text"]',
-	password: 'input[type="password"]',
-	totp: 'input[autocomplete="one-time-code"], input[name*="otp" i], input[name*="code" i], input[name*="token" i], input[id*="otp" i], input[id*="code" i], input[inputmode="numeric"]',
-} as const;
+const DEFAULT_SELECTORS = LOGIN_FIELD_SELECTORS;
 
 /**
  * Id do cartão de vínculo: `confirm-vault-<hash do item+host>-<runId>`. O último trecho TEM de ser o run que pediu

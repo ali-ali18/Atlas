@@ -1,0 +1,528 @@
+/**
+ * Agenda do agente (Motor v4, F4): lembrete, vigia, intenção por evento e brief sobre `BotFollowup`.
+ * Funções PURAS (sem I/O): o relógio entra por `now`, o fuso por `ProactiveSettings`.
+ *
+ * Reaproveita o modo proativo do v2: `resolveFollowupWhen` lê o "quando" e `findDuplicateFollowup`/`normalizeForDedupe`
+ * evitam item repetido. SEM horário de silêncio (decisão do dono, 07/11): a agenda respeita o horário pedido e nunca
+ * empurra lembrete, vigia nem aviso. Os freios de custo (intervalo mínimo, espaçamento, teto diário, parada após avisos
+ * ignorados) continuam. O v2 (`proactive.ts`) segue com o silêncio dele.
+ *
+ * Nenhuma decisão aqui lê texto livre do dono ou do modelo para decidir comportamento: o filtro de evento compara
+ * CAMPOS declarados (remetente, assunto contém, anexo) e os freios usam contadores e datas.
+ */
+import { findDuplicateFollowup, localParts, resolveFollowupWhen, type ProactiveSettings } from "./proactive.js";
+import { zonedWallTimeToUtc } from "./routine-once.js";
+
+export const AGENDA_KINDS = ["remind", "watch", "intent", "brief"] as const;
+export type AgendaKind = (typeof AGENDA_KINDS)[number];
+
+export const AGENDA_OUTCOMES = ["no_change", "update", "done"] as const;
+export type AgendaOutcome = (typeof AGENDA_OUTCOMES)[number];
+
+/** Estado do item na linha (`status`). `paused` só existe na agenda; a varredura do v2 só olha `pending`. */
+export type AgendaStatus = "pending" | "paused" | "done" | "cancelled";
+
+export const AGENDA_NOTE_MAX_CHARS = 1000;
+export const AGENDA_MEMO_MAX_CHARS = 2000;
+export const AGENDA_MESSAGE_MAX_CHARS = 2000;
+/** Intervalo mínimo entre execuções, salvo pedido explícito do dono (declarado pelo modelo num campo). */
+export const AGENDA_MIN_INTERVAL_MINUTES = 120;
+/** Piso absoluto: nem pedido explícito vai abaixo (custo de LLM sem ganho). */
+export const AGENDA_FLOOR_INTERVAL_MINUTES = 15;
+export const AGENDA_MAX_INTERVAL_MINUTES = 60 * 24 * 30;
+/** Itens ativos (pendentes ou pausados) por dono. */
+export const AGENDA_MAX_ACTIVE_PER_OWNER = 20;
+export const AGENDA_MAX_RUNS_CAP = 500;
+export const AGENDA_WATCH_DEFAULT_DAYS = 14;
+export const AGENDA_INTENT_DEFAULT_DAYS = 30;
+export const AGENDA_MAX_HORIZON_DAYS = 180;
+/** A agenda para sozinha depois de tantos avisos seguidos ignorados (freio da Meta; contagem por item). */
+export const AGENDA_IGNORED_NOTICE_LIMIT = 2;
+/**
+ * O `brief` (plano do dia) é pedido pelo dono para todo dia: ficar 2 dias sem abrir o app (fim de semana) não o encerra.
+ * Passados tantos planos seguidos sem leitura, ele para (o custo de LLM não corre solto).
+ */
+export const AGENDA_BRIEF_IGNORED_NOTICE_LIMIT = 7;
+/** O plano do dia roda uma vez por dia, no mesmo horário do relógio do dono. */
+export const AGENDA_BRIEF_INTERVAL_MINUTES = 24 * 60;
+/** Execuções seguidas sem `agenda_result` que encerram o item. */
+export const AGENDA_MISSING_RESULT_LIMIT = 3;
+/** Lembrete que acordou sem resultado e sem texto: tenta de novo neste prazo. */
+export const AGENDA_REMIND_RETRY_MINUTES = 30;
+/**
+ * Um item `intent` não acorda de novo antes disto (várias mensagens seguidas viram um run só; o run lê o que chegou).
+ * 30 min: com 10 min um filtro largo (ex.: todo e-mail com anexo) gastava até 144 runs/dia por item.
+ */
+export const AGENDA_EVENT_MIN_GAP_MINUTES = 30;
+/**
+ * Teto de acordares de um item `intent` por janela de 24h (custo de LLM por item; "sem polling caro"). 8 cobre o uso real
+ * (fatura, entrega, resposta de alguém: um a poucos por dia) e limita o pior caso a 8 runs/dia/item (20 itens = 160).
+ * Passado o teto os eventos ficam juntados: o próximo run, na janela seguinte, lê o que chegou.
+ */
+export const AGENDA_EVENT_MAX_WAKES_PER_DAY = 8;
+/** Tolerância (min) da fase do horário ao comparar lembretes recorrentes do mesmo intervalo na dedupe. */
+const AGENDA_DUPLICATE_PHASE_MINUTES = 120;
+
+const MINUTE_MS = 60_000;
+const DAY_MS = 24 * 60 * MINUTE_MS;
+
+// ---------------------------------------------------------------------------
+// Filtro estrutural de evento
+// ---------------------------------------------------------------------------
+
+export const AGENDA_EVENT_SOURCES = ["email"] as const;
+export type AgendaEventSource = (typeof AGENDA_EVENT_SOURCES)[number];
+
+/**
+ * Filtro declarado. `from`: endereço completo ("loja@x.com"), domínio ("x.com", vale subdomínio) ou "@x.com".
+ * `subjectContains`: trecho LITERAL do assunto (sem padrão). Ao menos um critério; todos os presentes precisam casar.
+ */
+export type AgendaEventFilter = { source: AgendaEventSource; from?: string; subjectContains?: string; hasAttachment?: boolean };
+
+/** O evento que acorda itens `intent`. Campos já extraídos pela fonte (nunca o corpo da mensagem). */
+export type AgendaEvent = { source: AgendaEventSource; from: string; subject: string; hasAttachment: boolean };
+
+const FILTER_FIELD_MAX = 200;
+
+/** Endereço em minúsculas, sem o nome de exibição ("Loja <a@b.com>" vira "a@b.com"). */
+function bareAddress(value: string): string {
+	const open = value.indexOf("<");
+	const close = value.lastIndexOf(">");
+	const inner = open >= 0 && close > open ? value.slice(open + 1, close) : value;
+	return inner.trim().toLowerCase();
+}
+
+function fromMatches(filterFrom: string, eventFrom: string): boolean {
+	const wanted = bareAddress(filterFrom);
+	const actual = bareAddress(eventFrom);
+	if (!wanted || !actual) return false;
+	const at = wanted.indexOf("@");
+	if (at > 0) return actual === wanted;
+	const domain = at === 0 ? wanted.slice(1) : wanted;
+	const actualDomain = actual.slice(actual.lastIndexOf("@") + 1);
+	return actualDomain === domain || actualDomain.endsWith(`.${domain}`);
+}
+
+/** Valida um filtro vindo do modelo ou do banco. Campo desconhecido, vazio ou grande demais = erro com a lista do aceito. */
+export function parseAgendaEventFilter(raw: unknown): { ok: true; filter: AgendaEventFilter } | { ok: false; error: string } {
+	const accepted = "Accepted fields: source (email), from, subjectContains, hasAttachment; at least one of from, subjectContains, hasAttachment.";
+	if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return { ok: false, error: `eventFilter must be an object. ${accepted}` };
+	const record = raw as Record<string, unknown>;
+	const unknown = Object.keys(record).filter((key) => !["source", "from", "subjectContains", "hasAttachment"].includes(key));
+	if (unknown.length > 0) return { ok: false, error: `Unknown eventFilter field(s): ${unknown.join(", ")}. ${accepted}` };
+	if (!(AGENDA_EVENT_SOURCES as readonly unknown[]).includes(record.source)) return { ok: false, error: `eventFilter.source must be one of: ${AGENDA_EVENT_SOURCES.join(", ")}.` };
+	const filter: AgendaEventFilter = { source: record.source as AgendaEventSource };
+	for (const key of ["from", "subjectContains"] as const) {
+		const value = record[key];
+		if (value === undefined) continue;
+		if (typeof value !== "string" || value.trim().length === 0 || value.length > FILTER_FIELD_MAX) return { ok: false, error: `eventFilter.${key} must be a non-empty string up to ${FILTER_FIELD_MAX} characters.` };
+		filter[key] = value.trim();
+	}
+	if (record.hasAttachment !== undefined) {
+		if (typeof record.hasAttachment !== "boolean") return { ok: false, error: "eventFilter.hasAttachment must be true or false." };
+		filter.hasAttachment = record.hasAttachment;
+	}
+	if (filter.from === undefined && filter.subjectContains === undefined && filter.hasAttachment === undefined) return { ok: false, error: `eventFilter needs at least one criterion. ${accepted}` };
+	return { ok: true, filter };
+}
+
+/** O evento casa com o filtro? Só compara campos declarados; sem padrão sobre texto livre. */
+export function matchEventFilter(filter: AgendaEventFilter, event: AgendaEvent): boolean {
+	if (filter.source !== event.source) return false;
+	if (filter.from !== undefined && !fromMatches(filter.from, event.from)) return false;
+	if (filter.subjectContains !== undefined && !event.subject.toLowerCase().includes(filter.subjectContains.toLowerCase())) return false;
+	if (filter.hasAttachment !== undefined && filter.hasAttachment !== event.hasAttachment) return false;
+	return true;
+}
+
+// ---------------------------------------------------------------------------
+// Planejar a criação
+// ---------------------------------------------------------------------------
+
+/** O pedido de criação como o modelo o declara (nomes iguais aos das tools). */
+export type AgendaRequest = {
+	kind: AgendaKind;
+	note: string;
+	/** Primeira execução: ISO 8601 (sem fuso = fuso do dono) ou "amanhã 9h". */
+	when?: string;
+	everyMinutes?: number;
+	/** O DONO pediu explicitamente um intervalo menor que o mínimo (declarado pelo modelo; nunca deduzido de texto). */
+	ownerAskedShortInterval?: boolean;
+	/** Quando para de vigiar (mesmo formato de `when`). */
+	until?: string;
+	maxRuns?: number;
+	eventFilter?: unknown;
+};
+
+export type AgendaPlan = {
+	kind: AgendaKind;
+	note: string;
+	/** Próxima execução, no horário pedido. Em `intent` é o fim da vigência (a varredura de tempo só a expira). */
+	dueAt: Date;
+	requestedFor: Date;
+	intervalMinutes: number | null;
+	untilAt: Date | null;
+	maxRuns: number | null;
+	eventFilter: AgendaEventFilter | null;
+	/** Ajustes que o motor fez (inglês curto, para o modelo contar ao dono em palavras simples). */
+	adjustments: string[];
+};
+
+export type PlanAgendaResult = { ok: true; plan: AgendaPlan } | { ok: false; error: string };
+
+function validateInterval(request: AgendaRequest): { ok: true; minutes: number | null } | { ok: false; error: string } {
+	const minutes = request.everyMinutes;
+	if (minutes === undefined) return { ok: true, minutes: null };
+	if (!Number.isInteger(minutes) || minutes <= 0) return { ok: false, error: "everyMinutes must be a positive whole number of minutes." };
+	if (minutes > AGENDA_MAX_INTERVAL_MINUTES) return { ok: false, error: `everyMinutes is at most ${AGENDA_MAX_INTERVAL_MINUTES} (30 days).` };
+	if (minutes < AGENDA_FLOOR_INTERVAL_MINUTES) return { ok: false, error: `everyMinutes is at least ${AGENDA_FLOOR_INTERVAL_MINUTES}, even when the owner asks for less.` };
+	if (minutes < AGENDA_MIN_INTERVAL_MINUTES && request.ownerAskedShortInterval !== true) {
+		return { ok: false, error: `everyMinutes is at least ${AGENDA_MIN_INTERVAL_MINUTES} (2 hours) unless the owner explicitly asked for a shorter interval.`, };
+	}
+	return { ok: true, minutes };
+}
+
+/** Primeiro instante DEPOIS de `after` em que o relógio do dono marca `minutesOfDay` (minutos desde 00:00). */
+export function nextLocalTimeAfter(minutesOfDay: number, after: Date, timeZone: string): Date {
+	const today = localParts(after, timeZone);
+	for (let offset = 0; offset <= 2; offset += 1) {
+		const day = new Date(Date.UTC(today.year, today.month - 1, today.day + offset));
+		const at = zonedWallTimeToUtc({ year: day.getUTCFullYear(), month: day.getUTCMonth() + 1, day: day.getUTCDate(), hour: Math.floor(minutesOfDay / 60), minute: minutesOfDay % 60, second: 0 }, timeZone);
+		if (at.getTime() > after.getTime()) return at;
+	}
+	return new Date(after.getTime() + AGENDA_BRIEF_INTERVAL_MINUTES * MINUTE_MS);
+}
+
+/**
+ * Próxima vez, DEPOIS de `after`, em que o relógio do dono marca a mesma hora do `anchor` (o horário que ele pediu).
+ * Âncora no relógio local (não "+24h"), então o plano de 7h30 continua às 7h30 quando o horário de verão muda.
+ */
+export function nextBriefOccurrence(anchor: Date, after: Date, timeZone: string): Date {
+	const wanted = localParts(anchor, timeZone);
+	return nextLocalTimeAfter(wanted.hour * 60 + wanted.minute, after, timeZone);
+}
+
+/** Plano do dia: todo dia no horário pedido (`when` obrigatório), um por bot (o db atualiza em vez de duplicar). */
+function planBriefItem(input: { request: AgendaRequest; note: string; now: Date; settings: ProactiveSettings }): PlanAgendaResult {
+	const { request, note, now, settings } = input;
+	if (request.eventFilter !== undefined) return { ok: false, error: "eventFilter belongs to kind intent only." };
+	if (request.everyMinutes !== undefined && request.everyMinutes !== AGENDA_BRIEF_INTERVAL_MINUTES) return { ok: false, error: `brief runs once a day: leave everyMinutes out (or ${AGENDA_BRIEF_INTERVAL_MINUTES}).` };
+	if (request.when === undefined) return { ok: false, error: 'brief needs when: the first time, exactly as the owner asked (ISO 8601 like 2026-11-09T07:30, or text like "tomorrow 07:30").' };
+	const first = resolveFollowupWhen(request.when, now, settings.timezone);
+	if (!first.ok) return { ok: false, error: `when: ${first.error}` };
+	if (request.maxRuns !== undefined && (!Number.isInteger(request.maxRuns) || request.maxRuns < 1 || request.maxRuns > AGENDA_MAX_RUNS_CAP)) return { ok: false, error: `maxRuns must be a whole number from 1 to ${AGENDA_MAX_RUNS_CAP}.` };
+	let untilAt: Date | null = null;
+	if (request.until !== undefined) {
+		const until = resolveFollowupWhen(request.until, now, settings.timezone);
+		if (!until.ok) return { ok: false, error: `until: ${until.error}` };
+		if (until.dueAt.getTime() > now.getTime() + AGENDA_MAX_HORIZON_DAYS * DAY_MS) return { ok: false, error: `until is at most ${AGENDA_MAX_HORIZON_DAYS} days ahead.` };
+		if (until.dueAt.getTime() <= first.dueAt.getTime()) return { ok: false, error: "until must be after the first run." };
+		untilAt = until.dueAt;
+	}
+	return {
+		ok: true,
+		plan: { kind: "brief", note, dueAt: first.dueAt, requestedFor: first.dueAt, intervalMinutes: AGENDA_BRIEF_INTERVAL_MINUTES, untilAt, maxRuns: request.maxRuns ?? null, eventFilter: null, adjustments: [] },
+	};
+}
+
+/**
+ * Valida e normaliza o pedido de criação de um item da agenda. Recusa com a lista do que é aceito (tool honesta);
+ * nunca descarta campo em silêncio. O horário pedido é respeitado; `watch` sem fim ganha 14 dias.
+ */
+export function planAgendaItem(input: { request: AgendaRequest; now: Date; settings: ProactiveSettings }): PlanAgendaResult {
+	const { request, now, settings } = input;
+	const adjustments: string[] = [];
+	if (!(AGENDA_KINDS as readonly string[]).includes(request.kind)) return { ok: false, error: `kind must be one of: ${AGENDA_KINDS.join(", ")}.` };
+	const note = request.note.trim();
+	if (!note) return { ok: false, error: "note is empty. Write what to do when it wakes, in one or two sentences." };
+	if (note.length > AGENDA_NOTE_MAX_CHARS) return { ok: false, error: `note is ${note.length} characters; the limit is ${AGENDA_NOTE_MAX_CHARS}. Shorten it.` };
+
+	if (request.kind === "brief") return planBriefItem({ request, note, now, settings });
+
+	const interval = validateInterval(request);
+	if (!interval.ok) return interval;
+	const intervalMinutes = interval.minutes;
+
+	if (request.maxRuns !== undefined && (!Number.isInteger(request.maxRuns) || request.maxRuns < 1 || request.maxRuns > AGENDA_MAX_RUNS_CAP)) {
+		return { ok: false, error: `maxRuns must be a whole number from 1 to ${AGENDA_MAX_RUNS_CAP}.` };
+	}
+
+	const horizonEnd = new Date(now.getTime() + AGENDA_MAX_HORIZON_DAYS * DAY_MS);
+	const resolveUntil = (): { ok: true; at: Date | null } | { ok: false; error: string } => {
+		if (request.until === undefined) return { ok: true, at: null };
+		const resolved = resolveFollowupWhen(request.until, now, settings.timezone);
+		if (!resolved.ok) return { ok: false, error: `until: ${resolved.error}` };
+		if (resolved.dueAt.getTime() > horizonEnd.getTime()) return { ok: false, error: `until is at most ${AGENDA_MAX_HORIZON_DAYS} days ahead.` };
+		return { ok: true, at: resolved.dueAt };
+	};
+
+	if (request.kind === "intent") {
+		if (request.when !== undefined || request.everyMinutes !== undefined) return { ok: false, error: "intent wakes on an event, not on a clock: leave when and everyMinutes out. Use until to say how long it lasts." };
+		const parsed = parseAgendaEventFilter(request.eventFilter);
+		if (!parsed.ok) return parsed;
+		const until = resolveUntil();
+		if (!until.ok) return until;
+		const untilAt = until.at ?? new Date(now.getTime() + AGENDA_INTENT_DEFAULT_DAYS * DAY_MS);
+		if (until.at === null) adjustments.push(`no end given: it lasts ${AGENDA_INTENT_DEFAULT_DAYS} days`);
+		return { ok: true, plan: { kind: "intent", note, dueAt: untilAt, requestedFor: untilAt, intervalMinutes: null, untilAt, maxRuns: request.maxRuns ?? null, eventFilter: parsed.filter, adjustments } };
+	}
+
+	if (request.eventFilter !== undefined) return { ok: false, error: "eventFilter belongs to kind intent only." };
+
+	let requestedFor: Date;
+	if (request.kind === "watch") {
+		if (intervalMinutes === null) return { ok: false, error: `watch needs everyMinutes (at least ${AGENDA_MIN_INTERVAL_MINUTES}).` };
+		if (request.when !== undefined) {
+			const first = resolveFollowupWhen(request.when, now, settings.timezone);
+			if (!first.ok) return { ok: false, error: `when: ${first.error}` };
+			requestedFor = first.dueAt;
+		} else requestedFor = new Date(now.getTime() + intervalMinutes * MINUTE_MS);
+	} else {
+		if (request.when === undefined) return { ok: false, error: 'remind needs when (ISO 8601 like 2026-11-07T10:00, or text like "tomorrow 10:00").' };
+		const first = resolveFollowupWhen(request.when, now, settings.timezone);
+		if (!first.ok) return { ok: false, error: `when: ${first.error}` };
+		requestedFor = first.dueAt;
+	}
+
+	const until = resolveUntil();
+	if (!until.ok) return until;
+	let untilAt = until.at;
+	if (request.kind === "remind" && intervalMinutes === null && (untilAt !== null || request.maxRuns !== undefined)) {
+		return { ok: false, error: "until and maxRuns only apply to a recurring item: add everyMinutes, or leave them out for a one-off reminder." };
+	}
+	if (untilAt !== null && untilAt.getTime() <= requestedFor.getTime()) return { ok: false, error: "until must be after the first run." };
+	if (request.kind === "watch" && untilAt === null && request.maxRuns === undefined) {
+		untilAt = new Date(now.getTime() + AGENDA_WATCH_DEFAULT_DAYS * DAY_MS);
+		adjustments.push(`no end given: it stops after ${AGENDA_WATCH_DEFAULT_DAYS} days`);
+	}
+	if (request.kind === "remind" && intervalMinutes !== null && untilAt === null && request.maxRuns === undefined) {
+		untilAt = new Date(now.getTime() + AGENDA_WATCH_DEFAULT_DAYS * DAY_MS);
+		adjustments.push(`no end given: it stops after ${AGENDA_WATCH_DEFAULT_DAYS} days`);
+	}
+
+	const dueAt = requestedFor;
+	if (untilAt !== null && dueAt.getTime() >= untilAt.getTime()) return { ok: false, error: "The first run would fall after the end (until). Move until later." };
+
+	return {
+		ok: true,
+		plan: { kind: request.kind, note, dueAt, requestedFor, intervalMinutes, untilAt, maxRuns: request.kind === "remind" && intervalMinutes === null ? 1 : (request.maxRuns ?? null), eventFilter: null, adjustments },
+	};
+}
+
+/**
+ * Já existe um item ativo igual? Mesmo tipo e mesma nota (critério do v2, `findDuplicateFollowup`: nota normalizada ou
+ * 80% das palavras) E horário próximo (janela de ~2h): "me lembra às 10h e às 20h" são DOIS itens. Item recorrente
+ * (mesmo intervalo) e `intent` (acorda por evento, `dueAt` é só o fim da vigência) não têm horário a comparar.
+ * Evita o modelo recriar a cada turno.
+ */
+export function findDuplicateAgendaItem<T extends { kind: string; note: string; dueAt: Date; intervalMinutes?: number | null }>(
+	items: readonly T[],
+	plan: Pick<AgendaPlan, "kind" | "note" | "dueAt" | "intervalMinutes">,
+): T | undefined {
+	const sameKind = items.filter((item) => item.kind === plan.kind);
+	const timeless = plan.kind === "intent";
+	const recurring = plan.intervalMinutes !== null;
+	// Recorrente com o mesmo intervalo: o horário não vale como data, mas a FASE vale ("todo dia às 9h" ≠ "todo dia às 21h").
+	const samePhase = (item: T): boolean => {
+		const interval = plan.intervalMinutes;
+		if (!recurring || interval === null || item.intervalMinutes !== interval) return true;
+		const diff = Math.abs(item.dueAt.getTime() - plan.dueAt.getTime()) / MINUTE_MS;
+		const rest = diff % interval;
+		return Math.min(rest, interval - rest) <= Math.min(AGENDA_DUPLICATE_PHASE_MINUTES, interval / 4);
+	};
+	const candidates = sameKind
+		.filter(samePhase)
+		.map((item) => ({ item, note: item.note, dueAt: timeless || (recurring && item.intervalMinutes === plan.intervalMinutes) ? plan.dueAt : item.dueAt }));
+	return findDuplicateFollowup(candidates, { note: plan.note, dueAt: plan.dueAt })?.item;
+}
+
+// ---------------------------------------------------------------------------
+// Espaçamento (vigia)
+// ---------------------------------------------------------------------------
+
+/** Multiplicador do intervalo conforme as execuções seguidas sem novidade. */
+const BACKOFF_STEPS: ReadonlyArray<{ fromStreak: number; factor: number }> = [
+	{ fromStreak: 10, factor: 8 },
+	{ fromStreak: 6, factor: 4 },
+	{ fromStreak: 3, factor: 2 },
+	{ fromStreak: 0, factor: 1 },
+];
+const BACKOFF_CAP_MINUTES = 72 * 60;
+
+export function watchBackoffFactor(noChangeStreak: number): number {
+	const streak = Math.max(0, Math.floor(noChangeStreak));
+	return BACKOFF_STEPS.find((step) => streak >= step.fromStreak)?.factor ?? 1;
+}
+
+export type WatchDelay = { ok: true; dueAt: Date; delayMinutes: number } | { ok: false; reason: "past_until" };
+
+/**
+ * Quando é o próximo run de um item recorrente: intervalo × fator do espaçamento (teto de 72h, ou o próprio intervalo se
+ * for maior), sem empurrar para fora de horário nenhum. Passou de `untilAt` = encerra.
+ */
+export function nextWatchDelay(input: { now: Date; intervalMinutes: number; noChangeStreak: number; settings: ProactiveSettings; untilAt?: Date | null }): WatchDelay {
+	const cap = Math.max(input.intervalMinutes, BACKOFF_CAP_MINUTES);
+	const delayMinutes = Math.min(input.intervalMinutes * watchBackoffFactor(input.noChangeStreak), cap);
+	const dueAt = new Date(input.now.getTime() + delayMinutes * MINUTE_MS);
+	if (input.untilAt && dueAt.getTime() >= input.untilAt.getTime()) return { ok: false, reason: "past_until" };
+	return { ok: true, dueAt, delayMinutes };
+}
+
+// ---------------------------------------------------------------------------
+// Acordar: freios antes do run
+// ---------------------------------------------------------------------------
+
+export type AgendaWakeItem = {
+	status: string;
+	kind: string;
+	runCount: number;
+	maxRuns: number | null;
+	untilAt: Date | null;
+	ignoredStreak: number;
+	/** Falhas seguidas sem resultado. Um lembrete com tentativa pendente não para por `maxRuns`: a tentativa É a mesma execução. */
+	missingResults?: number;
+};
+
+export type AgendaStopReason = "expired" | "max_runs" | "ignored_notices";
+
+export type AgendaWakePlan =
+	| { action: "run"; ignoredStreak: number }
+	| { action: "stop"; reason: AgendaStopReason; ignoredStreak: number };
+
+/**
+ * O aviso anterior foi ignorado? Sinal ESTRUTURAL: o dono não abriu a conversa depois do aviso (`lastReadAt` anterior)
+ * E não escreveu nela depois dele. Qualquer um dos dois conta como visto.
+ */
+export function wasNoticeIgnored(input: { noticeAt: Date; lastReadAt: Date | null; lastOwnerMessageAt: Date | null }): boolean {
+	const seen = (at: Date | null) => at !== null && at.getTime() >= input.noticeAt.getTime();
+	return !seen(input.lastReadAt) && !seen(input.lastOwnerMessageAt);
+}
+
+/** Contagem de avisos seguidos ignorados: ignorado soma, visto zera. */
+export function nextIgnoredStreak(current: number, ignored: boolean): number {
+	return ignored ? current + 1 : 0;
+}
+
+/**
+ * Decide o que fazer com um item vencido ANTES de gastar um run: venceu a vigência, bateu `maxRuns`, o dono ignorou
+ * `AGENDA_IGNORED_NOTICE_LIMIT` avisos seguidos. Não há adiamento por horário. `noticeIgnored` = resultado de
+ * `wasNoticeIgnored` do último aviso ainda não avaliado (`null` = não havia aviso a avaliar).
+ */
+export function planAgendaWake(input: { item: AgendaWakeItem; now: Date; settings: ProactiveSettings; noticeIgnored: boolean | null }): AgendaWakePlan {
+	const { item, now } = input;
+	const ignoredStreak = input.noticeIgnored === null ? item.ignoredStreak : nextIgnoredStreak(item.ignoredStreak, input.noticeIgnored);
+	if (item.untilAt && item.untilAt.getTime() <= now.getTime()) return { action: "stop", reason: "expired", ignoredStreak };
+	const retryingReminder = item.kind === "remind" && (item.missingResults ?? 0) > 0;
+	if (item.maxRuns !== null && item.runCount >= item.maxRuns && !retryingReminder) return { action: "stop", reason: "max_runs", ignoredStreak };
+	if (ignoredStreak >= (item.kind === "brief" ? AGENDA_BRIEF_IGNORED_NOTICE_LIMIT : AGENDA_IGNORED_NOTICE_LIMIT)) return { action: "stop", reason: "ignored_notices", ignoredStreak };
+	return { action: "run", ignoredStreak };
+}
+
+// ---------------------------------------------------------------------------
+// Acordar por evento: espaçamento e teto diário
+// ---------------------------------------------------------------------------
+
+export type AgendaEventWakeVerdict = "wake" | "gap" | "daily_cap";
+
+/** Janela de 24h do item `intent`: quando abriu e quantos acordares já gastou. */
+export type AgendaEventWindow = { windowStartAt: Date | null; windowCount: number };
+
+const windowOpen = (window: AgendaEventWindow, now: Date): boolean => window.windowStartAt !== null && now.getTime() - window.windowStartAt.getTime() < DAY_MS;
+
+/**
+ * Este evento acorda o item `intent` agora? `gap` = acordou há menos de `minGapMinutes` (o evento é juntado ao run que lê o
+ * que chegou); `daily_cap` = já gastou `AGENDA_EVENT_MAX_WAKES_PER_DAY` acordares na janela de 24h.
+ */
+export function planAgendaEventWake(input: { now: Date; lastWakeAt: Date | null; minGapMinutes: number; window: AgendaEventWindow }): AgendaEventWakeVerdict {
+	if (input.lastWakeAt && input.now.getTime() - input.lastWakeAt.getTime() < input.minGapMinutes * MINUTE_MS) return "gap";
+	if (windowOpen(input.window, input.now) && input.window.windowCount >= AGENDA_EVENT_MAX_WAKES_PER_DAY) return "daily_cap";
+	return "wake";
+}
+
+/** A janela depois de mais um acordar: abre uma nova se a anterior passou de 24h. */
+export function nextAgendaEventWindow(window: AgendaEventWindow, now: Date): { windowStartAt: Date; windowCount: number } {
+	return windowOpen(window, now) ? { windowStartAt: window.windowStartAt!, windowCount: window.windowCount + 1 } : { windowStartAt: now, windowCount: 1 };
+}
+
+// ---------------------------------------------------------------------------
+// Fechar: o que o resultado do run faz com o item
+// ---------------------------------------------------------------------------
+
+export type AgendaSettleItem = { kind: AgendaKind; intervalMinutes: number | null; untilAt: Date | null; maxRuns: number | null; runCount: number; noChangeStreak: number; /** O horário pedido na criação: o `brief` repete a mesma hora do relógio do dono. */ requestedFor?: Date | null };
+
+export type AgendaSettlement = {
+	status: "pending" | "done";
+	/** Próxima execução; `null` quando encerra. */
+	dueAt: Date | null;
+	noChangeStreak: number;
+	endReason: string | null;
+	/** O dono recebe uma mensagem? (`update` ou `done` com texto; `no_change` nunca.) */
+	post: boolean;
+	/** Lembrete que nunca devolveu resultado nem texto: quem fecha o run entrega a PRÓPRIA nota ao dono (copy `agenda_reminder_note`). */
+	deliverNote?: boolean;
+};
+
+/**
+ * Efeito de `agenda_result` sobre o item. `item.runCount` já conta este run (incrementado ao acordar). Uma vez só
+ * (sem intervalo) encerra sempre; recorrente espaça pelo `noChangeStreak` e encerra em `done`, `maxRuns` ou `untilAt`.
+ */
+export function settleAgendaRun(input: { item: AgendaSettleItem; outcome: AgendaOutcome; hasMessage: boolean; now: Date; settings: ProactiveSettings }): AgendaSettlement {
+	const { item, outcome } = input;
+	const post = outcome !== "no_change" && input.hasMessage;
+	const noChangeStreak = outcome === "no_change" ? item.noChangeStreak + 1 : 0;
+	const end = (endReason: string): AgendaSettlement => ({ status: "done", dueAt: null, noChangeStreak, endReason, post });
+	if (outcome === "done") return end("done");
+	// Intenção por evento: segue valendo depois de cada acordar, até `maxRuns` ou o fim da vigência (não há relógio).
+	if (item.kind === "intent") {
+		if (item.maxRuns !== null && item.runCount >= item.maxRuns) return end("max_runs");
+		if (item.untilAt === null) return end("expired");
+		return { status: "pending", dueAt: item.untilAt, noChangeStreak, endReason: null, post };
+	}
+	if (item.intervalMinutes === null) return end("completed");
+	if (item.maxRuns !== null && item.runCount >= item.maxRuns) return end("max_runs");
+	// Plano do dia: a mesma hora do relógio do dono todo dia (não "24h depois de terminar o run", que escorregaria).
+	if (item.kind === "brief" && item.requestedFor) {
+		const dueAt = nextBriefOccurrence(item.requestedFor, input.now, input.settings.timezone);
+		if (item.untilAt && dueAt.getTime() >= item.untilAt.getTime()) return end("expired");
+		return { status: "pending", dueAt, noChangeStreak, endReason: null, post };
+	}
+	const next = nextWatchDelay({ now: input.now, intervalMinutes: item.intervalMinutes, noChangeStreak, settings: input.settings, untilAt: item.untilAt });
+	if (!next.ok) return end("expired");
+	return { status: "pending", dueAt: next.dueAt, noChangeStreak, endReason: null, post };
+}
+
+/**
+ * Run de agenda que acabou SEM `agenda_result`. Sem o sinal explícito não se fala com o dono (contrato silencioso), com
+ * uma exceção: o texto de um `remind` É o conteúdo do lembrete, então sai e o item segue como se fosse `update`.
+ *
+ * Lembrete sem resultado E sem texto NUNCA some calado (o dono pediu para ser avisado): tenta de novo em
+ * `AGENDA_REMIND_RETRY_MINUTES` e, na `AGENDA_MISSING_RESULT_LIMIT`-ésima falha seguida, entrega a própria nota
+ * (`deliverNote`). Lembrete de uma vez encerra aí (`endReason` "reminder_note"); recorrente entrega e segue o ritmo.
+ *
+ * Nos outros tipos o run conta como falha (`missingResults`, guardado em `attempts`): espaça como "sem novidade" e, na
+ * terceira seguida, encerra com `no_result` para o dono ser avisado uma vez (nunca em silêncio total).
+ */
+export function settleAgendaRunWithoutResult(input: {
+	item: AgendaSettleItem & { missingResults: number };
+	hasText: boolean;
+	now: Date;
+	settings: ProactiveSettings;
+}): AgendaSettlement & { missingResults: number } {
+	if (input.item.kind === "remind") {
+		if (input.hasText) return { ...settleAgendaRun({ item: input.item, outcome: "update", hasMessage: true, now: input.now, settings: input.settings }), missingResults: 0 };
+		const missingResults = input.item.missingResults + 1;
+		if (missingResults >= AGENDA_MISSING_RESULT_LIMIT) {
+			const delivered = settleAgendaRun({ item: input.item, outcome: "update", hasMessage: true, now: input.now, settings: input.settings });
+			return { ...delivered, endReason: delivered.status === "done" ? "reminder_note" : null, deliverNote: true, missingResults: 0 };
+		}
+		const retryAt = new Date(input.now.getTime() + AGENDA_REMIND_RETRY_MINUTES * MINUTE_MS);
+		if (input.item.untilAt && retryAt.getTime() >= input.item.untilAt.getTime()) {
+			return { status: "done", dueAt: null, noChangeStreak: input.item.noChangeStreak, endReason: "reminder_note", post: true, deliverNote: true, missingResults: 0 };
+		}
+		return { status: "pending", dueAt: retryAt, noChangeStreak: input.item.noChangeStreak, endReason: null, post: false, missingResults };
+	}
+	const missingResults = input.item.missingResults + 1;
+	if (missingResults >= AGENDA_MISSING_RESULT_LIMIT) return { status: "done", dueAt: null, noChangeStreak: input.item.noChangeStreak, endReason: "no_result", post: true, missingResults };
+	const settled = settleAgendaRun({ item: input.item, outcome: "no_change", hasMessage: false, now: input.now, settings: input.settings });
+	return { ...settled, endReason: settled.endReason === "completed" ? "no_result" : settled.endReason, missingResults };
+}

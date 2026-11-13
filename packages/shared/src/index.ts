@@ -142,6 +142,25 @@ export type {
 	SkillListItemData,
 } from "./computer.js";
 export {
+	AGENT_V4_EVENT_TYPES,
+	AGENT_V4_TEXT_MAX,
+	ASK_OWNER_CHOICES_MAX,
+	agentCardCallId,
+	agentCardIdentity,
+	agentCardKey,
+	isAgentV4EventType,
+	parseAgentV4Event,
+	type AgentV4Event,
+	type ApprovalRequestEvent,
+	type AskOwnerChoice,
+	type AskOwnerEvent,
+	type HandoffRequestEvent,
+	type ReceiptEvent,
+} from "./agent-v4-events.js";
+export { approvalEventFact, approvalMessageFact, formatApprovalEventWhen, type ApprovalEventFact, type ApprovalMessageFact } from "./agent-v4-approval-facts.js";
+export { AGENT_CARD_STATES, agentCardHasState, isAgentCardState, resolveAgentCardState, sanitizeAgentV4EventForStorage, type AgentCardState, type AgentCardStateInput } from "./agent-v4-card-state.js";
+export { purchaseRequestFromEvent, type PurchaseFacts, type PurchaseRequest } from "./agent-v4-purchase.js";
+export {
 	AGENT_POINTER_NAME_MAX,
 	type AgentPointerAction,
 	type AgentPointerEvent,
@@ -167,6 +186,8 @@ export {
 	parseDelegateTaskArgs,
 	subagentLabel,
 	DELEGATE_TITLE_MAX_CHARS,
+	DELEGATE_GOAL_MAX_CHARS,
+	DELEGATE_CONTEXT_MAX_CHARS,
 	planChildBudget,
 	DELEGATE_MODEL_MAX_CHARS,
 	readSubagentModel,
@@ -260,6 +281,11 @@ export {
 export * from "./task-contracts.js";
 export * from "./tool-cache.js";
 export * from "./task-list.js";
+export * from "./product.js";
+export * from "./purchase.js";
+export * from "./email-triage.js";
+export * from "./calendar.js";
+export * from "./day-plan.js";
 export * from "./task-ledger.js";
 export * from "./browser-subagents.js";
 export { COMPACT_TAIL_KEEP, selectCompactTail } from "./compact.js";
@@ -289,6 +315,7 @@ export * from "./read-state.js";
 export * from "./files.js";
 export * from "./deck.js";
 export * from "./attachments.js";
+export * from "./attachment-text.js";
 export {
 	parseSkillRecipe,
 	evaluateSkillRecipe,
@@ -490,6 +517,8 @@ export {
 	type ScheduleCronInput,
 } from "./schedule-cron.js";
 export * from "./proactive.js";
+export * from "./agenda.js";
+export * from "./agenda-view.js";
 export * from "./reflection.js";
 export * from "./work-hours.js";
 export * from "./reaction-only.js";
@@ -506,6 +535,8 @@ export * from "./alert-rule-extract.js";
 export * from "./page-value.js";
 export * from "./market-hours.js";
 export * from "./routine-alert.js";
+export * from "./routine-trigger-summary.js";
+export * from "./routine-login-permission.js";
 export * from "./routine-alert-schedule.js";
 export * from "./routine-failure-text.js";
 export {
@@ -821,7 +852,7 @@ export {
 	type UsageResponse,
 	type UsageTotals,
 } from "./usage.js";
-export { redactSecrets } from "./redact-secrets.js";
+export { redactSecrets, sanitizeErrorMessage } from "./redact-secrets.js";
 export { buildToolResultNotes, renderToolNotesBlock, TOOL_NOTE_MAX_CHARS, TOOL_NOTES_MAX_COUNT, TOOL_NOTES_MAX_TOTAL_CHARS, type ToolResultNote } from "./memory-review-notes.js";
 export {
 	SKILL_NAME_MAX_CHARS,
@@ -877,6 +908,9 @@ export * from "./dev-env-secrets-paste.js";
 export * from "./dev-env-detect.js";
 export * from "./dev-env-auto.js";
 export * from "./github-identity.js";
+export * from "./git-ref.js";
+export * from "./git-commit-guard.js";
+export * from "./cron-validate.js";
 export * from "./dev-command-approval.js";
 export * from "./test-pr.js";
 export * from "./coding-model.js";
@@ -891,6 +925,7 @@ export * from "./env-check.js";
 export * from "./diagnostics.js";
 export * from "./sentry-lite.js";
 export * from "./vault.js";
+export * from "./vault-login.js";
 
 export {
 	CATALOG_DEFAULT_URL,
@@ -1007,13 +1042,28 @@ export {
 	type ToolMarks,
 } from "./tool-marks.js";
 export * from "./run-stop-reason.js";
+export * from "./run-failure-class.js";
 export * from "./engine-policy.js";
+export * from "./engine-policy-v4.js";
 export * from "./reasoning-effort.js";
 export * from "./engine-helpers.js";
 export * from "./engine-settings.js";
+export * from "./code-mode.js";
 export * from "./notebook.js";
 export { bubbleRadius, groupPositionAt, type GroupPosition } from "./bubble-radius.js";
 export * from "./agent-activity.js";
 export * from "./avatar-activity.js";
 export * from "./avatar-governor.js";
 export * from "./vtt.js";
+export * from "./video-transcript.js";
+export * from "./agent-policy/index.js";
+export * from "./model-roles/index.js";
+export * from "./web/index.js";
+export * from "./owner-notes.js";
+export * from "./sleep.js";
+export * from "./memory-doctor.js";
+export * from "./learned-rules.js";
+export * from "./payment-card.js";
+export * from "./merchant.js";
+export * from "./skill-similar.js";
+export * from "./api-key.js";

@@ -5,6 +5,7 @@ import { Writable } from "node:stream";
 import Docker from "dockerode";
 import type { SandboxSessionResponse } from "@workspace/shared";
 import type { SandboxRuntimeConfig } from "./config.js";
+import { CONTROL_TOKEN_ENV, controlAuthHeader, controlTokenFromInspect, generateControlToken, setControlToken } from "./control-token.js";
 import {
 	controlNavigate,
 	controlScreenshot,
@@ -19,6 +20,8 @@ import {
 	type BrowserTypeGuard,
 	controlBrowserText,
 	controlBrowserFind,
+	controlBrowserV4,
+	controlCardFill,
 	controlBrowserRead,
 	controlBrowserSnapshot,
 	controlBrowserAct,
@@ -53,6 +56,8 @@ import type {
 	ControlActResult,
 	ControlFindOptions,
 	ControlFindResult,
+	ControlCardFillParams,
+	ControlCardFillResult,
 	ControlReadOptions,
 	ControlReadResult,
 	ControlSnapshotOptions,
@@ -196,7 +201,8 @@ async function dockerExec(container: Docker.Container, modem: Docker["modem"], o
 		AttachStderr: true,
 		...(options.user ? { User: options.user } : {}),
 		...(options.workingDir ? { WorkingDir: options.workingDir } : {}),
-		Env: [`HOME=${options.user === "root" ? "/root" : "/home/atlas"}`, ...(options.env ?? [])],
+		// docker exec herda o Env do container: esvazia o token do control server para o código do usuário não o ver.
+		Env: [`HOME=${options.user === "root" ? "/root" : "/home/atlas"}`, `${CONTROL_TOKEN_ENV}=`, ...(options.env ?? [])],
 	});
 	const stream = await exec.start({ hijack: true, stdin: Boolean(options.stdin) });
 	if (options.stdin) stream.end(Buffer.from(options.stdin));
@@ -243,24 +249,62 @@ type InspectNetworking = {
 	};
 };
 
+/**
+ * Endurecimento do container da VM (F8.0), conservador para não quebrar a imagem:
+ * - `CapDrop`: tira `NET_RAW` (sem pacote bruto/ARP na rede Docker) e `MKNOD` (sem criar device). O resto do conjunto padrão
+ *   fica: o entrypoint usa chown/su e o `sudo atlas-install` precisa de SETUID/SETGID/AUDIT_WRITE.
+ * - A opção do Docker que impede ganhar privilégios novos NÃO entra: ela quebraria o `sudo atlas-install`, que precisa de setuid
+ *   (docs/features/vm-instalacoes.md). O nome da opção não aparece aqui de propósito: `install/image.test.mjs` falha se ele surgir neste arquivo.
+ * - `PidsLimit`: contém fork bomb (conta threads; Chrome e builds usam centenas, por isso o padrão é folgado).
+ */
+export function sandboxHardening(config: Pick<SandboxRuntimeConfig, "pidsLimit">): { CapDrop: string[]; PidsLimit?: number } {
+	return { CapDrop: ["NET_RAW", "MKNOD"], ...(config.pidsLimit > 0 ? { PidsLimit: config.pidsLimit } : {}) };
+}
+
 /** Limites atuais do container diferem da config (env mudou depois de criado)? */
 export function resourceLimitsOutdated(
-	config: Pick<SandboxRuntimeConfig, "memoryBytes" | "nanoCpus">,
-	inspect: { HostConfig?: { Memory?: number; NanoCpus?: number } },
+	config: Pick<SandboxRuntimeConfig, "memoryBytes" | "nanoCpus"> & Partial<Pick<SandboxRuntimeConfig, "pidsLimit">>,
+	inspect: { HostConfig?: { Memory?: number; NanoCpus?: number; PidsLimit?: number | null } },
 ): boolean {
 	const host = inspect.HostConfig;
 	if (!host) return false;
-	return (host.Memory ?? 0) !== config.memoryBytes || (host.NanoCpus ?? 0) !== config.nanoCpus;
+	// VM criada antes do limite de processos fica sem ele: o update o aplica (pidsLimit 0 = desligado de propósito).
+	const pidsOutdated = (config.pidsLimit ?? 0) > 0 && (host.PidsLimit ?? 0) !== config.pidsLimit;
+	return (host.Memory ?? 0) !== config.memoryBytes || (host.NanoCpus ?? 0) !== config.nanoCpus || pidsOutdated;
+}
+
+/**
+ * O container foi criado sem o `CapDrop` de hoje (VM antiga)? Isso NÃO se corrige com `docker update`: só recriando. Não
+ * recriamos no meio do uso (perde o que está aberto): a VM é substituída quando parar e for religada pela imagem nova, e o
+ * log avisa enquanto isso.
+ */
+export function capDropOutdated(inspect: { HostConfig?: { CapDrop?: string[] | null } }): boolean {
+	const dropped = new Set((inspect.HostConfig?.CapDrop ?? []).map((cap) => cap.replace(/^CAP_/, "").toUpperCase()));
+	return sandboxHardening({ pidsLimit: 0 }).CapDrop.some((cap) => !dropped.has(cap));
 }
 
 /** Payload de `docker update`. MemorySwap junto: subir Memory acima do swap
  * já gravado (2x o antigo) falha; 2x mantém o padrão do `create`. */
-export function resourceLimitsUpdate(config: Pick<SandboxRuntimeConfig, "memoryBytes" | "nanoCpus">) {
+export function resourceLimitsUpdate(config: Pick<SandboxRuntimeConfig, "memoryBytes" | "nanoCpus"> & Partial<Pick<SandboxRuntimeConfig, "pidsLimit">>) {
 	return {
 		Memory: config.memoryBytes,
 		MemorySwap: config.memoryBytes * 2,
 		NanoCpus: config.nanoCpus,
+		...((config.pidsLimit ?? 0) > 0 ? { PidsLimit: config.pidsLimit } : {}),
 	};
+}
+
+/**
+ * Guarda o token do control server desta VM para o cliente (por host:porta). O token vem do
+ * `Config.Env` do container, então sobrevive a reinício do worker e vale para VM criada por outro processo.
+ */
+function rememberControlToken(
+	endpoint: { host: string; controlPort: number },
+	inspect: Parameters<typeof controlTokenFromInspect>[0],
+	fallbackToken?: string,
+): void {
+	const token = controlTokenFromInspect(inspect) ?? fallbackToken;
+	if (token) setControlToken(endpoint.host, endpoint.controlPort, token);
 }
 
 /** Onde a API alcança a VM: IP na rede compartilhada (`network`) ou porta publicada no host. */
@@ -379,7 +423,7 @@ async function waitForControlReady(
 		attempts += 1;
 		assertSandboxExecution(context);
 		try {
-			const response = await runSandboxOperation(context, 3_000, (signal) => fetch(`http://${host}:${port}/health`, { signal }));
+			const response = await runSandboxOperation(context, 3_000, (signal) => fetch(`http://${host}:${port}/health`, { headers: controlAuthHeader(host, port), signal }));
 			if (response.ok) return;
 		} catch (error) {
 			if (error instanceof SandboxExecutionAbortedError && error.reason === "cancel") throw error;
@@ -493,7 +537,7 @@ export type SandboxManager = {
 	) => Promise<ControlBrowserClickResult>;
 	execBrowserType: (
 		sessionId: string,
-		params: { selector?: string; text: string; submit?: boolean; guard?: BrowserTypeGuard },
+		params: { selector?: string; ref?: string; text: string; submit?: boolean; guard?: BrowserTypeGuard },
 	) => Promise<ControlActionResult>;
 	execBrowserText: (
 		sessionId: string,
@@ -508,6 +552,10 @@ export type SandboxManager = {
 	execBrowserWait: (sessionId: string, params: ControlWaitParams) => Promise<ControlWaitResult>;
 	execBrowserRead: (sessionId: string, options?: ControlReadOptions) => Promise<ControlReadResult>;
 	execBrowserFind: (sessionId: string, options: ControlFindOptions) => Promise<ControlFindResult>;
+	/** Paga o formulário da loja na VM (F8.0). Os parâmetros levam o cartão: nunca logar. */
+	execCardFill: (sessionId: string, params: ControlCardFillParams) => Promise<ControlCardFillResult>;
+	/** Ação `browser.*` do motor v4 (F8.1): `POST /browser/v4` na VM da sessão. */
+	execBrowserV4: (sessionId: string, body: { kind: string; params: unknown }) => Promise<unknown>;
 	/** V8: abre uma aba própria (mesmo perfil/login) e devolve o id; use `withExecutionContext({ tabId })` para agir nela. */
 	execTabOpen: (sessionId: string, url?: string) => Promise<{ tabId: string }>;
 	execTabClose: (sessionId: string, tabId: string) => Promise<{ closed: boolean }>;
@@ -707,6 +755,7 @@ export function createSandboxManager(
 				}
 				const endpoint = resolveSandboxEndpoint(config, inspect);
 				if (!endpoint || endpoint.viewerPort === 0) return null;
+				rememberControlToken(endpoint, inspect);
 				return { host: endpoint.host ?? config.controlHost, port: endpoint.viewerPort, tls: config.viewerTls };
 			} catch {
 				return null;
@@ -785,6 +834,16 @@ export function createSandboxManager(
 		async execBrowserFind(sessionId, options) {
 			const record = getRecord(sessionId);
 			return controlBrowserFind(record.host ?? config.controlHost, record.controlPort, options, context);
+		},
+
+		async execCardFill(sessionId, params) {
+			const record = getRecord(sessionId);
+			return controlCardFill(record.host ?? config.controlHost, record.controlPort, params, context);
+		},
+
+		async execBrowserV4(sessionId, body) {
+			const record = getRecord(sessionId);
+			return controlBrowserV4(record.host ?? config.controlHost, record.controlPort, body, context);
 		},
 
 		async execBrowserWait(sessionId, params) {
@@ -894,12 +953,14 @@ export function createSandboxManager(
 		// Id do container que ESTA chamada criou. A limpeza no catch só mexe nele: o nome é fixo por
 		// perfil e pode ser de outro processo (api/worker), então limpar por nome derrubaria a VM alheia.
 		let createdId: string | null = null;
+		const controlToken = generateControlToken();
 		try {
 			if (conversationId) await removeLeftovers(client, conversationId, { includeRunning: opts.replaceExisting });
 			const container = await client.createContainer({
 				Image: config.image,
 				name,
-				Env: [`SANDBOX_TLS=${config.viewerTls ? "true" : "false"}`],
+				// Token do control server: um por container; o manager o relê do inspect (Config.Env).
+				Env: [`SANDBOX_TLS=${config.viewerTls ? "true" : "false"}`, `${CONTROL_TOKEN_ENV}=${controlToken}`],
 				Labels: {
 					"atlas.sandbox": "true",
 					"atlas.sandbox.userId": userId,
@@ -912,6 +973,7 @@ export function createSandboxManager(
 					// tini como PID 1: repassa SIGTERM ao entrypoint (que fecha o Chrome
 					// direito) e colhe processos zumbis.
 					Init: true,
+					...sandboxHardening(config),
 					Memory: config.memoryBytes,
 					NanoCpus: config.nanoCpus,
 					NetworkMode: config.networkMode,
@@ -958,6 +1020,7 @@ export function createSandboxManager(
 					);
 				}
 				const { host, viewerPort, controlPort } = endpoint;
+				rememberControlToken(endpoint, inspect, controlToken);
 	
 				await waitForControlReady(host, controlPort, context);
 				await waitForViewerReady(host, viewerPort, context);
@@ -1183,6 +1246,9 @@ export function createSandboxManager(
 			}
 			// RAM/CPU mudaram no env (SANDBOX_MEMORY_MB/SANDBOX_CPUS): aplica no
 			// container reaproveitado; sem isso a VM fica com o limite antigo.
+			if (capDropOutdated(inspect)) {
+				console.warn(`[sandbox] ${record.containerName || record.containerId} was created without the current CapDrop; it is replaced when it next stops and starts from the current image`);
+			}
 			if (resourceLimitsOutdated(config, inspect)) {
 				const label = record.containerName || record.containerId;
 				try {
@@ -1213,6 +1279,7 @@ export function createSandboxManager(
 			const endpoint = resolveSandboxEndpoint(config, inspect);
 			if (!endpoint) throw new Error("sandbox sem endpoint (IP/porta) apos start");
 			const { host, viewerPort, controlPort } = endpoint;
+			rememberControlToken(endpoint, inspect);
 			await waitForControlReady(host, controlPort, context);
 			await waitForViewerReady(host, viewerPort, context);
 			const running: SandboxSessionRecord = {
@@ -1390,6 +1457,7 @@ export function createSandboxManager(
 				status: inspect.State.Running ? "running" : "stopped",
 				...(() => {
 					const endpoint = resolveSandboxEndpoint(config, inspect);
+					if (endpoint) rememberControlToken(endpoint, inspect);
 					return endpoint ?? { viewerPort: 0, controlPort: 0 };
 				})(),
 				createdAt: new Date(), lastUsedAt: new Date(),

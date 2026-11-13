@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { ChatTool, CompleteChatWithToolsResult } from "@workspace/llm";
 import type { PersistUserArtifactInput } from "@workspace/db";
 import type { SandboxManager } from "@workspace/sandbox";
-import { openPptx } from "./files/deck/pptx-zip.fixtures.js";
+import { openPptx } from "@workspace/files/deck/pptx-zip.fixtures";
 import { runComputerUse } from "./computer-use.js";
 
 /**

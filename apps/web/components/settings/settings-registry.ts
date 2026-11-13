@@ -147,6 +147,8 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
 	// Cofre
 	{ id: "cofre.lista", section: "cofre", label: "Cofre de segredos e logins", keywords: ["senha", "senhas", "segredo", "chave", "api key", "token", "login", "site", "2fa", "totp", "autenticador", "gerar senha", "revelar", "copiar", "credenciais", "bot usa"] },
 
+	{ id: "cartoes.lista", section: "cofre", label: "Cartões de compra", keywords: ["cartão", "cartões", "crédito", "débito", "compra", "pagamento", "cvv", "bandeira", "final", "endereço de cobrança", "visa", "mastercard", "bot compra"] },
+
 	// Habilidades
 	{ id: "habilidades.lista", section: "habilidades", label: "Habilidades", keywords: ["skill", "skills", "habilidade", "procedimento", "receita", "instruções", "markdown", "importar", "exportar", "rascunho"] },
 

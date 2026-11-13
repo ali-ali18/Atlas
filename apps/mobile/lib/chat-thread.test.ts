@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ChatItem } from "./chat-types";
-import { taskCardActive, dedupeKeys, dockedTaskList, mergeTail, messagesPath, oldestCursor, parsePage, persistedAssistantCovers, prependOlder, reconcile, sessionMessageToItem, withSourceMarkers, taskListDockLine, taskListProgress, taskListSettledLabel } from "./chat-thread";
+import { dropDayPlanHeadlineEcho, taskCardActive, dedupeKeys, dockedTaskList, mergeTail, messagesPath, oldestCursor, parsePage, persistedAssistantCovers, prependOlder, reconcile, sessionMessageToItem, withSourceMarkers, taskListDockLine, taskListProgress, taskListSettledLabel } from "./chat-thread";
 
 const row = (id: string, role: string, content: string, createdAt = "2026-11-01T10:00:00.000Z") => ({ id, conversationId: "c1", role, content, createdAt }) as never;
 const user = (id: string, text: string, createdAt?: string): ChatItem => ({ id, kind: "user", text, ...(createdAt ? { createdAt } : {}) });
@@ -55,6 +55,25 @@ describe("sessionMessageToItem", () => {
 		const confirm = JSON.stringify({ v: 1, kind: "confirm", confirmId: "k1", title: "Criar rotina?", status: "pending" });
 		expect(sessionMessageToItem(row("c", "confirm", confirm))).toMatchObject({ kind: "confirm", confirmId: "k1", status: "pending" });
 		expect(sessionMessageToItem(row("x", "chart", "não é json"))).toBeNull();
+	});
+	it("plano do dia, agenda e e-mail gravados aparecem no celular (antes sumiam: o papel não estava na lista)", () => {
+		const plan = JSON.stringify({ v: 1, kind: "day-plan", planId: "p1", date: "2026-11-05", timeZone: "America/Sao_Paulo", headline: "Dia leve", sections: [{ id: "commitments", items: [{ text: "Reunião", time: "14:00" }] }], sourceErrors: [{ source: "email", reason: "needs_connection" }] });
+		expect(sessionMessageToItem(row("d", "day-plan", plan))).toMatchObject({ kind: "day-plan", planId: "p1", headline: "Dia leve", sections: [{ id: "commitments" }], sourceErrors: [{ source: "email", reason: "needs_connection" }] });
+		const calendar = JSON.stringify({ v: 1, kind: "calendar", cardId: "c1", action: "created", timeZone: "America/Sao_Paulo", events: [{ id: "e1", title: "Dentista", start: "2026-11-05T17:00:00.000Z", end: "2026-11-05T18:00:00.000Z", allDay: false }] });
+		expect(sessionMessageToItem(row("k", "calendar", calendar))).toMatchObject({ kind: "calendar", cardId: "c1", action: "created", events: [{ title: "Dentista" }] });
+		const triage = JSON.stringify({ v: 1, kind: "email-triage", cardId: "t1", items: [{ id: "m1", category: "needs_action", summary: "Pede o recibo" }] });
+		expect(sessionMessageToItem(row("t1", "email-triage", triage))).toMatchObject({ kind: "email-triage", cardId: "t1", items: [{ id: "m1" }] });
+		const draft = JSON.stringify({ v: 1, kind: "email-draft", cardId: "dr1", source: "gmail", to: ["ana@exemplo.com"], subject: "Oi", body: "Texto", saved: true });
+		expect(sessionMessageToItem(row("dr", "email-draft", draft))).toMatchObject({ kind: "email-draft", cardId: "dr1", subject: "Oi", saved: true });
+		// Cartão malformado não vira linha quebrada.
+		expect(sessionMessageToItem(row("bad", "day-plan", JSON.stringify({ v: 1, kind: "day-plan" })))).toBeNull();
+	});
+	it("plano do dia: a fala com a abertura (texto do push) não repete o cartão; outra fala do mesmo run e de outro run ficam", () => {
+		const plan: ChatItem = { id: "p", kind: "day-plan", planId: "day-plan:run-1", date: "2026-11-05", timeZone: "America/Sao_Paulo", headline: "Hoje: 1 compromisso.", sections: [], sourceErrors: [] };
+		const say = (id: string, text: string, runId: string): ChatItem => ({ id, kind: "assistant", text, runId });
+		const out = dropDayPlanHeadlineEcho([say("a1", "Hoje:  1 compromisso.", "run-1"), plan, say("a2", "Quer mover a reunião?", "run-1"), say("a3", "Hoje: 1 compromisso.", "run-2")]);
+		expect(out.map((item) => item.id)).toEqual(["p", "a2", "a3"]);
+		expect(reconcile([say("a1", "Hoje: 1 compromisso.", "run-1"), plan], []).map((item) => item.id)).toEqual(["p"]);
 	});
 	it("papel desconhecido e rascunho revisado não aparecem", () => {
 		expect(sessionMessageToItem(row("1", "tool", "x"))).toBeNull();
@@ -215,5 +234,47 @@ describe("citação (replyTo)", () => {
 		expect(out.map((item) => item.id)).toEqual(["db1"]);
 		expect(out[0]).toMatchObject({ replyTo: quote });
 		expect(persisted[0]).not.toHaveProperty("replyTo"); // não muda a lista recebida
+	});
+});
+
+describe("cards do motor v4 no fio", () => {
+	const approval = { type: "approval_request", requestId: "req-1", callId: "call-1", toolName: "send_email", effect: "send", args: {}, riskFacts: {}, runId: "run-1" };
+	const agentCard = (id: string, settled?: boolean): ChatItem => ({ id, kind: "agent-card", card: approval as never, ...(settled ? { settled } : {}) });
+	it("a linha gravada (role = tipo do evento) vira card; conteúdo inválido some", () => {
+		expect(sessionMessageToItem(row("db-1", "approval_request", JSON.stringify(approval)))).toMatchObject({ id: "db-1", kind: "agent-card", card: { requestId: "req-1" } });
+		expect(sessionMessageToItem(row("db-2", "approval_request", "isso não é json"))).toBeNull();
+		expect(sessionMessageToItem(row("db-3", "receipt", JSON.stringify({ type: "receipt", id: "r", name: "n", what: "Feito" })))).toMatchObject({ kind: "agent-card" });
+	});
+	it("a linha gravada leva o estado do servidor (cardState): o recibo de run encerrado e o pedido vencido são restaurados", () => {
+		const receipt = { type: "receipt", id: "r", name: "n", what: "Evento criado", runId: "run-1" };
+		const withState = (cardState: string) => ({ ...(row("db-1", "approval_request", JSON.stringify(approval)) as object), cardState }) as never;
+		expect(sessionMessageToItem(row("db-3", "receipt", JSON.stringify(receipt)))).toMatchObject({ kind: "agent-card", card: { what: "Evento criado" } });
+		expect(sessionMessageToItem(withState("expired"))).toMatchObject({ id: "db-1", state: "expired", settled: true });
+		expect(sessionMessageToItem(withState("pending"))).toMatchObject({ state: "pending" });
+		expect(sessionMessageToItem(withState("pending"))).not.toHaveProperty("settled");
+	});
+	it("gravado com estado vence o ao vivo ainda pendente e não duplica", () => {
+		const stored = { ...agentCard("db-card", true), state: "approved" } as ChatItem;
+		const merged = reconcile([user("u1", "oi"), stored], [agentCard("agent-card-approval_request|run-1|req-1")]);
+		expect(merged.filter((item) => item.kind === "agent-card")).toHaveLength(1);
+		expect(merged.find((item) => item.kind === "agent-card")).toMatchObject({ id: "db-card", state: "approved", settled: true });
+	});
+	it("ao vivo e gravado (mesmo pedido do mesmo run) viram um só, o gravado; recarregar não duplica", () => {
+		const persisted: ChatItem[] = [user("u1", "oi"), agentCard("db-card")];
+		const live: ChatItem[] = [agentCard("agent-card-approval_request|run-1|req-1")];
+		expect(reconcile(persisted, live).map((item) => item.id)).toEqual(["u1", "db-card"]);
+		expect(dedupeKeys([agentCard("a"), agentCard("b")])).toHaveLength(1);
+	});
+	it("pedidos diferentes, ou o mesmo pedido em outro run, ficam os dois", () => {
+		const other: ChatItem = { id: "x2", kind: "agent-card", card: { ...approval, requestId: "req-2" } as never };
+		const otherRun: ChatItem = { id: "x3", kind: "agent-card", card: { ...approval, runId: "run-2" } as never };
+		expect(dedupeKeys([agentCard("x1"), other, otherRun])).toHaveLength(3);
+	});
+	it("resolvido ao vivo continua resolvido quando o gravado o substitui (os botões não voltam)", () => {
+		const merged = reconcile([user("u1", "oi"), agentCard("db-card")], [agentCard("agent-card-approval_request|run-1|req-1", true)]);
+		expect(merged.find((item) => item.kind === "agent-card")).toMatchObject({ id: "db-card", settled: true });
+	});
+	it("só ao vivo (ainda sem gravado) continua na tela", () => {
+		expect(reconcile([user("u1", "oi")], [agentCard("agent-card-approval_request|run-1|req-1")]).map((item) => item.kind)).toEqual(["user", "agent-card"]);
 	});
 });

@@ -1,5 +1,7 @@
 /** Dicionário en-US. Precisa ter toda chave do pt-BR (o typecheck e o teste de paridade garantem). */
 import type { MessageDictionary } from "../../translator";
+import { agenda } from "./agenda";
+import { agentCards } from "./agentCards";
 import { aiElements } from "./aiElements";
 import { app } from "./app";
 import { autonomy } from "./autonomy";
@@ -18,6 +20,8 @@ import { libraryPanel } from "./libraryPanel";
 import { login } from "./login";
 import { marketplace } from "./marketplace";
 import { mobile } from "./mobile";
+import { notebook } from "./notebook";
+import { payments } from "./payments";
 import { reasoning } from "./reasoning";
 import { modelPicker } from "./modelPicker";
 import { providerCallback } from "./providerCallback";
@@ -35,12 +39,17 @@ import { settingsSearch } from "./settingsSearch";
 import { settingsSkills } from "./settingsSkills";
 import { settingsVault } from "./settingsVault";
 import { share } from "./share";
+import { emailCards } from "./email-cards";
+import { calendar } from "./calendar";
+import { shopping } from "./shopping";
 import { sharedLabels } from "./sharedLabels";
 import { sidebar } from "./sidebar";
 import { status } from "./status";
 import { ui } from "./ui";
 
 export const enUS: MessageDictionary = {
+	...agenda,
+	...agentCards,
 	...aiElements,
 	...app,
 	...autonomy,
@@ -59,9 +68,11 @@ export const enUS: MessageDictionary = {
 	...login,
 	...marketplace,
 	...mobile,
+	...notebook,
 	...reasoning,
 	...modelPicker,
 	...providerCallback,
+	...payments,
 	...routines,
 	...settings,
 	...settingsComposio,
@@ -76,6 +87,9 @@ export const enUS: MessageDictionary = {
 	...settingsSkills,
 	...settingsVault,
 	...share,
+	...emailCards,
+	...calendar,
+	...shopping,
 	...sharedLabels,
 	...sidebar,
 	...status,

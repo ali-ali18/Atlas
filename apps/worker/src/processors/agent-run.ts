@@ -113,6 +113,7 @@ import {
 	getRoutine,
 	getRoutineAlertForAgentRun,
 	getRoutineContextForAgentRun,
+	getRoutineLoginPermissionForAgentRun,
 	getRoutineNotifyModeForAgentRun,
 	getRoutinePageIdForAgentRun,
 	findRoutineRunByAgentRunId,
@@ -140,12 +141,27 @@ import {
 	resolveBudget,
 	wallClockAnchors,
 } from "@workspace/agent-runtime";
-import { earlyWallMs, engineDefaultFromEnv, pickRunEngine, resolveRunLimits, runSelectedEngine } from "../engine-choice.js";
-import { isReadOnlyConnectorOrigin, budgetStopFallbackText, isBotConfigEventObjective, createReviewerClient, resolveMaintenanceCandidates } from "@workspace/agent-runtime";
+import { isAgendaWakeObjective } from "../agenda-wake.js";
+import { closeAgendaRun, loadAgendaRunContextOrFail, mergeProvenance, releaseUnstartedAgendaRun, settleAbortedAgendaRun } from "../agenda-run.js";
+import { prepareV4Run } from "../v4-run-context.js";
+import { runV4Turn } from "../v4-turn.js";
+import { createBriefEmailForRun } from "../v4-adapters/brief-email.js";
+import { loadNotebookContext } from "../v4-adapters/notebook.js";
+import { createRunSandbox } from "../v4-adapters/sandbox.js";
+import { withV4CardPersistence } from "../v4-card-persistence.js";
+import { cheapModelFromEnv, createV4Llm, dropProcessorOwnedEvents, ownerStepsLimit, runEngineV4 } from "../engine-v4.js";
+/** Run de agenda que não chegou a executar (motor ou contexto): o item volta à fila neste prazo. */
+const AGENDA_NOT_RUN_RETRY_MS = 30 * 60_000;
+import { earlyWallMs, engineDefaultFromEnv, engineV4GateFromEnv, pickRunEngine, resolveRunLimits, runSelectedEngine } from "../engine-choice.js";
+import { type RunComputerUseResult } from "@workspace/agent-runtime";
+import { createAlertRunPort, createRoutinePush } from "../v4-adapters/routines.js";
+import { createV4VaultBackend } from "../v4-adapters/vault.js";
+import { alertRunNote, createSseMapper, type BullLikeQueue, type CvvEscrow } from "@workspace/agent";
+import { ensureGithubRepoHook, isReadOnlyConnectorOrigin, budgetStopFallbackText, isBotConfigEventObjective, createReviewerClient, resolveMaintenanceCandidates } from "@workspace/agent-runtime";
 import { runToolFilter } from "../run-tool-filter.js";
 import { briefDeliveryDeps, deliverBriefFailure, deliverDailyBrief, findRoutineRunIdWithRetry, isDetachedBriefRun } from "../daily-brief.js";
 import { appendConversationMessage, getLanguageContext, listRecentLoginAsks } from "@workspace/db";
-import { resolveReplyLanguage, stopOfCompletion, systemMessages, type BotLanguage, type RunStop } from "@workspace/shared";
+import { readCodeMode, toPolicyRules, resolveReplyLanguage, stopOfCompletion, systemMessages, type BotLanguage, type RunStop } from "@workspace/shared";
 import { stopOfBudgetError, stopOfFailure } from "../run-stop.js";
 import { runSystemLanguage } from "../system-language.js";
 import {
@@ -260,6 +276,10 @@ export type AgentRunProcessorDeps = {
 	/** Revisão de skill após tarefa complexa e bem-sucedida (um job por run). */
 	enqueueSkillReview?: (payload: SkillReviewJobPayload) => Promise<void>;
 	enqueueNextRun?: (runId: string, options?: { delayMs?: number }) => Promise<boolean>;
+	/** Fila do motor v4 (só criada com `ATLAS_ENGINE_V4` ligada). */
+	v4Queue?: BullLikeQueue;
+	/** Canal efêmero do CVV (F6.3), ligado ao Redis do worker. Ausente = sem pagamento no v4. */
+	cvvEscrow?: CvvEscrow | null;
 	/** Teste: troca a ligação da retomada automática com banco e fila. */
 	autoContinueIo?: AutoContinueIo;
 	extendLock?: () => Promise<void>;
@@ -647,6 +667,8 @@ async function executeLeasedRun(ctx: {
 	// Rotina ligada a uma página: o run só pode atualizar essa página (o runtime trava as outras).
 	// O brief "Seu dia" nunca usa painel: sem pageId, o runtime não registra as tools de painel nem pré-carrega páginas.
 	const routinePageIdPromise = run.origin === "routine" && !isDetachedBriefRun(run) ? getRoutinePageIdForAgentRun(runId, runUserId).catch(() => null) : Promise.resolve(null);
+	// Permissão de login que o dono aprovou ao criar a rotina (F9 parte 2, v4): o run da rotina só digita login naquele site. Falha ao ler = sem permissão.
+	const routineLoginPromise = run.origin === "routine" && !isDetachedBriefRun(run) ? getRoutineLoginPermissionForAgentRun(runId, runUserId).catch(() => null) : Promise.resolve(null);
 	// Modelo da rotina ("Seu dia"): trava de leitura no run e entrega fora da conversa. Falha ao ler = rotina comum.
 	// Rotina de alerta: o run só verifica a condição; o aviso (com debounce) é decidido depois do veredito.
 	const alertCtxPromise = run.origin === "routine" ? getRoutineAlertForAgentRun(runId, runUserId).catch(() => null) : Promise.resolve(null);
@@ -1008,6 +1030,7 @@ async function executeLeasedRun(ctx: {
 	});
 	const routineNotify = await routineNotifyPromise;
 	const routinePageId = await routinePageIdPromise;
+	const routineLogin = await routineLoginPromise;
 	const userPushZone = (run.origin === "routine" && routineNotify === "important") || run.origin === "chat"
 		? (proactiveBot?.isPrimary === true ? accountTimezone : (await loadAccountConfig())?.general?.timezone)
 		: undefined;
@@ -1163,8 +1186,13 @@ async function executeLeasedRun(ctx: {
 	const apiConnector = await apiConnectorPromise;
 	// Motor do run (ADR 0002): v2 por padrão em todas as origens suportadas; v1 só com `policyJson.engine = "v1"` explícito ou com `ATLAS_ENGINE_V2_DEFAULT=off` (emergência).
 	// A escolha fica no budgetJson do run: a retomada continua no motor em que o run nasceu.
+	// Run acordado pela agenda do v4 (F4.3): reconhecido pelo item ligado a ele no banco; só ele leva o proativo ao v4.
+	// Falha fechada (auditoria F4, B3/C4): se o run foi criado pela agenda (objetivo de wake) e o contexto do item não carregou,
+	// ele NÃO segue como proativo comum no v2 (o texto livre poderia ir ao dono): não roda, não posta, e o item volta à fila.
+	const { context: agendaRun, failedClosed: agendaContextFailed } = await loadAgendaRunContextOrFail({ userId: runUserId, runId, origin: run.origin, objective: run.objective });
 	const engineChoice = await pickRunEngine({
 		run,
+		agenda: Boolean(agendaRun),
 		policyJson: rawBotPolicy,
 		isGroupRun: Boolean(groupRun),
 		// Todo run nasce com checkpointJson (createAgentRun); só conta como retomada se já há transcript do modelo.
@@ -1175,6 +1203,9 @@ async function executeLeasedRun(ctx: {
 		// Brief e lembrete `check` pedem mais fôlego que o chat (no v1 não têm teto de custo): piso de orçamento, sem trabalho longo.
 		longerShortRun: isDetachedBriefRun(run) || isFollowupCheckObjective(run.origin, run.objective),
 		globalDefault: engineDefaultFromEnv(),
+		// Motor v4: só com `ATLAS_ENGINE_V4` ligada e a conta em `ATLAS_ENGINE_V4_ACCOUNTS`; desligado, tudo como antes.
+		userId: runUserId,
+		v4Gate: engineV4GateFromEnv(),
 		record: (choice) => recordRunEngine(runId, choice),
 	});
 	// Trabalho longo no v2 com orçamento gravado no bot: o dono do bot vale mais que o teto por execução da conta.
@@ -1201,7 +1232,7 @@ async function executeLeasedRun(ctx: {
 	// Melhor esforço: falhar em gravar o teto nunca derruba o run.
 	// Teto de passos: pedido > bot > conta; sem nenhum, é o limite de segurança (sem origem, o texto não diz "que você configurou").
 	const stepsCap = effectiveStepsCap({
-		engine: engineChoice.engine,
+		engine: engineChoice.engine === "v4" ? "v1" : engineChoice.engine,
 		hardMaxSteps: budget.hardMaxSteps,
 		source: stepsSourceOf({ request: requestBudget.hardMaxSteps, bot: botPolicy.hardMaxSteps, account: accountBudgetPolicy(configSnapshot, run.maxSteps).hardMaxSteps }),
 	});
@@ -1219,8 +1250,77 @@ async function executeLeasedRun(ctx: {
 	const planSeeded = Boolean(!checkpoint?.llmMessages?.length && checkpoint?.transcriptSeed?.taskList?.length);
 	const v2 = engineChoice.engine === "v2";
 	const seedTaskList = v2 && !planSeeded && autoContinueAttempt === 0 ? undefined : priorTaskList;
+	// Motor v4 (atrás de flag): mesmo contrato de saída do v1/v2; conclusão, eventos e lease seguem neste processador.
+	const runV4 = (): Promise<RunComputerUseResult> =>
+		runV4Turn({
+			// Histórico da conversa, respostas a cartões e taint herdado (run novo) ou a decisão do dono (retomada), do banco.
+			prepare: () => prepareV4Run({ userId: runUserId, runId, conversationId: run.conversationId, objective: run.objective ?? "", chat: run.origin === "chat" }),
+			engine: async (prepared) => {
+				const mapV4Event = dropProcessorOwnedEvents(((mapper) => (event) => mapper.mapRunEvent(event))(createSseMapper({ runId, model: run.model, language: systemLanguage })));
+				// Bot do run: escopo da camada de memória do bot, das configurações e dos painéis (sem bot, essas partes ficam indisponíveis).
+				const v4Bot = run.botId ? await getBotProfile(run.botId, runUserId).catch(() => null) : null;
+				// Títulos das notas fixadas do caderno (F5.1): só id e título, no [context]; sem nota fixada, nenhuma seção.
+				const notebookContext = await loadNotebookContext({ userId: runUserId, botId: run.botId ?? null });
+				// VM do navegador (F8.0): a da conversa do dono, só quando a sandbox está ligada; solta no fim do run.
+				const v4CodeMode = readCodeMode(rawBotPolicy);
+				const v4Sandbox = createRunSandbox({ scope: { userId: runUserId, runId, conversationId: run.conversationId ?? null }, wantCode: v4CodeMode !== "off" });
+				const engineRun = runEngineV4({
+					runId,
+					userId: runUserId,
+					conversationId: run.conversationId,
+					botId: run.botId ?? null,
+					botName: v4Bot?.name ?? null,
+					objective: run.objective ?? "",
+					// A conferência do alerta (a condição é do dono: dado) entra como contexto do run, ao lado do caderno.
+					...(notebookContext || alertRun ? { contextSections: [...(notebookContext ? [notebookContext] : []), ...(alertRun ? [alertRunNote(alertRun)] : [])] } : {}),
+					// Rotina (v4): o painel que ela atualiza, o login+site que o dono aprovou e o veredito do alerta (lido depois do loop, como no motor antigo).
+					...(run.origin === "routine" && !agendaRun ? { routineRun: { ...(routinePageId ? { pageId: routinePageId } : {}), ...(routineLogin ? { loginPermission: { login: routineLogin.login, site: routineLogin.site } } : {}), ...(alertRun ? { alert: createAlertRunPort(alertRun.report) } : {}), ...(!alertRun && userPushForRun?.mode === "routine" ? { push: createRoutinePush({ send: userPushForRun.send, ...(userPushForRun.quiet ? { quiet: userPushForRun.quiet } : {}) }) } : {}) } } : {}),
+					// Run de agenda: o que o modelo lê ao acordar, a política sem dono (permissão da criação) e `agenda_result` no núcleo.
+					// As regras atuais do dono (`policyJson.rules`) entram por último sobre as da criação: uma `deny` nova vale no próximo wake.
+					...(agendaRun
+						? { history: agendaRun.history, policy: { ...agendaRun.policy, rules: [...agendaRun.policy.rules, ...toPolicyRules(rawBotPolicy)] }, agendaRun: true, agendaKind: agendaRun.item.kind, ...(agendaRun.item.kind === "brief" && { briefEmail: createBriefEmailForRun({ scope: { ownerId: runUserId, botId: run.botId ?? null, conversationId: run.conversationId } }) }) }
+						: { rules: toPolicyRules(rawBotPolicy), ...(prepared.history ? { history: prepared.history } : {}) }),
+					...(prepared.cardResponses ? { cardResponses: prepared.cardResponses } : {}),
+					// Run de agenda nasce contaminado se a nota, o memo ou o evento vieram de conteúdo não confiável (S1).
+					...(mergeProvenance(agendaRun?.provenance, prepared.priorProvenance) ? { priorProvenance: mergeProvenance(agendaRun?.provenance, prepared.priorProvenance)! } : {}),
+					...(prepared.resume ? { resume: prepared.resume } : {}),
+					language: systemLanguage,
+					llm: createV4Llm({ model: run.model, streamChat: providers.streamChat, openRouterKey: apiKey, language: systemLanguage, cheapModel: cheapModelFromEnv(), contextWindow: (modelId) => providers.capabilities(modelId).then((caps) => caps.contextTokens, () => null) }),
+					lease,
+					// Os cards do v4 (aprovação, entrega, pergunta, recibo) também ficam na conversa: recarregar (celular) os restaura.
+					persistEvent: withV4CardPersistence({ userId: runUserId, runId, conversationId: run.conversationId }, emit),
+					// O fim do stream (done/error/cancelled/teto de passos) é do processador, uma vez: o mapa do kernel não o repete.
+					mapEvent: prepared.observe(mapV4Event),
+					// Teto de passos do dono (pedido > bot > conta) só quando tem origem; sem ele vale o de segurança do kernel. Tetos de gasto
+					// por período (dia/semana/mês) da conta/bot ainda não existem na configuração do worker: só o teto por execução vale.
+					limits: { ...(effectiveCostCap !== undefined ? { ownerMaxUsd: effectiveCostCap } : {}), ...(ownerStepsLimit(stepsCap) !== undefined ? { ownerMaxSteps: ownerStepsLimit(stepsCap)! } : {}), unattended: !(run.origin === "chat" && readRunHumanTurn(run)) },
+					ownerPresent: !agendaRun && run.origin === "chat" && readRunHumanTurn(run),
+					signal: aborter.signal,
+					vault: createV4VaultBackend(),
+					...(deps.onRoutineMutated ? { onRoutineMutated: deps.onRoutineMutated } : {}),
+					// O worker já usa o agent-runtime; o adaptador de rotinas do v4 recebe o gancho pronto (não o importa).
+					ensureGithubHook: (userId: string, repo: string) => ensureGithubRepoHook({ userId, repo }),
+					...(deps.v4Queue ? { queue: deps.v4Queue } : {}),
+					...(deps.cvvEscrow ? { cvvEscrow: deps.cvvEscrow } : {}),
+					...(v4Sandbox ? { sandbox: v4Sandbox, ...(v4Sandbox.availability.vm && { browser: true }), codeAvailable: v4Sandbox.availability.code } : {}),
+					// Anexos da conversa (F9): a mesma fonte do motor atual. Só entra com arquivo na conversa (`present`): sem anexo, o índice da capacidade não vai ao prompt.
+					...(attachments?.present ? { attachments } : {}),
+					codeMode: v4CodeMode,
+					// Imagens (F9): o modelo do dono, ou o de `ATLAS_IMAGE_MODEL` como no legado (sem chave OpenRouter não há como gerar).
+					...(apiKey && (runtimeConfig.imageModel ?? process.env.ATLAS_IMAGE_MODEL?.trim()) ? { imageGeneration: { apiKey, model: (runtimeConfig.imageModel ?? process.env.ATLAS_IMAGE_MODEL)!.trim() } } : {}),
+				});
+				return engineRun.finally(() => v4Sandbox?.release(runUserId, runId).catch(() => undefined));
+			},
+		});
 	try {
-		const result = await runSelectedEngine({ ...engineChoice, modelMaxOutputTokens: (modelId) => providers.capabilities(modelId).then((caps) => caps.maxOutputTokens, () => null) }, {
+		// Run de agenda sem o v4 (flag desligada entre a varredura e o run, ou o bot fixou o motor antigo): não roda o prompt de
+		// agenda em outro motor. Fecha vazio; `closeAgendaRun` conta a falha no item e ele volta com o espaçamento.
+		const agendaWithoutV4 = Boolean(agendaRun) && engineChoice.engine !== "v4";
+		// Nenhum dos dois chegou a executar: o item volta à fila sem gastar a execução (nunca consome um lembrete).
+		const agendaNotRun = agendaWithoutV4 || agendaContextFailed;
+		const result = agendaNotRun
+			? { text: "", model: run.model, hitWall: false, usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0, costUsd: 0 }, stop: { reason: "answered" as const } }
+			: engineChoice.engine === "v4" ? await runV4() : await runSelectedEngine({ ...engineChoice, modelMaxOutputTokens: (modelId) => providers.capabilities(modelId).then((caps) => caps.maxOutputTokens, () => null) }, {
 			messageTriageModel,
 			onAwayNote: createAwayNoteHandler({
 				userId: runUserId,
@@ -1455,8 +1555,11 @@ async function executeLeasedRun(ctx: {
 		const alertPlan = alertCtx && alertRun
 			? planAlertRun({ alert: alertCtx.alert, routineName: alertCtx.name, verdict: alertRun.report.verdict, modelText: result.text, interval: alertCtx.interval ?? null, now: new Date() })
 			: null;
+		// Run de agenda (v4): vale o `agenda_result`, nunca o texto solto do modelo. Sem mensagem declarada o run é silencioso.
+		if (agendaNotRun) await releaseUnstartedAgendaRun({ userId: runUserId, runId, dueAt: new Date(Date.now() + AGENDA_NOT_RUN_RETRY_MS), error: agendaContextFailed ? "agenda context failed to load" : "run did not go to engine v4" });
+		else if (agendaRun) result.text = await closeAgendaRun({ userId: runUserId, runId, text: result.text, language: systemLanguage, context: agendaRun });
 		// Verificação de follow-up sem novidade ([NO_UPDATE]): nada entra na conversa, sem push e sem revisão de memória.
-		const noUpdate = run.origin === "proactive" && isNoUpdateReply(result.text);
+		const noUpdate = run.origin === "proactive" && (agendaRun || agendaContextFailed ? result.text.trim().length === 0 : isNoUpdateReply(result.text));
 		const resultText = alertPlan ? alertPlan.text : result.text;
 		const resultConversationId = (alertPlan && !alertPlan.notify) || noUpdate ? null : run.conversationId;
 		const jevAtCompletion = jevTelemetry.snapshot();
@@ -1760,8 +1863,13 @@ async function executeLeasedRun(ctx: {
 			settle: () => settleDelivery("cancelled"),
 			chain: () => chainRunFollowUp(run, runUserId, deps),
 		};
+		// O run de agenda morreu sem passar por `closeAgendaRun` (auditoria F4, B1): fecha o item como "sem resultado".
+		const settleAgendaAbort = async () => {
+			if (agendaRun) await settleAbortedAgendaRun({ userId: runUserId, runId, language: systemLanguage });
+		};
 		const closeCancelled = async (reason: string) => {
 			await closeCancelledRun(reason, cancelIo);
+			await settleAgendaAbort();
 			return { runId, status: "cancelled" as const };
 		};
 		if (error instanceof AgentRunCancelledError) {
@@ -1799,7 +1907,10 @@ async function executeLeasedRun(ctx: {
 				// A entrega ao usuário fica para o fim da retomada; aqui não há nada a avisar.
 				await settleDelivery("cancelled");
 				const outcome = await scheduleAutoContinue(run, runUserId, autoPlan, autoIo);
-				if (autoContinueScheduled(outcome)) return { runId, status: "budget_exhausted" };
+				if (autoContinueScheduled(outcome)) {
+					await settleAgendaAbort();
+					return { runId, status: "budget_exhausted" };
+				}
 				// A retomada não saiu do papel: o usuário recebe o fechamento comum em vez de ficar esperando.
 				if (run.conversationId) await appendConversationMessage(run.conversationId, "assistant", budgetStopFallbackText(error.message, systemLanguage)).catch(() => undefined);
 			}
@@ -1807,6 +1918,7 @@ async function executeLeasedRun(ctx: {
 			await notifyRoutineRunFailure({ origin: run.origin, agentRunId: runId, userId: runUserId, error: error.message }, routineRunFailureDeps(deps));
 			await briefFailureDelivery(run, deps);
 			await chainRunFollowUp(run, runUserId, deps);
+			await settleAgendaAbort();
 			return { runId, status: "budget_exhausted" };
 		}
 
@@ -1817,6 +1929,7 @@ async function executeLeasedRun(ctx: {
 				// O heartbeat não renova lease de run com cancel pedido, então o "Parar" chega aqui como lease perdido.
 				// Fecha como no cancel direto; se nem isso der (lease já tomado), o varredor de cancel órfão finaliza.
 				await closeCancelledAfterLeaseLoss(runId, cancelIo);
+				await settleAgendaAbort();
 				return { runId, status: "cancelled" };
 			}
 			if (state?.leaseOwner && state.leaseOwner !== lease.owner) {
@@ -1850,6 +1963,9 @@ async function executeLeasedRun(ctx: {
 		// vai pro chat; o detalhe fica no log e em `error` do run.
 		if (run.origin === "proactive") console.error(`proactive run failed run=${runId}`, error);
 		const displayMessage = proactiveFailureDisplay(run.origin, describeRunError(error, systemLanguage).message, systemLanguage);
+		// Run de agenda é silencioso (auditoria F4, C1): a falha não vira balão no chat. O item reagenda em 30 min e a nota do
+		// lembrete só sai na 3ª falha, por `settleAbortedAgendaRun`.
+		const chatFailureText = agendaRun ? undefined : displayMessage;
 		const failureStop = stopOfFailure(error, kind);
 		await emit({ type: "error", error: displayMessage, stopReason: failureStop.reason });
 		await coalescer.flush().catch(() => undefined);
@@ -1863,7 +1979,7 @@ async function executeLeasedRun(ctx: {
 					? undefined
 					: ((error instanceof AgentRunLoopDetectedError
 							? error.finalText
-							: undefined) ?? displayMessage),
+							: undefined) ?? chatFailureText),
 			usage: error instanceof AgentRunLoopDetectedError ? error.usage : undefined,
 			sandboxSessionId: cachedSessionId,
 			lease,
@@ -1877,10 +1993,11 @@ async function executeLeasedRun(ctx: {
 			throw finishError;
 		});
 		if (kind !== "waiting_user") {
-			await settleDelivery("failed", displayMessage);
+			await settleDelivery("failed", chatFailureText);
 			await notifyRoutineRunFailure({ origin: run.origin, agentRunId: runId, userId: runUserId, error: message }, routineRunFailureDeps(deps));
 			await briefFailureDelivery(run, deps);
 			await chainRunFollowUp(run, runUserId, deps);
+			await settleAgendaAbort();
 		}
 		if (kind === "waiting_user") {
 			return { runId, status: "waiting_user", error: message };
@@ -1898,6 +2015,8 @@ async function executeLeasedRun(ctx: {
 export type ExhaustedRunIo = {
 	getRun: (runId: string) => Promise<AgentRun | null>;
 	failRun: (runId: string, error: string, display: { resultText: string }, stop?: RunStop) => Promise<boolean>;
+	/** Run de agenda que esgotou as tentativas: fecha o item como "sem resultado" (padrão: `settleAbortedAgendaRun`). */
+	settleAgenda?: typeof settleAbortedAgendaRun;
 	settle: (input: { userId: string; runId: string; end: RunEnd; resultText: string }) => Promise<void>;
 	chain: (run: AgentRun, userId: string, deps: AgentRunProcessorDeps) => Promise<void>;
 	/** Retomada automática de falha transitória (padrão: banco e fila reais quando há `enqueueNextRun`). */
@@ -1939,7 +2058,14 @@ export async function finalizeExhaustedAgentRun(
 		const autoPlan: AutoContinueDecision = autoIo && run?.userId
 			? await planAutoContinue(run, { cause: autoContinueCauseOfFailure(err) }, autoIo).catch((): AutoContinueDecision => ({ schedule: false, reason: "not_recoverable" }))
 			: { schedule: false, reason: "not_recoverable" };
+		// Run de agenda é silencioso: nada de balão de falha nem retomada automática; o item reagenda ou entrega a nota (C1).
+		const agendaWake = run?.origin === "proactive" && isAgendaWakeObjective(run.objective);
 		const display = autoPlan.schedule ? systemMessages(language).autoContinueStatus : failureDisplay;
+		if (agendaWake && run?.userId) {
+			const closed = await d.failRun(runId, technical, { resultText: "" }, { reason: "retries_exhausted" });
+			if (closed) await (d.settleAgenda ?? settleAbortedAgendaRun)({ userId: run.userId, runId, language });
+			return closed;
+		}
 		const finalized = await d.failRun(runId, technical, { resultText: display }, { reason: "retries_exhausted" });
 		if (!finalized || !run) return finalized;
 		if (autoPlan.schedule && autoIo && run.userId) {

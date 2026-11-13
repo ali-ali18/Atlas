@@ -14,6 +14,11 @@ export type UpdateUserSettingsInput = {
 export type SettingsCapabilities = {
 	openrouterKey: boolean;
 	isOwner: boolean;
+	/**
+	 * O Motor v4 está ligado para esta conta (flag `ATLAS_ENGINE_V4` + conta em `ATLAS_ENGINE_V4_ACCOUNTS`, a mesma regra
+	 * do worker). Sinal estrutural para a UI mostrar só o que o v4 entrega (Caderno, Agenda). Ausente = desligado.
+	 */
+	engineV4?: boolean;
 };
 
 /** Resposta de `GET`/`PATCH /v1/settings`. */

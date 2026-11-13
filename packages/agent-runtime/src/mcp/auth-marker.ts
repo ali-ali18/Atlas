@@ -1,11 +1,8 @@
 import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
+import { MCP_AUTH_REQUIRED_MARKER } from "@workspace/google";
 
-/** Sobrevive à serialização JSON-RPC dos servidores MCP embutidos. */
-export const MCP_AUTH_REQUIRED_MARKER = "ATLAS_MCP_AUTH_REQUIRED";
-
-export function mcpAuthRequired(message: string): UnauthorizedError {
-	return new UnauthorizedError(`${MCP_AUTH_REQUIRED_MARKER}: ${message}`);
-}
+// O marcador e `mcpAuthRequired` moram em `@workspace/google` (o token fresco do Google os usa); reexport para o legado.
+export { MCP_AUTH_REQUIRED_MARKER, mcpAuthRequired } from "@workspace/google";
 
 /** Só estes sinais indicam login inválido; um 403 comum (permissão de arquivo, API desativada) não. */
 const AUTH_FAILURE_PATTERN = /\b401\b|invalid_token|invalid_grant|insufficient authentication scopes/i;

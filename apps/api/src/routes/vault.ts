@@ -1,6 +1,6 @@
 import { Hono, type Context } from "hono";
 import { getVaultService, isSecretBoxConfigured, parseTotpInput, totpAt, VaultError, type VaultPayload, type VaultService } from "@workspace/agent-runtime";
-import { SECRET_NAME_RE, suggestSecretName } from "@workspace/shared";
+import { LOGIN_FIELD_VALUE_MAX, parseLoginFieldDecls, SECRET_NAME_RE, siteKey, suggestSecretName } from "@workspace/shared";
 import { scopeFor, type AuthEnv } from "../middleware/auth.js";
 
 /**
@@ -123,6 +123,35 @@ export function createVaultRoutes(deps: Deps = defaultDeps) {
 				saved.push({ name: meta.name, id: meta.id });
 			}
 			return c.json({ saved }, 201);
+		} catch (error) {
+			return fail(c, error);
+		}
+	});
+
+	/**
+	 * Cartão de LOGIN do bot (F9): o dono digita um campo por item que a IA declarou (chave, rótulo, secreto) e tudo vai
+	 * para UM item de login do site; a etapa seguinte acrescenta campos ao mesmo item. O valor nunca vai ao chat.
+	 */
+	app.post("/v1/vault/logins", async (c) => {
+		const json = await body(c);
+		if (!json) return c.json({ error: "Corpo inválido" }, 400);
+		if (!deps.ready()) return c.json({ error: "Cofre indisponível: defina CONNECTOR_ENCRYPTION_KEY no servidor." }, 503);
+		const site = typeof json.site === "string" ? json.site.trim().slice(0, 200) : "";
+		if (!site || !siteKey(site)) return c.json({ error: "Site inválido." }, 400);
+		const name = typeof json.name === "string" && json.name.trim() ? json.name.trim() : undefined;
+		if (name !== undefined && !SECRET_NAME_RE.test(name)) return c.json({ error: `Nome inválido: ${name.slice(0, 40)}` }, 400);
+		// A declaração (chave, rótulo, secreto) é validada por `parseLoginFieldDecls`; o valor de cada campo vem do mesmo índice.
+		const rawFields: unknown[] = Array.isArray(json.fields) ? json.fields : [];
+		const rows = rawFields.map((raw) => (raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {}));
+		const decls = parseLoginFieldDecls(rows.map(({ key, label, secret }) => ({ key, label, secret })));
+		if ("error" in decls) return c.json({ error: "Campos inválidos." }, 400);
+		const values = rows.map((row) => (typeof row.value === "string" ? row.value : ""));
+		const missing = decls.fields.filter((_, index) => !values[index]);
+		if (missing.length > 0) return c.json({ error: `Informe ${missing.map((f) => f.label).join(", ")}.` }, 400);
+		if (values.some((value) => value.length > LOGIN_FIELD_VALUE_MAX)) return c.json({ error: "Valor longo demais." }, 400);
+		try {
+			const { meta, created } = await deps.vault().upsertLogin(owner(c), { site, ...(name && { name }), fields: decls.fields.map((field, index) => ({ ...field, value: values[index]! })) });
+			return c.json({ saved: { name: meta.name, id: meta.id, keys: decls.fields.map((f) => f.key), created } }, 201);
 		} catch (error) {
 			return fail(c, error);
 		}

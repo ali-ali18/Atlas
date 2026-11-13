@@ -53,6 +53,8 @@ export type MemoryMetadataInput = {
 	validUntil?: string;
 	/** Quem fez a mudança no histórico; sem isso deduz do `source` (ver `changeSourceFor`). */
 	origin?: MemoryChangeSource;
+	/** Relatório do sono que fez a mudança (agrupa o "o que o sono fez"). */
+	reportId?: string;
 };
 
 function toValidDate(value: string | undefined): Date | undefined {
@@ -411,6 +413,7 @@ export async function addMemoryEntry(input: {
 			action: "add",
 			after: content,
 			source: changeSourceFor(input.source, input.origin),
+			...(input.reportId && { reportId: input.reportId }),
 		});
 		return created;
 	});

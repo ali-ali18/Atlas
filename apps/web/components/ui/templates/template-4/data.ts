@@ -1,5 +1,5 @@
 import { AVATAR_COLORS, eyeColorFor as engineEyeColorFor } from "@workspace/ui/lib/avatar/identity";
-import type { AlertRule, MessageSource, BotLanguageSetting, BotNeed, BotProposalData, DevApprovalCardInfo, LoginConnector, LoginVaultOffer, RoutineProposalMode, RoutineProposalSpec, RoutineProposalStatus, SkillProposalData, SubagentTaskView, ChartSpec, PageSpec } from "@workspace/shared";
+import type { AgentCardState, AgentV4Event, AlertRule, MessageSource, BotLanguageSetting, BotNeed, BotProposalData, DevApprovalCardInfo, LoginConnector, LoginVaultOffer, RoutineProposalMode, RoutineProposalSpec, RoutineProposalStatus, SkillProposalData, SubagentTaskView, ChartSpec, PageSpec, ProductOffer, PersistedPurchaseCard, PersistedEmailDraftCard, PersistedCalendarCard, PersistedDayPlanCard, EmailTriageEntry } from "@workspace/shared";
 import type { BotProfileProposal } from "@/components/ai-elements/confirm";
 
 export type BodyColor = {
@@ -333,6 +333,11 @@ export type QuestionnaireStatus = "pending" | "submitted" | "dismissed";
 export type QuestionnaireAnswersData = Record<string, string | string[]>;
 
 /** `createdAt` (ISO): hora local ao criar, depois a do servidor; alimenta os separadores de horário. */
+type PurchaseCardFields = Omit<PersistedPurchaseCard, "v" | "kind" | "purchaseId" | "runId">;
+type EmailDraftCardFields = Omit<PersistedEmailDraftCard, "v" | "kind" | "cardId" | "runId">;
+type CalendarCardFields = Omit<PersistedCalendarCard, "v" | "kind" | "cardId" | "runId">;
+type DayPlanCardFields = Omit<PersistedDayPlanCard, "v" | "kind" | "planId" | "runId">;
+
 export type Message = MessageVariant & { createdAt?: string };
 
 /**
@@ -471,8 +476,25 @@ type MessageVariant =
 	| { id: string; kind: "image-gen"; callId: string; count: 1 | 2; aspectRatio: string; startedAt: number; status: "running" | "error"; error?: string }
 	/** Checklist de passos do run (`update_task_list`); um cartão por run, atualizado no lugar. */
 	| { id: string; kind: "task-list"; runId: string; items: Array<{ content: string; status: "pending" | "in_progress" | "completed" }> }
+	/**
+	 * Card do motor v4 (aprovação, "isso é com você", pergunta do bot, recibo). `card` é o evento validado por
+	 * `parseAgentV4Event`; `settled` = a chamada estacionada já tem resultado (resolvido aqui ou em outro aparelho).
+	 */
+	| { id: string; kind: "agent-card"; card: AgentV4Event; settled?: boolean; state?: AgentCardState }
 	/** `/compact`: a conversa levada foi resumida (números antes/depois e o texto do resumo); persistido na thread. */
 	| { id: string; kind: "compaction"; before: number; after: number; summary: string; focus?: string }
+	/** F6.1: produto(s) lidos da página da loja; `cardId` é a identidade (ao vivo = gravado). */
+	| { id: string; kind: "product"; cardId: string; items: ProductOffer[]; cheapestUrl?: string; incomplete?: boolean }
+	/** F6.5: compra registrada; `purchaseId` é a identidade. */
+	| ({ id: string; kind: "purchase"; purchaseId: string } & PurchaseCardFields)
+	/** F7.1: triagem do e-mail (categoria declarada pelo bot por mensagem); `cardId` é a identidade. */
+	| { id: string; kind: "email-triage"; cardId: string; items: EmailTriageEntry[] }
+	/** F7.1: rascunho de e-mail para revisar (nada foi enviado); `cardId` é a identidade. */
+	| ({ id: string; kind: "email-draft"; cardId: string } & EmailDraftCardFields)
+	/** F7.1: evento criado/alterado ou lista do dia do Google Agenda; `cardId` é a identidade. */
+	| ({ id: string; kind: "calendar"; cardId: string } & CalendarCardFields)
+	/** F7.2: "Plano do dia" do brief; `planId` é a identidade. */
+	| ({ id: string; kind: "day-plan"; planId: string } & DayPlanCardFields)
 	/** Gráfico nativo (spec validado) gerado pelo run_code em *.chart.json. */
 	| { id: string; kind: "chart"; chartId: string; spec: ChartSpec; filename?: string }
 	/** Página viva (relatório/painel) inline; o mesmo `pageId` é atualizado no lugar (revision maior). */

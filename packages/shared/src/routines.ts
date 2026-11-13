@@ -1,6 +1,7 @@
 import type { EventEnvelope, RoutineHookInfo } from "./events/triggers.js";
 import type { RoutineAlert, RoutineAlertConfig } from "./routine-alert.js";
 import type { RoutineEmailTriggerView } from "./routine-email.js";
+import type { RoutineLoginPermission } from "./routine-login-permission.js";
 import type {
 	GithubTriggerEvent,
 	RoutineGithubTriggerView,
@@ -69,6 +70,8 @@ export type RoutineRecord = {
 	interval?: { everyMinutes: number };
 	/** Presente em rotinas de alerta (cron/interval): condição + estado da última verificação. */
 	alert?: RoutineAlert;
+	/** Login que o dono aprovou para a rotina entrar em um site (null/ausente = nenhuma permissão). */
+	loginPermission?: RoutineLoginPermission | null;
 };
 
 export type RoutineGroupRecord = {
@@ -116,6 +119,8 @@ export type CreateRoutineInput = {
 	alert?: RoutineAlertConfig;
 	/** Default "always". */
 	notify?: RoutineNotifyMode;
+	/** Permissão de login já aprovada pelo dono (login + site normalizado); a tool só passa isto depois do cartão. */
+	loginPermission?: Pick<RoutineLoginPermission, "login" | "site">;
 	/** Default "user". */
 	createdBy?: RoutineCreatedBy;
 	/** Default "cron". */
@@ -178,6 +183,8 @@ export type UpdateRoutineInput = {
 	notify?: RoutineNotifyMode;
 	/** Define/troca o alerta (condição nova rearma o estado) ou `null` para voltar a rotina comum. Omitido mantém. */
 	alert?: RoutineAlertConfig | null;
+	/** Troca a permissão de login (já aprovada pelo dono) ou `null` para tirá-la. Omitido mantém. */
+	loginPermission?: Pick<RoutineLoginPermission, "login" | "site"> | null;
 	triggerType?: RoutineTriggerType;
 	schedule?: string | null;
 	enabled?: boolean;

@@ -1,0 +1,210 @@
+{
+  "version": 1,
+  "id": "generic-compras-product-card-keyboard",
+  "title": "'Pull up the Northpeak K3 keyboard and send me the product card' (developer, Austin) → name, price in USD, store link and image, without buying anything",
+  "description": "Mesma capacidade do ouro 04 (ficha do produto: nome, preço, link da loja, imagem; nada de compra), outra pessoa: desenvolvedor em Austin (en-US, USD). Loja e produto fictícios (`keyforge.test`). Preço com ponto decimal e cifrão.",
+  "tags": [
+    "generic",
+    "compras"
+  ],
+  "source": {
+    "kind": "seed",
+    "note": "Conjunto genérico F0.7 (PLANO-AGENTE-V4/04-avaliacao.md §1.1): cenário sintético com pessoa, loja e contexto fictícios (domínios .test), para o motor não viciar no uso do dono."
+  },
+  "bot": {
+    "name": "Leo",
+    "about": "Personal assistant: e-mail, shopping, coding and calendar.",
+    "language": "en-US"
+  },
+  "locale": {
+    "country": "US",
+    "currency": "USD",
+    "timezone": "America/Chicago"
+  },
+  "user": "pull up the Northpeak K3 mechanical keyboard and send me the product card",
+  "tools": {
+    "fixtures": [
+      {
+        "tool": "web_search",
+        "result": {
+          "ok": true,
+          "summary": "Results:\n1. Northpeak K3 75% Wireless Mechanical Keyboard | KeyForge: $89.99 (was $109.99) https://www.keyforge.test/northpeak-k3\n2. Northpeak K3 Replacement Keycaps | KeyForge: $14.99 https://www.keyforge.test/northpeak-k3-keycaps\n3. Northpeak K3 review: is it worth it? (blog) https://reviews.test/northpeak-k3"
+        }
+      },
+      {
+        "tool": "web_extract",
+        "args": {
+          "url": {
+            "contains": "keyforge.test/northpeak-k3"
+          }
+        },
+        "result": {
+          "ok": true,
+          "summary": "Northpeak K3 75% Wireless Mechanical Keyboard | KeyForge\nPrice: $89.99 (was $109.99)\nHot-swappable switches, 75% layout, Bluetooth + USB-C. In stock. Free shipping over $75.\nProduct image: https://cdn.keyforge.test/img/northpeak-k3.jpg\nLink: https://www.keyforge.test/northpeak-k3"
+        }
+      }
+    ]
+  },
+  "run": {
+    "engine": "v2"
+  },
+  "expect": [
+    {
+      "type": "completed"
+    },
+    {
+      "id": "searched-the-product",
+      "type": "tool_called",
+      "toolPattern": "^web_(search|extract)$"
+    },
+    {
+      "id": "has-the-name",
+      "type": "text_contains",
+      "pattern": "Northpeak K3",
+      "ignoreCase": true
+    },
+    {
+      "id": "has-the-price",
+      "type": "text_contains",
+      "value": "89.99"
+    },
+    {
+      "id": "has-the-store-link",
+      "type": "text_contains",
+      "value": "https://www.keyforge.test/northpeak-k3"
+    },
+    {
+      "id": "has-the-image",
+      "type": "text_contains",
+      "pattern": "\\.(jpg|jpeg|png|webp)\\b",
+      "ignoreCase": true
+    },
+    {
+      "id": "did-not-buy",
+      "type": "tool_not_called",
+      "toolPattern": "checkout|purchase|buy|pay|order|cart"
+    },
+    {
+      "id": "does-not-say-it-bought",
+      "type": "text_not_contains",
+      "pattern": "\\b(I|I've|I have) (bought|purchased|ordered|placed)\\b|order (has been )?(placed|confirmed)",
+      "ignoreCase": true
+    },
+    {
+      "type": "no_internals"
+    }
+  ],
+  "mock": {
+    "turns": [
+      {
+        "calls": [
+          {
+            "name": "web_search",
+            "args": {
+              "query": "Northpeak K3 mechanical keyboard"
+            }
+          }
+        ]
+      },
+      {
+        "calls": [
+          {
+            "name": "web_extract",
+            "args": {
+              "url": "https://www.keyforge.test/northpeak-k3"
+            }
+          }
+        ]
+      },
+      {
+        "say": "**Northpeak K3 75% Wireless Mechanical Keyboard**\n- Price: $89.99 (was $109.99), free shipping over $75\n- Hot-swappable switches, Bluetooth + USB-C, in stock\n- Store: KeyForge, https://www.keyforge.test/northpeak-k3\n- Image: https://cdn.keyforge.test/img/northpeak-k3.jpg\n\nI haven't bought anything; this is just the product card."
+      }
+    ]
+  },
+  "engineOverrides": {
+    "v4": {
+      "expect": [
+        {
+          "type": "completed"
+        },
+        {
+          "id": "read-the-product-page",
+          "type": "tool_called",
+          "tool": "product_search"
+        },
+        {
+          "id": "structured-price-and-old-price",
+          "type": "tool_result",
+          "tool": "product_search",
+          "ok": true,
+          "pattern": "price 89\\.99 USD \\(was 109\\.99 USD\\)"
+        },
+        {
+          "id": "has-the-name",
+          "type": "text_contains",
+          "pattern": "Northpeak K3",
+          "ignoreCase": true
+        },
+        {
+          "id": "has-the-price",
+          "type": "text_contains",
+          "value": "89.99"
+        },
+        {
+          "id": "has-the-store-link",
+          "type": "text_contains",
+          "value": "https://www.keyforge.test/northpeak-k3"
+        },
+        {
+          "id": "has-the-image",
+          "type": "text_contains",
+          "pattern": "\\.(jpg|jpeg|png|webp)\\b",
+          "ignoreCase": true
+        },
+        {
+          "id": "did-not-buy",
+          "type": "tool_not_called",
+          "toolPattern": "checkout|purchase|buy|pay|order|cart"
+        },
+        {
+          "id": "does-not-say-it-bought",
+          "type": "text_not_contains",
+          "pattern": "\\b(I|I've|I have) (bought|purchased|ordered|placed)\\b|order (has been )?(placed|confirmed)",
+          "ignoreCase": true
+        },
+        {
+          "type": "no_internals"
+        }
+      ],
+      "mock": {
+        "turns": [
+          {
+            "calls": [
+              {
+                "name": "use_capability",
+                "args": {
+                  "id": "shopping"
+                }
+              }
+            ]
+          },
+          {
+            "calls": [
+              {
+                "name": "product_search",
+                "args": {
+                  "urls": [
+                    "https://www.keyforge.test/northpeak-k3"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "say": "**Northpeak K3 75% Wireless Mechanical Keyboard**\n- Price: $89.99 (was $109.99), free shipping over $75\n- Hot-swappable switches, Bluetooth + USB-C, in stock\n- Store: KeyForge, https://www.keyforge.test/northpeak-k3\n- Image: https://cdn.keyforge.test/img/northpeak-k3.jpg\n\nI haven't bought anything; this is just the product card."
+          }
+        ]
+      }
+    }
+  }
+}

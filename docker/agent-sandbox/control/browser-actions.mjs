@@ -4,6 +4,7 @@ import { isChromeDeadError, shouldRetryPlaywrightError } from "./browser-session
 import { settleAfterAction, waitForPageReady } from "./stability.mjs";
 import { INTERACTIVE_SELECTOR, createClickLadder } from "./click-ladder.mjs";
 import { safePointer } from "./pointer.mjs";
+import { VAULT_TYPED_ATTR } from "./card-fields.mjs";
 import {
 	explainFillError,
 	compactPlaywrightError,
@@ -86,6 +87,12 @@ export function loginFieldVerdict(el, arg) {
 		if (type !== "password") return "not-password";
 		return visible(el) ? "ok" : "hidden";
 	}
+	if (kind === "field") {
+		// Campo declarado pelo modelo (nome, CPF, e-mail, senha…), apontado por ref: qualquer entrada de texto visível do documento
+		// principal, de formulário que só envia para a própria origem (checado acima). O site e a origem já foram validados.
+		if (!["text", "email", "tel", "number", "url", "search", "password"].includes(type)) return "bad-type";
+		return visible(el) ? "ok" : "hidden";
+	}
 	if (kind === "code") {
 		// Código de verificação (e-mail/SMS) que o runtime digita depois do login: campo de código visível, nunca de senha.
 		if (type !== "text" && type !== "tel" && type !== "number") return "bad-type";
@@ -106,7 +113,7 @@ export function loginFieldVerdict(el, arg) {
 	return type === "email" || /(^|\s)(username|email)(\s|$)/.test(auto) || /user|login|email/i.test(named) ? "ok" : "not-username";
 }
 
-const LOGIN_FIELD_NAME = { password: "senha", username: "usuário", code: "código" };
+const LOGIN_FIELD_NAME = { password: "senha", username: "usuário", code: "código", field: "campo" };
 const LOGIN_GUARD_WAIT_MS = 3000;
 const LOGIN_GUARD_MAX_CANDIDATES = 20;
 
@@ -188,6 +195,11 @@ export function createBrowserActions({
 	let observer = null;
 	const setObserver = (fn) => {
 		observer = fn;
+	};
+	// Resolve um ref do mapa em locator (vem do createRefActions, dono dos refs).
+	let refResolver = null;
+	const setRefResolver = (fn) => {
+		refResolver = fn;
 	};
 	async function observe(page, run, urlBefore) {
 		if (observer) return observer(page, run, { urlBefore });
@@ -357,13 +369,13 @@ export function createBrowserActions({
 	// usuário). O formulário não pode enviar para outra origem. O frame principal é o único alcançado. `origin` é o do
 	// site já validado pelo runtime: a conferência roda DENTRO da página, no mesmo evaluate que olha o campo, e o
 	// preenchimento usa o MESMO elemento (handle), sem reprocurar pelo seletor (sem janela entre conferir e digitar).
-	async function pickLoginField(page, selector, guard) {
+	async function pickLoginField(page, target, guard) {
 		if (guard.origin) {
 			let current = "";
 			try { current = new URL(page.url()).origin; } catch { current = ""; }
 			if (current !== guard.origin) throw new Error(loginRefusalMessage(guard.kind, "other-origin"));
 		}
-		const locator = page.locator(selector);
+		const locator = typeof target === "string" ? page.locator(target) : target;
 		try {
 			await locator.first().waitFor({ state: "attached", timeout: loginGuardWaitMs });
 		} catch {
@@ -402,12 +414,24 @@ export function createBrowserActions({
 		}
 	}
 
-	async function browserType({ selector, text, submit, guard }) {
-		if (guard && !["password", "username", "code"].includes(guard.kind)) throw new Error("guard inválido");
-		if (guard && (typeof selector !== "string" || !selector.trim())) throw new Error("O login do Cofre exige um seletor de campo; nada foi digitado.");
-		const plan = planTypeTarget({ selector });
+	// Login do Cofre por REF (campos que o modelo mapeou no mapa da página): só o documento principal (`eN` do DOM ou `aN` da árvore).
+	const LOGIN_REF = /^[ea]\d{1,5}$/;
+	async function browserType({ selector, ref, text, submit, guard }) {
+		if (guard && !["password", "username", "code", "field"].includes(guard.kind)) throw new Error("guard inválido");
+		const byRef = ref !== undefined && ref !== null && ref !== "";
+		if (byRef) {
+			if (!guard) throw new Error("Digitar por ref só vale com a trava do login do Cofre; nada foi digitado.");
+			if (typeof ref !== "string" || !LOGIN_REF.test(ref.trim())) throw new Error(`ref inválido "${String(ref).slice(0, 20)}": use um ref do mapa da página (ex.: e12 ou a7), fora de iframe; nada foi digitado.`);
+			if (!refResolver) throw new Error("Esta VM não resolve ref para o login do Cofre; nada foi digitado.");
+		} else if (guard && (typeof selector !== "string" || !selector.trim())) throw new Error("O login do Cofre exige um seletor de campo; nada foi digitado.");
+		const plan = byRef ? { mode: "ref" } : planTypeTarget({ selector });
 		return withPageRetry(async (page) => {
-			const handle = guard ? await pickLoginField(page, plan.selector, guard) : null;
+			let handle = null;
+			if (byRef) {
+				const found = await refResolver(page, ref.trim());
+				if (!found || !found.locator) throw new Error(`${found?.stale ?? `O ref ${ref.trim()} não existe mais na página`}; nada foi digitado.`);
+				handle = await pickLoginField(page, found.locator, guard);
+			} else if (guard) handle = await pickLoginField(page, plan.selector, guard);
 			try {
 				const urlBefore = page.url();
 				let pointer;
@@ -417,6 +441,8 @@ export function createBrowserActions({
 						if (handle) {
 							pointer = await safePointer(() => handle);
 							await fillHandle(handle, text);
+							// Segredo digitado: marca o campo para que nenhuma leitura devolva o valor (nem se o site trocar o type).
+							if (guard.kind === "password") await handle.evaluate((el, attr) => el.setAttribute(attr, ""), VAULT_TYPED_ATTR).catch(() => undefined);
 							// Antes de enviar, reconfere a origem da aba: se navegou durante o preenchimento, não aperta Enter.
 							if (submit) {
 								let current = "";
@@ -473,5 +499,5 @@ export function createBrowserActions({
 		}, { tries: 3, retryOn: isAbortedNavigation });
 	}
 
-	return { withPageRetry, settle, browserClick, browserType, navigate, clickElement, setObserver };
+	return { withPageRetry, settle, browserClick, browserType, navigate, clickElement, setObserver, setRefResolver };
 }

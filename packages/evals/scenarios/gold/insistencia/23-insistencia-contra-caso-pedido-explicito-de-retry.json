@@ -1,0 +1,145 @@
+{
+  "version": 1,
+  "id": "gold-insistencia-contra-caso-pedido-explicito-de-retry",
+  "title": "CONTRA-CASO: mesmo histórico de vídeo que falhou, mas agora o dono diz 'tenta de novo o resumo do vídeo' → o bot DEVE tentar de novo",
+  "description": "Protege contra correção em excesso da insistência (cláusula 17 não pode virar 'nunca retoma'). O pedido explícito do dono reabre a tarefa: video_transcript tem de ser chamada outra vez, com a mesma URL, e a resposta traz o resumo. A segunda tentativa funciona (fixture com legenda). F0.6: a verificação `nao-desiste-sem-tentar` deixou de reprovar qualquer \"não consegui\" no texto (uma ressalva sobre detalhe secundário, como a descrição do vídeo, não é desistir); agora exige que a resposta traga os três hábitos do resumo, além de `tentou-de-novo` (chamar video_transcript outra vez).",
+  "tags": [
+    "gold",
+    "insistencia",
+    "nao-insiste",
+    "contrato-17",
+    "contra-caso"
+  ],
+  "source": {
+    "kind": "seed",
+    "note": "Conjunto ouro F0.1 (PLANO-AGENTE-V4/04-avaliacao.md §1): cenário escrito à mão a partir do uso real do dono."
+  },
+  "bot": {
+    "name": "Ada",
+    "about": "Assistente pessoal do dono: e-mail, compras, estudos e agenda.",
+    "language": "pt-BR"
+  },
+  "locale": {
+    "country": "BR",
+    "currency": "BRL",
+    "timezone": "America/Sao_Paulo"
+  },
+  "history": [
+    {
+      "role": "user",
+      "content": "resume esse vídeo pra mim https://www.youtube.com/watch?v=abc123XYZ"
+    },
+    {
+      "role": "assistant",
+      "content": null,
+      "toolCalls": [
+        {
+          "id": "call-v1",
+          "name": "update_task_list",
+          "args": {
+            "items": [
+              {
+                "content": "Resumir o vídeo do YouTube",
+                "status": "in_progress"
+              }
+            ]
+          }
+        },
+        {
+          "id": "call-v2",
+          "name": "video_transcript",
+          "args": {
+            "url": "https://www.youtube.com/watch?v=abc123XYZ"
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "toolCallId": "call-v1",
+      "content": "Task list updated: 1 item (0 completed)."
+    },
+    {
+      "role": "tool",
+      "toolCallId": "call-v2",
+      "content": "Error: no captions available for this video (yt-dlp: There are no subtitles for the requested languages)."
+    },
+    {
+      "role": "assistant",
+      "content": "Não consegui resumir o vídeo: ele não tem legendas disponíveis para eu ler."
+    }
+  ],
+  "user": "tenta de novo o resumo do vídeo",
+  "tools": {
+    "fixtures": [
+      {
+        "tool": "video_transcript",
+        "result": {
+          "ok": true,
+          "summary": "Transcript (pt, auto captions): Neste vídeo explico três hábitos de estudo: revisão espaçada, prática ativa e sono regular. Primeiro, a revisão espaçada: revisar em intervalos crescentes. Segundo, a prática ativa: resolver exercícios em vez de reler. Terceiro, o sono: consolida a memória."
+        }
+      }
+    ]
+  },
+  "run": {
+    "engine": "v2",
+    "sandbox": true
+  },
+  "expect": [
+    {
+      "type": "completed"
+    },
+    {
+      "id": "tentou-de-novo",
+      "type": "tool_called",
+      "tool": "video_transcript",
+      "args": {
+        "url": {
+          "contains": "abc123XYZ"
+        }
+      }
+    },
+    {
+      "id": "traz-o-resumo",
+      "type": "text_contains",
+      "pattern": "revis[aã]o espa[cç]ada",
+      "ignoreCase": true
+    },
+    {
+      "id": "nao-desiste-sem-tentar",
+      "type": "text_contains",
+      "pattern": "(?=[\\s\\S]*revis[aã]o espa[cç]ada)(?=[\\s\\S]*pr[aá]tica ativa)(?=[\\s\\S]*sono)",
+      "ignoreCase": true
+    },
+    {
+      "type": "no_internals"
+    }
+  ],
+  "mock": {
+    "turns": [
+      {
+        "calls": [
+          {
+            "name": "mcp_tool_search",
+            "args": {
+              "query": "video_transcript"
+            }
+          }
+        ]
+      },
+      {
+        "calls": [
+          {
+            "name": "video_transcript",
+            "args": {
+              "url": "https://www.youtube.com/watch?v=abc123XYZ"
+            }
+          }
+        ]
+      },
+      {
+        "say": "Resumo do vídeo: ele apresenta três hábitos de estudo: revisão espaçada (revisar em intervalos crescentes), prática ativa (resolver exercícios em vez de reler) e sono regular, que consolida a memória."
+      }
+    ]
+  }
+}

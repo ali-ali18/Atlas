@@ -1,0 +1,262 @@
+/**
+ * Ações `code.*` do v4 no worker (F8.2) com VM e banco falsos que filtram por dono como os reais. Sem rede, sem Docker.
+ * Runner: `NODE_ENV=test ATLAS_HOOK_PEPPER=test-pepper pnpm exec tsx --test src/v4-adapters/code-actions.test.ts`.
+ */
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { CODE_KINDS, type SandboxAction } from "@workspace/agent";
+import type { DevClient, DevExecSnapshot } from "@workspace/sandbox";
+import { DevSandboxError } from "@workspace/sandbox";
+import { type CodeActionDeps, type CodeSession, createCodeActionHandler, parseStatus } from "./code-actions.js";
+import { realCodeActionDeps } from "./code-actions-real.js";
+
+const TOKEN = "ghp_" + "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8";
+
+function rig(over: { stdout?: string; exitCode?: number; patchError?: string; monorepo?: boolean; prepare?: CodeActionDeps["prepare"] } = {}) {
+	const sessions = new Map<string, CodeSession>();
+	const execs: string[] = [];
+	const files = new Map<string, string>();
+	let seq = 0;
+	const snapshot = (stdout: string, exitCode: number): DevExecSnapshot => ({ id: `job${++seq}`, status: "done", running: false, exitCode, signal: null, timedOut: false, stdout, stderr: "", nextOut: stdout.length, nextErr: 0, truncated: false, omittedBytes: 0, durationMs: 12, cwd: "/workspace" });
+	let last: DevExecSnapshot | undefined;
+	const client = {
+		execStart: async (input: { cmd: string }) => {
+			execs.push(input.cmd);
+			last = snapshot(over.stdout ?? "ok\n", over.exitCode ?? 0);
+			return { id: last.id };
+		},
+		execPoll: async () => last!,
+		execKill: async () => ({ ok: true }),
+		list: async () => ({ path: "/workspace", entries: [{ path: "a.js", type: "file", size: 3 }], total: 1, truncated: false }),
+		readFile: async (input: { path: string }) => ({ path: input.path, kind: "text", size: 3, content: over.monorepo && input.path.endsWith("pnpm-workspace.yaml") ? "packages:\n  - 'packages/*'\n" : "abc", totalLines: 1, startLine: 1, endLine: 1, nextOffset: null, truncated: false }),
+		patchFile: async (input: { path: string }) => {
+			if (over.patchError) throw new DevSandboxError(over.patchError, 409);
+			return { path: input.path, diff: "-a\n+b", added: 1, removed: 1 };
+		},
+		writeFile: async (input: { path: string; content: string }) => (files.set(input.path, input.content), { path: input.path, created: true, bytes: input.content.length, diff: "+x", added: 1, removed: 0 }),
+	} as unknown as DevClient;
+	const handler = createCodeActionHandler({
+		sessions: {
+			get: async (id, userId) => (sessions.get(id)?.userId === userId ? sessions.get(id)! : null),
+			create: async (userId, input) => {
+				const s: CodeSession = { id: `s${sessions.size + 1}`, userId, repo: input.repo ?? null, branch: input.branch ?? null, status: "RUNNING" };
+				sessions.set(s.id, s);
+				return s;
+			},
+		},
+		connect: async () => client,
+		prepare: over.prepare ?? (async (_s, _c, input) => ({ ...input, testCommand: "pnpm test", secrets: [TOKEN] })),
+		secrets: () => [TOKEN],
+		pollMs: 1,
+	});
+	const run = (userId: string, kind: string, params: unknown) => handler.run(userId, { kind, params } as SandboxAction);
+	return { run, execs, files, handler };
+}
+
+async function open(r: ReturnType<typeof rig>, userId = "A"): Promise<string> {
+	const res = await r.run(userId, CODE_KINDS.session, { repo: "acme/loja" });
+	assert.equal(res.ok, true);
+	return (res.data as { sessionId: string }).sessionId;
+}
+
+test("abre a sessão, devolve o comando de teste e reconhece só os kinds code.*", async () => {
+	const r = rig();
+	const res = await r.run("A", CODE_KINDS.session, { repo: "acme/loja", branch: "fix/preco" });
+	assert.deepEqual(res.data, { sessionId: "s1", repo: "acme/loja", branch: "fix/preco", status: "RUNNING", testCommand: "pnpm test" });
+	assert.equal(r.handler.handles("code.edit"), true);
+	assert.equal(r.handler.handles("browser.open"), false);
+	assert.deepEqual(await r.run("A", "browser.open", {}), { ok: false, error: "Unknown code action browser.open." });
+});
+
+test("IDOR: o usuário B recebe 'not found' em todo kind da sessão do usuário A, e nada chega à VM", async () => {
+	const r = rig();
+	const sessionId = await open(r, "A");
+	const before = r.execs.length;
+	const attempts: Array<[string, unknown]> = [
+		[CODE_KINDS.session, { sessionId }],
+		[CODE_KINDS.list, { sessionId }],
+		[CODE_KINDS.read, { sessionId, path: "a.js" }],
+		[CODE_KINDS.edit, { sessionId, path: "a.js", old: "a", new: "b" }],
+		[CODE_KINDS.write, { sessionId, path: "x.js", content: "1" }],
+		[CODE_KINDS.shell, { sessionId, cmd: "git status" }],
+		[CODE_KINDS.test, { sessionId, cmd: "pnpm test" }],
+		[CODE_KINDS.gitStatus, { sessionId }],
+		[CODE_KINDS.diff, { sessionId }],
+	];
+	for (const [kind, params] of attempts) {
+		const res = await r.run("B", kind, params);
+		assert.deepEqual(res, { ok: false, error: "Coding session not found." }, kind);
+	}
+	assert.equal(r.execs.length, before);
+	assert.equal(r.files.size, 0);
+	assert.equal((await r.run("A", CODE_KINDS.list, { sessionId })).ok, true);
+});
+
+test("sessão inexistente responde igual à de outro dono", async () => {
+	const r = rig();
+	assert.deepEqual(await r.run("A", CODE_KINDS.read, { sessionId: "nao-existe", path: "a.js" }), { ok: false, error: "Coding session not found." });
+});
+
+test("shell: bloqueio fixo é recusado na fronteira, sem iniciar job; comando normal roda e volta com exitCode", async () => {
+	const r = rig();
+	const sessionId = await open(r);
+	const denied = await r.run("A", CODE_KINDS.shell, { sessionId, cmd: "bash -c 'rm -rf /'" });
+	assert.equal(denied.ok, false);
+	assert.equal(r.execs.length, 0);
+	const ok = await r.run("A", CODE_KINDS.test, { sessionId, cmd: "pnpm exec vitest run a.test.js" });
+	assert.equal(ok.ok, true);
+	assert.deepEqual({ exitCode: (ok.data as { exitCode: number }).exitCode, output: (ok.data as { output: string }).output }, { exitCode: 0, output: "ok\n" });
+});
+
+test("segredo conhecido da sessão e token padrão nunca saem na saída nem no erro", async () => {
+	const r = rig({ stdout: `export GH_TOKEN=${TOKEN}\nBearer abcdefghijklmnop12345\n` });
+	const sessionId = await open(r);
+	const res = await r.run("A", CODE_KINDS.shell, { sessionId, cmd: "pnpm install" });
+	const text = JSON.stringify(res);
+	assert.equal(text.includes(TOKEN), false);
+	assert.equal(text.includes("abcdefghijklmnop12345"), false);
+	assert.equal(text.includes("[redacted]"), true);
+	const failing = rig({ patchError: `old aparece 2 vezes; token ${TOKEN}` });
+	const sid = await open(failing);
+	const edit = await failing.run("A", CODE_KINDS.edit, { sessionId: sid, path: "a.js", old: "a", new: "b" });
+	assert.equal(edit.ok, false);
+	assert.equal(JSON.stringify(edit).includes(TOKEN), false);
+	assert.match((edit as { error: string }).error, /old aparece 2 vezes/);
+});
+
+test("edição ambígua da VM chega ao modelo como erro útil (409), não como sucesso", async () => {
+	const r = rig({ patchError: "old aparece 2 vezes (linhas 1, 3); inclua mais contexto" });
+	const sessionId = await open(r);
+	const res = await r.run("A", CODE_KINDS.edit, { sessionId, path: "a.js", old: "a", new: "b" });
+	assert.deepEqual(res, { ok: false, error: "old aparece 2 vezes (linhas 1, 3); inclua mais contexto" });
+});
+
+test("caminho fora do workspace e parâmetros inválidos são recusados antes da VM", async () => {
+	const r = rig();
+	const sessionId = await open(r);
+	assert.equal((await r.run("A", CODE_KINDS.read, { sessionId, path: "../../etc/passwd" })).ok, false);
+	assert.equal((await r.run("A", CODE_KINDS.write, { sessionId, path: "/etc/cron.d/x", content: "x" })).ok, false);
+	assert.equal((await r.run("A", CODE_KINDS.shell, { sessionId, cmd: "ls", cwd: "/root" })).ok, false);
+	assert.equal((await r.run("A", CODE_KINDS.edit, { sessionId, path: "a.js", old: "", new: "b" })).ok, false);
+	assert.equal(r.files.size, 0);
+});
+
+test("saída longa vai para um arquivo do workspace e o resultado aponta o caminho (nada some em silêncio)", async () => {
+	const r = rig({ stdout: "x".repeat(40_000) });
+	const sessionId = await open(r);
+	const res = await r.run("A", CODE_KINDS.shell, { sessionId, cmd: "pnpm test" });
+	const data = res.data as { output: string; spillPath: string };
+	assert.match(data.spillPath, /^\/workspace\/\.atlas\/output\/job\d+\.log$/);
+	assert.equal(r.files.get(data.spillPath)?.length, 40_000);
+	assert.match(data.output, /more characters in/);
+});
+
+test("saída de comando muito longa: o worker guarda só a cauda (teto por stream) e o resultado diz quantos bytes iniciais saíram", async () => {
+	// VM falsa que devolve 64 KB por consulta durante 40 consultas (2,6 MB). Antes do teto, a memória crescia com a saída inteira.
+	const CHUNK = "y".repeat(64 * 1024);
+	const POLLS = 40;
+	const sessions = new Map<string, CodeSession>();
+	const spilled = new Map<string, string>();
+	let polls = 0;
+	let total = 0;
+	const client = {
+		execStart: async () => ({ id: "jobBig" }),
+		execPoll: async (): Promise<DevExecSnapshot> => {
+			polls += 1;
+			const done = polls >= POLLS;
+			const stdout = `[${polls}]${CHUNK}`;
+			total += Buffer.byteLength(stdout);
+			return { id: "jobBig", status: done ? "done" : "running", running: !done, exitCode: done ? 0 : null, signal: null, timedOut: false, stdout, stderr: "", nextOut: polls, nextErr: 0, truncated: false, omittedBytes: 0, durationMs: 1, cwd: "/workspace" };
+		},
+		execKill: async () => ({ ok: true }),
+		writeFile: async (input: { path: string; content: string }) => (spilled.set(input.path, input.content), { path: input.path, created: true, bytes: input.content.length, diff: "", added: 0, removed: 0 }),
+	} as unknown as DevClient;
+	const handler = createCodeActionHandler({
+		sessions: {
+			get: async (id, userId) => (sessions.get(id)?.userId === userId ? sessions.get(id)! : null),
+			create: async (userId, input) => {
+				const s: CodeSession = { id: `s${sessions.size + 1}`, userId, repo: input.repo ?? null, branch: input.branch ?? null, status: "RUNNING" };
+				sessions.set(s.id, s);
+				return s;
+			},
+		},
+		connect: async () => client,
+		pollMs: 1,
+	});
+	const opened = await handler.run("A", { kind: CODE_KINDS.session, params: { repo: "acme/loja" } } as SandboxAction);
+	const sessionId = (opened.data as { sessionId: string }).sessionId;
+	const res = await handler.run("A", { kind: CODE_KINDS.shell, params: { sessionId, cmd: "pnpm exec vitest run src/a.test.ts" } } as SandboxAction);
+	assert.equal(res.ok, true);
+	assert.equal(polls, POLLS);
+	const data = res.data as { output: string; spillPath: string };
+	assert.match(data.output, /bytes iniciais omitidos/, "o resultado avisa que o início saiu");
+	const file = spilled.get(data.spillPath)!;
+	const note = /^\((\d+) bytes iniciais omitidos\)\n/.exec(file);
+	assert.ok(note, "o arquivo começa com a contagem de bytes omitidos");
+	const tail = file.slice(note[0].length);
+	assert.ok(tail.length <= 1_000_000, `cauda de ${tail.length} caracteres passou do teto`);
+	assert.equal(Number(note[1]) + tail.length, total, "bytes omitidos + cauda = tudo que a VM produziu");
+	assert.ok(tail.endsWith(CHUNK), "o fim da saída fica");
+});
+
+test("git status: converte a saída porcelain", () => {
+	assert.deepEqual(parseStatus("## main...origin/main\n M src/a.js\n?? novo.txt\n"), { branch: "main", files: [{ status: "M", path: "src/a.js" }, { status: "??", path: "novo.txt" }], clean: false });
+	assert.deepEqual(parseStatus("## main\n"), { branch: "main", files: [], clean: true });
+	assert.equal(parseStatus("## HEAD (no branch)\n").branch, null);
+});
+
+test("pnpm test na raiz de monorepo é a suíte inteira: o adaptador (que vê a VM) devolve o conselho, a menos que o dono tenha pedido", async () => {
+	const mono = rig({ monorepo: true });
+	const sessionId = await open(mono);
+	const advised = await mono.run("A", CODE_KINDS.test, { sessionId, cmd: "pnpm test" });
+	assert.equal(advised.ok, false);
+	assert.equal(mono.execs.length, 0);
+	const asked = await mono.run("A", CODE_KINDS.test, { sessionId, cmd: "pnpm test", fullSuite: true });
+	assert.equal(asked.ok, true);
+	// Repositório que não é monorepo: `pnpm test` roda normal.
+	const single = rig();
+	const id = await open(single);
+	assert.equal((await single.run("A", CODE_KINDS.test, { sessionId: id, cmd: "pnpm test" })).ok, true);
+});
+
+test("saída longa: o arquivo mora fora do repositório (com .gitignore) e o segredo é redigido ANTES de gravar", async () => {
+	const r = rig({ stdout: `${"x".repeat(40_000)}\nGITHUB_TOKEN=${TOKEN}\n` });
+	const sessionId = await open(r);
+	const res = await r.run("A", CODE_KINDS.shell, { sessionId, cmd: "pnpm test" });
+	const data = res.data as { output: string; spillPath: string };
+	assert.match(data.spillPath, /^\/workspace\/\.atlas\/output\//);
+	assert.equal(r.files.get("/workspace/.atlas/.gitignore"), "*\n");
+	const written = r.files.get(data.spillPath) ?? "";
+	assert.ok(written.length > 40_000);
+	assert.equal(written.includes(TOKEN), false, "o disco não guarda o token");
+	assert.match(written, /GITHUB_TOKEN=\[redacted\]/);
+	assert.equal(JSON.stringify(res).includes(TOKEN), false);
+	for (const path of r.files.keys()) assert.equal(path.startsWith("/workspace/.atlas/"), true, path);
+});
+
+test("clone que falha: o token já estava registrado, então o erro sai redigido (known.secrets antes do clone)", async () => {
+	const r = rig({
+		prepare: async (_s, _c, _input, _signal, track) => {
+			track?.(TOKEN);
+			throw new Error(`Could not clone acme/loja: fatal: unable to access 'https://x-access-token:${TOKEN}@github.com/acme/loja.git/'`);
+		},
+	});
+	const res = await r.run("A", CODE_KINDS.session, { repo: "acme/loja" });
+	assert.equal(res.ok, false);
+	assert.equal(JSON.stringify(res).includes(TOKEN), false);
+	assert.match(JSON.stringify(res), /\[redacted\]/);
+});
+
+test("segredos da sessão são duráveis: uma instância sem o Map refaz o token do dono para o repositório da sessão", async () => {
+	const asked: Array<[string, string | undefined]> = [];
+	const deps = realCodeActionDeps({ provider: {} as never, getGithubToken: async (userId, repo) => (asked.push([userId, repo]), { token: TOKEN }) });
+	const session: CodeSession = { id: "s9", userId: "A", repo: "acme/loja", branch: null, status: "RUNNING" };
+	assert.deepEqual(await deps.secrets!(session), [TOKEN]);
+	assert.deepEqual(await deps.secrets!(session), [TOKEN]);
+	assert.deepEqual(asked, [["A", "acme/loja"]], "o segundo uso vem do cache");
+	assert.deepEqual(await deps.secrets!({ ...session, id: "s10", repo: null }), []);
+	const failing = realCodeActionDeps({ provider: {} as never, getGithubToken: async () => ({ error: "sem token" }) });
+	assert.deepEqual(await failing.secrets!(session), []);
+	const throwing = realCodeActionDeps({ provider: {} as never, getGithubToken: async () => { throw new Error("db fora"); } });
+	assert.deepEqual(await throwing.secrets!(session), []);
+});

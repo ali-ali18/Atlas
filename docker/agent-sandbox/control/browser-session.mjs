@@ -88,7 +88,9 @@ export function shouldRetryPlaywrightError(message) {
 }
 
 export function createBrowserSession({ chromium, cdpUrl, launch = launchChrome,
-	kill = killChrome, wait = delay, attempts = 15, now = Date.now, healthTimeoutMs = HEALTH_TIMEOUT_MS }) {
+	kill = killChrome, wait = delay, attempts = 15, now = Date.now, healthTimeoutMs = HEALTH_TIMEOUT_MS,
+	/** Chamado uma vez por contexto do Chrome conectado, antes de entregar qualquer página (ex.: guarda de egress). Se lançar, a página não é entregue. */
+	onContext }) {
 	let browser;
 	let page;
 	let pending;
@@ -118,6 +120,7 @@ export function createBrowserSession({ chromium, cdpUrl, launch = launchChrome,
 
 	let healthFails = 0;
 	let autoRestarts = [];
+	const guardedContexts = new WeakSet();
 
 	/** Round trip leve ao processo do Chrome. Sem sessão CDP de navegador (stub), cai no evaluate da aba. */
 	async function probeChrome(candidate) {
@@ -214,6 +217,10 @@ export function createBrowserSession({ chromium, cdpUrl, launch = launchChrome,
 		}
 		const context = browser.contexts()[0];
 		if (!context) throw new Error("Perfil do Chrome indisponível na VM");
+		if (onContext && !guardedContexts.has(context)) {
+			await onContext(context);
+			guardedContexts.add(context);
+		}
 		const chosen = mainCandidates(context).at(-1) ?? await context.newPage();
 		setMain(chosen);
 		return page;

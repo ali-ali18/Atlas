@@ -7,6 +7,9 @@
 import { formatClockMinutes, isValidTimeZone, localParts, parseClockMinutes, DEFAULT_PROACTIVE_TIMEZONE } from "./proactive.js";
 import { SOURCE_CATEGORY_LABELS, type SourceCategory } from "./source-category.js";
 import type { BriefSource } from "./daily-brief.js";
+import { CODE_MODE_POLICY_KEY } from "./code-mode.js";
+import { LEARNED_RULES_KEY } from "./learned-rules.js";
+import { SLEEP_POLICY_KEY } from "./sleep.js";
 
 /** Chave em `policyJson`: o usuário pausou, apagou ou recusou o brief; nunca mais é recriado sozinho. */
 export const BRIEF_OPT_OUT_KEY = "briefOptOut";
@@ -20,14 +23,23 @@ export const BRIEF_CHECKED_AT_KEY = "briefAutoCheckedAt";
 export const BRIEF_SERVER_POLICY_KEYS = [BRIEF_OPT_OUT_KEY, BRIEF_NOTICE_SHOWN_KEY, BRIEF_CHECKED_AT_KEY] as const;
 
 /**
- * `policyJson` que vai para o banco depois de um PATCH da UI: o que o cliente mandou, sem as chaves do servidor
- * (ignoradas), mais as chaves do servidor que a linha já tem. `null` do cliente zera só o que é dele.
+ * `policyJson` que vai para o banco depois de um PATCH da UI: o que o cliente mandou, mais o que não é da UI.
+ *  - chaves do servidor do brief: o que o cliente mandar é ignorado e o valor da linha é mantido;
+ *  - `rules` (regras do bot): só mudam pelas rotas próprias (`/v1/bots/:id/rules/*`); o cliente que não as reenviou, ou
+ *    as reenviou velhas, não apaga nem reverte nada;
+ *  - `sleep`: se o cliente não mandar (ou mandar algo que não seja booleano), vale o da linha; só um booleano explícito muda.
+ * `null` do cliente zera só o que é dele.
  */
 export function mergeServerPolicyKeys(incoming: unknown, current: unknown): Record<string, unknown> | null {
 	const isObject = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
 	const result: Record<string, unknown> = isObject(incoming) ? { ...incoming } : {};
-	for (const key of BRIEF_SERVER_POLICY_KEYS) delete result[key];
-	if (isObject(current)) for (const key of BRIEF_SERVER_POLICY_KEYS) if (key in current) result[key] = current[key];
+	const kept = [...BRIEF_SERVER_POLICY_KEYS, LEARNED_RULES_KEY, CODE_MODE_POLICY_KEY];
+	for (const key of kept) delete result[key];
+	if (typeof result[SLEEP_POLICY_KEY] !== "boolean") delete result[SLEEP_POLICY_KEY];
+	if (isObject(current)) {
+		for (const key of kept) if (key in current) result[key] = current[key];
+		if (!(SLEEP_POLICY_KEY in result) && SLEEP_POLICY_KEY in current) result[SLEEP_POLICY_KEY] = current[SLEEP_POLICY_KEY];
+	}
 	if (isObject(incoming) || Object.keys(result).length > 0) return result;
 	return null;
 }

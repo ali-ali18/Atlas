@@ -42,6 +42,7 @@ export const settingsSearch = {
 	"settings.search.item.composio.chave": "Chave do Composio; api key; token; remover; salvar; composio; byo",
 	"settings.search.item.composio.apps": "Apps do Composio; conectar; desconectar; buscar; toolkit; trello; linear; hubspot; composio",
 	"settings.search.item.cofre.lista": "Cofre de segredos e logins; senha; senhas; segredo; chave; api key; token; login; site; 2fa; totp; autenticador; gerar senha; revelar; copiar; credenciais; bot usa",
+	"settings.search.item.cartoes.lista": "Cartões de compra; cartão; cartões; crédito; débito; compra; pagamento; cvv; bandeira; final; endereço de cobrança; visa; mastercard; bot compra",
 	"settings.search.item.habilidades.lista": "Habilidades; skill; skills; habilidade; procedimento; receita; instruções; markdown; importar; exportar; rascunho",
 	"settings.search.item.uso.custos": "Uso e custos; custo; consumo; tokens; gastos",
 	"settings.search.item.provedores.openrouter": "Chave do OpenRouter; openrouter; chave; api key; provedores; servidor; modelos",

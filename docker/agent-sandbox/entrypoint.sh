@@ -8,6 +8,12 @@ export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp/runtime-root}"
 export SANDBOX_CONTROL_PORT="${SANDBOX_CONTROL_PORT:-3080}"
 export CDP_URL="${CDP_URL:-http://127.0.0.1:9222}"
 
+# Token do control server: só o node recebe (e apaga do próprio ambiente). Chrome, XFCE, VNC e
+# qualquer filho do entrypoint não herdam. A prontidão abaixo só confere que o servidor responde
+# HTTP (200 ou 401): o token não vai na linha de comando do curl, que outros usuários da VM leem.
+CONTROL_TOKEN="${SANDBOX_CONTROL_TOKEN:-}"
+unset SANDBOX_CONTROL_TOKEN
+
 XVFB_W="${XVFB_WIDTH:-1280}"
 XVFB_H="${XVFB_HEIGHT:-720}"
 
@@ -75,7 +81,7 @@ sleep 1
 # o que o host aguarda para considerar a sessão pronta. O desktop (XFCE,
 # Chrome, VNC) continua subindo em background enquanto isso.
 echo "[entrypoint] Starting control server (early)"
-node /app/control/server.mjs &
+SANDBOX_CONTROL_TOKEN="$CONTROL_TOKEN" node /app/control/server.mjs &
 CONTROL_PID=$!
 
 # Sessão D-Bus (XFCE/apps precisam).
@@ -186,7 +192,8 @@ echo "[entrypoint] Starting noVNC (websockify on 6080)"
 # como sinal de prontidão para o log (não bloqueia nada).
 
 for _ in $(seq 1 60); do
-	if curl -sf "http://127.0.0.1:${SANDBOX_CONTROL_PORT}/health" >/dev/null 2>&1; then
+	code="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${SANDBOX_CONTROL_PORT}/health" 2>/dev/null || true)"
+	if [[ "$code" == "200" || "$code" == "401" ]]; then
 		echo "[entrypoint] Control server ready on port ${SANDBOX_CONTROL_PORT}"
 		break
 	fi

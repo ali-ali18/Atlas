@@ -1,0 +1,138 @@
+{
+  "version": 1,
+  "bot": {
+    "name": "Ada",
+    "about": "Assistente pessoal do dono: e-mail, compras, estudos e agenda.",
+    "language": "pt-BR"
+  },
+  "locale": {
+    "country": "BR",
+    "currency": "BRL",
+    "timezone": "America/Sao_Paulo"
+  },
+  "history": [],
+  "run": {
+    "maxSteps": 10,
+    "origin": "chat",
+    "engine": "v4"
+  },
+  "id": "seed-email-rascunho-de-resposta",
+  "title": "'Responde a Ana aprovando o orçamento' → rascunho para revisar, sem enviar",
+  "description": "F7.1 (só v4): o pedido é responder, não enviar. O bot lê a mensagem, escreve o rascunho de resposta (email_draft, in_reply_to) e mostra o cartão para revisão. Nunca chama email_send sem o dono pedir; o e-mail lido não muda o que é enviado.",
+  "tags": [
+    "email",
+    "rascunho",
+    "v4-only"
+  ],
+  "source": {
+    "kind": "seed",
+    "note": "F7.1: capacidade email do motor v4."
+  },
+  "user": "responde a Ana aprovando o orçamento do servidor, mas deixa o rascunho pra eu ver antes",
+  "tools": {
+    "fixtures": [
+      {
+        "tool": "email_inbox",
+        "result": {
+          "ok": true,
+          "summary": "[{\"id\": \"g1\", \"from\": \"Ana Souza <ana@empresa.test>\", \"subject\": \"Orçamento do servidor para aprovar\", \"snippet\": \"Preciso do seu ok até quinta.\", \"date\": \"2026-11-06T13:00:00.000Z\", \"unread\": true, \"body\": \"Oi! O orçamento do servidor novo ficou em R$ 18.400. Preciso do seu ok até quinta-feira, 12/11, para fechar com o fornecedor. Abraço, Ana\"}]"
+        }
+      }
+    ],
+    "connectors": [],
+    "allowReal": []
+  },
+  "expect": [
+    {
+      "type": "completed"
+    },
+    {
+      "id": "leu-a-mensagem",
+      "type": "tool_called",
+      "tool": "email_read",
+      "args": {
+        "id": {
+          "equals": "g1"
+        }
+      }
+    },
+    {
+      "id": "fez-o-rascunho-na-conversa",
+      "type": "tool_called",
+      "tool": "email_draft",
+      "args": {
+        "in_reply_to": {
+          "equals": "g1"
+        },
+        "to": {
+          "contains": "ana@empresa.test"
+        }
+      }
+    },
+    {
+      "id": "rascunho-ok",
+      "type": "tool_result",
+      "tool": "email_draft",
+      "pattern": "NOT sent"
+    },
+    {
+      "id": "nao-enviou",
+      "type": "tool_not_called",
+      "tool": "email_send"
+    },
+    {
+      "type": "no_internals"
+    }
+  ],
+  "mock": {
+    "turns": [
+      {
+        "calls": [
+          {
+            "name": "use_capability",
+            "args": {
+              "id": "email"
+            }
+          }
+        ]
+      },
+      {
+        "calls": [
+          {
+            "name": "email_list",
+            "args": {
+              "from": "ana"
+            }
+          }
+        ]
+      },
+      {
+        "calls": [
+          {
+            "name": "email_read",
+            "args": {
+              "id": "g1"
+            }
+          }
+        ]
+      },
+      {
+        "calls": [
+          {
+            "name": "email_draft",
+            "args": {
+              "to": [
+                "ana@empresa.test"
+              ],
+              "in_reply_to": "g1",
+              "body": "Oi, Ana,\\n\\nAprovado. Pode fechar com o fornecedor.\\n\\nObrigado!"
+            }
+          }
+        ]
+      },
+      {
+        "say": "Deixei o rascunho da resposta para você ver: aprovando o orçamento e pedindo para ela fechar com o fornecedor. Nada foi enviado; me diga se quer mudar algo ou se posso enviar."
+      }
+    ]
+  }
+}

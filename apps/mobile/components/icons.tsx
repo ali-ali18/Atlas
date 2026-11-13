@@ -16,6 +16,7 @@ import {
 	Copy as LucideCopy,
 	Ellipsis as LucideEllipsis,
 	ExternalLink as LucideExternalLink,
+	Hand as LucideHand,
 	Hash as LucideHash,
 	LibraryBig as LucideLibraryBig,
 	Link as LucideLink,
@@ -31,6 +32,8 @@ import {
 	Plus as LucidePlus,
 	Reply as LucideReply,
 	Search as LucideSearch,
+	ShieldCheck as LucideShieldCheck,
+	ShoppingCart as LucideShoppingCart,
 	Send as LucideSend,
 	Share as LucideShare,
 	Square as LucideSquare,
@@ -272,4 +275,19 @@ export function FolderInputIcon({ size = 20, tone = "foreground" }: LineIconProp
 /** Lucide `FolderOutput` (menu da conversa: Tirar da seção). */
 export function FolderOutputIcon({ size = 20, tone = "foreground" }: LineIconProps) {
 	return <LucideFolderOutput size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `ShieldCheck` (pedido de aprovação). */
+export function ShieldCheckIcon({ size = 16, tone = "muted-foreground" }: LineIconProps) {
+	return <LucideShieldCheck size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `ShoppingCart` (pedido de compra). */
+export function ShoppingCartIcon({ size = 16, tone = "muted-foreground" }: LineIconProps) {
+	return <LucideShoppingCart size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `Hand` ("isso é com você"). */
+export function HandIcon({ size = 16, tone = "muted-foreground" }: LineIconProps) {
+	return <LucideHand size={size} color={useStroke(tone)} strokeWidth={2} />;
 }

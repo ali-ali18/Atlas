@@ -6,6 +6,7 @@ import {
 	type TranscriptBubble,
 } from "@workspace/shared";
 import type { Message } from "@/components/ui/templates/template-4/data";
+import { applyAgentCardEvents } from "./agent-cards";
 import { dedupeCards } from "./thread-merge";
 
 /**
@@ -66,6 +67,12 @@ export function mergePreservingSkills(
 			item.kind === "code-run" ||
 			item.kind === "image-gen" ||
 			item.kind === "chart" ||
+			item.kind === "product" ||
+			item.kind === "purchase" ||
+			item.kind === "email-triage" ||
+			item.kind === "email-draft" ||
+			item.kind === "calendar" ||
+			item.kind === "day-plan" ||
 			item.kind === "page" ||
 			item.kind === "task-list" ||
 			item.kind === "compaction" ||
@@ -81,6 +88,7 @@ export function mergePreservingSkills(
 			|| item.kind === "images"
 			|| item.kind === "devsession"
 			|| item.kind === "context-summary"
+			|| item.kind === "agent-card"
 		) {
 			result.push(item);
 			resultIds.add(item.id);
@@ -179,7 +187,11 @@ export function hydrateRunEvents(thread: Message[], events: ComputerUseEvent[], 
 	// deste ponto e não reenvia a lista, então a última vista nos eventos do run volta aqui (lista cheia ou vazia).
 	let lastTaskList: Extract<ComputerUseEvent, { type: "task_list" }> | undefined;
 	for (const event of events) if (event.type === "task_list") lastTaskList = event;
-	return lastTaskList ? applyTaskListEvent(hydrated, lastTaskList, runId) : hydrated;
+	const withTasks = lastTaskList ? applyTaskListEvent(hydrated, lastTaskList, runId) : hydrated;
+	// Cards do motor v4 (aprovação pendente, "isso é com você", pergunta, recibos) também não passam pelo
+	// transcript: voltam dos eventos do run, já marcados como resolvidos quando a chamada teve resultado.
+	const withCards = applyAgentCardEvents(withTasks, events, runId);
+	return withCards === withTasks ? withTasks : dedupeCards(withCards);
 }
 
 /**

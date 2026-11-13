@@ -53,11 +53,13 @@ jobs:
         run: pnpm exec turbo build --filter=api^... --filter=worker^...
       - name: Typecheck
         run: pnpm typecheck
-      - name: Testes de packages, api, worker e web
-        run: pnpm test:all
       - name: "Migrations do zero (migrate deploy + smoke — todas aplicam, sem erro)"
         # Pega erro de SQL em funções/gatilhos que só aparece ao aplicar. O banco do service container nasce vazio.
+        # Vem ANTES dos testes: api e worker têm `*.db.test.ts` (Motor v4) que rodam no `test:all` quando o ATLAS_TEST_DB_URL
+        # do job existe e precisam das tabelas criadas.
         run: pnpm --filter @workspace/db migrations:smoke
+      - name: Testes de packages, api, worker e web
+        run: pnpm test:all
       - name: Testes do db (Postgres + pgvector, service container)
         run: pnpm --filter @workspace/db exec node ../../scripts/run-node-tests.mjs "src/**/*.test.ts"
       - name: Integração do agente (Postgres real, modelo roteirizado, v1 e v2)

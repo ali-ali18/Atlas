@@ -106,3 +106,17 @@ test("passa --no-sandbox com --test-type (esconde a faixa 'unsupported command-l
 	assert.ok(flags.includes("--no-sandbox"));
 	assert.ok(flags.includes("--test-type"), "sem --test-type a faixa amarela aparece na VM");
 });
+
+test("o Chrome sai pelo proxy de saída local (loopback incluído) e sem UDP direto do WebRTC; SANDBOX_EGRESS_GUARD=0 desliga", () => {
+	assert.equal(run().status, 0);
+	const [line] = launches();
+	assert.match(line, /--proxy-server=http:\/\/127\.0\.0\.1:3128/);
+	assert.match(line, /--proxy-bypass-list=<-loopback>/);
+	assert.match(line, /--force-webrtc-ip-handling-policy=disable_non_proxied_udp/);
+	rmSync(join(dir, "launches.log"));
+	assert.equal(run(["about:blank"], { SANDBOX_EGRESS_PROXY_PORT: "4000" }).status, 0);
+	assert.match(launches()[0], /--proxy-server=http:\/\/127\.0\.0\.1:4000/);
+	rmSync(join(dir, "launches.log"));
+	assert.equal(run(["about:blank"], { SANDBOX_EGRESS_GUARD: "0" }).status, 0);
+	assert.doesNotMatch(launches()[0], /--proxy-server/);
+});

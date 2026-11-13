@@ -33,17 +33,20 @@ import {
 	reflectionFailureLogLine,
 	reflectionSlotAt,
 	reflectionTimeZone,
+	sleepReplacesScheduledReflection,
 	toReflectionFailure,
 	MAINTENANCE_NO_KEY_MESSAGE,
 	PENDING_CATEGORY,
 	REFLECTION_RECHECK_MAX_STEPS,
 	type BotLanguage,
+	type EngineV4Gate,
 	type ReflectionFailureStage,
 } from "@workspace/shared";
 import type { MemoryJudge } from "@workspace/agent-runtime";
 import type { WorkerConfig } from "./config.js";
 import { buildMemoryJudge, loadGateLayers } from "./memory-gate.js";
 import { resolveDefaultModelForJob } from "./run-config.js";
+import { engineV4GateFromEnv } from "./engine-choice.js";
 import { createMaintenanceLlm, type MaintenanceLlm } from "./maintenance-llm.js";
 import { runReflection, type ReflectionPorts } from "./processors/reflection.js";
 
@@ -53,6 +56,8 @@ const RECHECK_TIMEOUT_MS = 8 * 60_000;
 const TERMINAL = new Set(["completed", "failed", "cancelled", "canceled", "expired"]);
 
 export type ReflectionSweeperDeps = {
+	/** Flag do motor v4 (padrão: do ambiente). Conta no v4 com sono ligado não tem reflexão agendada. */
+	v4Gate?: () => EngineV4Gate;
 	enqueueRun: (runId: string) => Promise<boolean>;
 	config: WorkerConfig;
 	notify?: Notify;
@@ -181,6 +186,8 @@ export function startReflectionSweeper(deps: ReflectionSweeperDeps): { kick: () 
 				if (!isReflectionScheduleDue({ settings: user.settings, timeZone, now, lastAttemptAt: clock.lastAttemptAt })) continue;
 				const primary = await getPrimaryBot(user.userId);
 				if (!primary) continue;
+				// Conta no v4: o sono já faz esta manutenção (R1); não rodar as duas.
+				if (sleepReplacesScheduledReflection((deps.v4Gate ?? engineV4GateFromEnv)(), user.userId, primary)) continue;
 				const claimed = await claimScheduledReflection({ userId: user.userId, botId: primary.id, now, slotStart: reflectionSlotAt(now, timeZone, user.settings.time) });
 				if (claimed) await processReflectionRow(claimed, deps);
 			}

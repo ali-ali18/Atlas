@@ -1,0 +1,202 @@
+{
+  "version": 1,
+  "id": "generic-agenda-reminder-tomorrow-0730-toronto",
+  "title": "'Remind me tomorrow at 7:30am to renew my parking permit' (nurse, Toronto) → one-time reminder for 7:30 in the user's time zone, no questionnaire",
+  "description": "Mesma capacidade do ouro 13 (lembrete de uma vez, com horário relativo), outro fuso: enfermeira em Toronto (America/Toronto, UTC-5 depois do fim do horário de verão em 01/11/2026). O horário só vale no fuso do usuário: o cenário aceita `07:30` (hora local, como o runtime recebe) ou `12:30` (o mesmo instante em UTC). O fuso que o runtime usa vem da conta, não do cenário; a `locale` do cenário só orienta o juiz. No v4 a conferência olha o que o motor RESOLVEU (auditoria F4, T1): a agenda do v4 não tem horário de silêncio (decisão do dono, 07/11), então o horário pedido, 7:30, é o agendado e a resposta o confirma sem falar em mover.",
+  "tags": [
+    "generic",
+    "agenda"
+  ],
+  "source": {
+    "kind": "seed",
+    "note": "Conjunto genérico F0.7 (PLANO-AGENTE-V4/04-avaliacao.md §1.1): cenário sintético com pessoa, loja e contexto fictícios (domínios .test), para o motor não viciar no uso do dono."
+  },
+  "bot": {
+    "name": "Mira",
+    "about": "Personal assistant: e-mail, shopping, studies and calendar.",
+    "language": "en-US"
+  },
+  "locale": {
+    "country": "CA",
+    "currency": "CAD",
+    "timezone": "America/Toronto"
+  },
+  "user": "remind me tomorrow at 7:30am to renew my parking permit",
+  "tools": {
+    "fixtures": [
+      {
+        "tool": "propose_routine",
+        "args": {
+          "action": {
+            "equals": "create"
+          }
+        },
+        "result": {
+          "ok": true,
+          "summary": "Routine created: \"Renew parking permit\" · once · tomorrow 07:30 (America/Toronto). The user sees the routine card."
+        }
+      },
+      {
+        "tool": "list_routines",
+        "result": {
+          "ok": true,
+          "summary": "No routines yet."
+        }
+      },
+      {
+        "tool": "list_followups",
+        "result": {
+          "ok": true,
+          "summary": "No open follow-ups."
+        }
+      },
+      {
+        "tool": "schedule_followup",
+        "result": {
+          "ok": true,
+          "summary": "Follow-up scheduled (reminder) for tomorrow 07:30."
+        }
+      }
+    ]
+  },
+  "run": {
+    "engine": "v2",
+    "proactive": true
+  },
+  "expect": [
+    {
+      "type": "completed"
+    },
+    {
+      "id": "created-the-reminder-for-0730",
+      "type": "any_of",
+      "checks": [
+        {
+          "type": "tool_called",
+          "tool": "propose_routine",
+          "args": {
+            "action": {
+              "equals": "create"
+            },
+            "trigger_type": {
+              "equals": "once"
+            },
+            "run_at": {
+              "matches": "T(07:30|12:30)"
+            }
+          }
+        },
+        {
+          "type": "tool_called",
+          "tool": "schedule_followup",
+          "args": {
+            "when": {
+              "matches": "7[:.]30|07:30|T12:30"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "type": "tool_not_called",
+      "tool": "propose_questionnaire"
+    },
+    {
+      "type": "no_question"
+    },
+    {
+      "id": "says-the-time",
+      "type": "text_contains",
+      "pattern": "7:30|07:30|7\\.30",
+      "ignoreCase": true
+    },
+    {
+      "type": "no_internals"
+    }
+  ],
+  "mock": {
+    "turns": [
+      {
+        "calls": [
+          {
+            "name": "propose_routine",
+            "args": {
+              "action": "create",
+              "title": "Renew parking permit",
+              "detail": "Remind the user to renew the parking permit.",
+              "trigger_type": "once",
+              "run_at": "2026-11-06T07:30"
+            }
+          }
+        ]
+      },
+      {
+        "say": "Done: tomorrow at 7:30 am I will remind you to renew your parking permit."
+      }
+    ]
+  },
+  "engineOverrides": {
+    "v4": {
+      "expect": [
+        {
+          "type": "completed"
+        },
+        {
+          "id": "created-the-reminder",
+          "type": "tool_called",
+          "tool": "remind_me"
+        },
+        {
+          "id": "scheduled-0730-at-the-requested-time",
+          "type": "tool_result",
+          "tool": "remind_me",
+          "pattern": "first run 2026-11-06 07:30 \\(America/Toronto\\)"
+        },
+        {
+          "type": "tool_not_called",
+          "tool": "propose_questionnaire"
+        },
+        {
+          "type": "no_question"
+        },
+        {
+          "id": "says-the-requested-time",
+          "type": "text_contains",
+          "pattern": "7:30|07:30|7\\.30",
+          "ignoreCase": true
+        },
+        {
+          "type": "no_internals"
+        }
+      ],
+      "mock": {
+        "turns": [
+          {
+            "calls": [
+              {
+                "name": "use_capability",
+                "args": {
+                  "id": "agenda"
+                }
+              }
+            ]
+          },
+          {
+            "calls": [
+              {
+                "name": "remind_me",
+                "args": {
+                  "note": "Remind the owner to renew the parking permit.",
+                  "when": "2026-11-06T07:30"
+                }
+              }
+            ]
+          },
+          {
+            "say": "Done: tomorrow at 7:30 am I will remind you to renew your parking permit."
+          }
+        ]
+      }
+    }
+  }
+}

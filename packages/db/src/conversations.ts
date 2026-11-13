@@ -34,7 +34,9 @@ import {
 	type QuestionnaireCardItem,
 	type ReplyQuote,
 } from "@workspace/shared";
+import type { AgentCardState } from "@workspace/shared";
 import { prisma } from "./client.js";
+import { attachAgentV4CardStates } from "./agent-v4-cards.js";
 import { currentMessageRunId } from "./message-run-context.js";
 import { approvalDetail, emitUserNeeded } from "./user-needed.js";
 import { loadReactionsByMessage } from "./message-reactions.js";
@@ -180,11 +182,14 @@ export async function listConversationMessages(
 	// Citações das respostas. Falha aqui também não derruba a conversa: some só o trecho.
 	const replyIds = [...new Set(ordered.flatMap((row) => (row.replyToMessageId ? [row.replyToMessageId] : [])))];
 	const quotes = await loadReplyQuotes(conversationId, replyIds).catch(() => new Map<string, ReplyQuote>());
+	// Estado dos cards do motor v4 (aprovação, entrega, pergunta): derivado agora, para o card restaurado nunca mostrar um botão que não vale mais.
+	const cardStates = await attachAgentV4CardStates(conversationId, ordered).catch(() => new Map<string, AgentCardState>());
 	return ordered.map((row) => {
 		const message = toSessionMessage(row);
 		const own = reactions.get(row.id);
 		const replyTo = row.replyToMessageId ? quotes.get(row.replyToMessageId) : undefined;
-		return { ...message, ...(own?.length ? { reactions: own } : {}), ...(replyTo ? { replyTo } : {}) };
+		const cardState = cardStates.get(row.id);
+		return { ...message, ...(own?.length ? { reactions: own } : {}), ...(replyTo ? { replyTo } : {}), ...(cardState ? { cardState } : {}) };
 	});
 }
 
@@ -394,6 +399,44 @@ export async function persistConversationCardFromEvent(
 	if (event.type === "chart") {
 		const card = parseConversationCard(JSON.stringify({ v: 1, kind: "chart", ...stripEventType(event) }));
 		if (card?.kind === "chart") await appendConversationCard(conversationId, card);
+		return;
+	}
+	// Produto (F6.1) e compra (F6.5): um cartão por identidade; repetir o mesmo `cardId`/`purchaseId` não duplica.
+	if (event.type === "product" || event.type === "purchase") {
+		const card = parseConversationCard(JSON.stringify({ v: 1, kind: event.type, ...stripEventType(event) }));
+		if (card?.kind !== event.type) return;
+		const key = card.kind === "product" ? card.cardId : card.purchaseId;
+		const recent = await prisma.conversationMessage.findMany({ where: { conversationId, role: card.kind }, orderBy: { createdAt: "desc" }, take: 50, select: { content: true } });
+		const exists = recent.some((row) => {
+			const prior = parseConversationCard(row.content);
+			return prior?.kind === card.kind && (prior.kind === "product" ? prior.cardId : (prior as { purchaseId: string }).purchaseId) === key;
+		});
+		if (!exists) await appendConversationCard(conversationId, card);
+		return;
+	}
+	// E-mail (F7.1): triagem e rascunho têm `cardId` estável; repetir o mesmo não duplica (retomada do run, evento ao vivo + gravado).
+	if (event.type === "email_triage" || event.type === "email_draft") {
+		const kind = event.type === "email_triage" ? "email-triage" : "email-draft";
+		const card = parseConversationCard(JSON.stringify({ v: 1, kind, ...stripEventType(event) }));
+		if (card?.kind !== kind) return;
+		const cardId = (card as { cardId: string }).cardId;
+		const recent = await prisma.conversationMessage.findMany({ where: { conversationId, role: kind }, orderBy: { createdAt: "desc" }, take: 50, select: { content: true } });
+		const exists = recent.some((row) => {
+			const prior = parseConversationCard(row.content);
+			return prior?.kind === kind && (prior as { cardId: string }).cardId === cardId;
+		});
+		if (!exists) await appendConversationCard(conversationId, card);
+		return;
+	}
+	// Calendário (F7.1) e plano do dia (F7.2): um cartão por identidade (`cardId` / `planId`); repetir não duplica.
+	if (event.type === "calendar" || event.type === "day_plan") {
+		const kind = event.type === "calendar" ? "calendar" : "day-plan";
+		const card = parseConversationCard(JSON.stringify({ v: 1, kind, ...stripEventType(event) }));
+		if (card?.kind !== kind) return;
+		const key = card.kind === "calendar" ? card.cardId : card.kind === "day-plan" ? card.planId : "";
+		const keyOf = (c: ReturnType<typeof parseConversationCard>) => (c?.kind === "calendar" ? c.cardId : c?.kind === "day-plan" ? c.planId : null);
+		const recent = await prisma.conversationMessage.findMany({ where: { conversationId, role: kind }, orderBy: { createdAt: "desc" }, take: 50, select: { content: true } });
+		if (!recent.some((row) => keyOf(parseConversationCard(row.content)) === key)) await appendConversationCard(conversationId, card);
 		return;
 	}
 	// Página viva: criar acrescenta; atualizar substitui o cartão do mesmo pageId na conversa (posição preservada).

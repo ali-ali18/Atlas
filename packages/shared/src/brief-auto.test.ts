@@ -149,6 +149,29 @@ describe("mergeServerPolicyKeys", () => {
 		expect(mergeServerPolicyKeys(null, { proactive: {} })).toBeNull();
 		expect(mergeServerPolicyKeys({ a: 1 }, null)).toEqual({ a: 1 });
 	});
+
+	it("preserva as regras do bot: cliente que não as reenviou, ou reenviou outras, não apaga nem reescreve (auditoria F5, S1)", () => {
+		const rules = [{ match: "gmail_send", verdict: "deny", source: "learned" }];
+		expect(mergeServerPolicyKeys({ a: 1 }, { rules })).toEqual({ a: 1, rules });
+		expect(mergeServerPolicyKeys({ a: 1, rules: [] }, { rules })).toEqual({ a: 1, rules });
+		expect(mergeServerPolicyKeys(null, { rules })).toEqual({ rules });
+		expect(mergeServerPolicyKeys({ rules }, { a: 1 })).toEqual({});
+	});
+
+	it("o modo de código do bot é do servidor: a UI que grava a política inteira não o liga nem o apaga", () => {
+		expect(mergeServerPolicyKeys({ a: 1 }, { codeMode: "build" })).toEqual({ a: 1, codeMode: "build" });
+		expect(mergeServerPolicyKeys({ a: 1, codeMode: "off" }, { codeMode: "plan" })).toEqual({ a: 1, codeMode: "plan" });
+		expect(mergeServerPolicyKeys({ a: 1, codeMode: "build" }, {})).toEqual({ a: 1 });
+		expect(mergeServerPolicyKeys(null, { codeMode: "plan" })).toEqual({ codeMode: "plan" });
+	});
+
+	it("o sono só muda com booleano explícito; sem ele vale o que a linha já tem", () => {
+		expect(mergeServerPolicyKeys({ a: 1 }, { sleep: false })).toEqual({ a: 1, sleep: false });
+		expect(mergeServerPolicyKeys({ sleep: "x" }, { sleep: false })).toEqual({ sleep: false });
+		expect(mergeServerPolicyKeys({ sleep: true }, { sleep: false })).toEqual({ sleep: true });
+		expect(mergeServerPolicyKeys({ sleep: false }, {})).toEqual({ sleep: false });
+		expect(mergeServerPolicyKeys({ a: 1 }, {})).toEqual({ a: 1 });
+	});
 });
 
 describe("isBriefCheckDue (bots sem fonte: recheca por semana)", () => {

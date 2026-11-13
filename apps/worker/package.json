@@ -14,8 +14,13 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@workspace/agent": "workspace:*",
     "@workspace/agent-runtime": "workspace:*",
     "@workspace/db": "workspace:*",
+    "@workspace/files": "workspace:*",
+    "@workspace/bot-mail": "workspace:*",
+    "@workspace/github": "workspace:*",
+    "@workspace/google": "workspace:*",
     "@workspace/llm": "workspace:*",
     "@workspace/mail": "workspace:*",
     "@workspace/observability": "workspace:*",
@@ -30,6 +35,7 @@
     "@types/node": "^20",
     "@workspace/typescript-config": "workspace:*",
     "tsx": "^4.21.0",
-    "typescript": "^5"
+    "typescript": "^5",
+    "zod": "^4.6.5"
   }
 }

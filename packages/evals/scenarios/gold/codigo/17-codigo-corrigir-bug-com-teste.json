@@ -1,0 +1,214 @@
+{
+  "version": 1,
+  "id": "gold-codigo-corrigir-bug-com-teste",
+  "title": "Corrigir um bug com teste falhando num repositório já clonado na VM → roda o teste, lê o código, corrige e prova com o teste verde",
+  "description": "LIMITAÇÃO: o eval não tem VM nem repositório de verdade, e a sessão de código (dev_session_start, edit_file...) não é oferecida pelo motor v2 nem pelo ambiente do eval. Este cenário só mede a TRAJETÓRIA pela VM de shell (sandbox_shell/sandbox_read, por fixture): reproduzir (teste falha), ler o arquivo, editar, rodar de novo (passa) e relatar com a saída real. As respostas do shell são sequenciais (`uses`): a 1ª execução do teste falha, a seguinte passa. O repositório fixture real com teste (F8.2) substitui este cenário no motor v4: ver scenarios/17-codigo-v4-corrigir-bug-com-teste.json (seed-codigo-corrigir-bug-com-teste). Lacuna conhecida do v2 no eval: as ferramentas de sessão de código não são oferecidas sem banco, então os modelos respondem que a sessão não está ativa; fica fora da comparação até a F8.2.",
+  "tags": [
+    "gold",
+    "codigo",
+    "repositorio-fixture",
+    "limitacao-sem-vm",
+    "real-pendente",
+    "lacuna-v2"
+  ],
+  "source": {
+    "kind": "seed",
+    "note": "Conjunto ouro F0.1 (PLANO-AGENTE-V4/04-avaliacao.md §1): cenário escrito à mão a partir do uso real do dono."
+  },
+  "bot": {
+    "name": "Ada",
+    "about": "Assistente pessoal do dono: e-mail, compras, estudos e agenda.",
+    "language": "pt-BR"
+  },
+  "locale": {
+    "country": "BR",
+    "currency": "BRL",
+    "timezone": "America/Sao_Paulo"
+  },
+  "user": "o teste de formatPrice no repositório fixture-loja (já está clonado na VM, em ~/work/fixture-loja) está falhando. Corrige o bug e roda o teste de novo pra provar.",
+  "tools": {
+    "fixtures": [
+      {
+        "tool": "sandbox_shell",
+        "args": {
+          "command": {
+            "matches": "test|vitest"
+          }
+        },
+        "uses": 1,
+        "result": {
+          "ok": false,
+          "summary": "exit code 1\nFAIL src/price.test.ts > formatPrice formata 1234.5 como R$ 1.234,50\nAssertionError: expected 'R$ 1234.50' to be 'R$ 1.234,50'\n1 failed, 3 passed"
+        }
+      },
+      {
+        "tool": "sandbox_read",
+        "args": {
+          "path": {
+            "contains": "price"
+          }
+        },
+        "result": {
+          "ok": true,
+          "summary": "export function formatPrice(value: number): string {\n  return `R$ ${value.toFixed(2)}`;\n}"
+        }
+      },
+      {
+        "tool": "sandbox_list",
+        "result": {
+          "ok": true,
+          "summary": "fixture-loja/\n  package.json\n  src/price.ts\n  src/price.test.ts"
+        }
+      },
+      {
+        "tool": "sandbox_shell",
+        "args": {
+          "command": {
+            "matches": "test|vitest"
+          }
+        },
+        "result": {
+          "ok": true,
+          "summary": "exit code 0\nPASS src/price.test.ts\n4 passed"
+        }
+      },
+      {
+        "tool": "sandbox_shell",
+        "result": {
+          "ok": true,
+          "summary": "exit code 0 (file edited)"
+        }
+      }
+    ]
+  },
+  "run": {
+    "engine": "v2",
+    "sandbox": true,
+    "maxSteps": 14
+  },
+  "expect": [
+    {
+      "type": "completed"
+    },
+    {
+      "id": "rodou-o-teste-antes-e-depois",
+      "type": "tool_called",
+      "tool": "sandbox_shell",
+      "args": {
+        "command": {
+          "matches": "test|vitest"
+        }
+      },
+      "min": 2
+    },
+    {
+      "id": "leu-o-codigo",
+      "type": "any_of",
+      "checks": [
+        {
+          "type": "tool_called",
+          "tool": "sandbox_read",
+          "args": {
+            "path": {
+              "contains": "price"
+            }
+          }
+        },
+        {
+          "type": "tool_called",
+          "tool": "sandbox_shell",
+          "args": {
+            "command": {
+              "matches": "(cat|sed -n|head|grep)[^|;&]*price\\.ts"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "editou-o-arquivo",
+      "type": "tool_called",
+      "tool": "sandbox_shell",
+      "args": {
+        "command": {
+          "matches": "price\\.ts"
+        }
+      },
+      "min": 1
+    },
+    {
+      "id": "nao-cria-pr-sem-pedir",
+      "type": "tool_not_called",
+      "toolPattern": "dev_pr_create|github"
+    },
+    {
+      "id": "relata-a-prova",
+      "type": "text_contains",
+      "pattern": "passou|passaram|verde|4 passed|pass",
+      "ignoreCase": true
+    },
+    {
+      "type": "no_unfulfilled_promise"
+    },
+    {
+      "type": "no_internals"
+    }
+  ],
+  "mock": {
+    "turns": [
+      {
+        "calls": [
+          {
+            "name": "mcp_tool_search",
+            "args": {
+              "query": "sandbox_shell sandbox_read"
+            }
+          }
+        ]
+      },
+      {
+        "calls": [
+          {
+            "name": "sandbox_shell",
+            "args": {
+              "command": "cd fixture-loja && pnpm test"
+            }
+          }
+        ]
+      },
+      {
+        "calls": [
+          {
+            "name": "sandbox_read",
+            "args": {
+              "path": "fixture-loja/src/price.ts"
+            }
+          }
+        ]
+      },
+      {
+        "calls": [
+          {
+            "name": "sandbox_shell",
+            "args": {
+              "command": "cd fixture-loja && python3 - <<'PY'\nimport pathlib\np = pathlib.Path('src/price.ts')\np.write_text(p.read_text().replace('`R$ ${value.toFixed(2)}`', 'value.toLocaleString(\"pt-BR\", { style: \"currency\", currency: \"BRL\" })'))\nPY\ncat src/price.ts"
+            }
+          }
+        ]
+      },
+      {
+        "calls": [
+          {
+            "name": "sandbox_shell",
+            "args": {
+              "command": "cd fixture-loja && pnpm test"
+            }
+          }
+        ]
+      },
+      {
+        "say": "Corrigido em src/price.ts: formatPrice usava toFixed(2), sem separador de milhar nem vírgula; agora usa Intl em pt-BR. Antes o teste falhava (R$ 1234.50 em vez de R$ 1.234,50); depois da correção rodei de novo e passou: 4 passed. Não abri PR; me diga se quer."
+      }
+    ]
+  }
+}

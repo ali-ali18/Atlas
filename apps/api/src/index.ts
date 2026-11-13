@@ -4,7 +4,7 @@
 import "dotenv/config";
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
-import { accountChatgptGate, ensureGithubRepoHook } from "@workspace/agent-runtime";
+import { accountChatgptGate, connectorEscrowSealer, ensureGithubRepoHook, isCardVaultConfigured } from "@workspace/agent-runtime";
 import {
 	closeRunSignals,
 	closeSweepSignals,
@@ -14,6 +14,7 @@ import {
 	createAgentRunQueue,
 	createChatCompletionQueue,
 	createRedisConnection,
+	createRedisCvvEscrowBackend,
 	createRoutineQueue,
 } from "@workspace/queue";
 import { loadConfig } from "./config.js";
@@ -48,6 +49,10 @@ import { createPublicPageRoutes } from "./routes/public-pages.js";
 import { createProfileRoutes } from "./routes/profile.js";
 import { createMemoryRoutes } from "./routes/memory.js";
 import { createLessonRoutes } from "./routes/lessons.js";
+import { createNoteRoutes } from "./routes/notes.js";
+import { createPurchaseRoutes } from "./routes/purchases.js";
+import { createBotRuleRoutes } from "./routes/bot-rules.js";
+import { createSleepRoutes } from "./routes/sleep.js";
 import { createComposioRoutes } from "./routes/composio.js";
 import { createMcpRoutes } from "./routes/mcp.js";
 import { createApiConnectionRoutes } from "./routes/api-connections.js";
@@ -77,6 +82,10 @@ import { createGithubAppWebhookRoutes } from "./webhooks/github-app.js";
 import { createSandboxRoutes } from "./routes/sandbox.js";
 import { createSectionRoutes } from "./routes/sections.js";
 import { createAutonomyRoutes } from "./routes/autonomy.js";
+import { createAgentV4Routes } from "./routes/agent-v4.js";
+import { createCardRoutes } from "./routes/cards.js";
+import { createCvvEscrow } from "@workspace/agent";
+import { createAgendaRoutes } from "./routes/agenda.js";
 import { createSettingsRoutes } from "./routes/settings.js";
 import { createUsageRoutes } from "./routes/usage.js";
 import { createSkillRoutes } from "./routes/skills.js";
@@ -212,6 +221,14 @@ app.all("/api/auth/*", (c) => auth.handler(c.req.raw));
 app.route("/", createChatRoutes(config));
 app.route("/", createComputerUseRoutes(config));
 app.route("/", createRunRoutes(config));
+// Respostas do dono a pedidos do motor v4 (aprovação, handoff, cartões); sem linhas de v4 nada é encontrado (404).
+// Canal efêmero do CVV (F6.3): Redis, selado com a caixa de segredos do servidor. Sem Redis ou sem chave, aprovar uma compra responde 503.
+const cvvEscrow = redisConnection && isCardVaultConfigured() ? createCvvEscrow(createRedisCvvEscrowBackend(redisConnection), connectorEscrowSealer()) : null;
+app.route("/", createAgentV4Routes({ queue: config.agentRunQueue, cvvEscrow }));
+// Cartões salvos (sem CVV) e mandato de compra (F6.2 e F6.4).
+app.route("/", createCardRoutes());
+// Agenda do agente na Biblioteca (F4.4): só com o motor v4 ligado para a conta; sem ele a lista vem desligada.
+app.route("/", createAgendaRoutes());
 app.route("/", createEventRoutes());
 app.route("/", createBotPendingRoutes(config));
 app.route("/", createAvatarRoutes());
@@ -267,6 +284,10 @@ app.route("/", createPublicPageRoutes());
 app.route("/", createProfileRoutes());
 app.route("/", createMemoryRoutes());
 app.route("/", createLessonRoutes());
+app.route("/", createNoteRoutes());
+app.route("/", createPurchaseRoutes());
+app.route("/", createBotRuleRoutes());
+app.route("/", createSleepRoutes());
 // Passagem de sessão do app para o navegador (OAuth de conector): rota pública por token; a sessão curta que ela cria é revogada no fim do callback.
 app.route("/", createMobileOAuthHandoffRoutes({ auth, baseOrigin: atlasOrigin }));
 const revokeHandoffSession = createHandoffSessionRevoker(auth);

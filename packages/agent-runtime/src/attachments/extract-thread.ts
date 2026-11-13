@@ -22,7 +22,7 @@ port.on("message", (message: Request) => {
 				return;
 			}
 			if (message.op === "preview") {
-				const { buildFilePreview } = await import("../files/preview.js");
+				const { buildFilePreview } = await import("@workspace/files/preview");
 				port.postMessage({ id: message.id, ok: true, preview: await buildFilePreview({ id: message.fileId, filename: message.filename, bytes: message.bytes }) });
 				return;
 			}

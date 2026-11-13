@@ -2,6 +2,8 @@ import { assertSandboxExecution, loadCodeRunnerConfig, runCode, runSandboxOperat
 import type { ChatTool } from "@workspace/llm";
 import {
 	countRunFileArtifacts,
+	listGeneratedImageIds,
+	loadArtifactForUser,
 	nextFileVersion,
 	persistUserArtifact,
 	type PersistUserArtifactInput,
@@ -18,13 +20,13 @@ import {
 	type ComputerUseEvent,
 	type FileArtifactMeta,
 } from "@workspace/shared";
-import { resolveDeckImages, type DeckImageSource } from "../files/deck/images.js";
-import type { RunPython } from "../files/deck/template/fill.js";
+import { resolveDeckImages, type DeckImageSource } from "@workspace/files/deck/images";
+import type { RunPython } from "@workspace/files/deck/template/fill";
 import { processImageForStorage } from "../images/process.js";
 import { deckResultNotes, persistDeckPreviews, renderDeck, type RenderedDeck } from "./deck-file.js";
-import { renderFile, type RenderedFile } from "../files/render.js";
-import { printPdfWithChromium } from "../files/pdf-chromium.js";
-import type { PrintPdf } from "../files/pdf.js";
+import { renderFile, type RenderedFile } from "@workspace/files/render";
+import { printPdfWithChromium } from "@workspace/files/pdf-chromium";
+import type { PrintPdf } from "@workspace/files/pdf";
 
 /**
  * `create_file` (F9): o modelo escreve o CONTEÚDO e o servidor converte para
@@ -252,7 +254,7 @@ export async function executeCreateFile(
 
 	const deckImages =
 		input.slides && deckImageIds(input.slides).length > 0
-			? await resolveDeckImages(input.slides, { userId: ctx.userId, conversationId: ctx.conversationId, attachments: ctx.attachmentFiles, loadArtifact: d.loadArtifact })
+			? await resolveDeckImages(input.slides, { userId: ctx.userId, conversationId: ctx.conversationId, attachments: ctx.attachmentFiles, loadArtifact: d.loadArtifact ?? loadArtifactForUser, listGenerated: listGeneratedImageIds })
 			: undefined;
 	let deck: RenderedDeck | undefined;
 	let rendered: RenderedFile;

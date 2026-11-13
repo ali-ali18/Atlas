@@ -1,0 +1,208 @@
+{
+  "version": 1,
+  "id": "generic-agenda-watch-price-drop-keyboard",
+  "title": "'Let me know if the price drops' (developer, Austin) → schedules a light check (check follow-up), WITHOUT creating a user Routine",
+  "description": "Mesma capacidade do ouro 12 (vigia de preço): reaproveitar o mecanismo mais leve. Lacuna conhecida do v2 (a mesma do ouro 12, dono, 05/11): não existe vigia recorrente leve, só lembrete de uma vez (`schedule_followup`) e Rotina; o v2 pode criar uma Rotina do usuário (cartão de rotina), e isso é o comportamento que o baseline quer medir, não um erro do cenário. Aqui o esperado é `schedule_followup` com `kind=check` e a URL na nota. Outro contexto: desenvolvedor em Austin, USD, produto da loja fictícia `keyforge.test`.",
+  "tags": [
+    "generic",
+    "agenda",
+    "vigia",
+    "autonomia",
+    "sem-rotina",
+    "lacuna-v2"
+  ],
+  "source": {
+    "kind": "seed",
+    "note": "Conjunto genérico F0.7 (PLANO-AGENTE-V4/04-avaliacao.md §1.1): cenário sintético com pessoa, loja e contexto fictícios (domínios .test), para o motor não viciar no uso do dono."
+  },
+  "bot": {
+    "name": "Leo",
+    "about": "Personal assistant: e-mail, shopping, coding and calendar.",
+    "language": "en-US"
+  },
+  "locale": {
+    "country": "US",
+    "currency": "USD",
+    "timezone": "America/Chicago"
+  },
+  "history": [
+    {
+      "role": "user",
+      "content": "how much is the Northpeak K3 keyboard right now?"
+    },
+    {
+      "role": "assistant",
+      "content": "The Northpeak K3 is $89.99 (was $109.99) at KeyForge: https://www.keyforge.test/northpeak-k3"
+    }
+  ],
+  "user": "let me know if the price drops",
+  "tools": {
+    "fixtures": [
+      {
+        "tool": "list_followups",
+        "result": {
+          "ok": true,
+          "summary": "No open follow-ups."
+        }
+      },
+      {
+        "tool": "schedule_followup",
+        "result": {
+          "ok": true,
+          "summary": "Follow-up scheduled (check) for tomorrow 09:00. Silent unless there is news."
+        }
+      },
+      {
+        "tool": "propose_routine",
+        "result": {
+          "ok": true,
+          "summary": "Routine created. The user sees the routine card."
+        }
+      },
+      {
+        "tool": "list_routines",
+        "result": {
+          "ok": true,
+          "summary": "No routines yet."
+        }
+      },
+      {
+        "tool": "web_search",
+        "result": {
+          "ok": true,
+          "summary": "Results:\n1. Northpeak K3 75% Wireless Mechanical Keyboard | KeyForge: $89.99 (was $109.99) https://www.keyforge.test/northpeak-k3\n2. Northpeak K3 Replacement Keycaps | KeyForge: $14.99 https://www.keyforge.test/northpeak-k3-keycaps\n3. Northpeak K3 review: is it worth it? (blog) https://reviews.test/northpeak-k3"
+        }
+      },
+      {
+        "tool": "web_extract",
+        "args": {
+          "url": {
+            "contains": "keyforge.test/northpeak-k3"
+          }
+        },
+        "result": {
+          "ok": true,
+          "summary": "Northpeak K3 75% Wireless Mechanical Keyboard | KeyForge\nPrice: $89.99 (was $109.99)\nHot-swappable switches, 75% layout, Bluetooth + USB-C. In stock. Free shipping over $75.\nProduct image: https://cdn.keyforge.test/img/northpeak-k3.jpg\nLink: https://www.keyforge.test/northpeak-k3"
+        }
+      }
+    ]
+  },
+  "run": {
+    "engine": "v2",
+    "proactive": true
+  },
+  "expect": [
+    {
+      "type": "completed"
+    },
+    {
+      "id": "scheduled-a-check",
+      "type": "tool_called",
+      "tool": "schedule_followup",
+      "args": {
+        "kind": {
+          "equals": "check"
+        },
+        "note": {
+          "contains": "keyforge.test"
+        }
+      }
+    },
+    {
+      "id": "did-not-create-a-user-routine",
+      "type": "tool_not_called",
+      "tool": "propose_routine"
+    },
+    {
+      "id": "does-not-ask-the-obvious",
+      "type": "no_question"
+    },
+    {
+      "type": "no_internals"
+    }
+  ],
+  "mock": {
+    "turns": [
+      {
+        "calls": [
+          {
+            "name": "schedule_followup",
+            "args": {
+              "note": "Check the current price of the Northpeak K3 at https://www.keyforge.test/northpeak-k3 (was $89.99 on 2026-11-05). Message the user only if the price is lower than $89.99.",
+              "when": "tomorrow 9am",
+              "kind": "check"
+            }
+          }
+        ]
+      },
+      {
+        "say": "Got it: I'll check the Northpeak K3 price and tell you if it drops below $89.99."
+      }
+    ]
+  },
+  "engineOverrides": {
+    "v4": {
+      "expect": [
+        {
+          "type": "completed"
+        },
+        {
+          "id": "scheduled-a-watch",
+          "type": "tool_called",
+          "tool": "watch",
+          "args": {
+            "note": {
+              "contains": "keyforge.test"
+            }
+          }
+        },
+        {
+          "id": "first-check-in-6h-in-the-owners-zone",
+          "type": "tool_result",
+          "tool": "watch",
+          "pattern": "first run 2026-11-05 12:00 \\(America/Chicago\\)"
+        },
+        {
+          "id": "did-not-create-a-user-routine",
+          "type": "tool_not_called",
+          "tool": "propose_routine"
+        },
+        {
+          "type": "no_question"
+        },
+        {
+          "type": "no_internals"
+        }
+      ],
+      "mock": {
+        "turns": [
+          {
+            "calls": [
+              {
+                "name": "use_capability",
+                "args": {
+                  "id": "agenda"
+                }
+              }
+            ]
+          },
+          {
+            "calls": [
+              {
+                "name": "watch",
+                "args": {
+                  "note": "Check the current price of the Northpeak K3 at https://www.keyforge.test/northpeak-k3 (was $89.99 on 2026-11-05). Tell the owner only if it is lower.",
+                  "everyMinutes": 360,
+                  "maxRuns": 40
+                }
+              }
+            ]
+          },
+          {
+            "say": "Got it: I'll check the Northpeak K3 price and tell you if it drops below $89.99."
+          }
+        ]
+      }
+    }
+  }
+}
