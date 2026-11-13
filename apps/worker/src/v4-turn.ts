@@ -28,7 +28,7 @@ export async function runV4Turn(turn: {
 	// A ordem importa: pedidos registrados (acima) ANTES de o run virar `paused`, para a API nunca ver um run pausado sem pedido.
 	if (out.parked) {
 		await turn.pause();
-		throw new AgentRunPausedError("awaiting_owner");
+		throw new AgentRunPausedError("awaiting_owner", "awaiting_owner");
 	}
 	return { text: out.text, model: out.model, hitWall: out.hitWall, usage: out.usage, stop: out.stop };
 }
