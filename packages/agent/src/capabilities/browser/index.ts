@@ -46,6 +46,8 @@ export const BROWSER_INSTRUCTIONS =
 	"For a question that may sit anywhere in a very long list, use browser_digest: helpers read the whole file in blocks. Say how much you saw; never answer from a part as if it were the whole. " +
 	"Use browser_screenshot only when the page has no useful labels or the request is visual. " +
 	"browser_act: intent browse only looks around; intent submit sends or changes something and may ask the owner. Passwords, codes and captchas are filled by the owner in the browser view. " +
+	"Reach the answer on the page before reporting: close cookie and location banners, pick the variant asked for (colour, size, storage) with browser_act browse, and read the value that appears. " +
+	"If a site shows an error page, try once more and then the site's own search or another URL of the same site. If it asks to log in or to verify the account, say that the owner can do that step in the browser view and continue after it. " +
 	"Say \"page\", \"list\" and \"browser\" to the owner, never tool names or refs.";
 
 export const BROWSER_READ_INSTRUCTIONS =
@@ -58,7 +60,7 @@ export function createBrowserCapability(deps: BrowserDeps = {}) {
 	return defineCapability({
 		id: "browser",
 		title: "Navegador",
-		summary: "Open and read web pages in the VM browser: page map, list sizes, parts on demand, in-page search, load more, big lists read by helpers.",
+		summary: "Open and read pages in the VM browser (use it when plain page reading fails): map, parts on demand, in-page search, load more, big lists by helpers.",
 		tools: deps.readOnly ? [...reads.filter((t) => t.name !== "browser_tabs"), ...digest] : [...reads, ...digest, createBrowserActTool(), ...(deps.extraTools ?? [])],
 		instructions: deps.readOnly ? BROWSER_READ_INSTRUCTIONS : BROWSER_INSTRUCTIONS,
 	});

@@ -1255,6 +1255,8 @@ async function executeLeasedRun(ctx: {
 		runV4Turn({
 			// Histórico da conversa, respostas a cartões e taint herdado (run novo) ou a decisão do dono (retomada), do banco.
 			prepare: () => prepareV4Run({ userId: runUserId, runId, conversationId: run.conversationId, objective: run.objective ?? "", chat: run.origin === "chat" }),
+			// O run estacionado (aprovação, "isso é com você") precisa virar `paused` no banco antes de o lease ser solto.
+			pause: () => requestPauseAgentRun(runId),
 			engine: async (prepared) => {
 				const mapV4Event = dropProcessorOwnedEvents(((mapper) => (event) => mapper.mapRunEvent(event))(createSseMapper({ runId, model: run.model, language: systemLanguage })));
 				// Bot do run: escopo da camada de memória do bot, das configurações e dos painéis (sem bot, essas partes ficam indisponíveis).
