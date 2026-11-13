@@ -187,6 +187,25 @@ test("run que ainda não estacionou pede para repetir e não grava nada", async 
 	assert.equal(add.mock.callCount(), 0);
 });
 
+test("clique antes de o pedido existir: run do dono em andamento pede para repetir (409 retryable); terminado ou outro dono segue 404", async () => {
+	for (const runStatus of ["queued", "running", "retrying"]) {
+		const w = world({ runStatus });
+		w.requests.length = 0;
+		const { app, add } = appFor(A);
+		const res = await respond(app, `${REQ}/req-1/respond`, { decision: "approve" });
+		assert.equal(res.status, 409, runStatus);
+		assert.deepEqual(await res.json(), { error: "run_not_paused", retryable: true });
+		assert.equal(add.mock.callCount(), 0);
+	}
+	const done = world({ runStatus: "completed" });
+	done.requests.length = 0;
+	assert.equal((await respond(appFor(A).app, `${REQ}/req-1/respond`, { decision: "approve" })).status, 404);
+	// usuário B: o run em andamento é de A, então 404 igual a inexistente (não revela que o run existe)
+	const other = world({ runStatus: "running" });
+	other.requests.length = 0;
+	assert.equal((await respond(appFor(B).app, `${REQ}/req-1/respond`, { decision: "approve" })).status, 404);
+});
+
 test("corpo inválido é 400 (campo desconhecido, decisão fora do enum, sem JSON) e fila ausente é 503 sem gravar", async () => {
 	const w = world();
 	const { app } = appFor(A);
