@@ -29,7 +29,7 @@ import { enqueueAgentRunJob } from "./runs.js";
  *      repetidos são idempotentes). `resumed: true` = o run foi reenfileirado e vai continuar. O run só é reenfileirado
  *      quando NÃO resta pedido pendente dele (o kernel processa todos de uma vez): enquanto houver, a resposta traz
  *      `pending: n` (quantos faltam) e `resumed: false`; o run continua quando o último for respondido. `resumed: false`
- *      sem `pending` = o run ainda não podia ser retomado (está parando): repita o mesmo POST em alguns segundos.
+ *      com `retryable: true` = o run ainda não podia ser retomado (está parando): repita o mesmo POST em alguns segundos.
  *    - 400 corpo ou decisão inválidos. 404 run ou pedido inexistente OU de outro dono (indistinguíveis).
  *    - 409 `{ error: "conflict" }` o pedido já tem outra decisão; `{ error: "run_not_paused", retryable: true }` o run
  *      ainda não estacionou (cartão visto antes de o run parar): repita.
@@ -150,6 +150,11 @@ export function createAgentV4Routes(deps: AgentV4RouteDeps) {
 		// Também em repetição, para curar uma queda entre gravar e reenfileirar.
 		const resumed = await requestResumeAgentRun(runId).catch(() => null);
 		const enqueued = resumed ? await enqueueAgentRunJob(deps.queue, resumed.id) : false;
+		// Clique entre `pause()` e a liberação do lease: o run já está `paused`, mas o worker ainda o segura, então a retomada
+		// recusa. A decisão fica gravada e ninguém mais retomaria o run; pede para repetir o mesmo POST (idempotente).
+		if (!resumed && (await getAgentRunForUser(runId, userId).catch(() => null))?.status === "paused") {
+			return c.json({ ok: true, status, decision, resumed: false, retryable: true, request: { kind: request.kind, state: request.state } });
+		}
 		return c.json({ ok: true, status, decision, resumed: enqueued, request: { kind: request.kind, state: request.state } });
 	});
 

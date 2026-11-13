@@ -3094,12 +3094,28 @@ export type AgentV4Decision = "approve" | "deny" | "handoff_done";
  */
 export async function respondAgentV4Request(input: { runId: string; key: string; decision: AgentV4Decision; cvv?: string }): Promise<{ ok: boolean; status: string; resumed: boolean; pending?: number }> {
 	const { cvv, decision } = input;
+	type Reply = { ok: boolean; status: string; resumed: boolean; pending?: number; retryable?: boolean };
 	const send = () =>
-		atlasFetch<{ ok: boolean; status: string; resumed: boolean; pending?: number }>(`/v1/agent-v4/runs/${encodeURIComponent(input.runId)}/requests/${encodeURIComponent(input.key)}/respond`, {
+		atlasFetch<Reply>(`/v1/agent-v4/runs/${encodeURIComponent(input.runId)}/requests/${encodeURIComponent(input.key)}/respond`, {
 			method: "POST",
 			body: JSON.stringify(cvv !== undefined ? { decision, cvv } : { decision }),
 		});
-	return retryWhileRunNotPaused(send);
+	return retryWhileRunNotPaused(() => retryWhileResumePending(send));
+}
+
+/**
+ * 200 `{ resumed: false, retryable: true }`: a decisão foi gravada, mas o run ainda estava soltando o lease e não pôde
+ * ser retomado. Repete o mesmo envio (idempotente no servidor) até ele retomar, com teto; sem isso o run ficava pausado.
+ */
+export async function retryWhileResumePending<T extends { retryable?: boolean }>(send: () => Promise<T>, options: { attempts?: number; waitMs?: number; sleep?: (ms: number) => Promise<void> } = {}): Promise<T> {
+	const attempts = options.attempts ?? 8;
+	const waitMs = options.waitMs ?? 750;
+	const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+	for (let attempt = 1; ; attempt++) {
+		const reply = await send();
+		if (reply.retryable !== true || attempt >= attempts) return reply;
+		await sleep(waitMs);
+	}
 }
 
 /** O servidor responde 409 `{ error: "run_not_paused", retryable: true }` quando o toque chega antes de o run estacionar. */
