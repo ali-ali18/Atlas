@@ -49,3 +49,51 @@ test("resposta longa demais não é enviada; erro do servidor sobe para o card",
 	assert.equal(calls.length, 0);
 	await assert.rejects(respondToAgentCard("run-1", { kind: "handoff", callId: "c", decision: "done" }));
 });
+
+test("resposta do cartão: repete enquanto o run ainda não estacionou (409 retryable) e entrega quando estaciona", async () => {
+	const { AtlasApiError, retryWhileRunNotPaused } = await import("./atlas-api");
+	let calls = 0;
+	const waits: number[] = [];
+	const result = await retryWhileRunNotPaused(
+		async () => {
+			calls += 1;
+			if (calls < 3) throw new AtlasApiError("conflict", 409, { error: "run_not_paused", retryable: true });
+			return { ok: true };
+		},
+		{ sleep: async (ms) => void waits.push(ms), waitMs: 10 },
+	);
+	assert.deepEqual(result, { ok: true });
+	assert.equal(calls, 3);
+	assert.deepEqual(waits, [10, 10]);
+});
+
+test("resposta do cartão: conflito de verdade, 404 e erro de rede sobem na hora; e desiste depois do teto de tentativas", async () => {
+	const { AtlasApiError, retryWhileRunNotPaused } = await import("./atlas-api");
+	const once = async (error: unknown) => {
+		let calls = 0;
+		await assert.rejects(
+			retryWhileRunNotPaused(
+				async () => {
+					calls += 1;
+					throw error;
+				},
+				{ sleep: async () => undefined },
+			),
+		);
+		return calls;
+	};
+	assert.equal(await once(new AtlasApiError("conflict", 409, { error: "conflict" })), 1);
+	assert.equal(await once(new AtlasApiError("Not found", 404, { error: "Not found" })), 1);
+	assert.equal(await once(new Error("rede")), 1);
+	let calls = 0;
+	await assert.rejects(
+		retryWhileRunNotPaused(
+			async () => {
+				calls += 1;
+				throw new AtlasApiError("conflict", 409, { error: "run_not_paused", retryable: true });
+			},
+			{ attempts: 4, sleep: async () => undefined },
+		),
+	);
+	assert.equal(calls, 4);
+});

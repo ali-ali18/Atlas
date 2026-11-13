@@ -3094,8 +3094,35 @@ export type AgentV4Decision = "approve" | "deny" | "handoff_done";
  */
 export async function respondAgentV4Request(input: { runId: string; key: string; decision: AgentV4Decision; cvv?: string }): Promise<{ ok: boolean; status: string; resumed: boolean; pending?: number }> {
 	const { cvv, decision } = input;
-	return atlasFetch(`/v1/agent-v4/runs/${encodeURIComponent(input.runId)}/requests/${encodeURIComponent(input.key)}/respond`, {
-		method: "POST",
-		body: JSON.stringify(cvv !== undefined ? { decision, cvv } : { decision }),
-	});
+	const send = () =>
+		atlasFetch<{ ok: boolean; status: string; resumed: boolean; pending?: number }>(`/v1/agent-v4/runs/${encodeURIComponent(input.runId)}/requests/${encodeURIComponent(input.key)}/respond`, {
+			method: "POST",
+			body: JSON.stringify(cvv !== undefined ? { decision, cvv } : { decision }),
+		});
+	return retryWhileRunNotPaused(send);
+}
+
+/** O servidor responde 409 `{ error: "run_not_paused", retryable: true }` quando o toque chega antes de o run estacionar. */
+export function isRunNotPausedYet(error: unknown): boolean {
+	if (!(error instanceof AtlasApiError) || error.status !== 409) return false;
+	const details = error.details;
+	return typeof details === "object" && details !== null && (details as { retryable?: unknown }).retryable === true;
+}
+
+/**
+ * Repete o envio enquanto o servidor disser que o run ainda não estacionou (corrida entre o cartão aparecer e o run ser
+ * marcado como pausado). Qualquer outro erro sobe na hora. Sem isso o dono via "Não deu para enviar" e tinha de tocar de novo.
+ */
+export async function retryWhileRunNotPaused<T>(send: () => Promise<T>, options: { attempts?: number; waitMs?: number; sleep?: (ms: number) => Promise<void> } = {}): Promise<T> {
+	const attempts = options.attempts ?? 8;
+	const waitMs = options.waitMs ?? 750;
+	const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+	for (let attempt = 1; ; attempt++) {
+		try {
+			return await send();
+		} catch (error) {
+			if (attempt >= attempts || !isRunNotPausedYet(error)) throw error;
+			await sleep(waitMs);
+		}
+	}
 }
